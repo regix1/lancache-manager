@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useLayoutEffect, useCallback } from 'react';
 
 export function useCountdownTimer(nextRunUtc: string | null, isProcessing: boolean): number {
   const calculateRemaining = useCallback((): number => {
@@ -7,16 +7,22 @@ export function useCountdownTimer(nextRunUtc: string | null, isProcessing: boole
     }
     const next = new Date(nextRunUtc).getTime();
     const now = Date.now();
-    return Math.max(0, Math.floor((next - now) / 1000));
+    // Rounded up, not down. A ten-minute window read a millisecond after it opens has 599.999
+    // seconds left, and flooring that painted "9m 59s" on a wait the person was just told was ten
+    // minutes. Rounding up also means the count only reaches zero once the deadline has genuinely
+    // passed, so it never claims the attempt is over while it is still running.
+    return Math.max(0, Math.ceil((next - now) / 1000));
   }, [nextRunUtc, isProcessing]);
 
-  // Seeded lazily rather than from 0. The effect below only runs after the first commit has
-  // painted, so starting at 0 would paint one frame of "no time left" on a deadline that is
-  // minutes away - and zero is the reading that is supposed to mean the attempt is genuinely
-  // over.
+  // Seeded lazily rather than from 0, because zero is the reading that is supposed to mean the
+  // attempt is genuinely over, and a deadline minutes away must never paint it.
   const [secondsRemaining, setSecondsRemaining] = useState<number>(calculateRemaining);
 
-  useEffect(() => {
+  // Before the browser paints, not after. The lazy seed above only covers the first mount; when a
+  // deadline arrives later - which is every login, since the clock starts on the submit and the
+  // component is already on screen - the seed comes from here instead. A plain effect runs after
+  // the paint, so the frame in between showed a fresh ten-minute wait as already expired.
+  useLayoutEffect(() => {
     if (!nextRunUtc || isProcessing) {
       setSecondsRemaining(0);
       return;

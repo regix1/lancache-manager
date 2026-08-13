@@ -24,6 +24,9 @@ export interface XboxAuthState {
   needsDeviceCode: boolean;
   deviceUserCode: string;
   deviceVerificationUri: string;
+  /** Why the last attempt failed, or `null` while nothing has failed. The modal draws it inside
+   *  itself, because it covers the notification bar this message also goes to. */
+  error: string | null;
 }
 
 export interface XboxAuthActions {
@@ -45,6 +48,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const [needsDeviceCode, setNeedsDeviceCode] = useState(false);
   const [deviceUserCode, setDeviceUserCode] = useState('');
   const [deviceVerificationUri, setDeviceVerificationUri] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
 
   // True while a manager-side login is in flight; gates the auth-state listener so
@@ -88,6 +92,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     }
     loginInProgressRef.current = false;
     setLoading(false);
+    setError(null);
     setNeedsDeviceCode(false);
     setDeviceUserCode('');
     setDeviceVerificationUri('');
@@ -137,7 +142,8 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
         // plainer message and re-arm the auto-dismiss from zero.
         onSuccess?.();
       } else if (event.status === 'failed') {
-        const message = event.error ?? event.message ?? 'Xbox login failed';
+        const message = event.error ?? event.message ?? t('modals.xboxAuth.errors.loginFailed');
+        setError(message);
         if (loginCardActive) {
           pushLoginCard('failed', t('signalr.xbox.mapping.failed'), message);
         }
@@ -183,6 +189,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       setLoading(false);
       if (error instanceof Error && error.name === 'AbortError') return;
       const message = getErrorMessage(error);
+      setError(message);
       // The backend fires "waiting" from a fire-and-forget poll task it starts BEFORE returning the
       // device code, so a card can already be up when the response itself fails. The auth-state
       // listener is deaf from here on (loginInProgressRef was just cleared), so the backend's own
@@ -229,7 +236,8 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     loading,
     needsDeviceCode,
     deviceUserCode,
-    deviceVerificationUri
+    deviceVerificationUri,
+    error
   };
 
   const actions: XboxAuthActions = {

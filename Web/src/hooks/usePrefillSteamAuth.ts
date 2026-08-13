@@ -5,6 +5,7 @@ import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from './useErrorHandler';
 import { getErrorMessage } from '@utils/error';
 import { type SteamLoginFlowState, type SteamAuthActions } from './useSteamAuthentication';
+import { LOGIN_ATTEMPT_TIMEOUT_MS } from './loginAttemptTimeout';
 import { getEventName } from '@components/features/prefill/hooks/prefillConstants';
 
 export interface CredentialChallenge {
@@ -33,12 +34,8 @@ interface UsePrefillSteamAuthOptions {
   hubConnection: HubConnection | null;
   onSuccess?: () => void;
   onError?: (message: string) => void;
-  onDeviceConfirmationTimeout?: () => void;
   serviceId?: string;
 }
-
-// Timeout for device confirmation (60 seconds - users need time to notice and approve)
-const DEVICE_CONFIRMATION_TIMEOUT_MS = 60000;
 
 // Fallback cap for the Xbox device-code (Microsoft OAuth device flow) timeout when the challenge
 // carries no usable expiry. Microsoft device codes typically last ~15 minutes; the user has to
@@ -50,14 +47,7 @@ const DEVICE_CODE_TIMEOUT_MS = 15 * 60 * 1000;
  * Uses SignalR hub methods to handle encrypted credential exchange.
  */
 export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
-  const {
-    sessionId,
-    hubConnection,
-    onSuccess,
-    onError,
-    onDeviceConfirmationTimeout,
-    serviceId = 'steam'
-  } = options;
+  const { sessionId, hubConnection, onSuccess, onError, serviceId = 'steam' } = options;
   const { addNotification, removeNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
   const { t } = useTranslation();
@@ -68,7 +58,22 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const [waitingForMobileConfirmation, setWaitingForMobileConfirmation] = useState(false);
   const [useManualCode, setUseManualCode] = useState(false);
   const [pendingChallenge, setPendingChallenge] = useState<CredentialChallenge | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const deviceConfirmationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // When whichever wait is armed below gives up. Both waits share deviceConfirmationTimeoutRef
+  // because they are mutually exclusive, so one deadline covers both, and both effect cleanups
+  // clear it - the modal never counts down a timer that is no longer running.
+  const [loginDeadline, setLoginDeadline] = useState<number | null>(null);
+
+  // SignalR hands back a brand new connection object every time it rebuilds the socket, and the two
+  // waits below must not read that as a fresh attempt. While the connection was a dependency of
+  // their effects, a reconnect cleared the timer and armed it again from full, so the countdown
+  // jumped back to the top and the window stopped being a ceiling at all. The event handlers still
+  // list the connection and still re-register on the new one; only the clocks read it through here.
+  const hubConnectionRef = useRef(hubConnection);
+  useEffect(() => {
+    hubConnectionRef.current = hubConnection;
+  }, [hubConnection]);
 
   // Track if we're in device confirmation mode to handle success correctly
   const isWaitingForDeviceConfirmationRef = useRef(false);
@@ -187,17 +192,26 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setNeedsDeviceCode(false);
         setNeedsTwoFactor(false);
         setNeedsEmailCode(false);
+        // The password the daemon just refused must not stay in the box. This is the commonest way
+        // a sign-in ends badly, and leaving the wrong one sitting there invites a second submit of
+        // the same thing.
+        setPassword('');
         setLoading(false);
         setPendingChallenge(null);
         endLoginCard();
 
         if (wasAuthenticating) {
+          // This is the sentence a person reads when the daemon or Steam ends the attempt before
+          // our own clock does, which is the usual way a phone approval ends, so it is the one
+          // that most needs to arrive in their own language.
+          const refused = t('prefill.auth.signInRefused');
           addNotification({
             type: 'generic',
             status: 'failed',
-            message: 'Authentication failed. Please check your credentials and try again.',
+            message: refused,
             details: { notificationType: 'error' }
           });
+          setError(refused);
           onError?.('Authentication failed');
         }
         hasStartedAuthRef.current = false;
@@ -210,7 +224,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     return () => {
       hubConnection.off(eventName, handleAuthStateChanged);
     };
-  }, [hubConnection, sessionId, onSuccess, addNotification, onError, serviceId, endLoginCard]);
+  }, [hubConnection, sessionId, onSuccess, addNotification, onError, serviceId, endLoginCard, t]);
 
   // Listen for credential challenges from the daemon
   useEffect(() => {
@@ -255,13 +269,14 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           // a new authorization-url challenge means the code was rejected/expired
           if (isWaitingForAuthCodeProcessingRef.current) {
             isWaitingForAuthCodeProcessingRef.current = false;
+            const rejectedCode = t('prefill.auth.authorizationCodeRejected');
             addNotification({
               type: 'generic',
               status: 'failed',
-              message:
-                'Authorization code was invalid or expired. Please try again with a new code.',
+              message: rejectedCode,
               details: { notificationType: 'error' }
             });
+            setError(rejectedCode);
             // Clear the old code so user can paste a new one
             setAuthorizationCode('');
           }
@@ -323,26 +338,28 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     return () => {
       hubConnection.off(eventName, handleCredentialChallenge);
     };
-  }, [hubConnection, sessionId, serviceId, addNotification, notifyError]);
+  }, [hubConnection, sessionId, serviceId, addNotification, notifyError, t]);
 
   // Timeout for device confirmation - cancel daemon login and reset state
   useEffect(() => {
-    if (waitingForMobileConfirmation && hubConnection && sessionId) {
+    if (waitingForMobileConfirmation && sessionId) {
+      setLoginDeadline(Date.now() + LOGIN_ATTEMPT_TIMEOUT_MS);
       deviceConfirmationTimeoutRef.current = setTimeout(async () => {
-        // Cancel the login on the daemon to reset its state
+        // Cancel the login on the daemon to reset its state. Read through the ref so this reaches
+        // whichever socket is live ten minutes from now, which is not always the one that armed it.
         try {
-          await hubConnection.invoke('CancelLoginAsync', sessionId);
+          await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId);
         } catch (err) {
-          // Best-effort: the "Device confirmation timed out" notification below fires
-          // unconditionally right after, so the user is told regardless of this outcome.
+          // Best-effort: the modal below is given the reason unconditionally right after, so the
+          // user is told regardless of this outcome.
           notifyError('Failed to cancel login on daemon', err, {
             silent: true,
             logLabel: 'usePrefillSteamAuth device confirmation timeout cancel'
           });
         }
 
-        // Reset all auth state
-        setUsername('');
+        // Land back on the sign-in form with the account name still typed in, so trying again is
+        // one password away.
         setPassword('');
         setTwoFactorCode('');
         setEmailCode('');
@@ -356,31 +373,21 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         hasStartedAuthRef.current = false;
         endLoginCard();
 
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          message: 'Device confirmation timed out. Please try logging in again.',
-          details: { notificationType: 'warning' }
-        });
-        onDeviceConfirmationTimeout?.();
-      }, DEVICE_CONFIRMATION_TIMEOUT_MS);
+        // Said in the modal, not in a card behind it. The card version of this lasted five seconds
+        // (AUTO_DISMISS_DELAY_MS) under a modal that was closing in the same tick, so the wait
+        // appeared to end for no reason at all. The modal now stays open holding the reason.
+        setError(t('prefill.auth.approvalTimedOut'));
+      }, LOGIN_ATTEMPT_TIMEOUT_MS);
 
       return () => {
+        setLoginDeadline(null);
         if (deviceConfirmationTimeoutRef.current) {
           clearTimeout(deviceConfirmationTimeoutRef.current);
           deviceConfirmationTimeoutRef.current = null;
         }
       };
     }
-  }, [
-    waitingForMobileConfirmation,
-    hubConnection,
-    sessionId,
-    addNotification,
-    onDeviceConfirmationTimeout,
-    notifyError,
-    endLoginCard
-  ]);
+  }, [waitingForMobileConfirmation, sessionId, notifyError, endLoginCard, t]);
 
   // Timeout for the Xbox device-code flow. Unlike Steam's device-confirmation, Xbox sets
   // `needsDeviceCode` (and leaves `waitingForMobileConfirmation` false), so the effect above never
@@ -389,7 +396,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   // shared timeout ref (device-code and device-confirmation are mutually exclusive), so the
   // AuthStateChanged / cancel / reset paths already clear it on success or teardown.
   useEffect(() => {
-    if (!needsDeviceCode || !hubConnection || !sessionId) return;
+    if (!needsDeviceCode || !sessionId) return;
 
     const expiresAtMs = pendingChallenge?.expiresAt
       ? new Date(pendingChallenge.expiresAt).getTime()
@@ -399,12 +406,13 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       : DEVICE_CODE_TIMEOUT_MS;
     const delayMs = Math.min(Math.max(remainingMs, 0), DEVICE_CODE_TIMEOUT_MS);
 
+    setLoginDeadline(Date.now() + delayMs);
     deviceConfirmationTimeoutRef.current = setTimeout(async () => {
       try {
-        await hubConnection.invoke('CancelLoginAsync', sessionId);
+        await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId);
       } catch (err) {
-        // Best-effort: the "Xbox sign-in code expired" notification below fires unconditionally
-        // right after, so the user is told regardless of this outcome.
+        // Best-effort: the modal below is given the reason unconditionally right after, so the
+        // user is told regardless of this outcome.
         notifyError('Failed to cancel Xbox device-code login on daemon', err, {
           silent: true,
           logLabel: 'usePrefillSteamAuth Xbox device-code timeout cancel'
@@ -420,31 +428,19 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       hasStartedAuthRef.current = false;
       endLoginCard();
 
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: 'Xbox sign-in code expired. Please try logging in again.',
-        details: { notificationType: 'warning' }
-      });
-      onDeviceConfirmationTimeout?.();
+      // Same reason as the mobile-approval wait above: the modal keeps the explanation instead of
+      // closing on a card that is gone five seconds later.
+      setError(t('prefill.auth.deviceCodeExpired'));
     }, delayMs);
 
     return () => {
+      setLoginDeadline(null);
       if (deviceConfirmationTimeoutRef.current) {
         clearTimeout(deviceConfirmationTimeoutRef.current);
         deviceConfirmationTimeoutRef.current = null;
       }
     };
-  }, [
-    needsDeviceCode,
-    hubConnection,
-    sessionId,
-    pendingChallenge,
-    addNotification,
-    onDeviceConfirmationTimeout,
-    notifyError,
-    endLoginCard
-  ]);
+  }, [needsDeviceCode, sessionId, pendingChallenge, notifyError, endLoginCard, t]);
 
   const cancelPendingRequest = useCallback(() => {
     setLoading(false);
@@ -464,7 +460,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   }, [endLoginCard]);
 
   const resetAuthForm = useCallback(() => {
-    setUsername('');
+    setError(null);
+    // The account name survives, the same as it does on the other two login surfaces and in the
+    // approval-timeout handler above. Every path that lands here, a refused password, a timeout, a
+    // cancel, a close, leaves the person wanting the same account again, and retyping it is pure
+    // friction. The password does not survive: it has to be entered again anyway.
     setPassword('');
     setTwoFactorCode('');
     setEmailCode('');
@@ -491,6 +491,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   }, [endLoginCard]);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
+    // A fresh attempt starts here, so the last one's failure stops being the current answer.
+    setError(null);
     if (!sessionId || !hubConnection) {
       addNotification({
         type: 'generic',
@@ -549,6 +551,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         return true;
       } catch (err) {
         const errorMessage = getErrorMessage(err);
+        setError(errorMessage);
         addNotification({
           type: 'generic',
           status: 'failed',
@@ -606,6 +609,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         return true;
       } catch (err) {
         const errorMessage = getErrorMessage(err);
+        setError(errorMessage);
         addNotification({
           type: 'generic',
           status: 'failed',
@@ -658,6 +662,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         return false;
       } catch (err) {
         const errorMessage = getErrorMessage(err);
+        setError(errorMessage);
         addNotification({
           type: 'generic',
           status: 'failed',
@@ -722,6 +727,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         return false;
       } catch (err) {
         const errorMessage = getErrorMessage(err);
+        setError(errorMessage);
         addNotification({
           type: 'generic',
           status: 'failed',
@@ -784,6 +790,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         return false;
       } catch (err) {
         const errorMessage = getErrorMessage(err);
+        setError(errorMessage);
         addNotification({
           type: 'generic',
           status: 'failed',
@@ -908,6 +915,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       return false;
     } catch (err) {
       const errorMessage = getErrorMessage(err);
+      setError(errorMessage);
       addNotification({
         type: 'generic',
         status: 'failed',
@@ -1014,6 +1022,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     password,
     twoFactorCode,
     emailCode,
+    error,
     needsAuthorizationCode,
     authorizationUrl,
     authorizationCode,
@@ -1039,6 +1048,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   return {
     state,
     actions,
+    loginDeadline,
     trigger2FAPrompt,
     triggerEmailPrompt
   };

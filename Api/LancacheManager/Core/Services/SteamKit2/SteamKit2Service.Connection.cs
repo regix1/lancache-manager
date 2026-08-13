@@ -304,9 +304,14 @@ public partial class SteamKit2Service
             // Create user-friendly error messages for common login failures
             var (errorType, errorMessage) = callback.Result switch
             {
+                // Steam answers InvalidPassword both to a mistyped password on a first sign-in and to
+                // a stored session that has run out, and the person on the other end cannot tell which.
+                // Naming only the stored session ("expired", "re-authenticate") was wrong for the far
+                // more common first case, so this says what Steam did and what to check, which is the
+                // right instruction either way.
                 EResult.InvalidPassword => (
                     "InvalidCredentials",
-                    "Your Steam credentials are invalid or have expired. Please re-authenticate with your Steam account."
+                    "Steam did not accept that sign-in. Check your account name and password."
                 ),
                 EResult.AccountLogonDenied => (
                     "AuthenticationRequired",

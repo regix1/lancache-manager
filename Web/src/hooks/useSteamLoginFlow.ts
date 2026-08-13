@@ -3,10 +3,9 @@ import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { NOTIFICATION_IDS, useNotifications } from '@contexts/notifications';
 import { getErrorMessage } from '@utils/error';
+import { LOGIN_ATTEMPT_TIMEOUT_MS } from './loginAttemptTimeout';
 import type { NotificationVariant } from '../types/operations';
 import type { SteamAuthActions, SteamLoginFlowState } from './steamAuthTypes';
-
-const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
 interface SteamLoginFlowOptions {
   loginUrl: string;
@@ -41,7 +40,8 @@ function buildSteamOnlyState(
   username: string,
   password: string,
   twoFactorCode: string,
-  emailCode: string
+  emailCode: string,
+  error: string | null
 ): SteamLoginFlowState {
   return {
     loading,
@@ -53,6 +53,7 @@ function buildSteamOnlyState(
     password,
     twoFactorCode,
     emailCode,
+    error,
     needsAuthorizationCode: false,
     authorizationUrl: '',
     authorizationCode: '',
@@ -143,7 +144,12 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
   const [needsEmailCode, setNeedsEmailCode] = useState(false);
   const [waitingForMobileConfirmation, setWaitingForMobileConfirmation] = useState(false);
   const [useManualCode, setUseManualCode] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  // When the phone-approval wait gives up, so the modal counts down the same window that will end
+  // it instead of running a clock of its own. Null the rest of the time, which is the truth: the
+  // Steam Guard step waits on the person, and checking a code it hands over is done in seconds.
+  const [loginDeadline, setLoginDeadline] = useState<number | null>(null);
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -182,7 +188,11 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     // themselves BEFORE calling this, so this can only be a cancel.
     settleLoginCard('completed', t('signalr.steamLogin.signInCancelled'), 'warning', true);
     cancelPendingRequest();
-    setUsername('');
+    setError(null);
+    // The account name survives, because it was almost never the thing that was wrong. Every path
+    // that lands here - a refused password, a timeout, a cancel, a close - leaves the person
+    // wanting to try the same account again, and retyping it is pure friction. The password does
+    // not survive: it is the field that has to be entered again anyway.
     setPassword('');
     setTwoFactorCode('');
     setEmailCode('');
@@ -224,6 +234,8 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       return false;
     }
 
+    // A fresh attempt starts here, so the last one's failure stops being the current answer.
+    setError(null);
     setLoading(true);
 
     const controller = new AbortController();
@@ -247,7 +259,14 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       requestTimeout = setTimeout(() => {
         timedOut = true;
         controller.abort();
-      }, REQUEST_TIMEOUT_MS);
+      }, LOGIN_ATTEMPT_TIMEOUT_MS);
+      // Only the phone-approval wait gets a countdown drawn over it. Every request runs under the
+      // same abort timer, but sending a Steam Guard code takes about two seconds, and putting a
+      // ten-minute clock over those two seconds made the line appear and vanish on every submit,
+      // sliding the centred panel each way. A wait that ends in seconds does not need a countdown.
+      if (willWaitForMobileConfirmation) {
+        setLoginDeadline(Date.now() + LOGIN_ATTEMPT_TIMEOUT_MS);
+      }
 
       const response = await fetch(
         loginUrl,
@@ -268,7 +287,9 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       try {
         result = await response.json();
       } catch (_jsonError) {
-        notifyLoginFailure('Invalid response from server');
+        const invalidResponse = t('modals.steamAuth.errors.invalidServerResponse');
+        notifyLoginFailure(invalidResponse);
+        setError(invalidResponse);
         setLoading(false);
         setWaitingForMobileConfirmation(false);
         return false;
@@ -312,15 +333,21 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         }
 
         setWaitingForMobileConfirmation(false);
-        notifyLoginFailure(result.message || 'Authentication failed');
+        const refused = result.message || t('modals.steamAuth.errors.authenticationFailed');
+        notifyLoginFailure(refused);
+        setError(refused);
         return false;
       }
 
       setWaitingForMobileConfirmation(false);
       setLoading(false);
-      const errorMsg = result.message || result.error || 'Authentication failed';
+      const errorMsg =
+        result.message || result.error || t('modals.steamAuth.errors.authenticationFailed');
       notifyLoginFailure(errorMsg);
       resetAuthForm();
+      // After the reset, which clears the previous attempt's error along with the typed
+      // credentials. A wrong password lands here, and this is the line the modal shows.
+      setError(errorMsg);
       onError?.(errorMsg);
       return false;
     } catch (err: unknown) {
@@ -330,15 +357,23 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         const errorMessage = getErrorMessage(err);
         notifyLoginFailure(errorMessage);
         resetAuthForm();
+        // Set after the reset, same as the refused-credentials path above.
+        setError(errorMessage);
         onError?.(errorMessage);
-      } else if (timedOut && loginCardIdRef.current) {
-        // The request outlived REQUEST_TIMEOUT_MS and aborted itself, so nothing else will ever
+      } else if (timedOut) {
+        // The request outlived the attempt window and aborted itself, so nothing else will ever
         // settle the card and it would spin forever. The other two aborts deliberately leave the
         // card alone: closing the modal settles it as cancelled first, and switching to manual
-        // Steam Guard entry keeps the same card for the next submit.
+        // Steam Guard entry keeps the same card for the next submit. settleLoginCard returns on
+        // its own when no card is live, which is every setup-wizard login.
+        // Leave the phone-approval screen the same way a refusal does, or the panel keeps saying
+        // it is waiting for an approval that can no longer arrive, with the reason underneath it.
+        setWaitingForMobileConfirmation(false);
+        const timedOutMessage = t('modals.steamAuth.errors.attemptTimedOut');
+        setError(timedOutMessage);
         settleLoginCard(
           'failed',
-          t('signalr.steamLogin.signInFailed', { errorDetail: 'Request timed out' }),
+          t('signalr.steamLogin.signInFailed', { errorDetail: timedOutMessage }),
           'error'
         );
       }
@@ -347,6 +382,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       if (requestTimeout) {
         clearTimeout(requestTimeout);
       }
+      setLoginDeadline(null);
       setLoading(false);
       setAbortController(null);
     }
@@ -361,7 +397,8 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     username,
     password,
     twoFactorCode,
-    emailCode
+    emailCode,
+    error
   );
 
   const actions: SteamAuthActions = {
@@ -379,5 +416,5 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     cancelPendingRequest
   };
 
-  return { state, actions };
+  return { state, actions, loginDeadline };
 }

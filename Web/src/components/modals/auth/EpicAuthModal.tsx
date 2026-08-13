@@ -23,8 +23,9 @@ interface EpicAuthModalProps {
    * footer button actually cancels.
    */
   dismissBehavior?: 'cancel' | 'keep-pending';
-  /** Persistent-container flow only: epoch ms this login attempt expires at
-   *  (`PersistentLoginStoreState.loginDeadline`). `null`/unset renders no countdown. */
+  /** Epoch ms this login attempt expires at, from whichever timer governs THIS mount - only the
+   *  persistent-container store has one. `null`/unset renders no countdown, which is the honest
+   *  answer for the other Epic mounts: nothing client-side is counting there. */
   loginDeadline?: number | null;
 }
 
@@ -39,7 +40,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const isKeepPending = dismissBehavior === 'keep-pending';
-  const { loading, needsAuthorizationCode, authorizationUrl, authorizationCode } = state;
+  const { loading, needsAuthorizationCode, authorizationUrl, authorizationCode, error } = state;
 
   const { setAuthorizationCode, handleAuthenticate, cancelPendingRequest } = actions;
 
@@ -177,7 +178,10 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
           )}
 
           {/* Rendered in every state, including the ones with nothing to say, so the live region
-              is already in the page when the login moves on and its label changes. */}
+              is already in the page when the login moves on and its label changes. The error rides
+              in the same reserved row: it is the same sentence the notification bar gets, drawn
+              where the person is actually looking, because the modal sits over the bar and a
+              rejected code used to change nothing on screen at all. */}
           <LoginAttemptStatus
             label={
               isConnecting
@@ -187,6 +191,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                   : ''
             }
             note={needsAuthorizationCode ? undefined : t('modals.epicAuth.signInDescription')}
+            error={error}
           />
         </div>
 

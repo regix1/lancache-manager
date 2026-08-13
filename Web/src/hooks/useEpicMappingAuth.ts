@@ -26,6 +26,9 @@ export interface EpicAuthState {
   needsAuthorizationCode: boolean;
   authorizationUrl: string;
   authorizationCode: string;
+  /** Why the last attempt failed, or `null` while nothing has failed. The modal draws it inside
+   *  itself, because it covers the notification bar this message also goes to. */
+  error: string | null;
 }
 
 export interface EpicAuthActions {
@@ -45,6 +48,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   const [needsAuthorizationCode, setNeedsAuthorizationCode] = useState(false);
   const [authorizationUrl, setAuthorizationUrl] = useState('');
   const [authorizationCode, setAuthorizationCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
 
   // True while a login this hook started still owns the epic_game_mapping card - i.e. from the
@@ -89,6 +93,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       pushLoginCard('completed', t('signalr.epicMapping.signInCancelled'), undefined, true);
     }
     setLoading(false);
+    setError(null);
     setNeedsAuthorizationCode(false);
     setAuthorizationUrl('');
     setAuthorizationCode('');
@@ -133,6 +138,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
         return;
       }
       const message = getErrorMessage(error);
+      setError(message);
       onError?.(message);
       setLoading(false);
     } finally {
@@ -152,6 +158,9 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
 
     if (!authorizationCode.trim()) return false;
 
+    // A fresh attempt starts here, so the last one's failure stops being the current answer. The
+    // other branch above reaches resetAuthForm through startLogin, which clears it there.
+    setError(null);
     setLoading(true);
     const controller = new AbortController();
     setAbortController(controller);
@@ -172,6 +181,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
         return false;
       }
       const message = getErrorMessage(error);
+      setError(message);
       loginNotificationActiveRef.current = false;
       pushLoginCard(
         'failed',
@@ -190,7 +200,8 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     loading,
     needsAuthorizationCode,
     authorizationUrl,
-    authorizationCode
+    authorizationCode,
+    error
   };
 
   const actions: EpicAuthActions = {

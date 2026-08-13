@@ -43,7 +43,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   const [loading, setLoading] = useState(false);
   const [autoStartPics, setAutoStartPics] = useState<boolean>(false);
 
-  const { state, actions } = useSteamAuthentication({
+  const { state, actions, loginDeadline } = useSteamAuthentication({
     autoStartPics,
     loginStatusNotifications: true,
     onSuccess: (message) => {
@@ -323,6 +323,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         onClose={handleCloseModal}
         state={state}
         actions={actions}
+        loginDeadline={loginDeadline}
       />
     </>
   );

@@ -253,14 +253,34 @@
   }
 
   /* The line is the one reserved space in the design, and it holds its height whether it carries
-     the live status, the step's note or nothing at all. That is what makes every idle-to-working
-     change move the panel no pixels: the panel is centred by the modal shell, so a height change
-     slides both its edges and the footer buttons out from under the pointer mid-login. */
+     the live status, the step's note, the reason the last attempt stopped, or nothing at all. That
+     is what makes every idle-to-working change move the panel no pixels: the panel is centred by
+     the modal shell, so a height change slides both its edges and the footer buttons out from under
+     the pointer mid-login.
+
+     66px is a two-line error: 12px of padding, two 21px line boxes, 12px of padding. That is the
+     size the sentences this row carries actually come out at, both at the 462px the panel gives
+     them on a desktop and at the 299px it gives them on a phone, so the panel is the same height
+     whether the last attempt worked or not. The 40px status box and the one-line note sit inside
+     it, which is what the reservation costs: 26px of quiet space in the states with nothing to
+     report, against a Login button that slides 13px down under the pointer that just pressed it.
+     Both numbers are measured at 1280x800, the second by taking this line back to 2.5rem.
+
+     Moving the error below the footer instead, so it has nowhere to push, does not work: the modal
+     is centred, so any growth re-centres it, and growth under the button pulls the button 45px UP,
+     which is worse and moves it toward the pointer. Measured the same way. */
   .login-attempt-slot {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 2.5rem;
+    min-height: 4.125rem;
+  }
+
+  /* The error takes the whole row rather than shrinking to its text, the way the status box and the
+     note already do. Without this it is a flex item sized to its content and the box edges land in
+     a different place for every message. */
+  .login-attempt-slot > .alert {
+    width: 100%;
   }
 
   /* The live status of a login attempt on one line. Surface, border and radius come from the

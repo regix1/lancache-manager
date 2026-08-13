@@ -282,9 +282,15 @@ export function ScheduledPrefillPersistentCard({
                 <span className="scheduled-prefill-persistent-card__meta-value">
                   {authExpiresAt}
                   <span className="scheduled-prefill-persistent-card__meta-detail">
-                    {t('prefill.persistent.timeRemaining', {
-                      time: formatTimeRemaining(container.authTimeRemainingSeconds)
-                    })}
+                    {/* Zero gets a finished sentence of its own instead of being poured into
+                        "{{time}} remaining". formatTimeRemaining answers zero with a word, not a
+                        duration, so the two together read "Expiring... remaining" in English and
+                        stack two expiry clauses in Chinese. */}
+                    {container.authTimeRemainingSeconds > 0
+                      ? t('prefill.persistent.timeRemaining', {
+                          time: formatTimeRemaining(container.authTimeRemainingSeconds)
+                        })
+                      : t('prefill.persistent.signInExpired')}
                   </span>
                 </span>
               </div>

@@ -4484,7 +4484,9 @@
       },
       "reloginRequiredBy": "Re-login required by",
       "timeRemaining": "{{time}} remaining",
+      "signInExpired": "Sign-in has expired",
       "loginTimeRemaining": "Login attempt expires in {{time}}",
+      "loginAttemptExpired": "Login attempt has expired",
       "needsRelogin": "Login expired. Please log in again.",
       "actions": {
         "start": "Start container",
@@ -4547,7 +4549,11 @@
       "canUsePrefill": "You can now use prefill commands",
       "authenticateToAccess": "Authenticate to access your game library",
       "loginToService": "Login to {{service}}",
-      "waitingForSignIn": "Waiting for {{service}} sign-in"
+      "waitingForSignIn": "Waiting for {{service}} sign-in",
+      "approvalTimedOut": "The sign-in ran out of time waiting for your approval.",
+      "signInRefused": "That sign-in did not go through. Check your details and try again.",
+      "deviceCodeExpired": "That sign-in code ran out before it was approved.",
+      "authorizationCodeRejected": "That authorization code was wrong or too old. Get a new one and paste it in."
     },
     "activityLog": {
       "title": "Activity Log",
@@ -5021,7 +5027,8 @@
       },
       "mobileConfirmation": {
         "title": "Approve the sign-in on your phone",
-        "waiting": "Waiting for your approval"
+        "waiting": "Waiting for your approval",
+        "phoneOnly": "Steam chose phone approval for this sign-in, so there is no code to enter here. Cancel and start again if you cannot reach your phone."
       },
       "emailVerification": {
         "title": "Check your email"
@@ -5042,6 +5049,8 @@
       },
       "errors": {
         "authenticationFailed": "Authentication failed",
+        "invalidServerResponse": "The server sent back something this page could not read.",
+        "attemptTimedOut": "The sign-in attempt ran out of time.",
         "failedToSwitchToAnonymous": "Failed to switch to anonymous mode",
         "failedToRemoveApiKey": "Failed to remove API key",
         "networkError": "Network error - failed to remove API key"
@@ -5076,6 +5085,9 @@
       "copyFailed": "Copy failed",
       "openVerification": "Open the verification page",
       "waitingMessage": "Waiting for you to approve",
+      "errors": {
+        "loginFailed": "The Xbox sign-in did not go through."
+      },
       "actions": {
         "connecting": "Connecting...",
         "continue": "Continue"

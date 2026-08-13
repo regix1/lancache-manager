@@ -19,16 +19,15 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { state, actions } = useSteamAuthentication({
+  // No onError handler on purpose. The modal keeps the reason and stays open, the same as every
+  // other login surface: closing it here ran resetAuthForm, which nulls the error, so the sentence
+  // explaining the refusal was thrown away before anyone could read it and the wizard dropped back
+  // on the anonymous card saying nothing at all.
+  const { state, actions, loginDeadline } = useSteamAuthentication({
     autoStartPics: false,
     onSuccess: () => {
       setShowAuthModal(false);
       onComplete(true);
-    },
-    onError: () => {
-      setShowAuthModal(false);
-      actions.resetAuthForm();
-      setSelectedMode('anonymous');
     }
   });
 
@@ -175,6 +174,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
         onClose={handleCloseModal}
         state={state}
         actions={actions}
+        loginDeadline={loginDeadline}
       />
     </>
   );

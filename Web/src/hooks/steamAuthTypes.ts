@@ -20,6 +20,10 @@ export interface SteamLoginFlowState {
   deviceUserCode: string;
   /** Xbox device-code: the URL the user opens to enter the device user code */
   deviceVerificationUri: string;
+  /** Why the last attempt failed, or `null` while nothing has failed. The auth modals draw it
+   *  inside themselves: they cover the notification bar, so a failure that only lands there is
+   *  invisible to the person looking at the login. */
+  error: string | null;
 }
 
 export interface SteamAuthActions {

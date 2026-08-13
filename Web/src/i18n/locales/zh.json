@@ -4484,7 +4484,9 @@
       },
       "reloginRequiredBy": "需要重新登录的截止时间",
       "timeRemaining": "剩余 {{time}}",
+      "signInExpired": "登录已过期",
       "loginTimeRemaining": "登录尝试将在 {{time}} 后过期",
+      "loginAttemptExpired": "登录尝试已过期",
       "needsRelogin": "登录已过期，请重新登录。",
       "actions": {
         "start": "启动容器",
@@ -4547,7 +4549,11 @@
       "canUsePrefill": "您现在可以使用预填充命令",
       "authenticateToAccess": "验证身份以访问您的游戏库",
       "loginToService": "登录 {{service}}",
-      "waitingForSignIn": "正在等待 {{service}} 登录"
+      "waitingForSignIn": "正在等待 {{service}} 登录",
+      "approvalTimedOut": "等待您批准登录超时。",
+      "signInRefused": "登录未通过，请检查您的信息后重试。",
+      "deviceCodeExpired": "该登录代码在获得批准前已失效。",
+      "authorizationCodeRejected": "该授权码无效或已过期。请获取新的授权码并粘贴。"
     },
     "activityLog": {
       "title": "活动日志",
@@ -5021,7 +5027,8 @@
       },
       "mobileConfirmation": {
         "title": "请在您的手机上批准此次登录",
-        "waiting": "正在等待您的批准"
+        "waiting": "正在等待您的批准",
+        "phoneOnly": "Steam 为此次登录选择了手机批准，因此这里没有验证码可以输入。如果您暂时无法使用手机，请取消后重新开始。"
       },
       "emailVerification": {
         "title": "请查看您的邮箱"
@@ -5042,6 +5049,8 @@
       },
       "errors": {
         "authenticationFailed": "认证失败",
+        "invalidServerResponse": "服务器返回了此页面无法读取的内容。",
+        "attemptTimedOut": "登录尝试超时。",
         "failedToSwitchToAnonymous": "切换到匿名模式失败",
         "failedToRemoveApiKey": "移除 API 密钥失败",
         "networkError": "网络错误 - 移除 API 密钥失败"
@@ -5076,6 +5085,9 @@
       "copyFailed": "复制失败",
       "openVerification": "打开验证页面",
       "waitingMessage": "正在等待您批准",
+      "errors": {
+        "loginFailed": "Xbox 登录未通过。"
+      },
       "actions": {
         "connecting": "连接中...",
         "continue": "继续"

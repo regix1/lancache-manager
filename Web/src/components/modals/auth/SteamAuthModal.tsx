@@ -32,8 +32,10 @@ interface SteamAuthModalProps {
   /** Persistent-container flow only: show a "contacting daemon" state before any challenge has
    *  arrived, instead of the (empty) credentials form. */
   awaitingChallenge?: boolean;
-  /** Persistent-container flow only: epoch ms this login attempt expires at
-   *  (`PersistentLoginStoreState.loginDeadline`). `null`/unset renders no countdown. */
+  /** Epoch ms this login attempt expires at, from whichever timer governs THIS mount: the
+   *  persistent-container store, `useSteamLoginFlow`'s request timeout, or `usePrefillSteamAuth`'s
+   *  phone-approval wait. `null`/unset renders no countdown, which is the honest answer for a step
+   *  that waits on the person instead of on a clock. */
   loginDeadline?: number | null;
 }
 
@@ -61,7 +63,8 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     username,
     password,
     twoFactorCode,
-    emailCode
+    emailCode,
+    error
   } = state;
 
   const {
@@ -278,10 +281,25 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                 />
               </div>
             )}
+
+            {/* A container login answers the challenge the daemon raised and cannot volunteer a
+                different one, so once Steam has picked phone approval there is no code box to
+                offer and the wait is the whole step. The in-process login re-sends the whole
+                credential set with allowMobileConfirmation off instead, which is why it can put a
+                manual-code button here and this one cannot. Say so, rather than leaving the user
+                hunting the panel for an input that is never coming. */}
+            {isPrefillMode && waitingForMobileConfirmation && (
+              <p className="text-sm text-themed-muted text-center">
+                {t('modals.steamAuth.mobileConfirmation.phoneOnly')}
+              </p>
+            )}
           </div>
 
           {/* Rendered in every state, including the ones with nothing to say, so the live region
-              is already in the page when the login moves on and its label changes. */}
+              is already in the page when the login moves on and its label changes. The error rides
+              in the same reserved row: it is the same sentence the notification bar gets, drawn
+              where the person is actually looking, because the modal sits over the bar and a wrong
+              password used to change nothing on screen at all. */}
           <LoginAttemptStatus
             label={
               !awaitingChallenge && waitingForMobileConfirmation
@@ -297,6 +315,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                   ? t('modals.steamAuth.twoFactor.leaveEmptyHint')
                   : undefined
             }
+            error={error}
           />
         </div>
 

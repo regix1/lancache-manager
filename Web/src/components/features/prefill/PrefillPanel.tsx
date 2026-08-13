@@ -324,6 +324,7 @@ function ServicePrefillPanel({
   const {
     state: authState,
     actions: authActions,
+    loginDeadline: authLoginDeadline,
     trigger2FAPrompt,
     triggerEmailPrompt
   } = usePrefillSteamAuth({
@@ -332,9 +333,6 @@ function ServicePrefillPanel({
     onSuccess: () => setShowAuthModal(false),
     onError: () => {
       /* Keep modal open on error */
-    },
-    onDeviceConfirmationTimeout: () => {
-      setShowAuthModal(false);
     },
     serviceId
   });
@@ -1045,6 +1043,7 @@ function ServicePrefillPanel({
             state={authState}
             actions={authActions}
             onCancelLogin={handleCancelLogin}
+            loginDeadline={authLoginDeadline}
           />
         ) : (
           <SteamAuthModal
@@ -1054,6 +1053,7 @@ function ServicePrefillPanel({
             actions={authActions}
             isPrefillMode={true}
             onCancelLogin={handleCancelLogin}
+            loginDeadline={authLoginDeadline}
           />
         )}
         <PrefillHomePage
@@ -1096,6 +1096,7 @@ function ServicePrefillPanel({
           state={authState}
           actions={authActions}
           onCancelLogin={handleCancelLogin}
+          loginDeadline={authLoginDeadline}
         />
       ) : (
         <SteamAuthModal
@@ -1105,6 +1106,7 @@ function ServicePrefillPanel({
           actions={authActions}
           isPrefillMode={true}
           onCancelLogin={handleCancelLogin}
+          loginDeadline={authLoginDeadline}
         />
       )}
 

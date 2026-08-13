@@ -18,6 +18,7 @@ interface XboxAuthModalState {
   needsDeviceCode: boolean;
   deviceUserCode: string;
   deviceVerificationUri: string;
+  error: string | null;
 }
 
 interface XboxAuthModalActions {
@@ -39,8 +40,10 @@ interface XboxAuthModalProps {
    * login resumable; only the footer button actually cancels.
    */
   dismissBehavior?: 'cancel' | 'keep-pending';
-  /** Persistent-container flow only: epoch ms this login attempt expires at
-   *  (`PersistentLoginStoreState.loginDeadline`). `null`/unset renders no countdown. */
+  /** Epoch ms this login attempt expires at, from whichever timer governs THIS mount: the
+   *  persistent-container store, or `usePrefillSteamAuth`'s device-code wait. `null`/unset renders
+   *  no countdown, which is the honest answer where nothing client-side is counting - the
+   *  manager-side mapping login is polled by the backend and has no timer here. */
   loginDeadline?: number | null;
 }
 
@@ -63,7 +66,7 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const isKeepPending = dismissBehavior === 'keep-pending';
-  const { loading, needsDeviceCode, deviceUserCode, deviceVerificationUri } = state;
+  const { loading, needsDeviceCode, deviceUserCode, deviceVerificationUri, error } = state;
 
   const { handleAuthenticate, cancelPendingRequest } = actions;
 
@@ -203,7 +206,10 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
           )}
 
           {/* Rendered in every state, including the ones with nothing to say, so the live region
-              is already in the page when the login moves on and its label changes. */}
+              is already in the page when the login moves on and its label changes. The error rides
+              in the same reserved row: it is the same sentence the notification bar gets, drawn
+              where the person is actually looking, because the modal sits over the bar and a
+              refused sign-in used to change nothing on screen at all. */}
           <LoginAttemptStatus
             label={
               isConnecting
@@ -213,6 +219,7 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
                   : ''
             }
             note={needsDeviceCode ? undefined : t('modals.xboxAuth.signInDescription')}
+            error={error}
           />
         </div>
 

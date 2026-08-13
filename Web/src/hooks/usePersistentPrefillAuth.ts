@@ -555,6 +555,10 @@ export function usePersistentPrefillAuth(
     }
   }, [applyChallenge, fail, finishAuthenticated, service, setError, setLoading, t]);
 
+  // The username is cleared here and kept by the two sibling hooks, which is deliberate. Those two
+  // sign in the person using the app, so their account name is worth keeping across a retry. This one
+  // signs in the account belonging to a container, and the modal is mounted per service, so a name left
+  // behind would pre-fill the wrong account the next time a different container asks for a login.
   const resetAuthForm = useCallback(() => {
     setUsername('');
     setPassword('');

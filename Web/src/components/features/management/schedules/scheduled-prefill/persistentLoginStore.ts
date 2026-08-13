@@ -5,6 +5,7 @@ import type {
   PersistentSessionNotFoundState
 } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
+import { LOGIN_ATTEMPT_TIMEOUT_MS } from '@hooks/loginAttemptTimeout';
 import { isRecord } from './typeGuards';
 
 /**
@@ -309,13 +310,12 @@ export function updatePersistentLoginState(
   notify(service);
 }
 
-// Overall wall-clock ceiling on a single login ATTEMPT (from the explicit "Log in" click that
-// starts it, not from a resumed/re-shown challenge - see armPersistentLoginTimeout below). None of
-// the three services had one before this: Steam/Epic could poll forever on a stuck 2FA/email/auth-
-// code step, and Xbox's only ceiling was the daemon's own ~15min device-code expiry (Microsoft's
-// `expires_in`), which only fires AFTER the daemon gives up - this manager-side timer is a service-
-// agnostic backstop that fires first for a hung UI step regardless of what the daemon does.
-const OVERALL_LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
+// The ceiling here runs from the explicit "Log in" click that starts the attempt, not from a
+// resumed or re-shown challenge - see armPersistentLoginTimeout below. None of the three services
+// had one before this: Steam/Epic could poll forever on a stuck 2FA/email/auth-code step, and
+// Xbox's only ceiling was the daemon's own ~15min device-code expiry (Microsoft's `expires_in`),
+// which only fires AFTER the daemon gives up - this manager-side timer is a service-agnostic
+// backstop that fires first for a hung UI step regardless of what the daemon does.
 const loginTimeoutHandles = new Map<PersistentPrefillServiceId, ReturnType<typeof setTimeout>>();
 
 function clearPersistentLoginTimeout(service: PersistentPrefillServiceId): void {
@@ -343,7 +343,7 @@ export function armPersistentLoginTimeout(
   timedOutMessage: string
 ): void {
   clearPersistentLoginTimeout(service);
-  const deadline = Date.now() + OVERALL_LOGIN_TIMEOUT_MS;
+  const deadline = Date.now() + LOGIN_ATTEMPT_TIMEOUT_MS;
   const handle = setTimeout(() => {
     loginTimeoutHandles.delete(service);
     // Epoch bump (not the cancel flag, which would leak `true` into a later resumed challenge):
@@ -361,7 +361,7 @@ export function armPersistentLoginTimeout(
       ...INITIAL_PERSISTENT_LOGIN_STATE,
       error: timedOutMessage
     }));
-  }, OVERALL_LOGIN_TIMEOUT_MS);
+  }, LOGIN_ATTEMPT_TIMEOUT_MS);
   loginTimeoutHandles.set(service, handle);
   // Updater form, not a spread of the initial state: start() has already written `loading: true`
   // by the time it arms the clock, and this write must not undo that.
