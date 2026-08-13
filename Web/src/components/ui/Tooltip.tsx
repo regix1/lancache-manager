@@ -22,6 +22,46 @@ interface TooltipProps {
 
 const DEFAULT_OFFSET = 8;
 
+// Long enough to cross the gap between the trigger and the box, so the pointer can reach the text
+// instead of the box vanishing on the way. Required for hover content: someone magnifying the screen
+// has to be able to pan across it.
+const HIDE_GRACE_MS = 150;
+
+// True when the trigger, or anything inside it, is painting less text than it holds. Both axes
+// count, because the ellipsis comes from `truncate` on the width or `line-clamp` on the height, and
+// only elements that actually clip are asked: one with visible overflow spills rather than hides, so
+// its scroll size exceeding its client size hides nothing from the reader. Measured per hover rather
+// than cached, which keeps it honest across resizes and font swaps.
+const hasClippedText = (root: HTMLElement | null): boolean => {
+  if (!root) {
+    return false;
+  }
+  const nodes: HTMLElement[] = [root, ...root.querySelectorAll<HTMLElement>('*')];
+  return nodes.some((node) => {
+    const { overflowX, overflowY } = window.getComputedStyle(node);
+    return (
+      (overflowX !== 'visible' && node.scrollWidth > node.clientWidth + 1) ||
+      (overflowY !== 'visible' && node.scrollHeight > node.clientHeight + 1)
+    );
+  });
+};
+
+const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+// A box repeating words the reader can already read adds nothing, and lands on top of the very text
+// it copies. So a plain-string content that matches the trigger's own visible text earns its box
+// only while that text is actually cut off. Content saying anything the trigger does not - a full
+// timestamp behind a relative one, the reason a control is disabled - is never suppressed, because
+// the strings differ. Nothing at the call site has to opt in, and nothing written later has to
+// remember to.
+const repeatsVisibleText = (trigger: HTMLElement | null, content: React.ReactNode): boolean => {
+  if (typeof content !== 'string' || trigger === null) {
+    return false;
+  }
+  const visible = normalizeText(trigger.textContent ?? '');
+  return visible !== '' && visible === normalizeText(content);
+};
+
 export const Tooltip: React.FC<TooltipProps> = ({
   children,
   content,
@@ -74,9 +114,17 @@ export const Tooltip: React.FC<TooltipProps> = ({
       }
     };
 
+    // Escape closes it without moving the pointer or the focus, which hover content has to allow.
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShow(false);
+      }
+    };
+
     // Listen for scroll events on window and any scrollable parents
     window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
     window.addEventListener('touchmove', handleScroll, { passive: true, capture: true });
+    document.addEventListener('keydown', handleKeyDown, { capture: true });
 
     // Add click-outside listener with a small delay to avoid immediate close
     const timeoutId = setTimeout(() => {
@@ -88,6 +136,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       clearTimeout(timeoutId);
       window.removeEventListener('scroll', handleScroll, { capture: true });
       window.removeEventListener('touchmove', handleScroll, { capture: true });
+      document.removeEventListener('keydown', handleKeyDown, { capture: true });
       document.removeEventListener('click', handleClickOutside, { capture: true });
       document.removeEventListener('touchstart', handleClickOutside, { capture: true });
     };
@@ -113,6 +162,10 @@ export const Tooltip: React.FC<TooltipProps> = ({
     };
   }, []);
 
+  // Everything this box would say is already on the screen, unclipped.
+  const addsNothing = (): boolean =>
+    repeatsVisibleText(triggerRef.current, content) && !hasClippedText(triggerRef.current);
+
   const handleMouseEnter = (e: React.MouseEvent) => {
     if (tooltipsDisabled) return;
 
@@ -122,6 +175,8 @@ export const Tooltip: React.FC<TooltipProps> = ({
       hideTimeoutRef.current = null;
     }
 
+    if (addsNothing()) return;
+
     setX(e.clientX);
     setY(e.clientY);
 
@@ -129,6 +184,43 @@ export const Tooltip: React.FC<TooltipProps> = ({
     showTimeoutRef.current = setTimeout(() => {
       setShow(true);
     }, 150);
+  };
+
+  // Keyboard reaches the same content, without which a tooltip is mouse-only and the full text
+  // behind an ellipsis is unreachable for anyone tabbing. Focus lands on an interactive trigger, so
+  // it anchors to the element's own box rather than to a pointer position, and shows without the
+  // hover delay because arriving by Tab is already deliberate.
+  const handleFocus = (event: React.FocusEvent) => {
+    if (tooltipsDisabled || addsNothing()) return;
+
+    // Keyboard arrivals only. A mouse press focuses the control too, and `focusin` beats the click,
+    // so showing on every focus put the box on screen during the press and the click handler below
+    // took it away again: a blink on every click of a control that has a tooltip. `:focus-visible`
+    // is the browser's own answer to which arrivals deserve a focus affordance.
+    if (!(event.target as HTMLElement).matches(':focus-visible')) return;
+
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      setX(rect.left + rect.width / 2);
+      setY(rect.top);
+    }
+    setShow(true);
+  };
+
+  const handleBlur = () => {
+    if (showTimeoutRef.current) {
+      clearTimeout(showTimeoutRef.current);
+      showTimeoutRef.current = null;
+    }
+    setShow(false);
+  };
+
+  // Entering the box itself cancels the pending hide, so the pointer can rest on the text.
+  const handleTooltipEnter = () => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -145,8 +237,10 @@ export const Tooltip: React.FC<TooltipProps> = ({
       showTimeoutRef.current = null;
     }
 
-    // Hide immediately
-    setShow(false);
+    // Hide after a grace period rather than at once, so the pointer can travel the gap into the box.
+    hideTimeoutRef.current = setTimeout(() => {
+      setShow(false);
+    }, HIDE_GRACE_MS);
   };
 
   return (
@@ -158,12 +252,17 @@ export const Tooltip: React.FC<TooltipProps> = ({
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
         onClick={(e) => {
           // On mobile, toggle tooltip on tap. Do NOT stopPropagation: the tap must
           // still bubble to a clickable parent (e.g. a Downloads card whose onClick
           // opens the details Drawer). Keep preventDefault to cancel the wrapped
           // element's default action without blocking the parent's click handler.
           if (isMobile && !tooltipsDisabled) {
+            if (addsNothing()) {
+              return;
+            }
             e.preventDefault();
             if (!show) {
               const rect = triggerRef.current?.getBoundingClientRect();
@@ -200,6 +299,8 @@ export const Tooltip: React.FC<TooltipProps> = ({
             position={position}
             offset={offset}
             contentClassName={contentClassName}
+            onMouseEnter={handleTooltipEnter}
+            onMouseLeave={handleMouseLeave}
           />,
           document.body
         )}
@@ -269,7 +370,9 @@ const EdgeTooltip: React.FC<{
   position: TooltipPosition;
   offset: number;
   contentClassName: string;
-}> = ({ trigger, content, position, offset, contentClassName }) => {
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+}> = ({ trigger, content, position, offset, contentClassName, onMouseEnter, onMouseLeave }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -340,6 +443,8 @@ const EdgeTooltip: React.FC<{
     <div
       ref={ref}
       className={`fixed z-[300] max-w-[min(448px,calc(100vw-24px))] break-words px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md tooltip-edge ${contentClassName}`}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       style={{
         left: pos?.x ?? 0,
         top: pos?.y ?? 0,
