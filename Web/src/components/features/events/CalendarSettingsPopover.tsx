@@ -266,20 +266,18 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                   {t('events.calendar.settings.title')}
                 </span>
               </div>
-              <Tooltip content={t('events.calendar.settings.resetToDefaults')} position="top">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    resetSettings();
-                  }}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)] text-[var(--theme-text-muted)]"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  {t('events.calendar.settings.reset')}
-                </button>
-              </Tooltip>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  resetSettings();
+                }}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)] text-[var(--theme-text-muted)]"
+              >
+                <RotateCcw className="w-3 h-3" />
+                {t('events.calendar.settings.reset')}
+              </button>
             </div>
 
             {/* Settings — hairlines from .divided-list; row py-2.5 keeps gap without space-y */}

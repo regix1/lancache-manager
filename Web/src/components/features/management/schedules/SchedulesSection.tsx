@@ -743,10 +743,7 @@ const ScheduleRow = memo(function ScheduleRow({
               {hasSettingsFlags && (
                 <span className="schedule-task-flags">
                   {hasStartupToggle && (
-                    <Tooltip
-                      content={`${t('management.schedules.runOnStartup')}: ${service.runOnStartup ? t('management.schedules.toggleOn') : t('management.schedules.toggleOff')}`}
-                      className="schedule-flag-slot"
-                    >
+                    <div className="schedule-flag-slot">
                       <Badge
                         variant={service.runOnStartup ? 'success' : 'neutral'}
                         className="schedule-task-flag"
@@ -755,7 +752,7 @@ const ScheduleRow = memo(function ScheduleRow({
                           ? t('management.schedules.startupOn')
                           : t('management.schedules.startupOff')}
                       </Badge>
-                    </Tooltip>
+                    </div>
                   )}
                   {service.supportsNotifications && (
                     <>
@@ -954,6 +951,7 @@ const ScheduleRow = memo(function ScheduleRow({
               <div className="schedule-detail-row">
                 <Tooltip
                   content={t('management.schedules.services.depotMapping.scanModeHelp')}
+                  position="bottom"
                   className="inline-flex flex-shrink-0"
                 >
                   <span className="schedule-detail-label">
@@ -992,6 +990,7 @@ const ScheduleRow = memo(function ScheduleRow({
               <div className="schedule-detail-row">
                 <Tooltip
                   content={t('management.schedules.services.depotMapping.fullScanRequiredHelp')}
+                  position="bottom"
                   className="inline-flex flex-shrink-0"
                 >
                   <span className="schedule-detail-label">
@@ -1025,6 +1024,7 @@ const ScheduleRow = memo(function ScheduleRow({
               <div className="schedule-detail-row">
                 <Tooltip
                   content={t('management.schedules.notificationsHelp')}
+                  position="bottom"
                   className="inline-flex flex-shrink-0"
                 >
                   <span className="schedule-detail-label">
@@ -1048,6 +1048,7 @@ const ScheduleRow = memo(function ScheduleRow({
               <div className="schedule-detail-row">
                 <Tooltip
                   content={t('management.schedules.notificationStyleHelp')}
+                  position="bottom"
                   className="inline-flex flex-shrink-0"
                 >
                   <span className="schedule-detail-label">

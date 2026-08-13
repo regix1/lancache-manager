@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { CheckCircle2, XCircle, AlertTriangle, Wifi, Info, ChevronDown } from 'lucide-react';
 import { Card } from '../../ui/Card';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
-import { Tooltip } from '../../ui/Tooltip';
 import type { NetworkDiagnostics } from '@services/api.service';
 
 interface NetworkStatusSectionProps {
@@ -308,11 +307,9 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                         ) : (
                           <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
                         )}
-                        <Tooltip content={result.domain} position="top" className="flex min-w-0">
-                          <span className="text-sm text-themed-primary break-all">
-                            {result.domain}
-                          </span>
-                        </Tooltip>
+                        <span className="text-sm text-themed-primary break-all">
+                          {result.domain}
+                        </span>
                       </div>
                       {!result.success && (
                         <span className="text-xs text-[var(--theme-error)]">

@@ -239,8 +239,10 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
                   {supportsAlpha && (
                     <div className="flex items-center gap-2">
                       <Percent className="w-3 h-3 text-themed-muted" />
+                      {/* The word only. The percentage already sits at the end of the row, and a
+                        per-cent glyph is the sole other clue as to what this slider drives. */}
                       <Tooltip
-                        content={`${t('modals.theme.colorPicker.opacity')} ${Math.round(alpha * 100)}%`}
+                        content={t('modals.theme.colorPicker.opacity')}
                         position="top"
                         className="flex flex-1"
                       >

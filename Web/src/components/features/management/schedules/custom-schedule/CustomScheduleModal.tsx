@@ -826,7 +826,6 @@ function CustomScheduleModal({
                 value={draft.windowEnabled ? 'true' : 'false'}
                 onChange={(value) => updateDraft({ windowEnabled: value === 'true' })}
                 disabled={isDisabled}
-                title={t(`${BASE_KEY}.window.toggle`)}
               />
               {/* The help sentence explains what happens to a run already going when the window
                 shuts, which only matters once there is a window. Off by default, it is two

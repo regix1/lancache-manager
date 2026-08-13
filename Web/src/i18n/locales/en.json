@@ -4355,7 +4355,6 @@
       },
       "settings": {
         "title": "Calendar Settings",
-        "resetToDefaults": "Reset settings to defaults",
         "reset": "Reset",
         "eventStyle": {
           "title": "Event style",
@@ -4914,7 +4913,6 @@
         "saveChanges": "Save Changes",
         "addNickname": "Add Nickname",
         "addAllMatching": "Add all {{count}} matching",
-        "clearSelection": "Clear selection",
         "clearSearch": "Clear search",
         "undoRemove": "Undo removal",
         "lookUpHostname": "Look up {{hostname}} on your DNS server"

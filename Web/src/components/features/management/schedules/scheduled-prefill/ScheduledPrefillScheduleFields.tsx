@@ -422,7 +422,6 @@ export function ScheduledPrefillScheduleFields({
             value={config.force ? 'true' : 'false'}
             onChange={(value) => updateConfig({ force: value === 'true' })}
             disabled={disabled}
-            title={t(`${baseKey}.fields.force`)}
           />
         </div>
       </div>

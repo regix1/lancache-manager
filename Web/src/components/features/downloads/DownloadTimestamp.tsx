@@ -35,7 +35,7 @@ export function DownloadTimestamp({
   }
 
   return (
-    <Tooltip content={isValid ? absolute : relative} className={className}>
+    <Tooltip content={isValid ? absolute : null} className={className}>
       {showIcon && <Clock size={iconSize} className="flex-shrink-0 inline mr-1" />}
       {relative}
     </Tooltip>

@@ -1068,7 +1068,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
         <div>
           <Tooltip
             content={t('modals.clientGroup.labels.rowModeHelp')}
-            position="top"
+            position="bottom"
             className="inline-block"
           >
             <span id="clientgroup-row-mode-label" className="form-field-label">
@@ -1185,16 +1185,14 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                 })}
               />
               {chosen.count > 0 && (
-                <Tooltip content={t('modals.clientGroup.actions.clearSelection')} position="top">
-                  <button
-                    type="button"
-                    onClick={clearChosen}
-                    disabled={saving}
-                    className="clientgroup-picker-clear themed-border-radius-sm focus-ring text-sm"
-                  >
-                    {t('common.clear')}
-                  </button>
-                </Tooltip>
+                <button
+                  type="button"
+                  onClick={clearChosen}
+                  disabled={saving}
+                  className="clientgroup-picker-clear themed-border-radius-sm focus-ring text-sm"
+                >
+                  {t('common.clear')}
+                </button>
               )}
             </div>
           )}

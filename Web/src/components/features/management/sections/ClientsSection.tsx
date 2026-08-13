@@ -652,7 +652,10 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
               {(loadingClients || ungroupedClients.length > 0 || clientGroups.length > 0) && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Tooltip content={t('management.sections.clients.unnamedHint')}>
+                    <Tooltip
+                      content={t('management.sections.clients.unnamedHint')}
+                      position="bottom"
+                    >
                       <h4 className="mgmt-subhead caps-label">
                         {t('management.sections.clients.withoutNicknames')}
                       </h4>
@@ -771,7 +774,10 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
               <div className="space-y-4">
                 <div className="space-y-3">
                   {/* What each mode does is the first thing anyone adding a client wants to know. */}
-                  <Tooltip content={t('management.sections.clients.exclusionsHint')}>
+                  <Tooltip
+                    content={t('management.sections.clients.exclusionsHint')}
+                    position="bottom"
+                  >
                     <h4 className="mgmt-subhead caps-label">
                       {t('management.sections.clients.pickFromKnownClients')}
                     </h4>

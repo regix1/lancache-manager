@@ -90,7 +90,6 @@ export function ScheduledPrefillPlatformSection({
           value={config.enabled ? 'enabled' : 'disabled'}
           onChange={handleEnabledChange}
           disabled={disabled}
-          title={t(`${baseKey}.fields.enabled`)}
         />
       </header>
 
