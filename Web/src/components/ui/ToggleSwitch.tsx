@@ -15,6 +15,7 @@ interface ToggleSwitchProps {
   onChange: (value: string) => void;
   disabled?: boolean;
   loading?: boolean;
+  /** Explain what the toggle DOES. Repeating the label beside it only covers that label. */
   title?: string;
   size?: 'sm' | 'md';
 }
@@ -81,6 +82,10 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
     md: 'w-4 h-4'
   };
 
+  // w-fit below: the pill is sized by its two labels, never by the column it sits in. As a plain
+  // child of a stretching flex column it would otherwise run the full width of the form and read as
+  // a banner rather than a control. It used to be spared that by the tooltip wrapper it no longer
+  // always has.
   const button = (
     <button
       onClick={() => {
@@ -89,7 +94,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
         onChange(options[nextIndex].value);
       }}
       disabled={disabled || loading}
-      className={`flex items-center rounded-full font-medium transition bg-themed-secondary ${sizeClasses[size]} ${
+      className={`flex w-fit items-center rounded-full font-medium transition bg-themed-secondary ${sizeClasses[size]} ${
         disabled || loading ? 'opacity-60 cursor-wait' : 'cursor-pointer'
       }`}
     >
@@ -120,8 +125,11 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   );
 
   if (title) {
+    // Below the control, not above it. These toggles sit directly under (or beside) their own
+    // label, and a tooltip placed on top lands on that label and hides the words the reader was
+    // reaching for. EdgeTooltip still flips back to the top when there is no room underneath.
     return (
-      <Tooltip content={title} position="top">
+      <Tooltip content={title} position="bottom">
         {button}
       </Tooltip>
     );
