@@ -1144,25 +1144,23 @@ public class PersistentPrefillController : ControllerBase
     [ProducesResponseType(typeof(PersistentLoginValidityDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<PersistentLoginValidityDto>> SetValidityAsync([FromBody] PersistentLoginValidityDto request)
     {
-        try
-        {
-            _stateService.SetAdminPersistentLoginValidityDays(request.Days);
-        }
-        catch (ArgumentOutOfRangeException ex)
-        {
-            return BadRequest(ApiResponse.Error(ex.Message));
-        }
+        _stateService.SetAdminPersistentLoginValidityDays(request.Days);
+
+        // Read the window back rather than reusing the request: the setter silently clamps to its own
+        // 1-365 range, so a larger number would otherwise stamp the sessions with an expiry the saved
+        // window never agreed to, and every later read of that window would contradict it.
+        var validityDays = _stateService.GetAdminPersistentLoginValidityDays();
 
         // Re-anchor every running persistent session immediately so the new validity is the single
         // source of truth for the re-login date (and persist it so a restart keeps the new window).
         foreach (var daemon in PrefillDaemonServiceBase.ResolveAllDaemons(_serviceProvider))
         {
-            await daemon.UpdatePersistentSessionExpiryAsync(request.Days);
+            await daemon.UpdatePersistentSessionExpiryAsync(validityDays);
         }
 
         return Ok(new PersistentLoginValidityDto
         {
-            Days = _stateService.GetAdminPersistentLoginValidityDays()
+            Days = validityDays
         });
     }
 
