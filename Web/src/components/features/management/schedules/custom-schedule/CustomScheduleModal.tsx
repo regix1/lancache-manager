@@ -10,6 +10,7 @@ import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/Mult
 import { NumberInput } from '@components/ui/NumberInput';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
+import { prefersReducedMotion } from '@components/features/management/status-check/helpers';
 import { useReaderClock } from '@hooks/useReaderClock';
 import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
 import { getEffectiveTimezone, getLocalTimezone, getServerTimezone } from '@utils/timezone';
@@ -221,6 +222,30 @@ function CustomScheduleModal({
     setTimeZoneId(saved?.timeZoneId || getServerTimezone());
     setPreviewFrom(Date.now());
   }, [opened]);
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const advancedRef = useRef<HTMLDivElement | null>(null);
+
+  // The drawer opens below the fold of the scroll area, so without this it appears to do nothing
+  // until something else scrolls. The distance is only final once the region has finished growing,
+  // which is why it is measured after the expand rather than on the state flip. The wait covers the
+  // region's 0.35s grid-template-rows growth (collapsible.css) with headroom.
+  useEffect(() => {
+    if (!advancedOpen) return;
+    const timer = setTimeout(() => {
+      const scroller = scrollRef.current;
+      const advanced = advancedRef.current;
+      if (!scroller || !advanced) return;
+      const delta =
+        advanced.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom;
+      if (delta <= 0) return;
+      scroller.scrollTo({
+        top: scroller.scrollTop + delta,
+        behavior: prefersReducedMotion() ? 'auto' : 'smooth'
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [advancedOpen]);
 
   const serverZone = getServerTimezone();
   // The machine's own zone, for the quick pick that offers it. Never the display setting: with
@@ -666,7 +691,7 @@ function CustomScheduleModal({
           </Alert>
         )}
 
-        <div className="custom-schedule-scroll">
+        <div className="custom-schedule-scroll" ref={scrollRef}>
           <div className="custom-schedule-body">
             {/* First, because every time below is read in this zone and on this face: choosing them
               afterwards means re-reading fields already filled in. Only one of the two belongs to
@@ -940,7 +965,7 @@ function CustomScheduleModal({
               </button>
 
               <CollapsibleRegion open={advancedOpen}>
-                <div className="custom-schedule-advanced">
+                <div className="custom-schedule-advanced" ref={advancedRef}>
                   <div className="custom-schedule-advanced-header">
                     <span className="caps-label custom-schedule-field-label">
                       {t(`${BASE_KEY}.advanced.expressionLabel`)}
