@@ -5,7 +5,7 @@ import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from './useErrorHandler';
 import { getErrorMessage } from '@utils/error';
 import { type SteamLoginFlowState, type SteamAuthActions } from './useSteamAuthentication';
-import { LOGIN_ATTEMPT_TIMEOUT_MS } from './loginAttemptTimeout';
+import { loginAttemptTimeoutMs, STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS } from './loginAttemptTimeout';
 import { getEventName } from '@components/features/prefill/hooks/prefillConstants';
 
 export interface CredentialChallenge {
@@ -36,11 +36,6 @@ interface UsePrefillSteamAuthOptions {
   onError?: (message: string) => void;
   serviceId?: string;
 }
-
-// Fallback cap for the Xbox device-code (Microsoft OAuth device flow) timeout when the challenge
-// carries no usable expiry. Microsoft device codes typically last ~15 minutes; the user has to
-// open a browser, sign in, and approve, so this is far longer than the mobile-confirmation window.
-const DEVICE_CODE_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
  * Hook for Steam authentication within a prefill Docker container.
@@ -343,10 +338,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   // Timeout for device confirmation - cancel daemon login and reset state
   useEffect(() => {
     if (waitingForMobileConfirmation && sessionId) {
-      setLoginDeadline(Date.now() + LOGIN_ATTEMPT_TIMEOUT_MS);
+      setLoginDeadline(Date.now() + STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS);
       deviceConfirmationTimeoutRef.current = setTimeout(async () => {
         // Cancel the login on the daemon to reset its state. Read through the ref so this reaches
-        // whichever socket is live ten minutes from now, which is not always the one that armed it.
+        // whichever socket is live when the wait ends, which is not always the one that armed it.
         try {
           await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId);
         } catch (err) {
@@ -377,7 +372,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         // (AUTO_DISMISS_DELAY_MS) under a modal that was closing in the same tick, so the wait
         // appeared to end for no reason at all. The modal now stays open holding the reason.
         setError(t('prefill.auth.approvalTimedOut'));
-      }, LOGIN_ATTEMPT_TIMEOUT_MS);
+      }, STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS);
 
       return () => {
         setLoginDeadline(null);
@@ -391,22 +386,19 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
   // Timeout for the Xbox device-code flow. Unlike Steam's device-confirmation, Xbox sets
   // `needsDeviceCode` (and leaves `waitingForMobileConfirmation` false), so the effect above never
-  // fires for it. Without this, an unapproved device code would poll the daemon forever. We honour
-  // the challenge's real `expiresAt` when present, capped by DEVICE_CODE_TIMEOUT_MS. Reuses the
-  // shared timeout ref (device-code and device-confirmation are mutually exclusive), so the
-  // AuthStateChanged / cancel / reset paths already clear it on success or teardown.
+  // fires for it. Without this, an unapproved device code would poll the daemon forever. The window
+  // is the manager's own, and it is the only real one here: the expiry Microsoft puts on the device
+  // code stays inside the daemon's polling loop and is never sent, while the expiry the challenge
+  // does carry is a placeholder a full day out, wide enough that reading it would promise the
+  // person far longer than the sign-in actually gets. The Configure card counts the same window
+  // down for the same code, so both Xbox surfaces now show one number. Reuses the shared timeout
+  // ref (device-code and device-confirmation are mutually exclusive), so the AuthStateChanged /
+  // cancel / reset paths already clear it on success or teardown.
   useEffect(() => {
     if (!needsDeviceCode || !sessionId) return;
 
-    const expiresAtMs = pendingChallenge?.expiresAt
-      ? new Date(pendingChallenge.expiresAt).getTime()
-      : Number.NaN;
-    const remainingMs = Number.isFinite(expiresAtMs)
-      ? expiresAtMs - Date.now()
-      : DEVICE_CODE_TIMEOUT_MS;
-    const delayMs = Math.min(Math.max(remainingMs, 0), DEVICE_CODE_TIMEOUT_MS);
-
-    setLoginDeadline(Date.now() + delayMs);
+    const timeoutMs = loginAttemptTimeoutMs(serviceId);
+    setLoginDeadline(Date.now() + timeoutMs);
     deviceConfirmationTimeoutRef.current = setTimeout(async () => {
       try {
         await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId);
@@ -431,7 +423,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       // Same reason as the mobile-approval wait above: the modal keeps the explanation instead of
       // closing on a card that is gone five seconds later.
       setError(t('prefill.auth.deviceCodeExpired'));
-    }, delayMs);
+    }, timeoutMs);
 
     return () => {
       setLoginDeadline(null);
@@ -440,7 +432,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         deviceConfirmationTimeoutRef.current = null;
       }
     };
-  }, [needsDeviceCode, sessionId, pendingChallenge, notifyError, endLoginCard, t]);
+  }, [needsDeviceCode, sessionId, serviceId, notifyError, endLoginCard, t]);
 
   const cancelPendingRequest = useCallback(() => {
     setLoading(false);

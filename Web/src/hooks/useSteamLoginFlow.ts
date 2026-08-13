@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { NOTIFICATION_IDS, useNotifications } from '@contexts/notifications';
 import { getErrorMessage } from '@utils/error';
-import { LOGIN_ATTEMPT_TIMEOUT_MS } from './loginAttemptTimeout';
+import { STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS } from './loginAttemptTimeout';
 import type { NotificationVariant } from '../types/operations';
 import type { SteamAuthActions, SteamLoginFlowState } from './steamAuthTypes';
 
@@ -259,13 +259,15 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       requestTimeout = setTimeout(() => {
         timedOut = true;
         controller.abort();
-      }, LOGIN_ATTEMPT_TIMEOUT_MS);
+      }, STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS);
       // Only the phone-approval wait gets a countdown drawn over it. Every request runs under the
       // same abort timer, but sending a Steam Guard code takes about two seconds, and putting a
-      // ten-minute clock over those two seconds made the line appear and vanish on every submit,
+      // two-minute clock over those two seconds made the line appear and vanish on every submit,
       // sliding the centred panel each way. A wait that ends in seconds does not need a countdown.
+      // The timer arms here, after the click, never while a field is being filled, so a short
+      // window cannot cut anyone off mid-typing.
       if (willWaitForMobileConfirmation) {
-        setLoginDeadline(Date.now() + LOGIN_ATTEMPT_TIMEOUT_MS);
+        setLoginDeadline(Date.now() + STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS);
       }
 
       const response = await fetch(

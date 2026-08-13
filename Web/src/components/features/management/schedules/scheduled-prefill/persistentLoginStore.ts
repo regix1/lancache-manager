@@ -5,7 +5,7 @@ import type {
   PersistentSessionNotFoundState
 } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
-import { LOGIN_ATTEMPT_TIMEOUT_MS } from '@hooks/loginAttemptTimeout';
+import { loginAttemptTimeoutMs } from '@hooks/loginAttemptTimeout';
 import { isRecord } from './typeGuards';
 
 /**
@@ -343,7 +343,8 @@ export function armPersistentLoginTimeout(
   timedOutMessage: string
 ): void {
   clearPersistentLoginTimeout(service);
-  const deadline = Date.now() + LOGIN_ATTEMPT_TIMEOUT_MS;
+  const timeoutMs = loginAttemptTimeoutMs(service);
+  const deadline = Date.now() + timeoutMs;
   const handle = setTimeout(() => {
     loginTimeoutHandles.delete(service);
     // Epoch bump (not the cancel flag, which would leak `true` into a later resumed challenge):
@@ -361,7 +362,7 @@ export function armPersistentLoginTimeout(
       ...INITIAL_PERSISTENT_LOGIN_STATE,
       error: timedOutMessage
     }));
-  }, LOGIN_ATTEMPT_TIMEOUT_MS);
+  }, timeoutMs);
   loginTimeoutHandles.set(service, handle);
   // Updater form, not a spread of the initial state: start() has already written `loading: true`
   // by the time it arms the clock, and this write must not undo that.
@@ -373,10 +374,10 @@ export function armPersistentLoginTimeout(
  * revealed again after the modal was hidden, or one restored from the backend's pending-challenge
  * cache after a full page reload, which `start()` never ran for and which had no ceiling at all
  * before this. One attempt keeps one clock: when a timer is already running for this service this
- * does nothing, so re-showing the modal can never buy the attempt another ten minutes.
+ * does nothing, so re-showing the modal can never buy the attempt another full window.
  *
  * The clock does not survive a page reload: the handle map is module state, so a reload empties it
- * and the restored challenge gets a fresh ten minutes here. The daemons keep their own expiry.
+ * and the restored challenge gets a fresh window here. The daemons keep their own expiry.
  */
 export function ensurePersistentLoginTimeout(
   service: PersistentPrefillServiceId,
