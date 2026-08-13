@@ -428,13 +428,21 @@ export function ScheduledPrefillConfigModal({
       editSessionRetiredRef.current = true;
       setEditSessionCleanupPending(true);
       retireEditSessionLoginState(pending);
-      await ApiService.cleanupPersistentPrefillEditSession(buildEditSessionCleanupRequest(pending));
-      clearConfirmedEditSession(sessionStorage, pending.editSessionId, pending.cleanupId!);
-      if (editSessionRef.current?.editSessionId === pending.editSessionId) {
-        editSessionRef.current = null;
+      try {
+        await ApiService.cleanupPersistentPrefillEditSession(
+          buildEditSessionCleanupRequest(pending)
+        );
+        clearConfirmedEditSession(sessionStorage, pending.editSessionId, pending.cleanupId!);
+        if (editSessionRef.current?.editSessionId === pending.editSessionId) {
+          editSessionRef.current = null;
+        }
+        editSessionRetiredRef.current = false;
+      } finally {
+        // The flag means "a cleanup is in flight", and it gates every control in the modal. A
+        // request that never lands - the API restarting is enough - must not leave those controls
+        // dead for the rest of the page's life. The cleanup itself is retried on the next close.
+        setEditSessionCleanupPending(false);
       }
-      editSessionRetiredRef.current = false;
-      setEditSessionCleanupPending(false);
     })();
 
     storedCleanupPromiseRef.current = request;
@@ -1001,10 +1009,13 @@ export function ScheduledPrefillConfigModal({
         return false;
       }
 
-      const container = persistentContainerByService.get(getPersistentServiceId(serviceId));
+      // The previewed map, the same one the cards and the sidebar hints read. Raising the validity
+      // clears a container's re-login flag exactly as saving would, and this warning has to agree
+      // with the card beside it rather than naming a service whose own hint has just cleared.
+      const container = containersByServiceKey.get(serviceId);
       return needsPersistentLogin(container);
     }).map((serviceId) => t(`${baseKey}.services.${serviceId}`));
-  }, [config, persistentContainerByService, persistentContainers, persistentError, baseKey, t]);
+  }, [config, containersByServiceKey, persistentContainers, persistentError, baseKey, t]);
 
   // Single most-severe banner: errors win over the (yellow) validation hint; success is silent.
   const banner = useMemo<{ color: 'red' | 'yellow' | 'green'; message: string } | null>(() => {
@@ -1589,6 +1600,9 @@ export function ScheduledPrefillConfigModal({
     editSessionCleanupPromiseRef.current = cleanup;
     void cleanup
       .catch((error: unknown) => {
+        // The modal stays open showing the error, so its controls have to come back with it.
+        // Leaving the flag set disables Save and every platform control until the page reloads.
+        setEditSessionCleanupPending(false);
         setPersistentError(getErrorMessage(error));
       })
       .finally(() => {
