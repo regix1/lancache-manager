@@ -54,10 +54,14 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   const guestModeLocked = localGuestModeLocked;
 
   // The server refuses a guest session while authentication is on and no account exists yet, so the
-  // button is never offered in that state. A null account flag is a database that could not be read,
-  // which the server answers the same way. With authentication off the installation is account-less
-  // on purpose, so the flag says nothing there and the button stays as it was.
-  const installationUnclaimed = authenticationEnabled && setupStatus?.accountExists !== true;
+  // button is never offered in that state. An unknown account flag is a different thing: it is a
+  // setup status nobody has managed to read, which is what a failed or timed-out status call leaves
+  // behind (SetupStatusContext.tsx, UNREAD_SETUP_STATUS). Counting that as unclaimed disabled this
+  // button on an installation that has accounts, leaving a sign-in form and no other way forward
+  // when the credentials were the thing in doubt. The server still turns a genuinely unclaimed
+  // guest away by itself. With authentication off the installation is account-less on purpose, so
+  // the flag says nothing there and the button stays as it was.
+  const installationUnclaimed = authenticationEnabled && setupStatus?.accountExists === false;
 
   // Database reset status
   const [resetStatus, setResetStatus] = useState<DatabaseResetStatus>({
