@@ -20,7 +20,7 @@
 - The session token is kept out of JavaScript and out of URLs, and any request that changes data needs an antiforgery token.
 - Stored prefill credentials are encrypted, and any that were found stored unencrypted are discarded so you are asked for them again. Steam and Xbox credential formats are covered alongside the others.
 - A client's public IP is worked out locally instead of by calling a third party.
-- Rotating the API key ends every session, guests included. The new key comes back in the response before your own session is cut, so read it and keep it.
+- Rotating the API key ends every session, guests included, and deletes every account except the main admin. The new key comes back in the response before your own session is cut, so read it and keep it, and expect to create the other accounts again afterwards.
 - Guests no longer read client, cache or schedule data, and cannot write to the schedule or setup routes.
 - Every npm advisory is cleared, including two rated high severity.
 
