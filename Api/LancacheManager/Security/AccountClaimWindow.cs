@@ -29,9 +29,11 @@ public class AccountClaimWindow : IHostedService
     /// <summary>
     /// Fixed at construction, which the host does before it starts any hosted service and therefore
     /// before Kestrel accepts a request. A value computed on first use instead would start the hour
-    /// at the first call to the endpoint, which is no limit at all.
+    /// at the first call to the endpoint, which is no limit at all. Wipe resets it through
+    /// <see cref="Reopen"/> so the owner who just emptied the table can create the first account
+    /// without restarting a process that has already been up longer than the hour.
     /// </summary>
-    private readonly DateTime _closesAtUtc = DateTime.UtcNow + _window;
+    private DateTime _closesAtUtc = DateTime.UtcNow + _window;
 
     public AccountClaimWindow(ILogger<AccountClaimWindow> logger)
     {
@@ -39,6 +41,27 @@ public class AccountClaimWindow : IHostedService
     }
 
     public bool IsOpen => DateTime.UtcNow < _closesAtUtc;
+
+    /// <summary>
+    /// Starts a new hour from now. First-admin creation checks this window, not whether the table is
+    /// empty, so a wipe on a long-running process would otherwise leave the owner on that screen
+    /// with every submit refused until they restart.
+    /// </summary>
+    public void Reopen()
+    {
+        _closesAtUtc = DateTime.UtcNow + _window;
+        _logger.LogInformation(
+            "First administrator account can be created until {ClosesAtUtc:u}; a restart reopens the window",
+            _closesAtUtc);
+    }
+
+    /// <summary>
+    /// Shuts the window immediately, the same state a process reaches once the hour has elapsed.
+    /// </summary>
+    internal void Expire()
+    {
+        _closesAtUtc = DateTime.UtcNow;
+    }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {

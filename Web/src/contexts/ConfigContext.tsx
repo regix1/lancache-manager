@@ -7,6 +7,7 @@ import LoadingSpinner from '../components/common/LoadingSpinner';
 import { Button } from '@components/ui/Button';
 import { API_BASE } from '../utils/constants';
 import { getErrorMessage } from '../utils/error';
+import { ApiError } from '../services/apiError';
 
 interface ConfigProviderProps {
   children: ReactNode;
@@ -15,6 +16,7 @@ interface ConfigProviderProps {
 interface ConfigLoadError {
   message: string;
   isTimeout: boolean;
+  apiUnreachable: boolean;
 }
 
 interface CredentialsResponse {
@@ -31,7 +33,19 @@ const CONFIG_TIMEOUT_MS = 8000;
 
 // Mirrors the server-side rule in SetupController so the button stays disabled instead of
 // spending a round trip on a password the endpoint will reject.
-const MIN_PASSWORD_LENGTH = 8;
+const MIN_PASSWORD_LENGTH = 12;
+
+function isApiUnreachable(err: unknown): boolean {
+  if (err instanceof ApiError) {
+    return err.kind === 'network' || err.status === 502 || err.status === 503 || err.status === 504;
+  }
+
+  return true;
+}
+
+function shouldOfferPasswordRecovery(error: ConfigLoadError, loadAttempts: number): boolean {
+  return loadAttempts >= 2 && !error.isTimeout && !error.apiUnreachable;
+}
 
 /**
  * The way back in when the app cannot load its own config: set the embedded PostgreSQL
@@ -185,6 +199,7 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
   const { t } = useTranslation();
   const [config, setConfig] = useState<Config | null>(null);
   const [error, setError] = useState<ConfigLoadError | null>(null);
+  const [loadAttempts, setLoadAttempts] = useState(0);
   const configRef = useRef<Config | null>(null);
   configRef.current = config;
 
@@ -192,6 +207,7 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
     async (options?: { isRefresh?: boolean }): Promise<void> => {
       const isRefresh = options?.isRefresh ?? false;
       if (!isRefresh) {
+        setLoadAttempts((count) => count + 1);
         setError(null);
       }
 
@@ -221,14 +237,15 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
             message: t('app.configError.timedOutMessage', {
               seconds: CONFIG_TIMEOUT_MS / 1000
             }),
-            isTimeout: true
+            isTimeout: true,
+            apiUnreachable: true
           });
         } else {
           console.error('[ConfigProvider] Failed to load config:', err);
           // Never render the raw error message - extract via the shared helper so an ApiError's
           // parsed backend body wins over a generic Error/TypeError string.
           const message = getErrorMessage(err) || t('app.configError.failedMessage');
-          setError({ message, isTimeout: false });
+          setError({ message, isTimeout: false, apiUnreachable: isApiUnreachable(err) });
         }
       } finally {
         window.clearTimeout(timeoutId);
@@ -260,7 +277,9 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
           </h2>
           <p className="config-error-message">{error.message}</p>
           <Button onClick={() => void loadConfig()}>{t('common.retry')}</Button>
-          <PostgresPasswordRecovery onSaved={() => void loadConfig()} />
+          {shouldOfferPasswordRecovery(error, loadAttempts) && (
+            <PostgresPasswordRecovery onSaved={() => void loadConfig()} />
+          )}
         </div>
       </div>
     );

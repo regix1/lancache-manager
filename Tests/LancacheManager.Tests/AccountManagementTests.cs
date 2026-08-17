@@ -14,8 +14,8 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// The three rules the account-management endpoints exist to enforce: a user reaches no
-/// administrator account, the account that owns the installation cannot be taken away from whoever
-/// holds it, and only that account hands out the administrator role.
+/// administrator account, the owner is hidden from every other account holder and cannot be taken
+/// away from whoever holds it, and only that account hands out the administrator role.
 ///
 /// Every caller below is built by seeding an account row with the role under test and a session that
 /// names it, rather than by taking an administrator's session and flipping the session row: the
@@ -56,11 +56,11 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// An administrator is answered everybody, the other administrators and the account that owns the
-    /// installation included.
+    /// An administrator who is not the owner is answered every account except the owner. Seeing that
+    /// row is what used to let them name it on edit, disable, delete and the session list.
     /// </summary>
     [Fact]
-    public async Task AnAdministratorIsAnsweredEveryAccount()
+    public async Task AnAdministratorIsAnsweredEveryAccountExceptTheOwner()
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
@@ -71,9 +71,70 @@ public sealed class AccountManagementTests : IDisposable
         var listed = AccountsOf(await controller.GetAccountsAsync());
 
         Assert.Equal(
+            new[] { "reader", "second-admin" },
+            listed.Select(a => a.Username).OrderBy(name => name, StringComparer.Ordinal).ToArray());
+        Assert.DoesNotContain(listed, a => a.IsMainAdmin);
+    }
+
+    /// <summary>
+    /// The owner is answered everybody, themselves included.
+    /// </summary>
+    [Fact]
+    public async Task TheOwnerIsAnsweredEveryAccount()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var caller = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        await SeedAccountAsync(database.Factory, "reader", SessionType.User);
+
+        var controller = await NewControllerAsync(database.Factory, caller);
+        var listed = AccountsOf(await controller.GetAccountsAsync());
+
+        Assert.Equal(
             new[] { "owner", "reader", "second-admin" },
             listed.Select(a => a.Username).OrderBy(name => name, StringComparer.Ordinal).ToArray());
         Assert.True(listed.Single(a => a.Username == "owner").IsMainAdmin);
+    }
+
+    /// <summary>
+    /// Every verb, not only the list. An account a second administrator is not shown is also an
+    /// account they cannot name.
+    /// </summary>
+    [Fact]
+    public async Task ASecondAdministratorCannotReachTheOwnerByItsId()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+
+        var controller = await NewControllerAsync(database.Factory, caller);
+        var id = owner.Id;
+
+        var refusals = new (string Verb, ActionResult? Result)[]
+        {
+            ("get", (await controller.GetAccountAsync(id)).Result),
+            ("edit", (await controller.EditAccountAsync(
+                id, new EditAccountRequest { Username = "taken-over", Password = NewPassword })).Result),
+            ("disable", (await controller.SetDisabledAsync(
+                id, new SetAccountDisabledRequest { Disabled = true })).Result),
+            ("delete", (await controller.DeleteAccountAsync(id)).Result),
+            ("set-role", (await controller.SetRoleAsync(
+                id, new SetAccountRoleRequest { Role = SessionType.User })).Result)
+        };
+
+        foreach (var (verb, result) in refusals)
+        {
+            var status = StatusOf(result);
+            Assert.True(
+                status == StatusCodes.Status404NotFound,
+                $"{verb} answered a second administrator {status} for the owner, not 404.");
+            Assert.Equal(AccountRefusalResponse.AccountNotFound, StageKeyOf(result));
+        }
+
+        var stored = await ReadAccountAsync(database, owner.Id);
+        Assert.Equal("owner", stored.Username);
+        Assert.True(stored.IsMainAdmin);
+        Assert.False(stored.IsDisabled);
     }
 
     /// <summary>
@@ -119,15 +180,17 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// Nine attempts on the account that owns the installation: delete, disable and demote, tried by a
-    /// user, by another administrator and by that account itself. All nine are refused, and the row is
-    /// exactly as it was afterwards.
+    /// Twelve attempts on the account that owns the installation: edit, delete, disable and demote,
+    /// tried by a user, by another administrator and by that account itself. All twelve are refused,
+    /// and the row is exactly as it was afterwards.
     ///
-    /// Closing delete on its own is worth nothing while demoting is open, and closing both is worth
-    /// nothing while the account can be disabled, so the three are one rule.
+    /// A caller who is not the owner is answered 404 because the account is not one they may see at
+    /// all. The owner is answered 403 because they may see the row and still may not touch it.
+    /// Closing delete on its own is worth nothing while demoting or editing the password is open,
+    /// and closing those is worth nothing while the account can be disabled, so the four are one rule.
     /// </summary>
     [Fact]
-    public async Task TheMainAdministratorCannotBeDeletedDisabledOrDemotedByAnybody()
+    public async Task TheMainAdministratorCannotBeEditedDeletedDisabledOrDemotedByAnybody()
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
@@ -138,15 +201,14 @@ public sealed class AccountManagementTests : IDisposable
         {
             var controller = await NewControllerAsync(database.Factory, caller);
 
-            // A user is answered 404 because the account is not one it may see at all, and an
-            // administrator is answered 403 because it may see the account and still may not touch it.
-            // Both are refusals; which one arrives is the visibility rule, not a second decision.
-            var expected = caller.Role == SessionType.User
-                ? StatusCodes.Status404NotFound
-                : StatusCodes.Status403Forbidden;
+            var expected = caller.IsMainAdmin
+                ? StatusCodes.Status403Forbidden
+                : StatusCodes.Status404NotFound;
 
             var attempts = new (string Verb, int Status)[]
             {
+                ("edit", StatusOf(await controller.EditAccountAsync(
+                    owner.Id, new EditAccountRequest { Username = "taken-over", Password = NewPassword }))),
                 ("delete", StatusOf(await controller.DeleteAccountAsync(owner.Id))),
                 ("disable", StatusOf(await controller.SetDisabledAsync(owner.Id, new SetAccountDisabledRequest { Disabled = true }))),
                 ("demote", StatusOf(await controller.SetRoleAsync(owner.Id, new SetAccountRoleRequest { Role = SessionType.User })))
@@ -162,6 +224,7 @@ public sealed class AccountManagementTests : IDisposable
 
         var stored = await ReadAccountAsync(database, owner.Id);
         Assert.True(stored.IsMainAdmin);
+        Assert.Equal("owner", stored.Username);
         Assert.Equal(SessionType.Admin, stored.Role);
         Assert.False(stored.IsDisabled);
     }
@@ -633,6 +696,126 @@ public sealed class AccountManagementTests : IDisposable
         Assert.Equal(StatusCodes.Status200OK, StatusOf(signedIn));
     }
 
+    /// <summary>
+    /// The owner emptying the table is the exception to the rule that the main administrator cannot
+    /// be deleted: every row goes, including that one, and every session goes with them so the
+    /// first-admin wizard is what the next request sees.
+    /// </summary>
+    [Fact]
+    public async Task TheMainAdministratorCanWipeEveryAccountAndSession()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var administrator = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        var reader = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
+
+        var ownerSession = await SeedSessionAsync(database.Factory, owner);
+        await SeedSessionAsync(database.Factory, administrator);
+        await SeedSessionAsync(database.Factory, reader);
+
+        var controller = NewController(database.Factory, ownerSession);
+        var wiped = await controller.WipeAccountsAsync();
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(wiped));
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.Equal(0, await context.UserAccounts.CountAsync());
+        Assert.Equal(0, await context.UserSessions.CountAsync());
+    }
+
+    /// <summary>
+    /// A second administrator carries the same role as the owner and is still refused: the check
+    /// reads IsMainAdmin on the stored row, not the session type. The table is left as it was.
+    /// </summary>
+    [Fact]
+    public async Task ANonMainAdministratorCannotWipeAccounts()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        await SeedAccountAsync(database.Factory, "reader", SessionType.User);
+
+        var controller = await NewControllerAsync(database.Factory, caller);
+        var wiped = await controller.WipeAccountsAsync();
+
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(wiped));
+        Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(wiped));
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.Equal(3, await context.UserAccounts.CountAsync());
+        Assert.True(await context.UserAccounts.AnyAsync(a => a.Id == owner.Id && a.IsMainAdmin));
+    }
+
+    /// <summary>
+    /// A user is refused the same way, not 404: wipe names no other account, so the visibility
+    /// query never runs.
+    /// </summary>
+    [Fact]
+    public async Task AUserCannotWipeAccounts()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var caller = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
+
+        var controller = await NewControllerAsync(database.Factory, caller);
+        var wiped = await controller.WipeAccountsAsync();
+
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(wiped));
+        Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(wiped));
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.Equal(2, await context.UserAccounts.CountAsync());
+    }
+
+    /// <summary>
+    /// A caller with no account row is the API-key-only shape. CallerMayGrantAdmin would admit it
+    /// when authentication is off; wipe must not, because emptying the table is not a standing
+    /// right of the key.
+    /// </summary>
+    [Fact]
+    public async Task ACallerWithNoAccountCannotWipeAccounts()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var session = await SeedSessionAsync(database.Factory, account: null);
+
+        var withAuthOn = NewController(database.Factory, session);
+        var refusedOn = await withAuthOn.WipeAccountsAsync();
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(refusedOn));
+        Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(refusedOn));
+
+        var withAuthOff = NewController(database.Factory, session, authenticationEnabled: false);
+        var refusedOff = await withAuthOff.WipeAccountsAsync();
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(refusedOff));
+        Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(refusedOff));
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.Equal(1, await context.UserAccounts.CountAsync());
+    }
+
+    /// <summary>
+    /// First-admin creation checks the hour-from-start window, not whether the table is empty. A
+    /// wipe on a process that has already been up longer than that hour has to open a new one or
+    /// every submit on the next screen is refused until a restart.
+    /// </summary>
+    [Fact]
+    public async Task WipingAccountsReopensTheFirstAdministratorWindow()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var ownerSession = await SeedSessionAsync(database.Factory, owner);
+
+        var claimWindow = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
+        claimWindow.Expire();
+        Assert.False(claimWindow.IsOpen);
+
+        var controller = NewController(database.Factory, ownerSession, claimWindow: claimWindow);
+        var wiped = await controller.WipeAccountsAsync();
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(wiped));
+        Assert.True(claimWindow.IsOpen);
+    }
+
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
     private async Task<AccountsController> NewControllerAsync(TestDbContextFactory factory, UserAccount caller)
@@ -645,7 +828,8 @@ public sealed class AccountManagementTests : IDisposable
         UserSession caller,
         bool authenticationEnabled = true,
         IdentityAuditService? auditService = null,
-        AccountLockout? lockout = null)
+        AccountLockout? lockout = null,
+        AccountClaimWindow? claimWindow = null)
     {
         var configuration = NewConfiguration(authenticationEnabled);
         var controller = new AccountsController(
@@ -660,6 +844,7 @@ public sealed class AccountManagementTests : IDisposable
                 configuration),
             auditService ?? new IdentityAuditService(factory, NullLogger<IdentityAuditService>.Instance),
             lockout ?? new AccountLockout(NullLogger<AccountLockout>.Instance),
+            claimWindow ?? new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
             NullLogger<AccountsController>.Instance);
 
         var httpContext = new DefaultHttpContext();

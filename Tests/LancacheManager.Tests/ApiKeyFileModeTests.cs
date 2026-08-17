@@ -67,6 +67,50 @@ public sealed class ApiKeyFileModeTests : IDisposable
         AssertOwnerOnly();
     }
 
+    [Fact]
+    public void ALaterStartupDoesNotPrintTheFullApiKey()
+    {
+        var key = _apiKeyService.GetApiKey();
+        var printed = CaptureDisplay(revealKey: false);
+
+        Assert.DoesNotContain(key, printed);
+        Assert.Contains(_keyPath, printed);
+        Assert.Contains("lm_…", printed);
+    }
+
+    [Fact]
+    public void AFirstStartPrintsTheFullApiKey()
+    {
+        var key = _apiKeyService.GetApiKey();
+        var printed = CaptureDisplay(revealKey: true);
+
+        Assert.Contains(key, printed);
+    }
+
+    private string CaptureDisplay(bool revealKey)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:ApiKeyPath"] = _keyPath
+            })
+            .Build();
+
+        var original = Console.Out;
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+        try
+        {
+            _apiKeyService.DisplayApiKey(configuration, revealKey);
+        }
+        finally
+        {
+            Console.SetOut(original);
+        }
+
+        return writer.ToString();
+    }
+
     private void AssertOwnerOnly()
     {
         Assert.True(File.Exists(_keyPath));

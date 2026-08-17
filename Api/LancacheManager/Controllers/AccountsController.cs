@@ -20,12 +20,13 @@ namespace LancacheManager.Controllers;
 /// account row rather than against the claims on their cookie. The row is the current answer; a claim
 /// is a copy taken when the session was minted.
 ///
-/// A user sees and reaches only accounts that are not administrators, enforced by the query every
-/// action loads its target through, so an account a user cannot see is also an account a user cannot
-/// name by id.
+/// A user sees and reaches only accounts that are not administrators, and an administrator who is
+/// not the owner does not see or reach the owner. Both are enforced by the query every action loads
+/// its target through, so an account a caller cannot see is also an account they cannot name by id.
 ///
 /// The account that owns the installation cannot be deleted, disabled, demoted or edited, by anybody
-/// including itself.
+/// including itself. The wipe action is the exception: only that account can run it, and it
+/// deletes every row including its own.
 ///
 /// Only that account hands out the administrator role.
 /// </remarks>
@@ -39,6 +40,7 @@ public class AccountsController : ControllerBase
     private readonly SessionService _sessionService;
     private readonly IdentityAuditService _identityAuditService;
     private readonly AccountLockout _accountLockout;
+    private readonly AccountClaimWindow _claimWindow;
     private readonly ILogger<AccountsController> _logger;
 
     public AccountsController(
@@ -47,6 +49,7 @@ public class AccountsController : ControllerBase
         SessionService sessionService,
         IdentityAuditService identityAuditService,
         AccountLockout accountLockout,
+        AccountClaimWindow claimWindow,
         ILogger<AccountsController> logger)
     {
         _dbContextFactory = dbContextFactory;
@@ -54,12 +57,13 @@ public class AccountsController : ControllerBase
         _sessionService = sessionService;
         _identityAuditService = identityAuditService;
         _accountLockout = accountLockout;
+        _claimWindow = claimWindow;
         _logger = logger;
     }
 
     /// <summary>
-    /// Lists the accounts the caller may see: every account for an administrator, and every account
-    /// that is not an administrator for a user.
+    /// Lists the accounts the caller may see: every account for the owner, every account except the
+    /// owner for another administrator, and every account that is not an administrator for a user.
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(List<AccountResponse>), StatusCodes.Status200OK)]
@@ -439,13 +443,60 @@ public class AccountsController : ControllerBase
     }
 
     /// <summary>
-    /// The accounts a caller may see and name. A user is answered without the administrators; every
-    /// other caller is answered with everybody.
+    /// Deletes every account, including the one that owns the installation, and ends every session.
+    /// </summary>
+    /// <remarks>
+    /// Single-account delete refuses the main administrator so that row cannot vanish by accident.
+    /// This is the explicit exception: the owner is emptying the table so the first-admin wizard can
+    /// run again. Anyone who is not that owner is refused the same way they are refused when they
+    /// try to grant the administrator role. A missing account row — API key only, or authentication
+    /// off — is not treated as a grant, because <see cref="CallerMayGrantAdmin"/> would admit those
+    /// callers.
+    ///
+    /// Each removed row is recorded as <see cref="IdentityAuditEvent.AccountDeleted"/> while the
+    /// caller's session still exists, then every session is deleted rather than revoked one account
+    /// at a time. The claim window is opened again so first-admin creation does not wait for a
+    /// restart on a process that has already been up longer than the hour.
+    /// </remarks>
+    [HttpPost("wipe")]
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageResponse>> WipeAccountsAsync()
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var session = HttpContext.GetUserSession();
+        var caller = await LoadCallerAccountAsync(context, session);
+
+        if (caller?.IsMainAdmin != true)
+        {
+            return AdminRoleRefused();
+        }
+
+        var accounts = await context.UserAccounts.ToListAsync();
+        context.UserAccounts.RemoveRange(accounts);
+        await context.SaveChangesAsync();
+        // The table is already empty. Open the hour before audit or session-clear can throw, or
+        // first-admin stays refused until a restart.
+        _claimWindow.Reopen();
+
+        foreach (var removed in accounts)
+        {
+            await RecordAsync(IdentityAuditEvent.AccountDeleted, caller, session, removed.Id);
+        }
+
+        await _sessionService.ClearAllSessionsAsync();
+
+        _logger.LogWarning("Every account was deleted, including the one that owns the installation");
+
+        return Ok(MessageResponse.Ok("Accounts deleted"));
+    }
+
+    /// <summary>
+    /// The accounts a caller may see and name. See <see cref="MainAdminVisibility.AccountsVisibleTo"/>.
     /// </summary>
     /// <remarks>
     /// Every action loads its target through this, which is what makes the rule a permission rather
-    /// than a display filter: hiding an administrator from the list while still answering a request
-    /// that names one by id hides nothing at all.
+    /// than a display filter: hiding an account from the list while still answering a request that
+    /// names one by id hides nothing at all.
     ///
     /// A caller with no account row is one of the two session shapes that never has one - a request
     /// carrying only the API key, and the shared session used while authentication is disabled - and
@@ -454,9 +505,7 @@ public class AccountsController : ControllerBase
     /// </remarks>
     private static IQueryable<UserAccount> AccountsVisibleTo(AppDbContext context, UserAccount? caller)
     {
-        return caller is { Role: SessionType.User }
-            ? context.UserAccounts.Where(a => a.Role != SessionType.Admin)
-            : context.UserAccounts;
+        return MainAdminVisibility.AccountsVisibleTo(context, caller);
     }
 
     /// <summary>

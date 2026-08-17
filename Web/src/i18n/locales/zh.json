@@ -14,12 +14,12 @@
       "recovery": {
         "toggle": "重试后仍然无法进入？",
         "heading": "重新设置 PostgreSQL 密码",
-        "description": "仅当 LANCache Manager 因保存的密码不再匹配而无法连接其内置 PostgreSQL 时使用。此操作会修改并保存密码，不会删除任何内容。您需要 /data/security/api_key.txt 中的 API Key，它也会打印在容器日志中。",
+        "description": "仅当 LANCache Manager 因保存的密码不再匹配而无法连接其内置 PostgreSQL 时使用。此操作会修改并保存密码，不会删除任何内容。API 密钥在 /data/security/api_key.txt。仅在首次创建或轮换密钥时才会写入日志。",
         "apiKeyPlaceholder": "lm_xxxxxxxxxxxxxxxxxxxxx",
         "usernameLabel": "PostgreSQL 用户",
         "usernamePlaceholder": "lancache",
         "passwordLabel": "新密码",
-        "passwordPlaceholder": "至少 8 个字符",
+        "passwordPlaceholder": "至少 12 个字符，且包含小写、大写、数字、其他符号中的至少三种",
         "submit": "保存密码",
         "saved": "密码已保存。请重启容器以完全生效。",
         "failed": "无法保存密码。请检查 API Key 后重试。"
@@ -747,11 +747,52 @@
       "increased": "缓存容量在此范围内增加",
       "decreased": "缓存容量在此范围内减少",
       "unchanged": "缓存容量在此范围内没有变化"
+    },
+    "bandwidthTrend": {
+      "title": "带宽",
+      "saved": "缓存命中",
+      "served": "总服务量",
+      "noDataTitle": "暂无带宽数据",
+      "noDataDesc": "此范围内还没有下载记录。",
+      "resolution": {
+        "15": "15 分钟",
+        "30": "30 分钟",
+        "60": "每小时",
+        "180": "3 小时",
+        "1440": "每日"
+      },
+      "help": {
+        "aboutTitle": "关于此图表",
+        "about": "所选范围内的缓存命中与总服务量。短活动使用小时或 3 小时桶，避免一天只有一个点。",
+        "resolution": "徽章是桶宽度。它跟随实际有下载的小时数，而不仅是时间选择器。"
+      }
+    },
+    "eventCompare": {
+      "title": "比较活动",
+      "pickEvents": "活动",
+      "elapsed": "已过 {{time}}",
+      "metrics": {
+        "served": "总服务量",
+        "saved": "缓存命中"
+      },
+      "noEventsTitle": "没有可比较的活动",
+      "noEventsDesc": "先在活动页面创建 LAN 聚会，再在这里选择。",
+      "noDataTitle": "还没有可比较的数据",
+      "noDataDesc": "请选择至少一个已标记下载的活动。",
+      "errors": {
+        "load": "无法加载活动比较。"
+      },
+      "help": {
+        "aboutTitle": "关于此图表",
+        "about": "每条线是一个活动，从该活动的开始时刻对齐，方便按小时比较两次 LAN 聚会。",
+        "axis": "悬停可查看同一已过时间下每个所选活动。顶部时间范围会截断从各活动开始起绘制的长度。"
+      }
     }
   },
   "auth": {
     "header": {
-      "title": "升级到完全访问"
+      "title": "升级到完全访问",
+      "subtitle": "使用 API 密钥和账户登录以退出访客模式。"
     },
     "form": {
       "label": "API 密钥",
@@ -759,15 +800,15 @@
       "submit": "验证身份"
     },
     "help": {
-      "title": "查找您的 API 密钥：",
+      "title": "查找您的 API 密钥",
       "step1": "SSH 进入您的 LANCache 管理器服务器",
       "step2": {
         "before": "检查 ",
         "code": "/data/security/api_key.txt"
       },
       "step3": {
-        "before": "或检查容器日志：",
-        "code": "docker logs lancache-manager"
+        "before": "仅在首次创建或轮换密钥时才会写入日志。",
+        "code": ""
       }
     },
     "success": "认证成功！正在升级到完全访问...",
@@ -834,7 +875,7 @@
       "title": "用户账户",
       "loading": "加载账户中...",
       "paginationLabel": "个账户",
-      "mainAdmin": "主管理员",
+      "mainAdmin": "主要",
       "neverSignedIn": "从未登录",
       "columns": {
         "username": "用户名",
@@ -857,7 +898,8 @@
         "promote": "设为管理员",
         "demote": "设为普通用户",
         "enable": "启用",
-        "disable": "禁用"
+        "disable": "禁用",
+        "wipe": "清除全部账户"
       },
       "empty": {
         "title": "暂无账户",
@@ -871,20 +913,23 @@
         "newPassword": "新密码",
         "passwordHint": "留空则保留当前密码。",
         "role": "角色",
-        "adminRoleReserved": "只有拥有此安装的账户才能授予管理员角色。"
+        "adminRoleReserved": "只有主要账户才能授予管理员角色。"
       },
       "confirm": {
         "deleteTitle": "删除账户",
         "deleteBody": "确定要删除 {{username}} 吗？其会话将立即结束，且此操作无法撤销。",
         "roleTitle": "更改账户角色",
         "roleLabel": "更改角色",
-        "roleBody": "确定要将 {{username}} 设为{{role}}角色吗？其会话将立即结束。"
+        "roleBody": "确定要将 {{username}} 设为{{role}}角色吗？其会话将立即结束。",
+        "wipeTitle": "清除全部账户",
+        "wipeBody": "这将删除包括您在内的所有账户，并让所有人退出登录。下一屏是创建首位管理员。此操作无法撤销。"
       },
       "errors": {
         "load": "加载账户失败",
         "disabled": "更新账户状态失败",
         "delete": "删除账户失败",
-        "role": "更改账户角色失败"
+        "role": "更改账户角色失败",
+        "wipe": "清除账户失败"
       }
     },
     "stats": {
@@ -3472,7 +3517,8 @@
         "peakHour": "高峰使用时段（0-23）",
         "hourlyDownloads": "按小时热图显示下载量",
         "growthRate": "缓存增长率（GB/天）",
-        "daysUntilFull": "缓存存满天数"
+        "daysUntilFull": "缓存存满天数",
+        "eventBytes": "每个局域网活动提供的字节数"
       },
       "help": {
         "metrics": {
@@ -3484,6 +3530,10 @@
           "activity": {
             "term": "活动指标",
             "description": "当前下载、已连接客户端以及按服务分类的详细信息"
+          },
+          "events": {
+            "term": "局域网活动指标",
+            "description": "每个已标记局域网活动的提供字节数、缓存命中和下载次数"
           }
         },
         "integration": {
@@ -4086,7 +4136,7 @@
         "findApiKey": "查找您的 API 密钥：",
         "step1": "SSH 进入您的 LANCache 管理器服务器",
         "step2Before": "检查",
-        "step3Before": "或检查容器日志：",
+        "step3Before": "仅在首次创建或轮换密钥时才会写入日志。",
         "continueAsGuest": "继续作为访客",
         "upgradeToFullAccess": "升级到完全访问"
       },
@@ -4989,11 +5039,11 @@
       },
       "help": {
         "title": "如何找到您的 API 密钥：",
-        "description": "API 密钥在您首次启动服务器时显示。请在服务器日志中查找 \"API Key:\" 或查看 data/security/api_key.txt 文件。"
+        "description": "API 密钥在 data/security/api_key.txt。仅在首次创建或轮换密钥时才会写入日志。"
       },
       "keyRotated": {
         "title": "API 密钥是否已重新生成？",
-        "description": "重新生成密钥会让所有人退出登录，旧密钥随即失效。如果有人重新生成了密钥，请向其索取新密钥后再登录。"
+        "description": "重新生成密钥会让所有人退出登录，删除主管理员以外的所有账户，旧密钥随即失效。如果有人重新生成了密钥，请向其索取新密钥后再登录。"
       },
       "errors": {
         "apiKeyRequired": "API 密钥是必需的",
@@ -6514,7 +6564,7 @@
     },
     "adminAccount": {
       "heading": "管理员账户",
-      "description": "创建您用于登录的账户。它是主管理员账户，之后无法删除，也无法降级。",
+      "description": "创建您用于登录的账户。它是主管理员。无法降级，也不能作为单个账户删除。",
       "usernameLabel": "用户名",
       "usernamePlaceholder": "请设置一个用户名",
       "passwordLabel": "密码",

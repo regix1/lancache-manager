@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Key, Lock } from 'lucide-react';
+import { Key } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Alert } from '@components/ui/Alert';
@@ -48,14 +48,11 @@ const AuthenticateTab: React.FC = () => {
       if (result.success) {
         setAuthError(null);
         notifySuccess(t('auth.success'));
-        // Refresh auth context
         await refreshAuth();
-        // Clear input
         setApiKey('');
         setUsername('');
         setPassword('');
 
-        // Give user a moment to see success message before redirect happens
         setTimeout(() => {
           window.location.reload();
         }, 1500);
@@ -83,101 +80,89 @@ const AuthenticateTab: React.FC = () => {
 
   return (
     <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
-      <div className="max-w-lg mx-auto space-y-4 sm:space-y-6">
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg flex-shrink-0 bg-themed-accent-subtle">
-            <Key className="w-6 h-6 text-themed-accent" />
+      <div className="auth-upgrade">
+        <Card padding="none" className="auth-upgrade-card">
+          <div className="auth-upgrade-header">
+            <div className="auth-upgrade-icon">
+              <Key className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="auth-upgrade-title">{t('auth.header.title')}</h1>
+              <p className="auth-upgrade-subtitle">{t('auth.header.subtitle')}</p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl font-bold text-themed-primary">
-              {t('auth.header.title')}
-            </h1>
-          </div>
-        </div>
 
-        {/* Authentication Card */}
-        <Card>
-          <div className="p-6 space-y-6">
-            <div className="space-y-4">
-              <div>
-                <label className="form-field-label">{t('auth.form.label')}</label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  onKeyDown={handleCredentialKeyDown}
-                  placeholder={t('auth.form.placeholder')}
-                  className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted bg-themed-secondary border border-themed rounded-lg"
-                  autoComplete="off"
-                  disabled={loading}
-                />
-              </div>
-
-              <div>
-                <label className="form-field-label">{t('modals.auth.labels.username')}</label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  onKeyDown={handleCredentialKeyDown}
-                  placeholder={t('modals.auth.placeholders.enterUsername')}
-                  className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted bg-themed-secondary border border-themed rounded-lg"
-                  autoComplete="username"
-                  disabled={loading}
-                />
-              </div>
-
-              <div>
-                <label className="form-field-label">{t('modals.auth.labels.password')}</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={handleCredentialKeyDown}
-                  placeholder={t('modals.auth.placeholders.enterPassword')}
-                  className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted bg-themed-secondary border border-themed rounded-lg"
-                  autoComplete="current-password"
-                  disabled={loading}
-                />
-              </div>
-
-              {authError && <Alert color="red">{authError}</Alert>}
-
-              <Button
-                variant="filled"
-                color="green"
-                size="md"
-                leftSection={<Lock className="w-4 h-4" />}
-                onClick={handleAuthenticate}
-                loading={loading}
-                disabled={!credentialsFilled || loading}
-                className="w-full sm:w-auto"
-              >
-                {t('auth.form.submit')}
-              </Button>
+          <div className="auth-upgrade-form">
+            <div>
+              <label className="form-field-label">{t('auth.form.label')}</label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                onKeyDown={handleCredentialKeyDown}
+                placeholder={t('auth.form.placeholder')}
+                className="w-full p-3 text-sm themed-input"
+                autoComplete="off"
+                disabled={loading}
+              />
             </div>
 
-            <Alert color="blue">
-              <div>
-                <p className="font-medium mb-2">{t('auth.help.title')}</p>
-                <ol className="list-decimal list-inside text-sm space-y-1 ml-2">
-                  <li>{t('auth.help.step1')}</li>
-                  <li>
-                    {t('auth.help.step2.before')}
-                    <code className="bg-themed-tertiary px-1 rounded">
-                      {t('auth.help.step2.code')}
-                    </code>
-                  </li>
-                  <li>
-                    {t('auth.help.step3.before')}
-                    <code className="bg-themed-tertiary px-1 rounded">
-                      {t('auth.help.step3.code')}
-                    </code>
-                  </li>
-                </ol>
-              </div>
-            </Alert>
+            <div>
+              <label className="form-field-label">{t('modals.auth.labels.username')}</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onKeyDown={handleCredentialKeyDown}
+                placeholder={t('modals.auth.placeholders.enterUsername')}
+                className="w-full p-3 text-sm themed-input"
+                autoComplete="username"
+                disabled={loading}
+              />
+            </div>
+
+            <div>
+              <label className="form-field-label">{t('modals.auth.labels.password')}</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={handleCredentialKeyDown}
+                placeholder={t('modals.auth.placeholders.enterPassword')}
+                className="w-full p-3 text-sm themed-input"
+                autoComplete="current-password"
+                disabled={loading}
+              />
+            </div>
+
+            {authError && <Alert color="red">{authError}</Alert>}
+
+            <Button
+              variant="filled"
+              color="blue"
+              size="md"
+              onClick={handleAuthenticate}
+              loading={loading}
+              disabled={!credentialsFilled || loading}
+              fullWidth
+            >
+              {t('auth.form.submit')}
+            </Button>
+          </div>
+
+          <div className="auth-upgrade-help">
+            <p className="auth-upgrade-help-title">{t('auth.help.title')}</p>
+            <ol className="auth-upgrade-help-list">
+              <li>{t('auth.help.step1')}</li>
+              <li>
+                {t('auth.help.step2.before')}
+                <code>{t('auth.help.step2.code')}</code>
+              </li>
+              <li>
+                {t('auth.help.step3.before')}
+                {t('auth.help.step3.code') ? <code>{t('auth.help.step3.code')}</code> : null}
+              </li>
+            </ol>
           </div>
         </Card>
       </div>

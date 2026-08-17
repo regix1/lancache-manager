@@ -167,7 +167,7 @@ public class ApiKeysController : ControllerBase
         }
 
         var (oldKey, newKey) = _apiKeyService.RegenerateApiKey();
-        _apiKeyService.DisplayApiKey(_configuration);
+        _apiKeyService.DisplayApiKey(_configuration, revealKey: true);
 
         // Built before anything is revoked. The caller signs in with the key, so the session making
         // this request is one of the ones about to end, and a rotation that only confirms itself

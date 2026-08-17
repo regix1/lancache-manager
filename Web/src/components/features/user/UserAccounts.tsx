@@ -26,6 +26,7 @@ import { useMediaQuery } from '@hooks/useMediaQuery';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { getErrorMessage } from '@utils/error';
 import { API_BASE } from '@utils/constants';
+import WipeAccountsButton from './WipeAccountsButton';
 import type { AccountConfirmation, AccountEditor, AccountRole, UserAccount } from './types';
 
 // Not exported - a .tsx file exports components only, and Fast Refresh needs it that way.
@@ -36,10 +37,10 @@ const PAGE_SIZE = 10;
  *
  * Nothing here decides who may do what. The account rows a caller is answered with, and every
  * refusal, come from the server, so a user and an admin run the same screen and see whatever their
- * own session is entitled to. The one thing the screen does decide is what a control that is going
- * to be refused looks like: the account that owns the installation keeps its row menu, with the
- * items on it disabled, because a control that vanishes reads as a bug while a disabled one reads
- * as a rule.
+ * own session is entitled to. The owner is the only caller answered with the owner's row; everyone
+ * else is answered without it. The one thing the screen does decide is what a control that is going
+ * to be refused looks like: when the owner sees their own row, the menu stays, with the items on
+ * it disabled, because a control that vanishes reads as a bug while a disabled one reads as a rule.
  */
 const UserAccounts: React.FC = () => {
   const { t } = useTranslation();
@@ -376,6 +377,7 @@ const UserAccounts: React.FC = () => {
             >
               {t('user.accounts.actions.create')}
             </Button>
+            <WipeAccountsButton />
           </SectionHeaderActions>
         }
       >

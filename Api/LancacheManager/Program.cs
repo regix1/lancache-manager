@@ -1163,9 +1163,9 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// Display API key to console on startup
+// First start (no api_key.txt) prints the key. Later restarts only print the file path.
 var apiKeyService = app.Services.GetRequiredService<ApiKeyService>();
-apiKeyService.DisplayApiKey(app.Configuration);
+apiKeyService.DisplayApiKey(app.Configuration, revealKey: apiKeyService.WasNewKeyGenerated);
 
 // If a new API key was generated (data folder was deleted), invalidate all old sessions
 // so existing browser cookies cannot authenticate against the new key. The sessions being

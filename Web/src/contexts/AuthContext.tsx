@@ -59,6 +59,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Timeout is handled by AbortController in auth.service.ts (10s)
     try {
       const data = await authService.checkAuth();
+      if (data.reachable === false) {
+        // The stub checkAuth returns on a failed or timed-out status call is
+        // isAuthenticated: false. Applying it here would sign a live session out.
+        return;
+      }
 
       if (data.authenticationEnabled === false) {
         console.warn(

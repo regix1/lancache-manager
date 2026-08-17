@@ -101,7 +101,8 @@ public class SetupController : ControllerBase
     }
 
     /// <summary>
-    /// Sets the embedded PostgreSQL password.
+    /// Sets the embedded PostgreSQL password. The new password must be at least 12 characters
+    /// and use three character classes.
     /// </summary>
     /// <remarks>
     /// Anonymous at the routing layer but never open: the API key is checked first, and a session
@@ -143,7 +144,7 @@ public class SetupController : ControllerBase
                 "POSTGRES_MODE=external is set. Use POST /api/setup/external to configure the external database connection."));
         }
 
-        var passwordProblem = CheckPassword(request.Password);
+        var passwordProblem = CheckNewRolePassword(request.Password);
         if (passwordProblem != null)
             return BadRequest(ApiResponse.Error(passwordProblem));
 
@@ -434,16 +435,13 @@ public class SetupController : ControllerBase
     }
 
     /// <summary>
-    /// The password rules both setup endpoints apply, in one place because two copies of them had
-    /// already drifted apart. Returns the sentence to send back, or null when the password passes.
+    /// The password an existing PostgreSQL server is already using. The external endpoint has to
+    /// accept that value so a role that was created before these rules still connects. A new
+    /// embedded role password goes through <see cref="CheckNewRolePassword"/> instead.
     ///
     /// The character rule is the one with teeth: the value is written to postgres-credentials.json,
     /// and the .NET app, the Rust binaries and entrypoint.sh all rebuild their connection settings by
-    /// reading that file back, which a backslash or a control character does not survive intact. On
-    /// the embedded path it additionally has to be serialized into an ALTER USER ... PASSWORD '...'
-    /// literal, where a backslash is not standard-conforming without E'' and a control character
-    /// terminates the literal on some drivers. Both endpoints reject before anything is built or
-    /// written.
+    /// reading that file back, which a backslash or a control character does not survive intact.
     /// </summary>
     private static string? CheckPassword(string password)
     {
@@ -461,6 +459,39 @@ public class SetupController : ControllerBase
 
         return null;
     }
+
+    /// <summary>
+    /// The password written onto the embedded role by ALTER USER. That role is created WITH
+    /// SUPERUSER, so this matches the account-password classes rather than the 8-character floor
+    /// <see cref="CheckPassword"/> keeps for an already-running external server.
+    /// </summary>
+    private static string? CheckNewRolePassword(string password)
+    {
+        var existing = CheckPassword(password);
+        if (existing != null)
+        {
+            return existing;
+        }
+
+        if (password.Length < 12)
+            return "Password must be at least 12 characters";
+
+        if (password.Length > 256)
+            return "Password cannot exceed 256 characters";
+
+        if (!UsesThreeCharacterClasses(password))
+        {
+            return "Password must use at least three of: lowercase letters, uppercase letters, digits, and other characters";
+        }
+
+        return null;
+    }
+
+    private static bool UsesThreeCharacterClasses(string password) =>
+        (password.Any(char.IsLower) ? 1 : 0)
+        + (password.Any(char.IsUpper) ? 1 : 0)
+        + (password.Any(char.IsDigit) ? 1 : 0)
+        + (password.Any(character => !char.IsLetterOrDigit(character)) ? 1 : 0) >= 3;
 
     /// <summary>
     /// The username rule both setup endpoints apply. Returns the sentence to send back, or null when

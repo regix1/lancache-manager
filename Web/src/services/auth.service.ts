@@ -39,6 +39,11 @@ interface AuthStatusResponse {
   riotPrefillExpiresAt: string | null;
   xboxPrefillEnabled: boolean;
   xboxPrefillExpiresAt: string | null;
+  /**
+   * False when the status route was not reached. hasData is then unknown, not empty — the sign-in
+   * guest button must not read a failed call as "no data loaded".
+   */
+  reachable?: boolean;
 }
 
 interface LoginResponse {
@@ -100,7 +105,7 @@ class AuthService {
         this.authMode = 'unauthenticated';
       }
 
-      return data;
+      return { ...data, reachable: true };
     } catch (error: unknown) {
       if (error instanceof Error && error.name === 'AbortError') {
         console.warn(`[AuthService] checkAuth timed out after ${AUTH_CHECK_TIMEOUT_MS}ms`);
@@ -136,7 +141,8 @@ class AuthService {
         riotPrefillEnabled: false,
         riotPrefillExpiresAt: null,
         xboxPrefillEnabled: false,
-        xboxPrefillExpiresAt: null
+        xboxPrefillExpiresAt: null,
+        reachable: false
       };
     } finally {
       clearTimeout(timeoutId);

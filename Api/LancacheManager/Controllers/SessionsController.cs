@@ -35,7 +35,8 @@ public class SessionsController : ControllerBase
     }
 
     /// <summary>
-    /// Lists sessions for the admin management screen.
+    /// Lists sessions the caller may see. The owner's sessions are withheld from every other
+    /// account holder.
     /// </summary>
     /// <remarks>
     /// Active sessions (paginated), plus the full revoked/expired history unpaginated since it is
@@ -50,16 +51,19 @@ public class SessionsController : ControllerBase
         if (pageSize < 1) pageSize = 20;
         if (pageSize > 100) pageSize = 100;
 
-        var currentSessionId = HttpContext.GetUserSession()?.Id;
+        var currentSession = HttpContext.GetUserSession();
+        var currentSessionId = currentSession?.Id;
         var now = DateTime.UtcNow;
 
-        // Active sessions (paginated)
-        var (activeSessions, activeCount) = await _sessionService.GetActiveSessionsPagedAsync(page, pageSize);
+        // Active sessions (paginated). The caller is passed through so the owner's sessions are
+        // withheld from everyone else the same way the account list withholds that row.
+        var (activeSessions, activeCount) = await _sessionService.GetActiveSessionsPagedAsync(
+            page, pageSize, currentSession);
         var activeDtos = activeSessions.Select(s => ToDto(s, currentSessionId, now)).ToList();
         var totalPages = (int)Math.Ceiling((double)activeCount / pageSize);
 
         // History sessions (revoked/expired) - unpaginated
-        var historySessions = await _sessionService.GetSessionHistoryAsync();
+        var historySessions = await _sessionService.GetSessionHistoryAsync(currentSession);
         var historyDtos = historySessions.Select(s => ToDto(s, currentSessionId, now)).ToList();
 
         return Ok(new SessionListResponse
@@ -131,7 +135,7 @@ public class SessionsController : ControllerBase
     }
 
     /// <summary>
-    /// Revokes a session.
+    /// Revokes a session. A session belonging to the owner answers as one that does not exist.
     /// </summary>
     /// <remarks>
     /// It can no longer authenticate, but its row (and history) is kept, unlike
@@ -143,6 +147,10 @@ public class SessionsController : ControllerBase
     public async Task<ActionResult<MessageResponse>> RevokeAsync(Guid id)
     {
         var currentSession = HttpContext.GetUserSession();
+        if (!await _sessionService.CallerMaySeeSessionAsync(currentSession, id))
+        {
+            return NotFound(ApiResponse.NotFound("Session"));
+        }
 
         var success = await _sessionService.RevokeSessionAsync(id);
         if (!success)
@@ -161,7 +169,8 @@ public class SessionsController : ControllerBase
     }
 
     /// <summary>
-    /// Permanently deletes a session's row and history.
+    /// Permanently deletes a session's row and history. A session belonging to the owner answers
+    /// as one that does not exist.
     /// </summary>
     /// <remarks>
     /// Unlike <see cref="RevokeAsync"/> which only blocks it from authenticating again.
@@ -172,6 +181,10 @@ public class SessionsController : ControllerBase
     public async Task<ActionResult<MessageResponse>> DeleteAsync(Guid id)
     {
         var currentSession = HttpContext.GetUserSession();
+        if (!await _sessionService.CallerMaySeeSessionAsync(currentSession, id))
+        {
+            return NotFound(ApiResponse.NotFound("Session"));
+        }
 
         var success = await _sessionService.DeleteSessionAsync(id);
         if (!success)
@@ -206,6 +219,9 @@ public class SessionsController : ControllerBase
         // Only the owning session or an account holder may update refresh rate
         if (!isAccountHolder && callerSession?.Id != id)
             return Forbid();
+
+        if (callerSession?.Id != id && !await _sessionService.CallerMaySeeSessionAsync(callerSession, id))
+            return NotFound(ApiResponse.NotFound("Session"));
 
         // Guests cannot change their refresh rate when the global lock is active
         if (!isAccountHolder && _stateService.GetGuestRefreshRateLocked())

@@ -34,7 +34,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   const { t } = useTranslation();
   const { startGuestSession: authStartGuest, login: authLogin, authenticationEnabled } = useAuth();
   const { guestDurationHours, guestModeLocked: contextGuestModeLocked } = useGuestConfig();
-  const { setupStatus } = useSetupStatus();
+  const { setupStatus, isSetupStatusKnown } = useSetupStatus();
   const { on, off } = useSignalR();
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
@@ -44,7 +44,11 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   // Set only when the server refuses the credentials, never when guest mode fails or the network
   // does, because it decides whether the rotation notice is shown.
   const [signInRefused, setSignInRefused] = useState(false);
-  const [dataAvailable, setDataAvailable] = useState(false);
+  // Null until a status call actually answers. A failed or timed-out check used to store false,
+  // which is the same value as "the server said there are no download rows", and that disabled
+  // the guest button on an installation that had data. Same unread-vs-false split as
+  // accountExists / installationUnclaimed below.
+  const [dataAvailable, setDataAvailable] = useState<boolean | null>(null);
   const [checkingDataAvailability, setCheckingDataAvailability] = useState(false);
 
   // Local state for guest mode lock - synced via SignalR for fast updates
@@ -62,6 +66,10 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   // guest away by itself. With authentication off the installation is account-less on purpose, so
   // the flag says nothing there and the button stays as it was.
   const installationUnclaimed = authenticationEnabled && setupStatus?.accountExists === false;
+  // isCompleted is false on the unread placeholder too, so only a status call that actually
+  // answered can hide guest for an unfinished wizard. StartGuest refuses that state.
+  const setupKnownIncomplete = isSetupStatusKnown && setupStatus?.isCompleted === false;
+  const offerGuest = allowGuestMode && !installationUnclaimed && !setupKnownIncomplete;
 
   // Database reset status
   const [resetStatus, setResetStatus] = useState<DatabaseResetStatus>({
@@ -76,10 +84,10 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   // No need to manually clear auth on mount
 
   useEffect(() => {
-    if (allowGuestMode) {
-      checkDataAvailability();
+    if (offerGuest) {
+      void checkDataAvailability();
     }
-  }, [allowGuestMode]);
+  }, [offerGuest]);
 
   // Subscribe to SignalR database reset progress events (no polling - SignalR only)
   useEffect(() => {
@@ -147,19 +155,21 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
     setLocalGuestModeLocked(contextGuestModeLocked);
   }, [contextGuestModeLocked]);
 
-  const checkDataAvailability = async () => {
+  const checkDataAvailability = async (): Promise<boolean | null> => {
     setCheckingDataAvailability(true);
     try {
       // Use the public auth status endpoint for this check. /api/system/setup is anonymous too, but
       // it answers with setup progress rather than whether any download rows exist.
       const authCheck = await authService.checkAuth();
+      if (authCheck.reachable === false) {
+        return null;
+      }
       const hasData = Boolean(authCheck.hasDataLoaded || authCheck.hasData);
       setDataAvailable(hasData);
       return hasData;
     } catch (error) {
       console.error('Failed to check data availability:', error);
-      setDataAvailable(false);
-      return false;
+      return null;
     } finally {
       setCheckingDataAvailability(false);
     }
@@ -207,7 +217,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
     }
 
     const hasData = await checkDataAvailability();
-    if (!hasData) {
+    if (hasData === false) {
       setAuthError(t('modals.auth.errors.guestModeNoData'));
       return;
     }
@@ -309,7 +319,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
           <p className="text-themed-secondary text-center mb-6">
             {subtitle}
-            {allowGuestMode && (
+            {offerGuest && (
               <>
                 <br />
                 <span className={`text-sm ${guestModeLocked ? 'text-error' : 'text-themed-muted'}`}>
@@ -389,7 +399,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
               </Button>
 
               {/* Show guest mode divider and button if allowed (disabled when locked) */}
-              {allowGuestMode && (
+              {offerGuest && (
                 <>
                   <div className="flex items-center gap-4">
                     <div className="flex-1 h-px bg-themed-border-secondary" />
@@ -404,23 +414,22 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                     disabled={
                       authenticating ||
                       checkingDataAvailability ||
-                      !dataAvailable ||
+                      dataAvailable === false ||
                       resetStatus.isResetting ||
-                      guestModeLocked ||
-                      installationUnclaimed
+                      guestModeLocked
                     }
                     fullWidth
                     title={
                       guestModeLocked
                         ? t('modals.auth.guestMode.disabledTitle')
-                        : !dataAvailable
+                        : dataAvailable === false
                           ? t('modals.auth.guestMode.noDataTitle')
                           : t('modals.auth.guestMode.viewDataTitle', { count: guestDurationHours })
                     }
                   >
                     {guestModeLocked
                       ? t('modals.auth.guestMode.disabledButton')
-                      : !dataAvailable
+                      : dataAvailable === false
                         ? t('modals.auth.guestMode.noDataButton')
                         : t('modals.auth.guestMode.continueButton', { count: guestDurationHours })}
                   </Button>

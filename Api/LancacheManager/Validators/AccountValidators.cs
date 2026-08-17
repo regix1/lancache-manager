@@ -21,9 +21,9 @@ public class AccountCredentialsRequestValidator : AbstractValidator<AccountCrede
 
         // Stop at the first failure so the checks below never run against a null or empty password.
         //
-        // SetupController.CheckPassword stops at eight characters and no character classes. That one
-        // is left alone rather than made to match, because it has to accept whatever password an
-        // existing PostgreSQL server was already set up with.
+        // SetupController.CheckPassword stays at eight characters so an existing external server
+        // still connects. A new embedded role password uses CheckNewRolePassword, which matches
+        // these classes.
         //
         // The upper bound is not cosmetic: PBKDF2 runs over the whole password at the iteration count
         // Program.cs configures the hasher with, so an unbounded password is a way to buy a lot of

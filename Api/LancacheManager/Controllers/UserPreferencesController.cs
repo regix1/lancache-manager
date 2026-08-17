@@ -1,11 +1,14 @@
 using System.Text.Json;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Middleware;
 using LancacheManager.Hubs;
+using LancacheManager.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using static LancacheManager.Core.Services.UserPreferencesService;
 
 namespace LancacheManager.Controllers;
@@ -22,15 +25,18 @@ public class UserPreferencesController : ControllerBase
     private readonly ILogger<UserPreferencesController> _logger;
     private readonly UserPreferencesService _preferencesService;
     private readonly ISignalRNotificationService _notifications;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
 
     public UserPreferencesController(
         ILogger<UserPreferencesController> logger,
         UserPreferencesService preferencesService,
-        ISignalRNotificationService notifications)
+        ISignalRNotificationService notifications,
+        IDbContextFactory<AppDbContext> dbContextFactory)
     {
         _logger = logger;
         _preferencesService = preferencesService;
         _notifications = notifications;
+        _dbContextFactory = dbContextFactory;
     }
 
     /// <summary>
@@ -185,13 +191,19 @@ public class UserPreferencesController : ControllerBase
     }
 
     /// <summary>
-    /// Gets any session's preferences by ID (admin only), for the management screens.
+    /// Gets a session's preferences by ID. A session belonging to the owner answers as one that
+    /// does not exist.
     /// </summary>
     [Authorize(Policy = "AccountHolder")]
     [HttpGet("session/{sessionId}")]
     [ProducesResponseType(typeof(UserPreferencesDto), StatusCodes.Status200OK)]
-    public ActionResult<UserPreferencesDto> GetForSession(Guid sessionId)
+    public async Task<ActionResult<UserPreferencesDto>> GetForSessionAsync(Guid sessionId)
     {
+        if (!await CallerMaySeeTargetSessionAsync(sessionId))
+        {
+            return NotFound(ApiResponse.NotFound("Session"));
+        }
+
         var preferences = _preferencesService.GetPreferences(sessionId);
         if (preferences == null)
         {
@@ -202,7 +214,8 @@ public class UserPreferencesController : ControllerBase
     }
 
     /// <summary>
-    /// Replaces any session's preferences by ID (admin only).
+    /// Replaces a session's preferences by ID. A session belonging to the owner answers as one
+    /// that does not exist.
     /// </summary>
     /// <remarks>
     /// Unlike <see cref="SavePreferencesAsync"/>, admin-only columns are not redacted since the
@@ -213,6 +226,11 @@ public class UserPreferencesController : ControllerBase
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> SaveForSessionAsync(Guid sessionId, [FromBody] UserPreferencesDto preferences)
     {
+        if (!await CallerMaySeeTargetSessionAsync(sessionId))
+        {
+            return NotFound(ApiResponse.NotFound("Session"));
+        }
+
         var stored = await _preferencesService.SavePreferencesAsync(sessionId, preferences);
         if (stored != null)
         {
@@ -225,4 +243,27 @@ public class UserPreferencesController : ControllerBase
 
     private UserSession? GetSession() => HttpContext.GetUserSession();
     private Guid? GetSessionId() => GetSession()?.Id;
+
+    /// <summary>
+    /// The same withholding the session list uses: a caller who is not the owner cannot read or
+    /// write the owner's session by id. A session that is not there is left to the existing
+    /// not-found-or-defaults path.
+    /// </summary>
+    private async Task<bool> CallerMaySeeTargetSessionAsync(Guid sessionId)
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var hiddenAccountId = await MainAdminVisibility.HiddenAccountIdAsync(context, GetSession());
+        if (hiddenAccountId is null)
+        {
+            return true;
+        }
+
+        var accountId = await context.UserSessions
+            .AsNoTracking()
+            .Where(s => s.Id == sessionId)
+            .Select(s => s.AccountId)
+            .FirstOrDefaultAsync();
+
+        return accountId != hiddenAccountId;
+    }
 }

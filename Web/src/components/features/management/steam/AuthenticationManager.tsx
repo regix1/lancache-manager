@@ -24,7 +24,14 @@ interface AuthenticationManagerProps {
 const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, onSuccess }) => {
   const { t } = useTranslation();
   const { guestDurationHours } = useGuestConfig();
-  const { authMode, refreshAuth, sessionExpiresAt, authenticationEnabled, isMainAdmin } = useAuth();
+  const {
+    authMode,
+    refreshAuth,
+    startGuestSession,
+    sessionExpiresAt,
+    authenticationEnabled,
+    isMainAdmin
+  } = useAuth();
   const { refreshSteamAuth, setSteamAuthMode, setUsername } = useSteamAuth();
   const { refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const [authChecking, setAuthChecking] = useState(true);
@@ -36,8 +43,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
-  const [hasData, setHasData] = useState(false);
-  const [hasBeenInitialized, setHasBeenInitialized] = useState(false);
+  // Null until a status call answers. A failed checkAuth used to write false here, which is the
+  // same value as "no download rows / setup unfinished", and that hid both guest buttons.
+  const [hasData, setHasData] = useState<boolean | null>(null);
+  const [hasBeenInitialized, setHasBeenInitialized] = useState<boolean | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
@@ -116,8 +125,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     setAuthChecking(true);
     try {
       const result = await authService.checkAuth();
-      setHasData(result.hasData);
-      setHasBeenInitialized(result.hasBeenInitialized);
+      if (result.reachable !== false) {
+        setHasData(result.hasData);
+        setHasBeenInitialized(result.hasBeenInitialized);
+      }
 
       // Refresh the global auth context
       await refreshAuth();
@@ -129,8 +140,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
       // Intentional silent probe: a failed auth check degrades gracefully to the
       // unauthenticated state (visible via the auth UI itself), not an error dialog.
       console.error('Auth check failed:', error);
-      setHasData(false);
-      setHasBeenInitialized(false);
       await refreshAuth();
     } finally {
       setAuthChecking(false);
@@ -184,8 +193,14 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   };
 
   const handleStartGuestMode = async () => {
-    await authService.startGuestSession();
-    await refreshAuth();
+    const result = await startGuestSession();
+    if (!result.success) {
+      const message = result.message || t('modals.auth.errors.guestModeUnavailable');
+      setAuthError(message);
+      onError?.(message);
+      return;
+    }
+
     setShowAuthModal(false);
     clearCredentials();
     setAuthError('');
@@ -336,7 +351,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
         return t('management.auth.description.guest');
       default: {
         // Show hint about guest mode if eligible
-        if (hasData && hasBeenInitialized) {
+        if (hasData !== false && hasBeenInitialized !== false) {
           return t('management.auth.description.requiresKeyOrGuest');
         }
         return t('management.auth.description.requiresKey');
@@ -346,7 +361,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
 
   // Check if guest mode should be available
   // Requires: 1) Database has data, 2) Setup has been completed (persistent initialization flag)
-  const isGuestModeAvailable = hasData && hasBeenInitialized;
+  const isGuestModeAvailable = hasData !== false && hasBeenInitialized !== false;
 
   return (
     <>
@@ -460,7 +475,9 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
           <p className="text-themed-secondary">
             {authMode === 'guest'
               ? t('management.auth.modal.guestMessage')
-              : t('management.auth.modal.unauthenticatedMessage')}
+              : isGuestModeAvailable
+                ? t('management.auth.modal.unauthenticatedMessage')
+                : t('management.auth.description.requiresKey')}
           </p>
 
           <div>
@@ -518,12 +535,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                     /data/security/api_key.txt
                   </code>
                 </li>
-                <li>
-                  {t('management.auth.modal.step3Before')}{' '}
-                  <code className="bg-themed-tertiary px-1 rounded">
-                    docker logs lancache-manager
-                  </code>
-                </li>
+                <li>{t('management.auth.modal.step3Before')}</li>
               </ol>
             </div>
           </Alert>

@@ -651,13 +651,22 @@ public class SessionService
     /// <summary>
     /// Get active sessions with pagination (excludes revoked/expired).
     /// </summary>
-    public async Task<(List<UserSession> Sessions, int TotalCount)> GetActiveSessionsPagedAsync(int page, int pageSize)
+    /// <remarks>
+    /// <paramref name="caller"/> hides the owner's sessions from every caller that is not that
+    /// account, the same rule the account list uses. Pagination is applied after the filter so a
+    /// hidden row cannot occupy a page slot.
+    /// </remarks>
+    public async Task<(List<UserSession> Sessions, int TotalCount)> GetActiveSessionsPagedAsync(
+        int page,
+        int pageSize,
+        UserSession? caller = null)
     {
         var now = DateTime.UtcNow;
         using var context = _dbContextFactory.CreateDbContext();
-        var query = context.UserSessions
-            .AsNoTracking()
-            .Where(s => !s.IsRevoked && s.ExpiresAtUtc > now)
+        var hiddenAccountId = await MainAdminVisibility.HiddenAccountIdAsync(context, caller);
+        var query = MainAdminVisibility.SessionsVisibleTo(
+                context.UserSessions.AsNoTracking().Where(s => !s.IsRevoked && s.ExpiresAtUtc > now),
+                hiddenAccountId)
             .OrderByDescending(s => s.LastSeenAtUtc);
 
         var totalCount = await query.CountAsync();
@@ -672,15 +681,39 @@ public class SessionService
     /// <summary>
     /// Get all revoked or expired sessions (for session history display).
     /// </summary>
-    public async Task<List<UserSession>> GetSessionHistoryAsync()
+    public async Task<List<UserSession>> GetSessionHistoryAsync(UserSession? caller = null)
     {
         var now = DateTime.UtcNow;
         using var context = _dbContextFactory.CreateDbContext();
-        return await context.UserSessions
-            .AsNoTracking()
-            .Where(s => s.IsRevoked || s.ExpiresAtUtc <= now)
+        var hiddenAccountId = await MainAdminVisibility.HiddenAccountIdAsync(context, caller);
+        return await MainAdminVisibility.SessionsVisibleTo(
+                context.UserSessions.AsNoTracking().Where(s => s.IsRevoked || s.ExpiresAtUtc <= now),
+                hiddenAccountId)
             .OrderByDescending(s => s.RevokedAtUtc ?? s.ExpiresAtUtc)
             .ToListAsync();
+    }
+
+    /// <summary>
+    /// Whether the caller may see or name this session. A session the list withholds answers false
+    /// so revoke, delete and preference writes cannot reach it by id. A session that is not there
+    /// answers true so the existing not-found path still runs.
+    /// </summary>
+    public async Task<bool> CallerMaySeeSessionAsync(UserSession? caller, Guid sessionId)
+    {
+        using var context = _dbContextFactory.CreateDbContext();
+        var hiddenAccountId = await MainAdminVisibility.HiddenAccountIdAsync(context, caller);
+        if (hiddenAccountId is null)
+        {
+            return true;
+        }
+
+        var accountId = await context.UserSessions
+            .AsNoTracking()
+            .Where(s => s.Id == sessionId)
+            .Select(s => s.AccountId)
+            .FirstOrDefaultAsync();
+
+        return accountId != hiddenAccountId;
     }
 
     public async Task<UserSession?> GetSessionByIdAsync(Guid sessionId)

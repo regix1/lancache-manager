@@ -29,8 +29,8 @@ namespace LancacheManager.Tests;
 ///
 /// The username and password tests cover what a caller who is past the credential check is still not
 /// allowed to write, since both are read back out of that file by entrypoint.sh and by every Rust
-/// binary. Those rules live in one place now and both setup endpoints call them, so these also stand
-/// as the check that the shared copy still says what the embedded endpoint used to say alone.
+/// binary. Connecting to an existing external server still uses CheckPassword (eight characters).
+/// Setting a new embedded role password is stricter and is covered separately.
 ///
 /// The two AnAuthenticatedCaller tests cover which principals count as proof. A session is accepted
 /// only while authentication is enabled, because turning that flag off makes every request arrive
@@ -234,6 +234,54 @@ public class ExternalDatabaseSetupGateTests : IDisposable
             "This password is too common. Please choose a more secure password.",
             ErrorOf(response));
         Assert.False(File.Exists(Path.Combine(_root, "postgres-credentials.json")));
+    }
+
+    [Fact]
+    public async Task ANewEmbeddedPasswordShorterThanTwelve_IsRejected()
+    {
+        _controller.HttpContext.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
+        var previous = Environment.GetEnvironmentVariable("POSTGRES_MODE");
+        Environment.SetEnvironmentVariable("POSTGRES_MODE", "embedded");
+        try
+        {
+            var result = await _controller.SetCredentialsAsync(new SetupCredentialsRequest
+            {
+                Username = "lancache",
+                Password = "Longer1!"
+            });
+
+            var response = Assert.IsType<BadRequestObjectResult>(result.Result);
+            Assert.Equal("Password must be at least 12 characters", ErrorOf(response));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("POSTGRES_MODE", previous);
+        }
+    }
+
+    [Fact]
+    public async Task ANewEmbeddedPasswordWithoutThreeClasses_IsRejected()
+    {
+        _controller.HttpContext.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
+        var previous = Environment.GetEnvironmentVariable("POSTGRES_MODE");
+        Environment.SetEnvironmentVariable("POSTGRES_MODE", "embedded");
+        try
+        {
+            var result = await _controller.SetCredentialsAsync(new SetupCredentialsRequest
+            {
+                Username = "lancache",
+                Password = "alllowercase1"
+            });
+
+            var response = Assert.IsType<BadRequestObjectResult>(result.Result);
+            Assert.Equal(
+                "Password must use at least three of: lowercase letters, uppercase letters, digits, and other characters",
+                ErrorOf(response));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("POSTGRES_MODE", previous);
+        }
     }
 
     /// <summary>

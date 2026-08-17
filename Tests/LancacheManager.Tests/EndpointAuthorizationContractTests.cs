@@ -68,8 +68,9 @@ public sealed class EndpointAuthorizationContractTests
     {
         // Both account-setup routes are anonymous on purpose and read the API key from the request
         // body. Creating the first admin happens before any account exists to sign in as, and
-        // recovering the main admin's password is the way back in when nobody can sign in at all, so
-        // an [Authorize] on either one would be a lockout rather than a guard.
+        // recovering the main admin's password is the way back in when that row still exists and
+        // nobody can sign in. After a wipe the row is gone and first-admin is the way back, so an
+        // [Authorize] on either route would be a lockout rather than a guard.
         "AccountSetupController.CreateFirstAdmin",
         "AccountSetupController.RecoverMainAdminPassword",
         "AuthController.GetStatus",
@@ -959,7 +960,7 @@ public sealed class EndpointAuthorizationContractTests
     {
         return controller switch
         {
-            "AccountsController" => ["AccountsController.GetAccounts", "AccountsController.GetAccount", "AccountsController.CreateAccount", "AccountsController.EditAccount", "AccountsController.SetRole", "AccountsController.SetDisabled", "AccountsController.DeleteAccount"],
+            "AccountsController" => ["AccountsController.GetAccounts", "AccountsController.GetAccount", "AccountsController.CreateAccount", "AccountsController.EditAccount", "AccountsController.SetRole", "AccountsController.SetDisabled", "AccountsController.DeleteAccount", "AccountsController.WipeAccounts"],
             "ApiKeysController" => ["ApiKeysController.GetStatus", "ApiKeysController.RegenerateApiKey"],
             "DataMigrationController" => ["DataMigrationController.ImportLancacheManager", "DataMigrationController.GetImportStatus", "DataMigrationController.ValidateConnection"],
             "DatabaseController" => ["DatabaseController.ResetDatabase", "DatabaseController.ResetSelectedTables", "DatabaseController.GetDatabaseResetStatus", "DatabaseController.GetLogCount"],

@@ -14,12 +14,12 @@
       "recovery": {
         "toggle": "Still stuck after retrying?",
         "heading": "Set the PostgreSQL password again",
-        "description": "Use this only when LANCache Manager cannot reach its own embedded PostgreSQL because the stored password no longer matches. It changes the password and saves it, and nothing is erased. You need your API key from /data/security/api_key.txt, which is also printed in the container logs.",
+        "description": "Use this only when LANCache Manager cannot reach its own embedded PostgreSQL because the stored password no longer matches. It changes the password and saves it, and nothing is erased. The API key is in /data/security/api_key.txt. It is printed to the logs only when the key is first created or rotated.",
         "apiKeyPlaceholder": "lm_xxxxxxxxxxxxxxxxxxxxx",
         "usernameLabel": "PostgreSQL user",
         "usernamePlaceholder": "lancache",
         "passwordLabel": "New password",
-        "passwordPlaceholder": "At least 8 characters",
+        "passwordPlaceholder": "At least 12 characters, with 3 of: lower, upper, digit, other",
         "submit": "Save password",
         "saved": "Password saved. Restart the container to apply it everywhere.",
         "failed": "Could not save the password. Check your API key and try again."
@@ -747,11 +747,52 @@
       "increased": "Cache increased in this range",
       "decreased": "Cache decreased in this range",
       "unchanged": "Cache was unchanged in this range"
+    },
+    "bandwidthTrend": {
+      "title": "Bandwidth",
+      "saved": "Cache hits",
+      "served": "Total served",
+      "noDataTitle": "No bandwidth data",
+      "noDataDesc": "No downloads in this range yet.",
+      "resolution": {
+        "15": "15-minute",
+        "30": "30-minute",
+        "60": "Hourly",
+        "180": "3-hour",
+        "1440": "Daily"
+      },
+      "help": {
+        "aboutTitle": "About This Chart",
+        "about": "Cache hits and total served over the selected range. Short windows use hour or 3-hour buckets so a one-day range still has a readable line.",
+        "resolution": "The badge is the bucket width. It follows the hours that actually have downloads, not only the picker."
+      }
+    },
+    "eventCompare": {
+      "title": "Compare Events",
+      "pickEvents": "Events",
+      "elapsed": "Elapsed {{time}}",
+      "metrics": {
+        "served": "Total served",
+        "saved": "Cache hits"
+      },
+      "noEventsTitle": "No events to compare",
+      "noEventsDesc": "Create LAN parties on the Events page, then pick them here.",
+      "noDataTitle": "No overlap yet",
+      "noDataDesc": "Pick at least one event that has tagged downloads.",
+      "errors": {
+        "load": "Could not load the event comparison."
+      },
+      "help": {
+        "aboutTitle": "About This Chart",
+        "about": "Each line is one event, lined up from that event's start so two LAN parties can be compared hour for hour.",
+        "axis": "Hover a point to see every selected event at the same elapsed time. The header range clips how far from each start is drawn."
+      }
     }
   },
   "auth": {
     "header": {
-      "title": "Upgrade to Full Access"
+      "title": "Upgrade to Full Access",
+      "subtitle": "Sign in with your API key and account to leave guest mode."
     },
     "form": {
       "label": "API Key",
@@ -759,15 +800,15 @@
       "submit": "Authenticate"
     },
     "help": {
-      "title": "To find your API key:",
+      "title": "Where to find your API key",
       "step1": "SSH into your LANCache Manager server",
       "step2": {
         "before": "Check ",
         "code": "/data/security/api_key.txt"
       },
       "step3": {
-        "before": "Or check container logs: ",
-        "code": "docker logs lancache-manager"
+        "before": "The key is printed to the logs only when it is first created or rotated.",
+        "code": ""
       }
     },
     "success": "Authentication successful! Upgrading to full access...",
@@ -834,7 +875,7 @@
       "title": "User Accounts",
       "loading": "Loading accounts...",
       "paginationLabel": "accounts",
-      "mainAdmin": "Main Admin",
+      "mainAdmin": "Primary",
       "neverSignedIn": "Never",
       "columns": {
         "username": "Username",
@@ -857,7 +898,8 @@
         "promote": "Make Administrator",
         "demote": "Make User",
         "enable": "Enable",
-        "disable": "Disable"
+        "disable": "Disable",
+        "wipe": "Wipe All Accounts"
       },
       "empty": {
         "title": "No accounts yet",
@@ -871,20 +913,23 @@
         "newPassword": "New Password",
         "passwordHint": "Leave this blank to keep the current password.",
         "role": "Role",
-        "adminRoleReserved": "Only the account that owns this installation can grant the administrator role."
+        "adminRoleReserved": "Only the Primary account can grant the administrator role."
       },
       "confirm": {
         "deleteTitle": "Delete Account",
         "deleteBody": "Delete {{username}}? Their sessions end straight away and this cannot be undone.",
         "roleTitle": "Change Account Role",
         "roleLabel": "Change Role",
-        "roleBody": "Give {{username}} the {{role}} role? Their sessions end straight away."
+        "roleBody": "Give {{username}} the {{role}} role? Their sessions end straight away.",
+        "wipeTitle": "Wipe All Accounts",
+        "wipeBody": "This deletes every account, including yours, and signs everyone out. The next screen is create the first administrator. This cannot be undone."
       },
       "errors": {
         "load": "Failed to load accounts",
         "disabled": "Failed to update the account status",
         "delete": "Failed to delete the account",
-        "role": "Failed to change the account role"
+        "role": "Failed to change the account role",
+        "wipe": "Failed to wipe accounts"
       }
     },
     "stats": {
@@ -3472,7 +3517,8 @@
         "peakHour": "Peak usage hour (0-23)",
         "hourlyDownloads": "Downloads by hour heatmap",
         "growthRate": "Cache growth rate (GB/day)",
-        "daysUntilFull": "Days until cache full"
+        "daysUntilFull": "Days until cache full",
+        "eventBytes": "Bytes served per LAN event"
       },
       "help": {
         "metrics": {
@@ -3484,6 +3530,10 @@
           "activity": {
             "term": "Activity Metrics",
             "description": "Current downloads, connected clients, and breakdowns by service"
+          },
+          "events": {
+            "term": "Event Metrics",
+            "description": "Bytes served, cache hits, and download counts for each tagged LAN event"
           }
         },
         "integration": {
@@ -4086,7 +4136,7 @@
         "findApiKey": "To find your API key:",
         "step1": "SSH into your LANCache Manager server",
         "step2Before": "Check",
-        "step3Before": "Or check container logs:",
+        "step3Before": "The key is printed to the logs only when it is first created or rotated.",
         "continueAsGuest": "Continue as Guest",
         "upgradeToFullAccess": "Upgrade to Full Access"
       },
@@ -4989,11 +5039,11 @@
       },
       "help": {
         "title": "Where to find your API key:",
-        "description": "The API key was displayed when you first started the server. Check your server logs for \"API Key:\" or look in the data/security/api_key.txt file."
+        "description": "The API key is in data/security/api_key.txt. It is printed to the logs only when the key is first created or rotated."
       },
       "keyRotated": {
         "title": "Has the API key been regenerated?",
-        "description": "Regenerating the key signs everyone out and the old key stops working. If someone regenerated it, ask them for the new key and sign in with that."
+        "description": "Regenerating the key signs everyone out, deletes every account except the main admin, and the old key stops working. If someone regenerated it, ask them for the new key and sign in with that."
       },
       "errors": {
         "apiKeyRequired": "API key is required",
@@ -6548,7 +6598,7 @@
     },
     "adminAccount": {
       "heading": "Administrator Account",
-      "description": "Create the account you will sign in with. It is the main administrator and cannot be deleted or demoted later.",
+      "description": "Create the account you will sign in with. It is the main administrator. It cannot be demoted, and it cannot be deleted as a single account.",
       "usernameLabel": "Username",
       "usernamePlaceholder": "Choose a username",
       "passwordLabel": "Password",

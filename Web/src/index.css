@@ -37,6 +37,7 @@
 @import './styles/features/recent-downloads.css';
 @import './styles/features/management.css';
 @import './styles/features/user.css';
+@import './styles/features/auth.css';
 @import './styles/features/edit-mode.css';
 @import './styles/features/events.css';
 @import './styles/features/downloads.css';

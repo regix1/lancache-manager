@@ -177,7 +177,13 @@ public class ApiKeyService
     }
 
 
-    public void DisplayApiKey(IConfiguration configuration)
+    /// <summary>
+    /// Writes the startup banner. The full key is printed only when <paramref name="revealKey"/> is
+    /// true: the first start, when the file did not exist, and after a rotation. Later restarts
+    /// print the file path and a short hint, so a log scrape is not enough to use the recovery
+    /// endpoints that accept this key.
+    /// </summary>
+    public void DisplayApiKey(IConfiguration configuration, bool revealKey)
     {
         var apiKey = GetApiKey();
 
@@ -197,7 +203,16 @@ public class ApiKeyService
         Console.WriteLine(authenticationEnabled
             ? "  API KEY (used for login, Metrics, and API documentation)"
             : "  API KEY (used for Metrics and API documentation)");
-        Console.WriteLine($"  {apiKey}");
+        if (revealKey)
+        {
+            Console.WriteLine($"  {apiKey}");
+        }
+        else
+        {
+            Console.WriteLine("  Printed only when the key is first created or rotated.");
+            Console.WriteLine($"  Hint: {MaskedApiKey(apiKey)}");
+        }
+
         Console.WriteLine("");
         Console.WriteLine($"  File: {_apiKeyPath}");
         Console.WriteLine("");
@@ -212,5 +227,11 @@ public class ApiKeyService
         }
         Console.WriteLine("");
         Console.WriteLine("────────────────────────────────────────────────────────────────────────────");
+    }
+
+    private static string MaskedApiKey(string apiKey)
+    {
+        const int tail = 4;
+        return apiKey.Length <= tail + 3 ? "lm_…" : $"lm_…{apiKey[^tail..]}";
     }
 }

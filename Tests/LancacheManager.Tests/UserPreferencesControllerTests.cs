@@ -151,7 +151,8 @@ public sealed class UserPreferencesControllerTests
         var controller = new UserPreferencesController(
             NullLogger<UserPreferencesController>.Instance,
             new UserPreferencesService(NullLogger<UserPreferencesService>.Instance, database.Factory),
-            notifications);
+            notifications,
+            database.Factory);
 
         var context = new DefaultHttpContext();
         context.Items["Session"] = new UserSession
