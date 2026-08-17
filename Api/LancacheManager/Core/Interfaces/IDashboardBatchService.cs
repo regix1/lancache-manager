@@ -15,6 +15,10 @@ public interface IDashboardBatchService
         long? eventId,
         CancellationToken ct);
 
+    Task<EventCompareResponse> GetEventCompareAsync(
+        IReadOnlyList<long> eventIds,
+        CancellationToken ct);
+
     /// <summary>
     /// Immediately expire all cached LIVE batch responses (every evicted-mode key variant) so the
     /// next read re-queries the DB. Call after a write that changes live download data.

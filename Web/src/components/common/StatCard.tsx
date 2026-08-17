@@ -23,6 +23,7 @@ interface StatCardProps {
   value: string | number;
   subtitle?: string;
   badge?: React.ReactNode;
+  tone?: 'warning';
   icon: LucideIcon;
   color: StatCardColor;
   // Sparkline props
@@ -57,6 +58,7 @@ const StatCard: React.FC<StatCardProps> = ({
   value,
   subtitle,
   badge,
+  tone,
   icon: Icon,
   color,
   sparklineData,
@@ -88,17 +90,17 @@ const StatCard: React.FC<StatCardProps> = ({
     if (glassmorphism) {
       classes.push('glass-card');
     } else {
-      classes.push('hover:shadow-lg');
+      classes.push('themed-card', 'hover:shadow-lg');
+      if (tone === 'warning') {
+        classes.push('themed-card--warning');
+      }
     }
 
     return classes.join(' ');
-  }, [glassmorphism]);
+  }, [glassmorphism, tone]);
 
   const cardContent = (
-    <div
-      className={`${cardClasses} ${!glassmorphism ? 'bg-[var(--theme-card-bg)] border-[var(--theme-card-border)]' : ''}`}
-      data-stat-card={title.toLowerCase().replace(/\s+/g, '')}
-    >
+    <div className={cardClasses} data-stat-card={title.toLowerCase().replace(/\s+/g, '')}>
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           {/* min-h-6 (1.5rem) reserves the HelpPopover trigger's height (p-1 + w-4 h-4 icon)
@@ -121,20 +123,20 @@ const StatCard: React.FC<StatCardProps> = ({
               </p>
             )}
           </div>
-
-          {loading ? (
-            <div className="stat-card-skeleton-subtitle skeleton-shimmer mt-1" />
-          ) : subtitle ? (
-            <div className="flex items-center gap-1.5 mt-1">
-              <p className="text-xs text-[var(--theme-text-secondary)]">{subtitle}</p>
-              {badge}
-            </div>
-          ) : null}
         </div>
         <div className="stat-card-icon p-2.5 rounded-lg flex-shrink-0" data-color={color}>
           <Icon className="w-5 h-5 text-[var(--theme-button-text)]" />
         </div>
       </div>
+
+      {loading ? (
+        <div className="stat-card-skeleton-subtitle skeleton-shimmer mt-1" />
+      ) : (
+        <>
+          {subtitle ? <p className="text-xs text-themed-secondary mt-1">{subtitle}</p> : null}
+          {badge ? <div className="mt-1.5">{badge}</div> : null}
+        </>
+      )}
 
       {/* Sparkline or placeholder for consistent card height - mt-auto pushes to bottom */}
       <div className="mt-auto">

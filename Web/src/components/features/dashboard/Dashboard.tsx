@@ -55,6 +55,7 @@ import TopClientsTable from './TopClientsTable';
 // Widget imports
 import PeakUsageHours from './widgets/PeakUsageHours';
 import CacheGrowthTrend from './widgets/CacheGrowthTrend';
+import BandwidthTrend from './widgets/BandwidthTrend';
 import Badge from '@components/ui/Badge';
 
 type CardLayout = 'balanced' | '4-column' | '3-column';
@@ -622,6 +623,7 @@ const Dashboard: React.FC = () => {
           hasCacheScan && cacheInfo?.scanStale ? (
             <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
           ) : undefined,
+        tone: hasCacheScan && cacheInfo?.scanStale ? 'warning' : undefined,
         icon: Files,
         color: 'teal' as const,
         visible: cardVisibility.cacheFiles,
@@ -656,6 +658,7 @@ const Dashboard: React.FC = () => {
             {t('dashboard.cards.evictedIncluded', { count: gamesOnDiskStats.evictedCount })}
           </Badge>
         ) : undefined,
+        tone: gamesOnDiskStats?.isStale ? 'warning' : undefined,
         icon: HardDrive,
         color: 'blue' as const,
         visible: cardVisibility.gamesOnDisk ?? false,
@@ -1007,6 +1010,7 @@ const Dashboard: React.FC = () => {
                 value={card.value}
                 subtitle={card.subtitle}
                 badge={card.badge}
+                tone={card.tone}
                 icon={card.icon}
                 color={card.color}
                 tooltip={card.tooltip}
@@ -1072,8 +1076,8 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Analytics Widgets Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="dashboard-widget-grid">
+        <BandwidthTrend />
         <PeakUsageHours />
         <CacheGrowthTrend
           usedCacheSize={cacheInfo?.usedCacheSize || 0}

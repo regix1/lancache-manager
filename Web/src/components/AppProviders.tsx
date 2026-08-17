@@ -46,6 +46,11 @@ const PicsProgressProviderWithMockMode: React.FC<{ children: React.ReactNode }> 
   return <PicsProgressProvider mockMode={mockMode}>{children}</PicsProgressProvider>;
 };
 
+const EventProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { mockMode } = useMockMode();
+  return <EventProvider mockMode={mockMode}>{children}</EventProvider>;
+};
+
 const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
     <ErrorBoundary>
@@ -86,7 +91,7 @@ const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => 
                                                   <DashboardDataProviderWithMockMode>
                                                     {/* UI / calendar / event providers */}
                                                     <CalendarSettingsProvider>
-                                                      <EventProvider>
+                                                      <EventProviderWithMockMode>
                                                         <ClientGroupProvider>
                                                           <ClientHostnameProvider>
                                                             <DownloadAssociationsProvider>
@@ -94,7 +99,7 @@ const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => 
                                                             </DownloadAssociationsProvider>
                                                           </ClientHostnameProvider>
                                                         </ClientGroupProvider>
-                                                      </EventProvider>
+                                                      </EventProviderWithMockMode>
                                                     </CalendarSettingsProvider>
                                                   </DashboardDataProviderWithMockMode>
                                                 </CacheSizeProvider>

@@ -41,6 +41,14 @@
     box-shadow: var(--shadow-card-hover);
   }
 
+  /* Outdated-scan (and other warning) chrome. Same specificity as the light-theme
+     border rule above so the warning edge wins in both themes. */
+  .themed-card.themed-card--warning,
+  [data-theme='light'] .themed-card.themed-card--warning {
+    background-color: var(--theme-warning-subtle);
+    border-color: var(--theme-warning);
+  }
+
   /* Light mode collapsible sections */
   [data-theme='light'] .bg-themed-secondary {
     box-shadow: var(--shadow-card);

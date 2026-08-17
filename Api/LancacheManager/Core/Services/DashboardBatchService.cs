@@ -18,7 +18,7 @@ namespace LancacheManager.Core.Services;
 /// first user request arrives - otherwise the first request after a server restart would run
 /// 8 parallel DB queries on a cold connection pool.
 /// </summary>
-public class DashboardBatchService : IDashboardBatchService
+public partial class DashboardBatchService : IDashboardBatchService
 {
     // Shared with the scheduled warmer so the live entry stays useful between refreshes
     // without turning the heavy query fan-out into a 15-second background workload.
@@ -637,65 +637,58 @@ public class DashboardBatchService : IDashboardBatchService
             query = query.Where(d => d.StartTimeUtc <= endDateTime);
         }
 
-        // Determine bucket size based on time range
-        int bucketMinutes = 1440; // default: 1 day
-        if (startTime.HasValue && endTime.HasValue)
-        {
-            var rangeHours = (endTime.Value - startTime.Value) / 3600.0;
-            if (rangeHours <= 2) bucketMinutes = 15;
-            else if (rangeHours <= 13) bucketMinutes = 30;
-            else if (rangeHours <= 25) bucketMinutes = 60;
-        }
-
         var filteredQuery = statsExcludedOnlyIps.Count > 0
             ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
             : query;
 
-        // Group in SQL, matching the hourly activity query's aggregation pattern.
-        // Returns 10-60 aggregated rows instead of tens of thousands of raw rows.
-        List<BucketAggregate> bucketedData;
-        if (bucketMinutes >= 1440)
+        // Width comes from the hours that actually have downloads, not only the picker. A live
+        // view or a 7-day window that only contains one event day would otherwise stay on daily
+        // buckets and collapse to a single point.
+        var bounds = await filteredQuery
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                First = g.Min(d => d.StartTimeUtc),
+                Last = g.Max(d => d.StartTimeUtc)
+            })
+            .FirstOrDefaultAsync(ct);
+
+        double rangeHours = 999999;
+        if (startTime.HasValue && endTime.HasValue)
         {
-            bucketedData = await filteredQuery
-                .GroupBy(d => d.StartTimeUtc.Date)
-                .OrderBy(g => g.Key)
-                .Select(g => new BucketAggregate
-                {
-                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
-                })
-                .ToListAsync(ct);
+            rangeHours = (endTime.Value - startTime.Value) / 3600.0;
         }
-        else if (bucketMinutes >= 60)
+
+        if (bounds is not null)
         {
-            bucketedData = await filteredQuery
-                .GroupBy(d => new { d.StartTimeUtc.Date, d.StartTimeUtc.Hour })
-                .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Hour)
-                .Select(g => new BucketAggregate
-                {
-                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
-                })
-                .ToListAsync(ct);
+            var dataHours = Math.Max((bounds.Last - bounds.First).TotalHours, 0);
+            rangeHours = startTime.HasValue && endTime.HasValue
+                ? Math.Min(rangeHours, dataHours)
+                : dataHours;
+        }
+
+        var bucketMinutes = SparklineBuckets.ResolveMinutes(rangeHours);
+        var present = await LoadPresentBucketsAsync(filteredQuery, bucketMinutes, ct);
+
+        DateTime windowStart;
+        DateTime windowEnd;
+        if (startTime.HasValue && endTime.HasValue)
+        {
+            windowStart = startTime.Value.FromUnixSeconds();
+            windowEnd = endTime.Value.FromUnixSeconds();
+        }
+        else if (bounds is not null)
+        {
+            windowStart = bounds.First;
+            windowEnd = bounds.Last;
         }
         else
         {
-            // Sub-hour buckets: group by Date + Hour + (Minute / bucketMinutes).
-            bucketedData = await filteredQuery
-                .GroupBy(d => new
-                {
-                    d.StartTimeUtc.Date,
-                    d.StartTimeUtc.Hour,
-                    MinuteBucket = d.StartTimeUtc.Minute / bucketMinutes
-                })
-                .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Hour).ThenBy(g => g.Key.MinuteBucket)
-                .Select(g => new BucketAggregate
-                {
-                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
-                })
-                .ToListAsync(ct);
+            windowStart = DateTime.UtcNow;
+            windowEnd = windowStart;
         }
+
+        var bucketedData = SparklineBuckets.Fill(windowStart, windowEnd, bucketMinutes, present);
 
         var bandwidthSavedData = bucketedData.Select(d => (double)d.CacheHitBytes).ToList();
         var addedToCacheData = bucketedData.Select(d => (double)d.CacheMissBytes).ToList();
@@ -705,6 +698,9 @@ public class DashboardBatchService : IDashboardBatchService
             var total = d.CacheHitBytes + d.CacheMissBytes;
             return total > 0 ? (d.CacheHitBytes * 100.0) / total : 0.0;
         }).ToList();
+        var bucketStarts = bucketedData
+            .Select(d => new DateTimeOffset(d.Start).ToUnixTimeSeconds())
+            .ToList();
 
         return new SparklineDataResponse
         {
@@ -712,6 +708,8 @@ public class DashboardBatchService : IDashboardBatchService
             CacheHitRatio = BuildSparklineMetric(cacheHitRatioData, SparklineTrendScale.Points),
             TotalServed = BuildSparklineMetric(totalServedData, SparklineTrendScale.Proportional),
             AddedToCache = BuildSparklineMetric(addedToCacheData, SparklineTrendScale.Proportional),
+            BucketMinutes = bucketMinutes,
+            BucketStarts = bucketStarts,
             Period = startTime.HasValue ? "filtered" : "all"
         };
     }
@@ -862,17 +860,85 @@ public class DashboardBatchService : IDashboardBatchService
 
     // ───────────────────── Shared query helpers ─────────────────────
 
+    private static async Task<List<SparklineBuckets.Bucket>> LoadPresentBucketsAsync(
+        IQueryable<Download> filteredQuery,
+        int bucketMinutes,
+        CancellationToken ct)
+    {
+        if (bucketMinutes >= 1440)
+        {
+            var rows = await filteredQuery
+                .GroupBy(d => d.StartTimeUtc.Date)
+                .OrderBy(g => g.Key)
+                .Select(g => new
+                {
+                    g.Key,
+                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+                })
+                .ToListAsync(ct);
+            return rows
+                .Select(r => new SparklineBuckets.Bucket(
+                    DateTime.SpecifyKind(r.Key, DateTimeKind.Utc),
+                    r.CacheHitBytes,
+                    r.CacheMissBytes))
+                .ToList();
+        }
+
+        if (bucketMinutes >= 60)
+        {
+            var hoursPerBucket = bucketMinutes / 60;
+            var rows = await filteredQuery
+                .GroupBy(d => new { d.StartTimeUtc.Date, Slot = d.StartTimeUtc.Hour / hoursPerBucket })
+                .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Slot)
+                .Select(g => new
+                {
+                    g.Key.Date,
+                    g.Key.Slot,
+                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+                })
+                .ToListAsync(ct);
+            return rows
+                .Select(r => new SparklineBuckets.Bucket(
+                    DateTime.SpecifyKind(r.Date, DateTimeKind.Utc).AddHours(r.Slot * hoursPerBucket),
+                    r.CacheHitBytes,
+                    r.CacheMissBytes))
+                .ToList();
+        }
+
+        var minuteRows = await filteredQuery
+            .GroupBy(d => new
+            {
+                d.StartTimeUtc.Date,
+                d.StartTimeUtc.Hour,
+                MinuteBucket = d.StartTimeUtc.Minute / bucketMinutes
+            })
+            .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Hour).ThenBy(g => g.Key.MinuteBucket)
+            .Select(g => new
+            {
+                g.Key.Date,
+                g.Key.Hour,
+                g.Key.MinuteBucket,
+                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+            })
+            .ToListAsync(ct);
+        return minuteRows
+            .Select(r => new SparklineBuckets.Bucket(
+                DateTime.SpecifyKind(r.Date, DateTimeKind.Utc)
+                    .AddHours(r.Hour)
+                    .AddMinutes(r.MinuteBucket * bucketMinutes),
+                r.CacheHitBytes,
+                r.CacheMissBytes))
+            .ToList();
+    }
+
     private static IQueryable<Download> BuildBaseDownloadsQuery(AppDbContext context, List<string> hiddenClientIps, string evictedMode)
     {
         return context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
-    }
-
-    private sealed class BucketAggregate
-    {
-        public long CacheHitBytes { get; set; }
-        public long CacheMissBytes { get; set; }
     }
 
     /// <summary>
@@ -889,8 +955,6 @@ public class DashboardBatchService : IDashboardBatchService
     private static SparklineMetric BuildSparklineMetric(List<double> data, SparklineTrendScale scale)
     {
         var trimmed = data.ToList();
-        while (trimmed.Count > 1 && trimmed.Last() == 0)
-            trimmed.RemoveAt(trimmed.Count - 1);
 
         if (trimmed.Count < 2)
             return new SparklineMetric { Data = trimmed, Trend = "stable" };

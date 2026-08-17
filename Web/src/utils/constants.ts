@@ -98,6 +98,7 @@ export const STORAGE_KEYS = {
   HIDE_SMALL_FILES: 'lancache_downloads_hide_small',
   REFRESH_RATE: 'lancache_refresh_rate',
   RECENT_DOWNLOADS_DETAILED: 'lancache_dashboard_recent_detailed',
+  EVENT_COMPARE: 'lancache_dashboard_event_compare',
   // Prefill run state, shared by PrefillContext, PrefillPanel and the prefill SignalR hooks.
   // These predate the lancache_ prefix and the VALUES must stay exactly as they are - renaming a
   // storage key silently orphans the state already saved in every user's browser.

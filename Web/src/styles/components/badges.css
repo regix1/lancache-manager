@@ -23,6 +23,8 @@
     line-height: 1.2;
     border-radius: 3px;
     white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
   /* Session badges */

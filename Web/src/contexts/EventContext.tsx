@@ -13,12 +13,14 @@ import type {
 } from '../types';
 import { EventContext } from './EventContext.types';
 import { pruneMissingEventIds } from './TimeFilterContext.utils';
+import MockDataService from '../test/mockData.service';
 
 interface EventProviderProps {
   children: ReactNode;
+  mockMode?: boolean;
 }
 
-export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
+export const EventProvider: React.FC<EventProviderProps> = ({ children, mockMode = false }) => {
   const { hasSession, authMode, sessionId, isLoading: authLoading } = useAuth();
   const { on, off } = useSignalR();
   const { selectedEventIds, setSelectedEventIds, timeRange, setTimeRange } = useTimeFilter();
@@ -90,6 +92,29 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
       setLoading(true);
     }
     setError(null);
+
+    if (mockMode) {
+      const mockEvents = MockDataService.generateMockEvents();
+      const now = Date.now();
+      if (requestId !== refreshRequestIdRef.current) {
+        return;
+      }
+      setEvents(mockEvents);
+      setActiveEvents(
+        mockEvents.filter((event) => {
+          const start = Date.parse(event.startTimeUtc);
+          const end = Date.parse(event.endTimeUtc);
+          return start <= now && now <= end;
+        })
+      );
+      if (selectedEventId && !mockEvents.some((event) => event.id === selectedEventId)) {
+        setSelectedEventId(null);
+      }
+      hasLoadedRef.current = true;
+      setLoading(false);
+      return;
+    }
+
     try {
       // Fetch both endpoints independently so active events can still show for guests
       // even if the full event list is unavailable.
@@ -151,7 +176,7 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
         setLoading(false);
       }
     }
-  }, [authMode, selectedEventId, setSelectedEventId]);
+  }, [authMode, mockMode, selectedEventId, setSelectedEventId]);
 
   // Initial load - fetch when authenticated or in guest mode
   const hasAccess = hasSession;
@@ -160,7 +185,7 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
   // administrator here, so the id is part of it: a swap between sessions of the same kind moves
   // neither authMode nor hasAccess, and refreshEvents keeps its identity, so nothing else would
   // notice the handoff.
-  const sessionIdentity = `${authMode}:${sessionId ?? ''}`;
+  const sessionIdentity = `${authMode}:${sessionId ?? ''}:${mockMode ? 'mock' : 'live'}`;
   const loadedIdentityRef = useRef(sessionIdentity);
 
   useEffect(() => {
@@ -177,13 +202,13 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
       setError(null);
       // A session that can still fetch goes back to the state the first load had; one that cannot,
       // which is what a logout leaves behind, settles as empty instead of spinning forever.
-      setLoading(authLoading || hasAccess);
+      setLoading(mockMode || authLoading || hasAccess);
     }
 
-    if (!authLoading && hasAccess) {
+    if (mockMode || (!authLoading && hasAccess)) {
       refreshEvents();
     }
-  }, [authLoading, hasAccess, sessionIdentity, refreshEvents]);
+  }, [authLoading, hasAccess, mockMode, sessionIdentity, refreshEvents]);
 
   // Drop dashboard-filter event ids whose event no longer exists - covers deleteEvent, the
   // EventDeleted/EventsCleared SignalR handlers, any other path that shrinks `events`, and a

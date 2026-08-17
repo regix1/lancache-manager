@@ -170,6 +170,16 @@ public class SparklineDataResponse
     /// Time period for this data
     /// </summary>
     public string Period { get; set; } = string.Empty;
+
+    /// <summary>
+    /// UTC bucket width used to build the series. 15, 30, 60, 180, or 1440.
+    /// </summary>
+    public int BucketMinutes { get; set; }
+
+    /// <summary>
+    /// Unix seconds (UTC) for each point, in the same order as the metric arrays.
+    /// </summary>
+    public List<long> BucketStarts { get; set; } = new();
 }
 
 /// <summary>

@@ -58,4 +58,21 @@ public class DashboardController : ControllerBase
         var response = await _dashboardBatchService.GetBatchAsync(startTime, endTime, eventId, ct);
         return Ok(response);
     }
+
+    /// <summary>
+    /// Overlays selected events on a shared elapsed-time axis so two LAN parties can be compared
+    /// hour-for-hour even when they ran in different years.
+    /// </summary>
+    [HttpGet("event-compare")]
+    [ProducesResponseType(typeof(EventCompareResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<EventCompareResponse>> GetEventCompareAsync(
+        [FromQuery] List<long>? eventIds,
+        CancellationToken ct)
+    {
+        Response.Headers["Cache-Control"] = "no-store, private";
+        var response = await _dashboardBatchService.GetEventCompareAsync(
+            eventIds ?? [],
+            ct);
+        return Ok(response);
+    }
 }

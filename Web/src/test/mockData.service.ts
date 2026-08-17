@@ -8,7 +8,10 @@ import type {
   HourlyActivityResponse,
   HourlyActivityItem,
   GameDetectionSummary,
-  ServiceDetectionSummary
+  ServiceDetectionSummary,
+  Event,
+  EventCompareResponse,
+  SparklineDataResponse
 } from '../types';
 import type { CachedDetectionResponse } from '../contexts/DashboardDataContext/types';
 
@@ -24,6 +27,148 @@ interface GameInfo {
   appId: string;
   name: string;
   size: number;
+}
+
+type MockEventProfile = 'lan' | 'lanHot' | 'evening' | 'midday' | 'live';
+
+interface MockEventSpec {
+  id: number;
+  name: string;
+  description: string;
+  colorIndex: number;
+  start: Date;
+  end: Date;
+  profile: MockEventProfile;
+}
+
+const GIGABYTE = 1024 * 1024 * 1024;
+
+function hoursFrom(now: Date, hours: number): Date {
+  return new Date(now.getTime() + hours * 60 * 60 * 1000);
+}
+
+function toEvent(spec: MockEventSpec): Event {
+  const start = spec.start.toISOString();
+  const end = spec.end.toISOString();
+  return {
+    id: spec.id,
+    name: spec.name,
+    description: spec.description,
+    startTimeUtc: start,
+    endTimeUtc: end,
+    startTimeLocal: start,
+    endTimeLocal: end,
+    colorIndex: spec.colorIndex,
+    createdAtUtc: start
+  };
+}
+
+function mockEventSpecs(now: Date): MockEventSpec[] {
+  return [
+    {
+      id: 9001,
+      name: 'LAN Party 2024',
+      description: 'First year at the warehouse. Cache was still cold.',
+      colorIndex: 1,
+      start: hoursFrom(now, -(52 * 7 * 24 + 48)),
+      end: hoursFrom(now, -(52 * 7 * 24)),
+      profile: 'lan'
+    },
+    {
+      id: 9002,
+      name: 'LAN Party 2025',
+      description: 'Same weekend a year later. Higher hit rate after the first party.',
+      colorIndex: 2,
+      start: hoursFrom(now, -(14 * 24 + 48)),
+      end: hoursFrom(now, -(14 * 24)),
+      profile: 'lanHot'
+    },
+    {
+      id: 9003,
+      name: 'Summer LAN',
+      description: 'Saturday daytime session.',
+      colorIndex: 3,
+      start: hoursFrom(now, -(28 * 24 + 12)),
+      end: hoursFrom(now, -(28 * 24)),
+      profile: 'midday'
+    },
+    {
+      id: 9004,
+      name: 'Friday Night Fights',
+      description: 'Eight-hour evening session.',
+      colorIndex: 4,
+      start: hoursFrom(now, -(3 * 24 + 8)),
+      end: hoursFrom(now, -(3 * 24)),
+      profile: 'evening'
+    },
+    {
+      id: 9005,
+      name: 'Open House',
+      description: 'In-progress session so the compare chart has a live overlay.',
+      colorIndex: 5,
+      start: hoursFrom(now, -3),
+      end: hoursFrom(now, 3),
+      profile: 'live'
+    }
+  ];
+}
+
+function resolveMockBucketMinutes(rangeHours: number): number {
+  if (rangeHours <= 2) {
+    return 15;
+  }
+  if (rangeHours <= 13) {
+    return 30;
+  }
+  if (rangeHours <= 25) {
+    return 60;
+  }
+  if (rangeHours <= 240) {
+    return 180;
+  }
+  return 1440;
+}
+
+function profileWave(profile: MockEventProfile, t: number): { served: number; saved: number } {
+  let peak = 0.45;
+  let amp = 40;
+  let hit = 0.75;
+  switch (profile) {
+    case 'lan':
+      peak = 0.42;
+      amp = 90;
+      hit = 0.62;
+      break;
+    case 'lanHot':
+      peak = 0.38;
+      amp = 130;
+      hit = 0.88;
+      break;
+    case 'evening':
+      peak = 0.65;
+      amp = 35;
+      hit = 0.8;
+      break;
+    case 'midday':
+      peak = 0.5;
+      amp = 22;
+      hit = 0.7;
+      break;
+    case 'live':
+      peak = 0.85;
+      amp = 18;
+      hit = 0.9;
+      break;
+  }
+
+  let bell = Math.exp(-(((t - peak) * 3.2) ** 2));
+  if (profile === 'lan' || profile === 'lanHot') {
+    const saturday = Math.exp(-(((t - 0.55) * 5) ** 2));
+    bell = Math.max(bell, saturday * 0.7);
+  }
+
+  const served = (0.08 + bell * 0.92) * amp * GIGABYTE;
+  return { served, saved: served * hit };
 }
 
 // Services the demo library is spread across, cycled by index so the split is stable between
@@ -557,6 +702,114 @@ class MockDataService {
       periodStart,
       periodEnd: now,
       period: '7d'
+    };
+  }
+
+  static generateMockSparklines(startTime?: number, endTime?: number): SparklineDataResponse {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const end = endTime ?? nowSec;
+    const start = startTime ?? end - 24 * 3600;
+    const rangeHours = Math.max((end - start) / 3600, 0.25);
+    const bucketMinutes = resolveMockBucketMinutes(rangeHours);
+    const bucketSec = bucketMinutes * 60;
+    const count = Math.max(1, Math.ceil((end - start) / bucketSec));
+    const bucketStarts: number[] = [];
+    const bandwidthSaved: number[] = [];
+    const totalServed: number[] = [];
+    const addedToCache: number[] = [];
+    const cacheHitRatio: number[] = [];
+
+    for (let i = count - 1; i >= 0; i--) {
+      const startSec = end - i * bucketSec;
+      const hour = new Date(startSec * 1000).getUTCHours();
+      let activity = 0.15;
+      if (hour >= 12 && hour < 18) {
+        activity = 0.85;
+      } else if (hour >= 18 && hour < 23) {
+        activity = 0.65;
+      } else if (hour >= 8 && hour < 12) {
+        activity = 0.4;
+      }
+
+      const served = activity * 25 * GIGABYTE;
+      const saved = served * 0.78;
+      bucketStarts.push(startSec);
+      totalServed.push(served);
+      bandwidthSaved.push(saved);
+      addedToCache.push(served - saved);
+      cacheHitRatio.push(78);
+    }
+
+    return {
+      bandwidthSaved: { data: bandwidthSaved, trend: 'up' },
+      cacheHitRatio: { data: cacheHitRatio, trend: 'stable' },
+      totalServed: { data: totalServed, trend: 'up' },
+      addedToCache: { data: addedToCache, trend: 'stable' },
+      period: startTime == null ? 'all' : 'filtered',
+      bucketMinutes,
+      bucketStarts
+    };
+  }
+
+  static generateMockEvents(): Event[] {
+    return mockEventSpecs(new Date()).map(toEvent);
+  }
+
+  static generateMockEventCompare(eventIds: number[]): EventCompareResponse {
+    const specs = mockEventSpecs(new Date());
+    const selected = eventIds
+      .filter((id, index, all) => Number.isInteger(id) && all.indexOf(id) === index)
+      .slice(0, 8)
+      .map((id) => specs.find((spec) => spec.id === id))
+      .filter((spec): spec is MockEventSpec => spec !== undefined);
+
+    if (selected.length === 0) {
+      return { bucketMinutes: 60, elapsedMinutes: [], series: [] };
+    }
+
+    const longestHours = Math.max(
+      ...selected.map((spec) => Math.max((spec.end.getTime() - spec.start.getTime()) / 3600000, 0))
+    );
+    const bucketMinutes = resolveMockBucketMinutes(longestHours);
+    const bucketMs = bucketMinutes * 60 * 1000;
+    const maxBuckets = Math.max(
+      ...selected.map((spec) =>
+        Math.max(1, Math.ceil((spec.end.getTime() - spec.start.getTime()) / bucketMs))
+      )
+    );
+    const elapsedMinutes = Array.from({ length: maxBuckets }, (_, index) => index * bucketMinutes);
+
+    return {
+      bucketMinutes,
+      elapsedMinutes,
+      series: selected.map((spec) => {
+        const eventBuckets = Math.max(
+          1,
+          Math.ceil((spec.end.getTime() - spec.start.getTime()) / bucketMs)
+        );
+        const served: (number | null)[] = [];
+        const saved: (number | null)[] = [];
+        for (let index = 0; index < maxBuckets; index++) {
+          if (index >= eventBuckets) {
+            served.push(null);
+            saved.push(null);
+            continue;
+          }
+
+          const progress = eventBuckets === 1 ? 1 : index / (eventBuckets - 1);
+          const point = profileWave(spec.profile, progress);
+          served.push(point.served);
+          saved.push(point.saved);
+        }
+
+        return {
+          eventId: spec.id,
+          name: spec.name,
+          colorIndex: spec.colorIndex,
+          served,
+          saved
+        };
+      })
     };
   }
 

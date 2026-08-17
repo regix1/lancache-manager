@@ -31,6 +31,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     // Thread-safe storage for metric values
     private readonly ConcurrentDictionary<string, ServiceMetrics> _serviceMetrics = new();
     private readonly ConcurrentDictionary<string, ClientMetrics> _clientMetrics = new();
+    private readonly ConcurrentDictionary<string, EventMetrics> _eventMetrics = new();
 
     // Keyed by the game identity key, so download traffic and cache-on-disk figures for the same
     // game carry identical labels. The two sets are ranked separately and rarely hold the same games.
@@ -107,6 +108,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     // and cannot change at runtime.
     private const int MinTopGameCount = 1;
     private const int MaxTopGameCount = 500;
+    internal const int MaxEventCount = 50;
 
     private class ServiceMetrics
     {
@@ -124,6 +126,32 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         public long HitBytes;
         public long MissBytes;
         public long Downloads;
+    }
+
+    /// <summary>
+    /// Per-event totals for downloads tagged to a LAN party. Labels ride on the holder so the
+    /// observers do not rebuild them on every scrape.
+    /// </summary>
+    private class EventMetrics
+    {
+        public long TotalBytes;
+        public long HitBytes;
+        public long Downloads;
+        public long HitRatioBits;
+        public KeyValuePair<string, object?>[] Labels = [];
+    }
+
+    /// <summary>
+    /// One row of per-event totals. Declared rather than projected into an anonymous type so
+    /// <see cref="EventTotalsQuery"/> can be compiled by the tests.
+    /// </summary>
+    internal sealed class EventMetricTotals
+    {
+        public long EventId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public long TotalBytes { get; set; }
+        public long HitBytes { get; set; }
+        public long Downloads { get; set; }
     }
 
     /// <summary>
@@ -463,6 +491,33 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         );
 
         // ============================================
+        // PER-EVENT METRICS (tagged LAN events)
+        // ============================================
+        _meter.CreateObservableGauge(
+            "lancache_event_bytes",
+            () => EventObserver(m => Interlocked.Read(ref m.TotalBytes)),
+            description: "Bytes served for downloads tagged to this event"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_event_cache_hit_bytes",
+            () => EventObserver(m => Interlocked.Read(ref m.HitBytes)),
+            description: "Cache hit bytes for downloads tagged to this event"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_event_downloads",
+            () => EventObserver(m => Interlocked.Read(ref m.Downloads)),
+            description: "Download session count for downloads tagged to this event"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_event_cache_hit_ratio",
+            () => EventObserver(m => BitConverter.Int64BitsToDouble(Interlocked.Read(ref m.HitRatioBits))),
+            description: "Cache hit ratio for downloads tagged to this event (0-1)"
+        );
+
+        // ============================================
         // PER-GAME METRICS (top N with labels)
         // ============================================
         // Gauges, and deliberately without the _total suffix their neighbours carry. Rows are
@@ -671,6 +726,20 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         }
     }
 
+    private static KeyValuePair<string, object?>[] EventLabels(string eventName, string eventId) => new[]
+    {
+        new KeyValuePair<string, object?>("event", eventName),
+        new KeyValuePair<string, object?>("event_id", eventId)
+    };
+
+    private IEnumerable<Measurement<T>> EventObserver<T>(Func<EventMetrics, T> read) where T : struct
+    {
+        foreach (var kvp in _eventMetrics)
+        {
+            yield return new Measurement<T>(read(kvp.Value), kvp.Value.Labels);
+        }
+    }
+
     // Game metrics measurement providers
     /// <summary>
     /// The label set both per-game families carry. Built once per game per cycle in the update loop
@@ -783,6 +852,30 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         }
 
         return downloads;
+    }
+
+    /// <summary>
+    /// Totals for downloads tagged to each event, after the same client exclusions the rest of
+    /// this cycle already applied. Ranked later by bytes so a large event calendar cannot grow
+    /// unbounded series. Internal so the tests compile the join through the provider.
+    /// </summary>
+    internal static IQueryable<EventMetricTotals> EventTotalsQuery(
+        AppDbContext context,
+        IQueryable<Download> downloads)
+    {
+        return
+            from d in downloads
+            join ed in context.EventDownloads on d.Id equals ed.DownloadId
+            join e in context.Events on ed.EventId equals e.Id
+            group d by new { e.Id, e.Name } into g
+            select new EventMetricTotals
+            {
+                EventId = g.Key.Id,
+                Name = g.Key.Name,
+                TotalBytes = g.Sum(row => row.CacheHitBytes + row.CacheMissBytes),
+                HitBytes = g.Sum(row => row.CacheHitBytes),
+                Downloads = g.LongCount()
+            };
     }
 
     private async Task UpdateMetricsAsync(IServiceProvider scopedServices, CancellationToken cancellationToken)
@@ -973,6 +1066,44 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             Interlocked.Exchange(ref metrics.HitBytes, client.HitBytes);
             Interlocked.Exchange(ref metrics.MissBytes, client.MissBytes);
             Interlocked.Exchange(ref metrics.Downloads, client.Downloads);
+        }
+
+        // ============================================
+        // PER-EVENT METRICS (tagged downloads)
+        // ============================================
+        try
+        {
+            var eventStats = await EventTotalsQuery(context, downloads)
+                .OrderByDescending(row => row.TotalBytes)
+                .Take(MaxEventCount)
+                .ToListAsync(cancellationToken);
+
+            var currentEvents = eventStats.Select(row => row.EventId.ToString()).ToHashSet();
+            RemoveMissingKeys(_eventMetrics, currentEvents);
+
+            foreach (var stat in eventStats)
+            {
+                var key = stat.EventId.ToString();
+                var labels = EventLabels(stat.Name, key);
+                var metrics = _eventMetrics.GetOrAdd(key, _ => new EventMetrics { Labels = labels });
+                metrics.Labels = labels;
+                Interlocked.Exchange(ref metrics.TotalBytes, stat.TotalBytes);
+                Interlocked.Exchange(ref metrics.HitBytes, stat.HitBytes);
+                Interlocked.Exchange(ref metrics.Downloads, stat.Downloads);
+
+                var hitRatio = stat.TotalBytes > 0
+                    ? (double)stat.HitBytes / stat.TotalBytes
+                    : 0;
+                Interlocked.Exchange(ref metrics.HitRatioBits, BitConverter.DoubleToInt64Bits(hitRatio));
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to update event metrics");
         }
 
         // ============================================

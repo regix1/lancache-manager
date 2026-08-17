@@ -208,12 +208,28 @@ export interface SparklineMetric {
   trend: 'up' | 'down' | 'stable';
 }
 
+export interface EventCompareSeries {
+  eventId: number;
+  name: string;
+  colorIndex: number;
+  served: Array<number | null>;
+  saved: Array<number | null>;
+}
+
+export interface EventCompareResponse {
+  bucketMinutes: number;
+  elapsedMinutes: number[];
+  series: EventCompareSeries[];
+}
+
 export interface SparklineDataResponse {
   bandwidthSaved: SparklineMetric;
   cacheHitRatio: SparklineMetric;
   totalServed: SparklineMetric;
   addedToCache: SparklineMetric;
   period: string;
+  bucketMinutes?: number;
+  bucketStarts?: number[];
 }
 
 export interface CacheSnapshotResponse {
@@ -365,6 +381,8 @@ export interface StatCardData {
   value: string | number;
   subtitle?: string;
   badge?: ReactNode;
+  /** Warning chrome (yellow outline + tint) for an outdated scan. */
+  tone?: 'warning';
   icon: LucideIcon;
   color: 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan' | 'teal';
   visible: boolean;

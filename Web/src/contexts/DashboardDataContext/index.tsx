@@ -587,6 +587,15 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     }
   }, [mockMode]);
 
+  useEffect(() => {
+    if (!mockMode) {
+      return;
+    }
+
+    const { startTime, endTime } = getTimeRangeParams();
+    setSparklines(MockDataService.generateMockSparklines(startTime, endTime));
+  }, [customEndDate, customStartDate, getTimeRangeParams, mockMode, timeRange]);
+
   // Mock and real sessions must not let a partial response after the switch reuse the other session's slices for a matching range key.
   const prevMockModeRef = useRef(mockMode);
   useEffect(() => {

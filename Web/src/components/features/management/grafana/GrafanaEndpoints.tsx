@@ -335,6 +335,10 @@ const GrafanaEndpoints: React.FC = () => {
             {
               term: t('management.grafana.help.metrics.activity.term'),
               description: t('management.grafana.help.metrics.activity.description')
+            },
+            {
+              term: t('management.grafana.help.metrics.events.term'),
+              description: t('management.grafana.help.metrics.events.description')
             }
           ]}
         />
@@ -667,6 +671,14 @@ const GrafanaEndpoints: React.FC = () => {
                 </p>
                 <code className="text-[10px] font-mono text-themed-secondary">
                   lancache_cache_days_until_full
+                </code>
+              </div>
+              <div className="bg-themed-secondary p-2 rounded">
+                <p className="text-[10px] text-themed-muted mb-1">
+                  # {t('management.grafana.queries.eventBytes')}
+                </p>
+                <code className="text-[10px] font-mono text-themed-secondary">
+                  topk(8, lancache_event_bytes)
                 </code>
               </div>
             </div>

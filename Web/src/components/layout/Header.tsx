@@ -119,7 +119,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
               <LanguageSelector />
               <TimezoneSelector />
               <RefreshRateSelector disabled={mockMode} />
-              <TimeFilter disabled={mockMode} />
+              <TimeFilter />
               {isRefreshing && <LoadingSpinner inline size="xs" />}
             </div>
           </div>
@@ -151,7 +151,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
                 <LanguageSelector iconOnly={true} />
                 <TimezoneSelector iconOnly={true} />
                 <RefreshRateSelector disabled={mockMode} iconOnly={true} />
-                <TimeFilter disabled={mockMode} iconOnly={true} />
+                <TimeFilter iconOnly={true} />
                 {isRefreshing && <LoadingSpinner inline size="xs" />}
               </div>
             </div>

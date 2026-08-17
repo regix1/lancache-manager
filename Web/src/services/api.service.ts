@@ -33,6 +33,7 @@ import type {
   DatasourceLogPosition,
   DatasourceServiceCounts,
   Event,
+  EventCompareResponse,
   CreateEventRequest,
   UpdateEventRequest,
   DownloadSpeedSnapshot,
@@ -381,6 +382,20 @@ class ApiService {
       }
       throw error;
     }
+  }
+
+  static async getEventCompare(
+    eventIds: number[],
+    signal?: AbortSignal
+  ): Promise<EventCompareResponse> {
+    const params = new URLSearchParams();
+    for (const id of eventIds) {
+      params.append('eventIds', id.toString());
+    }
+    const query = params.toString();
+    const url = `${API_BASE}/dashboard/event-compare${query ? `?${query}` : ''}`;
+    const res = await fetch(url, this.getFetchOptions({ signal }));
+    return this.handleResponse<EventCompareResponse>(res);
   }
 
   static async getCacheInfo(signal?: AbortSignal): Promise<CacheInfo> {
