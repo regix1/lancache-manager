@@ -75,7 +75,7 @@ const OptionItem = memo<OptionItemProps>(
         <div className="msd-accent absolute left-0 top-0 bottom-0 w-0.5 bg-[var(--theme-primary)]" />
 
         <div
-          className={`msd-checkbox flex-shrink-0 ${compact ? 'w-4 h-4' : 'w-5 h-5'} rounded-md flex items-center justify-center mt-0.5 ${
+          className={`msd-checkbox flex-shrink-0 ${compact ? 'w-4 h-4' : 'w-5 h-5'} flex items-center justify-center mt-0.5 ${
             isSelected
               ? 'msd-checkbox-selected bg-[var(--theme-primary)] border-none shadow-[0_2px_4px_var(--theme-primary-strong)]'
               : 'bg-transparent border-2 border-themed-primary shadow-none'

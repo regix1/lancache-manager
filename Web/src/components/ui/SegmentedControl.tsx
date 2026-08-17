@@ -62,8 +62,8 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
         const isDisabled = option.disabled;
         const activeClass =
           option.activeColor === 'warning'
-            ? 'bg-[var(--theme-warning)] text-themed-button shadow-[0_2px_4px_var(--theme-warning-muted)]'
-            : 'bg-[var(--theme-primary)] text-themed-button shadow-[0_2px_4px_var(--theme-primary-muted)]';
+            ? 'bg-[var(--theme-warning)] text-themed-button'
+            : 'bg-[var(--theme-primary)] text-themed-button';
         // Disabled + selected: drop the vivid accent for a neutral muted fill so the whole control
         // reads as disabled (matching a disabled dropdown/toggle) instead of looking clickable.
         const segmentClass = isActive

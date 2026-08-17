@@ -224,7 +224,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
             setIsOpen(false);
           }
         }}
-        className={`p-1 rounded-md transition-colors ${
+        className={`help-popover-trigger p-1 rounded-md transition-colors ${
           isOpen
             ? 'text-[var(--theme-primary)] bg-[var(--theme-primary-subtle)]'
             : 'text-themed-secondary bg-transparent hover:bg-themed-hover'

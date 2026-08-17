@@ -171,3 +171,11 @@
     transform: translate(-50%, -50%);
   }
 }
+
+/* Community themes inject unlayered `button { box-shadow }`, which reads as a
+   second rectangle behind small rounded controls. Outrank that element rule. */
+html button,
+html button:hover,
+html button:active {
+  box-shadow: none;
+}

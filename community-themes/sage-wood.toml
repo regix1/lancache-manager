@@ -3,7 +3,7 @@ name = "Sage & Wood"
 id = "sage-wood"
 description = "Earthy sage green with warm wood browns on charcoal"
 author = "Nature"
-version = "2.4.3"
+version = "2.4.4"
 isDark = true
 sharpCorners = false
 
@@ -158,36 +158,36 @@ activeSessionBg = "rgba(212, 165, 116, 0.15)"
 dragHandleColor = "#808080"
 dragHandleHover = "#a8c090"
 
-# Event colors - Sage green and wood brown tones
+# Event colors — one hue each so overlay lines stay distinct (not two sages)
 eventColor1 = "#8AA968"
-eventColor2 = "#7a9960"
+eventColor2 = "#c07860"
 eventColor3 = "#d4a574"
-eventColor4 = "#c07860"
+eventColor4 = "#8fa4c4"
 eventColor5 = "#8b6f47"
 eventColor6 = "#7a9a9f"
-eventColor7 = "#9b8b7a"
-eventColor8 = "#8fa4c4"
+eventColor7 = "#bd9d58"
+eventColor8 = "#845267"
 
-# Game chart colors - Sage green and wood brown tones
+# Game chart colors — same spread as events, then further earthy hues
 gameColor1 = "#8AA968"
-gameColor2 = "#7a9960"
+gameColor2 = "#c07860"
 gameColor3 = "#d4a574"
-gameColor4 = "#c07860"
+gameColor4 = "#8fa4c4"
 gameColor5 = "#8b6f47"
 gameColor6 = "#7a9a9f"
-gameColor7 = "#9b8b7a"
-gameColor8 = "#8fa4c4"
-gameColor9 = "#6b9e5e"
-gameColor10 = "#b8956a"
-gameColor11 = "#a4c490"
-gameColor12 = "#c4967a"
+gameColor7 = "#bd9d58"
+gameColor8 = "#845267"
+gameColor9 = "#b8956a"
+gameColor10 = "#6a8fb0"
+gameColor11 = "#a56b5c"
+gameColor12 = "#c9a67a"
 gameColor13 = "#5e8a72"
 gameColor14 = "#d4b894"
-gameColor15 = "#8a7a6a"
-gameColor16 = "#6a8fb0"
-gameColor17 = "#b0a090"
-gameColor18 = "#7aaa8a"
-gameColor19 = "#c0906a"
+gameColor15 = "#7d6386"
+gameColor16 = "#a97a3b"
+gameColor17 = "#4a6580"
+gameColor18 = "#92552b"
+gameColor19 = "#93a344"
 gameColor20 = "#9ab4a0"
 gameColorOther = "#6b6560"
 
@@ -237,21 +237,6 @@ content = """
       rgba(138, 169, 104, 0.05),
       transparent
     );
-}
-
-/* Earthy button shadows */
-button {
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  transition: all 0.15s ease;
-}
-
-button:hover {
-  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.25);
-  transform: translateY(-1px);
-}
-
-button:active {
-  transform: translateY(0);
 }
 
 /* Natural scrollbar */
