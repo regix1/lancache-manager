@@ -1,6 +1,6 @@
 # LANCache Manager API Reference
 
-Every HTTP endpoint LANCache Manager serves: 283 operations across 6 groups, generated from the OpenAPI document of `LancacheManager | v1` version `1.0.0`.
+Every HTTP endpoint LANCache Manager serves: 284 operations across 6 groups, generated from the OpenAPI document of `LancacheManager | v1` version `1.0.0`.
 
 This is a flattened summary meant to be read by a person or pasted into a chat with an AI assistant. It is not the OpenAPI document itself. A running instance serves the interactive reference at `/scalar` and the full machine-readable document at `/openapi/v1.json`, both of which take an admin session or the API key.
 
@@ -10,12 +10,12 @@ This is a flattened summary meant to be read by a person or pasted into a chat w
 - Endpoints marked **requires a signed-in session** need the `LancacheManager.Session` cookie. Sign in once at `POST /api/auth/login`, which takes an API key, a username and a password together, and send the cookie it returns on every later call. A call that changes something (POST, PUT, PATCH, DELETE) also needs the value of the `LancacheManager.Antiforgery` cookie sent back as an `X-Antiforgery-Token` header.
 - Endpoints marked **public** answer without a session, because they have to work before a caller has one (sign-in, guest configuration, setup, health).
 - The `X-Api-Key` header on its own opens `/scalar` and `/openapi/v1.json` and nothing else. Four setup endpoints read the key themselves: `POST /api/setup/credentials` and `POST /api/setup/external` take it in the header, `POST /api/account-setup/first-admin` and `POST /api/account-setup/recover-main-admin` take it in the request body.
-- Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`, or from Management then Integrations inside the app.
+- Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`, or from Management then Integrations inside the app. Later container logs print only a hint; the full key is written to the logs only when it is first created or rotated.
 - Request and response shapes list top-level fields only, as `name: type`, with `?` marking a field that is optional or nullable. Named types are referenced but not expanded; read `/openapi/v1.json` when the nested shape matters.
 
 ## Groups
 
-- **Access** (63 endpoints) - Sign in, sessions, API keys, and per-user settings.
+- **Access** (64 endpoints) - Sign in, sessions, API keys, and per-user settings.
 - **Cache and Games** (58 endpoints) - Cached content, game and depot identification, and game artwork.
 - **Clients** (10 endpoints) - Cache clients, their groups, and their hostname mappings.
 - **Downloads and Reporting** (40 endpoints) - Download history, dashboard figures, statistics, speeds, events, and logs.
@@ -30,8 +30,8 @@ Sign in, sessions, API keys, and per-user settings.
 
 Access: requires a signed-in session
 
-Lists the accounts the caller may see: every account for an administrator, and every account
-that is not an administrator for a user.
+Lists the accounts the caller may see: every account for the owner, every account except the
+owner for another administrator, and every account that is not an administrator for a user.
 
 Response 200 (inline object): (no fields)
 
@@ -129,7 +129,8 @@ Response 200 (`AuthStatusResponse`): `isAuthenticated?: boolean`, `authenticatio
 
 Access: requires a signed-in session
 
-Lists sessions for the admin management screen.
+Lists sessions the caller may see. The owner's sessions are withheld from every other
+account holder.
 
 Parameters: `page`? (query): integer, `pageSize`? (query): integer
 Response 200 (`SessionListResponse`): `sessions?: SessionDto[]`, `count?: integer`, `adminCount?: integer`, `userCount?: integer`, `guestCount?: integer`, `pagination: SessionListPage`, `historySessions?: SessionDto[]`
@@ -189,7 +190,8 @@ Response 200 (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: 
 
 Access: requires a signed-in session
 
-Gets any session's preferences by ID (admin only), for the management screens.
+Gets a session's preferences by ID. A session belonging to the owner answers as one that
+does not exist.
 
 Parameters: `sessionId` (path): string
 Response 200 (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`
@@ -219,6 +221,14 @@ Access: requires a signed-in session
 Creates an account.
 
 Body (`CreateAccountRequest`): `username?: string`, `password?: string`, `role: SessionType`
+
+### POST /api/accounts/wipe
+
+Access: requires a signed-in session
+
+Deletes every account, including the one that owns the installation, and ends every session.
+
+Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
 
 ### POST /api/api-keys/regenerate
 
@@ -364,7 +374,8 @@ Response 200 (`SessionClientInfoResponse`): `success?: boolean`, `publicIp?: str
 
 Access: public
 
-Sets the embedded PostgreSQL password.
+Sets the embedded PostgreSQL password. The new password must be at least 12 characters
+and use three character classes.
 
 Body (`SetupCredentialsRequest`): `username?: string?`, `password?: string`
 Response 200 (`SetupCredentialsResponse`): `success?: boolean`, `message?: string`
@@ -482,7 +493,8 @@ Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
 
 Access: requires a signed-in session
 
-Replaces any session's preferences by ID (admin only).
+Replaces a session's preferences by ID. A session belonging to the owner answers as one
+that does not exist.
 
 Parameters: `sessionId` (path): string
 Body (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`
@@ -502,7 +514,7 @@ Response 200 (`StateUpdateResponse`): `success?: boolean`
 
 Access: requires a signed-in session
 
-Revokes a session.
+Revokes a session. A session belonging to the owner answers as one that does not exist.
 
 Parameters: `id` (path): string
 Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
@@ -539,7 +551,7 @@ Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
 
 Access: requires a signed-in session
 
-Permanently deletes a session's row and history.
+Permanently deletes a session's row and history. A session belonging to the owner answers as one that does not exist.
 
 Parameters: `id` (path): string
 Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`

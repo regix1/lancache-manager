@@ -40,6 +40,8 @@ docker compose up -d
    docker exec lancache-manager cat /data/security/api_key.txt
    ```
 
+   首次启动时，密钥也会打印在容器日志中。之后的重启只打印提示，请使用该文件。
+
 2. 打开 `http://localhost:8080`，在提示时输入该 API 密钥。
 3. 首次运行时会打开设置向导。它会检查挂载权限、询问是否导入现有的日志历史，并配置 Steam depot 映射，让下载记录显示真实的游戏名称和封面图。向导支持回退上一步。
 

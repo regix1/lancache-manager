@@ -1,6 +1,6 @@
 # API 参考
 
-Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡是能点击完成的操作都可以脚本化。API 共有 283 个端点，分为六组。
+Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡是能点击完成的操作都可以脚本化。API 共有 284 个端点，分为六组。
 
 ## 把整套 API 交给 AI 助手
 
@@ -49,7 +49,7 @@ curl -b jar.txt -c jar.txt -X POST http://cache.lan:8080/api/auth/login \
 curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 ```
 
-使用 `docker exec lancache-manager cat /data/security/api_key.txt` 获取密钥，也可以在**管理 → 集成**中查看，并在那里重新生成。用户名和密码来自在应用中创建的账户。
+使用 `docker exec lancache-manager cat /data/security/api_key.txt` 获取密钥，也可以在**管理 → 集成**中查看，并在那里重新生成。之后的容器日志只打印提示，完整密钥仅在首次创建或轮换时写入日志。用户名和密码来自在应用中创建的账户。
 
 读取数据只需要这个 Cookie 文件。会修改数据的请求（`POST`、`PUT`、`PATCH`、`DELETE`）还需要一个防伪令牌：用同一个 Cookie 文件调用 `GET /api/auth/status`，取出它设置的 `LancacheManager.Antiforgery` Cookie 的值，再作为 `X-Antiforgery-Token` 请求头发回。上面的登录之所以先调用状态端点，正是这个原因。令牌与签发它的会话绑定，而登录会换成一个新会话，所以在发出第一个写请求之前要再调用一次状态端点。
 
@@ -63,13 +63,13 @@ curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 
 !!! note "无需会话即可应答的端点"
 
-    283 个端点中有 22 个必须在调用方尚无凭据时就能工作：登录、访客模式配置、首次运行初始化，以及容器健康检查。它们在下载的参考文件中标记为 **public**，其余端点标记为 **requires a signed-in session**。
+    284 个端点中有 22 个必须在调用方尚无凭据时就能工作：登录、访客模式配置、首次运行初始化，以及容器健康检查。它们在下载的参考文件中标记为 **public**，其余端点标记为 **requires a signed-in session**。
 
 ## 各分组的内容
 
 | 分组 | 端点数 | 涵盖内容 |
 |---|---:|---|
-| Access | 63 | 登录、会话、账户、API 密钥、访客模式、用户级设置 |
+| Access | 64 | 登录、会话、账户、API 密钥、访客模式、用户级设置 |
 | Cache and Games | 58 | 缓存内容、游戏与 depot 识别、损坏扫描、封面图 |
 | Clients | 10 | 缓存客户端、客户端分组、主机名映射 |
 | Downloads and Reporting | 40 | 下载历史、仪表板数据、统计、速度、事件、日志 |

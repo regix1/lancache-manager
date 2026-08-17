@@ -22,6 +22,8 @@ Unraid 专用配置。其他内容请看对应指南：
 docker exec lancache-manager cat /data/security/api_key.txt
 ```
 
+首次启动时，密钥也会打印在容器日志中。之后的重启只打印提示，请使用该文件。
+
 ### 说明
 
 - 必需路径与变量与 Compose 快速开始一致：`/data`、`/logs`、`/cache`、`TZ`、`LanCache__LogPath`、`LanCache__CachePath`。

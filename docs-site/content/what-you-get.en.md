@@ -38,7 +38,7 @@ Open it when you want to know which machines pull the most and whether their ins
 <em>Users - active sessions and guest access</em>
 </div>
 
-This is where guest access lives: watch active sessions and hand out time-limited, view-only access without sharing your API key.
+This is where guest access and signed-in accounts live: watch active sessions, create users and administrators, and hand out time-limited, view-only access without sharing an account. The Primary account and its sessions are visible only to that account.
 
 ### Events
 

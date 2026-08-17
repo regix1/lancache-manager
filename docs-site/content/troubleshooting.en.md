@@ -58,6 +58,8 @@ docker exec lancache-manager cat /data/security/api_key.txt
 
 On Windows Git Bash, prefix the `docker exec` form with `MSYS_NO_PATHCONV=1` (`MSYS_NO_PATHCONV=1 docker exec lancache-manager cat /data/security/api_key.txt`) or the path gets rewritten to a local Windows path.
 
+Later container restarts print the file path and a short hint, not the full key. The full key is written to the logs only when it is first created or after you rotate it.
+
 To rotate the key, stop the container, delete `./data/security/api_key.txt`, and start it again.
 
 ### Permission issues

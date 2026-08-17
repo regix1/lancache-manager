@@ -2,7 +2,7 @@
 
 **User accounts.** Signing in now takes a username and password as well as the API key. A fresh install creates the first account during the setup wizard, and that account becomes the main admin. An existing install signs everyone out once at first start and asks for that same account step, so nobody is left signed in under the old rules. Accounts live on the Users page under a new Accounts tab.
 
-**A user role between admin and guest.** A user reaches every page and action an admin does, with two differences: the account list shows them other users but not admins, and only the main admin can create or promote an admin. Guests stay read-only. The main admin cannot be deleted, disabled or demoted by anyone, including itself.
+**A user role between admin and guest.** A user reaches every page and action an admin does, with two differences: the account list shows them other users but not admins, and only the main admin can create or promote an admin. Guests stay read-only. The Primary account is hidden from every other account, including other admins. The main admin cannot be deleted, disabled or demoted from the account list, including by itself. Wipe All Accounts is the exception: only that account can empty the table, and the next screen is create the first administrator.
 
 **Custom schedules.** Tasks can now run at times you pick instead of only the built-in intervals. The schedule builder opens at midnight, and its Advanced drawer scrolls itself into view when you open it.
 
@@ -13,6 +13,8 @@
 **An API reference.** `/scalar` documents every endpoint. Endpoints nothing was calling were removed at the same time.
 
 **Real progress during a database import.** An import reports how far along it is instead of spinning until it finishes.
+
+**Bandwidth and Compare Events on the dashboard.** One full-width card with a tab for each. Bandwidth plots cache hits and total served across the header time range, and picks a bucket width from the hours that actually have downloads so a short event is still a line. Compare Events overlays the parties you pick, lined up from each event's start and clipped to that same range.
 
 ## Security
 
@@ -67,6 +69,11 @@
 - A number box can be cleared and retyped instead of only appended to.
 - The setup and account screens work on a phone.
 - Several controls line up at one width: the Off/On pill, the Grafana polling dropdowns and the Steam depot mapping toggle.
+- The dashboard line-chart legend keeps each color square on the same line as its label, with space from the plot edge.
+- Bandwidth and Compare tabs match the height of the other dashboard controls.
+- Multi-select checkboxes are square with a slight corner, so they no longer look like radio buttons.
+- Cache Files and Games on Disk cards that are out of date show a warning outline instead of looking current.
+- Demo Mode still lets you change the header time range.
 
 **Docs and translations**
 

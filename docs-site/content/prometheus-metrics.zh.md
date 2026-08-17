@@ -83,6 +83,19 @@
 
 这两个指标刻意只针对 Steam。WSUS 和裸机流量按设计本来就不带游戏名称，如果统计所有无名称的下载，会把一个完全正常的部署报告成有问题。
 
+### 局域网活动
+
+| 指标 | 描述 |
+|--------|-------------|
+| `lancache_event_bytes` | 标记到该活动的下载所提供的字节数 |
+| `lancache_event_cache_hit_bytes` | 该活动的缓存命中字节数 |
+| `lancache_event_downloads` | 该活动的下载会话数 |
+| `lancache_event_cache_hit_ratio` | 该活动的命中率（0-1） |
+
+这四个指标都带有 `event`（显示名称）和 `event_id`。它们只统计已标记的下载，与仪表板活动筛选使用的集合相同，并且和其他 `/metrics` 指标一样遵守客户端排除规则。
+
+只导出按字节数排名前 50 的活动。没有已标记下载的活动会被省略，而不是上报 0。它们都是 gauge：请直接绘制。仪表板上按活动开始时间对齐的叠加曲线不会从这里导出——Prometheus 抓取的是累计值，而不是从每个活动开始起按小时的序列。
+
 ### 哪些指标可以配合 rate() 使用
 
 以 `_total` 结尾的名称按惯例表示计数器，而 `rate()`、`irate()` 和 `increase()` 都是为计数器设计的。**上面这些新指标没有一个带 `_total`，也没有一个适合配合 `rate()` 使用。**
@@ -132,6 +145,9 @@ lancache_game_cache_hit_ratio * 100
 
 # 未能匹配到游戏的 Steam 字节数占比
 lancache_steam_unknown_game_bytes / lancache_service_bytes_total{service="steam"}
+
+# 每个局域网活动提供的字节数
+topk(8, lancache_event_bytes)
 ```
 
 最后这条查询两边的后缀不一致，这不是笔误。`lancache_steam_unknown_game_bytes` 是新增的 gauge 之一，不带 `_total`；`lancache_service_bytes_total{service="steam"}` 是已有序列，保留了它发布时的后缀。两边都是统计字节数的 gauge，所以这个比值本身是正确的。

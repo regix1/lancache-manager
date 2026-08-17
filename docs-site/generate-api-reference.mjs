@@ -134,7 +134,8 @@ function buildMarkdown(doc) {
   );
   out.push(
     '- Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`, or from ' +
-      'Management then Integrations inside the app.'
+      'Management then Integrations inside the app. Later container logs print only a hint; the ' +
+      'full key is written to the logs only when it is first created or rotated.'
   );
   out.push(
     '- Request and response shapes list top-level fields only, as `name: type`, with `?` marking ' +

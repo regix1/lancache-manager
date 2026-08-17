@@ -1,6 +1,6 @@
 # API Reference
 
-The web UI runs entirely on LANCache Manager's own HTTP API, so anything you can click, you can script. There are 283 endpoints across six groups.
+The web UI runs entirely on LANCache Manager's own HTTP API, so anything you can click, you can script. There are 284 endpoints across six groups.
 
 ## Hand the whole API to an AI assistant
 
@@ -50,7 +50,7 @@ curl -b jar.txt -c jar.txt -X POST http://cache.lan:8080/api/auth/login \
 curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 ```
 
-Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`, or from **Management → Integrations**, where you can also regenerate it. The username and password are those of an account created in the app.
+Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`, or from **Management → Integrations**, where you can also regenerate it. Later container logs print only a hint; the full key is written to the logs only when it is first created or rotated. The username and password are those of an account created in the app.
 
 Reads need nothing more than the jar. A request that changes something (`POST`, `PUT`, `PATCH`, `DELETE`) also needs an antiforgery token: call `GET /api/auth/status` with the same jar, take the value of the `LancacheManager.Antiforgery` cookie it sets, and send it back as an `X-Antiforgery-Token` header. That is why the sign-in above starts with the status call. The token belongs to the session it was issued to, and signing in gives you a new one, so call the status endpoint again before your first write.
 
@@ -64,13 +64,13 @@ Reads need nothing more than the jar. A request that changes something (`POST`, 
 
 !!! note "The endpoints that answer without a session"
 
-    Twenty-two of the 283 have to work before a caller has credentials: signing in, guest-mode configuration, first-run setup, and the container health probe. They are marked **public** in the downloadable reference, and the rest are marked **requires a signed-in session**.
+    Twenty-two of the 284 have to work before a caller has credentials: signing in, guest-mode configuration, first-run setup, and the container health probe. They are marked **public** in the downloadable reference, and the rest are marked **requires a signed-in session**.
 
 ## What is in each group
 
 | Group | Endpoints | What it covers |
 |---|---:|---|
-| Access | 63 | Signing in, sessions, accounts, API keys, guest mode, per-user settings |
+| Access | 64 | Signing in, sessions, accounts, API keys, guest mode, per-user settings |
 | Cache and Games | 58 | Cached content, game and depot identification, corruption scans, artwork |
 | Clients | 10 | Cache clients, client groups, hostname mappings |
 | Downloads and Reporting | 40 | Download history, dashboard figures, statistics, speeds, events, logs |

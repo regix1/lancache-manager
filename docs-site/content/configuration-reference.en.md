@@ -33,7 +33,7 @@ The mode decision and full compose examples live in [Choosing an Image and Datab
 |----------|---------|-------------|
 | `POSTGRES_MODE` | `embedded` | `embedded` or `external`. |
 | `POSTGRES_USER` | `lancache` | PostgreSQL username. Both modes. In external mode this role must own the database or hold `CREATE` on it, because the schema installs the `citext` extension - see [Choosing an Image and Database Mode](choosing-an-image-and-database-mode.md#image-variants). |
-| `POSTGRES_PASSWORD` | - | PostgreSQL password. In embedded mode the UI shows a setup page if this is unset. In external mode it must be set (or entered via the UI fallback before the app can connect). |
+| `POSTGRES_PASSWORD` | - | PostgreSQL password. In embedded mode the UI shows a setup page if this is unset. Resetting that password from the config-error screen requires 12 characters and three character classes. In external mode it must be set (or entered via the UI fallback before the app can connect); that path accepts the server's existing password. |
 | `POSTGRES_HOST` | - | **External mode only.** Hostname or IP of the Postgres server. |
 | `POSTGRES_PORT` | `5432` | **External mode only.** |
 | `POSTGRES_DB` | `lancache` | Database name. Both modes. |
@@ -57,10 +57,12 @@ Not every `/metrics` setting has an environment variable. The update interval, t
 
 | Level | What you can do | Examples |
 |-------|----------------|----------|
-| **Admin** | Everything. Requires the API key. | Clear cache, process logs, change settings |
-| **Guest** | Read-only views. Requires admin auth or a guest session. | Browse downloads, stats, events, client data |
+| **Primary** | Owns the installation. The only account that can grant Administrator, wipe every account, or rotate the API key. Hidden from every other account, including its sessions. | Wipe accounts, rotate the key, promote an administrator |
+| **Administrator** | Same app access as a user, and can manage user accounts. Cannot see or change the Primary account or its sessions, and cannot grant Administrator. | Clear cache, process logs, manage users |
+| **User** | Signed-in access to the app. Sees and manages only non-administrator accounts. Cannot see the Primary account or its sessions. | Browse downloads, change own settings |
+| **Guest** | Read-only views. Requires a guest session. | Browse downloads, stats, events, client data |
 
-To give someone read-only access without sharing your API key, make sure guest logins are **Unlocked** on the **Users** page. Your guest then clicks **Guest Mode** on the sign-in screen. Session length and other defaults live under **Guest Defaults**. Every page and action needs either admin auth or a guest session, with one exception: `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`.
+To give someone read-only access without sharing an account, make sure guest logins are **Unlocked** on the **Users** page. Your guest then clicks **Guest Mode** on the sign-in screen. Session length and other defaults live under **Guest Defaults**. Every page and action needs a signed-in account or a guest session, with one exception: `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`.
 
 ### Prefill settings { #prefill-config }
 

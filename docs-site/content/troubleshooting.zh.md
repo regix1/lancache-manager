@@ -58,6 +58,8 @@ docker exec lancache-manager cat /data/security/api_key.txt
 
 在 Windows 的 Git Bash 中，请在 `docker exec` 命令前加上 `MSYS_NO_PATHCONV=1`（即 `MSYS_NO_PATHCONV=1 docker exec lancache-manager cat /data/security/api_key.txt`），否则路径会被改写成本地 Windows 路径。
 
+之后的容器重启只打印文件路径和一段短提示，不会打印完整密钥。完整密钥仅在首次创建或轮换后写入日志。
+
 要轮换密钥，停止容器，删除 `./data/security/api_key.txt`，然后重新启动。
 
 ### 权限问题

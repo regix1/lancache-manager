@@ -83,6 +83,19 @@ The on-disk family skips evicted games, which is what the Games on Disk view doe
 
 These are Steam-only on purpose. WSUS and bare-metal traffic carries no game name by design, so a metric counting every nameless download would report a perfectly healthy install as broken.
 
+### LAN events
+
+| Metric | Description |
+|--------|-------------|
+| `lancache_event_bytes` | Bytes served for downloads tagged to this event |
+| `lancache_event_cache_hit_bytes` | Cache hit bytes for this event |
+| `lancache_event_downloads` | Download session count for this event |
+| `lancache_event_cache_hit_ratio` | Hit ratio for this event (0-1) |
+
+All four carry `event` (the display name) and `event_id`. They count tagged downloads only, the same set the dashboard event filter uses, and they honour client exclusions like the rest of `/metrics`.
+
+Only the top 50 events by bytes are exported. An event with no tagged downloads is omitted rather than reporting zero. These are gauges: graph them directly. The dashboard's elapsed-from-start overlay is not exported here — Prometheus scrapes totals, not hour-by-hour from each party's start.
+
 ### Which of these are safe with rate()
 
 A name ending in `_total` conventionally means a counter, and `rate()`, `irate()` and `increase()` are built for counters. **None of the new metrics above carries `_total`, and none of them is safe to use with `rate()`.**
@@ -132,6 +145,9 @@ lancache_game_cache_hit_ratio * 100
 
 # Share of Steam bytes that could not be matched to a game
 lancache_steam_unknown_game_bytes / lancache_service_bytes_total{service="steam"}
+
+# Bytes served per LAN event
+topk(8, lancache_event_bytes)
 ```
 
 That last query mixes suffixes and it is not a typo. `lancache_steam_unknown_game_bytes` is one of the new gauges and carries no `_total`; `lancache_service_bytes_total{service="steam"}` is an existing series that keeps the suffix it shipped with. Both sides are gauges measuring bytes, so the ratio is correct as written.

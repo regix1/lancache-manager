@@ -22,6 +22,8 @@ The repo ships a Docker template at [`unraid/lancache-manager.xml`](https://gith
 docker exec lancache-manager cat /data/security/api_key.txt
 ```
 
+On first start the key is also printed in the container logs. Later restarts only print a hint; use the file.
+
 ### Notes
 
 - Required paths and variables match the Compose quick start: `/data`, `/logs`, `/cache`, `TZ`, `LanCache__LogPath`, `LanCache__CachePath`.

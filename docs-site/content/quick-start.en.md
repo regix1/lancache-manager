@@ -40,6 +40,8 @@ Then:
    docker exec lancache-manager cat /data/security/api_key.txt
    ```
 
+   On first start the key is also printed in the container logs. Later restarts only print a hint; use the file.
+
 2. Open `http://localhost:8080` and enter the API key when prompted.
 3. A setup wizard opens on first run. It checks your mount permissions, offers to import your existing log history, and sets up Steam depot mapping so downloads show real game names and cover art. You can step back through it at any point.
 
