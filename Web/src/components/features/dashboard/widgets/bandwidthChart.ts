@@ -1,6 +1,6 @@
 import { formatTimestamp, type ReaderClock } from '@utils/dateTimeFormat';
 
-export type BandwidthResolution = '15' | '30' | '60' | '180' | '1440';
+type BandwidthResolution = '15' | '30' | '60' | '180' | '1440';
 
 export function bandwidthResolution(bucketMinutes: number): BandwidthResolution {
   if (bucketMinutes <= 15) {
