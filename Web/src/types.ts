@@ -212,8 +212,8 @@ export interface EventCompareSeries {
   eventId: number;
   name: string;
   colorIndex: number;
-  served: Array<number | null>;
-  saved: Array<number | null>;
+  served: (number | null)[];
+  saved: (number | null)[];
 }
 
 export interface EventCompareResponse {
