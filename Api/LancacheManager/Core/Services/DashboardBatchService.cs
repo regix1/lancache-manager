@@ -36,6 +36,7 @@ public partial class DashboardBatchService : IDashboardBatchService
     private readonly CacheSnapshotService _cacheSnapshotService;
     private readonly IMemoryCache _memoryCache;
     private readonly IClientHostnameService _clientHostnameService;
+    private readonly IConfiguration _configuration;
     private readonly JsonSerializerOptions _wireJsonOptions;
 
     // Every request captures both applicable generations before doing any work. Generations are
@@ -62,6 +63,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         CacheSnapshotService cacheSnapshotService,
         IMemoryCache memoryCache,
         IClientHostnameService clientHostnameService,
+        IConfiguration configuration,
         IOptions<Microsoft.AspNetCore.Mvc.JsonOptions> mvcJsonOptions)
     {
         _cacheService = cacheService;
@@ -74,6 +76,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         _cacheSnapshotService = cacheSnapshotService;
         _memoryCache = memoryCache;
         _clientHostnameService = clientHostnameService;
+        _configuration = configuration;
         // The MVC wire options: pre-serialized sections must match what the output formatter
         // would have produced for the same object, byte for byte.
         _wireJsonOptions = mvcJsonOptions.Value.JsonSerializerOptions;
@@ -86,7 +89,10 @@ public partial class DashboardBatchService : IDashboardBatchService
         string? timeZoneId,
         CancellationToken ct)
     {
-        var readerTimeZoneId = KnownTimeZoneId(timeZoneId);
+        // A reader that names no zone, or one this server cannot resolve, is grouped on the zone
+        // the server reports as its own. That is still a zone name, so the database resolves each
+        // row's own offset either way, and it is the id /api/system/config hands out.
+        var readerTimeZoneId = KnownTimeZoneId(timeZoneId) ?? ServerTimeZone.IanaId(_configuration);
 
         var isLive = !startTime.HasValue && !endTime.HasValue;
         var liveCacheGeneration = isLive ? Volatile.Read(ref _liveCacheGeneration) : 0;
@@ -181,7 +187,7 @@ public partial class DashboardBatchService : IDashboardBatchService
     private async Task<DashboardBatchResponse> RunSingleFlightAsync(
         string cacheKey,
         long? startTime, long? endTime,
-        List<long> eventIdList, string? readerTimeZoneId,
+        List<long> eventIdList, string readerTimeZoneId,
         List<string> hiddenClientIps, List<string> statsExcludedOnlyIps, string evictedMode,
         bool isLive, long liveCacheGeneration, long detectionCacheGeneration,
         CancellationToken ct)
@@ -711,7 +717,7 @@ public partial class DashboardBatchService : IDashboardBatchService
 
     private async Task<object> GetHourlyActivityAsync(
         long? startTime, long? endTime,
-        List<long> eventIdList, HashSet<long>? eventDownloadIds, string? readerTimeZoneId,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds, string readerTimeZoneId,
         List<string> hiddenClientIps, string evictedMode,
         List<string> statsExcludedOnlyIps, CancellationToken ct)
     {
@@ -910,25 +916,23 @@ public partial class DashboardBatchService : IDashboardBatchService
 
     /// <summary>
     /// Downloads counted into the hours of the day on the reader's clock. The zone is named rather
-    /// than reduced to one offset, so the database resolves it at each row's own instant. Without
-    /// a zone the buckets stay on the hour the server recorded, in StartTimeLocal.
+    /// than reduced to one offset, so the database resolves it at each row's own instant, which a
+    /// single stored local time cannot do across a daylight-saving boundary.
     /// </summary>
     internal static IQueryable<HourlyActivityItem> HourlyActivityQuery(
         IQueryable<Download> filteredQuery,
-        string? timeZoneId)
+        string timeZoneId)
     {
-        var byHour = timeZoneId is not null
-            ? filteredQuery.GroupBy(d => TimeZoneInfo.ConvertTimeBySystemTimeZoneId(d.StartTimeUtc, timeZoneId).Hour)
-            : filteredQuery.GroupBy(d => d.StartTimeLocal.Hour);
-
-        return byHour.Select(g => new HourlyActivityItem
-        {
-            Hour = g.Key,
-            Downloads = g.Count(),
-            BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-            CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-            CacheMissBytes = g.Sum(d => d.CacheMissBytes)
-        });
+        return filteredQuery
+            .GroupBy(d => TimeZoneInfo.ConvertTimeBySystemTimeZoneId(d.StartTimeUtc, timeZoneId).Hour)
+            .Select(g => new HourlyActivityItem
+            {
+                Hour = g.Key,
+                Downloads = g.Count(),
+                BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+            });
     }
 
     /// <summary>
@@ -937,13 +941,11 @@ public partial class DashboardBatchService : IDashboardBatchService
     /// </summary>
     internal static IQueryable<DateTime> ActivityDatesQuery(
         IQueryable<Download> filteredQuery,
-        string? timeZoneId)
+        string timeZoneId)
     {
-        var dates = timeZoneId is not null
-            ? filteredQuery.Select(d => TimeZoneInfo.ConvertTimeBySystemTimeZoneId(d.StartTimeUtc, timeZoneId).Date)
-            : filteredQuery.Select(d => d.StartTimeLocal.Date);
-
-        return dates.Distinct();
+        return filteredQuery
+            .Select(d => TimeZoneInfo.ConvertTimeBySystemTimeZoneId(d.StartTimeUtc, timeZoneId).Date)
+            .Distinct();
     }
 
     /// <summary>

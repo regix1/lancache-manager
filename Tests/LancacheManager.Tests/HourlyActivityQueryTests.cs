@@ -1,7 +1,6 @@
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Tests;
@@ -20,39 +19,6 @@ public class HourlyActivityQueryTests
     private const string IndiaZoneId = "Asia/Kolkata";
 
     /// <summary>
-    /// A zone name this server's tzdata does not carry is rejected by the database and fails every
-    /// section of the batch, so it falls back to the server's clock rather than throwing. [58]
-    /// </summary>
-    [Fact]
-    public void HourlyActivityQuery_BucketsOnTheServerClockWhenTheZoneIsUnknown()
-    {
-        using var connection = new SqliteConnection("DataSource=:memory:");
-        connection.Open();
-        using var context = new AppDbContext(
-            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
-        context.Database.EnsureCreated();
-
-        var recorded = new DateTime(2026, 8, 17, 22, 30, 0, DateTimeKind.Utc);
-        context.Downloads.Add(SteamDownload(10, recorded, recorded.AddHours(-2.5), 1_000));
-        context.SaveChanges();
-
-        // A zone the server does know has to survive the same call, or a check that dropped every
-        // zone would pass this test while silently putting all readers back on the server's clock.
-        Assert.Equal(IndiaZoneId, DashboardBatchService.KnownTimeZoneId(IndiaZoneId));
-
-        var unknownZone = DashboardBatchService.KnownTimeZoneId("Not/AZone");
-        Assert.Null(unknownZone);
-
-        var buckets = DashboardBatchService
-            .HourlyActivityQuery(context.Downloads.AsNoTracking(), unknownZone)
-            .ToList();
-
-        var bucket = Assert.Single(buckets);
-        Assert.Equal(20, bucket.Hour);
-        Assert.Equal(1, bucket.Downloads);
-    }
-
-    /// <summary>
     /// .NET settles "Eastern Standard Time" into a real zone, so resolving a name is not enough to
     /// say Postgres will take it: it knows only the IANA spelling. UTC is spelled the same in both
     /// and rides on every UTC reader's request, so it must survive untouched. [65]
@@ -62,29 +28,18 @@ public class HourlyActivityQueryTests
     {
         Assert.Equal("America/New_York", DashboardBatchService.KnownTimeZoneId("Eastern Standard Time"));
         Assert.Equal("UTC", DashboardBatchService.KnownTimeZoneId("UTC"));
+        Assert.Equal(IndiaZoneId, DashboardBatchService.KnownTimeZoneId(IndiaZoneId));
     }
 
+    /// <summary>
+    /// A zone name this server's tzdata does not carry is rejected by the database and would fail
+    /// every section of the batch, so it has to be refused here and replaced with the server's own
+    /// zone before the query is built. Nothing but null can signal that to the caller. [58]
+    /// </summary>
     [Fact]
-    public void HourlyActivityQuery_WithoutAZoneBucketsOnTheServerClock()
+    public void KnownTimeZoneId_RefusesAZoneTheDatabaseCannotResolve()
     {
-        using var connection = new SqliteConnection("DataSource=:memory:");
-        connection.Open();
-        using var context = new AppDbContext(
-            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
-        context.Database.EnsureCreated();
-
-        var recorded = new DateTime(2026, 8, 17, 22, 30, 0, DateTimeKind.Utc);
-        context.Downloads.Add(SteamDownload(10, recorded, recorded.AddHours(-2.5), 1_000));
-        context.SaveChanges();
-
-        // A frontend cached from before the request carried a clock names no zone, and gets the
-        // hour the server recorded, exactly as this endpoint answered before.
-        var buckets = DashboardBatchService
-            .HourlyActivityQuery(context.Downloads.AsNoTracking(), null)
-            .ToList();
-
-        var bucket = Assert.Single(buckets);
-        Assert.Equal(20, bucket.Hour);
+        Assert.Null(DashboardBatchService.KnownTimeZoneId("Not/AZone"));
     }
 
     /// <summary>
@@ -137,26 +92,5 @@ public class HourlyActivityQueryTests
         hours[21].BytesServed = 4_096;
 
         Assert.Equal(9, DashboardBatchService.PeakHour(hours));
-    }
-
-    private static Download SteamDownload(long id, DateTime startUtc, DateTime startLocal, long hitBytes)
-    {
-        return new Download
-        {
-            Id = id,
-            Service = "steam",
-            ClientIp = "10.0.0.1",
-            StartTimeUtc = startUtc,
-            StartTimeLocal = startLocal,
-            EndTimeUtc = startUtc.AddMinutes(10),
-            EndTimeLocal = startLocal.AddMinutes(10),
-            CacheHitBytes = hitBytes,
-            CacheMissBytes = 0,
-            IsActive = false,
-            GameAppId = 730,
-            GameName = "Counter-Strike 2",
-            Datasource = "default",
-            IsEvicted = false
-        };
     }
 }

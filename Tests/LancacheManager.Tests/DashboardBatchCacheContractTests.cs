@@ -327,6 +327,22 @@ public sealed class DashboardBatchCacheContractTests
         Assert.Equal(reported, DashboardBatchService.KnownTimeZoneId(reported));
     }
 
+    /// <summary>
+    /// The hourly queries group on a zone name the database resolves per row, so every reader needs
+    /// one. A reader that sends nothing, or a zone this server cannot resolve, gets the server's own
+    /// zone rather than an empty cache-key segment and a grouping the reader never asked for.
+    /// </summary>
+    [Fact]
+    public void AReaderWithoutAZoneIsGroupedOnTheServerZone()
+    {
+        var source = BatchServiceSource();
+
+        Assert.Contains(
+            "KnownTimeZoneId(timeZoneId) ?? ServerTimeZone.IanaId(_configuration)",
+            source,
+            StringComparison.Ordinal);
+    }
+
     private static string BatchServiceSource()
         => ReadSource("Core", "Services", "DashboardBatchService.cs");
 

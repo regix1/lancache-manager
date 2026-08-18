@@ -14,7 +14,8 @@ public interface IDashboardBatchService
     /// </summary>
     /// <param name="timeZoneId">
     /// The IANA zone the hourly buckets are grouped on. Named rather than sent as one offset, so
-    /// the database resolves it at each row's own instant. Null or unknown keeps the server clock.
+    /// the database resolves it at each row's own instant. Null or unknown falls back to the zone
+    /// the server reports as its own.
     /// </param>
     Task<DashboardBatchResponse> GetBatchAsync(
         long? startTime,
