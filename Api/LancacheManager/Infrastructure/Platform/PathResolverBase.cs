@@ -93,8 +93,6 @@ public abstract class PathResolverBase : IPathResolver
 
     public string GetSecurityDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "security"));
 
-    public string GetLegacySqliteDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "db"));
-
     public virtual string GetPicsDirectory()
     {
         var path = Path.GetFullPath(Path.Combine(GetDataDirectory(), "pics"));
@@ -274,9 +272,6 @@ public abstract class PathResolverBase : IPathResolver
 
     public string GetRustSpeedTrackerPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", $"speed_tracker{RustExecutableExtension}");
-
-    public string GetLegacySqlitePath() =>
-        Path.Combine(GetLegacySqliteDirectory(), "LancacheManager.db");
 
     public string GetDataProtectionKeysPath() =>
         Path.Combine(GetSecurityDirectory(), "DataProtection-Keys");

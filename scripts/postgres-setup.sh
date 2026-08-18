@@ -5,7 +5,7 @@
 # SOURCED BY entrypoint.sh, NOT EXECUTED. That is load-bearing in three ways, so keep the
 # `source` at the call site if this file is ever moved or renamed:
 #   1. Everything after the call site reads POSTGRES_MODE, PGHOST, PGPASSWORD, PGDATABASE,
-#      SQLITE_DB and MIGRATION_MARKER, which are set here. A subprocess would drop all of them
+#      which are set here. A subprocess would drop all of them
 #      on exit and the migration step would then read empty values and skip itself.
 #   2. diagnose_write_denial() is defined in entrypoint.sh and called here for an unwritable
 #      /data. A subprocess would not have that function.
@@ -23,9 +23,7 @@ fi
 # Constants used by both embedded and external modes
 # ---------------------------------------------------------------------------
 PGDATABASE="${POSTGRES_DB:-lancache}"
-SQLITE_DB="/data/db/LancacheManager.db"
 PG_CONFIG="/data/config/postgres-credentials.json"
-MIGRATION_MARKER="/data/postgres-migration.complete"
 
 # ---------------------------------------------------------------------------
 # Mode selection: embedded (default) starts the in-container Postgres;

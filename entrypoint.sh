@@ -179,57 +179,11 @@ chmod +x /app/rust-processor/* 2>/dev/null || true
 # PostgreSQL: mode, credentials, and the embedded server.
 #
 # Sourced rather than run, so it can use diagnose_write_denial() above, so the variables it
-# resolves (POSTGRES_MODE, PGHOST, PGPASSWORD, PGDATABASE, SQLITE_DB, MIGRATION_MARKER) reach
+# resolves (POSTGRES_MODE, PGHOST, PGPASSWORD, PGDATABASE) reach
 # the migration step below, and so its `exit 1` paths stop the container instead of stopping
 # only a subprocess and letting the app launch against a database that never started.
 # ---------------------------------------------------------------------------
 source /scripts/postgres-setup.sh
-
-# ---------------------------------------------------------------------------
-# SQLite -> PostgreSQL data migration (before starting the web app)
-# ---------------------------------------------------------------------------
-# Works for both embedded and external modes. In external mode we only run
-# when connection details are available; otherwise the app will start in
-# setup-only mode and the user will configure DB creds via the UI.
-# ---------------------------------------------------------------------------
-CAN_RUN_MIGRATION=0
-if [ "$POSTGRES_MODE" = "external" ]; then
-    if [ -n "$PGHOST" ] && [ -n "$PGPASSWORD" ]; then
-        CAN_RUN_MIGRATION=1
-    fi
-else
-    CAN_RUN_MIGRATION=1
-fi
-
-# Backward-compat: older builds wrote the marker inside the embedded PGDATA dir.
-# Treat that as "already migrated" so we don't re-run on upgrade.
-LEGACY_MIGRATION_MARKER_PRIMARY="/data/postgresql/.migration_complete"
-LEGACY_MIGRATION_MARKER_FALLBACK="/var/lib/postgresql/data/.migration_complete"
-if [ ! -f "$MIGRATION_MARKER" ]; then
-    if [ -f "$LEGACY_MIGRATION_MARKER_PRIMARY" ] || [ -f "$LEGACY_MIGRATION_MARKER_FALLBACK" ]; then
-        echo "[migration] Found legacy migration marker - skipping re-import."
-        mkdir -p "$(dirname "$MIGRATION_MARKER")"
-        touch "$MIGRATION_MARKER"
-    fi
-fi
-
-if [ "$CAN_RUN_MIGRATION" -eq 1 ] && [ -f "$SQLITE_DB" ] && [ ! -f "$MIGRATION_MARKER" ]; then
-    echo "[postgres] SQLite database found. Preparing PostgreSQL schema before startup..."
-
-    echo "[migration] Running EF Core migrations in migrate-only mode..."
-    if gosu "$USER_NAME" env LANCACHE_MIGRATE_ONLY=1 dotnet LancacheManager.dll; then
-        echo "[migration] EF Core schema created successfully."
-    else
-        echo "[migration] ERROR: EF Core migrate-only run failed."
-        exit 1
-    fi
-
-    echo "[migration] Running SQLite -> PostgreSQL data migration..."
-    if ! /scripts/migrate-sqlite-to-postgres.sh "$SQLITE_DB" "$PGDATABASE"; then
-        echo "[migration] ERROR: Data migration script failed."
-        exit 1
-    fi
-fi
 
 # Run the application as the specified user.
 # The app's MigrateAsync creates/updates the PostgreSQL schema on startup.

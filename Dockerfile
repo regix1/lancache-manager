@@ -167,11 +167,6 @@ RUN apt-get update && \
     && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
 
-# sqlite3 is always installed - used by the SQLite -> PostgreSQL migration script
-# in both full and slim variants.
-RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 \
-    && rm -rf /var/lib/apt/lists/*
-
 # Fail the build on a malformed variant selection instead of silently producing an image that
 # claims to be "full" without PostgreSQL. A build argument that arrives mangled, for example with a
 # carriage return glued to it, matches neither "true" nor "false" and would otherwise just skip the

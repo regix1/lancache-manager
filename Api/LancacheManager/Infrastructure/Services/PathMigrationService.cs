@@ -47,12 +47,6 @@ public class PathMigrationService
             result,
             "pics mappings");
 
-        MoveFileIfMissing(
-            Path.Combine(dataDirectory, "LancacheManager.db"),
-            _pathResolver.GetLegacySqlitePath(),
-            result,
-            "database");
-
         var apiKeyPathOverride = _configuration["Security:ApiKeyPath"];
         if (string.IsNullOrWhiteSpace(apiKeyPathOverride))
         {
