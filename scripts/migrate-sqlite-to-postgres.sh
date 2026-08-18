@@ -70,9 +70,9 @@ copy_stream_psql() {
     if [ "$POSTGRES_MODE" = "external" ]; then
         PGPASSWORD="$POSTGRES_PASSWORD" psql \
             -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" \
-            -U "$POSTGRES_USER" -d "$PGDATABASE"
+            -U "$POSTGRES_USER" -d "$PGDATABASE" "$@"
     else
-        runuser -u postgres -- psql -d "$PGDATABASE"
+        runuser -u postgres -- psql -d "$PGDATABASE" "$@"
     fi
 }
 
@@ -164,28 +164,49 @@ for TABLE in $TABLES_TO_MIGRATE; do
 done
 
 MIGRATION_FAILED=0
-for TABLE in $TABLES_TO_MIGRATE; do
-    ROW_COUNT=$(sqlite3 "$SQLITE_DB" "SELECT COUNT(*) FROM \"$TABLE\";")
-    if [ "$ROW_COUNT" -eq 0 ]; then
-        echo "[migration]   $TABLE: empty, skipping"
-        continue
-    fi
 
-    # Build quoted column list from SQLite schema to guarantee column order
-    QUOTED_COLUMNS=$(sqlite3 "$SQLITE_DB" "PRAGMA table_info('$TABLE');" \
-        | cut -d'|' -f2 | sed 's/.*/"&"/' | paste -sd',')
+# Every table streams into ONE psql session inside ONE transaction:
+#   - SET TIME ZONE 'UTC' makes this session read SQLite's naive timestamp text
+#     ("2026-03-21 21:00:00") as UTC. Without it the session inherits the container
+#     TZ and every timestamptz column lands hours off.
+#   - A failure anywhere rolls back every table, so the next container start retries
+#     against an untouched database instead of hitting duplicate primary keys.
+# Progress lines go to stderr because stdout is the SQL stream.
+if ! {
+    echo "SET TIME ZONE 'UTC';"
+    echo "BEGIN;"
+    for TABLE in $TABLES_TO_MIGRATE; do
+        ROW_COUNT=$(sqlite3 "$SQLITE_DB" "SELECT COUNT(*) FROM \"$TABLE\";")
+        if [ "$ROW_COUNT" -eq 0 ]; then
+            echo "[migration]   $TABLE: empty, skipping" >&2
+            continue
+        fi
 
-    echo "[migration]   $TABLE: $ROW_COUNT rows..."
+        # Only the columns both sides have, in SQLite's order. A column the app has since
+        # dropped is still present in the user's older SQLite file, and naming it in COPY
+        # aborts the load for that table. Taking the intersection also means the SELECT below
+        # has to name its columns: "SELECT *" would still emit the dropped ones and the CSV
+        # would no longer line up with the COPY list.
+        PG_COLUMNS=$(run_psql -tA -c \
+            "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='$TABLE';")
+        SHARED_COLUMNS=$(sqlite3 "$SQLITE_DB" "PRAGMA table_info('$TABLE');" \
+            | cut -d'|' -f2 | grep -Fxf <(echo "$PG_COLUMNS"))
+        QUOTED_COLUMNS=$(echo "$SHARED_COLUMNS" | sed 's/.*/"&"/' | paste -sd',')
 
-    # Stream: COPY command -> CSV data -> end-of-data marker, all into one psql session
-    if ! { echo "COPY \"$TABLE\" ($QUOTED_COLUMNS) FROM STDIN WITH (FORMAT csv, NULL '');"; \
-           sqlite3 -csv "$SQLITE_DB" "SELECT * FROM \"$TABLE\";"; \
-           echo '\.' ; } | copy_stream_psql 2>&1; then
-        echo "[migration] ERROR: Failed to migrate table $TABLE"
-        MIGRATION_FAILED=1
-        break
-    fi
-done
+        echo "[migration]   $TABLE: $ROW_COUNT rows..." >&2
+
+        # COPY command -> CSV data -> end-of-data marker
+        echo "COPY \"$TABLE\" ($QUOTED_COLUMNS) FROM STDIN WITH (FORMAT csv, NULL '');"
+        # Quit before COMMIT if the export dies part-way (malformed SQLite file), so psql
+        # reaches end of input with the transaction still open and the server rolls it back.
+        sqlite3 -csv "$SQLITE_DB" "SELECT $QUOTED_COLUMNS FROM \"$TABLE\";" || exit 1
+        echo '\.'
+    done
+    echo "COMMIT;"
+} | copy_stream_psql -v ON_ERROR_STOP=1 2>&1; then
+    echo "[migration] ERROR: Data migration failed, no tables were loaded."
+    MIGRATION_FAILED=1
+fi
 
 # Re-enable triggers
 for TABLE in $TABLES_TO_MIGRATE; do
@@ -198,7 +219,9 @@ done
 if [ "$MIGRATION_FAILED" -eq 0 ]; then
     # Recreate indexes that were dropped before the bulk load
     echo "[migration] Recreating indexes..."
-    run_psql <<'IDXREOF'
+    # ON_ERROR_STOP so a unique index the imported rows violate stops the script instead of
+    # dropping the bookkeeping table and reporting success with the index silently missing.
+    run_psql -v ON_ERROR_STOP=1 <<'IDXREOF'
 DO $$
 DECLARE r record;
 BEGIN
