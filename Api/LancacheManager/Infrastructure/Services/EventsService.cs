@@ -81,8 +81,6 @@ public class EventsService : IEventsService
         existing.Description = evt.Description;
         existing.StartTimeUtc = evt.StartTimeUtc;
         existing.EndTimeUtc = evt.EndTimeUtc;
-        existing.StartTimeLocal = evt.StartTimeLocal;
-        existing.EndTimeLocal = evt.EndTimeLocal;
         existing.ColorIndex = evt.ColorIndex;
         existing.UpdatedAtUtc = DateTime.UtcNow;
 

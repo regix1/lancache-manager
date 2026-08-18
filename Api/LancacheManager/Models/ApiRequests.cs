@@ -41,8 +41,6 @@ public class CreateEventRequest
     public string? Description { get; set; }
     public long StartTime { get; set; }
     public long EndTime { get; set; }
-    public DateTime? StartTimeLocal { get; set; }
-    public DateTime? EndTimeLocal { get; set; }
     public int? ColorIndex { get; set; }
 }
 
@@ -52,8 +50,6 @@ public class UpdateEventRequest
     public string? Description { get; set; }
     public long StartTime { get; set; }
     public long EndTime { get; set; }
-    public DateTime? StartTimeLocal { get; set; }
-    public DateTime? EndTimeLocal { get; set; }
     public int? ColorIndex { get; set; }
 }
 

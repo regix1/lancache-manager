@@ -121,8 +121,6 @@ public class EventMetricsQueryTests
         Name = name,
         StartTimeUtc = start,
         EndTimeUtc = end,
-        StartTimeLocal = start,
-        EndTimeLocal = end,
         ColorIndex = 1,
         CreatedAtUtc = start
     };

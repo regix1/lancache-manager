@@ -1501,7 +1501,28 @@ internal sealed class EndpointAuthorizationHost : IDisposable
 
             if (Directory.Exists(_temporaryRoot))
             {
+                DeleteTemporaryRoot();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Disposing the host stops its background services, but one can still be finishing a write under
+    /// data/operations while the recursive delete is walking that directory, and a file that appears
+    /// mid-walk fails the whole delete. Retrying outlasts that last flush.
+    /// </summary>
+    private void DeleteTemporaryRoot()
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
                 Directory.Delete(_temporaryRoot, recursive: true);
+                return;
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                Thread.Sleep(100);
             }
         }
     }

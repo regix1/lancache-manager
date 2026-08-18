@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -1111,12 +1112,12 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
 
-        // Same clock as the dashboard's hourly aggregate: the hour the server recorded for the
-        // download, which is what StartTimeLocal holds. DateTime.Now below reads that clock too,
-        // so the current-hour count lands in the bucket it belongs to.
+        // Same clock as the dashboard's hourly aggregate: the zone travels as a name so the database
+        // resolves each row's own offset rather than one offset taken now.
+        var serverZone = ServerTimeZone.IanaId(_configuration);
         var hourlyActivity = await downloads
             .Where(d => d.StartTimeUtc >= sevenDaysAgo)
-            .GroupBy(d => d.StartTimeLocal.Hour)
+            .GroupBy(d => TimeZoneInfo.ConvertTimeBySystemTimeZoneId(d.StartTimeUtc, serverZone).Hour)
             .Select(g => new
             {
                 Hour = g.Key,
@@ -1143,8 +1144,10 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             _peakTimeOfDay = GetTimeOfDayLabel(peakHourData.Hour);
         }
 
-        // Current hour downloads
-        var currentHour = DateTime.Now.Hour;
+        // Current hour downloads, named on the same zone the buckets above were grouped on. The
+        // machine clock can sit in a different zone from the configured one, which would look up
+        // the wrong bucket.
+        var currentHour = TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTime.UtcNow, serverZone).Hour;
         var currentHourData = hourlyActivity.FirstOrDefault(h => h.Hour == currentHour);
         Interlocked.Exchange(ref _currentHourDownloads, currentHourData?.Downloads ?? 0);
 

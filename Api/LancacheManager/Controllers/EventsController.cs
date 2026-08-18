@@ -47,8 +47,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
             Description = request.Description,
             StartTimeUtc = startUtc,
             EndTimeUtc = endUtc,
-            StartTimeLocal = request.StartTimeLocal ?? startUtc,
-            EndTimeLocal = request.EndTimeLocal ?? endUtc,
             ColorIndex = Math.Clamp(request.ColorIndex ?? 1, 1, 8)
         };
     }
@@ -62,8 +60,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
         entity.Description = request.Description;
         entity.StartTimeUtc = startUtc;
         entity.EndTimeUtc = endUtc;
-        entity.StartTimeLocal = request.StartTimeLocal ?? startUtc;
-        entity.EndTimeLocal = request.EndTimeLocal ?? endUtc;
         entity.ColorIndex = Math.Clamp(request.ColorIndex ?? entity.ColorIndex, 1, 8);
     }
 

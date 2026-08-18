@@ -13,10 +13,6 @@ public class Event : IUtcMarkable
     public DateTime StartTimeUtc { get; set; }
     public DateTime EndTimeUtc { get; set; }
 
-    // Local timestamps for display
-    public DateTime StartTimeLocal { get; set; }
-    public DateTime EndTimeLocal { get; set; }
-
     // UI customization - index (1-8) referencing theme event colors
     public int ColorIndex { get; set; } = 1;
 

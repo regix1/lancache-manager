@@ -80,7 +80,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("Username")
                         .HasDatabaseName("IX_BannedPrefillUsers_Username");
 
-                    b.ToTable("BannedPrefillUsers", (string)null);
+                    b.ToTable("BannedPrefillUsers");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.CacheSnapshot", b =>
@@ -105,7 +105,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("TimestampUtc")
                         .HasDatabaseName("IX_CacheSnapshots_TimestampUtc");
 
-                    b.ToTable("CacheSnapshots", (string)null);
+                    b.ToTable("CacheSnapshots");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.CachedCorruptionDetection", b =>
@@ -151,7 +151,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_CachedCorruptionDetections_Scan_Service_Datasource");
 
-                    b.ToTable("CachedCorruptionDetections", (string)null);
+                    b.ToTable("CachedCorruptionDetections");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.CachedCorruptionScan", b =>
@@ -206,7 +206,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_CachedCorruptionScans_Current_DetectionMode")
                         .HasFilter("\"IsCurrent\"");
 
-                    b.ToTable("CachedCorruptionScans", (string)null);
+                    b.ToTable("CachedCorruptionScans");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.CachedDetectionSummary", b =>
@@ -237,7 +237,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("CachedDetectionSummaries", (string)null);
+                    b.ToTable("CachedDetectionSummaries");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.CachedGameDetection", b =>
@@ -301,7 +301,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_CachedGameDetection_GameAppId_EpicAppId");
 
-                    b.ToTable("CachedGameDetections", (string)null);
+                    b.ToTable("CachedGameDetections");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.CachedServiceDetection", b =>
@@ -353,7 +353,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_CachedServiceDetection_ServiceName");
 
-                    b.ToTable("CachedServiceDetections", (string)null);
+                    b.ToTable("CachedServiceDetections");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.ClientGroup", b =>
@@ -386,7 +386,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_ClientGroups_Nickname");
 
-                    b.ToTable("ClientGroups", (string)null);
+                    b.ToTable("ClientGroups");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.ClientGroupMember", b =>
@@ -416,7 +416,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_ClientGroupMembers_ClientIp");
 
-                    b.ToTable("ClientGroupMembers", (string)null);
+                    b.ToTable("ClientGroupMembers");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.ClientStats", b =>
@@ -444,7 +444,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("LastActivityUtc")
                         .HasDatabaseName("IX_ClientStats_LastActivityUtc");
 
-                    b.ToTable("ClientStats", (string)null);
+                    b.ToTable("ClientStats");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.Download", b =>
@@ -542,7 +542,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("IsEvicted", "StartTimeUtc", "ClientIp")
                         .HasDatabaseName("IX_Downloads_IsEvicted_StartTimeUtc_ClientIp");
 
-                    b.ToTable("Downloads", (string)null);
+                    b.ToTable("Downloads");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.EpicCdnPattern", b =>
@@ -584,7 +584,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_EpicCdnPatterns_ChunkBaseUrl");
 
-                    b.ToTable("EpicCdnPatterns", (string)null);
+                    b.ToTable("EpicCdnPatterns");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.EpicGameMapping", b =>
@@ -632,7 +632,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("Name")
                         .HasDatabaseName("IX_EpicGameMappings_Name");
 
-                    b.ToTable("EpicGameMappings", (string)null);
+                    b.ToTable("EpicGameMappings");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.Event", b =>
@@ -652,18 +652,12 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text");
 
-                    b.Property<DateTime>("EndTimeLocal")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<DateTime>("EndTimeUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
-
-                    b.Property<DateTime>("StartTimeLocal")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("StartTimeUtc")
                         .HasColumnType("timestamp with time zone");
@@ -679,7 +673,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("StartTimeUtc")
                         .HasDatabaseName("IX_Events_StartTimeUtc");
 
-                    b.ToTable("Events", (string)null);
+                    b.ToTable("Events");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.EventDownload", b =>
@@ -714,7 +708,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_EventDownloads_EventId_DownloadId");
 
-                    b.ToTable("EventDownloads", (string)null);
+                    b.ToTable("EventDownloads");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.GameImage", b =>
@@ -756,7 +750,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_GameImages_AppId_Service");
 
-                    b.ToTable("GameImages", (string)null);
+                    b.ToTable("GameImages");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.IdentityAuditEntry", b =>
@@ -788,7 +782,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("PerformedAtUtc")
                         .HasDatabaseName("IX_IdentityAuditEntries_PerformedAtUtc");
 
-                    b.ToTable("IdentityAuditEntries", (string)null);
+                    b.ToTable("IdentityAuditEntries");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.LogEntryRecord", b =>
@@ -865,7 +859,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("ClientIp", "Service", "Timestamp", "Url", "BytesServed")
                         .HasDatabaseName("IX_LogEntries_DuplicateCheck");
 
-                    b.ToTable("LogEntries", (string)null);
+                    b.ToTable("LogEntries");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.PrefillCachedDepot", b =>
@@ -906,7 +900,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("DepotId", "ManifestId")
                         .IsUnique();
 
-                    b.ToTable("PrefillCachedDepots", (string)null);
+                    b.ToTable("PrefillCachedDepots");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.PrefillHistoryEntry", b =>
@@ -962,7 +956,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("StartedAtUtc")
                         .HasDatabaseName("IX_PrefillHistoryEntries_StartedAtUtc");
 
-                    b.ToTable("PrefillHistoryEntries", (string)null);
+                    b.ToTable("PrefillHistoryEntries");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.PrefillSession", b =>
@@ -1058,7 +1052,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("Status")
                         .HasDatabaseName("IX_PrefillSessions_Status");
 
-                    b.ToTable("PrefillSessions", (string)null);
+                    b.ToTable("PrefillSessions");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.ServiceStats", b =>
@@ -1083,7 +1077,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("LastActivityUtc")
                         .HasDatabaseName("IX_ServiceStats_LastActivityUtc");
 
-                    b.ToTable("ServiceStats", (string)null);
+                    b.ToTable("ServiceStats");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.SteamDepotMapping", b =>
@@ -1125,7 +1119,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_SteamDepotMappings_DepotId_AppId");
 
-                    b.ToTable("SteamDepotMappings", (string)null);
+                    b.ToTable("SteamDepotMappings");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.UserAccount", b =>
@@ -1169,7 +1163,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_UserAccounts_Username");
 
-                    b.ToTable("UserAccounts", (string)null);
+                    b.ToTable("UserAccounts");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.UserPreferences", b =>
@@ -1237,7 +1231,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_UserPreferences_SessionId");
 
-                    b.ToTable("UserPreferences", (string)null);
+                    b.ToTable("UserPreferences");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.UserSession", b =>
@@ -1349,7 +1343,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("SessionType")
                         .HasDatabaseName("IX_UserSessions_SessionType");
 
-                    b.ToTable("UserSessions", (string)null);
+                    b.ToTable("UserSessions");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.XboxCdnPattern", b =>
@@ -1391,7 +1385,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_XboxCdnPatterns_UrlFragment");
 
-                    b.ToTable("XboxCdnPatterns", (string)null);
+                    b.ToTable("XboxCdnPatterns");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.XboxGameMapping", b =>
@@ -1431,7 +1425,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("Title")
                         .HasDatabaseName("IX_XboxGameMappings_Title");
 
-                    b.ToTable("XboxGameMappings", (string)null);
+                    b.ToTable("XboxGameMappings");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.CachedCorruptionDetection", b =>
