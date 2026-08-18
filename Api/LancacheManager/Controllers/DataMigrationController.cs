@@ -164,7 +164,7 @@ public class DataMigrationController : ControllerBase
                 // Read batch from source
                 using var readCmd = sourceConn.CreateCommand();
                 readCmd.CommandText = @"
-                    SELECT ""Service"", ""ClientIp"", ""StartTimeUtc"", ""EndTimeUtc"", ""StartTimeLocal"", ""EndTimeLocal"",
+                    SELECT ""Service"", ""ClientIp"", ""StartTimeUtc"", ""EndTimeUtc"",
                            ""CacheHitBytes"", ""CacheMissBytes"", ""IsActive"", ""DepotId"", ""GameAppId"", ""Datasource""
                     FROM ""Downloads""
                     ORDER BY ""StartTimeUtc""
@@ -185,14 +185,12 @@ public class DataMigrationController : ControllerBase
                     var clientIp = reader.GetString(1);
                     var startTimeUtc = reader.GetString(2);
                     var endTimeUtc = reader.GetString(3);
-                    var startTimeLocal = reader.IsDBNull(4) ? startTimeUtc : reader.GetString(4);
-                    var endTimeLocal = reader.IsDBNull(5) ? endTimeUtc : reader.GetString(5);
-                    var cacheHitBytes = reader.GetInt64(6);
-                    var cacheMissBytes = reader.GetInt64(7);
-                    var isActive = reader.IsDBNull(8) ? 0 : reader.GetInt32(8);
-                    var depotId = reader.IsDBNull(9) ? (long?)null : reader.GetInt64(9);
-                    var gameAppId = reader.IsDBNull(10) ? (long?)null : reader.GetInt64(10);
-                    var datasource = reader.IsDBNull(11) ? "default" : reader.GetString(11);
+                    var cacheHitBytes = reader.GetInt64(4);
+                    var cacheMissBytes = reader.GetInt64(5);
+                    var isActive = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
+                    var depotId = reader.IsDBNull(7) ? (long?)null : reader.GetInt64(7);
+                    var gameAppId = reader.IsDBNull(8) ? (long?)null : reader.GetInt64(8);
+                    var datasource = reader.IsDBNull(9) ? "default" : reader.GetString(9);
 
                     try
                     {
@@ -212,13 +210,12 @@ public class DataMigrationController : ControllerBase
                                 updateCmd.Transaction = transaction;
                                 updateCmd.CommandText = @"
                                     UPDATE ""Downloads"" SET
-                                        ""Service"" = @service, ""EndTimeUtc"" = @endTimeUtc, ""EndTimeLocal"" = @endTimeLocal,
+                                        ""Service"" = @service, ""EndTimeUtc"" = @endTimeUtc,
                                         ""CacheHitBytes"" = @cacheHitBytes, ""CacheMissBytes"" = @cacheMissBytes,
                                         ""IsActive"" = @isActive, ""DepotId"" = @depotId, ""GameAppId"" = @gameAppId, ""Datasource"" = @datasource
                                     WHERE ""ClientIp"" = @clientIp AND ""StartTimeUtc"" = @startTimeUtc";
                                 updateCmd.Parameters.AddWithValue("@service", service);
                                 updateCmd.Parameters.AddWithValue("@endTimeUtc", endTimeUtc);
-                                updateCmd.Parameters.AddWithValue("@endTimeLocal", endTimeLocal);
                                 updateCmd.Parameters.AddWithValue("@cacheHitBytes", cacheHitBytes);
                                 updateCmd.Parameters.AddWithValue("@cacheMissBytes", cacheMissBytes);
                                 updateCmd.Parameters.AddWithValue("@isActive", isActive);
@@ -240,16 +237,14 @@ public class DataMigrationController : ControllerBase
                             using var insertCmd = targetConn.CreateCommand();
                             insertCmd.Transaction = transaction;
                             insertCmd.CommandText = @"
-                                INSERT INTO ""Downloads"" (""Service"", ""ClientIp"", ""StartTimeUtc"", ""EndTimeUtc"", ""StartTimeLocal"", ""EndTimeLocal"",
+                                INSERT INTO ""Downloads"" (""Service"", ""ClientIp"", ""StartTimeUtc"", ""EndTimeUtc"",
                                     ""CacheHitBytes"", ""CacheMissBytes"", ""IsActive"", ""DepotId"", ""GameAppId"", ""Datasource"")
-                                VALUES (@service, @clientIp, @startTimeUtc, @endTimeUtc, @startTimeLocal, @endTimeLocal,
+                                VALUES (@service, @clientIp, @startTimeUtc, @endTimeUtc,
                                     @cacheHitBytes, @cacheMissBytes, @isActive, @depotId, @gameAppId, @datasource)";
                             insertCmd.Parameters.AddWithValue("@service", service);
                             insertCmd.Parameters.AddWithValue("@clientIp", clientIp);
                             insertCmd.Parameters.AddWithValue("@startTimeUtc", startTimeUtc);
                             insertCmd.Parameters.AddWithValue("@endTimeUtc", endTimeUtc);
-                            insertCmd.Parameters.AddWithValue("@startTimeLocal", startTimeLocal);
-                            insertCmd.Parameters.AddWithValue("@endTimeLocal", endTimeLocal);
                             insertCmd.Parameters.AddWithValue("@cacheHitBytes", cacheHitBytes);
                             insertCmd.Parameters.AddWithValue("@cacheMissBytes", cacheMissBytes);
                             insertCmd.Parameters.AddWithValue("@isActive", isActive);

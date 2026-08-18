@@ -13,11 +13,7 @@ public class Download : IUtcMarkable
     // UTC timestamps - always stored in UTC for consistent querying
     public DateTime StartTimeUtc { get; set; }
 
-    // Local timestamps - stored in the user's configured timezone for display
-    public DateTime StartTimeLocal { get; set; }
-
     public DateTime EndTimeUtc { get; set; }
-    public DateTime EndTimeLocal { get; set; }
 
     public long CacheHitBytes { get; set; }
     public long CacheMissBytes { get; set; }

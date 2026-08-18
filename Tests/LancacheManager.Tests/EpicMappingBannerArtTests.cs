@@ -46,9 +46,7 @@ public class EpicMappingBannerArtTests
             EpicAppId = epicAppId,
             GameImageUrl = gameImageUrl,
             StartTimeUtc = DateTime.UtcNow,
-            StartTimeLocal = DateTime.UtcNow,
-            EndTimeUtc = DateTime.UtcNow,
-            EndTimeLocal = DateTime.UtcNow
+            EndTimeUtc = DateTime.UtcNow
         };
 
     /// <summary>

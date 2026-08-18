@@ -472,9 +472,6 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<long?>("DepotId")
                         .HasColumnType("bigint");
 
-                    b.Property<DateTime>("EndTimeLocal")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<DateTime>("EndTimeUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -502,9 +499,6 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<string>("Service")
                         .IsRequired()
                         .HasColumnType("text");
-
-                    b.Property<DateTime>("StartTimeLocal")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("StartTimeUtc")
                         .HasColumnType("timestamp with time zone");

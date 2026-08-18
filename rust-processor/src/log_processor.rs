@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use chrono_tz::Tz;
 use clap::Parser;
 use serde::Serialize;
@@ -353,7 +353,6 @@ struct Processor {
     current_file_bytes: Arc<AtomicU64>,
     /// On-disk size of the file currently being read (clamps read-ahead overshoot).
     current_file_size: AtomicU64,
-    local_tz: Tz,
     auto_map_depots: bool,
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
     logged_depots: HashSet<u32>,    // Track depots that have already been logged
@@ -448,7 +447,6 @@ impl Processor {
             bytes_completed: AtomicU64::new(0),
             current_file_bytes: Arc::new(AtomicU64::new(0)),
             current_file_size: AtomicU64::new(0),
-            local_tz,
             auto_map_depots,
             last_logged_percent: AtomicU64::new(0),
             logged_depots: HashSet::new(),
@@ -467,18 +465,6 @@ impl Processor {
 
     /// Convert UTC NaiveDateTime to local timezone NaiveDateTime
     /// Returns a naive datetime representing the same instant in the target timezone
-    fn utc_to_local(&self, utc_dt: NaiveDateTime) -> NaiveDateTime {
-        // Create a UTC datetime from the naive UTC time
-        let utc_datetime = Utc.from_utc_datetime(&utc_dt);
-
-        // Convert to the target timezone
-        let local_datetime = utc_datetime.with_timezone(&self.local_tz);
-
-        // Return the local time components (this discards the timezone info but keeps the adjusted time)
-        // e.g., if UTC is 22:28:34 and TZ is America/Chicago (UTC-6), this returns 16:28:34
-        NaiveDateTime::new(local_datetime.date_naive(), local_datetime.time())
-    }
-
     /// Raw (compressed) bytes consumed so far: completed files contribute their
     /// full on-disk size; the in-flight file contributes its underlying stream
     /// position, clamped to its size to absorb BufReader read-ahead overshoot.
@@ -1657,20 +1643,16 @@ impl Processor {
             // Convert NaiveDateTime to proper UTC DateTime for PostgreSQL timestamptz columns
             let first_utc_dt = Utc.from_utc_datetime(&first_timestamp);
             let last_utc_dt = Utc.from_utc_datetime(&last_timestamp);
-            let first_local_dt = Utc.from_utc_datetime(&self.utc_to_local(first_timestamp));
-            let last_local_dt = Utc.from_utc_datetime(&self.utc_to_local(last_timestamp));
 
             let row = sqlx::query(
-                "INSERT INTO \"Downloads\" (\"Service\", \"ClientIp\", \"StartTimeUtc\", \"EndTimeUtc\", \"StartTimeLocal\", \"EndTimeLocal\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"LastUrl\", \"DepotId\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"Datasource\", \"XboxProductId\")
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $13, $14, $15)
+                "INSERT INTO \"Downloads\" (\"Service\", \"ClientIp\", \"StartTimeUtc\", \"EndTimeUtc\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"LastUrl\", \"DepotId\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"Datasource\", \"XboxProductId\")
+                 VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $10, $11, $12, $13)
                  RETURNING \"Id\""
             )
             .bind(download_service)
             .bind(client_ip)
             .bind(first_utc_dt)
             .bind(last_utc_dt)
-            .bind(first_local_dt)
-            .bind(last_local_dt)
             .bind(total_hit_bytes)
             .bind(total_miss_bytes)
             .bind(last_url)
@@ -1861,18 +1843,14 @@ impl Processor {
                 // Convert NaiveDateTime to proper UTC DateTime for PostgreSQL timestamptz columns
                 let first_utc_dt = Utc.from_utc_datetime(&first_timestamp);
                 let last_utc_dt = Utc.from_utc_datetime(&last_timestamp);
-                let first_local_dt = Utc.from_utc_datetime(&self.utc_to_local(first_timestamp));
-                let last_local_dt = Utc.from_utc_datetime(&self.utc_to_local(last_timestamp));
 
                 let row = sqlx::query(
-                    "INSERT INTO \"Downloads\" (\"ClientIp\", \"Service\", \"StartTimeUtc\", \"EndTimeUtc\", \"StartTimeLocal\", \"EndTimeLocal\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"LastUrl\", \"DepotId\", \"Datasource\", \"XboxProductId\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $13, $14, $15) RETURNING \"Id\""
+                    "INSERT INTO \"Downloads\" (\"ClientIp\", \"Service\", \"StartTimeUtc\", \"EndTimeUtc\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"LastUrl\", \"DepotId\", \"Datasource\", \"XboxProductId\") VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $10, $11, $12, $13) RETURNING \"Id\""
                 )
                 .bind(client_ip)
                 .bind(download_service)
                 .bind(first_utc_dt)
                 .bind(last_utc_dt)
-                .bind(first_local_dt)
-                .bind(last_local_dt)
                 .bind(total_hit_bytes)
                 .bind(total_miss_bytes)
                 .bind(game_app_id.map(|id| id as i64))
@@ -1889,17 +1867,15 @@ impl Processor {
 
             // Convert NaiveDateTime to proper UTC DateTime for PostgreSQL timestamptz columns
             let last_utc_dt = Utc.from_utc_datetime(&last_timestamp);
-            let last_local_dt = Utc.from_utc_datetime(&self.utc_to_local(last_timestamp));
 
             // Only update if we found existing download (not if we just created it).
             // XboxProductId is COALESCE'd in so a matched Xbox session that adopted a still-NULL
             // row gets its product id named in this batch (same pattern as GameName).
             if !is_new {
                 sqlx::query(
-                    "UPDATE \"Downloads\" SET \"EndTimeUtc\" = $1, \"EndTimeLocal\" = $2, \"CacheHitBytes\" = \"CacheHitBytes\" + $3, \"CacheMissBytes\" = \"CacheMissBytes\" + $4, \"LastUrl\" = $5, \"DepotId\" = COALESCE($6, \"DepotId\"), \"GameAppId\" = COALESCE($7, \"GameAppId\"), \"GameName\" = COALESCE($8, \"GameName\"), \"GameImageUrl\" = COALESCE($9, \"GameImageUrl\"), \"XboxProductId\" = COALESCE($10, \"XboxProductId\") WHERE \"Id\" = $11"
+                    "UPDATE \"Downloads\" SET \"EndTimeUtc\" = $1, \"CacheHitBytes\" = \"CacheHitBytes\" + $2, \"CacheMissBytes\" = \"CacheMissBytes\" + $3, \"LastUrl\" = $4, \"DepotId\" = COALESCE($5, \"DepotId\"), \"GameAppId\" = COALESCE($6, \"GameAppId\"), \"GameName\" = COALESCE($7, \"GameName\"), \"GameImageUrl\" = COALESCE($8, \"GameImageUrl\"), \"XboxProductId\" = COALESCE($9, \"XboxProductId\") WHERE \"Id\" = $10"
                 )
                 .bind(last_utc_dt)
-                .bind(last_local_dt)
                 .bind(total_hit_bytes)
                 .bind(total_miss_bytes)
                 .bind(last_url)

@@ -586,8 +586,6 @@ public sealed class CorruptionScanInvalidationTests
             Datasource = datasource,
             StartTimeUtc = DateTime.UtcNow.AddMinutes(-1),
             EndTimeUtc = DateTime.UtcNow,
-            StartTimeLocal = DateTime.UtcNow.AddMinutes(-1),
-            EndTimeLocal = DateTime.UtcNow,
             CacheHitBytes = cacheHitBytes,
             CacheMissBytes = cacheMissBytes,
             IsActive = isActive,
