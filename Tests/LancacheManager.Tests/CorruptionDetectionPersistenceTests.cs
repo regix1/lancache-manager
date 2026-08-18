@@ -7,7 +7,6 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
@@ -744,11 +743,16 @@ public sealed class CorruptionDetectionPersistenceTests
         {
             await triggerContext.Database.ExecuteSqlRawAsync(
                 """
+                CREATE FUNCTION fail_corruption_scan_trim() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION 'forced retention failure';
+                END;
+                $$ LANGUAGE plpgsql;
+
                 CREATE TRIGGER fail_corruption_scan_trim
                 BEFORE DELETE ON "CachedCorruptionScans"
-                BEGIN
-                    SELECT RAISE(ABORT, 'forced retention failure');
-                END;
+                FOR EACH ROW
+                EXECUTE FUNCTION fail_corruption_scan_trim();
                 """);
         }
 
@@ -881,11 +885,16 @@ public sealed class CorruptionDetectionPersistenceTests
         {
             await triggerContext.Database.ExecuteSqlRawAsync(
                 """
+                CREATE FUNCTION fail_corruption_scan_delete() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION 'forced snapshot delete failure';
+                END;
+                $$ LANGUAGE plpgsql;
+
                 CREATE TRIGGER fail_corruption_scan_delete
                 BEFORE DELETE ON "CachedCorruptionScans"
-                BEGIN
-                    SELECT RAISE(ABORT, 'forced snapshot delete failure');
-                END;
+                FOR EACH ROW
+                EXECUTE FUNCTION fail_corruption_scan_delete();
                 """);
         }
 
@@ -1291,32 +1300,6 @@ public sealed class CorruptionDetectionPersistenceTests
             operationStateService: null!,
             operationTracker: null!,
             capabilityService: null!);
-
-    private sealed class TestDatabase : IAsyncDisposable
-    {
-        private readonly SqliteConnection _connection;
-
-        private TestDatabase(SqliteConnection connection, TestDbContextFactory factory)
-        {
-            _connection = connection;
-            Factory = factory;
-        }
-
-        public TestDbContextFactory Factory { get; }
-
-        public static async Task<TestDatabase> CreateAsync()
-        {
-            var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync();
-            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
-            var factory = new TestDbContextFactory(options);
-            await using var context = factory.CreateDbContext();
-            await context.Database.EnsureCreatedAsync();
-            return new TestDatabase(connection, factory);
-        }
-
-        public async ValueTask DisposeAsync() => await _connection.DisposeAsync();
-    }
 
     private sealed class TestableCorruptionScanHistoryMigration : AddCorruptionScanHistory
     {

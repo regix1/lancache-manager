@@ -1,7 +1,6 @@
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Tests;
@@ -296,13 +295,10 @@ public class GameMetricsQueryTranslationTests
     /// unmapped, and a WSUS row that carries no name by design and must stay out of the count.
     /// </summary>
     [Fact]
-    public void GlobalTotalsQuery_CountsTheSameSteamCoverageAsASeparateQuery()
+    public async Task GlobalTotalsQuery_CountsTheSameSteamCoverageAsASeparateQuery()
     {
-        using var connection = new SqliteConnection("DataSource=:memory:");
-        connection.Open();
-        using var context = new AppDbContext(
-            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
-        context.Database.EnsureCreated();
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = database.Factory.CreateDbContext();
 
         context.Downloads.AddRange(
             CoverageDownload(1, "steam", "Counter-Strike 2", 1000),
@@ -363,13 +359,10 @@ public class GameMetricsQueryTranslationTests
     /// the other silently missing is the defect that looks correct in casual testing.
     /// </summary>
     [Fact]
-    public void ExcludedClientsAreAbsentFromEveryAggregate()
+    public async Task ExcludedClientsAreAbsentFromEveryAggregate()
     {
-        using var connection = new SqliteConnection("DataSource=:memory:");
-        connection.Open();
-        using var context = new AppDbContext(
-            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
-        context.Database.EnsureCreated();
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = database.Factory.CreateDbContext();
 
         context.Downloads.AddRange(
             SteamDownload(1, "10.0.0.1", 1000),
@@ -408,13 +401,10 @@ public class GameMetricsQueryTranslationTests
     /// counts stats-only clients. If this ever stops holding, the two lists have been conflated.
     /// </summary>
     [Fact]
-    public void HiddenListAloneStillCountsStatsOnlyClients()
+    public async Task HiddenListAloneStillCountsStatsOnlyClients()
     {
-        using var connection = new SqliteConnection("DataSource=:memory:");
-        connection.Open();
-        using var context = new AppDbContext(
-            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
-        context.Database.EnsureCreated();
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = database.Factory.CreateDbContext();
 
         context.Downloads.AddRange(
             SteamDownload(1, "10.0.0.1", 1000),

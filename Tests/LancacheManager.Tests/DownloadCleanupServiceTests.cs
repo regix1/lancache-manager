@@ -1,7 +1,6 @@
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -23,9 +22,9 @@ namespace LancacheManager.Tests;
 /// Xbox is never flagged orphaned.
 ///
 /// The pure classification tests exercise the data-loss guard with no provider. The integration
-/// tests run the real ExecuteUpdate/ExecuteDelete cleanup against EF Core's Sqlite provider with
-/// foreign keys enforced - the only way to reproduce the FK crash, since the InMemory provider
-/// neither supports ExecuteUpdate/ExecuteDelete nor enforces foreign keys. On the PRE-FIX code these
+/// tests run the real ExecuteUpdate/ExecuteDelete cleanup against a real PostgreSQL database - the
+/// only way to reproduce the FK crash, since the InMemory provider neither supports
+/// ExecuteUpdate/ExecuteDelete nor enforces foreign keys. On the PRE-FIX code these
 /// integration tests throw the FK violation (the cleanup) / delete the xbox Download (data loss);
 /// post-fix they complete cleanly and Xbox survives.
 /// </summary>
@@ -82,20 +81,18 @@ public class DownloadCleanupServiceTests
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Integration - real cleanup against Sqlite with foreign keys enforced
+    // Integration - real cleanup against PostgreSQL with foreign keys enforced
     // ---------------------------------------------------------------------------------------------
 
     [Fact]
     public async Task Cleanup_XboxCacheSplit_NotDeleted_AndNoFkViolation()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         long xboxId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
-
             // 'steam' is a present service so the "all services orphaned" safety check does not trip.
             var steam = NewDownload("steam");
             var xbox = NewDownload("xbox");
@@ -138,14 +135,12 @@ public class DownloadCleanupServiceTests
     [Fact]
     public async Task Cleanup_OrphanWithCrossServiceChild_NullifiesFkBeforeDelete_NoViolation()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         long originId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
-
             var steam = NewDownload("steam");   // present -> safety check passes
             var origin = NewDownload("origin"); // genuinely orphaned (absent from logs, no alias)
             seed.Downloads.AddRange(steam, origin);
@@ -186,13 +181,11 @@ public class DownloadCleanupServiceTests
     [Fact]
     public async Task Cleanup_OrphanWithSameServiceChild_RemovesAllServiceData()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
-
             var steam = NewDownload("steam");
             var origin = NewDownload("origin");
             seed.Downloads.AddRange(steam, origin);
@@ -227,7 +220,7 @@ public class DownloadCleanupServiceTests
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Empty game identity repair - real ExecuteUpdate/ExecuteDelete against Sqlite
+    // Empty game identity repair - real ExecuteUpdate/ExecuteDelete against PostgreSQL
     //
     // The writers that stamped "" onto Downloads.EpicAppId, Downloads.GameName,
     // EpicCdnPatterns.AppId and the detection cache are guarded now (see
@@ -240,14 +233,12 @@ public class DownloadCleanupServiceTests
     [Fact]
     public async Task NormalizeEmptyGameIdentities_ClearsEmptyDownloadEpicIdAndName_LeavesRealValues()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         long emptyEpicId, emptyNameId, realEpicId, realNameId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
-
             var emptyEpic = NewDownload("epicgames");
             emptyEpic.EpicAppId = "";
 
@@ -293,13 +284,11 @@ public class DownloadCleanupServiceTests
     [Fact]
     public async Task NormalizeEmptyGameIdentities_IsIdempotent()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
-
             var emptyName = NewDownload("xbox");
             emptyName.GameName = "";
             seed.Downloads.Add(emptyName);
@@ -324,14 +313,12 @@ public class DownloadCleanupServiceTests
     [Fact]
     public async Task NormalizeEmptyGameIdentities_ClearsDetectionEpicId_WithoutBreakingUniqueIndex()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         long emptyEpicDetectionId, namedDetectionId, realEpicDetectionId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
-
             // The row being repaired lands on (0, null). A named row already sits on (0, null),
             // which is only legal because IX_CachedGameDetection_GameAppId_EpicAppId is
             // nulls-distinct - so this pair is the collision case if that assumption is wrong.
@@ -378,14 +365,12 @@ public class DownloadCleanupServiceTests
     [Fact]
     public async Task NormalizeEmptyGameIdentities_RemovesNamelessDetection_KeepsIdentifiedOnes()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         long namelessId, namelessEvictedId, namelessSteamId, namedId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
-
             // No name, no Steam app id, no Epic id: nothing can address this row, and its app id 0
             // un-evicts on any app 0 download.
             var nameless = NewDetection(0, "", "xbox");
@@ -430,15 +415,13 @@ public class DownloadCleanupServiceTests
     [Fact]
     public async Task NormalizeEmptyGameIdentities_RemovesEmptyCdnPattern_SoItsChunkUrlCanBeRecorded()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         const string blockedChunkUrl = "/Builds/Org/o-blocked/abc/default/";
 
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
-
             seed.EpicCdnPatterns.AddRange(
                 NewCdnPattern("", "", blockedChunkUrl),
                 NewCdnPattern("Fortnite", "Fortnite", "/Builds/Org/o-real/def/default/"));
@@ -474,13 +457,11 @@ public class DownloadCleanupServiceTests
     [Fact]
     public async Task NormalizeEmptyGameIdentities_CleanDatabase_ChangesNothing()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
-
             var steam = NewDownload("steam");
             steam.GameAppId = 730;
             steam.GameName = "Counter-Strike 2";
@@ -513,20 +494,6 @@ public class DownloadCleanupServiceTests
     // ---------------------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------------------
-
-    // A shared, kept-open in-memory Sqlite connection with foreign keys enforced. The database lives
-    // only for as long as the connection is open, so every AppDbContext in a test reuses it.
-    private static SqliteConnection OpenSharedConnection()
-    {
-        var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=True");
-        connection.Open();
-        return connection;
-    }
-
-    private static DbContextOptions<AppDbContext> SqliteOptions(SqliteConnection connection)
-        => new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
 
     private static Download NewDownload(string service) => new Download
     {

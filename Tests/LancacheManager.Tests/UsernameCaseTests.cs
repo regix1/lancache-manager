@@ -14,10 +14,9 @@ namespace LancacheManager.Tests;
 /// lookup compares with <c>==</c> and the unique index is a plain btree over one column, so the whole
 /// rule is the citext type AppDbContext gives the Username column.
 ///
-/// That makes the column type the thing worth asserting, and it can only be asserted against
-/// PostgreSQL. SQLite accepts citext as a type name, gives it text affinity and then compares
-/// case-sensitively, so both assertions below written against the in-memory store would pass whatever
-/// the column type said. This class joins the collection that migrates a real server instead.
+/// That makes the column type the thing worth asserting, and neither assertion below can be written
+/// against the InMemory provider: one needs the store itself to refuse the write, and the other needs
+/// the sign-in endpoint. This class joins the collection that migrates a real server instead.
 /// </summary>
 [Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class UsernameCaseTests

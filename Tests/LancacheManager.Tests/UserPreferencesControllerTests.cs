@@ -9,7 +9,6 @@ using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -183,25 +182,18 @@ public sealed class UserPreferencesControllerTests
     /// </summary>
     private sealed class PreferencesDatabase : IAsyncDisposable
     {
-        private readonly SqliteConnection _connection;
+        private readonly TestDatabase _database;
 
-        private PreferencesDatabase(SqliteConnection connection, DbContextOptions<AppDbContext> options)
+        private PreferencesDatabase(TestDatabase database)
         {
-            _connection = connection;
-            Factory = new TestDbContextFactory(options);
+            _database = database;
+            Factory = database.Factory;
         }
 
         public TestDbContextFactory Factory { get; }
 
-        public static async Task<PreferencesDatabase> CreateAsync()
-        {
-            var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync();
-            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
-            await using var context = new AppDbContext(options);
-            await context.Database.EnsureCreatedAsync();
-            return new PreferencesDatabase(connection, options);
-        }
+        public static async Task<PreferencesDatabase> CreateAsync() =>
+            new(await TestDatabase.CreateAsync());
 
         public async Task<Guid> AddSessionAsync(SessionType sessionType)
         {
@@ -239,6 +231,6 @@ public sealed class UserPreferencesControllerTests
             await context.SaveChangesAsync();
         }
 
-        public async ValueTask DisposeAsync() => await _connection.DisposeAsync();
+        public async ValueTask DisposeAsync() => await _database.DisposeAsync();
     }
 }

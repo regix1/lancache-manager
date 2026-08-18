@@ -8,7 +8,6 @@ using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Validators;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -20,21 +19,20 @@ namespace LancacheManager.Tests;
 /// disappearing, a create reports the addresses it could not take, and the save reaches historical
 /// dashboard ranges rather than only the live one.
 ///
-/// These run against EF Core's Sqlite provider rather than the InMemory one because the guarantee
-/// under test is the UNIQUE index on ClientGroupMembers.ClientIp - one address belongs to exactly one
-/// group - and the InMemory provider does not enforce unique indexes.
+/// These run against a real PostgreSQL database rather than the InMemory provider because the
+/// guarantee under test is the UNIQUE index on ClientGroupMembers.ClientIp - one address belongs to
+/// exactly one group - and the InMemory provider does not enforce unique indexes.
 /// </summary>
 public sealed class ClientGroupMembershipTests
 {
     [Fact]
     public async Task CreatingAGroupNamesTheAddressesItCouldNotTakeAsync()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             seed.ClientGroups.Add(new ClientGroup
             {
                 Nickname = "Living Room",
@@ -65,14 +63,13 @@ public sealed class ClientGroupMembershipTests
     [Fact]
     public async Task SettingMembersAddsAndRemovesInOneCallAndLeavesTheRestAloneAsync()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
         var untouchedSince = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         long groupId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             var group = new ClientGroup
             {
                 Nickname = "Lab",
@@ -116,13 +113,12 @@ public sealed class ClientGroupMembershipTests
     [Fact]
     public async Task SettingMembersReportsAnAddressAnotherGroupOwnsInsteadOfThrowingAsync()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         long labId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             seed.ClientGroups.Add(new ClientGroup
             {
                 Nickname = "Living Room",
@@ -175,13 +171,12 @@ public sealed class ClientGroupMembershipTests
     [Fact]
     public async Task SettingMembersToleratesDuplicatesAndAddressesTheGroupAlreadyHasAsync()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         long groupId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             var group = new ClientGroup
             {
                 Nickname = "Lab",
@@ -215,13 +210,12 @@ public sealed class ClientGroupMembershipTests
     {
         // The server treats the list as the whole truth, matching the per-address delete that has
         // always allowed a group to reach zero. The modal is where a nickname is kept reachable.
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         long groupId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             var group = new ClientGroup
             {
                 Nickname = "Lab",
@@ -246,11 +240,10 @@ public sealed class ClientGroupMembershipTests
     [Fact]
     public async Task SettingMembersOnAGroupThatIsNotThereIsNotFoundAsync()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using var context = new AppDbContext(options);
-        await context.Database.EnsureCreatedAsync();
         var (controller, _) = CreateController(context);
 
         await Assert.ThrowsAsync<NotFoundException>(() => controller.SetMembersAsync(
@@ -261,13 +254,12 @@ public sealed class ClientGroupMembershipTests
     [Fact]
     public async Task TheMembersEndpointNamesEntriesThatAreNotAddressesAsync()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         long groupId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             var group = new ClientGroup { Nickname = "Lab" };
             seed.ClientGroups.Add(group);
             await seed.SaveChangesAsync();
@@ -296,13 +288,12 @@ public sealed class ClientGroupMembershipTests
     [Fact]
     public async Task TheMembersEndpointReturnsTheGroupAndTheRejectedAddressesAsync()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         long labId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             seed.ClientGroups.Add(new ClientGroup
             {
                 Nickname = "Living Room",
@@ -345,14 +336,13 @@ public sealed class ClientGroupMembershipTests
     {
         // The list replaces the whole membership, so a save built on a copy taken before someone else
         // added an address deletes that address, and neither editor is ever told.
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
         var stampTheEditorRead = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         long groupId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             var group = new ClientGroup
             {
                 Nickname = "Lab",
@@ -397,14 +387,13 @@ public sealed class ClientGroupMembershipTests
     [Fact]
     public async Task AMembershipSaveCarryingTheCurrentStampGoesThroughAndMovesItAsync()
     {
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
         var stampTheEditorRead = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         long groupId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             var group = new ClientGroup
             {
                 Nickname = "Lab",
@@ -442,13 +431,12 @@ public sealed class ClientGroupMembershipTests
     {
         // Omitting the stamp is how a caller says it is not tracking the version, which is what keeps
         // clients written before the stamp existed working.
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         long groupId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             var group = new ClientGroup
             {
                 Nickname = "Lab",
@@ -480,14 +468,13 @@ public sealed class ClientGroupMembershipTests
         // The whole submit, in the order the dialog performs it: fields first, addresses second, and
         // the second one carries the stamp the first one handed back. Because the field write moves
         // the stamp, only a check on the FIELD write can still see what the other editor did.
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
         var stampTheEditorRead = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         long groupId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             var group = new ClientGroup
             {
                 Nickname = "Lab",
@@ -558,14 +545,13 @@ public sealed class ClientGroupMembershipTests
     {
         // The same submit with nobody else involved has to land both writes. A guard that turns down
         // the ordinary save is worse than the race it was added for.
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
         var stampTheEditorRead = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         long groupId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             var group = new ClientGroup
             {
                 Nickname = "Lab",
@@ -615,13 +601,13 @@ public sealed class ClientGroupMembershipTests
         // hundred times finer, and the field write hands its stamp straight back to the caller
         // without re-reading the row. A stamp carrying those finer ticks can never match the stored
         // copy again, so the address save that follows it in the same submit would be turned down
-        // and saving again would not clear it. SQLite keeps the finer ticks, so the resolution is
-        // asserted on the value itself rather than through a round trip.
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        // and saving again would not clear it. A round trip cannot show that: the row reads back
+        // truncated whether or not the write rounded, so the resolution is asserted on the stamp
+        // the write handed back.
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using var context = new AppDbContext(options);
-        await context.Database.EnsureCreatedAsync();
         var service = CreateService(context);
 
         var created = await service.CreateAsync(new ClientGroup { Nickname = "Lab" });
@@ -641,13 +627,12 @@ public sealed class ClientGroupMembershipTests
     {
         // Omitting the stamp is how a caller says it is not tracking the version, which is what keeps
         // clients written before the stamp existed working.
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         long groupId;
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             var group = new ClientGroup
             {
                 Nickname = "Lab",
@@ -678,12 +663,11 @@ public sealed class ClientGroupMembershipTests
     {
         // The group commits before the addresses are attempted. Keeping it would leave a nickname
         // holding nothing the user picked, and the modal has no way to save its way out of that.
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
             seed.ClientGroups.Add(new ClientGroup
             {
                 Nickname = "Living Room",
@@ -724,11 +708,10 @@ public sealed class ClientGroupMembershipTests
     {
         // A nickname with no addresses yet is a legitimate starting point, and it is not the
         // all-rejected path.
-        using var connection = OpenSharedConnection();
-        var options = SqliteOptions(connection);
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using var context = new AppDbContext(options);
-        await context.Database.EnsureCreatedAsync();
         var (controller, _) = CreateController(context);
 
         var result = await controller.CreateAsync(new CreateClientGroupRequest { Nickname = "Lab" });
@@ -776,18 +759,6 @@ public sealed class ClientGroupMembershipTests
     // ---------------------------------------------------------------------------------------------
     // Harness
     // ---------------------------------------------------------------------------------------------
-
-    private static SqliteConnection OpenSharedConnection()
-    {
-        var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=True");
-        connection.Open();
-        return connection;
-    }
-
-    private static DbContextOptions<AppDbContext> SqliteOptions(SqliteConnection connection)
-        => new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
 
     private static ClientGroupsService CreateService(AppDbContext context)
         => new(context, NullLogger<ClientGroupsService>.Instance);

@@ -1,7 +1,6 @@
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -160,23 +159,18 @@ public class SteamAppZeroEvictionTests
     }
 
     // ---------------------------------------------------------------------------------------------
-    // EvictCachedGameDetectionsAsync: runs against Sqlite because the InMemory provider does not
+    // EvictCachedGameDetectionsAsync: runs against PostgreSQL because the InMemory provider does not
     // support the ExecuteUpdate the eviction write uses.
     // ---------------------------------------------------------------------------------------------
 
     [Fact]
     public async Task EvictCachedGameDetections_App0DownloadsAllEvicted_LeavesNamedRowsAlone()
     {
-        using var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=True");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
         await using (var seed = new AppDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
-
             seed.CachedGameDetections.AddRange(
                 // Named row: identity is (Service, GameName); its GameAppId is the sentinel 0.
                 DetectionRow(0, "blizzard", "Overwatch"),

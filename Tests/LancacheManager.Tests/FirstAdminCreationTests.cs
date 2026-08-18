@@ -6,7 +6,6 @@ using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
@@ -92,17 +91,10 @@ public sealed class FirstAdminCreationTests : IDisposable
     [Fact]
     public async Task CreateIsRefusedWhenTheAccountArrivesDuringTheWrite()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await using var database = await TestDatabase.CreateAsync();
+        var options = database.Options;
 
-        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
-        await using (var context = new AppDbContext(options))
-        {
-            await context.Database.EnsureCreatedAsync();
-        }
-
-        var interrupted = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
+        var interrupted = new DbContextOptionsBuilder<AppDbContext>(options)
             .AddInterceptors(new AccountArrivesDuringSave(options))
             .Options;
 
@@ -208,13 +200,13 @@ public sealed class FirstAdminCreationTests : IDisposable
     /// winner committed; both are a clean 409, which is why this asserts the outcome rather than the
     /// route to it.
     ///
-    /// On its own file rather than the shared in-memory database because both requests need their own
-    /// connection; the in-memory helper hands every context the same one.
+    /// Both requests need their own connection, which the shared helper gives them: each context it
+    /// hands out opens its own against the schema.
     /// </summary>
     [Fact]
     public async Task TwoSimultaneousCreatesLeaveExactlyOneAccount()
     {
-        await using var database = await ConcurrentDatabase.CreateAsync(_root);
+        await using var database = await TestDatabase.CreateAsync();
         var first = NewController(database.Factory, _apiKeyService);
         var second = NewController(database.Factory, _apiKeyService);
         var apiKey = _apiKeyService.GetApiKey();
@@ -445,36 +437,4 @@ public sealed class FirstAdminCreationTests : IDisposable
         }
     }
 
-    /// <summary>
-    /// A SQLite database on disk, so two requests can hold two connections against it at once and the
-    /// unique indexes decide which of them commits.
-    /// </summary>
-    private sealed class ConcurrentDatabase : IAsyncDisposable
-    {
-        private ConcurrentDatabase(TestDbContextFactory factory)
-        {
-            Factory = factory;
-        }
-
-        public TestDbContextFactory Factory { get; }
-
-        public static async Task<ConcurrentDatabase> CreateAsync(string directory)
-        {
-            var connectionString = new SqliteConnectionStringBuilder
-            {
-                DataSource = Path.Combine(directory, "concurrent.db"),
-                // The file is deleted with the directory when the test ends, which a pooled
-                // connection still holding it open would stop on Windows.
-                Pooling = false
-            }.ToString();
-
-            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connectionString).Options;
-            await using var context = new AppDbContext(options);
-            await context.Database.EnsureCreatedAsync();
-
-            return new ConcurrentDatabase(new TestDbContextFactory(options));
-        }
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-    }
 }

@@ -2,8 +2,8 @@ using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace LancacheManager.Tests;
 
@@ -54,18 +54,27 @@ public sealed class CorruptionScanInvalidationTests
                     CancellationToken.None));
 
             // This trigger makes the relational ordering observable: deleting a header while
-            // any child candidate remains fails before SQLite can apply its cascade.
+            // any child candidate remains fails before PostgreSQL can apply its cascade. The
+            // check sits in the function body because a trigger's WHEN clause may not query
+            // another table.
             await context.Database.ExecuteSqlRawAsync(
                 """
+                CREATE FUNCTION "RequireCorruptionCandidatesDeleted"() RETURNS trigger AS $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM "CachedCorruptionDetections"
+                        WHERE "ScanId" = OLD."ScanId"
+                    ) THEN
+                        RAISE EXCEPTION 'candidate rows must be deleted first';
+                    END IF;
+                    RETURN OLD;
+                END;
+                $$ LANGUAGE plpgsql;
+
                 CREATE TRIGGER "RequireCorruptionCandidatesDeleted"
                 BEFORE DELETE ON "CachedCorruptionScans"
-                WHEN EXISTS (
-                    SELECT 1 FROM "CachedCorruptionDetections"
-                    WHERE "ScanId" = OLD."ScanId"
-                )
-                BEGIN
-                    SELECT RAISE(ABORT, 'candidate rows must be deleted first');
-                END;
+                FOR EACH ROW
+                EXECUTE FUNCTION "RequireCorruptionCandidatesDeleted"();
                 """);
 
             await using var transaction = await context.Database.BeginTransactionAsync();
@@ -162,17 +171,22 @@ public sealed class CorruptionScanInvalidationTests
         {
             await setup.Database.ExecuteSqlRawAsync(
                 """
+                CREATE FUNCTION "PreventCorruptionScanDelete"() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION 'blocked scan-header deletion';
+                END;
+                $$ LANGUAGE plpgsql;
+
                 CREATE TRIGGER "PreventCorruptionScanDelete"
                 BEFORE DELETE ON "CachedCorruptionScans"
-                BEGIN
-                    SELECT RAISE(ABORT, 'blocked scan-header deletion');
-                END;
+                FOR EACH ROW
+                EXECUTE FUNCTION "PreventCorruptionScanDelete"();
                 """);
         }
 
         await using (var context = new AppDbContext(database.Options))
         {
-            await Assert.ThrowsAsync<SqliteException>(() =>
+            await Assert.ThrowsAsync<PostgresException>(() =>
                 CacheClearingService.InvalidateCachedDetectionResultsAsync(
                     context,
                     CancellationToken.None));
@@ -297,17 +311,22 @@ public sealed class CorruptionScanInvalidationTests
             await setup.SaveChangesAsync();
             await setup.Database.ExecuteSqlRawAsync(
                 """
+                CREATE FUNCTION "PreventReconciledCorruptionScanDelete"() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION 'blocked reconciled scan-header deletion';
+                END;
+                $$ LANGUAGE plpgsql;
+
                 CREATE TRIGGER "PreventReconciledCorruptionScanDelete"
                 BEFORE DELETE ON "CachedCorruptionScans"
-                BEGIN
-                    SELECT RAISE(ABORT, 'blocked reconciled scan-header deletion');
-                END;
+                FOR EACH ROW
+                EXECUTE FUNCTION "PreventReconciledCorruptionScanDelete"();
                 """);
         }
 
         await using (var context = new AppDbContext(database.Options))
         {
-            await Assert.ThrowsAsync<SqliteException>(() =>
+            await Assert.ThrowsAsync<PostgresException>(() =>
                 CacheClearingService.ReconcileSuccessfulCacheClearAsync(
                     context,
                     ["Default"],
@@ -426,17 +445,22 @@ public sealed class CorruptionScanInvalidationTests
         {
             await setup.Database.ExecuteSqlRawAsync(
                 """
+                CREATE FUNCTION "PreventEvictionCorruptionScanDemotion"() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION 'blocked eviction scan demotion';
+                END;
+                $$ LANGUAGE plpgsql;
+
                 CREATE TRIGGER "PreventEvictionCorruptionScanDemotion"
                 BEFORE UPDATE OF "IsCurrent" ON "CachedCorruptionScans"
-                BEGIN
-                    SELECT RAISE(ABORT, 'blocked eviction scan demotion');
-                END;
+                FOR EACH ROW
+                EXECUTE FUNCTION "PreventEvictionCorruptionScanDemotion"();
                 """);
         }
 
         await using (var context = new AppDbContext(database.Options))
         {
-            await Assert.ThrowsAsync<SqliteException>(() =>
+            await Assert.ThrowsAsync<PostgresException>(() =>
                 DatabaseService.DemoteCachedCorruptionEvidenceAsync(
                     context,
                     CancellationToken.None));
@@ -609,32 +633,4 @@ public sealed class CorruptionScanInvalidationTests
         }
     }
 
-    private sealed class TestDatabase : IAsyncDisposable
-    {
-        private readonly SqliteConnection _connection;
-
-        private TestDatabase(
-            SqliteConnection connection,
-            DbContextOptions<AppDbContext> options)
-        {
-            _connection = connection;
-            Options = options;
-        }
-
-        public DbContextOptions<AppDbContext> Options { get; }
-
-        public static async Task<TestDatabase> CreateAsync()
-        {
-            var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync();
-            var options = new DbContextOptionsBuilder<AppDbContext>()
-                .UseSqlite(connection)
-                .Options;
-            await using var context = new AppDbContext(options);
-            await context.Database.EnsureCreatedAsync();
-            return new TestDatabase(connection, options);
-        }
-
-        public async ValueTask DisposeAsync() => await _connection.DisposeAsync();
-    }
 }

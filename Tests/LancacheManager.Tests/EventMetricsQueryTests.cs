@@ -1,7 +1,6 @@
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Tests;
@@ -39,18 +38,11 @@ public class EventMetricsQueryTests
         Assert.Contains("LIMIT", sql, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Runs on SQLite while production is Npgsql only, so it checks the LINQ shape and the numbers,
-    /// not the SQL the production provider generates.
-    /// </summary>
     [Fact]
-    public void EventTotalsQuery_HonoursClientExclusions()
+    public async Task EventTotalsQuery_HonoursClientExclusions()
     {
-        using var connection = new SqliteConnection("DataSource=:memory:");
-        connection.Open();
-        using var context = new AppDbContext(
-            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
-        context.Database.EnsureCreated();
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = database.Factory.CreateDbContext();
 
         var start = DateTime.UtcNow.AddHours(-4);
         context.Events.Add(PartyEvent(1, "LAN Party", start, start.AddHours(8)));
@@ -80,16 +72,12 @@ public class EventMetricsQueryTests
     /// <summary>
     /// The compare chart asks for up to eight events at once. One query has to answer for all of
     /// them, keyed by event, or the endpoint pays a round trip and a pooled context per event.
-    /// Runs on SQLite, so it checks the LINQ shape and the grouping, not the production SQL.
     /// </summary>
     [Fact]
     public async Task LoadTaggedDownloadIds_AnswersEveryEventFromOneQuery()
     {
-        using var connection = new SqliteConnection("DataSource=:memory:");
-        connection.Open();
-        using var context = new AppDbContext(
-            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
-        context.Database.EnsureCreated();
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = database.Factory.CreateDbContext();
 
         var start = DateTime.UtcNow.AddHours(-4);
         context.Events.Add(PartyEvent(1, "Friday", start, start.AddHours(8)));

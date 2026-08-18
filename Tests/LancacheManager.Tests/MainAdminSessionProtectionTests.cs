@@ -176,8 +176,8 @@ public sealed class MainAdminSessionProtectionTests
     }
 
     /// <summary>
-    /// The test above runs on SQLite, which settles the LINQ shape and nothing about the provider
-    /// that ships. <c>ToQueryString()</c> compiles it through Npgsql without a connection:
+    /// The test above settles which rows come back and nothing about the SQL behind them.
+    /// <c>ToQueryString()</c> compiles it through Npgsql without a connection:
     /// <see cref="PrefillSession.CreatedByAccountId"/> has to be compared in the SQL, and rows with
     /// no account have to be named explicitly, because PostgreSQL answers <c>NULL != id</c> with
     /// unknown and would drop every guest and API-key row.

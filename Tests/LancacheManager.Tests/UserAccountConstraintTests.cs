@@ -12,7 +12,7 @@ namespace LancacheManager.Tests;
 public sealed class UserAccountConstraintTests
 {
     // Two accounts sharing a name make the login lookup return whichever row comes back first.
-    // The SQLite store creates the unique index the model declares, so a refusal here is the store
+    // The store creates the unique index the model declares, so a refusal here is the store
     // refusing the write, not code above it.
     [Fact]
     public async Task SecondAccountWithTheSameUsername_IsRefusedByTheStore()
@@ -73,9 +73,8 @@ public sealed class UserAccountConstraintTests
     }
 
     // PostgreSQL gives no case-insensitive uniqueness on a text column, so the case half of the
-    // constraint rides on the citext column type. The suite runs on SQLite, whose BINARY collation
-    // would not reject "Admin" after "admin" whatever the column type says, so this asserts the
-    // schema the PostgreSQL provider emits instead of asserting an insert it cannot observe.
+    // constraint rides on the citext column type. UsernameCaseTests covers the insert that type
+    // refuses; this covers the schema that puts the type and both indexes there to begin with.
     [Fact]
     public void PostgresSchema_MakesUsernameCitextAndUnique()
     {

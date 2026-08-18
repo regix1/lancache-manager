@@ -2,7 +2,6 @@ using System.Text.Json;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
@@ -21,10 +20,10 @@ public sealed class UserPreferencesServiceTests
     // three requests at once. All three find no row, all three insert, and the unique index on SessionId
     // admits one. The losers must re-read and apply their value to the row that won, not give up.
     //
-    // Racing real threads would not test this: SQLite serializes writes on one connection, so the second
-    // caller would read the committed row, take the update path, and pass against the unfixed code too.
-    // The competing insert is driven from a save interceptor instead, which puts the row in place after
-    // this call has already read and found nothing, exactly the window the race lives in.
+    // Racing real threads would not test this: whether the second caller reads before or after the first
+    // commits is down to timing, and the run where it reads after takes the update path and passes against
+    // the unfixed code too. The competing insert is driven from a save interceptor instead, which puts the
+    // row in place after this call has already read and found nothing, exactly the window the race lives in.
     [Fact]
     public async Task CreateRaceLoser_AppliesItsValueToTheRowThatWon()
     {
@@ -302,10 +301,10 @@ public sealed class UserPreferencesServiceTests
     // from it, and these preferences go out to every client of the session. They must be read back from the
     // row rather than taken from what this request was holding.
     //
-    // Racing real threads would not reach this: SQLite serializes writes on one connection, so the second
-    // caller would read after the first committed and hold the newer value anyway. The competing write is
-    // driven from a save interceptor instead, which lands it after this call has read and before it saves,
-    // exactly the window the staleness lives in.
+    // Racing real threads would not reach this: whether the competing write lands inside this call's read
+    // and save is down to timing, and the run where it lands outside holds the newer value anyway. The
+    // competing write is driven from a save interceptor instead, which lands it after this call has read
+    // and before it saves, exactly the window the staleness lives in.
     [Fact]
     public async Task WriteThatCommitsMidRequest_IsInTheReturnedPreferences()
     {
@@ -575,15 +574,15 @@ public sealed class UserPreferencesServiceTests
 
     private sealed class TestDatabase : IAsyncDisposable
     {
-        private readonly SqliteConnection _connection;
+        private readonly LancacheManager.Tests.TestDatabase _database;
         private readonly DbContextOptions<AppDbContext> _options;
         private TestDbContextFactory? _interceptedFactory;
 
-        private TestDatabase(SqliteConnection connection, DbContextOptions<AppDbContext> options)
+        private TestDatabase(LancacheManager.Tests.TestDatabase database)
         {
-            _connection = connection;
-            _options = options;
-            Factory = new TestDbContextFactory(options);
+            _database = database;
+            _options = database.Options;
+            Factory = database.Factory;
         }
 
         public TestDbContextFactory Factory { get; }
@@ -592,15 +591,8 @@ public sealed class UserPreferencesServiceTests
             _interceptedFactory ?? throw new InvalidOperationException(
                 "InterceptCompetingInsert must run before the intercepted factory is used.");
 
-        public static async Task<TestDatabase> CreateAsync()
-        {
-            var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync();
-            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
-            await using var context = new AppDbContext(options);
-            await context.Database.EnsureCreatedAsync();
-            return new TestDatabase(connection, options);
-        }
+        public static async Task<TestDatabase> CreateAsync() =>
+            new(await LancacheManager.Tests.TestDatabase.CreateAsync());
 
         public async Task<Guid> AddSessionAsync()
         {
@@ -640,11 +632,7 @@ public sealed class UserPreferencesServiceTests
         public CompetingInsert InterceptCompetingInsert(Guid sessionId, string selectedTheme)
         {
             var competingInsert = new CompetingInsert(_options, sessionId, selectedTheme);
-            var intercepted = new DbContextOptionsBuilder<AppDbContext>()
-                .UseSqlite(_connection)
-                .AddInterceptors(competingInsert)
-                .Options;
-            _interceptedFactory = new TestDbContextFactory(intercepted);
+            _interceptedFactory = Intercepted(competingInsert);
             return competingInsert;
         }
 
@@ -655,11 +643,7 @@ public sealed class UserPreferencesServiceTests
         public CompetingUpdate InterceptCompetingUpdate(Guid sessionId, string selectedTheme)
         {
             var competingUpdate = new CompetingUpdate(_options, sessionId, selectedTheme);
-            var intercepted = new DbContextOptionsBuilder<AppDbContext>()
-                .UseSqlite(_connection)
-                .AddInterceptors(competingUpdate)
-                .Options;
-            _interceptedFactory = new TestDbContextFactory(intercepted);
+            _interceptedFactory = Intercepted(competingUpdate);
             return competingUpdate;
         }
 
@@ -670,15 +654,16 @@ public sealed class UserPreferencesServiceTests
         public SaveCount CountSaves()
         {
             var saveCount = new SaveCount();
-            var intercepted = new DbContextOptionsBuilder<AppDbContext>()
-                .UseSqlite(_connection)
-                .AddInterceptors(saveCount)
-                .Options;
-            _interceptedFactory = new TestDbContextFactory(intercepted);
+            _interceptedFactory = Intercepted(saveCount);
             return saveCount;
         }
 
-        public async ValueTask DisposeAsync() => await _connection.DisposeAsync();
+        private TestDbContextFactory Intercepted(IInterceptor interceptor) =>
+            new(new DbContextOptionsBuilder<AppDbContext>(_options)
+                .AddInterceptors(interceptor)
+                .Options);
+
+        public async ValueTask DisposeAsync() => await _database.DisposeAsync();
     }
 }
 
