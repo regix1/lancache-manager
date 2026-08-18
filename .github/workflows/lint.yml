@@ -30,6 +30,29 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+
+    # The authorization suite boots the real app through WebApplicationFactory, which runs as
+    # Development and so takes its connection string from appsettings.Development.json. The
+    # credentials below are not a free choice: they are the lancache/lancache pair that file
+    # names, on the TCP port it names. The suite then creates its own database, which the
+    # image's POSTGRES_USER can do because that account is a superuser.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lancache
+          POSTGRES_PASSWORD: lancache
+        ports:
+          - 5432:5432
+        # Over TCP, not the socket: during initialization the image runs a temporary server
+        # that listens on the socket only, so a socket probe reports ready before the port
+        # the tests connect to is open.
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U lancache"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     steps:
       - uses: actions/checkout@v6
 
