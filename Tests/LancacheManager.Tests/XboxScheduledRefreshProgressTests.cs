@@ -209,6 +209,146 @@ public class XboxScheduledRefreshProgressTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task LoginInProgress_StaysTrue_WhileThePollWaitsForApprovalAsync()
+    {
+        using var auth = new StubDeviceCodeHandler();
+        using var harness = new Harness(authHandler: auth);
+
+        await harness.Service.StartLoginAsync();
+        await WaitForAsync(() => harness.Service.AwaitingSignIn);
+
+        // The device code is on screen and Microsoft has not been told anything yet. Nobody is signed
+        // in, so this pair is what a browser that lost its socket would read, and calling it dead would
+        // throw away a login the user is still completing.
+        var waiting = harness.Service.GetAuthStatus();
+        Assert.True(waiting.LoginInProgress);
+        Assert.False(waiting.IsAuthenticated);
+
+        harness.Service.CancelLogin();
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+
+        var ended = harness.Service.GetAuthStatus();
+        Assert.False(ended.LoginInProgress);
+        Assert.False(ended.IsAuthenticated);
+    }
+
+    [Fact]
+    public async Task LoginInProgress_StaysTrue_AfterApproval_WhileAwaitingSignInIsFalseAsync()
+    {
+        using var auth = new StubDeviceCodeHandler
+        {
+            TokenBody = """{"access_token":"AT","refresh_token":"RT"}"""
+        };
+        using var harness = new Harness(authHandler: auth);
+
+        await harness.Service.StartLoginAsync();
+
+        // Approved, and now stuck in the catalog harvest. This is the stretch that made AwaitingSignIn
+        // useless as a "login alive" signal: it is false here, exactly as it is when no login runs at
+        // all, while the attempt is very much still working.
+        await auth.ChainReached.WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.False(harness.Service.AwaitingSignIn);
+
+        var harvesting = harness.Service.GetAuthStatus();
+        Assert.True(harvesting.LoginInProgress);
+        Assert.False(harvesting.IsAuthenticated);
+
+        // Let the chain fail. Both flags now read false together, which is the only pair that means the
+        // attempt is over and did not work.
+        auth.ReleaseChain();
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+
+        var failed = harness.Service.GetAuthStatus();
+        Assert.False(failed.LoginInProgress);
+        Assert.False(failed.IsAuthenticated);
+    }
+
+    [Fact]
+    public void SuccessMarksTheSessionBeforeTheAttemptIsCleared()
+    {
+        // A client reads loginInProgress and isAuthenticated from one snapshot, and treats false/false
+        // as a dead login. So the session flag has to be set before the attempt is cleared: swap these
+        // and a login that succeeded reports false/false for as long as the finally takes to run, and
+        // the modal says it failed.
+        var source = ReadLoginSource();
+
+        var pollIndex = source.IndexOf("private async Task RunLoginPollAsync", StringComparison.Ordinal);
+        var authenticatedIndex = source.IndexOf("SetIsAuthenticated(true);", pollIndex, StringComparison.Ordinal);
+        var clearedIndex = source.IndexOf("_loginReporter = null;", pollIndex, StringComparison.Ordinal);
+
+        Assert.True(authenticatedIndex > pollIndex);
+        Assert.True(clearedIndex > authenticatedIndex,
+            "the session must be marked authenticated before the login attempt is cleared");
+    }
+
+    /// <summary>Polls until <paramref name="condition"/> holds, so a background poll loop can be waited on.</summary>
+    private static async Task WaitForAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "the login never reached the expected state");
+            await Task.Delay(25);
+        }
+    }
+
+    /// <summary>
+    /// Stands in for the MSA device-code endpoints so a login can be driven with no Microsoft account.
+    /// Hands out a code that polls once a second, answers the token endpoint from <see cref="TokenBody"/>,
+    /// and holds every later request - the XBL token chain - until <see cref="ReleaseChain"/>, so a test
+    /// can park a login in the stretch after approval.
+    /// </summary>
+    private sealed class StubDeviceCodeHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _chainReached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _chainReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>What the token endpoint answers. Pending keeps the poll waiting for approval.</summary>
+        public string TokenBody { get; init; } = """{"error":"authorization_pending"}""";
+
+        /// <summary>Completes once the login is past approval and into the XBL token chain.</summary>
+        public Task ChainReached => _chainReached.Task;
+
+        public void ReleaseChain() => _chainReleased.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var url = request.RequestUri!.ToString();
+            if (url == XboxAuthConstants.DeviceCodeUrl)
+            {
+                return JsonResponse(
+                    """
+                    {"user_code":"ABCD-EFGH","device_code":"DEV",
+                     "verification_uri":"https://microsoft.com/link","interval":1,"expires_in":900}
+                    """);
+            }
+
+            if (url == XboxAuthConstants.TokenUrl)
+            {
+                return JsonResponse(TokenBody);
+            }
+
+            _chainReached.TrySetResult();
+            await _chainReleased.Task.WaitAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            _chainReleased.TrySetResult();
+            base.Dispose(disposing);
+        }
+
+        private static HttpResponseMessage JsonResponse(string json) =>
+            new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+    }
+
     private static string ReadLoginSource() => File.ReadAllText(Path.Combine(
         FindRepositoryRoot(),
         "Api",
@@ -307,7 +447,7 @@ public class XboxScheduledRefreshProgressTests
     private sealed class Harness : IDisposable
     {
         private readonly string _root;
-        private readonly HttpClient _authHttp = new();
+        private readonly HttpClient _authHttp;
         private readonly HttpClient _apiHttp;
 
         public RecordingNotifications Notifications { get; }
@@ -320,9 +460,12 @@ public class XboxScheduledRefreshProgressTests
         /// <param name="catalogHandler">Stub responder for the public DisplayCatalog lookup that banner
         /// backfill makes. Left null the run reaches the real endpoint and stores nothing, which is what
         /// every pre-existing test here wants.</param>
-        public Harness(HttpMessageHandler? catalogHandler = null)
+        /// <param name="authHandler">Stub responder for the MSA device-code endpoints, so a login can be
+        /// driven without a Microsoft account. Left null nothing in the harness starts a login.</param>
+        public Harness(HttpMessageHandler? catalogHandler = null, HttpMessageHandler? authHandler = null)
         {
             _apiHttp = catalogHandler is null ? new HttpClient() : new HttpClient(catalogHandler);
+            _authHttp = authHandler is null ? new HttpClient() : new HttpClient(authHandler);
             _root = Path.Combine(Path.GetTempPath(), $"xbox_sched_{Guid.NewGuid():N}");
             Directory.CreateDirectory(_root);
 

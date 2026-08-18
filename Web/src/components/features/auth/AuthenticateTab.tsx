@@ -83,7 +83,7 @@ const AuthenticateTab: React.FC = () => {
       <div className="auth-upgrade">
         <Card padding="none" className="auth-upgrade-card">
           <div className="auth-upgrade-header">
-            <div className="auth-upgrade-icon">
+            <div className="icon-box icon-box--md auth-upgrade-icon">
               <Key className="w-5 h-5" />
             </div>
             <div>
@@ -159,8 +159,7 @@ const AuthenticateTab: React.FC = () => {
                 <code>{t('auth.help.step2.code')}</code>
               </li>
               <li>
-                {t('auth.help.step3.before')}
-                {t('auth.help.step3.code') ? <code>{t('auth.help.step3.code')}</code> : null}
+                {t('auth.help.step3.before')} <code>{t('auth.help.step3.code')}</code>
               </li>
             </ol>
           </div>

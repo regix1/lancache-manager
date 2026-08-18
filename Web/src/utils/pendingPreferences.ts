@@ -1,9 +1,9 @@
 /**
  * Centralized utility for handling optimistic preference updates with stale protection.
  *
- * When a user changes a preference, we hold the value they picked during a cooldown period. A
- * SignalR update that arrives while a value is pending is not wrong, only older than the click
- * still in flight, so the pending value wins until the cooldown ends.
+ * When a user changes a preference, we hold the value they picked until the save behind it answers.
+ * A SignalR update that arrives while a value is pending is not wrong, only older than the click
+ * still in flight, so the pending value wins until the save behind that click answers.
  *
  * Usage:
  *   1. Call setPendingTimezone() when user changes a preference (before API call)
@@ -12,18 +12,29 @@
  */
 
 import type { TimeSettingValue } from '@contexts/TimezoneContext.types';
-import type { ClockPreferences } from '@/types/userPreferences';
+import { CLOCK_KEYS, type ClockPreferences } from '../types/userPreferences.ts';
 
 type PreferenceValue = boolean | string | number | null;
 
 interface PendingEntry {
   value: PreferenceValue;
-  setTime: number;
+  /** Which pick wrote it. The three flags of one pick all carry the same number. */
+  click: number;
 }
 
-const COOLDOWN_MS = 2000;
 const pending = new Map<string, PendingEntry>();
 const listeners = new Set<() => void>();
+let clicks = 0;
+
+/**
+ * The pick whose save has answered yes, and the pick whose values an update has carried to the
+ * readers. A pick is released once both have happened to it, in whichever order they arrive:
+ * released before its save answers it stops shielding a click still on the wire, and released
+ * before the readers hold its values every one of them drops back to the clock it replaced. Both
+ * name a pick by its number, never by what it holds. [69][74]
+ */
+let confirmedClick: number | null = null;
+let echoedClick: number | null = null;
 
 const notify = () => listeners.forEach((fn) => fn());
 
@@ -32,24 +43,12 @@ const notify = () => listeners.forEach((fn) => fn());
 // ============================================================================
 
 /**
- * Set a pending preference value. Call when user makes a change.
- */
-const setPendingPreference = (key: string, value: PreferenceValue): void => {
-  pending.set(key, { value, setTime: Date.now() });
-  notify();
-};
-
-/**
- * Get the pending value for a preference, or null if none/expired.
+ * Get the pending value for a preference, or null if none is held. A plain map read, safe in a
+ * render.
  */
 export const getPendingValue = <T extends PreferenceValue>(key: string): T | null => {
   const entry = pending.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.setTime >= COOLDOWN_MS) {
-    pending.delete(key);
-    return null;
-  }
-  return entry.value as T;
+  return entry ? (entry.value as T) : null;
 };
 
 /**
@@ -108,58 +107,85 @@ export const timeSettingFromClock = (clock: ClockPreferences): TimeSettingValue 
   return clock.use24HourFormat ? 'server-24h' : 'server-12h';
 };
 
-const clockFlags = (value: TimeSettingValue): readonly [string, boolean][] => {
-  const clock = clockFromTimeSetting(value);
-  return [
-    ['useUtcTimezone', clock.useUtcTimezone],
-    ['useLocalTimezone', clock.useLocalTimezone],
-    ['use24HourFormat', clock.use24HourFormat]
-  ];
-};
-
 /**
- * Set pending timezone values from a combined time setting. Call when the user picks one.
- */
-export const setPendingTimezone = (value: TimeSettingValue): void => {
-  clockFlags(value).forEach(([key, flag]) => setPendingPreference(key, flag));
-};
-
-/**
- * Drop the optimistic values a failed save had put up, so the control stops showing a choice the
- * server never stored rather than waiting out the cooldown.
+ * Set pending timezone values from a combined time setting. Call when the user picks one. Hands
+ * back the number that identifies the pick, for dropPendingTimezone.
  *
- * A save fails while the click after it is already on the wire, and the three flags are only a clock
- * together, so this takes back all three or none. If any entry no longer holds this setting's flag a
- * newer click owns the set, and clearing it would snap the control back to a choice nobody is waiting
- * on while the newer save is still succeeding.
+ * Held until its own save answers, never on a timer: a timer either ends a save still running, which
+ * puts the reader back on a clock the server is about to disagree with, or outlives one that
+ * already answered. [74]
  */
-export const dropPendingTimezone = (value: TimeSettingValue): void => {
-  const flags = clockFlags(value);
-  if (flags.some(([key, flag]) => pending.get(key)?.value !== flag)) {
-    return;
-  }
+export const setPendingTimezone = (value: TimeSettingValue): number => {
+  const clock = clockFromTimeSetting(value);
+  const click = (clicks += 1);
+  CLOCK_KEYS.forEach((key) => pending.set(key, { value: clock[key], click }));
+  notify();
+  return click;
+};
 
+/**
+ * Take back the optimistic values a pick put up, when its save failed or the server confirmed it.
+ *
+ * The three flags are only a clock together, so this takes all three or none, in one notification.
+ * A pick owns its entries by its own number rather than by the values it wrote, because two picks
+ * of the same setting write the same values: comparing those lets a failed save take back the pick
+ * that came after it. [64][69]
+ */
+export const dropPendingTimezone = (click: number): void => {
   let dropped = false;
-  flags.forEach(([key]) => {
-    dropped = pending.delete(key) || dropped;
+  pending.forEach((entry, key) => {
+    if (entry.click !== click) return;
+    pending.delete(key);
+    dropped = true;
   });
   if (dropped) notify();
 };
 
 /**
- * Settle the three clock flags against any pending click, for SignalR updates.
- *
- * All three are settled together because they are written together. Each per-key save echoes back
- * a whole preferences object built from what its own request read, so an echo that raced the UTC
- * write still carries the old value for it; holding only two of the three lets that older value
- * straight through.
+ * The save behind a pick answered yes, so the server is holding what the pick put up. Release the
+ * pick if the readers already have those values, otherwise the next update to arrive releases it:
+ * dropping it here with the readers still on the old clock is what a wall-clock timer used to do.
+ */
+export const confirmPendingTimezone = (click: number): void => {
+  if (echoedClick === click) {
+    dropPendingTimezone(click);
+    return;
+  }
+  confirmedClick = click;
+};
+
+/**
+ * Settle the three clock flags against any pending click, for SignalR updates. All three are
+ * settled together because they are written together.
  */
 export const preferPendingTimezone = (
   incomingUseLocal: boolean,
   incomingUseUtc: boolean,
   incomingUse24Hour: boolean
-): { useLocal: boolean; useUtc: boolean; use24Hour: boolean } => ({
-  useLocal: preferPendingValue('useLocalTimezone', incomingUseLocal),
-  useUtc: preferPendingValue('useUtcTimezone', incomingUseUtc),
-  use24Hour: preferPendingValue('use24HourFormat', incomingUse24Hour)
-});
+): { useLocal: boolean; useUtc: boolean; use24Hour: boolean } => {
+  const held = pending.get('useUtcTimezone');
+
+  // Confirmed and now overtaken: whatever this update carries is the newest word there is, and a
+  // pick kept past it would outrank every later change for as long as the tab is open.
+  if (held && held.click === confirmedClick) {
+    dropPendingTimezone(held.click);
+    return { useLocal: incomingUseLocal, useUtc: incomingUseUtc, use24Hour: incomingUse24Hour };
+  }
+
+  // Whether the readers now hold this pick, which decides whether its own save may release it. An
+  // update carrying two of the three raced the write of the flag it disagrees with.
+  if (held) {
+    echoedClick =
+      held.value === incomingUseUtc &&
+      pending.get('useLocalTimezone')?.value === incomingUseLocal &&
+      pending.get('use24HourFormat')?.value === incomingUse24Hour
+        ? held.click
+        : null;
+  }
+
+  return {
+    useLocal: preferPendingValue('useLocalTimezone', incomingUseLocal),
+    useUtc: preferPendingValue('useUtcTimezone', incomingUseUtc),
+    use24Hour: preferPendingValue('use24HourFormat', incomingUse24Hour)
+  };
+};

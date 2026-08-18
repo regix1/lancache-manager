@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import {
   CategoryScale,
@@ -8,7 +8,6 @@ import {
   LineElement,
   PointElement,
   Tooltip,
-  type Chart,
   type ChartData,
   type ChartOptions
 } from 'chart.js';
@@ -24,11 +23,14 @@ import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import ApiService from '@services/api.service';
 import MockDataService from '@/test/mockData.service';
-import { formatBytes } from '@utils/formatters';
 import { getThemeColor, useThemeRevision } from '../ServiceAnalyticsChart/chartTheme';
+import { lineChartScales, useHiddenSeries } from './bandwidthChart';
 import LineChartLegend from './LineChartLegend';
+import { hideLineChartTooltip, lineChartTooltip } from './lineChartTooltip';
+import { clampEventColorIndex } from '@utils/eventColors';
 import { storage } from '@utils/storage';
 import { STORAGE_KEYS } from '@utils/constants';
+import { pruneMissingEventIds } from '@contexts/TimeFilterContext.utils';
 import { isAbortError } from '@utils/error';
 import type { EventCompareResponse } from '@/types';
 import {
@@ -51,29 +53,30 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
   const knownIds = useMemo(() => events.map((event) => event.id), [events]);
   const [selectedIds, setSelectedIds] = useState<number[]>(() => {
     const stored = readCompareEventIds(
-      storage.getItem(STORAGE_KEYS.EVENT_COMPARE),
-      events.map((event) => event.id)
+      storage.getJSON<number[]>(STORAGE_KEYS.EVENT_COMPARE),
+      knownIds
     );
     return stored.length > 0 ? stored : defaultCompareEventIds(events);
   });
   const [metric, setMetric] = useState<'served' | 'saved'>('served');
   const [compare, setCompare] = useState<EventCompareResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [hiddenSeries, setHiddenSeries] = useState<ReadonlySet<number>>(() => new Set());
-  const chartRef = useRef<Chart<'line'> | null>(null);
+  const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   useEffect(() => {
+    // Sign-in, sign-out and a failed fetch all empty `events`, and pruning against nothing would
+    // replace the saved selection with defaults and persist them. [19]
+    if (knownIds.length === 0) {
+      return;
+    }
     setSelectedIds((current) => {
-      const kept = current.filter((id) => knownIds.includes(id));
-      if (kept.length > 0) {
-        return kept;
-      }
-      return defaultCompareEventIds(events);
+      const kept = pruneMissingEventIds(current, events);
+      return kept.length > 0 ? kept : defaultCompareEventIds(events);
     });
   }, [events, knownIds]);
 
   useEffect(() => {
-    storage.setItem(STORAGE_KEYS.EVENT_COMPARE, JSON.stringify(selectedIds));
+    storage.setJSON(STORAGE_KEYS.EVENT_COMPARE, selectedIds);
   }, [selectedIds]);
 
   useEffect(() => {
@@ -128,30 +131,45 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
     [events]
   );
 
-  const hasSeries = (visibleCompare?.series.length ?? 0) > 0;
+  // Counted in points, not series: a single surviving point draws no segment, so a legend over
+  // blank space is what the user gets. [5]
+  const hasSeries = (visibleCompare?.elapsedMinutes.length ?? 0) > 1;
+
+  // The clip keeps only the buckets inside the header range, so a range narrower than one bucket
+  // leaves a single point. The response did carry a comparison, so the range is what has to change.
+  const clippedToOnePoint =
+    !hasSeries &&
+    (compare?.elapsedMinutes.length ?? 0) > (visibleCompare?.elapsedMinutes.length ?? 0);
+
+  useEffect(() => hideLineChartTooltip, [hasSeries]);
 
   const chartData: ChartData<'line'> = useMemo(() => {
     void themeRevision;
-    const labels = (visibleCompare?.elapsedMinutes ?? []).map((minutes) => elapsedLabel(minutes));
+    const labels = (visibleCompare?.elapsedMinutes ?? []).map((minutes) =>
+      elapsedLabel(minutes, t)
+    );
     return {
       labels,
-      datasets: (visibleCompare?.series ?? []).map((series) => {
-        const color = getThemeColor(`--theme-event-${Math.max(1, Math.min(8, series.colorIndex))}`);
+      datasets: (visibleCompare?.series ?? []).map((series, index) => {
+        const values = metric === 'saved' ? series.saved : series.served;
+        const color = getThemeColor(`--theme-event-${clampEventColorIndex(series.colorIndex)}`);
         return {
           label: series.name,
-          data: metric === 'saved' ? series.saved : series.served,
+          data: values,
           borderColor: color,
           backgroundColor: color,
           fill: false,
           tension: 0.25,
-          spanGaps: false,
-          pointRadius: 0,
+          hidden: hiddenSeries.has(index),
+          // An event that has only just started has one value and nulls after it, and a lone value
+          // has no neighbour to draw a line to, so at radius 0 the series is invisible. [5]
+          pointRadius: values.filter((value) => value !== null).length === 1 ? 4 : 0,
           pointHoverRadius: 6,
           pointHitRadius: 12
         };
       })
     };
-  }, [visibleCompare, metric, themeRevision]);
+  }, [visibleCompare, hiddenSeries, metric, t, themeRevision]);
 
   const chartOptions: ChartOptions<'line'> = useMemo(() => {
     void themeRevision;
@@ -166,74 +184,30 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
         legend: {
           display: false
         },
-        tooltip: {
-          callbacks: {
-            title: (items) => {
-              const minutes = visibleCompare?.elapsedMinutes[items[0]?.dataIndex ?? 0] ?? 0;
-              return t('widgets.eventCompare.elapsed', { time: elapsedLabel(minutes) });
-            },
-            label: (item) => {
-              const value = typeof item.parsed.y === 'number' ? item.parsed.y : 0;
-              return `${item.dataset.label}: ${formatBytes(value)}`;
-            }
+        tooltip: lineChartTooltip({
+          swatchClass: (datasetIndex) => {
+            const colorIndex = visibleCompare?.series[datasetIndex]?.colorIndex ?? 1;
+            return `line-trend-swatch-event-${clampEventColorIndex(colorIndex)}`;
+          },
+          title: (items) => {
+            const minutes = visibleCompare?.elapsedMinutes[items[0]?.dataIndex ?? 0] ?? 0;
+            return t('widgets.eventCompare.elapsed', { time: elapsedLabel(minutes, t) });
           }
-        }
+        })
       },
-      scales: {
-        x: {
-          ticks: {
-            color: getThemeColor('--theme-text-muted'),
-            maxRotation: 0,
-            autoSkip: true,
-            maxTicksLimit: 8
-          },
-          grid: { display: false }
-        },
-        y: {
-          beginAtZero: true,
-          grace: '10%',
-          ticks: {
-            color: getThemeColor('--theme-text-muted'),
-            callback: (value) => formatBytes(typeof value === 'number' ? value : Number(value))
-          },
-          grid: { color: getThemeColor('--theme-border-secondary') }
-        }
-      }
+      scales: lineChartScales()
     };
   }, [visibleCompare, t, themeRevision]);
-
-  const seriesKey = (visibleCompare?.series ?? []).map((series) => series.name).join('|');
-
-  useEffect(() => {
-    setHiddenSeries(new Set());
-  }, [seriesKey]);
 
   const legendItems = useMemo(
     () =>
       (visibleCompare?.series ?? []).map((series, index) => ({
         label: series.name,
-        colorClass: `line-trend-swatch-event-${Math.max(1, Math.min(8, series.colorIndex))}`,
+        colorClass: `line-trend-swatch-event-${clampEventColorIndex(series.colorIndex)}`,
         hidden: hiddenSeries.has(index)
       })),
     [hiddenSeries, visibleCompare]
   );
-
-  const toggleSeries = useCallback((index: number) => {
-    const chart = chartRef.current;
-    if (chart) {
-      chart.setDatasetVisibility(index, !chart.isDatasetVisible(index));
-      chart.update();
-    }
-    setHiddenSeries((current) => {
-      const next = new Set(current);
-      if (next.has(index)) {
-        next.delete(index);
-      } else {
-        next.add(index);
-      }
-      return next;
-    });
-  }, []);
 
   return (
     <>
@@ -265,7 +239,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
         </div>
       </div>
 
-      <div className="well-surface dash-well dash-line-chart-well">
+      <div className="well-surface dash-line-chart-well">
         {events.length === 0 ? (
           <div className="dash-line-chart-placeholder">
             <EmptyState
@@ -284,15 +258,23 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
           <>
             <LineChartLegend items={legendItems} onToggle={toggleSeries} />
             <div className="dash-line-chart">
-              <Line ref={chartRef} data={chartData} options={chartOptions} />
+              <Line data={chartData} options={chartOptions} />
             </div>
           </>
         ) : (
           <div className="dash-line-chart-placeholder">
             <EmptyState
               icon={GitCompare}
-              subtitle={t('widgets.eventCompare.noDataDesc')}
-              title={t('widgets.eventCompare.noDataTitle')}
+              subtitle={t(
+                clippedToOnePoint
+                  ? 'widgets.eventCompare.rangeTooShortDesc'
+                  : 'widgets.eventCompare.noDataDesc'
+              )}
+              title={t(
+                clippedToOnePoint
+                  ? 'widgets.eventCompare.rangeTooShortTitle'
+                  : 'widgets.eventCompare.noDataTitle'
+              )}
               variant="panel"
             />
           </div>

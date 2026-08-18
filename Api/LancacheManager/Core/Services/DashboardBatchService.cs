@@ -1,6 +1,8 @@
 using LancacheManager.Configuration;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Infrastructure.Utilities;
 using System.Collections.Concurrent;
 using System.Text.Json;
@@ -81,8 +83,11 @@ public partial class DashboardBatchService : IDashboardBatchService
         long? startTime,
         long? endTime,
         long? eventId,
+        string? timeZoneId,
         CancellationToken ct)
     {
+        var readerTimeZoneId = KnownTimeZoneId(timeZoneId);
+
         var isLive = !startTime.HasValue && !endTime.HasValue;
         var liveCacheGeneration = isLive ? Volatile.Read(ref _liveCacheGeneration) : 0;
         var detectionCacheGeneration = Volatile.Read(ref _detectionCacheGeneration);
@@ -93,7 +98,8 @@ public partial class DashboardBatchService : IDashboardBatchService
         var evictedMode = _stateRepository.GetEvictedDataMode();
         var eventIdList = eventId.HasValue ? new List<long> { eventId.Value } : new List<long>();
 
-        var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{liveCacheGeneration}:{detectionCacheGeneration}";
+        // The zone is in the key because it changes the hourly buckets in the response body.
+        var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{readerTimeZoneId}:{liveCacheGeneration}:{detectionCacheGeneration}";
 
         // Concurrent misses for one key share a single fan-out via a Lazy-backed single-flight.
         // The Lazy is constructed before GetOrAdd (construction is inert - it never invokes
@@ -125,14 +131,14 @@ public partial class DashboardBatchService : IDashboardBatchService
                 // attempt directly, unregistered, so it is guaranteed to terminate instead of
                 // looping under pathological contention.
                 return await RunSingleFlightAsync(
-                    cacheKey, startTime, endTime, eventIdList,
+                    cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
                     hiddenClientIps, statsExcludedOnlyIps, evictedMode,
                     isLive, liveCacheGeneration, detectionCacheGeneration, ct);
             }
 
             var myLazy = new Lazy<Task<DashboardBatchResponse>>(
                 () => RunSingleFlightAsync(
-                    cacheKey, startTime, endTime, eventIdList,
+                    cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
                     hiddenClientIps, statsExcludedOnlyIps, evictedMode,
                     isLive, liveCacheGeneration, detectionCacheGeneration, ct),
                 LazyThreadSafetyMode.ExecutionAndPublication);
@@ -175,7 +181,7 @@ public partial class DashboardBatchService : IDashboardBatchService
     private async Task<DashboardBatchResponse> RunSingleFlightAsync(
         string cacheKey,
         long? startTime, long? endTime,
-        List<long> eventIdList,
+        List<long> eventIdList, string? readerTimeZoneId,
         List<string> hiddenClientIps, List<string> statsExcludedOnlyIps, string evictedMode,
         bool isLive, long liveCacheGeneration, long detectionCacheGeneration,
         CancellationToken ct)
@@ -196,7 +202,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         var downloadsTask = SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, ct), ct);
         var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync(actualCacheSize), ct);
         var sparklinesTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
-        var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
+        var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, readerTimeZoneId, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var cacheSnapshotTask = SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime, ct), ct);
 
         await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask);
@@ -380,19 +386,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
             : query;
 
-        var serviceStats = await serviceStatsQuery
-            .GroupBy(d => d.Service)
-            .Select(g => new ServiceStats
-            {
-                Service = g.Key,
-                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
-                TotalDownloads = g.Count(),
-                LastActivityUtc = g.Max(d => d.StartTimeUtc),
-                LastActivityLocal = g.Max(d => d.StartTimeLocal)
-            })
-            .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
-            .ToListAsync(ct);
+        var serviceStats = await ServiceStatsQuery(serviceStatsQuery).ToListAsync(ct);
 
         // xboxlive and microsoft rows are folded into xbox before UTC marking
         return ServiceBreakdownMerger.MergeXboxRows(serviceStats).WithUtcMarking();
@@ -668,19 +662,15 @@ public partial class DashboardBatchService : IDashboardBatchService
         }
 
         var bucketMinutes = SparklineBuckets.ResolveMinutes(rangeHours);
-        var present = await LoadPresentBucketsAsync(filteredQuery, bucketMinutes, ct);
+        var present = await PresentBucketsQuery(filteredQuery, bucketMinutes).ToListAsync(ct);
 
+        // The window comes from the rows the query returned, never from the picker: the width above
+        // is already narrowed to those rows, and the two have to agree.
         DateTime windowStart;
         DateTime windowEnd;
-        if (startTime.HasValue && endTime.HasValue)
+        if (bounds is not null)
         {
-            windowStart = startTime.Value.FromUnixSeconds();
-            windowEnd = endTime.Value.FromUnixSeconds();
-        }
-        else if (bounds is not null)
-        {
-            windowStart = bounds.First;
-            windowEnd = bounds.Last;
+            (windowStart, windowEnd) = SparklineBuckets.CoveringWindow(bounds.First, bounds.Last, bucketMinutes);
         }
         else
         {
@@ -698,16 +688,21 @@ public partial class DashboardBatchService : IDashboardBatchService
             var total = d.CacheHitBytes + d.CacheMissBytes;
             return total > 0 ? (d.CacheHitBytes * 100.0) / total : 0.0;
         }).ToList();
+        // DateTimeOffset applies the host's local offset to anything not marked UTC, which shifts
+        // the buckets Fill inserted away from the ones the query returned.
         var bucketStarts = bucketedData
-            .Select(d => new DateTimeOffset(d.Start).ToUnixTimeSeconds())
+            .Select(d => new DateTimeOffset(DateTime.SpecifyKind(d.Start, DateTimeKind.Utc)).ToUnixTimeSeconds())
             .ToList();
+
+        // Traffic is a property of the bucket, not of one metric, so every metric trims on this. [15]
+        var lastBucketWithTraffic = bucketedData.FindLastIndex(d => d.CacheHitBytes + d.CacheMissBytes > 0);
 
         return new SparklineDataResponse
         {
-            BandwidthSaved = BuildSparklineMetric(bandwidthSavedData, SparklineTrendScale.Proportional),
-            CacheHitRatio = BuildSparklineMetric(cacheHitRatioData, SparklineTrendScale.Points),
-            TotalServed = BuildSparklineMetric(totalServedData, SparklineTrendScale.Proportional),
-            AddedToCache = BuildSparklineMetric(addedToCacheData, SparklineTrendScale.Proportional),
+            BandwidthSaved = BuildSparklineMetric(bandwidthSavedData, SparklineTrendScale.Proportional, lastBucketWithTraffic),
+            CacheHitRatio = BuildSparklineMetric(cacheHitRatioData, SparklineTrendScale.Points, lastBucketWithTraffic),
+            TotalServed = BuildSparklineMetric(totalServedData, SparklineTrendScale.Proportional, lastBucketWithTraffic),
+            AddedToCache = BuildSparklineMetric(addedToCacheData, SparklineTrendScale.Proportional, lastBucketWithTraffic),
             BucketMinutes = bucketMinutes,
             BucketStarts = bucketStarts,
             Period = startTime.HasValue ? "filtered" : "all"
@@ -716,7 +711,7 @@ public partial class DashboardBatchService : IDashboardBatchService
 
     private async Task<object> GetHourlyActivityAsync(
         long? startTime, long? endTime,
-        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds, string? readerTimeZoneId,
         List<string> hiddenClientIps, string evictedMode,
         List<string> statsExcludedOnlyIps, CancellationToken ct)
     {
@@ -750,19 +745,18 @@ public partial class DashboardBatchService : IDashboardBatchService
         }
         else
         {
-            var dateRange = await query
-                .Select(d => d.StartTimeLocal.Date)
-                .Distinct()
-                .ToListAsync(ct);
+            // Divisor for the per-day averages below, so the days are counted on the same clock the
+            // hours are bucketed on. On the server's clock it is a whole day out at a midnight the
+            // reader has not reached. [51]
+            var dateRange = await ActivityDatesQuery(query, readerTimeZoneId).ToListAsync(ct);
 
             daysInPeriod = Math.Max(1, dateRange.Count);
 
             if (dateRange.Count > 0)
             {
-                // Taken from the recorded instants rather than from the server-local dates above.
-                // A local calendar date stamped with a zero offset is out by the server's own
-                // offset, and the widget checks these bounds against the real start and end of
-                // today to decide whether to mark the current hour at all.
+                // Taken from the recorded instants, not the calendar dates above: a local date
+                // stamped with a zero offset is out by the server's own offset, and the widget
+                // checks these bounds against the real start and end of today.
                 var recorded = await query
                     .GroupBy(d => 1)
                     .Select(g => new
@@ -784,21 +778,8 @@ public partial class DashboardBatchService : IDashboardBatchService
             ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
             : query;
 
-        // Every hour this endpoint reports is the hour the server recorded for the download, which
-        // is what StartTimeLocal holds. The widget reading it marks the current hour and checks
-        // whether today is in range on that same clock; pairing a reader-chosen clock with these
-        // buckets highlights a bucket that was filled at a different hour.
-        var hourlyData = await filteredQuery
-            .GroupBy(d => d.StartTimeLocal.Hour)
-            .Select(g => new HourlyActivityItem
-            {
-                Hour = g.Key,
-                Downloads = g.Count(),
-                BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                CacheMissBytes = g.Sum(d => d.CacheMissBytes)
-            })
-            .ToListAsync(ct);
+        // Bucketed on the reader's clock, the same one the widget draws its current-hour marker on.
+        var hourlyData = await HourlyActivityQuery(filteredQuery, readerTimeZoneId).ToListAsync(ct);
 
         var allHours = Enumerable.Range(0, 24)
             .Select(h => {
@@ -814,7 +795,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             .OrderBy(h => h.Hour)
             .ToList();
 
-        var peakHour = allHours.OrderByDescending(h => h.Downloads).FirstOrDefault()?.Hour ?? 0;
+        var peakHour = PeakHour(allHours);
 
         return new HourlyActivityResponse
         {
@@ -860,54 +841,39 @@ public partial class DashboardBatchService : IDashboardBatchService
 
     // ───────────────────── Shared query helpers ─────────────────────
 
-    private static async Task<List<SparklineBuckets.Bucket>> LoadPresentBucketsAsync(
+    /// <summary>
+    /// Downloads grouped in the database at the given width. Every key names UTC, so it lands on
+    /// the grid <see cref="SparklineBuckets.AlignStart"/> builds and <c>Fill</c> can find it. [14]
+    /// </summary>
+    internal static IQueryable<SparklineBuckets.Bucket> PresentBucketsQuery(
         IQueryable<Download> filteredQuery,
-        int bucketMinutes,
-        CancellationToken ct)
+        int bucketMinutes)
     {
         if (bucketMinutes >= 1440)
         {
-            var rows = await filteredQuery
+            return filteredQuery
                 .GroupBy(d => d.StartTimeUtc.Date)
                 .OrderBy(g => g.Key)
-                .Select(g => new
-                {
-                    g.Key,
-                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
-                })
-                .ToListAsync(ct);
-            return rows
-                .Select(r => new SparklineBuckets.Bucket(
-                    DateTime.SpecifyKind(r.Key, DateTimeKind.Utc),
-                    r.CacheHitBytes,
-                    r.CacheMissBytes))
-                .ToList();
+                .Select(g => new SparklineBuckets.Bucket(
+                    DateTime.SpecifyKind(g.Key, DateTimeKind.Utc),
+                    g.Sum(d => d.CacheHitBytes),
+                    g.Sum(d => d.CacheMissBytes)));
         }
 
         if (bucketMinutes >= 60)
         {
             var hoursPerBucket = bucketMinutes / 60;
-            var rows = await filteredQuery
+            return filteredQuery
                 .GroupBy(d => new { d.StartTimeUtc.Date, Slot = d.StartTimeUtc.Hour / hoursPerBucket })
                 .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Slot)
-                .Select(g => new
-                {
-                    g.Key.Date,
-                    g.Key.Slot,
-                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
-                })
-                .ToListAsync(ct);
-            return rows
-                .Select(r => new SparklineBuckets.Bucket(
-                    DateTime.SpecifyKind(r.Date, DateTimeKind.Utc).AddHours(r.Slot * hoursPerBucket),
-                    r.CacheHitBytes,
-                    r.CacheMissBytes))
-                .ToList();
+                .Select(g => new SparklineBuckets.Bucket(
+                    DateTime.SpecifyKind(g.Key.Date, DateTimeKind.Utc)
+                        .AddHours(g.Key.Slot * hoursPerBucket),
+                    g.Sum(d => d.CacheHitBytes),
+                    g.Sum(d => d.CacheMissBytes)));
         }
 
-        var minuteRows = await filteredQuery
+        return filteredQuery
             .GroupBy(d => new
             {
                 d.StartTimeUtc.Date,
@@ -915,23 +881,96 @@ public partial class DashboardBatchService : IDashboardBatchService
                 MinuteBucket = d.StartTimeUtc.Minute / bucketMinutes
             })
             .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Hour).ThenBy(g => g.Key.MinuteBucket)
-            .Select(g => new
+            .Select(g => new SparklineBuckets.Bucket(
+                DateTime.SpecifyKind(g.Key.Date, DateTimeKind.Utc)
+                    .AddHours(g.Key.Hour)
+                    .AddMinutes(g.Key.MinuteBucket * bucketMinutes),
+                g.Sum(d => d.CacheHitBytes),
+                g.Sum(d => d.CacheMissBytes)));
+    }
+
+    /// <summary>
+    /// The zone id in the spelling the database reads, or null when this server does not know the
+    /// zone. An unknown name is rejected when the query runs and takes the whole batch down with
+    /// it, so it is dropped here and the grouping stays on the server's own clock. Neither the
+    /// incoming name nor TimeZoneInfo.Id can be forwarded as it stands: either can be the Windows
+    /// spelling, which .NET resolves happily and Postgres then refuses, so the name is put into
+    /// IANA form first and the resolve runs against that. [58] [65]
+    /// </summary>
+    internal static string? KnownTimeZoneId(string? timeZoneId)
+    {
+        if (timeZoneId is null)
+        {
+            return null;
+        }
+
+        var ianaId = ServerTimeZone.IanaId(timeZoneId, timeZoneId);
+        return ScheduleTiming.ResolveTimeZone(ianaId) is not null ? ianaId : null;
+    }
+
+    /// <summary>
+    /// Downloads counted into the hours of the day on the reader's clock. The zone is named rather
+    /// than reduced to one offset, so the database resolves it at each row's own instant. Without
+    /// a zone the buckets stay on the hour the server recorded, in StartTimeLocal.
+    /// </summary>
+    internal static IQueryable<HourlyActivityItem> HourlyActivityQuery(
+        IQueryable<Download> filteredQuery,
+        string? timeZoneId)
+    {
+        var byHour = timeZoneId is not null
+            ? filteredQuery.GroupBy(d => TimeZoneInfo.ConvertTimeBySystemTimeZoneId(d.StartTimeUtc, timeZoneId).Hour)
+            : filteredQuery.GroupBy(d => d.StartTimeLocal.Hour);
+
+        return byHour.Select(g => new HourlyActivityItem
+        {
+            Hour = g.Key,
+            Downloads = g.Count(),
+            BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+            CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+            CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+        });
+    }
+
+    /// <summary>
+    /// The distinct calendar days the downloads fall on, on the reader's clock. Same conversion as
+    /// <see cref="HourlyActivityQuery"/>, so the day count and the hours it divides share a clock.
+    /// </summary>
+    internal static IQueryable<DateTime> ActivityDatesQuery(
+        IQueryable<Download> filteredQuery,
+        string? timeZoneId)
+    {
+        var dates = timeZoneId is not null
+            ? filteredQuery.Select(d => TimeZoneInfo.ConvertTimeBySystemTimeZoneId(d.StartTimeUtc, timeZoneId).Date)
+            : filteredQuery.Select(d => d.StartTimeLocal.Date);
+
+        return dates.Distinct();
+    }
+
+    /// <summary>
+    /// The per-service totals both the batch endpoint and the services endpoint report.
+    /// </summary>
+    internal static IQueryable<ServiceStats> ServiceStatsQuery(IQueryable<Download> filteredQuery)
+    {
+        return filteredQuery
+            .GroupBy(d => d.Service)
+            .Select(g => new ServiceStats
             {
-                g.Key.Date,
-                g.Key.Hour,
-                g.Key.MinuteBucket,
-                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+                Service = g.Key,
+                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                TotalDownloads = g.Count(),
+                LastActivityUtc = g.Max(d => d.StartTimeUtc)
             })
-            .ToListAsync(ct);
-        return minuteRows
-            .Select(r => new SparklineBuckets.Bucket(
-                DateTime.SpecifyKind(r.Date, DateTimeKind.Utc)
-                    .AddHours(r.Hour)
-                    .AddMinutes(r.MinuteBucket * bucketMinutes),
-                r.CacheHitBytes,
-                r.CacheMissBytes))
-            .ToList();
+            .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes);
+    }
+
+    /// <summary>
+    /// The hour that served the most bytes, which is the hour the heatmap shades darkest. Counting
+    /// downloads instead names a different hour when one large game outweighs many small ones.
+    /// </summary>
+    internal static int PeakHour(IReadOnlyList<HourlyActivityItem> hours)
+    {
+        return hours.MaxBy(h => h.BytesServed)?.Hour ?? 0;
     }
 
     private static IQueryable<Download> BuildBaseDownloadsQuery(AppDbContext context, List<string> hiddenClientIps, string evictedMode)
@@ -946,34 +985,43 @@ public partial class DashboardBatchService : IDashboardBatchService
     /// compared proportionally; a percentage ratio is already normalised to 0-100, so it is
     /// compared by point difference instead.
     /// </summary>
-    private enum SparklineTrendScale
+    internal enum SparklineTrendScale
     {
         Proportional,
         Points
     }
 
-    private static SparklineMetric BuildSparklineMetric(List<double> data, SparklineTrendScale scale)
+    internal static SparklineMetric BuildSparklineMetric(
+        List<double> data,
+        SparklineTrendScale scale,
+        int lastBucketWithTraffic)
     {
-        var trimmed = data.ToList();
+        // Gap-filled slots are real points, so trailing empty buckets would compare 0 against 0 and
+        // report "stable" whatever the range did. Trimmed to the last bucket that carried traffic,
+        // never to the last one this metric was non-zero in: a hit ratio that genuinely falls to 0%
+        // is a measurement. The data itself stays whole, index-aligned with BucketStarts. [15]
+        var measured = lastBucketWithTraffic >= 0
+            ? data.GetRange(0, lastBucketWithTraffic + 1)
+            : data;
 
-        if (trimmed.Count < 2)
-            return new SparklineMetric { Data = trimmed, Trend = "stable" };
+        if (measured.Count < 2)
+            return new SparklineMetric { Data = data, Trend = "stable" };
 
         double recent;
         double earlier;
-        if (trimmed.Count >= 4)
+        if (measured.Count >= 4)
         {
             // Compare the last few points to the points immediately before them, so the trend
             // matches what the tail of the rendered sparkline looks like.
-            int recentCount = Math.Min(3, trimmed.Count / 2);
-            recent = trimmed.TakeLast(recentCount).Average();
-            earlier = trimmed.Skip(Math.Max(0, trimmed.Count - recentCount * 2)).Take(recentCount).Average();
+            int recentCount = Math.Min(3, measured.Count / 2);
+            recent = measured.TakeLast(recentCount).Average();
+            earlier = measured.Skip(Math.Max(0, measured.Count - recentCount * 2)).Take(recentCount).Average();
         }
         else
         {
             // Too few points to window, so compare last to first.
-            recent = trimmed.Last();
-            earlier = trimmed.First();
+            recent = measured.Last();
+            earlier = measured.First();
         }
 
         double diff = scale == SparklineTrendScale.Proportional
@@ -982,7 +1030,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         double threshold = scale == SparklineTrendScale.Proportional ? 0.05 : 2.0;
         string trend = diff > threshold ? "up" : diff < -threshold ? "down" : "stable";
 
-        return new SparklineMetric { Data = trimmed, Trend = trend };
+        return new SparklineMetric { Data = data, Trend = trend };
     }
 
     // ───────────────────── Helpers ─────────────────────

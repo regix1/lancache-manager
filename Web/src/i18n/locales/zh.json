@@ -78,7 +78,6 @@
     "unsaved": "未保存",
     "clearAll": "清除全部",
     "selectAll": "全选",
-    "noDataAvailable": "无可用数据",
     "unknownError": "未知错误",
     "fullAuthRequired": "管理操作需要完全身份验证",
     "resultsFromPreviousScan": "历史扫描结果",
@@ -294,6 +293,8 @@
       "title": "刷新率"
     },
     "statCard": {
+      "noDataInRange": "此范围内无数据",
+      "notEnoughToChart": "数据不足，无法绘制图表",
       "sparklineAria": "{{title}} 在过去 {{count}} 个数据点的趋势",
       "sparklineAria_other": "{{title}} 在过去 {{count}} 个数据点的趋势"
     },
@@ -362,8 +363,10 @@
       "am": "上午",
       "defaultLabel": "默认",
       "errors": {
-        "updateFailed": "更新时间设置失败"
+        "updateFailed": "更新时间设置失败",
+        "updateNoAnswer": "服务器没有响应。如果时间设置已保存，时钟会自动更新。"
       },
+      "notAllowed": "管理员未允许此时间格式",
       "title": "时间",
       "options": {
         "local12": {
@@ -498,8 +501,8 @@
       "startedAt": "开始于 {{size}}",
       "snapshots": "{{count}} 个快照",
       "snapshots_other": "{{count}} 个快照",
-      "noSnapshotsYet": "暂无快照",
       "filesOnDisk": "磁盘上的文件",
+      "onDiskNow": "当前磁盘上",
       "fullDiskLimit": "使用整个磁盘",
       "overConfiguredLimit": "已用配置上限的 {{percent}}",
       "downloadsInRange": "{{count}} 次下载 · {{period}}",
@@ -564,6 +567,7 @@
       "allServices": "所有服务",
       "allClients": "所有客户端",
       "servicePrefix": "服务：",
+      "serviceGroup": "{{service}} 下载",
       "clientPrefix": "客户端：",
       "hitRate": "命中率",
       "period": "时间范围",
@@ -622,17 +626,16 @@
       "ipTooltip": "IP：{{ip}}",
       "noData": "所选时间范围内无客户端数据",
       "noDataHint": "一旦您的局域网缓存开始提供下载服务，客户端数据将显示在此处。",
+      "rankedWithinCap": "在此范围内流量最高的 100 个客户端中排序，并非全部客户端。",
       "timeRanges": {
-        "15m": "最近15分钟",
-        "30m": "最近30分钟",
         "1h": "最近一小时",
         "6h": "最近6小时",
         "12h": "最近12小时",
         "24h": "最近24小时",
         "7d": "最近7天",
         "30d": "最近30天",
-        "90d": "最近90天",
-        "live": "实时数据"
+        "live": "实时数据",
+        "custom": "自定义范围"
       }
     },
     "serviceAnalytics": {
@@ -658,6 +661,17 @@
       "gameService": {
         "prefix": "服务：",
         "all": "所有服务"
+      },
+      "games": {
+        "files": "文件：{{count}}",
+        "service": "服务：{{service}}",
+        "otherGames": "其他（{{count}} 个游戏）"
+      },
+      "compare": {
+        "cacheHits": "缓存命中",
+        "cacheMisses": "缓存未命中",
+        "missesNote": "（首次下载出现未命中属于正常情况）",
+        "hitRateNote": "（命中率 {{percent}}%）"
       },
       "hideList": "隐藏详情",
       "showList": "显示详情",
@@ -711,15 +725,23 @@
       },
       "peakHour": {
         "term": "高峰时段",
-        "multiDay": "平均下载量最多的小时。",
-        "singleDay": "所选时段内下载量最多的小时。"
+        "multiDay": "平均每天服务数据量最多的小时。",
+        "singleDay": "所选时段内服务数据量最多的小时。"
       },
       "currentHour": {
         "term": "当前小时",
         "multiDay": "基于历史数据的当前小时通常情况。",
         "singleDay": "当前小时内的活动。"
       },
-      "heatmapNote": "每个方块代表一天中的一小时。越亮 = 下载活动越多。",
+      "heatmapNote": "每个方块代表一天中的一小时。越亮 = 服务的数据量越多。",
+      "tooltip": {
+        "avgDownloadsPerDay": "日均下载",
+        "avgServedPerDay": "日均服务量",
+        "totalDownloads": "总计：{{count}} 次下载",
+        "downloads": "次下载",
+        "served": "已服务",
+        "fromCache": "来自缓存"
+      },
       "mostActive": "最活跃：",
       "days": "{{count}} 天",
       "downloads": "下载",
@@ -771,6 +793,11 @@
       "title": "比较活动",
       "pickEvents": "活动",
       "elapsed": "已过 {{time}}",
+      "units": {
+        "minutes": "分",
+        "hours": "时",
+        "days": "天"
+      },
       "metrics": {
         "served": "总服务量",
         "saved": "缓存命中"
@@ -779,6 +806,8 @@
       "noEventsDesc": "先在活动页面创建 LAN 聚会，再在这里选择。",
       "noDataTitle": "还没有可比较的数据",
       "noDataDesc": "请选择至少一个已标记下载的活动。",
+      "rangeTooShortTitle": "所选范围太短，无法比较",
+      "rangeTooShortDesc": "这些活动的数据点间隔比所选范围更宽。请在顶部选择更长的时间范围。",
       "errors": {
         "load": "无法加载活动比较。"
       },
@@ -808,7 +837,7 @@
       },
       "step3": {
         "before": "仅在首次创建或轮换密钥时才会写入日志。",
-        "code": ""
+        "code": "docker logs lancache-manager"
       }
     },
     "success": "认证成功！正在升级到完全访问...",
@@ -4132,6 +4161,7 @@
         "authenticationRequired": "需要认证",
         "guestMessage": "要使用完整管理功能，请使用您的 API 密钥进行身份验证。",
         "unauthenticatedMessage": "管理操作需要身份验证。请输入您的 API 密钥或继续作为访客。",
+        "apiKeyOnlyMessage": "管理操作需要身份验证。请输入您的 API 密钥。",
         "apiKeyLabel": "API 密钥",
         "findApiKey": "查找您的 API 密钥：",
         "step1": "SSH 进入您的 LANCache 管理器服务器",
@@ -7239,6 +7269,7 @@
       "notFound": "找不到该账户。",
       "mainAdminProtected": "无法在此更改拥有此安装的账户。",
       "adminRoleRequiresMainAdmin": "只有拥有此安装的账户才能授予管理员角色。",
+      "wipeRequiresMainAdmin": "只有拥有此安装的账户才能删除所有账户。",
       "selfProtected": "您无法删除、禁用或更改当前登录账户的角色。",
       "roleNotAssignable": "账户只能拥有管理员或用户角色。",
       "usernameTaken": "该用户名已被占用。",

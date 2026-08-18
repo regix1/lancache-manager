@@ -72,7 +72,7 @@ public class AccountsController : ControllerBase
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var caller = await LoadCallerAccountAsync(context, HttpContext.GetUserSession());
 
-        var accounts = await AccountsVisibleTo(context, caller)
+        var accounts = await MainAdminVisibility.AccountsVisibleTo(context, caller)
             .OrderBy(a => a.Username)
             .ToListAsync();
 
@@ -90,7 +90,7 @@ public class AccountsController : ControllerBase
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var caller = await LoadCallerAccountAsync(context, HttpContext.GetUserSession());
 
-        var account = await AccountsVisibleTo(context, caller).FirstOrDefaultAsync(a => a.Id == id);
+        var account = await MainAdminVisibility.AccountsVisibleTo(context, caller).FirstOrDefaultAsync(a => a.Id == id);
         if (account == null)
         {
             return NotFoundAccount();
@@ -209,7 +209,7 @@ public class AccountsController : ControllerBase
         var session = HttpContext.GetUserSession();
         var caller = await LoadCallerAccountAsync(context, session);
 
-        var account = await AccountsVisibleTo(context, caller).FirstOrDefaultAsync(a => a.Id == id);
+        var account = await MainAdminVisibility.AccountsVisibleTo(context, caller).FirstOrDefaultAsync(a => a.Id == id);
         if (account == null)
         {
             return NotFoundAccount();
@@ -308,7 +308,7 @@ public class AccountsController : ControllerBase
         var session = HttpContext.GetUserSession();
         var caller = await LoadCallerAccountAsync(context, session);
 
-        var account = await AccountsVisibleTo(context, caller).FirstOrDefaultAsync(a => a.Id == id);
+        var account = await MainAdminVisibility.AccountsVisibleTo(context, caller).FirstOrDefaultAsync(a => a.Id == id);
         if (account == null)
         {
             return NotFoundAccount();
@@ -362,7 +362,7 @@ public class AccountsController : ControllerBase
         var session = HttpContext.GetUserSession();
         var caller = await LoadCallerAccountAsync(context, session);
 
-        var account = await AccountsVisibleTo(context, caller).FirstOrDefaultAsync(a => a.Id == id);
+        var account = await MainAdminVisibility.AccountsVisibleTo(context, caller).FirstOrDefaultAsync(a => a.Id == id);
         if (account == null)
         {
             return NotFoundAccount();
@@ -414,7 +414,7 @@ public class AccountsController : ControllerBase
         var session = HttpContext.GetUserSession();
         var caller = await LoadCallerAccountAsync(context, session);
 
-        var account = await AccountsVisibleTo(context, caller).FirstOrDefaultAsync(a => a.Id == id);
+        var account = await MainAdminVisibility.AccountsVisibleTo(context, caller).FirstOrDefaultAsync(a => a.Id == id);
         if (account == null)
         {
             return NotFoundAccount();
@@ -448,8 +448,9 @@ public class AccountsController : ControllerBase
     /// <remarks>
     /// Single-account delete refuses the main administrator so that row cannot vanish by accident.
     /// This is the explicit exception: the owner is emptying the table so the first-admin wizard can
-    /// run again. Anyone who is not that owner is refused the same way they are refused when they
-    /// try to grant the administrator role. A missing account row — API key only, or authentication
+    /// run again. Anyone who is not that owner is refused with its own message and stage key, because
+    /// a refusal that talks about granting the administrator role names an action the person did not
+    /// take. A missing account row — API key only, or authentication
     /// off — is not treated as a grant, because <see cref="CallerMayGrantAdmin"/> would admit those
     /// callers.
     ///
@@ -468,7 +469,13 @@ public class AccountsController : ControllerBase
 
         if (caller?.IsMainAdmin != true)
         {
-            return AdminRoleRefused();
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                new AccountRefusalResponse
+                {
+                    StageKey = AccountRefusalResponse.WipeRequiresMainAdmin,
+                    Error = "Only the account that owns this installation can delete every account"
+                });
         }
 
         var accounts = await context.UserAccounts.ToListAsync();
@@ -488,24 +495,6 @@ public class AccountsController : ControllerBase
         _logger.LogWarning("Every account was deleted, including the one that owns the installation");
 
         return Ok(MessageResponse.Ok("Accounts deleted"));
-    }
-
-    /// <summary>
-    /// The accounts a caller may see and name. See <see cref="MainAdminVisibility.AccountsVisibleTo"/>.
-    /// </summary>
-    /// <remarks>
-    /// Every action loads its target through this, which is what makes the rule a permission rather
-    /// than a display filter: hiding an account from the list while still answering a request that
-    /// names one by id hides nothing at all.
-    ///
-    /// A caller with no account row is one of the two session shapes that never has one - a request
-    /// carrying only the API key, and the shared session used while authentication is disabled - and
-    /// both manage accounts as an administrator. A session naming an account row that is gone is
-    /// rejected before it reaches a controller.
-    /// </remarks>
-    private static IQueryable<UserAccount> AccountsVisibleTo(AppDbContext context, UserAccount? caller)
-    {
-        return MainAdminVisibility.AccountsVisibleTo(context, caller);
     }
 
     /// <summary>

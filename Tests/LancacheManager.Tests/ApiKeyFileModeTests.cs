@@ -87,6 +87,36 @@ public sealed class ApiKeyFileModeTests : IDisposable
         Assert.Contains(key, printed);
     }
 
+    /// <summary>
+    /// The startup order, rather than <see cref="ApiKeyService.DisplayApiKey"/> handed a reveal flag the
+    /// test chose. <see cref="ApiKeyService.WasNewKeyGenerated"/> is a by-value argument there, so it is
+    /// read before the banner call runs the read that sets it, and startup has to read the key on its own
+    /// line first or a first start masks the key a new user needs to log in. [1]
+    /// </summary>
+    [Fact]
+    public void TheStartupOrderRevealsTheKeyOnAFirstStart()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "lancache-manager.sln")))
+        {
+            directory = directory.Parent;
+        }
+
+        var root = directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found");
+        var startup = File.ReadAllText(Path.Combine(root, "Api", "LancacheManager", "Program.cs"));
+
+        var read = startup.IndexOf("apiKeyService.GetApiKey();", StringComparison.Ordinal);
+        var banner = startup.IndexOf("apiKeyService.DisplayApiKey(", StringComparison.Ordinal);
+
+        Assert.True(read >= 0, "Startup never reads the API key, so the banner masks it on a first start");
+        Assert.True(read < banner, "Startup writes the banner before it reads the API key");
+
+        _apiKeyService.GetApiKey();
+        var printed = CaptureDisplay(revealKey: _apiKeyService.WasNewKeyGenerated);
+
+        Assert.Contains(File.ReadAllText(_keyPath).Trim(), printed);
+    }
+
     private string CaptureDisplay(bool revealKey)
     {
         var configuration = new ConfigurationBuilder()

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type { SteamAutoLogoutEvent, SteamSessionErrorEvent } from '@contexts/SignalRContext/types';
 import { SteamAuthContext, type SteamAuthMode } from './SteamAuthContext.types';
 
@@ -102,6 +103,16 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
     }
     fetchSteamAuth();
   }, [authLoading, isAdmin, fetchSteamAuth]);
+
+  // SteamAutoLogout and SteamSessionError are the only things that move this state, and neither is
+  // delivered while the socket is down, so a session dropped server-side would keep offering Steam
+  // prefill until the page reloaded. Admin-only, matching the two handlers and the initial fetch:
+  // /steam-auth/status is not for guests, and this provider is mounted for every session.
+  useReconnectRefetch(signalR.isConnected, () => {
+    if (isAdmin) {
+      void fetchSteamAuth();
+    }
+  });
 
   return (
     <SteamAuthContext.Provider

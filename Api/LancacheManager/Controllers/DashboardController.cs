@@ -38,12 +38,17 @@ public class DashboardController : ControllerBase
     /// When set, scopes every sub-query to the downloads tagged to this event instead of the
     /// requested time range. An unknown id throws NotFound before any sub-query runs.
     /// </param>
+    /// <param name="timeZoneId">
+    /// The IANA zone the hourly activity buckets are grouped on. Omitted, or naming a zone this
+    /// server does not know, they stay on the server's clock.
+    /// </param>
     [HttpGet("batch")]
     [ProducesResponseType(typeof(DashboardBatchResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<DashboardBatchResponse>> GetBatchAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] long? eventId = null,
+        [FromQuery] string? timeZoneId = null,
         CancellationToken ct = default)
     {
         // A cascade delete removes the event's EventDownloads rows, so an unknown id would
@@ -55,7 +60,7 @@ public class DashboardController : ControllerBase
         }
 
         Response.Headers["Cache-Control"] = "no-store, private";
-        var response = await _dashboardBatchService.GetBatchAsync(startTime, endTime, eventId, ct);
+        var response = await _dashboardBatchService.GetBatchAsync(startTime, endTime, eventId, timeZoneId, ct);
         return Ok(response);
     }
 

@@ -394,6 +394,24 @@
   flex-shrink: 0;
 }
 
+/* Quiet qualifier for the Games view. It sits inside the uppercase list header, so it resets the
+   header's casing, tracking and weight rather than shouting alongside the title. */
+.analytics-scope-note {
+  margin-left: 0.5rem;
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+  color: var(--theme-text-muted);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.analytics-scope-note--footer {
+  display: block;
+  margin-top: 0.5rem;
+  margin-left: 0;
+  text-align: center;
+}
+
 .chart-wrapper {
   position: relative;
   /* BUG 2: HEIGHT-driven square so the donut's height == the body height and
@@ -821,6 +839,10 @@
 
 .legend-color-game-20 {
   --legend-color: var(--theme-game-20);
+}
+
+.legend-color-game-other {
+  --legend-color: var(--theme-game-other);
 }
 
 .legend-color-default {

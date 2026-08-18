@@ -202,8 +202,7 @@ public class DownloadCleanupServiceTests
             seed.ServiceStats.Add(new ServiceStats
             {
                 Service = "origin",
-                LastActivityUtc = DateTime.UtcNow,
-                LastActivityLocal = DateTime.UtcNow
+                LastActivityUtc = DateTime.UtcNow
             });
             await seed.SaveChangesAsync();
         }

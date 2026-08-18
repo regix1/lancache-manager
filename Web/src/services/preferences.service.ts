@@ -20,6 +20,19 @@ type UserPreferences = Omit<SessionUserPreferences, 'refreshRateLocked'>;
 type PreferenceValue = UserPreferences[keyof UserPreferences];
 
 /**
+ * How long a clock save has to answer. The click it belongs to holds the picked clock on screen
+ * until this request says yes or no, and a socket that is never answered nor reset has no end of
+ * its own, so the request is given one.
+ */
+const CLOCK_SAVE_TIMEOUT_MS = 10000;
+
+/**
+ * What a clock save came back with. No answer is not a refusal: the request may be committing as
+ * the caller reads this, so the caller has to be able to say so instead of naming a failure.
+ */
+type ClockSaveAnswer = 'saved' | 'failed' | 'noAnswer';
+
+/**
  * PreferencesService - Pure API layer for user preferences
  *
  * This service handles:
@@ -30,7 +43,8 @@ type PreferenceValue = UserPreferences[keyof UserPreferences];
  * UserPreferencesUpdated events are handled by SessionPreferencesContext.
  */
 class PreferencesService {
-  private pendingUpdates = new Map<string, Promise<boolean>>();
+  // Held only to queue behind and to recognise the tail, never read for what a save answered.
+  private pendingUpdates = new Map<string, Promise<unknown>>();
 
   /**
    * Load preferences from the API (no caching)
@@ -106,9 +120,9 @@ class PreferencesService {
    * that the three columns commit together: no second click can be applied between two writes of the
    * first and leave the row naming a clock nobody chose.
    */
-  async setClockPreferences(clock: ClockPreferences): Promise<boolean> {
+  async setClockPreferences(clock: ClockPreferences): Promise<ClockSaveAnswer> {
     const inFlight = CLOCK_KEYS.map((key) => this.pendingUpdates.get(key)).filter(
-      (update): update is Promise<boolean> => update !== undefined
+      (update): update is Promise<unknown> => update !== undefined
     );
 
     const send =
@@ -116,7 +130,7 @@ class PreferencesService {
         ? Promise.all(inFlight).then(() => this.sendClockPreferences(clock))
         : this.sendClockPreferences(clock);
 
-    const tracked: Promise<boolean> = send.finally(() => {
+    const tracked: Promise<ClockSaveAnswer> = send.finally(() => {
       // Only the tail clears a slot; an earlier link finishing must not free a key that a later
       // value is still queued behind.
       CLOCK_KEYS.forEach((key) => {
@@ -131,25 +145,32 @@ class PreferencesService {
   }
 
   /**
-   * Send the clock flags to the API. Reports failure by resolving false rather than throwing, the same
+   * Send the clock flags to the API. Reports the outcome by resolving rather than throwing, the same
    * way the per-key send does.
    */
-  private async sendClockPreferences(clock: ClockPreferences): Promise<boolean> {
+  private async sendClockPreferences(clock: ClockPreferences): Promise<ClockSaveAnswer> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CLOCK_SAVE_TIMEOUT_MS);
+
     try {
       const response = await fetch(
         `${API_BASE}/user-preferences/clock`,
-        ApiService.getJsonFetchOptions(clock, { method: 'PATCH' })
+        ApiService.getJsonFetchOptions(clock, { method: 'PATCH', signal: controller.signal })
       );
 
       if (response.ok) {
-        return true;
+        return 'saved';
       }
 
       console.error('[PreferencesService] Failed to update clock preferences:', response.status);
-      return false;
+      return 'failed';
     } catch (error: unknown) {
+      // The deadline arrives here as an abort, and it is the one outcome the client cannot read as
+      // a refusal: the request it gave up on may be committing.
       console.error('[PreferencesService] Error updating clock preferences:', error);
-      return false;
+      return controller.signal.aborted ? 'noAnswer' : 'failed';
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

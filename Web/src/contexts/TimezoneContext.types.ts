@@ -25,9 +25,10 @@ interface TimezoneContextType {
   useUtcTimezone: boolean;
   use24HourFormat: boolean;
   refreshKey: number;
-  setPendingTimeSetting: (value: TimeSettingValue) => void;
-  /** Takes back the optimistic values for one setting when its save failed. */
-  dropPendingTimeSetting: (value: TimeSettingValue) => void;
+  /** Hands back the number identifying the pick, for dropPendingTimeSetting. */
+  setPendingTimeSetting: (value: TimeSettingValue) => number;
+  /** Takes back the optimistic values of one pick when its save failed. */
+  dropPendingTimeSetting: (click: number) => void;
 }
 
 export const TimezoneContext = createContext<TimezoneContextType>({
@@ -35,9 +36,7 @@ export const TimezoneContext = createContext<TimezoneContextType>({
   useUtcTimezone: false,
   use24HourFormat: true,
   refreshKey: 0,
-  setPendingTimeSetting: () => {
-    /* noop */
-  },
+  setPendingTimeSetting: () => 0,
   dropPendingTimeSetting: () => {
     /* noop */
   }

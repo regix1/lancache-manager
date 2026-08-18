@@ -75,6 +75,7 @@ test('a revoked session stops reporting itself signed in and drops its live feed
   const authServiceUrl = await compileToUrl('../src/services/auth.service.ts', {
     '@utils/constants': moduleUrl(`export const getApiUrl = () => '';`),
     '@utils/antiforgery': moduleUrl(`export const antiforgeryHeaders = () => ({});`),
+    '@utils/error': moduleUrl(`export const isAbortError = () => false;`),
     '@utils/userInteractionTracker': moduleUrl(
       `export const hasRecentUserInteraction = () => false;`
     ),

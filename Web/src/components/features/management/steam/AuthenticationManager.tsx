@@ -477,7 +477,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
               ? t('management.auth.modal.guestMessage')
               : isGuestModeAvailable
                 ? t('management.auth.modal.unauthenticatedMessage')
-                : t('management.auth.description.requiresKey')}
+                : t('management.auth.modal.apiKeyOnlyMessage')}
           </p>
 
           <div>

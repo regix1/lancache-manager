@@ -19,6 +19,11 @@ const parseFormattedValue = (
   value: string | number
 ): { number: number; suffix: string; decimals: number; isTextOnly: boolean } => {
   if (typeof value === 'number') {
+    // NumberFlow animates whatever it is handed, so NaN and Infinity would spin up on screen as
+    // measurements. Route them to the em dash the cards already use for an absent value.
+    if (!Number.isFinite(value)) {
+      return { number: 0, suffix: '—', decimals: 0, isTextOnly: true };
+    }
     return { number: value, suffix: '', decimals: 0, isTextOnly: false };
   }
 

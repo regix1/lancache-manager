@@ -1,4 +1,5 @@
 import { assertOk, type ApiErrorData } from './apiError';
+import { isAbortError } from '@utils/error';
 import { antiforgeryHeaders } from '@utils/antiforgery';
 import { getApiUrl } from '@utils/constants';
 import { hasRecentUserInteraction } from '@utils/userInteractionTracker';
@@ -40,8 +41,8 @@ interface AuthStatusResponse {
   xboxPrefillEnabled: boolean;
   xboxPrefillExpiresAt: string | null;
   /**
-   * False when the status route was not reached. hasData is then unknown, not empty — the sign-in
-   * guest button must not read a failed call as "no data loaded".
+   * False only when the status route was not reached at all, so a caller can tell "unknown" from
+   * "empty". A status the server answered with an error still counts as reached.
    */
   reachable?: boolean;
 }
@@ -107,14 +108,23 @@ class AuthService {
 
       return { ...data, reachable: true };
     } catch (error: unknown) {
-      if (error instanceof Error && error.name === 'AbortError') {
+      const aborted = isAbortError(error);
+      if (aborted) {
         console.warn(`[AuthService] checkAuth timed out after ${AUTH_CHECK_TIMEOUT_MS}ms`);
       }
       console.error('[AuthService] checkAuth error:', error);
-      this.isAuthenticated = false;
-      this.authMode = 'unauthenticated';
-      this.sessionType = null;
-      this.sessionId = null;
+      // Only a call that never got an answer keeps the last-known session: the 10s abort above, or
+      // a dropped network, which rejects fetch with a TypeError. AuthContext already keeps its own
+      // state on that answer, and these flags gate the SignalR connection - zeroing them here made
+      // the AUTH_SESSION_UPDATED dispatched in its finally stop a live socket over a blip, with
+      // nothing left to restart it.
+      const reachable = !aborted && !(error instanceof TypeError);
+      if (reachable) {
+        this.isAuthenticated = false;
+        this.authMode = 'unauthenticated';
+        this.sessionType = null;
+        this.sessionId = null;
+      }
       this.authChecked = true;
 
       return {
@@ -142,7 +152,7 @@ class AuthService {
         riotPrefillExpiresAt: null,
         xboxPrefillEnabled: false,
         xboxPrefillExpiresAt: null,
-        reachable: false
+        reachable
       };
     } finally {
       clearTimeout(timeoutId);

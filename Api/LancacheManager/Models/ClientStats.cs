@@ -32,9 +32,6 @@ public class ClientStats : IUtcMarkable
     // UTC timestamps - always stored in UTC for consistent querying
     public DateTime LastActivityUtc { get; set; }
 
-    // Local timestamps - stored in the user's configured timezone for display
-    public DateTime LastActivityLocal { get; set; }
-
     public void MarkDateTimesAsUtc()
     {
         LastActivityUtc = LastActivityUtc.AsUtc();

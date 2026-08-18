@@ -25,6 +25,14 @@ public class PrefillSession
     public Guid CreatedBySessionId { get; set; }
 
     /// <summary>
+    /// The account behind <see cref="CreatedBySessionId"/>, copied in at insert so the row still
+    /// names its owner once that auth session row is gone. Resolving it through <c>UserSessions</c>
+    /// instead exposes every prefill row whose session has been deleted. Null for API-key requests,
+    /// for authentication turned off, and for rows written before this column existed.
+    /// </summary>
+    public Guid? CreatedByAccountId { get; set; }
+
+    /// <summary>
     /// Docker container ID (if still running)
     /// </summary>
     [MaxLength(100)]

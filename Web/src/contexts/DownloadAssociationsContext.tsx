@@ -3,6 +3,7 @@ import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import { useErrorHandler } from '@hooks/useErrorHandler';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type { EventSummary } from '../types';
 import {
   DownloadAssociationsContext,
@@ -17,7 +18,7 @@ interface DownloadAssociationsProviderProps {
 export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProviderProps> = ({
   children
 }) => {
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const { authMode } = useAuth();
   const { notifyError } = useErrorHandler();
   const isAdmin = authMode === 'authenticated';
@@ -202,6 +203,14 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
       }
     };
   }, [on, off, removeEventFromCache, updateEventInCache]);
+
+  // A DownloadTagged missed while the socket was down leaves that download's tags cached wrong with
+  // nothing to correct them. Same body as the DownloadsRefresh handler above, without its debounce:
+  // a reconnect arrives once, not in a burst.
+  useReconnectRefetch(isConnected, () => {
+    fetchedIds.current.clear();
+    setRefreshVersion((v) => v + 1);
+  });
 
   return (
     <DownloadAssociationsContext.Provider

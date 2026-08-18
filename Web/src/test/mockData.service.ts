@@ -56,8 +56,6 @@ function toEvent(spec: MockEventSpec): Event {
     description: spec.description,
     startTimeUtc: start,
     endTimeUtc: end,
-    startTimeLocal: start,
-    endTimeLocal: end,
     colorIndex: spec.colorIndex,
     createdAtUtc: start
   };
@@ -113,6 +111,10 @@ function mockEventSpecs(now: Date): MockEventSpec[] {
   ];
 }
 
+/**
+ * Mirrors `SparklineBuckets.ResolveMinutes` in the API, which mock mode never reaches. Change the
+ * thresholds and widths in both places together.
+ */
 function resolveMockBucketMinutes(rangeHours: number): number {
   if (rangeHours <= 2) {
     return 15;
@@ -344,8 +346,6 @@ class MockDataService {
           clientIp: client,
           startTimeUtc: startTime.toISOString(),
           endTimeUtc: endTime.toISOString(),
-          startTimeLocal: startTime.toISOString(),
-          endTimeLocal: endTime.toISOString(),
           cacheHitBytes: 0,
           cacheMissBytes: 0,
           totalBytes: 0,
@@ -392,8 +392,6 @@ class MockDataService {
           clientIp: client,
           startTimeUtc: startTime.toISOString(),
           endTimeUtc: endTime.toISOString(),
-          startTimeLocal: startTime.toISOString(),
-          endTimeLocal: endTime.toISOString(),
           cacheHitBytes,
           cacheMissBytes,
           totalBytes,
@@ -430,7 +428,7 @@ class MockDataService {
 
     // Sort by start time (most recent first)
     downloads.sort(
-      (a, b) => new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime()
+      (a, b) => new Date(b.startTimeUtc).getTime() - new Date(a.startTimeUtc).getTime()
     );
 
     // Generate client stats based on actual download activity, then fold nicknamed
@@ -534,7 +532,7 @@ class MockDataService {
       const missBytes = serviceDownloads.reduce((sum, d) => sum + d.cacheMissBytes, 0);
 
       const lastActivity =
-        serviceDownloads[0]?.startTimeLocal ||
+        serviceDownloads[0]?.startTimeUtc ||
         new Date(now.getTime() - Math.random() * 7200000).toISOString();
 
       return {
@@ -544,8 +542,7 @@ class MockDataService {
         totalBytes: hitBytes + missBytes || cacheInfo.serviceSizes[service],
         cacheHitPercent: hitBytes + missBytes > 0 ? (hitBytes / (hitBytes + missBytes)) * 100 : 80,
         totalDownloads: serviceDownloads.length,
-        lastActivityUtc: lastActivity,
-        lastActivityLocal: lastActivity
+        lastActivityUtc: lastActivity
       };
     });
 
@@ -605,8 +602,6 @@ class MockDataService {
         clientIp: CLIENT_IPS[Math.floor(Math.random() * CLIENT_IPS.length)],
         startTimeUtc: nowIso,
         endTimeUtc: nowIso,
-        startTimeLocal: nowIso,
-        endTimeLocal: nowIso,
         cacheHitBytes: 0,
         cacheMissBytes: 0,
         totalBytes: 0,
@@ -630,8 +625,6 @@ class MockDataService {
       clientIp: CLIENT_IPS[Math.floor(Math.random() * CLIENT_IPS.length)],
       startTimeUtc: nowIso,
       endTimeUtc: null,
-      startTimeLocal: nowIso,
-      endTimeLocal: null,
       cacheHitBytes,
       cacheMissBytes,
       totalBytes,

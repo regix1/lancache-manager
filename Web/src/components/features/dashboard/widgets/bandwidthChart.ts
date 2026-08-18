@@ -1,21 +1,57 @@
+import { useCallback, useState } from 'react';
+import type { ChartOptions } from 'chart.js';
 import { formatTimestamp, type ReaderClock } from '@utils/dateTimeFormat';
+import { formatBytes } from '@utils/formatters';
+import { getThemeColor } from '../ServiceAnalyticsChart/chartTheme';
 
-type BandwidthResolution = '15' | '30' | '60' | '180' | '1440';
+interface HiddenSeries {
+  hiddenSeries: ReadonlySet<number>;
+  toggleSeries: (index: number) => void;
+}
 
-export function bandwidthResolution(bucketMinutes: number): BandwidthResolution {
-  if (bucketMinutes <= 15) {
-    return '15';
-  }
-  if (bucketMinutes <= 30) {
-    return '30';
-  }
-  if (bucketMinutes <= 60) {
-    return '60';
-  }
-  if (bucketMinutes <= 180) {
-    return '180';
-  }
-  return '1440';
+/**
+ * The only record of which series are hidden: the dataset objects read `hidden` from it, so a
+ * canvas that unmounts and comes back redraws with the series the legend says are hidden. [6]
+ */
+export function useHiddenSeries(): HiddenSeries {
+  const [hiddenSeries, setHiddenSeries] = useState<ReadonlySet<number>>(() => new Set());
+
+  const toggleSeries = useCallback((index: number) => {
+    setHiddenSeries((current) => {
+      const next = new Set(current);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  }, []);
+
+  return { hiddenSeries, toggleSeries };
+}
+
+export function lineChartScales(): ChartOptions<'line'>['scales'] {
+  return {
+    x: {
+      ticks: {
+        color: getThemeColor('--theme-text-muted'),
+        maxRotation: 0,
+        autoSkip: true,
+        maxTicksLimit: 8
+      },
+      grid: { display: false }
+    },
+    y: {
+      beginAtZero: true,
+      grace: '10%',
+      ticks: {
+        color: getThemeColor('--theme-text-muted'),
+        callback: (value) => formatBytes(typeof value === 'number' ? value : Number(value))
+      },
+      grid: { color: getThemeColor('--theme-border-secondary') }
+    }
+  };
 }
 
 export function bandwidthTickLabel(

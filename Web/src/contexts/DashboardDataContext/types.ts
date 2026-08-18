@@ -84,6 +84,8 @@ interface DashboardDataContextType {
   connectionStatus: string;
   /** True while the latest batch had failed sections; cleared by the next fully successful refresh. */
   dataStale: boolean;
+  /** Sections whose sub-query returned null, so a widget can tell a failed load from an empty one. */
+  failedSectionKeys: (keyof DashboardBatchResponse)[];
 
   // Methods
   refreshData: (forceRefresh?: boolean) => Promise<void>;

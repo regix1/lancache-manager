@@ -138,10 +138,7 @@ public class ApiKeysController : ControllerBase
             if (callerSession?.AccountId is { } callerAccountId)
             {
                 await using var accounts = await _dbContextFactory.CreateDbContextAsync();
-                ownsInstallation = await accounts.UserAccounts
-                    .Where(a => a.Id == callerAccountId)
-                    .Select(a => a.IsMainAdmin)
-                    .FirstOrDefaultAsync();
+                ownsInstallation = await MainAdminVisibility.OwnsInstallationAsync(accounts, callerAccountId);
             }
 
             if (!ownsInstallation)

@@ -9,6 +9,7 @@ import {
   type ChartData,
   type ArcOptions
 } from 'chart.js';
+import { useTranslation } from 'react-i18next';
 import { formatBytes, formatCount } from '@utils/formatters';
 import type { DoughnutChartProps, GameSliceExtra } from './types';
 import { getThemeColor, useThemeRevision } from './chartTheme';
@@ -18,6 +19,7 @@ ChartJS.register(ArcElement, Tooltip, Legend);
 
 const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
   ({ labels, datasets, total, centerLabel, gameSliceExtras, ariaLabel }) => {
+    const { t } = useTranslation();
     const themeRevision = useThemeRevision();
     // Prepare chart data with stable reference. The slice border color is read
     // from the new flat `.chart-wrapper` background (var(--theme-bg-secondary))
@@ -80,8 +82,23 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
             cornerRadius: 10,
             padding: 14,
             displayColors: true,
+            boxWidth: 12,
+            boxHeight: 12,
             boxPadding: 6,
             callbacks: {
+              labelColor(item) {
+                const style = item.chart
+                  .getDatasetMeta(item.datasetIndex)
+                  .controller.getStyle(item.dataIndex, false);
+                return {
+                  borderColor: style.borderColor,
+                  backgroundColor: style.backgroundColor,
+                  borderWidth: style.borderWidth,
+                  borderDash: style.borderDash,
+                  borderDashOffset: style.borderDashOffset,
+                  borderRadius: 3
+                };
+              },
               label: (context) => {
                 const dataset = context.dataset as { originalData?: number[]; id?: string };
                 const value = dataset.originalData?.[context.dataIndex] ?? (context.raw as number);
@@ -96,9 +113,15 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
                 if (!extra) return baseLine;
 
                 const lines = [baseLine];
-                lines.push(`Files: ${formatCount(extra.cacheFiles)}`);
+                lines.push(
+                  t('dashboard.serviceAnalytics.games.files', {
+                    count: formatCount(extra.cacheFiles)
+                  })
+                );
                 if (extra.service !== 'mixed') {
-                  lines.push(`Service: ${extra.service}`);
+                  lines.push(
+                    t('dashboard.serviceAnalytics.games.service', { service: extra.service })
+                  );
                 }
                 return lines;
               }
@@ -106,10 +129,10 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
           }
         }
       };
-    }, [total, gameSliceExtras, themeRevision]);
+    }, [total, gameSliceExtras, t, themeRevision]);
 
     return (
-      <div className="chart-wrapper" role="img" aria-label={ariaLabel ?? 'Service analytics chart'}>
+      <div className="chart-wrapper" role="img" aria-label={ariaLabel}>
         <Doughnut
           data={chartData}
           options={options}

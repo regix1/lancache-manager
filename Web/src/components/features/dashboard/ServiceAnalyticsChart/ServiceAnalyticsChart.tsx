@@ -143,7 +143,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
 
     // Transform to legend items
     const legendItems: LegendItem[] = useMemo(() => {
-      if (chartData.isEmpty || !chartData.datasets[0]) return [];
+      if (chartData.isEmpty) return [];
 
       const dataset = chartData.datasets[0];
       const originalData = dataset.originalData ?? dataset.data;
@@ -367,13 +367,19 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                   {showList && (
                     <div className="well-surface analytics-list-container">
                       <div className="analytics-list-header">
-                        <span>{activeTabConfig.tooltip ?? activeTabConfig.label}</span>
+                        <span>
+                          {activeTabConfig.tooltip ?? activeTabConfig.label}
+                          {activeTab === 'games' && (
+                            <span className="analytics-scope-note">
+                              {t('dashboard.cards.onDiskNow')}
+                            </span>
+                          )}
+                        </span>
                         <Badge
                           variant="neutral"
                           className="badge-count"
                           ariaLabel={t('dashboard.serviceAnalytics.itemCount', {
-                            count: legendItems.length,
-                            defaultValue: '{{count}} items'
+                            count: legendItems.length
                           })}
                         >
                           {legendItems.length}
@@ -400,6 +406,13 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                 </div>
               ))}
             </div>
+            {/* The Games view reads the detection cache, which has no time arguments, so its
+                numbers answer a different question from the four windowed views. */}
+            {activeTab === 'games' && (
+              <p className="analytics-scope-note analytics-scope-note--footer">
+                {t('dashboard.cards.onDiskNow')}
+              </p>
+            )}
           </>
         ) : (
           <div className="well-surface dash-well p-3 flex flex-1">

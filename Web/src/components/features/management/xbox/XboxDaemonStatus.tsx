@@ -57,6 +57,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
         displayName: null,
         lastCollectionUtc: null,
         gamesDiscovered: 0,
+        loginInProgress: false,
         expiresAtUtc: null
       });
       setHasError(false);
@@ -73,6 +74,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
         displayName: null,
         lastCollectionUtc: null,
         gamesDiscovered: 0,
+        loginInProgress: false,
         expiresAtUtc: null
       });
     }

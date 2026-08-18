@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import {
   CategoryScale,
@@ -9,7 +9,6 @@ import {
   LineElement,
   PointElement,
   Tooltip,
-  type Chart,
   type ChartData,
   type ChartOptions
 } from 'chart.js';
@@ -22,11 +21,16 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { HelpNote, HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
-import { formatBytes } from '@utils/formatters';
 import { getThemeColor, useThemeRevision } from '../ServiceAnalyticsChart/chartTheme';
-import { bandwidthResolution, bandwidthTickLabel, hasBandwidthPoints } from './bandwidthChart';
+import {
+  bandwidthTickLabel,
+  hasBandwidthPoints,
+  lineChartScales,
+  useHiddenSeries
+} from './bandwidthChart';
 import EventCompareChart from './EventCompareChart';
 import LineChartLegend from './LineChartLegend';
+import { hideLineChartTooltip, lineChartTooltip } from './lineChartTooltip';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -40,8 +44,7 @@ const BandwidthTrend: React.FC = memo(() => {
   const themeRevision = useThemeRevision();
   const { sparklines, loading } = useSparklines();
   const [chartTab, setChartTab] = useState<ChartTab>('bandwidth');
-  const [hiddenSeries, setHiddenSeries] = useState<ReadonlySet<number>>(() => new Set());
-  const chartRef = useRef<Chart<'line'> | null>(null);
+  const { hiddenSeries, toggleSeries } = useHiddenSeries();
 
   const bucketMinutes = sparklines?.bucketMinutes ?? 1440;
   const starts = sparklines?.bucketStarts ?? EMPTY_POINTS;
@@ -49,8 +52,9 @@ const BandwidthTrend: React.FC = memo(() => {
   const served = sparklines?.totalServed.data ?? EMPTY_POINTS;
   const pointCount = Math.min(starts.length, saved.length, served.length);
   const hasSeries = pointCount > 0 && hasBandwidthPoints(saved, served);
-  const resolution = bandwidthResolution(bucketMinutes);
   const isCompare = chartTab === 'compare';
+
+  useEffect(() => hideLineChartTooltip, [hasSeries, isCompare]);
 
   const chartData: ChartData<'line'> = useMemo(() => {
     void themeRevision;
@@ -67,6 +71,7 @@ const BandwidthTrend: React.FC = memo(() => {
           backgroundColor: getThemeColor('--theme-primary-subtle'),
           fill: true,
           tension: 0.25,
+          hidden: hiddenSeries.has(0),
           pointRadius: 0,
           pointHoverRadius: 4
         },
@@ -77,12 +82,13 @@ const BandwidthTrend: React.FC = memo(() => {
           backgroundColor: getThemeColor('--theme-success-muted'),
           fill: true,
           tension: 0.25,
+          hidden: hiddenSeries.has(1),
           pointRadius: 0,
           pointHoverRadius: 4
         }
       ]
     };
-  }, [bucketMinutes, clock, pointCount, saved, served, starts, t, themeRevision]);
+  }, [bucketMinutes, clock, hiddenSeries, pointCount, saved, served, starts, t, themeRevision]);
 
   const chartOptions: ChartOptions<'line'> = useMemo(() => {
     void themeRevision;
@@ -97,35 +103,12 @@ const BandwidthTrend: React.FC = memo(() => {
         legend: {
           display: false
         },
-        tooltip: {
-          callbacks: {
-            label: (item) => {
-              const value = typeof item.parsed.y === 'number' ? item.parsed.y : 0;
-              return `${item.dataset.label}: ${formatBytes(value)}`;
-            }
-          }
-        }
+        tooltip: lineChartTooltip({
+          swatchClass: (datasetIndex) =>
+            datasetIndex === 1 ? 'line-trend-swatch-success' : 'line-trend-swatch-primary'
+        })
       },
-      scales: {
-        x: {
-          ticks: {
-            color: getThemeColor('--theme-text-muted'),
-            maxRotation: 0,
-            autoSkip: true,
-            maxTicksLimit: 8
-          },
-          grid: { display: false }
-        },
-        y: {
-          beginAtZero: true,
-          grace: '10%',
-          ticks: {
-            color: getThemeColor('--theme-text-muted'),
-            callback: (value) => formatBytes(typeof value === 'number' ? value : Number(value))
-          },
-          grid: { color: getThemeColor('--theme-border-secondary') }
-        }
-      }
+      scales: lineChartScales()
     };
   }, [themeRevision]);
 
@@ -145,34 +128,22 @@ const BandwidthTrend: React.FC = memo(() => {
     [hiddenSeries, t]
   );
 
-  const toggleSeries = useCallback((index: number) => {
-    const chart = chartRef.current;
-    if (chart) {
-      chart.setDatasetVisibility(index, !chart.isDatasetVisible(index));
-      chart.update();
-    }
-    setHiddenSeries((current) => {
-      const next = new Set(current);
-      if (next.has(index)) {
-        next.delete(index);
-      } else {
-        next.add(index);
-      }
-      return next;
-    });
-  }, []);
-
-  const tabControl = (
-    <SegmentedControl
-      size="md"
-      showLabels
-      value={chartTab}
-      onChange={(value) => setChartTab(value === 'compare' ? 'compare' : 'bandwidth')}
-      options={[
-        { value: 'bandwidth', label: t('widgets.bandwidthTrend.title') },
-        { value: 'compare', label: t('widgets.eventCompare.title') }
-      ]}
-    />
+  // A fresh element every render defeats the memo on EventCompareChart, which re-renders it on
+  // every sparkline refresh. [37]
+  const tabControl = useMemo(
+    () => (
+      <SegmentedControl
+        size="md"
+        showLabels
+        value={chartTab}
+        onChange={(value) => setChartTab(value === 'compare' ? 'compare' : 'bandwidth')}
+        options={[
+          { value: 'bandwidth', label: t('widgets.bandwidthTrend.title') },
+          { value: 'compare', label: t('widgets.eventCompare.title') }
+        ]}
+      />
+    ),
+    [chartTab, t]
   );
 
   return (
@@ -200,7 +171,9 @@ const BandwidthTrend: React.FC = memo(() => {
             )}
           </HelpPopover>
           {hasSeries ? (
-            <Badge variant="neutral">{t(`widgets.bandwidthTrend.resolution.${resolution}`)}</Badge>
+            <Badge variant="neutral">
+              {t(`widgets.bandwidthTrend.resolution.${bucketMinutes}`)}
+            </Badge>
           ) : null}
         </div>
         {!isCompare ? <div className="line-trend-controls">{tabControl}</div> : null}
@@ -209,7 +182,7 @@ const BandwidthTrend: React.FC = memo(() => {
       {isCompare ? (
         <EventCompareChart tabControl={tabControl} />
       ) : (
-        <div className="well-surface dash-well dash-line-chart-well">
+        <div className="well-surface dash-line-chart-well">
           {loading && !hasSeries ? (
             <div className="dash-line-chart-placeholder">
               <LoadingSpinner size="sm" inline />
@@ -219,7 +192,7 @@ const BandwidthTrend: React.FC = memo(() => {
             <>
               <LineChartLegend items={legendItems} onToggle={toggleSeries} />
               <div className="dash-line-chart">
-                <Line ref={chartRef} data={chartData} options={chartOptions} />
+                <Line data={chartData} options={chartOptions} />
               </div>
             </>
           ) : (

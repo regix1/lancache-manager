@@ -294,6 +294,21 @@ export const SIGNALR_EVENTS = [
 export type SignalREventName = (typeof SIGNALR_EVENTS)[number];
 
 /**
+ * Events whose message is a complete snapshot of current state, so the transport keeps the latest
+ * one per name and hands it to a consumer that subscribes after it arrived. Two things disqualify a
+ * name. A delta, because replaying one reports a change that has already been superseded. And a
+ * handler that treats every message as news of a change: `UserPreferencesUpdated` bumps the load
+ * generation and marks the session loaded, and the refresh-rate handlers bump their own generation,
+ * so a replay into any of them cancels the mount fetch and installs whatever the connection began
+ * with. `ActivityUpdated` qualifies on both counts - the hub sends it to every caller from
+ * `OnConnectedAsync`, and the message lists every active entity plus the revision the consumer
+ * orders snapshots by, so its handler already takes each one as a fresh baseline.
+ */
+export const SIGNALR_SEED_EVENTS: ReadonlySet<string> = new Set<SignalREventName>([
+  'ActivityUpdated'
+]);
+
+/**
  * Events that trigger a data refresh in DownloadsContext/StatsContext.
  * Subset of SIGNALR_EVENTS used by contexts that need to refetch data.
  */

@@ -1165,6 +1165,9 @@ using (var scope = app.Services.CreateScope())
 
 // First start (no api_key.txt) prints the key. Later restarts only print the file path.
 var apiKeyService = app.Services.GetRequiredService<ApiKeyService>();
+// The flag is only set once the key file has been read or created, and the argument below is read
+// before DisplayApiKey runs that read itself, so without this line a first start masks the key. [1]
+apiKeyService.GetApiKey();
 apiKeyService.DisplayApiKey(app.Configuration, revealKey: apiKeyService.WasNewKeyGenerated);
 
 // If a new API key was generated (data folder was deleted), invalidate all old sessions

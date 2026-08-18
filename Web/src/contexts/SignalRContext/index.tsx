@@ -3,7 +3,7 @@ import * as signalR from '@microsoft/signalr';
 import { SIGNALR_BASE, APP_EVENTS } from '@utils/constants';
 import type { SignalRContextType, SignalRProviderProps, EventHandler } from './types';
 // eslint-disable-next-line no-duplicate-imports
-import { SIGNALR_EVENTS } from './types';
+import { SIGNALR_EVENTS, SIGNALR_SEED_EVENTS } from './types';
 import authService from '@services/auth.service';
 import { SignalRContext } from './SignalRContext.types';
 import { InfiniteBackoffRetryPolicy } from './retryPolicy';
@@ -28,6 +28,11 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
   // Store event handlers - using Map for better performance
   const eventHandlersRef = useRef<Map<string, Set<EventHandler>>>(new Map());
 
+  // Latest snapshot per SIGNALR_SEED_EVENTS name. Keyed by name because a snapshot replaces the one
+  // before it, and emptied the moment a connection is lost or replaced so nothing a dead connection
+  // sent can be handed to a subscriber on the next one.
+  const seedMessagesRef = useRef<Map<string, unknown[]>>(new Map());
+
   // Update mock mode ref when it changes
   useEffect(() => {
     mockModeRef.current = mockMode;
@@ -39,6 +44,11 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       eventHandlersRef.current.set(eventName, new Set());
     }
     eventHandlersRef.current.get(eventName)!.add(handler);
+
+    const seed = seedMessagesRef.current.get(eventName);
+    if (seed) {
+      handler(...seed);
+    }
   }, []);
 
   // Unsubscribe from an event
@@ -143,6 +153,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
       // Set up connection lifecycle handlers
       connection.onreconnecting((_error) => {
+        seedMessagesRef.current.clear();
         if (isMountedRef.current) {
           setConnectionState('reconnecting');
           setIsConnected(false);
@@ -154,12 +165,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
           setConnectionState('connected');
           setIsConnected(true);
           setConnectionId(connectionId || null);
-          // Notify the rest of the app that SignalR reconnected so consumers
-          // (e.g. DashboardDataContext) can refetch authoritative state that
-          // may have drifted during the disconnect window.
-          window.dispatchEvent(
-            new CustomEvent(APP_EVENTS.SIGNALR_RECONNECTED, { detail: { connectionId } })
-          );
         }
       });
 
@@ -182,6 +187,10 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
             // Dispatch to all registered handlers for this event
             const handlers = eventHandlersRef.current.get(eventName);
 
+            if (SIGNALR_SEED_EVENTS.has(eventName)) {
+              seedMessagesRef.current.set(eventName, args);
+            }
+
             if (handlers && handlers.size > 0) {
               handlers.forEach((handler) => {
                 try {
@@ -199,6 +208,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         });
       };
 
+      seedMessagesRef.current.clear();
       setupEventDispatchers();
 
       // Start the connection

@@ -697,6 +697,37 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
+    /// The owner's account is withheld from a second administrator and the unique index still
+    /// refuses a second row holding its name, so both duplicate-name paths answer that name the
+    /// way they answer a name a visible account holds. The probe behind them reads the whole table
+    /// on purpose: narrowed to the visible accounts, a taken name would answer 500. [10]
+    /// </summary>
+    [Fact]
+    public async Task ANameTheOwnerHoldsIsRefusedLikeAnyOtherTakenName()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        var visible = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
+
+        var controller = await NewControllerAsync(database.Factory, caller);
+
+        var hiddenName = await controller.CreateAccountAsync(NewAccountRequest("owner", SessionType.User));
+        var visibleName = await controller.CreateAccountAsync(NewAccountRequest("reader", SessionType.User));
+
+        Assert.Equal(StatusCodes.Status409Conflict, StatusOf(hiddenName));
+        Assert.Equal(StatusOf(visibleName), StatusOf(hiddenName));
+        Assert.Equal(AccountRefusalResponse.UsernameTaken, StageKeyOf(hiddenName));
+        Assert.Equal(StageKeyOf(visibleName), StageKeyOf(hiddenName));
+
+        var renamed = await controller.EditAccountAsync(
+            visible.Id, new EditAccountRequest { Username = "owner" });
+
+        Assert.Equal(StatusCodes.Status409Conflict, StatusOf(renamed));
+        Assert.Equal(AccountRefusalResponse.UsernameTaken, StageKeyOf(renamed));
+    }
+
+    /// <summary>
     /// The owner emptying the table is the exception to the rule that the main administrator cannot
     /// be deleted: every row goes, including that one, and every session goes with them so the
     /// first-admin wizard is what the next request sees.
@@ -739,7 +770,7 @@ public sealed class AccountManagementTests : IDisposable
         var wiped = await controller.WipeAccountsAsync();
 
         Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(wiped));
-        Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(wiped));
+        Assert.Equal(AccountRefusalResponse.WipeRequiresMainAdmin, StageKeyOf(wiped));
 
         await using var context = database.Factory.CreateDbContext();
         Assert.Equal(3, await context.UserAccounts.CountAsync());
@@ -761,7 +792,7 @@ public sealed class AccountManagementTests : IDisposable
         var wiped = await controller.WipeAccountsAsync();
 
         Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(wiped));
-        Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(wiped));
+        Assert.Equal(AccountRefusalResponse.WipeRequiresMainAdmin, StageKeyOf(wiped));
 
         await using var context = database.Factory.CreateDbContext();
         Assert.Equal(2, await context.UserAccounts.CountAsync());
@@ -782,12 +813,12 @@ public sealed class AccountManagementTests : IDisposable
         var withAuthOn = NewController(database.Factory, session);
         var refusedOn = await withAuthOn.WipeAccountsAsync();
         Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(refusedOn));
-        Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(refusedOn));
+        Assert.Equal(AccountRefusalResponse.WipeRequiresMainAdmin, StageKeyOf(refusedOn));
 
         var withAuthOff = NewController(database.Factory, session, authenticationEnabled: false);
         var refusedOff = await withAuthOff.WipeAccountsAsync();
         Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(refusedOff));
-        Assert.Equal(AccountRefusalResponse.AdminRoleRequiresMainAdmin, StageKeyOf(refusedOff));
+        Assert.Equal(AccountRefusalResponse.WipeRequiresMainAdmin, StageKeyOf(refusedOff));
 
         await using var context = database.Factory.CreateDbContext();
         Assert.Equal(1, await context.UserAccounts.CountAsync());

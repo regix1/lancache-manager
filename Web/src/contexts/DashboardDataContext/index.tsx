@@ -38,7 +38,22 @@ import {
   buildRangeKey,
   type DashboardSlices
 } from './applyBatchResponse';
-import { APP_EVENTS } from '@utils/constants';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { getEffectiveTimezone } from '@utils/timezone';
+import { useTimezone } from '@contexts/useTimezone';
+
+// Null is how the wire spells a failed sub-query, so a thrown fetch applies as a total failure.
+const FAILED_BATCH: DashboardBatchResponse = {
+  cache: null,
+  clients: null,
+  services: null,
+  dashboard: null,
+  downloads: null,
+  detection: null,
+  sparklines: null,
+  hourlyActivity: null,
+  cacheSnapshot: null
+};
 
 export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   children,
@@ -88,6 +103,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // True while the latest batch had failed sections (kept or cleared slices);
   // cleared again by the next fully successful apply.
   const [dataStale, setDataStale] = useState(false);
+  // Widgets read their own key to tell a failed sub-query from a successful empty result.
+  const [failedSectionKeys, setFailedSectionKeys] = useState<(keyof DashboardBatchResponse)[]>([]);
 
   const [lastCustomDates, setLastCustomDates] = useState<{ start: Date | null; end: Date | null }>({
     start: null,
@@ -117,6 +134,19 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const clearDetectionState = useCallback(() => {
     applyDetectionFromBatch(EMPTY_CACHED_DETECTION);
   }, [applyDetectionFromBatch]);
+
+  // Single writer for the batch-owned slices, so the failed path cannot drift from the successful
+  // one. Kept sections pass their previous reference back, so React bails out of those.
+  const applySlices = useCallback((slices: DashboardSlices) => {
+    setCacheInfo(slices.cacheInfo);
+    setClientStats(slices.clientStats);
+    setServiceStats(slices.serviceStats);
+    setDashboardStats(slices.dashboardStats);
+    setLatestDownloads(slices.latestDownloads);
+    setSparklines(slices.sparklines);
+    setHourlyActivity(slices.hourlyActivity);
+    setCacheSnapshot(slices.cacheSnapshot);
+  }, []);
   const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
   const currentRequestIdRef = useRef(0);
   // Range key of the currently displayed batch slices; a failed section only
@@ -199,7 +229,12 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       }
       lastFetchTime.current = now;
 
-      // Abort any in-flight request BEFORE checking concurrent flag.
+      // Prevent concurrent fetches (except for initial load or force refresh). Checked before the
+      // abort below, since a caller that returns here starts nothing to replace the aborted results.
+      if (fetchInProgress.current && !isInitial && !forceRefresh) {
+        return;
+      }
+
       // EXCEPTION: when the in-flight request is the initial REST hydrate and the
       // new caller is NOT a forced refresh (e.g., a SignalR-triggered refetch that
       // lands within the first 250-1000ms of mount), do NOT abort the initial.
@@ -211,10 +246,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         abortControllerRef.current.abort();
       }
 
-      // Prevent concurrent fetches (except for initial load or force refresh)
-      if (fetchInProgress.current && !isInitial && !forceRefresh) {
-        return;
-      }
       fetchInProgress.current = true;
 
       // Generate unique request ID - only this request can modify state
@@ -227,16 +258,16 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
       const eventId = eventIds && eventIds.length > 0 ? eventIds[0] : undefined;
       const rangeKey = buildRangeKey(startTime, endTime, eventId);
-      if (rangeKey !== appliedRangeKeyRef.current) {
-        slicesRef.current = { ...slicesRef.current, cacheSnapshot: null };
-        setCacheSnapshot(null);
-      }
+      // A range change writes no slice here: clearing the snapshot at fetch start repainted the
+      // used-space card for the length of the request and then put it back. The range check in the
+      // apply below is what keeps one window's snapshot off another window's label.
       // Backend IMemoryCache dedupes identical in-flight requests (15s live / 60s historical TTL).
 
       const requestController = new AbortController();
       abortControllerRef.current = requestController;
       const signal = requestController.signal;
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      let timedOut = false;
 
       try {
         // Show skeleton only for user-initiated fetches (initial load, time range change).
@@ -246,7 +277,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
 
         const timeout = 10000;
-        timeoutId = setTimeout(() => requestController.abort(), timeout);
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          requestController.abort();
+        }, timeout);
 
         // Single batch endpoint replaces 6 individual API calls
         const batchResponse: DashboardBatchResponse = await ApiService.getDashboardBatch(
@@ -282,24 +316,17 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
         // Apply state updates directly - React 18+ auto-batches setState in
         // async handlers/microtasks, so no explicit transition wrapper is needed.
-        // Kept sections pass their previous reference back, so React bails out
-        // of those updates.
-        setCacheInfo(next.cacheInfo);
-        setClientStats(next.clientStats);
-        setServiceStats(next.serviceStats);
-        setDashboardStats(next.dashboardStats);
+        applySlices(next);
         if (batchResponse.dashboard) {
           hasData.current = true;
         }
-        setLatestDownloads(next.latestDownloads);
-        setSparklines(next.sparklines);
-        setHourlyActivity(next.hourlyActivity);
-        setCacheSnapshot(next.cacheSnapshot);
 
         setConnectionStatus('connected');
         // A partial apply clears any prior hard error; the stale flag is now the
         // degradation signal, so stale data never appears silently healthy.
         setError(null);
+        // Published even when none failed, so a recovered section drops the old failure.
+        setFailedSectionKeys(failedSectionKeys);
         if (hadPartialFailure) {
           console.warn('Dashboard batch returned failed sections:', failedSectionKeys);
           setDataStale(true);
@@ -331,17 +358,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
             if (currentRequestIdRef.current !== thisRequestId) {
               return; // A newer request has started, don't touch state
             }
-            // Could not confirm either way, an abort included. Supersession is already handled by
-            // the request id check directly above, so an abort reaching this point was not a newer
-            // request taking over: it was this request's own 10s timeout, which stays armed until
-            // the finally below; a caller that aborted the controller and then bailed on the
-            // concurrent-fetch guard without claiming a new id; or the initial-load effect's cleanup
-            // aborting on unmount or on a mock-mode/auth-loading/access change, which likewise never
-            // claims a new id. Nobody owns the outcome in any of these cases, so leaving
-            // missingEventConfirmed false routes the original 404 into the normal error path below
-            // instead of dropping it with no user-visible trace. A persistent problem is then
-            // reported once instead of being read as one deleted event after another across repeated
-            // refetches.
+            // Could not confirm either way, an abort included. The id check above already handled
+            // supersession, so an abort here is this request's own 10s timeout or the initial-load
+            // cleanup, neither of which claims a new id. Leaving missingEventConfirmed false routes
+            // the original 404 into the normal error path rather than dropping it silently.
           }
           if (missingEventConfirmed) {
             // Confirmed gone: drop only the id the request carried. Events still selected
@@ -361,11 +381,22 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
             return;
           }
         }
-        if (!isAbortError(err)) {
+        // Its own 10s timeout aborts too, and an API that never answers is not a cancellation.
+        if (!isAbortError(err) || timedOut) {
           setConnectionStatus('disconnected');
           if (!hasData.current) {
             setError('Failed to fetch dashboard data from API');
           }
+          // Figures for the range already displayed are kept, so a blip does not blank a working
+          // dashboard; figures for a range the fetch never reached are cleared on rangeKey.
+          const failedApply = applyDashboardBatchResponse(slicesRef.current, FAILED_BATCH, {
+            rangeKey,
+            previousRangeKey: appliedRangeKeyRef.current
+          });
+          appliedRangeKeyRef.current = rangeKey;
+          applySlices(failedApply.next);
+          setFailedSectionKeys(failedApply.failedSectionKeys);
+          setDataStale(true);
         }
         setLoading(false);
       } finally {
@@ -399,7 +430,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
       }
     },
-    [applyDetectionFromBatch]
+    [applyDetectionFromBatch, applySlices]
   );
 
   // Public refresh function for manual refreshes
@@ -575,6 +606,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       setDashboardStats(mockData.dashboardStats);
       setLatestDownloads(mockData.latestDownloads);
       setHourlyActivity(MockDataService.generateMockHourlyActivity());
+      // Mock mode replaces every slice, so a real section failure must not report over mock data.
+      setCacheSnapshot(null);
+      setFailedSectionKeys([]);
       setGameDetectionData(mockDetection);
       setGameDetectionLookup(byAppId);
       setGameDetectionByName(byName);
@@ -635,12 +669,15 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     };
   }, [mockMode, authLoading, hasAccess, fetchAllData]);
 
-  // Handle time range changes - fetch new data
+  // Handle time range changes - fetch new data.
+  // Gated on the range having actually changed, not on !isInitialLoad.current: that flag clears
+  // only in the initial request's finally, so a range change during the first batch was dropped.
+  const prevTimeRangeRef = useRef(timeRange);
   useEffect(() => {
-    if (!mockMode && hasAccess && !isInitialLoad.current) {
+    if (!mockMode && hasAccess && prevTimeRangeRef.current !== timeRange) {
+      prevTimeRangeRef.current = timeRange;
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
-      // Keep previous values visible and let them update in place when new data arrives;
-      // the skeleton would just hide the old values without replacing them until the fetch completes.
+      // Keep previous data visible during fetch - update in place when new data arrives.
       fetchAllData({
         showLoading: false,
         forceRefresh: true,
@@ -663,25 +700,40 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     }
   }, [selectedEventIds, mockMode, hasAccess, fetchAllData]);
 
-  // Refetch authoritative state when the SignalR hub reconnects. Any push
-  // events that fired while the socket was down won't be replayed, so we pull
-  // a fresh batch to reconcile.
+  // The server groups the hourly buckets on the clock the request names and the marker is read
+  // from that same clock, so a zone change has to move both. [54]
+  //
+  // Subscribed to, not read from: without this hook React never re-runs the body and the
+  // comparison below waits for an unrelated render. Not destructured either, because the request
+  // at api.service.ts:378 reads the preference itself and a second reader here would drift. [62]
+  useTimezone();
+  const readerZone = getEffectiveTimezone();
+  const prevReaderZoneRef = useRef(readerZone);
   useEffect(() => {
-    if (mockMode || !hasAccess) return;
-
-    const handleSignalRReconnected = () => {
+    if (!mockMode && hasAccess && prevReaderZoneRef.current !== readerZone) {
+      prevReaderZoneRef.current = readerZone;
+      // Forced because a batch in flight was grouped on the clock the reader just left, and a plain
+      // call would be dropped by the 250ms debounce or the in-progress guard.
       fetchAllData({
         showLoading: false,
         forceRefresh: true,
-        trigger: 'signalr-reconnected'
+        trigger: `clockChange:${readerZone}`
       });
-    };
+    }
+  }, [readerZone, mockMode, hasAccess, fetchAllData]);
 
-    window.addEventListener(APP_EVENTS.SIGNALR_RECONNECTED, handleSignalRReconnected);
-    return () => {
-      window.removeEventListener(APP_EVENTS.SIGNALR_RECONNECTED, handleSignalRReconnected);
-    };
-  }, [fetchAllData, mockMode, hasAccess]);
+  // Push events that fired while the socket was down are never replayed, so pull a fresh batch
+  // once the hub is live again. Keyed off the connection state, not a reconnect event: a full
+  // close followed by a fresh connection reports no reconnect, and that is the path a backgrounded
+  // tab takes.
+  useReconnectRefetch(signalR.isConnected, () => {
+    if (mockMode || !hasAccess) return;
+    fetchAllData({
+      showLoading: false,
+      forceRefresh: true,
+      trigger: 'signalr-reconnected'
+    });
+  });
 
   // Custom date changes - immediate fetch, no debounce
   useEffect(() => {
@@ -759,6 +811,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       error,
       connectionStatus,
       dataStale,
+      failedSectionKeys,
       refreshData,
       updateData
     }),
@@ -780,6 +833,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       error,
       connectionStatus,
       dataStale,
+      failedSectionKeys,
       refreshData,
       updateData
     ]

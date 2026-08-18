@@ -140,6 +140,45 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
 
     const displayClients = useMemo(() => sortedClients.slice(0, 10), [sortedClients]);
 
+    // The server ranks by traffic and stops at 100, so every sort here re-ranks that set only.
+    const isRankedWithinCap = clientStats.length >= 100;
+
+    // One header for the skeleton and the loaded table, so the columns cannot drift apart
+    const tableHead = (
+      <thead>
+        <tr>
+          <th scope="col">{t('dashboard.topClients.columns.client')}</th>
+          <th scope="col" className="text-right hidden sm:table-cell">
+            <span className="inline-flex items-center justify-end gap-1">
+              {t('dashboard.topClients.columns.total')}
+              {sortBy === 'total' && <ArrowDown className="w-3 h-3" />}
+            </span>
+          </th>
+          <th scope="col" className="text-right hidden md:table-cell">
+            <span className="inline-flex items-center justify-end gap-1">
+              {t('dashboard.topClients.columns.hits')}
+              {sortBy === 'hits' && <ArrowDown className="w-3 h-3" />}
+            </span>
+          </th>
+          <th scope="col" className="text-right hidden md:table-cell">
+            <span className="inline-flex items-center justify-end gap-1">
+              {t('dashboard.topClients.columns.misses')}
+              {sortBy === 'misses' && <ArrowDown className="w-3 h-3" />}
+            </span>
+          </th>
+          <th scope="col" className="text-right">
+            <span className="inline-flex items-center justify-end gap-1">
+              {t('dashboard.topClients.columns.hitRate')}
+              {sortBy === 'hitRate' && <ArrowDown className="w-3 h-3" />}
+            </span>
+          </th>
+          <th scope="col" className="text-right hidden lg:table-cell">
+            {t('dashboard.topClients.columns.lastSeen')}
+          </th>
+        </tr>
+      </thead>
+    );
+
     return (
       <Card glassmorphism={glassmorphism}>
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -167,26 +206,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
           <div className="well-surface dash-well">
             <div className="overflow-x-auto">
               <table className="top-clients-table">
-                <thead>
-                  <tr>
-                    <th scope="col">{t('dashboard.topClients.columns.client')}</th>
-                    <th scope="col" className="text-right hidden sm:table-cell">
-                      {t('dashboard.topClients.columns.total')}
-                    </th>
-                    <th scope="col" className="text-right hidden md:table-cell">
-                      {t('dashboard.topClients.columns.hits')}
-                    </th>
-                    <th scope="col" className="text-right hidden md:table-cell">
-                      {t('dashboard.topClients.columns.misses')}
-                    </th>
-                    <th scope="col" className="text-right">
-                      {t('dashboard.topClients.columns.hitRate')}
-                    </th>
-                    <th scope="col" className="text-right hidden lg:table-cell">
-                      {t('dashboard.topClients.columns.lastSeen')}
-                    </th>
-                  </tr>
-                </thead>
+                {tableHead}
                 <tbody className="text-sm">
                   {Array.from({ length: 5 }, (_, i) => (
                     <tr key={i}>
@@ -215,49 +235,25 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             </div>
           </div>
         ) : displayClients.length > 0 ? (
-          <div className="well-surface dash-well">
-            <div className="overflow-x-auto">
-              <table className="top-clients-table">
-                <thead>
-                  <tr>
-                    <th scope="col">{t('dashboard.topClients.columns.client')}</th>
-                    <th scope="col" className="text-right hidden sm:table-cell">
-                      <span className="inline-flex items-center justify-end gap-1">
-                        {t('dashboard.topClients.columns.total')}
-                        {sortBy === 'total' && <ArrowDown className="w-3 h-3" />}
-                      </span>
-                    </th>
-                    <th scope="col" className="text-right hidden md:table-cell">
-                      <span className="inline-flex items-center justify-end gap-1">
-                        {t('dashboard.topClients.columns.hits')}
-                        {sortBy === 'hits' && <ArrowDown className="w-3 h-3" />}
-                      </span>
-                    </th>
-                    <th scope="col" className="text-right hidden md:table-cell">
-                      <span className="inline-flex items-center justify-end gap-1">
-                        {t('dashboard.topClients.columns.misses')}
-                        {sortBy === 'misses' && <ArrowDown className="w-3 h-3" />}
-                      </span>
-                    </th>
-                    <th scope="col" className="text-right">
-                      <span className="inline-flex items-center justify-end gap-1">
-                        {t('dashboard.topClients.columns.hitRate')}
-                        {sortBy === 'hitRate' && <ArrowDown className="w-3 h-3" />}
-                      </span>
-                    </th>
-                    <th scope="col" className="text-right hidden lg:table-cell">
-                      {t('dashboard.topClients.columns.lastSeen')}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="text-sm">
-                  {displayClients.map((client, idx) => (
-                    <TopClientRow key={`${client.clientIp}-${idx}`} client={client} />
-                  ))}
-                </tbody>
-              </table>
+          <>
+            <div className="well-surface dash-well">
+              <div className="overflow-x-auto">
+                <table className="top-clients-table">
+                  {tableHead}
+                  <tbody className="text-sm">
+                    {displayClients.map((client, idx) => (
+                      <TopClientRow key={`${client.clientIp}-${idx}`} client={client} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+            {isRankedWithinCap && (
+              <p className="text-xs text-themed-muted mt-2">
+                {t('dashboard.topClients.rankedWithinCap')}
+              </p>
+            )}
+          </>
         ) : (
           <div className="well-surface dash-well p-3">
             <EmptyState
@@ -272,9 +268,10 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
     );
   },
   (prevProps, nextProps) => {
-    // Only re-render if clientStats, timeRange or glassmorphism changed
+    // The caller builds clientStats in a useMemo, so a new array reference means the rows changed.
+    // Comparing identity keeps a SignalR speed tick from serializing the whole list to compare it.
     return (
-      JSON.stringify(prevProps.clientStats) === JSON.stringify(nextProps.clientStats) &&
+      prevProps.clientStats === nextProps.clientStats &&
       prevProps.timeRange === nextProps.timeRange &&
       prevProps.glassmorphism === nextProps.glassmorphism &&
       prevProps.customStartDate?.getTime() === nextProps.customStartDate?.getTime() &&

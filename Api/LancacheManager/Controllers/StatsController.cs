@@ -679,18 +679,8 @@ public class StatsController : ControllerBase
         var serviceStatsQuery = statsExcludedOnlyIps.Count > 0
             ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
             : query;
-        var serviceStats = await serviceStatsQuery
-            .GroupBy(d => d.Service)
-            .Select(g => new ServiceStats
-            {
-                Service = g.Key,
-                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
-                TotalDownloads = g.Count(),
-                LastActivityUtc = g.Max(d => d.StartTimeUtc),
-                LastActivityLocal = g.Max(d => d.StartTimeLocal)
-            })
-            .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
+        var serviceStats = await DashboardBatchService
+            .ServiceStatsQuery(serviceStatsQuery)
             .ToListAsync();
 
         return Ok(serviceStats.WithUtcMarking());

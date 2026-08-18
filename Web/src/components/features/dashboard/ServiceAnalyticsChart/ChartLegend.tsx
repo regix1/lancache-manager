@@ -8,17 +8,16 @@ interface MeterStyle extends React.CSSProperties {
 }
 
 const ChartLegend: React.FC<ChartLegendProps> = React.memo(({ items }) => {
-  if (items.length === 0) {
-    return null;
-  }
-
   return (
     <div className="data-side">
       <CustomScrollbar maxHeight="100%" paddingMode="none" radius="none" className="legend-scroll">
         <div className="legend-list divided-list">
           {items.map((item) => {
-            const fillPct = Math.max(item.percentage, 0.5);
-            const meterStyle: MeterStyle = { '--meter-fill': `${fillPct}%` };
+            // A row that measured something carries a floor so a fraction of a percent still draws.
+            // A row that measured nothing stays empty rather than painting a bar beside its "0%".
+            const meterStyle: MeterStyle = {
+              '--meter-fill': `${item.percentage > 0 ? Math.max(item.percentage, 0.5) : 0}%`
+            };
             return (
               <div key={item.label} className={`legend-item ${item.colorClassName ?? ''}`}>
                 <div className="legend-row">
@@ -36,7 +35,7 @@ const ChartLegend: React.FC<ChartLegendProps> = React.memo(({ items }) => {
                 <div
                   role="progressbar"
                   aria-label={`${item.label} ${formatPercent(item.percentage)}`}
-                  aria-valuenow={Math.round(fillPct)}
+                  aria-valuenow={Math.round(item.percentage)}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   className="legend-meter"

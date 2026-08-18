@@ -9,10 +9,18 @@ namespace LancacheManager.Core.Interfaces;
 /// </summary>
 public interface IDashboardBatchService
 {
+    /// <summary>
+    /// Every dashboard data set for one time range, computed in parallel and cached per range.
+    /// </summary>
+    /// <param name="timeZoneId">
+    /// The IANA zone the hourly buckets are grouped on. Named rather than sent as one offset, so
+    /// the database resolves it at each row's own instant. Null or unknown keeps the server clock.
+    /// </param>
     Task<DashboardBatchResponse> GetBatchAsync(
         long? startTime,
         long? endTime,
         long? eventId,
+        string? timeZoneId,
         CancellationToken ct);
 
     Task<EventCompareResponse> GetEventCompareAsync(

@@ -3,7 +3,7 @@ import { TrendingDown, TrendingUp } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { useTimeFilter } from '@contexts/useTimeFilter';
-import { useCacheSnapshot } from '@contexts/DashboardDataContext/hooks';
+import { useCacheSnapshot, useStats } from '@contexts/DashboardDataContext/hooks';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
@@ -26,7 +26,8 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
   ({ usedCacheSize, totalCacheSize, glassmorphism = false }) => {
     const { t } = useTranslation();
     const { timeRange } = useTimeFilter();
-    const { cacheSnapshot, loading, error, refetch } = useCacheSnapshot();
+    const { cacheSnapshot, loading, error, failed, refetch } = useCacheSnapshot();
+    const { failedSections } = useStats();
 
     const growth = getCacheGrowth(timeRange, loading, cacheSnapshot);
     const recordedChange = growth?.change ?? 0;
@@ -66,6 +67,10 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           <h3 className="dash-panel-title">{t('widgets.cacheGrowthTrend.title')}</h3>
         </div>
 
+        {!hasCurrentCapacity && failedSections.cache && (
+          <div className="text-sm text-themed-muted mb-3">{t('common.failedToLoad')}</div>
+        )}
+
         {hasCurrentCapacity && (
           <>
             <div className="flex items-baseline gap-2 mb-3">
@@ -75,6 +80,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
               {totalCacheSize > 0 && (
                 <span className="text-sm text-themed-muted">/ {formatBytes(totalCacheSize)}</span>
               )}
+              <span className="text-xs text-themed-muted">{t('dashboard.cards.onDiskNow')}</span>
             </div>
 
             {totalCacheSize > 0 && (
@@ -89,12 +95,12 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
         )}
 
         <div className="well-surface dash-well p-3 flex-1 flex flex-col justify-center">
-          {loading && !growth && !error ? (
+          {loading && !growth && !error && !failed ? (
             <div className="flex items-center justify-center gap-2 py-4 text-sm text-themed-muted">
               <LoadingSpinner size="sm" inline />
               <span>{t('common.loading')}</span>
             </div>
-          ) : error ? (
+          ) : error || failed ? (
             <EmptyState
               action={
                 <Button size="sm" onClick={refetch}>
@@ -124,7 +130,10 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           )}
         </div>
 
-        {growth && (
+        {/* A refetch whose snapshot sub-query comes back empty keeps the previous snapshot, so
+            `growth` survives while the well already reports the failure. The footer follows the
+            well rather than admitting failure above and printing last batch's numbers below. */}
+        {growth && !error && !failed && (
           <div className="dash-readout dash-readout--footer">
             <div className="dash-readout-item">
               <div

@@ -14,7 +14,7 @@ import { API_BASE } from '@utils/constants';
  */
 const WipeAccountsButton: React.FC = () => {
   const { t } = useTranslation();
-  const { isMainAdmin, logout } = useAuth();
+  const { authenticationEnabled, isMainAdmin, logout } = useAuth();
   const { notifyError } = useErrorHandler();
   const [opened, setOpened] = useState(false);
   const [wiping, setWiping] = useState(false);
@@ -39,7 +39,9 @@ const WipeAccountsButton: React.FC = () => {
     window.location.reload();
   };
 
-  if (!isMainAdmin) {
+  // With authentication off the shared session reports isMainAdmin true for every visitor, while
+  // the wipe endpoint still refuses a caller with no account row.
+  if (!authenticationEnabled || !isMainAdmin) {
     return null;
   }
 

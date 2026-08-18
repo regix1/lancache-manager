@@ -3,6 +3,7 @@ import { APP_EVENTS, REFRESH_RATES, type RefreshRate } from '@utils/constants';
 import ApiService from '@services/api.service';
 import { assertOk } from '@services/apiError';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useAuth } from '@contexts/useAuth';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import type {
@@ -36,39 +37,45 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
   const [defaultGuestRate, setDefaultGuestRate] = useState<string | null>(null);
   const [globalLocked, setGlobalLocked] = useState<boolean>(true);
 
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const { authMode } = useAuth();
   const { currentPreferences } = useSessionPreferences();
 
   // Ref to avoid stale closures in SignalR handlers
   const authModeRef = useRef(authMode);
+  // Every writer below bumps this, and a fetch response only lands if the generation it captured
+  // still matches, so an answer superseded while in flight loses instead of winning.
+  const generationRef = useRef(0);
   useEffect(() => {
     authModeRef.current = authMode;
+    generationRef.current += 1;
   }, [authMode]);
 
   // Fetch global default guest rate and lock state (for guests only)
+  const fetchGlobalDefaults = useCallback(async () => {
+    const requestGeneration = generationRef.current;
+    try {
+      const response = await fetch('/api/system/default-guest-refresh-rate', {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (generationRef.current !== requestGeneration) return;
+        setGlobalLocked(data.locked ?? true);
+        setDefaultGuestRate(data.refreshRate || null);
+      }
+    } catch (error) {
+      // Background fetch for guests; the STANDARD/locked defaults already set as initial state
+      // remain in effect. Deliberately silent.
+      console.error('Failed to fetch global guest defaults:', error);
+    }
+  }, []);
+
   useEffect(() => {
     if (authMode !== 'guest') return;
 
-    const fetchGlobalDefaults = async () => {
-      try {
-        const response = await fetch('/api/system/default-guest-refresh-rate', {
-          credentials: 'include'
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setGlobalLocked(data.locked ?? true);
-          setDefaultGuestRate(data.refreshRate || null);
-        }
-      } catch (error) {
-        // Background fetch on mount for guests; the STANDARD/locked defaults already set as
-        // initial state remain in effect. Deliberately silent.
-        console.error('Failed to fetch global guest defaults:', error);
-      }
-    };
-
-    fetchGlobalDefaults();
-  }, [authMode]);
+    void fetchGlobalDefaults();
+  }, [authMode, fetchGlobalDefaults]);
 
   // For unauthenticated users, just mark as loaded with defaults so the
   // UI tree below this provider can render (e.g. the login modal).
@@ -109,40 +116,39 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
 
   // Authenticated users always use the global system refresh rate and should
   // never inherit guest lock/default behavior.
+  const fetchSystemRate = useCallback(async () => {
+    const requestGeneration = generationRef.current;
+    try {
+      const response = await fetch('/api/system/refresh-rate', {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (
+          generationRef.current === requestGeneration &&
+          data.refreshRate &&
+          data.refreshRate in REFRESH_RATES
+        ) {
+          setRefreshRateState(data.refreshRate as RefreshRate);
+        }
+      }
+    } catch (error) {
+      // Background fetch for admins; falls back to the STANDARD default already set as initial
+      // state. Deliberately silent.
+      console.error('Failed to fetch system refresh rate:', error);
+    } finally {
+      if (generationRef.current === requestGeneration) {
+        setIsLoaded(true);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (authMode !== 'authenticated') return;
 
-    let isCancelled = false;
     setIsControlledByAdmin(false);
-
-    const fetchSystemRate = async () => {
-      try {
-        const response = await fetch('/api/system/refresh-rate', {
-          credentials: 'include'
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (!isCancelled && data.refreshRate && data.refreshRate in REFRESH_RATES) {
-            setRefreshRateState(data.refreshRate as RefreshRate);
-          }
-        }
-      } catch (error) {
-        // Background fetch on mount for admins; falls back to the STANDARD default already
-        // set as initial state. Deliberately silent.
-        console.error('Failed to fetch system refresh rate:', error);
-      } finally {
-        if (!isCancelled) {
-          setIsLoaded(true);
-        }
-      }
-    };
-
-    fetchSystemRate();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [authMode]);
+    void fetchSystemRate();
+  }, [authMode, fetchSystemRate]);
 
   // Listen for SignalR events.
   // All handlers read authMode/sessionId from refs to avoid stale closures.
@@ -152,6 +158,7 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
     // but this event is guest-specific and immediate
     const handleGuestRefreshRateUpdated = (data: GuestRefreshRateUpdatedEvent) => {
       if (data.refreshRate && data.refreshRate in REFRESH_RATES) {
+        generationRef.current += 1;
         setRefreshRateState(data.refreshRate as RefreshRate);
       }
     };
@@ -164,6 +171,7 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
         data.refreshRate &&
         data.refreshRate in REFRESH_RATES
       ) {
+        generationRef.current += 1;
         setDefaultGuestRate(data.refreshRate);
         // If no per-session rate is set (using default), update immediately
         // SessionPreferencesContext will have currentPreferences.refreshRate === null
@@ -174,6 +182,7 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
     // Update global lock state, effective lock will be recalculated in the main effect
     const handleGuestRefreshRateLockChanged = (data: GuestRefreshRateLockChangedEvent) => {
       if (authModeRef.current === 'guest') {
+        generationRef.current += 1;
         setGlobalLocked(data.locked);
         // The main effect will recalculate effectiveLocked based on per-session override
       }
@@ -193,6 +202,16 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
     };
   }, [on, off]);
 
+  // An unlock broadcast while the socket was down is gone for good, and it leaves the control
+  // disabled with nothing on screen to say so. One callback: the fetches never both apply.
+  useReconnectRefetch(isConnected, () => {
+    if (authModeRef.current === 'guest') {
+      void fetchGlobalDefaults();
+    } else if (authModeRef.current === 'authenticated') {
+      void fetchSystemRate();
+    }
+  });
+
   const setRefreshRate = useCallback(
     async (rate: RefreshRate) => {
       // Block guests from changing their refresh rate when locked
@@ -204,6 +223,7 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
       }
 
       // Optimistically update state
+      generationRef.current += 1;
       setRefreshRateState(rate);
 
       // Save to API - guests save to user-preferences, admins to system refresh-rate

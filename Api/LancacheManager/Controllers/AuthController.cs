@@ -110,10 +110,7 @@ public class AuthController : ControllerBase
             try
             {
                 using var context = _dbContextFactory.CreateDbContext();
-                isMainAdmin = await context.UserAccounts
-                    .Where(a => a.Id == accountId)
-                    .Select(a => a.IsMainAdmin)
-                    .FirstOrDefaultAsync();
+                isMainAdmin = await MainAdminVisibility.OwnsInstallationAsync(context, accountId);
             }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to check if the session's account is the main admin"); }
         }
@@ -204,9 +201,10 @@ public class AuthController : ControllerBase
             SessionId = session?.Id,
             ExpiresAt = session != null ? DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc) : (DateTime?)null,
             AccountId = session?.AccountId,
-            // With authentication disabled the session is the shared minted one, which has no account
-            // row, and that caller may create admins anyway, so it is told it holds the rights the
-            // server will actually grant it rather than being shown a screen it cannot use.
+            // With authentication disabled the caller hands out the administrator role anyway
+            // (AccountsController.CallerMayGrantAdmin), so the flag carries that right. It is not a
+            // claim about every owner-only action: wiping accounts still refuses a caller with no
+            // account row (AccountsController.cs:469). [11]
             IsMainAdmin = !authenticationEnabled || isMainAdmin,
             HasData = hasData,
             HasBeenInitialized = hasBeenInitialized,
@@ -1230,6 +1228,9 @@ public class AuthController : ControllerBase
     /// <remarks>
     /// Used by the admin session list to flip an individual guest's access without waiting for
     /// their grant to expire or changing the site-wide default.
+    ///
+    /// A session belonging to the owner answers as one that does not exist, the same way the
+    /// session list and every other by-id session route answer it.
     /// </remarks>
     /// <param name="service">"steam" (default) | "epic" | "battlenet" | "riot" | "xbox".</param>
     [Authorize(Policy = "AccountHolder")]
@@ -1237,6 +1238,11 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(GuestPrefillToggleResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<GuestPrefillToggleResponse>> ToggleGuestPrefillAsync(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")
     {
+        if (!await _sessionService.CallerMaySeeSessionAsync(HttpContext.GetUserSession(), sessionId))
+        {
+            return NotFound(ApiResponse.NotFound("Session"));
+        }
+
         var normalizedService = service.Trim().ToLowerInvariant();
 
         if (normalizedService == "epic")

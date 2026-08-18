@@ -91,12 +91,13 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return () => window.removeEventListener(APP_EVENTS.PREFERENCE_CHANGED, handleChange);
   }, [pendingUseLocal, pendingUseUtc, pendingUse24Hour]);
 
-  const setPendingTimeSetting = useCallback((value: TimeSettingValue) => {
-    setPendingTimezone(value);
-  }, []);
+  const setPendingTimeSetting = useCallback(
+    (value: TimeSettingValue) => setPendingTimezone(value),
+    []
+  );
 
-  const dropPendingTimeSetting = useCallback((value: TimeSettingValue) => {
-    dropPendingTimezone(value);
+  const dropPendingTimeSetting = useCallback((click: number) => {
+    dropPendingTimezone(click);
   }, []);
 
   const contextValue = useMemo(

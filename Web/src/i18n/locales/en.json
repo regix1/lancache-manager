@@ -78,7 +78,6 @@
     "unsaved": "unsaved",
     "clearAll": "Clear All",
     "selectAll": "Select All",
-    "noDataAvailable": "No data available",
     "unknownError": "Unknown error",
     "fullAuthRequired": "Full authentication required for management operations",
     "resultsFromPreviousScan": "Results from previous scan",
@@ -294,6 +293,8 @@
       "title": "Refresh Rate"
     },
     "statCard": {
+      "noDataInRange": "No data in this range",
+      "notEnoughToChart": "Not enough data to chart",
       "sparklineAria": "{{title}} trend over the last {{count}} data point",
       "sparklineAria_other": "{{title}} trend over the last {{count}} data points"
     },
@@ -362,8 +363,10 @@
       "am": "AM",
       "defaultLabel": "Default",
       "errors": {
-        "updateFailed": "Failed to update time settings"
+        "updateFailed": "Failed to update time settings",
+        "updateNoAnswer": "No answer from the server. If the time settings were saved, the clock will catch up on its own."
       },
+      "notAllowed": "Not one of the formats the administrator allows",
       "title": "Time",
       "options": {
         "local12": {
@@ -498,8 +501,8 @@
       "startedAt": "started at {{size}}",
       "snapshots": "{{count}} snapshot",
       "snapshots_other": "{{count}} snapshots",
-      "noSnapshotsYet": "No snapshots yet",
       "filesOnDisk": "files on disk",
+      "onDiskNow": "on disk now",
       "fullDiskLimit": "Using full disk",
       "overConfiguredLimit": "{{percent}} of configured limit",
       "downloadsInRange": "{{count}} downloads · {{period}}",
@@ -564,6 +567,7 @@
       "allServices": "All services",
       "allClients": "All clients",
       "servicePrefix": "Service:",
+      "serviceGroup": "{{service}} Downloads",
       "clientPrefix": "Client:",
       "hitRate": "hit rate",
       "period": "Period",
@@ -622,17 +626,16 @@
       "ipTooltip": "IP: {{ip}}",
       "noData": "No client data available for selected time range",
       "noDataHint": "Client data appears here once your LAN cache starts serving downloads.",
+      "rankedWithinCap": "Sorted within the 100 busiest clients in this range, not every client.",
       "timeRanges": {
-        "15m": "Last 15 Minutes",
-        "30m": "Last 30 Minutes",
         "1h": "Last Hour",
         "6h": "Last 6 Hours",
         "12h": "Last 12 Hours",
         "24h": "Last 24 Hours",
         "7d": "Last 7 Days",
         "30d": "Last 30 Days",
-        "90d": "Last 90 Days",
-        "live": "Live Data"
+        "live": "Live Data",
+        "custom": "Custom Range"
       }
     },
     "serviceAnalytics": {
@@ -658,6 +661,17 @@
       "gameService": {
         "prefix": "Service:",
         "all": "All services"
+      },
+      "games": {
+        "files": "Files: {{count}}",
+        "service": "Service: {{service}}",
+        "otherGames": "Other ({{count}} games)"
+      },
+      "compare": {
+        "cacheHits": "Cache Hits",
+        "cacheMisses": "Cache Misses",
+        "missesNote": "(misses can be normal for first-time downloads)",
+        "hitRateNote": "({{percent}}% hit rate)"
       },
       "hideList": "Hide breakdown",
       "showList": "Show breakdown",
@@ -711,15 +725,23 @@
       },
       "peakHour": {
         "term": "Peak Hour",
-        "multiDay": "The hour with the most downloads on average.",
-        "singleDay": "The hour with the most downloads in the selected period."
+        "multiDay": "The hour that served the most data on an average day.",
+        "singleDay": "The hour that served the most data in the selected period."
       },
       "currentHour": {
         "term": "Current Hour",
         "multiDay": "What this hour usually looks like based on your history.",
         "singleDay": "Activity during the current hour."
       },
-      "heatmapNote": "Each block is one hour of the day. Brighter = more download activity.",
+      "heatmapNote": "Each block is one hour of the day. Brighter = more data served.",
+      "tooltip": {
+        "avgDownloadsPerDay": "avg downloads/day",
+        "avgServedPerDay": "avg served/day",
+        "totalDownloads": "Total: {{count}} downloads",
+        "downloads": "downloads",
+        "served": "served",
+        "fromCache": "from cache"
+      },
       "mostActive": "Most active:",
       "days": "{{count}} days",
       "downloads": "downloads",
@@ -771,6 +793,11 @@
       "title": "Compare Events",
       "pickEvents": "Events",
       "elapsed": "Elapsed {{time}}",
+      "units": {
+        "minutes": "m",
+        "hours": "h",
+        "days": "d"
+      },
       "metrics": {
         "served": "Total served",
         "saved": "Cache hits"
@@ -779,6 +806,8 @@
       "noEventsDesc": "Create LAN parties on the Events page, then pick them here.",
       "noDataTitle": "No overlap yet",
       "noDataDesc": "Pick at least one event that has tagged downloads.",
+      "rangeTooShortTitle": "Range is too short to compare",
+      "rangeTooShortDesc": "These events are plotted in steps wider than the selected range. Pick a longer range in the header.",
       "errors": {
         "load": "Could not load the event comparison."
       },
@@ -808,7 +837,7 @@
       },
       "step3": {
         "before": "The key is printed to the logs only when it is first created or rotated.",
-        "code": ""
+        "code": "docker logs lancache-manager"
       }
     },
     "success": "Authentication successful! Upgrading to full access...",
@@ -4132,6 +4161,7 @@
         "authenticationRequired": "Authentication Required",
         "guestMessage": "For full management features, please authenticate with your API key.",
         "unauthenticatedMessage": "Management operations require authentication. Please enter your API key or continue as guest.",
+        "apiKeyOnlyMessage": "Management operations require authentication. Please enter your API key.",
         "apiKeyLabel": "API Key",
         "findApiKey": "To find your API key:",
         "step1": "SSH into your LANCache Manager server",
@@ -7273,6 +7303,7 @@
       "notFound": "No such account.",
       "mainAdminProtected": "The account that owns this installation cannot be changed here.",
       "adminRoleRequiresMainAdmin": "Only the account that owns this installation can grant the administrator role.",
+      "wipeRequiresMainAdmin": "Only the account that owns this installation can delete every account.",
       "selfProtected": "You cannot delete, disable or change the role of the account you are signed in as.",
       "roleNotAssignable": "An account can hold the administrator or the user role.",
       "usernameTaken": "That username is already taken.",

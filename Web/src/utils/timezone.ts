@@ -44,8 +44,8 @@ export function getEffectiveTimezone(useLocalTimezone?: boolean, useUtc?: boolea
   // The UTC preference is a third clock rather than a variation on the other two, so it answers
   // first and the local/server choice below it stops mattering while it is on.
   // Passed explicitly it wins over the module value, the same way the local choice below already
-  // does. The module value only catches up once the save echoes back, so a render caused by the
-  // switch itself reads the clock the user just left, and nothing asks again afterwards.
+  // does. Both module readers answer with the pending click ahead of the last confirmed save, so a
+  // caller that passes nothing gets the clock the reader is on rather than the one they just left.
   if (useUtc ?? getGlobalUtcPreference()) return 'UTC';
   // If explicitly passed, use that value
   const useLocal = useLocalTimezone ?? getGlobalTimezonePreference();

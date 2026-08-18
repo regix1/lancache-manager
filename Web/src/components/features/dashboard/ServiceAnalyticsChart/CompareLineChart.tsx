@@ -13,7 +13,8 @@ import {
   type ChartOptions,
   type Plugin
 } from 'chart.js';
-import { formatBytes, formatPercent } from '@utils/formatters';
+import { useTranslation } from 'react-i18next';
+import { formatBytes } from '@utils/formatters';
 import { clampToViewport } from '@utils/viewportClamp';
 import type { ServiceStat } from '@/types';
 import { useServiceColors } from './useServiceColors';
@@ -80,6 +81,9 @@ const TOOLTIP_GAP = 12;
  * Minimum painted bar length (px). Tiny services (wsus, small blizzard/epic)
  * would otherwise render a sub-pixel hairline that cannot be hovered. With
  * intersect:false this also guarantees a real, visible swatch per row.
+ *
+ * chart.js reads this once per dataset, so a service with no traffic on one
+ * side passes null rather than 0 to keep that bar off the baseline.
  */
 const MIN_BAR_LENGTH = 6;
 
@@ -234,6 +238,7 @@ function positionTooltip(el: HTMLDivElement, anchor: TooltipAnchor): void {
 }
 
 const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceStats }) => {
+  const { t } = useTranslation();
   const themeRevision = useThemeRevision();
   const { getCacheHitColor, getCacheMissColor, getBorderColor } = useServiceColors();
   const tooltipElRef = useRef<HTMLDivElement | null>(null);
@@ -301,8 +306,10 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
       labels,
       datasets: [
         {
-          label: 'Cache Hits',
-          data: services.map((service) => service.totalCacheHitBytes),
+          label: t('dashboard.serviceAnalytics.compare.cacheHits'),
+          data: services.map((service) =>
+            service.totalCacheHitBytes > 0 ? service.totalCacheHitBytes : null
+          ),
           backgroundColor: hitColor,
           hoverBackgroundColor: hitColor,
           borderColor,
@@ -314,8 +321,10 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
           categoryPercentage: 0.86
         },
         {
-          label: 'Cache Misses',
-          data: services.map((service) => -service.totalCacheMissBytes),
+          label: t('dashboard.serviceAnalytics.compare.cacheMisses'),
+          data: services.map((service) =>
+            service.totalCacheMissBytes > 0 ? -service.totalCacheMissBytes : null
+          ),
           backgroundColor: missColor,
           hoverBackgroundColor: missColor,
           borderColor,
@@ -328,7 +337,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
         }
       ]
     };
-  }, [labels, services, themeRevision, getCacheHitColor, getCacheMissColor, getBorderColor]);
+  }, [labels, services, t, themeRevision, getCacheHitColor, getCacheMissColor, getBorderColor]);
 
   const options: ChartOptions<'bar'> = useMemo(() => {
     void themeRevision;
@@ -452,11 +461,6 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             positionTooltip(el, anchor);
             el.classList.add('is-visible');
 
-            const dp = tooltip.dataPoints?.[0];
-            const key = dp ? `${dp.datasetIndex}-${dp.dataIndex}` : '';
-            if (key === lastDataKeyRef.current) return;
-            lastDataKeyRef.current = key;
-
             const titleText = (tooltip.title ?? []).join(' ');
             const rows: TooltipRow[] = [];
             tooltip.body.forEach((entry, i) => {
@@ -469,6 +473,15 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
                 });
               });
             });
+
+            // The key carries the text as well as the bar, so a pointer moving inside one bar still
+            // skips the re-render while a refresh under a still pointer updates the byte counts.
+            const dp = tooltip.dataPoints?.[0];
+            const rowText = rows.map((row) => row.text).join('|');
+            const key = dp ? `${dp.datasetIndex}-${dp.dataIndex}|${titleText}|${rowText}` : '';
+            if (key === lastDataKeyRef.current) return;
+            lastDataKeyRef.current = key;
+
             setTooltipContent({ title: titleText, rows });
           },
           callbacks: {
@@ -485,17 +498,18 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
                 : 0;
               const value = Math.abs(Number(context.raw));
 
-              if (context.dataset.label === 'Cache Misses') {
-                return `${context.dataset.label}: ${formatBytes(value)} (misses can be normal for first-time downloads)`;
+              // Dataset 1 is the misses side; its label is translated, so match the index.
+              if (context.datasetIndex === 1) {
+                return `${context.dataset.label}: ${formatBytes(value)} ${t('dashboard.serviceAnalytics.compare.missesNote')}`;
               }
 
-              return `${context.dataset.label}: ${formatBytes(value)} (${formatPercent(hitRate)} hit rate)`;
+              return `${context.dataset.label}: ${formatBytes(value)} ${t('dashboard.serviceAnalytics.compare.hitRateNote', { percent: hitRate.toFixed(1) })}`;
             }
           }
         }
       }
     };
-  }, [labels, services, themeRevision]);
+  }, [labels, services, t, themeRevision]);
 
   return (
     <>

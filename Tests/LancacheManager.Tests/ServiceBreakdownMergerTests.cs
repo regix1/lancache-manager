@@ -126,13 +126,13 @@ public class ServiceBreakdownMergerTests
         var rows = new List<ServiceStats>
         {
             new() { Service = "steam",     TotalCacheHitBytes = 500, TotalCacheMissBytes = 500, TotalDownloads = 10,
-                    LastActivityUtc = now, LastActivityLocal = now },
+                    LastActivityUtc = now },
             new() { Service = "xboxlive",  TotalCacheHitBytes = 200, TotalCacheMissBytes = 100, TotalDownloads = 3,
-                    LastActivityUtc = now.AddHours(-2), LastActivityLocal = now.AddHours(-2) },
+                    LastActivityUtc = now.AddHours(-2) },
             new() { Service = "microsoft", TotalCacheHitBytes = 100, TotalCacheMissBytes = 50,  TotalDownloads = 2,
-                    LastActivityUtc = now.AddHours(-1), LastActivityLocal = now.AddHours(-1) },
+                    LastActivityUtc = now.AddHours(-1) },
             new() { Service = "wsus",      TotalCacheHitBytes = 300, TotalCacheMissBytes = 100, TotalDownloads = 5,
-                    LastActivityUtc = now, LastActivityLocal = now },
+                    LastActivityUtc = now },
         };
 
         var result = ServiceBreakdownMerger.MergeXboxRows(rows);
@@ -156,9 +156,9 @@ public class ServiceBreakdownMergerTests
         var rows = new List<ServiceStats>
         {
             new() { Service = "wsus",     TotalCacheHitBytes = 800, TotalCacheMissBytes = 0, TotalDownloads = 8,
-                    LastActivityUtc = now, LastActivityLocal = now },
+                    LastActivityUtc = now },
             new() { Service = "xboxlive", TotalCacheHitBytes = 200, TotalCacheMissBytes = 0, TotalDownloads = 2,
-                    LastActivityUtc = now, LastActivityLocal = now },
+                    LastActivityUtc = now },
         };
 
         var result = ServiceBreakdownMerger.MergeXboxRows(rows);
@@ -175,7 +175,7 @@ public class ServiceBreakdownMergerTests
         var rows = new List<ServiceStats>
         {
             new() { Service = "steam", TotalCacheHitBytes = 1000, TotalCacheMissBytes = 0,
-                    TotalDownloads = 5, LastActivityUtc = now, LastActivityLocal = now },
+                    TotalDownloads = 5, LastActivityUtc = now },
         };
 
         var result = ServiceBreakdownMerger.MergeXboxRows(rows);

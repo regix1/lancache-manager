@@ -5,13 +5,14 @@ import { APP_EVENTS } from '@utils/constants';
 // Register Chart.js components
 Chart.register(...registerables);
 
+/** Mirrors the `height` of `.sparkline-container`; the area gradient needs canvas coordinates. */
+const SPARKLINE_HEIGHT = 32;
+
 interface SparklineProps {
   /** Array of data points to display */
   data: number[];
   /** Color for the line and fill (CSS color string) */
   color?: string;
-  /** Height of the sparkline in pixels (default: 32) */
-  height?: number;
   /** Whether to show area fill under the line (default: true) */
   showArea?: boolean;
   /** Whether to animate the sparkline on mount (default: true) */
@@ -30,7 +31,6 @@ const Sparkline: React.FC<SparklineProps> = memo(
   ({
     data,
     color = 'var(--theme-primary)',
-    height = 32,
     showArea = true,
     animated: _animated = true,
     className = '',
@@ -154,7 +154,7 @@ const Sparkline: React.FC<SparklineProps> = memo(
         if (showArea && canvasRef.current) {
           const updateCtx = canvasRef.current.getContext('2d');
           if (updateCtx) {
-            const updatedGradient = updateCtx.createLinearGradient(0, 0, 0, height);
+            const updatedGradient = updateCtx.createLinearGradient(0, 0, 0, SPARKLINE_HEIGHT);
             updatedGradient.addColorStop(0, gradientColor.fill);
             updatedGradient.addColorStop(1, gradientColor.transparent);
             chart.data.datasets[0].backgroundColor = updatedGradient;
@@ -174,7 +174,7 @@ const Sparkline: React.FC<SparklineProps> = memo(
 
       // Only create new chart if one doesn't exist
       // Create gradient for area fill
-      const gradient = ctx.createLinearGradient(0, 0, 0, height);
+      const gradient = ctx.createLinearGradient(0, 0, 0, SPARKLINE_HEIGHT);
       gradient.addColorStop(0, gradientColor.fill);
       gradient.addColorStop(1, gradientColor.transparent);
 
@@ -251,7 +251,7 @@ const Sparkline: React.FC<SparklineProps> = memo(
           rafId = null;
         }
       };
-    }, [data, gradientColor, height, showArea]);
+    }, [data, gradientColor, showArea]);
 
     // Separate cleanup effect that only runs on unmount
     useEffect(() => {
@@ -271,7 +271,6 @@ const Sparkline: React.FC<SparklineProps> = memo(
     return (
       <div
         className={`sparkline-container ${className}`}
-        style={{ height }}
         role="img"
         aria-label={ariaLabel || `Sparkline chart showing ${data.length} data points`}
       >

@@ -21,10 +21,12 @@ namespace LancacheManager.Infrastructure.Filters;
 public class AntiforgeryFilter : IAsyncAuthorizationFilter
 {
     private readonly IAntiforgery _antiforgery;
+    private readonly ILogger<AntiforgeryFilter> _logger;
 
-    public AntiforgeryFilter(IAntiforgery antiforgery)
+    public AntiforgeryFilter(IAntiforgery antiforgery, ILogger<AntiforgeryFilter> logger)
     {
         _antiforgery = antiforgery;
+        _logger = logger;
     }
 
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
@@ -53,8 +55,16 @@ public class AntiforgeryFilter : IAsyncAuthorizationFilter
         {
             await _antiforgery.ValidateRequestAsync(context.HttpContext);
         }
-        catch (AntiforgeryValidationException)
+        catch (AntiforgeryValidationException ex)
         {
+            // The framework's own category is silenced in both appsettings files, so without this a
+            // rejection leaves no server-side trace at all. The reason only, not the stack. [24]
+            _logger.LogWarning(
+                "Antiforgery validation refused {Method} {Path}: {Reason}",
+                method,
+                context.HttpContext.Request.Path,
+                ex.Message);
+
             context.Result = new BadRequestObjectResult(
                 ApiResponse.Error(Security.AntiforgeryToken.MissingTokenMessage));
         }

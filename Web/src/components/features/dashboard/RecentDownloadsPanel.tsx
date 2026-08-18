@@ -342,7 +342,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     storage.setItem(STORAGE_KEYS.RECENT_DOWNLOADS_DETAILED, String(next));
   };
 
-  const latestDownloads = useMemo(() => downloads, [downloads]);
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const { getGroupForIp } = useClientGroups();
   const { getHostnameForIp } = useClientHostnames();
@@ -353,12 +352,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const isHistoricalView = contextTimeRange !== 'live' || selectedEventIds.length > 0;
 
   // In-progress previews for the Recent view (live range, no event filter only). Matching
-  // runs against the FULL latestDownloads list - reconciliation must see rows the panel
+  // runs against the FULL downloads list - reconciliation must see rows the panel
   // filters hide - while the panel's own service/client filters are applied separately
-  // below. Previews never enter latestDownloads, the grouped items, the footer stats, or
-  // the association fetches.
+  // below. Previews never enter the recorded rows, the grouped items, the footer stats,
+  // or the association fetches.
   const livePreviews = useLiveDownloadPreviews(
-    latestDownloads,
+    downloads,
     viewMode === 'recent' && !isHistoricalView
   );
 
@@ -373,9 +372,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
   // Grouping logic
   const createGroups = useCallback(
-    (downloads: Download[]): { groups: DownloadGroup[]; individuals: Download[] } => {
+    (downloads: Download[]): DownloadGroup[] => {
       const groups: Record<string, DownloadGroup> = {};
-      const individuals: Download[] = [];
 
       downloads.forEach((download) => {
         let groupKey: string;
@@ -397,13 +395,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           // Group by service for all platforms (including unmapped Steam)
           const svcLower = (download.service ?? '').toLowerCase();
           groupKey = `service-${svcLower}`;
-          const displayService = getServiceDisplayName(download.service ?? '');
           groupName =
             svcLower === 'epicgames'
               ? 'Epic Games'
-              : svcLower === 'steam'
-                ? 'Steam Downloads'
-                : `${displayService.charAt(0).toUpperCase() + displayService.slice(1)} Downloads`;
+              : t('dashboard.downloadsPanel.serviceGroup', {
+                  service: formatServiceLabel(download.service ?? '')
+                });
           groupType = download.totalBytes === 0 ? 'metadata' : 'content';
         }
 
@@ -441,9 +438,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         }
       });
 
-      return { groups: Object.values(groups), individuals };
+      return Object.values(groups);
     },
-    []
+    [t]
   );
 
   const getTimeRangeLabel = useMemo(() => {
@@ -456,7 +453,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   // per displayed name instead of one per raw alias.
   const serviceFilterOptions = useMemo(() => {
     const representatives = new Map<string, string>();
-    latestDownloads.forEach((d: Download) => {
+    downloads.forEach((d: Download) => {
       const key = getServiceFilterKey(d.service);
       if (!representatives.has(key)) {
         representatives.set(key, d.service);
@@ -465,14 +462,14 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     return Array.from(representatives.entries())
       .map(([key, service]) => ({ key, service }))
       .sort((a, b) => a.key.localeCompare(b.key));
-  }, [latestDownloads]);
+  }, [downloads]);
 
   const { clientGroups } = useClientGroups();
 
   const availableClients = useMemo(() => {
-    const clients = new Set(latestDownloads.map((d) => d.clientIp));
+    const clients = new Set(downloads.map((d) => d.clientIp));
     return Array.from(clients).sort();
-  }, [latestDownloads]);
+  }, [downloads]);
 
   const clientOptions = useMemo(
     () =>
@@ -486,7 +483,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   );
 
   const filteredDownloads = useMemo(() => {
-    return latestDownloads.filter((download) => {
+    return downloads.filter((download) => {
       if (selectedService !== 'all' && getServiceFilterKey(download.service) !== selectedService)
         return false;
       if (selectedClient !== 'all') {
@@ -505,7 +502,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       }
       return true;
     });
-  }, [latestDownloads, selectedService, selectedClient, clientGroups]);
+  }, [downloads, selectedService, selectedClient, clientGroups]);
 
   // Panel filters applied to previews with the same predicates as the recorded rows.
   const visibleLivePreviews = useMemo(() => {
@@ -530,27 +527,15 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
   const displayCount = 10;
   const groupedItems = useMemo(() => {
-    const { groups, individuals } = createGroups(filteredDownloads);
-
-    const filteredIndividuals = individuals.filter((download) => {
-      if (isResolvedGameName(download.gameName, download.service)) {
-        return true;
-      }
-      if ((download.service ?? '').toLowerCase() !== 'steam') return true;
-      return false;
-    });
-
-    const allItems: (DownloadGroup | Download)[] = [...groups, ...filteredIndividuals];
+    const allItems = createGroups(filteredDownloads);
 
     allItems.sort((a, b) => {
-      const aTime =
-        'downloads' in a
-          ? Math.max(...a.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime()))
-          : new Date(a.startTimeUtc).getTime();
-      const bTime =
-        'downloads' in b
-          ? Math.max(...b.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime()))
-          : new Date(b.startTimeUtc).getTime();
+      const aTime = Math.max(
+        ...a.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime())
+      );
+      const bTime = Math.max(
+        ...b.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime())
+      );
       return bTime - aTime;
     });
 
@@ -572,13 +557,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   useEffect(() => {
     const downloadIds: number[] = [];
     groupedItems.displayedItems.forEach((item) => {
-      if ('downloads' in item) {
-        // It's a group - get all download IDs in the group
-        item.downloads.forEach((d: Download) => downloadIds.push(d.id));
-      } else {
-        // It's an individual download
-        downloadIds.push(item.id);
-      }
+      item.downloads.forEach((d: Download) => downloadIds.push(d.id));
     });
 
     if (downloadIds.length > 0) {
@@ -674,7 +653,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 className="min-h-10 rounded-[var(--theme-border-radius)]"
               />
             </Tooltip>
-            {latestDownloads.length > 0 && (
+            {downloads.length > 0 && (
               <>
                 <EnhancedDropdown
                   options={[
@@ -783,19 +762,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                     ))}
                   </div>
                 ) : visibleDbItems.length > 0 ? (
-                  visibleDbItems.map((item, idx) => {
-                    const isGroup = 'downloads' in item;
-                    const events = isGroup
-                      ? Array.from(
-                          item.downloads.reduce((acc, d) => {
-                            getAssociations(d.id).events.forEach((e) => acc.set(e.id, e));
-                            return acc;
-                          }, new Map<number, EventSummary>())
-                        ).map(([, e]) => e)
-                      : getAssociations(item.id).events;
+                  visibleDbItems.map((item) => {
+                    const events = Array.from(
+                      item.downloads.reduce((acc, d) => {
+                        getAssociations(d.id).events.forEach((e) => acc.set(e.id, e));
+                        return acc;
+                      }, new Map<number, EventSummary>())
+                    ).map(([, e]) => e);
                     return (
                       <RecentDownloadItem
-                        key={isGroup ? item.id : item.id || idx}
+                        key={item.id}
                         item={item}
                         events={events}
                         detectionLookup={detectionLookup}

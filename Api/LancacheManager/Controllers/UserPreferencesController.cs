@@ -1,5 +1,4 @@
 using System.Text.Json;
-using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Interfaces;
@@ -8,7 +7,6 @@ using LancacheManager.Hubs;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using static LancacheManager.Core.Services.UserPreferencesService;
 
 namespace LancacheManager.Controllers;
@@ -25,18 +23,18 @@ public class UserPreferencesController : ControllerBase
     private readonly ILogger<UserPreferencesController> _logger;
     private readonly UserPreferencesService _preferencesService;
     private readonly ISignalRNotificationService _notifications;
-    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
+    private readonly SessionService _sessionService;
 
     public UserPreferencesController(
         ILogger<UserPreferencesController> logger,
         UserPreferencesService preferencesService,
         ISignalRNotificationService notifications,
-        IDbContextFactory<AppDbContext> dbContextFactory)
+        SessionService sessionService)
     {
         _logger = logger;
         _preferencesService = preferencesService;
         _notifications = notifications;
-        _dbContextFactory = dbContextFactory;
+        _sessionService = sessionService;
     }
 
     /// <summary>
@@ -199,7 +197,7 @@ public class UserPreferencesController : ControllerBase
     [ProducesResponseType(typeof(UserPreferencesDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<UserPreferencesDto>> GetForSessionAsync(Guid sessionId)
     {
-        if (!await CallerMaySeeTargetSessionAsync(sessionId))
+        if (!await _sessionService.CallerMaySeeSessionAsync(GetSession(), sessionId))
         {
             return NotFound(ApiResponse.NotFound("Session"));
         }
@@ -226,7 +224,7 @@ public class UserPreferencesController : ControllerBase
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> SaveForSessionAsync(Guid sessionId, [FromBody] UserPreferencesDto preferences)
     {
-        if (!await CallerMaySeeTargetSessionAsync(sessionId))
+        if (!await _sessionService.CallerMaySeeSessionAsync(GetSession(), sessionId))
         {
             return NotFound(ApiResponse.NotFound("Session"));
         }
@@ -243,27 +241,4 @@ public class UserPreferencesController : ControllerBase
 
     private UserSession? GetSession() => HttpContext.GetUserSession();
     private Guid? GetSessionId() => GetSession()?.Id;
-
-    /// <summary>
-    /// The same withholding the session list uses: a caller who is not the owner cannot read or
-    /// write the owner's session by id. A session that is not there is left to the existing
-    /// not-found-or-defaults path.
-    /// </summary>
-    private async Task<bool> CallerMaySeeTargetSessionAsync(Guid sessionId)
-    {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var hiddenAccountId = await MainAdminVisibility.HiddenAccountIdAsync(context, GetSession());
-        if (hiddenAccountId is null)
-        {
-            return true;
-        }
-
-        var accountId = await context.UserSessions
-            .AsNoTracking()
-            .Where(s => s.Id == sessionId)
-            .Select(s => s.AccountId)
-            .FirstOrDefaultAsync();
-
-        return accountId != hiddenAccountId;
-    }
 }

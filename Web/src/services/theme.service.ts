@@ -1123,6 +1123,7 @@ class ThemeService {
 
     // Get border radius settings from theme (already set above)
     const borderRadius = sharpCorners ? '0px' : '0.5rem';
+    const borderRadiusSm = sharpCorners ? '0px' : '0.2rem';
     const borderRadiusLg = sharpCorners ? '0px' : '0.75rem';
     const borderRadiusXl = sharpCorners ? '0px' : '1rem';
 
@@ -1178,6 +1179,7 @@ class ThemeService {
       --theme-border-elevated: ${colors.borderElevated};
       --theme-border-hover: ${colors.borderHover};
       --theme-border-radius: ${borderRadius};
+      --theme-border-radius-sm: ${borderRadiusSm};
       --theme-border-radius-lg: ${borderRadiusLg};
       --theme-border-radius-xl: ${borderRadiusXl};
 

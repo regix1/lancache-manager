@@ -41,8 +41,10 @@ public partial class XboxCatalogMappingService
 
     // The in-flight sign-in's tracked operation, so a logout and the modal's cancel can stop it. Held
     // apart from _currentMappingReporter because a scheduled refresh writes that field too
-    // (Scheduling.cs:50), and cancelling a sign-in must never stop a catalog refresh.
-    private MappingOperationReporter? _loginReporter;
+    // (Scheduling.cs:50), and cancelling a sign-in must never stop a catalog refresh. Non-null for the
+    // WHOLE attempt (approval wait plus the catalog stretch after it), which is what GetAuthStatus
+    // reports. Volatile because the poll task clears it and a request thread reads it.
+    private volatile MappingOperationReporter? _loginReporter;
 
     // True only while the device-code poll waits for the person to approve, not for the whole login:
     // _loginReporter stays set through the catalog harvest that follows approval, so a Schedules row
@@ -76,6 +78,7 @@ public partial class XboxCatalogMappingService
             DisplayName = _displayName,
             LastCollectionUtc = _lastCollectionUtc,
             GamesDiscovered = _gamesDiscovered,
+            LoginInProgress = _loginReporter is not null,
             ExpiresAtUtc = _isAuthenticated && _lastCollectionUtc.HasValue
                 ? _lastCollectionUtc.Value.Add(XboxLoginValidity)
                 : null
@@ -580,6 +583,14 @@ public class XboxMappingAuthStatus
     public string? DisplayName { get; set; }
     public DateTime? LastCollectionUtc { get; set; }
     public int GamesDiscovered { get; set; }
+    /// <summary>
+    /// True while a device-code login attempt is still alive - the approval wait AND the catalog
+    /// harvest that follows approval, unlike <c>AwaitingSignIn</c> which covers only the wait. False
+    /// together with <see cref="IsAuthenticated"/> false is the only pair that means the attempt is
+    /// over and did not succeed, so a client that lost the completion event can tell a dead login from
+    /// a busy one instead of waiting for a message that will never arrive.
+    /// </summary>
+    public bool LoginInProgress { get; set; }
     /// <summary>
     /// Approximate expiry of the MSA refresh token: last-auth time + ~90 days.
     /// Slides forward on each auto-renew (startup reconnect and the 12h schedule).

@@ -2,12 +2,17 @@ import React, { useMemo, memo } from 'react';
 import { Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatCount } from '@utils/formatters';
-import { type HourlyActivityItem } from '../../../../types';
+import { type HourlyActivityItem, type HourlyActivityResponse } from '../../../../types';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimezone } from '@contexts/useTimezone';
 import { useHourlyActivity } from '@contexts/DashboardDataContext/hooks';
-import { getCurrentHour, getDayBoundsInTimezone, getServerTimezone } from '@utils/timezone';
+import {
+  getCurrentHour,
+  getDayBoundsInTimezone,
+  getEffectiveTimezone,
+  getTimeInTimezone
+} from '@utils/timezone';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
@@ -15,6 +20,29 @@ import { EmptyState } from '@components/ui/ManagerCard';
 interface PeakUsageHoursProps {
   /** Whether to use glassmorphism style */
   glassmorphism?: boolean;
+}
+
+/**
+ * Whether the reader's today falls inside the range the buckets were counted over. Both ends are
+ * read on the reader's clock, because a calendar day begins at a different moment in another zone.
+ */
+function todayOverlapsPeriod(
+  hourlyActivity: HourlyActivityResponse | null,
+  viewerZone: string
+): boolean {
+  if (!hourlyActivity) return true; // Assume yes while loading
+
+  if (!hourlyActivity.periodStart && !hourlyActivity.periodEnd) return true;
+
+  const now = Math.floor(Date.now() / 1000);
+  const today = getDayBoundsInTimezone(new Date(), viewerZone);
+  const todayStart = Math.floor(today.start.getTime() / 1000);
+  const todayEnd = Math.floor(today.end.getTime() / 1000);
+
+  const periodStart = hourlyActivity.periodStart ?? 0;
+  const periodEnd = hourlyActivity.periodEnd ?? now;
+
+  return todayStart <= periodEnd && todayEnd >= periodStart;
 }
 
 /**
@@ -28,72 +56,62 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   const { use24HourFormat } = useTimezone();
 
   // Consume hourly activity data from batched context
-  const { hourlyActivity: displayData, loading, error, refetch } = useHourlyActivity();
+  const { hourlyActivity: displayData, loading, error, failed, refetch } = useHourlyActivity();
 
-  // Every hour on this widget is read on the server's clock, because that is the clock the backend
-  // grouped the buckets on: it counts each download into the hour it recorded for it. Following
-  // the reader's own UTC/local choice for the marker instead highlights a bucket that was filled
-  // at a different hour. The 12/24-hour preference below is a different question and still the
-  // reader's. Recomputed each render rather than memoized, so the marker follows the clock as the
-  // widget refreshes instead of freezing at the hour the page loaded.
-  const currentHour = getCurrentHour(false, false);
+  const viewerZone = getEffectiveTimezone();
 
-  // Check if today is within the period range
-  const isTodayInRange = useMemo(() => {
-    if (!displayData) return true; // Assume yes while loading
-
-    // For 'live' mode (no period bounds), today is always in range
-    if (!displayData.periodStart && !displayData.periodEnd) return true;
-
-    const now = Math.floor(Date.now() / 1000);
-    // Today on the server's clock as well. The browser's own calendar day begins at a different
-    // moment, which around a boundary reports a period as missing today when it does contain it.
-    const today = getDayBoundsInTimezone(new Date(), getServerTimezone());
-    const todayStart = Math.floor(today.start.getTime() / 1000);
-    const todayEnd = Math.floor(today.end.getTime() / 1000);
-
-    // Check if today overlaps with the period
-    const periodStart = displayData.periodStart ?? 0;
-    const periodEnd = displayData.periodEnd ?? now;
-
-    return todayStart <= periodEnd && todayEnd >= periodStart;
-  }, [displayData]);
+  // Both are recomputed every render rather than memoized: in a memo keyed on the response they
+  // freeze on the day the page loaded, and a page left open past midnight marks the wrong hour.
+  const currentHour = getCurrentHour();
+  const isTodayInRange = todayOverlapsPeriod(displayData, viewerZone);
 
   // Determine if we should show averages (multi-day period)
   const daysInPeriod = displayData?.daysInPeriod ?? 1;
   const isMultiDayPeriod = daysInPeriod > 1;
 
-  // Extract hourly data from API response (already includes all 24 hours)
-  const hourlyData = useMemo((): HourlyActivityItem[] => {
-    if (!displayData?.hours?.length) {
-      // Return empty buckets if no data
-      return Array.from({ length: 24 }, (_, i) => ({
-        hour: i,
-        downloads: 0,
-        avgDownloads: 0,
-        bytesServed: 0,
-        avgBytesServed: 0,
-        cacheHitBytes: 0,
-        cacheMissBytes: 0
-      }));
-    }
-    return displayData.hours;
-  }, [displayData]);
+  // Never zero-filled to 24 hours: a failed section sends no buckets, and zeros would draw a full
+  // day of silence nobody measured.
+  const hourlyData = useMemo((): HourlyActivityItem[] => displayData?.hours ?? [], [displayData]);
 
-  // Find max for scaling
-  const maxDownloads = useMemo(() => {
-    const max = Math.max(...hourlyData.map((h) => h.downloads));
+  const maxBytesServed = useMemo(() => {
+    const max = Math.max(0, ...hourlyData.map((h) => h.bytesServed));
     return max || 1;
   }, [hourlyData]);
 
-  // Peak hour from API response
-  const peakHour = displayData?.peakHour ?? 0;
+  // Which hours of the day the range reached, or null when every cell on the grid was measured.
+  const measuredWindow = useMemo((): { seconds: number; hours: Set<number> } | null => {
+    if (!displayData || displayData.period !== 'filtered') return null;
+    const { periodStart, periodEnd } = displayData;
+    if (periodStart == null || periodEnd == null) return null;
+    // 86_400 seconds is a full turn of the clock, so every hour of the day is inside the range.
+    const seconds = periodEnd - periodStart;
+    if (seconds >= 86_400) return null;
+
+    const hours = new Set<number>();
+    for (let at = periodStart; at < periodEnd; at += 3_600) {
+      hours.add(getTimeInTimezone(new Date(at * 1000), viewerZone).hour);
+    }
+    // The step above lands on the range's last hour only when the range ends on an hour boundary.
+    hours.add(getTimeInTimezone(new Date((periodEnd - 1) * 1000), viewerZone).hour);
+    return { seconds, hours };
+  }, [displayData, viewerZone]);
+
+  // Buckets carry an hour number even when nothing was recorded, so a length check never fires.
+  const hasHourlyActivity = hourlyData.some((h) => h.downloads > 0);
   const totalDownloads = displayData?.totalDownloads ?? 0;
 
   // Calculate total bytes served across all hours
   const totalBytesServed = useMemo(() => {
     return hourlyData.reduce((sum, h) => sum + h.bytesServed, 0);
   }, [hourlyData]);
+
+  // A range of 3_600 seconds measured a single hour however it straddles the clock, so crowning it
+  // would rank that hour against 23 cells nothing was measured in.
+  const hasBusiestHour =
+    totalBytesServed > 0 && (measuredWindow === null || measuredWindow.seconds > 3_600);
+
+  const marksCurrentHour =
+    isTodayInRange && (measuredWindow === null || measuredWindow.hours.has(currentHour));
 
   // Determine time-of-day category for the peak hour
   const getTimeOfDayLabel = (hour: number): string => {
@@ -102,8 +120,6 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     if (hour >= 17 && hour < 21) return t('widgets.peakUsageHours.evening');
     return t('widgets.peakUsageHours.night');
   };
-
-  const peakTimeOfDay = getTimeOfDayLabel(peakHour);
 
   // Format hour for display based on 12h/24h preference
   const formatHour = (hour: number, short = false): string => {
@@ -118,38 +134,39 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   };
 
   // Get intensity color based on activity level (heatmap style)
-  // For multi-day periods, use averages for scaling to avoid inflated totals
+  // The scale classes are declared after the ring classes in dashboard.css, so a cell carrying both
+  // keeps the fill chosen here and takes only the ring from the marker class.
   const getIntensityColor = (
-    downloads: number,
+    bytesServed: number,
     isCurrentHour: boolean,
     isPeakHour: boolean
   ): string => {
-    if (downloads === 0) {
+    if (bytesServed === 0) {
       // Cells sit on the tertiary well surface, so idle needs its own step
-      return 'var(--theme-bg-secondary-strong)';
+      return 'peak-scale-swatch--0';
     }
 
-    const intensity = downloads / maxDownloads;
+    const intensity = bytesServed / maxBytesServed;
 
     // Peak hour gets special color
-    if (isPeakHour && downloads > 0) {
-      return 'var(--theme-warning)';
+    if (isPeakHour && bytesServed > 0) {
+      return 'peak-legend-swatch--peak';
     }
 
     // Current hour gets primary color (only if today is in range)
     if (isCurrentHour && isTodayInRange) {
-      return 'var(--theme-primary)';
+      return 'peak-legend-swatch--now';
     }
 
     // Use intensity-based coloring
     if (intensity > 0.75) {
-      return 'var(--theme-chart-1)';
+      return 'peak-scale-swatch--4';
     } else if (intensity > 0.5) {
-      return 'var(--theme-chart-1-emphasis)';
+      return 'peak-scale-swatch--3';
     } else if (intensity > 0.25) {
-      return 'var(--theme-chart-1-strong)';
+      return 'peak-scale-swatch--2';
     } else {
-      return 'var(--theme-chart-1-muted)';
+      return 'peak-scale-swatch--1';
     }
   };
 
@@ -194,8 +211,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     );
   }
 
-  // Error state — shown when no data is available and an error occurred
-  if (error && !displayData) {
+  // Error state — the whole fetch failed, or only this section's query did
+  if (failed || (error && !displayData)) {
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
         <div className="flex items-center gap-2 mb-3">
@@ -215,8 +232,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     );
   }
 
-  // Empty state — data loaded but no downloads yet
-  if (totalDownloads === 0) {
+  // Empty state — nothing recorded, and equally totals that arrived without their hourly buckets
+  if (!displayData || totalDownloads === 0 || !hasHourlyActivity) {
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
         <div className="flex items-center gap-2 mb-3">
@@ -233,6 +250,10 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
       </div>
     );
   }
+
+  // Peak hour from API response
+  const peakHour = displayData.peakHour;
+  const peakTimeOfDay = getTimeOfDayLabel(peakHour);
 
   return (
     <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
@@ -254,13 +275,17 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
                       ? t('widgets.peakUsageHours.dataPeriod.multiDay', { days: daysInPeriod })
                       : t('widgets.peakUsageHours.dataPeriod.singleDay')
                   },
-                  {
-                    term: t('widgets.peakUsageHours.peakHour.term'),
-                    description: isMultiDayPeriod
-                      ? t('widgets.peakUsageHours.peakHour.multiDay')
-                      : t('widgets.peakUsageHours.peakHour.singleDay')
-                  },
-                  ...(isTodayInRange
+                  ...(hasBusiestHour
+                    ? [
+                        {
+                          term: t('widgets.peakUsageHours.peakHour.term'),
+                          description: isMultiDayPeriod
+                            ? t('widgets.peakUsageHours.peakHour.multiDay')
+                            : t('widgets.peakUsageHours.peakHour.singleDay')
+                        }
+                      ]
+                    : []),
+                  ...(marksCurrentHour
                     ? [
                         {
                           term: t('widgets.peakUsageHours.currentHour.term'),
@@ -278,13 +303,15 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
         </div>
         <div className="flex items-center gap-2 text-xs text-themed-muted">
           {isMultiDayPeriod && (
+            <span>{t('widgets.peakUsageHours.days', { count: daysInPeriod })}</span>
+          )}
+          {isMultiDayPeriod && hasBusiestHour && <span>·</span>}
+          {hasBusiestHour && (
             <>
-              <span>{t('widgets.peakUsageHours.days', { count: daysInPeriod })}</span>
-              <span>·</span>
+              <span className="hidden sm:inline">{t('widgets.peakUsageHours.mostActive')}</span>
+              <span className="font-medium text-themed-warning">{peakTimeOfDay}</span>
             </>
           )}
-          <span className="hidden sm:inline">{t('widgets.peakUsageHours.mostActive')}</span>
-          <span className="font-medium text-themed-warning">{peakTimeOfDay}</span>
         </div>
       </div>
 
@@ -293,8 +320,21 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
       <div className="well-surface dash-well p-3 flex-1 flex flex-col justify-center">
         <div className="grid grid-cols-12 gap-1.5">
           {hourlyData.map((hourData) => {
-            const isCurrentHour = isTodayInRange && hourData.hour === currentHour;
-            const isPeakHour = hourData.hour === peakHour;
+            if (measuredWindow !== null && !measuredWindow.hours.has(hourData.hour)) {
+              // An idle fill would read as an hour that was watched and stayed quiet.
+              return (
+                <div
+                  key={hourData.hour}
+                  className="w-full h-6 rounded border border-dashed border-themed-primary opacity-40"
+                />
+              );
+            }
+
+            const isCurrentHour = marksCurrentHour && hourData.hour === currentHour;
+            const isPeakHour = hasBusiestHour && hourData.hour === peakHour;
+            // An idle current hour keeps its idle fill, so the ring comes from a class of its own.
+            const markerClass =
+              hourData.bytesServed === 0 && isCurrentHour ? 'peak-legend-swatch--now' : '';
 
             return (
               <Tooltip
@@ -307,26 +347,33 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
                     {isMultiDayPeriod ? (
                       <>
                         <div className="text-themed-secondary">
-                          {formatCount(hourData.avgDownloads)} avg downloads/day
+                          {formatCount(hourData.avgDownloads)}{' '}
+                          {t('widgets.peakUsageHours.tooltip.avgDownloadsPerDay')}
                         </div>
                         <div className="text-themed-secondary">
-                          {formatBytes(hourData.avgBytesServed)} avg served/day
+                          {formatBytes(hourData.avgBytesServed)}{' '}
+                          {t('widgets.peakUsageHours.tooltip.avgServedPerDay')}
                         </div>
                         <div className="pt-1 border-t border-themed-primary text-themed-muted">
-                          Total: {formatCount(hourData.downloads)} downloads
+                          {t('widgets.peakUsageHours.tooltip.totalDownloads', {
+                            count: hourData.downloads
+                          })}
                         </div>
                       </>
                     ) : (
                       <>
                         <div className="text-themed-secondary">
-                          {formatCount(hourData.downloads)} downloads
+                          {formatCount(hourData.downloads)}{' '}
+                          {t('widgets.peakUsageHours.tooltip.downloads')}
                         </div>
                         <div className="text-themed-secondary">
-                          {formatBytes(hourData.bytesServed)} served
+                          {formatBytes(hourData.bytesServed)}{' '}
+                          {t('widgets.peakUsageHours.tooltip.served')}
                         </div>
                         {hourData.cacheHitBytes > 0 && (
                           <div className="text-themed-success">
-                            {formatBytes(hourData.cacheHitBytes)} from cache
+                            {formatBytes(hourData.cacheHitBytes)}{' '}
+                            {t('widgets.peakUsageHours.tooltip.fromCache')}
                           </div>
                         )}
                       </>
@@ -336,19 +383,11 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
                 position="top"
               >
                 <div
-                  className="w-full h-6 rounded cursor-pointer transition-colors duration-200 hover:brightness-110"
-                  style={{
-                    backgroundColor: getIntensityColor(
-                      hourData.downloads,
-                      isCurrentHour,
-                      isPeakHour
-                    ),
-                    boxShadow: isCurrentHour
-                      ? '0 0 0 2px var(--theme-card-bg), 0 0 0 3px var(--theme-primary)'
-                      : isPeakHour
-                        ? '0 0 0 2px var(--theme-card-bg), 0 0 0 3px var(--theme-warning)'
-                        : undefined
-                  }}
+                  className={`w-full h-6 rounded cursor-pointer transition-colors duration-200 hover:brightness-110 ${getIntensityColor(
+                    hourData.bytesServed,
+                    isCurrentHour,
+                    isPeakHour
+                  )} ${markerClass}`}
                 />
               </Tooltip>
             );
@@ -368,16 +407,18 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
       {/* Legend */}
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <div className="flex items-center gap-4 text-xs text-themed-muted">
-          {isTodayInRange && (
+          {marksCurrentHour && (
             <div className="flex items-center gap-1.5">
               <div className="peak-legend-swatch peak-legend-swatch--now" />
               <span>{t('widgets.peakUsageHours.currentHourLabel')}</span>
             </div>
           )}
-          <div className="flex items-center gap-1.5">
-            <div className="peak-legend-swatch peak-legend-swatch--peak" />
-            <span>{t('widgets.peakUsageHours.busiestHourLabel')}</span>
-          </div>
+          {hasBusiestHour && (
+            <div className="flex items-center gap-1.5">
+              <div className="peak-legend-swatch peak-legend-swatch--peak" />
+              <span>{t('widgets.peakUsageHours.busiestHourLabel')}</span>
+            </div>
+          )}
         </div>
 
         {/* Intensity scale */}
@@ -396,13 +437,15 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
 
       {/* Labeled readout strip — pinned to the card bottom to match the other panels */}
       <div className="dash-readout dash-readout--footer">
-        <div className="dash-readout-item">
-          <div className="dash-readout-value is-warning">{formatHour(peakHour)}</div>
-          <div className="caps-label caps-label--wide dash-readout-label">
-            {t('widgets.peakUsageHours.busiestHour')}
+        {hasBusiestHour && (
+          <div className="dash-readout-item">
+            <div className="dash-readout-value is-warning">{formatHour(peakHour)}</div>
+            <div className="caps-label caps-label--wide dash-readout-label">
+              {t('widgets.peakUsageHours.busiestHour')}
+            </div>
           </div>
-        </div>
-        {isTodayInRange && (
+        )}
+        {marksCurrentHour && (
           <div className="dash-readout-item">
             <div className="dash-readout-value is-primary">{formatHour(currentHour)}</div>
             <div className="caps-label caps-label--wide dash-readout-label">

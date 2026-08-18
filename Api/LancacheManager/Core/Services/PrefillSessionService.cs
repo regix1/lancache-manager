@@ -1,6 +1,7 @@
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
+using LancacheManager.Security;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
@@ -242,6 +243,19 @@ public class PrefillSessionService
     #region Session Persistence
 
     /// <summary>
+    /// The account behind an auth session id, read once at insert so
+    /// <see cref="PrefillSession.CreatedByAccountId"/> survives that session row being deleted.
+    /// </summary>
+    private static async Task<Guid?> CreatedByAccountIdAsync(AppDbContext context, Guid createdBySessionId)
+    {
+        return await context.UserSessions
+            .AsNoTracking()
+            .Where(s => s.Id == createdBySessionId)
+            .Select(s => s.AccountId)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>
     /// Creates a new prefill session record in the database.
     /// </summary>
     public async Task<PrefillSession> CreateSessionAsync(
@@ -258,6 +272,7 @@ public class PrefillSessionService
         {
             SessionId = sessionId,
             CreatedBySessionId = createdBySessionId,
+            CreatedByAccountId = await CreatedByAccountIdAsync(context, createdBySessionId),
             ContainerId = containerId,
             ContainerName = containerName,
             Platform = Enum.TryParse<PrefillPlatform>(platform, ignoreCase: true, out var parsedPlatform)
@@ -306,6 +321,7 @@ public class PrefillSessionService
             {
                 SessionId = sessionId,
                 CreatedBySessionId = createdBySessionId,
+                CreatedByAccountId = await CreatedByAccountIdAsync(context, createdBySessionId),
                 ContainerId = containerId,
                 ContainerName = containerName,
                 Platform = Enum.TryParse<PrefillPlatform>(platform, ignoreCase: true, out var parsedPlatform)
@@ -421,9 +437,15 @@ public class PrefillSessionService
     }
 
     /// <summary>
-    /// Gets all sessions (paginated).
+    /// Gets all sessions (paginated), less the ones started by an account the caller may not see.
     /// </summary>
+    /// <remarks>
+    /// Every row carries <see cref="PrefillSession.CreatedBySessionId"/>, the auth session id the
+    /// session list already withholds, so answering unfiltered hands it back. The filter runs
+    /// before the count and the page, so a withheld row leaves no gap and no unreachable total.
+    /// </remarks>
     public async Task<(List<PrefillSession> Sessions, int TotalCount)> GetSessionsAsync(
+        UserSession? caller,
         int page = 1,
         int pageSize = 20,
         string? statusFilter = null,
@@ -432,6 +454,14 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var query = context.PrefillSessions.AsNoTracking().AsQueryable();
+
+        var hiddenAccountId = await MainAdminVisibility.HiddenAccountIdAsync(context, caller);
+        if (hiddenAccountId is { } accountId)
+        {
+            // CreatedByAccountId is null on API-key and authentication-off sessions, and SQL treats
+            // NULL != id as unknown, so those rows are named rather than left to the inequality.
+            query = query.Where(s => s.CreatedByAccountId == null || s.CreatedByAccountId != accountId);
+        }
 
         if (!string.IsNullOrEmpty(statusFilter)
             && Enum.TryParse<PrefillSessionStatus>(statusFilter, ignoreCase: true, out var parsedStatus))
@@ -454,6 +484,55 @@ public class PrefillSessionService
             .ToListAsync();
 
         return (sessions, totalCount);
+    }
+
+    /// <summary>
+    /// The auth session ids of an account the caller may not see, empty when nothing is hidden from
+    /// this caller.
+    /// </summary>
+    /// <remarks>
+    /// A ban row records the acting administrator's <see cref="UserSession.Id"/>, the id the
+    /// session list withholds. Read as a set rather than joined: the ban column stores text.
+    /// </remarks>
+    public async Task<HashSet<Guid>> HiddenSessionIdsAsync(UserSession? caller)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var hiddenAccountId = await MainAdminVisibility.HiddenAccountIdAsync(context, caller);
+        if (hiddenAccountId is not { } accountId)
+        {
+            return [];
+        }
+
+        return (await context.UserSessions
+            .AsNoTracking()
+            .Where(s => s.AccountId == accountId)
+            .Select(s => s.Id)
+            .ToListAsync())
+            .ToHashSet();
+    }
+
+    /// <summary>
+    /// Whether the caller may be answered about one daemon session, so a row hidden from the
+    /// session list cannot be reached by naming its id.
+    /// </summary>
+    /// <remarks>
+    /// A daemon session id with no stored row stays visible, which is what a live session whose
+    /// row has not been written yet hits, and keeps the answer the endpoint already gives.
+    /// </remarks>
+    public async Task<bool> CallerMaySeeSessionAsync(UserSession? caller, string sessionId)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var hiddenAccountId = await MainAdminVisibility.HiddenAccountIdAsync(context, caller);
+        if (hiddenAccountId is null)
+        {
+            return true;
+        }
+
+        return !await context.PrefillSessions
+            .AsNoTracking()
+            .AnyAsync(s => s.SessionId == sessionId && s.CreatedByAccountId == hiddenAccountId);
     }
 
     /// <summary>

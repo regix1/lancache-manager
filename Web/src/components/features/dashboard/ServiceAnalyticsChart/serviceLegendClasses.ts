@@ -10,13 +10,14 @@ import type { ChartData, TabId } from './types';
  */
 export function getLegendColorClass(label: string, index: number, activeTab: TabId): string {
   if (activeTab === 'games') {
-    return `legend-color-game-${(index % 20) + 1}`;
+    // The chart paints the overflow slice with --theme-game-other (useChartData), so the
+    // row past the palette follows it instead of wrapping onto game 1's color.
+    return index >= 20 ? 'legend-color-game-other' : `legend-color-game-${index + 1}`;
   }
 
   if (activeTab === 'hit-ratio') {
-    return label.toLowerCase().includes('miss')
-      ? 'legend-color-cache-miss'
-      : 'legend-color-cache-hit';
+    // Always hits then misses (useChartData); the labels are translated and cannot be matched on.
+    return index === 0 ? 'legend-color-cache-hit' : 'legend-color-cache-miss';
   }
 
   const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9.]/g, '');

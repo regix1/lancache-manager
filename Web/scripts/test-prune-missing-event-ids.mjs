@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { pruneMissingEventIds } from '../src/contexts/TimeFilterContext.utils.ts';
+import { compileToUrl } from './transpile-module.mjs';
+
+const moduleUrl = (source) =>
+  `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+
+// Only the custom range reads the clock, and none of these cases is a custom range.
+const { pruneMissingEventIds } = await import(
+  await compileToUrl('../src/contexts/TimeFilterContext.utils.ts', {
+    '@utils/timezone': moduleUrl(
+      `export const getDayBoundsInTimezone = () => ({ end: new Date(0) });
+       export const getEffectiveTimezone = () => 'UTC';`
+    )
+  })
+);
 
 const event = (overrides = {}) => ({
   id: 1,

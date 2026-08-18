@@ -4,6 +4,7 @@ import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTimeFilter } from '@contexts/useTimeFilter';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type {
   Event,
   CreateEventRequest,
@@ -22,7 +23,7 @@ interface EventProviderProps {
 
 export const EventProvider: React.FC<EventProviderProps> = ({ children, mockMode = false }) => {
   const { hasSession, authMode, sessionId, isLoading: authLoading } = useAuth();
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const { selectedEventIds, setSelectedEventIds, timeRange, setTimeRange } = useTimeFilter();
   const [events, setEvents] = useState<Event[]>([]);
   const [activeEvents, setActiveEvents] = useState<Event[]>([]);
@@ -96,9 +97,6 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children, mockMode
     if (mockMode) {
       const mockEvents = MockDataService.generateMockEvents();
       const now = Date.now();
-      if (requestId !== refreshRequestIdRef.current) {
-        return;
-      }
       setEvents(mockEvents);
       setActiveEvents(
         mockEvents.filter((event) => {
@@ -209,6 +207,15 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children, mockMode
       refreshEvents();
     }
   }, [authLoading, hasAccess, mockMode, sessionIdentity, refreshEvents]);
+
+  // The four Event* broadcasts are the only thing that moves this list, and none of them is
+  // delivered while the socket is down, so the picker keeps offering a deleted event until
+  // something else refreshes. Mock data has no server behind it, and the list endpoints need a
+  // session, so both are left out the way the load effect above leaves them out.
+  useReconnectRefetch(isConnected, () => {
+    if (mockMode || !hasAccess) return;
+    void refreshEvents();
+  });
 
   // Drop dashboard-filter event ids whose event no longer exists - covers deleteEvent, the
   // EventDeleted/EventsCleared SignalR handlers, any other path that shrinks `events`, and a

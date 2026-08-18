@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import ApiService from '@services/api.service';
 import { assertOk } from '@services/apiError';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type { DirectoryPermissions } from '@contexts/DirectoryPermissionsContext.types';
 
 /**
@@ -13,7 +14,7 @@ import type { DirectoryPermissions } from '@contexts/DirectoryPermissionsContext
  * so the permissions API is only called once per page.
  */
 export const useDirectoryPermissions = (): DirectoryPermissions => {
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const [logsReadOnly, setLogsReadOnly] = useState(false);
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
   const [logsExist, setLogsExist] = useState(true);
@@ -87,6 +88,12 @@ export const useDirectoryPermissions = (): DirectoryPermissions => {
       off('DirectoryPermissionsChanged', handlePermissionsChanged);
     };
   }, [loadDirectoryPermissions, on, off, handlePermissionsChanged]);
+
+  // A DirectoryPermissionsChanged raised while the socket was down is never delivered, and these
+  // values decide whether a write is offered at all, so a recovered connection reloads them.
+  useReconnectRefetch(isConnected, () => {
+    void loadDirectoryPermissions();
+  });
 
   return {
     logsReadOnly,

@@ -72,7 +72,7 @@ public class PrefillAdminController : ControllerBase
     #region Session Management
 
     /// <summary>
-    /// Gets all prefill sessions (paginated).
+    /// Gets all prefill sessions (paginated), less the ones an account the caller may not see started.
     /// </summary>
     [Authorize(Policy = "AccountHolder")]
     [HttpGet("sessions")]
@@ -83,7 +83,8 @@ public class PrefillAdminController : ControllerBase
         [FromQuery] string? status = null,
         [FromQuery] string? platform = null)
     {
-        var (sessions, totalCount) = await _sessionService.GetSessionsAsync(page, pageSize, status, platform);
+        var caller = HttpContext.GetUserSession();
+        var (sessions, totalCount) = await _sessionService.GetSessionsAsync(caller, page, pageSize, status, platform);
 
         // Also get in-memory sessions for live data from all services
         var steamSessions = _steamDaemonService.GetAllSessions();
@@ -142,31 +143,52 @@ public class PrefillAdminController : ControllerBase
     }
 
     /// <summary>
-    /// Gets all currently active (in-memory) sessions.
+    /// Gets all currently active (in-memory) sessions, less the ones an account the caller may not see
+    /// started.
     /// </summary>
+    /// <remarks>
+    /// <see cref="DaemonSessionDto.UserId"/> is the auth session that created the container, the
+    /// same id the session list withholds, so this list is filtered on the same rule.
+    /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpGet("sessions/active")]
     [ProducesResponseType(typeof(List<DaemonSessionDto>), StatusCodes.Status200OK)]
-    public ActionResult<List<DaemonSessionDto>> GetActiveSessions()
+    public async Task<ActionResult<List<DaemonSessionDto>>> GetActiveSessionsAsync()
     {
+        var caller = HttpContext.GetUserSession();
         var sessions = _steamDaemonService.GetAllSessions()
             .Concat(_epicDaemonService.GetAllSessions())
             .Concat(_battleNetDaemonService.GetAllSessions())
             .Concat(_riotDaemonService.GetAllSessions())
             .Concat(_xboxDaemonService.GetAllSessions())
-            .Select(DaemonSessionDto.FromSession)
             .ToList();
-        return Ok(sessions);
+
+        var visible = new List<DaemonSessionDto>();
+        foreach (var session in sessions)
+        {
+            if (await _sessionService.CallerMaySeeSessionAsync(caller, session.Id))
+            {
+                visible.Add(DaemonSessionDto.FromSession(session));
+            }
+        }
+
+        return Ok(visible);
     }
 
     /// <summary>
-    /// Gets prefill history for a specific session.
+    /// Gets prefill history for a specific session. A session an account the caller may not see started
+    /// answers as one that does not exist.
     /// </summary>
     [Authorize(Policy = "AccountHolder")]
     [HttpGet("sessions/{sessionId}/history")]
     [ProducesResponseType(typeof(List<PrefillHistoryEntryDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<PrefillHistoryEntryDto>>> GetSessionHistoryAsync(string sessionId)
     {
+        if (!await _sessionService.CallerMaySeeSessionAsync(HttpContext.GetUserSession(), sessionId))
+        {
+            return NotFound(ApiResponse.NotFound("Session"));
+        }
+
         var history = await _sessionService.GetHistoryAsync(sessionId);
 
         return Ok(history.Select(h => new PrefillHistoryEntryDto
@@ -226,27 +248,57 @@ public class PrefillAdminController : ControllerBase
     }
 
     /// <summary>
-    /// Terminates all active sessions.
+    /// The sessions of one daemon service this caller may both see and tear down.
     /// </summary>
+    /// <remarks>
+    /// Persistent containers are excluded: they have their own stop path
+    /// (PersistentPrefillController.StopAsync) and must survive a guest "end all sessions" sweep.
+    /// A session the caller may not see is excluded on the session list's rule.
+    /// </remarks>
+    private async Task<List<DaemonSession>> TerminatableByCallerAsync(
+        PrefillDaemonServiceBase service,
+        UserSession? caller)
+    {
+        var terminatable = new List<DaemonSession>();
+        foreach (var session in service.GetAllSessions().Where(PrefillSessionService.IsTerminatableByAdmin))
+        {
+            if (await _sessionService.CallerMaySeeSessionAsync(caller, session.Id))
+            {
+                terminatable.Add(session);
+            }
+        }
+
+        return terminatable;
+    }
+
+    /// <summary>
+    /// Terminates all active sessions, less the ones an account the caller may not see started.
+    /// </summary>
+    /// <remarks>
+    /// The count in the reply is of the sessions this caller could see, so a sweep by a second
+    /// administrator cannot report that a withheld session was there.
+    /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("sessions/terminate-all")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageOnlyResponse>> TerminateAllAsync([FromBody] TerminateSessionRequest? request = null)
     {
+        var caller = HttpContext.GetUserSession();
         var adminSessionId = HttpContext.GetRequiredSessionId();
         var adminSessionIdString = adminSessionId.ToString();
         var reason = request?.Reason ?? "All sessions terminated by admin";
         var force = request?.Force ?? true;
 
-        // Persistent (system-owned) containers are excluded: they have their own dedicated stop path
-        // (PersistentPrefillController.StopAsync) and must survive a guest "end all sessions" sweep.
-        var steamSessions = _steamDaemonService.GetAllSessions().Where(PrefillSessionService.IsTerminatableByAdmin).ToList();
-        var epicSessions = _epicDaemonService.GetAllSessions().Where(PrefillSessionService.IsTerminatableByAdmin).ToList();
-        var battleNetSessions = _battleNetDaemonService.GetAllSessions().Where(PrefillSessionService.IsTerminatableByAdmin).ToList();
-        var riotSessions = _riotDaemonService.GetAllSessions().Where(PrefillSessionService.IsTerminatableByAdmin).ToList();
-        var xboxSessions = _xboxDaemonService.GetAllSessions().Where(PrefillSessionService.IsTerminatableByAdmin).ToList();
-        var allSessions = steamSessions.Concat(epicSessions).Concat(battleNetSessions).Concat(riotSessions).Concat(xboxSessions).ToList();
-        var count = allSessions.Count;
+        var steamSessions = await TerminatableByCallerAsync(_steamDaemonService, caller);
+        var epicSessions = await TerminatableByCallerAsync(_epicDaemonService, caller);
+        var battleNetSessions = await TerminatableByCallerAsync(_battleNetDaemonService, caller);
+        var riotSessions = await TerminatableByCallerAsync(_riotDaemonService, caller);
+        var xboxSessions = await TerminatableByCallerAsync(_xboxDaemonService, caller);
+        var count = steamSessions.Count
+            + epicSessions.Count
+            + battleNetSessions.Count
+            + riotSessions.Count
+            + xboxSessions.Count;
 
         _logger.LogWarning("Admin session {AdminId} terminating all {Count} non-persistent sessions: {Reason}",
             adminSessionId, count, reason);
@@ -284,8 +336,13 @@ public class PrefillAdminController : ControllerBase
     #region Ban Management
 
     /// <summary>
-    /// Gets all active bans.
+    /// Gets all active bans, less the acting session id on any ban an account the caller may not see
+    /// placed.
     /// </summary>
+    /// <remarks>
+    /// A ban is a shared moderation record, so every row is answered. What is withheld is
+    /// <see cref="BannedPrefillUserDto.BannedBySessionId"/>, the same id the session list withholds.
+    /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpGet("bans")]
     [ProducesResponseType(typeof(List<BannedPrefillUserDto>), StatusCodes.Status200OK)]
@@ -295,13 +352,18 @@ public class PrefillAdminController : ControllerBase
             ? await _sessionService.GetAllBansAsync()
             : await _sessionService.GetActiveBansAsync();
 
+        var hiddenSessionIds = await _sessionService.HiddenSessionIdsAsync(HttpContext.GetUserSession());
+
         return Ok(bans.Select(b => new BannedPrefillUserDto
         {
             Id = b.Id,
             Username = b.Username,
             BannedUserId = b.BannedUserId,
             BanReason = b.BanReason,
-            BannedBySessionId = TryParseGuid(b.BannedBySessionId),
+            BannedBySessionId = TryParseGuid(b.BannedBySessionId) is { } bannedBySessionId
+                && !hiddenSessionIds.Contains(bannedBySessionId)
+                    ? bannedBySessionId
+                    : null,
             BannedAtUtc = b.BannedAtUtc,
             BannedBy = b.BannedBy,
             ExpiresAtUtc = b.ExpiresAtUtc,
@@ -316,7 +378,8 @@ public class PrefillAdminController : ControllerBase
     /// Bans a prefill user by session ID.
     /// </summary>
     /// <remarks>
-    /// Looks up the username from the session.
+    /// Looks up the username from the session. A session an account the caller may not see started
+    /// answers as one that does not exist, so the ban cannot be used to confirm it is there.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("bans/by-session/{sessionId}")]
@@ -325,6 +388,11 @@ public class PrefillAdminController : ControllerBase
         string sessionId,
         [FromBody] BanRequest request)
     {
+        if (!await _sessionService.CallerMaySeeSessionAsync(HttpContext.GetUserSession(), sessionId))
+        {
+            return NotFound(ApiResponse.NotFound("Session"));
+        }
+
         var adminSessionId = HttpContext.GetRequiredSessionId();
         var adminSessionIdString = adminSessionId.ToString();
 

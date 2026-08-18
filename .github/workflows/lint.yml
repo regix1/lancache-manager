@@ -25,6 +25,7 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npm run knip
+      - run: npm test
 
   backend:
     name: Backend
@@ -49,3 +50,6 @@ jobs:
           --no-incremental
           -p:SkipRustBuild=true
           -warnaserror:CS8600,CS8601,CS8602,CS8603,CS8604
+
+      - name: Run backend tests
+        run: dotnet test lancache-manager.sln --no-restore -p:SkipRustBuild=true

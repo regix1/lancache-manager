@@ -27,11 +27,10 @@ import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
 import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 
 interface TimeFilterProps {
-  disabled?: boolean;
   iconOnly?: boolean;
 }
 
-const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = false }) => {
+const TimeFilter: React.FC<TimeFilterProps> = ({ iconOnly = false }) => {
   const { t } = useTranslation();
   const {
     timeRange,
@@ -242,11 +241,11 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
     (value: string) => {
       const timeValue = value as TimeRange;
       if (timeValue === 'custom') {
-        // Sync local pending dates from context before opening picker
+        // Sync local pending dates from context before opening picker. The range is committed once
+        // dates exist; switching it here leaves a rolling window labelled "Custom".
         setPendingStartDate(customStartDate);
         setPendingEndDate(customEndDate);
         setShowDatePicker(true);
-        setTimeRange(timeValue);
       } else {
         setShowDatePicker(false);
         setTimeRange(timeValue);
@@ -326,10 +325,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
           <button
             ref={buttonRef}
             type="button"
-            onClick={() => !disabled && setIsOpen(!isOpen)}
-            disabled={disabled}
+            onClick={() => setIsOpen(!isOpen)}
             aria-label={t('common.timeFilter.title')}
-            className={`ed-trigger w-full px-3 h-10 themed-border-radius-sm border text-left flex items-center justify-between text-sm bg-[var(--theme-card-bg)] text-[var(--theme-text-primary)] ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isOpen ? 'border-[var(--theme-border-focus)]' : 'border-[var(--theme-border-primary)]'}`}
+            className={`ed-trigger w-full px-3 h-10 themed-border-radius-sm border text-left flex items-center justify-between text-sm cursor-pointer bg-[var(--theme-card-bg)] text-[var(--theme-text-primary)] ${isOpen ? 'border-[var(--theme-border-focus)]' : 'border-[var(--theme-border-primary)]'}`}
           >
             <div
               className={`flex items-center flex-1 truncate ${iconOnly ? 'justify-center' : 'gap-1.5'}`}
@@ -584,11 +582,10 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
           onClose={() => {
             setShowDatePicker(false);
             if (pendingStartDate && pendingEndDate) {
-              // Commit to context only on close - triggers the fetch
+              // Commit to context only on close - triggers the fetch. A missing date commits nothing.
               setCustomStartDate(pendingStartDate);
               setCustomEndDate(pendingEndDate);
-            } else {
-              setTimeRange('live');
+              setTimeRange('custom');
             }
           }}
         />

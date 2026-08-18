@@ -143,10 +143,25 @@ const getStatTooltips = (t: (key: string) => string): Record<string, React.React
 
 const Dashboard: React.FC = () => {
   const { t } = useTranslation();
-  const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
+  const {
+    cacheInfo: fetchedCacheInfo,
+    clientStats,
+    serviceStats,
+    dashboardStats: fetchedDashboardStats,
+    loading,
+    failedSections
+  } = useStats();
   const { latestDownloads } = useDownloads();
-  const { gameDetectionData, detectionLookup, detectionByName, detectionByService } =
-    useGameDetection();
+  const {
+    gameDetectionData,
+    detectionLookup,
+    detectionByName,
+    detectionByService,
+    failed: detectionFailed
+  } = useGameDetection();
+  // A failed section keeps the previous fetch's slice, so the flag is read before the data.
+  const cacheInfo = failedSections.cache ? null : fetchedCacheInfo;
+  const dashboardStats = failedSections.dashboard ? null : fetchedDashboardStats;
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate, selectedEventIds } =
     useTimeFilter();
   const { selectedEvent: _selectedEvent } = useEvents();
@@ -224,24 +239,14 @@ const Dashboard: React.FC = () => {
     return 'stat-cards-4col';
   }, []);
 
-  // Track previous stats to prevent values from flashing to 0 during fetches
-  const previousStatsRef = useRef({
-    bandwidthSaved: 0,
-    addedToCache: 0,
-    totalServed: 0,
-    cacheHitRatio: 0,
-    uniqueClients: 0,
-    activeClients: 0,
-    totalActiveDownloads: 0
-  });
-
   // Determine if we're viewing historical/filtered data (not live)
   // Any non-live mode should disable real-time only stats
   const isHistoricalView = timeRange !== 'live' || selectedEventIds.length > 0;
 
   // Sparkline and cache snapshot data from context (batched endpoint)
-  const { sparklines: sparklineData } = useSparklines();
-  const { cacheSnapshot } = useCacheSnapshot();
+  const { sparklines: sparklineData, failed: sparklinesFailed } = useSparklines();
+  const { cacheSnapshot: fetchedCacheSnapshot, failed: cacheSnapshotFailed } = useCacheSnapshot();
+  const cacheSnapshot = cacheSnapshotFailed ? null : fetchedCacheSnapshot;
 
   // Filter out evicted downloads when eviction mode is 'hide' (server may still return them until refetch)
   const filteredLatestDownloads = useMemo(() => {
@@ -395,7 +400,8 @@ const Dashboard: React.FC = () => {
   const periodLabel = getTimeRangeLabel().toLowerCase();
 
   const stats = useMemo(() => {
-    // Use dashboardStats when available, otherwise keep previous values to prevent flashing to 0
+    // The titles already read the new range, so a missing batch yields null and renders an em dash
+    // rather than pairing the new range with the old range's bytes.
     const hasPeriodData = dashboardStats?.period !== undefined && dashboardStats?.period !== null;
 
     // Active stats read SpeedContext directly: the tracker's activity window now
@@ -403,41 +409,16 @@ const Dashboard: React.FC = () => {
     const activeClients = speedSnapshot?.clientSpeeds?.length ?? 0;
     const totalActiveDownloads = activeDownloadCount;
 
-    const newStats = {
+    return {
       activeClients,
       totalActiveDownloads,
-      bandwidthSaved: hasPeriodData
-        ? (dashboardStats.period.bandwidthSaved ?? previousStatsRef.current.bandwidthSaved)
-        : previousStatsRef.current.bandwidthSaved,
-      addedToCache: hasPeriodData
-        ? (dashboardStats.period.addedToCache ?? previousStatsRef.current.addedToCache)
-        : previousStatsRef.current.addedToCache,
-      totalServed: hasPeriodData
-        ? (dashboardStats.period.totalServed ?? previousStatsRef.current.totalServed)
-        : previousStatsRef.current.totalServed,
-      cacheHitRatio: hasPeriodData
-        ? (dashboardStats.period.hitRatio ?? previousStatsRef.current.cacheHitRatio)
-        : previousStatsRef.current.cacheHitRatio,
-      uniqueClients: hasPeriodData
-        ? (dashboardStats.uniqueClients ?? previousStatsRef.current.uniqueClients)
-        : previousStatsRef.current.uniqueClients,
-      periodDownloads: hasPeriodData ? (dashboardStats.period.downloads ?? 0) : 0
+      bandwidthSaved: hasPeriodData ? dashboardStats.period.bandwidthSaved : null,
+      addedToCache: hasPeriodData ? dashboardStats.period.addedToCache : null,
+      totalServed: hasPeriodData ? dashboardStats.period.totalServed : null,
+      cacheHitRatio: hasPeriodData ? dashboardStats.period.hitRatio : null,
+      uniqueClients: hasPeriodData ? dashboardStats.uniqueClients : null,
+      periodDownloads: hasPeriodData ? dashboardStats.period.downloads : null
     };
-
-    // Update ref with valid data for next render
-    if (hasPeriodData) {
-      previousStatsRef.current = {
-        bandwidthSaved: newStats.bandwidthSaved,
-        addedToCache: newStats.addedToCache,
-        totalServed: newStats.totalServed,
-        cacheHitRatio: newStats.cacheHitRatio,
-        uniqueClients: newStats.uniqueClients,
-        activeClients: newStats.activeClients,
-        totalActiveDownloads: newStats.totalActiveDownloads
-      };
-    }
-
-    return newStats;
   }, [dashboardStats, speedSnapshot, activeDownloadCount]);
 
   // Compute "Games on Disk" aggregate from detection data.
@@ -446,7 +427,7 @@ const Dashboard: React.FC = () => {
   const formattedLastDetectionTime = useFormattedDateTime(gameDetectionData?.lastDetectionTime);
   const hasCacheScan = cacheInfo?.hasCacheScan === true;
   const gamesOnDiskStats = useMemo(() => {
-    if (!gameDetectionData?.hasCachedResults) {
+    if (detectionFailed || !gameDetectionData?.hasCachedResults) {
       return null;
     }
 
@@ -455,7 +436,7 @@ const Dashboard: React.FC = () => {
       showEvictedBadge: includeEvicted,
       evictedCount: evictedGamesCount
     });
-  }, [gameDetectionData, evictedDataMode, evictedGamesCount]);
+  }, [gameDetectionData, evictedDataMode, evictedGamesCount, detectionFailed]);
 
   const unmappedCacheBytes = useMemo(() => {
     if (!cacheInfo?.hasCacheScan) {
@@ -485,12 +466,16 @@ const Dashboard: React.FC = () => {
         key: 'totalCache',
         title: t('dashboard.cards.totalCache'),
         value: cacheInfo ? formatBytes(cacheInfo.totalCacheSize) : '—',
-        subtitle:
-          cacheInfo?.configuredCacheSize && cacheInfo.configuredCacheSize > 0
-            ? t('dashboard.cards.driveCapacityValue', {
-                size: formatBytes(cacheInfo.driveCapacity)
-              })
-            : t('dashboard.cards.fullDiskLimit'),
+        subtitle: failedSections.cache
+          ? t('common.failedToLoad')
+          : [
+              cacheInfo?.configuredCacheSize && cacheInfo.configuredCacheSize > 0
+                ? t('dashboard.cards.driveCapacityValue', {
+                    size: formatBytes(cacheInfo.driveCapacity)
+                  })
+                : t('dashboard.cards.fullDiskLimit'),
+              t('dashboard.cards.onDiskNow')
+            ].join(' • '),
         icon: Database,
         color: 'blue' as const,
         visible: cardVisibility.totalCache,
@@ -502,19 +487,17 @@ const Dashboard: React.FC = () => {
           isHistoricalView && cacheSnapshot?.hasData
             ? t('dashboard.cards.usedSpaceEnd')
             : t('dashboard.cards.usedSpace'),
-        value: isHistoricalView
-          ? cacheSnapshot?.hasData
-            ? formatBytes(cacheSnapshot.endUsedSize)
-            : t('common.noDataAvailable')
+        // A range with no window returns HasData = false, so the branch is chosen by the snapshot
+        // rather than by isHistoricalView, which would read "No data available" over a live picker.
+        value: cacheSnapshot?.hasData
+          ? formatBytes(cacheSnapshot.endUsedSize)
           : cacheInfo
             ? formatBytes(cacheInfo.usedCacheSize)
             : '—',
-        subtitle: isHistoricalView
-          ? cacheSnapshot?.hasData
-            ? t('dashboard.cards.startedAt', { size: formatBytes(cacheSnapshot.startUsedSize) }) +
-              ' • ' +
-              t('dashboard.cards.snapshots', { count: cacheSnapshot.snapshotCount })
-            : t('dashboard.cards.noSnapshotsYet')
+        subtitle: cacheSnapshot?.hasData
+          ? t('dashboard.cards.startedAt', { size: formatBytes(cacheSnapshot.startUsedSize) }) +
+            ' • ' +
+            t('dashboard.cards.snapshots', { count: cacheSnapshot.snapshotCount })
           : cacheInfo
             ? cacheInfo.configuredCacheSize > 0 &&
               cacheInfo.usedCacheSize > cacheInfo.totalCacheSize
@@ -522,7 +505,9 @@ const Dashboard: React.FC = () => {
                   percent: formatPercent(cacheInfo.usagePercent)
                 })
               : formatPercent(cacheInfo.usagePercent)
-            : '—',
+            : failedSections.cache || cacheSnapshotFailed
+              ? t('common.failedToLoad')
+              : '—',
         icon: HardDrive,
         color: 'blue' as const,
         visible: cardVisibility.usedSpace,
@@ -532,7 +517,9 @@ const Dashboard: React.FC = () => {
         key: 'bandwidthSaved',
         title: t('dashboard.cards.bandwidthSaved'),
         value: stats.bandwidthSaved != null && !loading ? formatBytes(stats.bandwidthSaved) : '—',
-        subtitle: getTimeRangeLabel().toLowerCase(),
+        subtitle: failedSections.dashboard
+          ? t('common.failedToLoad')
+          : getTimeRangeLabel().toLowerCase(),
         icon: TrendingUp,
         color: 'green' as const,
         visible: cardVisibility.bandwidthSaved,
@@ -542,7 +529,9 @@ const Dashboard: React.FC = () => {
         key: 'addedToCache',
         title: t('dashboard.cards.addedToCache'),
         value: stats.addedToCache != null && !loading ? formatBytes(stats.addedToCache) : '—',
-        subtitle: getTimeRangeLabel().toLowerCase(),
+        subtitle: failedSections.dashboard
+          ? t('common.failedToLoad')
+          : getTimeRangeLabel().toLowerCase(),
         icon: Zap,
         color: 'teal' as const,
         visible: cardVisibility.addedToCache,
@@ -552,7 +541,9 @@ const Dashboard: React.FC = () => {
         key: 'totalServed',
         title: t('dashboard.cards.totalServed'),
         value: stats.totalServed != null && !loading ? formatBytes(stats.totalServed) : '—',
-        subtitle: getTimeRangeLabel().toLowerCase(),
+        subtitle: failedSections.dashboard
+          ? t('common.failedToLoad')
+          : getTimeRangeLabel().toLowerCase(),
         icon: Server,
         color: 'teal' as const,
         visible: cardVisibility.totalServed,
@@ -566,11 +557,15 @@ const Dashboard: React.FC = () => {
           ? t('dashboard.cards.liveDataOnly')
           : [
               t('dashboard.cards.liveNow'),
-              t('dashboard.cards.downloadsInRange', {
-                count: stats.periodDownloads,
-                period: periodLabel
-              })
-            ].join(' · '),
+              stats.periodDownloads != null
+                ? t('dashboard.cards.downloadsInRange', {
+                    count: stats.periodDownloads,
+                    period: periodLabel
+                  })
+                : null
+            ]
+              .filter(Boolean)
+              .join(' · '),
         icon: Download,
         color: 'orange' as const,
         visible: cardVisibility.activeDownloads,
@@ -584,11 +579,15 @@ const Dashboard: React.FC = () => {
           ? t('dashboard.cards.liveDataOnly')
           : [
               t('dashboard.cards.liveNow'),
-              t('dashboard.cards.uniqueClientsInRange', {
-                count: stats.uniqueClients,
-                period: periodLabel
-              })
-            ].join(' · '),
+              stats.uniqueClients != null
+                ? t('dashboard.cards.uniqueClientsInRange', {
+                    count: stats.uniqueClients,
+                    period: periodLabel
+                  })
+                : null
+            ]
+              .filter(Boolean)
+              .join(' · '),
         icon: Users,
         color: 'orange' as const,
         visible: cardVisibility.activeClients,
@@ -598,7 +597,9 @@ const Dashboard: React.FC = () => {
         key: 'cacheHitRatio',
         title: t('dashboard.cards.cacheHitRatio'),
         value: stats.cacheHitRatio != null && !loading ? formatPercent(stats.cacheHitRatio) : '—',
-        subtitle: getTimeRangeLabel().toLowerCase(),
+        subtitle: failedSections.dashboard
+          ? t('common.failedToLoad')
+          : getTimeRangeLabel().toLowerCase(),
         icon: Activity,
         color: 'green' as const,
         visible: cardVisibility.cacheHitRatio,
@@ -608,14 +609,16 @@ const Dashboard: React.FC = () => {
         key: 'cacheFiles',
         title: t('dashboard.cards.cacheFiles'),
         value: cacheInfo && hasCacheScan ? formatCount(cacheInfo.totalFiles) : '—',
-        subtitle:
-          cacheInfo && !hasCacheScan
+        subtitle: failedSections.cache
+          ? t('common.failedToLoad')
+          : cacheInfo && !hasCacheScan
             ? t('dashboard.cards.noCacheScanData')
             : [
                 t('dashboard.cards.filesOnDisk'),
                 formattedCacheScanTime
                   ? t('dashboard.cards.scannedAt', { time: formattedCacheScanTime })
-                  : null
+                  : null,
+                t('dashboard.cards.onDiskNow')
               ]
                 .filter(Boolean)
                 .join(' • '),
@@ -641,11 +644,14 @@ const Dashboard: React.FC = () => {
                 : null,
               unmappedCacheBytes && unmappedCacheBytes > 0
                 ? t('dashboard.statCards.unmappedCache', { size: formatBytes(unmappedCacheBytes) })
-                : null
+                : null,
+              t('dashboard.cards.onDiskNow')
             ]
               .filter(Boolean)
               .join(' • ')
-          : t('dashboard.cards.noScanData'),
+          : detectionFailed
+            ? t('common.failedToLoad')
+            : t('dashboard.cards.noScanData'),
         // Games on disk owns its own freshness: isStale compares live cache usage against
         // the baseline captured when detection last ran, so a download after detection flags
         // this card and re-running detection clears it. It never borrows the cache-file scan's
@@ -680,7 +686,10 @@ const Dashboard: React.FC = () => {
       formattedLastDetectionTime,
       formattedCacheScanTime,
       hasCacheScan,
-      unmappedCacheBytes
+      unmappedCacheBytes,
+      failedSections,
+      cacheSnapshotFailed,
+      detectionFailed
     ]
   );
 
@@ -935,8 +944,10 @@ const Dashboard: React.FC = () => {
           const isLiveOnlyCard = card.key === 'activeDownloads' || card.key === 'activeClients';
           const isCardDisabled = isLiveOnlyCard && isHistoricalView;
 
-          const cardSparklineData =
-            card.key === 'bandwidthSaved'
+          // A failed sparkline section keeps the previous window's series, so nothing is drawn.
+          const cardSparklineData = sparklinesFailed
+            ? undefined
+            : card.key === 'bandwidthSaved'
               ? sparklineData?.bandwidthSaved?.data
               : card.key === 'cacheHitRatio'
                 ? sparklineData?.cacheHitRatio?.data

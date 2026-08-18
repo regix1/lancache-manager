@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { GameDetectionSummary, ServiceStat } from '@/types';
 import { isActiveGame } from '@utils/gameDetection';
 import type { ChartData, GameSliceExtra, TabId } from './types';
@@ -72,6 +73,7 @@ export function useChartData(
   activeTab: TabId,
   games?: GameDetectionSummary[]
 ): ChartData {
+  const { t } = useTranslation();
   const { getColor, getCacheHitColor, getCacheMissColor, getBorderColor } = useServiceColors();
   const { getGameColors, getOtherColor } = useGameColors();
 
@@ -108,7 +110,7 @@ export function useChartData(
       if (hasOther) {
         const otherTotal = otherGames.reduce((sum, g) => sum + g.value, 0);
         const otherFiles = otherGames.reduce((sum, g) => sum + g.cacheFiles, 0);
-        labels.push(`Other (${otherGames.length} games)`);
+        labels.push(t('dashboard.serviceAnalytics.games.otherGames', { count: otherGames.length }));
         rawSliceValues.push(otherTotal);
         sliceExtras.push({ cacheFiles: otherFiles, service: 'mixed' });
       }
@@ -194,7 +196,10 @@ export function useChartData(
         const data = applyMinimumSlice(originalData, MIN_SLICE_DEGREES / 360);
 
         return {
-          labels: ['Cache Hits', 'Cache Misses'],
+          labels: [
+            t('dashboard.serviceAnalytics.compare.cacheHits'),
+            t('dashboard.serviceAnalytics.compare.cacheMisses')
+          ],
           datasets: [
             {
               id: 'cache-hit-ratio',
@@ -289,6 +294,7 @@ export function useChartData(
     serviceStats,
     activeTab,
     games,
+    t,
     getColor,
     getCacheHitColor,
     getCacheMissColor,

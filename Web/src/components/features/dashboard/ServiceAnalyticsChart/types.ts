@@ -49,7 +49,7 @@ export interface DoughnutChartProps {
   total: number;
   centerLabel: string;
   gameSliceExtras?: GameSliceExtra[];
-  ariaLabel?: string;
+  ariaLabel: string;
 }
 
 export interface ChartLegendProps {

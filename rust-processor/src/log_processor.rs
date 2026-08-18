@@ -1687,39 +1687,35 @@ impl Processor {
 
             // Upsert client stats - no pre-check SELECT needed
             sqlx::query(
-                r#"INSERT INTO "ClientStats" ("ClientIp", "TotalCacheHitBytes", "TotalCacheMissBytes", "LastActivityUtc", "LastActivityLocal", "TotalDownloads", "TotalDurationSeconds")
-                   VALUES ($1, $2, $3, $4, $5, 1, 0.0)
+                r#"INSERT INTO "ClientStats" ("ClientIp", "TotalCacheHitBytes", "TotalCacheMissBytes", "LastActivityUtc", "TotalDownloads", "TotalDurationSeconds")
+                   VALUES ($1, $2, $3, $4, 1, 0.0)
                    ON CONFLICT ("ClientIp") DO UPDATE SET
                        "TotalCacheHitBytes" = "ClientStats"."TotalCacheHitBytes" + EXCLUDED."TotalCacheHitBytes",
                        "TotalCacheMissBytes" = "ClientStats"."TotalCacheMissBytes" + EXCLUDED."TotalCacheMissBytes",
                        "LastActivityUtc" = EXCLUDED."LastActivityUtc",
-                       "LastActivityLocal" = EXCLUDED."LastActivityLocal",
                        "TotalDownloads" = "ClientStats"."TotalDownloads" + 1"#
             )
             .bind(client_ip)
             .bind(total_hit_bytes)
             .bind(total_miss_bytes)
             .bind(last_utc_dt)
-            .bind(last_local_dt)
             .execute(&mut **tx)
             .await?;
 
             // Upsert service stats - no pre-check SELECT needed
             sqlx::query(
-                r#"INSERT INTO "ServiceStats" ("Service", "TotalCacheHitBytes", "TotalCacheMissBytes", "LastActivityUtc", "LastActivityLocal", "TotalDownloads")
-                   VALUES ($1, $2, $3, $4, $5, 1)
+                r#"INSERT INTO "ServiceStats" ("Service", "TotalCacheHitBytes", "TotalCacheMissBytes", "LastActivityUtc", "TotalDownloads")
+                   VALUES ($1, $2, $3, $4, 1)
                    ON CONFLICT ("Service") DO UPDATE SET
                        "TotalCacheHitBytes" = "ServiceStats"."TotalCacheHitBytes" + EXCLUDED."TotalCacheHitBytes",
                        "TotalCacheMissBytes" = "ServiceStats"."TotalCacheMissBytes" + EXCLUDED."TotalCacheMissBytes",
                        "LastActivityUtc" = EXCLUDED."LastActivityUtc",
-                       "LastActivityLocal" = EXCLUDED."LastActivityLocal",
                        "TotalDownloads" = "ServiceStats"."TotalDownloads" + 1"#
             )
             .bind(service)
             .bind(total_hit_bytes)
             .bind(total_miss_bytes)
             .bind(last_utc_dt)
-            .bind(last_local_dt)
             .execute(&mut **tx)
             .await?;
 
@@ -1919,23 +1915,21 @@ impl Processor {
 
             // Update client and service stats (for both new and existing downloads)
             sqlx::query(
-                "UPDATE \"ClientStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3, \"LastActivityLocal\" = $4 WHERE \"ClientIp\" = $5"
+                "UPDATE \"ClientStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3 WHERE \"ClientIp\" = $4"
             )
             .bind(total_hit_bytes)
             .bind(total_miss_bytes)
             .bind(last_utc_dt)
-            .bind(last_local_dt)
             .bind(client_ip)
             .execute(&mut **tx)
             .await?;
 
             sqlx::query(
-                "UPDATE \"ServiceStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3, \"LastActivityLocal\" = $4 WHERE \"Service\" = $5"
+                "UPDATE \"ServiceStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3 WHERE \"Service\" = $4"
             )
             .bind(total_hit_bytes)
             .bind(total_miss_bytes)
             .bind(last_utc_dt)
-            .bind(last_local_dt)
             .bind(service)
             .execute(&mut **tx)
             .await?;

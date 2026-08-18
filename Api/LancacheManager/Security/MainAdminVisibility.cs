@@ -25,13 +25,7 @@ internal static class MainAdminVisibility
             return null;
         }
 
-        var callerOwnsInstallation = await context.UserAccounts
-            .AsNoTracking()
-            .Where(a => a.Id == callerAccountId)
-            .Select(a => a.IsMainAdmin)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (callerOwnsInstallation)
+        if (await OwnsInstallationAsync(context, callerAccountId, cancellationToken))
         {
             return null;
         }
@@ -44,10 +38,32 @@ internal static class MainAdminVisibility
     }
 
     /// <summary>
+    /// Whether an account row is the one that owns the installation. Read from the row, not the
+    /// caller's claims, which say "admin" for every administrator and are a copy taken at sign-in.
+    /// </summary>
+    public static async Task<bool> OwnsInstallationAsync(
+        AppDbContext context,
+        Guid accountId,
+        CancellationToken cancellationToken = default)
+    {
+        return await context.UserAccounts
+            .AsNoTracking()
+            .Where(a => a.Id == accountId)
+            .Select(a => a.IsMainAdmin)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// The accounts a caller may see and name. A user is answered without the administrators; an
     /// administrator who is not the owner is answered without the owner; the owner and a caller
     /// with no account row are answered with everybody.
     /// </summary>
+    /// <remarks>
+    /// Every account action loads its target through this, which is what makes the rule a
+    /// permission rather than a display filter: hiding a row from the list while still answering a
+    /// request that names it by id hides nothing. A caller with no account row is an API-key
+    /// request or the shared authentication-disabled session, and both act as an administrator.
+    /// </remarks>
     public static IQueryable<UserAccount> AccountsVisibleTo(AppDbContext context, UserAccount? caller)
     {
         if (caller is { Role: SessionType.User })

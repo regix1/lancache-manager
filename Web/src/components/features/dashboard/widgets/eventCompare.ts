@@ -1,41 +1,24 @@
+import type { TFunction } from 'i18next';
+import { formatMinutes } from '@utils/timeFormatters';
 import type { Event, EventCompareResponse } from '@/types';
 
 export const MAX_COMPARE_EVENTS = 8;
 
-export function elapsedLabel(minutes: number): string {
-  if (minutes < 60) {
-    return `${minutes}m`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  if (hours < 24) {
-    return remainder > 0 ? `${hours}h ${remainder}m` : `${hours}h`;
-  }
-
-  const days = Math.floor(hours / 24);
-  const leftoverHours = hours % 24;
-  return leftoverHours > 0 ? `${days}d ${leftoverHours}h` : `${days}d`;
+export function elapsedLabel(minutes: number, t: TFunction): string {
+  return formatMinutes(minutes, t);
 }
 
-export function readCompareEventIds(raw: string | null, knownIds: number[]): number[] {
-  if (!raw) {
+export function readCompareEventIds(stored: number[] | null, knownIds: number[]): number[] {
+  // A hand-edited or stale value parses into anything at all, so the shape is checked here rather
+  // than trusted from the type argument. [45]
+  if (!Array.isArray(stored)) {
     return [];
   }
 
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .map((id) => Number(id))
-      .filter((id) => Number.isInteger(id) && knownIds.includes(id))
-      .slice(0, MAX_COMPARE_EVENTS);
-  } catch {
-    return [];
-  }
+  return stored
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && knownIds.includes(id))
+    .slice(0, MAX_COMPARE_EVENTS);
 }
 
 export function defaultCompareEventIds(events: Event[]): number[] {
@@ -49,7 +32,7 @@ export function clipCompareToHours(
   compare: EventCompareResponse,
   hours: number
 ): EventCompareResponse {
-  if (!Number.isFinite(hours) || hours >= 999999) {
+  if (!Number.isFinite(hours)) {
     return compare;
   }
 

@@ -16,6 +16,11 @@
 
 **Bandwidth and Compare Events on the dashboard.** One full-width card with a tab for each. Bandwidth plots cache hits and total served across the header time range, and picks a bucket width from the hours that actually have downloads so a short event is still a line. Compare Events overlays the parties you pick, lined up from each event's start and clipped to that same range.
 
+**Appearance**
+
+- Badges read in capitals everywhere, so a service, status or platform label looks the same on every page it appears on.
+- The Timber & Stone, Accessible - Protanopia and LANCache Unofficial themes no longer paint a shadow under a button, which had stopped matching the rest of the app.
+
 ## Security
 
 - **The API key on its own is no longer a sign-in.** It authenticates the API reference and nothing else. See Upgrading if you script against this API.
@@ -59,6 +64,7 @@
 - Each service offers the login validity window its own backend really allows, and the new re-login date updates as you type.
 - A failed cleanup no longer leaves the prefill config modal dead.
 - The prefill socket keeps reconnecting past thirty seconds.
+- The guest button on the sign-in screen still works when the setup check cannot be read.
 
 **Interface**
 

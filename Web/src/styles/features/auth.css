@@ -18,14 +18,9 @@
   padding: 1.25rem 1.25rem 0;
 }
 
+/* Colour only. The shape, the centring and the 2.5rem square come from
+   .icon-box + .icon-box--md in utilities/patterns.css, which the markup carries alongside. */
 .auth-upgrade-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: var(--theme-border-radius);
   background-color: var(--theme-accent-subtle);
   color: var(--theme-accent);
 }

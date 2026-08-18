@@ -6,10 +6,12 @@ using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
+using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using static LancacheManager.Core.Services.UserPreferencesService;
 
@@ -152,7 +154,13 @@ public sealed class UserPreferencesControllerTests
             NullLogger<UserPreferencesController>.Instance,
             new UserPreferencesService(NullLogger<UserPreferencesService>.Instance, database.Factory),
             notifications,
-            database.Factory);
+            new SessionService(
+                database.Factory,
+                apiKeyService: null!,
+                NullLogger<SessionService>.Instance,
+                stateService: null!,
+                signalR: notifications,
+                new ConfigurationBuilder().Build()));
 
         var context = new DefaultHttpContext();
         context.Items["Session"] = new UserSession

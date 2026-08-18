@@ -39,6 +39,10 @@ public class EventMetricsQueryTests
         Assert.Contains("LIMIT", sql, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Runs on SQLite while production is Npgsql only, so it checks the LINQ shape and the numbers,
+    /// not the SQL the production provider generates.
+    /// </summary>
     [Fact]
     public void EventTotalsQuery_HonoursClientExclusions()
     {
@@ -71,6 +75,44 @@ public class EventMetricsQueryTests
         Assert.Equal(1000, totals.TotalBytes);
         Assert.Equal(1000, totals.HitBytes);
         Assert.Equal(1, totals.Downloads);
+    }
+
+    /// <summary>
+    /// The compare chart asks for up to eight events at once. One query has to answer for all of
+    /// them, keyed by event, or the endpoint pays a round trip and a pooled context per event.
+    /// Runs on SQLite, so it checks the LINQ shape and the grouping, not the production SQL.
+    /// </summary>
+    [Fact]
+    public async Task LoadTaggedDownloadIds_AnswersEveryEventFromOneQuery()
+    {
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        using var context = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        context.Database.EnsureCreated();
+
+        var start = DateTime.UtcNow.AddHours(-4);
+        context.Events.Add(PartyEvent(1, "Friday", start, start.AddHours(8)));
+        context.Events.Add(PartyEvent(2, "Saturday", start, start.AddHours(8)));
+        context.Events.Add(PartyEvent(3, "Sunday", start, start.AddHours(8)));
+        context.Downloads.AddRange(
+            SteamDownload(10, "10.0.0.1", 1000),
+            SteamDownload(11, "10.0.0.2", 500),
+            SteamDownload(12, "10.0.0.3", 250));
+        context.EventDownloads.AddRange(
+            Tag(1, 10),
+            Tag(1, 11),
+            Tag(2, 12));
+        context.SaveChanges();
+
+        var tagged = await DashboardBatchService.LoadTaggedDownloadIdsAsync(
+            context,
+            [1, 2, 3],
+            CancellationToken.None);
+
+        Assert.Equal(new[] { 10L, 11L }, tagged[1].Order());
+        Assert.Equal(new[] { 12L }, tagged[2].Order());
+        Assert.False(tagged.ContainsKey(3));
     }
 
     private static Event PartyEvent(long id, string name, DateTime start, DateTime end) => new()

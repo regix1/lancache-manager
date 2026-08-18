@@ -20,7 +20,6 @@ import AuthenticationModal from '@components/modals/auth/AuthenticationModal';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import ApiService from '@services/api.service';
 import { useConfig } from '@contexts/useConfig';
-import { setServerTimezone } from '@utils/timezone';
 import { isAdminAccountRequired } from '@utils/adminAccountSetup';
 import { isAbortError } from '@utils/error';
 import { ApiError } from '@services/apiError';
@@ -217,13 +216,7 @@ const AppContent: React.FC = () => {
     };
   }, [signalR, showFullScanRequiredModal, authMode, wasModalDismissed]);
 
-  // Set server timezone from config context (guaranteed non-null)
-  const { config, refreshConfig } = useConfig();
-  useEffect(() => {
-    if (config.timeZone) {
-      setServerTimezone(config.timeZone);
-    }
-  }, [config.timeZone]);
+  const { refreshConfig } = useConfig();
 
   // NOTE: Automatic GC on page load is now handled by the backend GcMiddleware
   // which properly respects the memory threshold and aggressiveness settings.

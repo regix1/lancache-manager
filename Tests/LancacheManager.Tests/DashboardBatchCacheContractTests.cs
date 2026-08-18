@@ -1,6 +1,8 @@
 using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using LancacheManager.Models.Responses;
+using Microsoft.Extensions.Configuration;
 
 namespace LancacheManager.Tests;
 
@@ -281,6 +283,48 @@ public sealed class DashboardBatchCacheContractTests
         Assert.True(
             source.Contains("success: warmedFully", StringComparison.Ordinal),
             "the reported warm success must reflect whether every section was warmed");
+    }
+
+    /// <summary>
+    /// A warm that names no zone writes a key whose zone segment is empty, while every browser asks
+    /// for a key carrying its zone name. That entry is read by nobody and the fan-out behind it is
+    /// paid on a schedule anyway. [70]
+    /// </summary>
+    [Fact]
+    public void WarmRequestsTheZoneADefaultReaderSends()
+    {
+        var source = ReadSource("Infrastructure", "Services", "DashboardCacheWarmerService.cs");
+
+        Assert.Contains("ServerTimeZone.IanaId(_configuration)", source, StringComparison.Ordinal);
+        Assert.Contains("GetBatchAsync(null, null, null, serverZone,", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetBatchAsync(null, null, null, null,", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The warm and the reader only share a cache entry if they name the zone with the same string.
+    /// /api/system/config answers <see cref="ServerTimeZone.IanaId(IConfiguration)"/>, a reader on the
+    /// default server clock sends that id straight back, and the batch puts whatever arrives through
+    /// KnownTimeZoneId before keying on it - so that round trip has to return the id unchanged. A
+    /// rename to "Etc/UTC" on the reader's side alone would split the two keys. [70]
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("UTC")]
+    [InlineData("Europe/Berlin")]
+    [InlineData("Eastern Standard Time")]
+    public void TheServerZoneSurvivesTheRoundTripIntoTheCacheKey(string? configuredZone)
+    {
+        var settings = new Dictionary<string, string?>();
+        if (configuredZone is not null)
+        {
+            settings["TZ"] = configuredZone;
+        }
+
+        var reported = ServerTimeZone.IanaId(new ConfigurationBuilder()
+            .AddInMemoryCollection(settings)
+            .Build());
+
+        Assert.Equal(reported, DashboardBatchService.KnownTimeZoneId(reported));
     }
 
     private static string BatchServiceSource()

@@ -13,7 +13,11 @@ import { useAuth } from '@contexts/useAuth';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { getEffectiveTimezone, getTimeInTimezone } from '@utils/timezone';
-import { clockFromTimeSetting, timeSettingFromClock } from '@utils/pendingPreferences';
+import {
+  clockFromTimeSetting,
+  confirmPendingTimezone,
+  timeSettingFromClock
+} from '@utils/pendingPreferences';
 import type { TimeSettingValue } from '@contexts/TimezoneContext.types';
 
 interface TimezoneSelectorProps {
@@ -65,12 +69,14 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
   };
 
   useEffect(() => {
-    if (!isGuest || loadingDefaults || hasAutoSwitched.current) return;
+    if (!isGuest || loadingDefaults || !currentPreferences || hasAutoSwitched.current) return;
 
-    const currentValue = getCurrentValue();
+    // The clock the guest has stored, not the one on screen: useTimezone still reads its own
+    // defaults on the commit this load lands in. [75]
+    const storedValue = timeSettingFromClock(currentPreferences);
     const allowedFormats = getEffectiveAllowedFormats();
 
-    if (allowedFormats.length > 0 && !allowedFormats.includes(currentValue)) {
+    if (allowedFormats.length > 0 && !allowedFormats.includes(storedValue)) {
       const adminDefault = getAdminDefault();
       const targetFormat = allowedFormats.includes(adminDefault)
         ? adminDefault
@@ -80,7 +86,13 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
       handleTimeSettingChange(targetFormat);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isGuest, loadingDefaults, guestDefaults.allowedTimeFormats, userAllowedFormats]);
+  }, [
+    isGuest,
+    loadingDefaults,
+    currentPreferences,
+    guestDefaults.allowedTimeFormats,
+    userAllowedFormats
+  ]);
 
   const computeTime = () => {
     const timezone = getEffectiveTimezone(useLocalTimezone, useUtcTimezone);
@@ -104,29 +116,31 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
 
   const handleTimeSettingChange = async (value: string) => {
     const typedValue = value as TimeSettingValue;
-    setPendingTimeSetting(typedValue);
+    const click = setPendingTimeSetting(typedValue);
 
     // Takes back only this click's own optimistic values. A save can fail while the click after it is
     // already on the wire, and clearing the three keys outright would drop the newer click's values
     // too.
-    const reportFailure = (error?: unknown): void => {
-      dropPendingTimeSetting(typedValue);
-      notifyError(t('common.timezoneSelector.errors.updateFailed'), error, {
-        logLabel: 'Failed to update time settings'
-      });
+    const reportFailure = (message: string, error?: unknown): void => {
+      dropPendingTimeSetting(click);
+      notifyError(message, error, { logLabel: 'Failed to update time settings' });
     };
 
     try {
-      const saved = await preferencesService.setClockPreferences(clockFromTimeSetting(typedValue));
+      const answer = await preferencesService.setClockPreferences(clockFromTimeSetting(typedValue));
 
-      // A rejected promise is not what a rejected save looks like here: the service reports failure
-      // by resolving false. Left unread, the optimistic value simply expires and the control slides
-      // back to the old choice with nothing said.
-      if (!saved) {
-        reportFailure();
+      // A rejected promise is not what a refused save looks like here: the service answers by
+      // resolving. A request that ran out of time is not one that was refused, and calling it a
+      // failure tells the reader the clock went nowhere moments before the broadcast moves it.
+      if (answer === 'saved') {
+        confirmPendingTimezone(click);
+      } else if (answer === 'noAnswer') {
+        reportFailure(t('common.timezoneSelector.errors.updateNoAnswer'));
+      } else {
+        reportFailure(t('common.timezoneSelector.errors.updateFailed'));
       }
     } catch (error) {
-      reportFailure(error);
+      reportFailure(t('common.timezoneSelector.errors.updateFailed'), error);
     }
   };
 
@@ -146,6 +160,9 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
             opt.value === adminDefault
               ? `${opt.label} (${t('common.timezoneSelector.defaultLabel')})`
               : opt.label,
+          // A greyed row that still describes its clock face reads as broken. The row the reader
+          // cannot pick says why instead. [73]
+          description: isAllowed ? opt.description : t('common.timezoneSelector.notAllowed'),
           disabled: !isAllowed
         };
       })}

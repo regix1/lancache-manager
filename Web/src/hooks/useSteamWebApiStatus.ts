@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import ApiService from '@services/api.service';
 import { assertOk } from '@services/apiError';
 import { useAuth } from '@contexts/useAuth';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { getErrorMessage } from '@utils/error';
 
 export interface SteamWebApiStatus {
@@ -19,6 +21,7 @@ export const useSteamWebApiStatusState = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { authMode, isLoading: authLoading } = useAuth();
+  const { isConnected } = useSignalR();
   const hasAccess = authMode === 'authenticated';
   const hasFailedAuth = useRef(false);
 
@@ -80,6 +83,15 @@ export const useSteamWebApiStatusState = () => {
   }, [fetchStatus, authLoading, hasAccess]);
 
   const refresh = useCallback(() => fetchStatus(true, true), [fetchStatus]);
+
+  // Nothing broadcasts a key change, so a key added or revoked while this tab was disconnected only
+  // shows up by asking again. Admin-only, like the effect above: the endpoint 401s for anyone else.
+  // Skipping the loading flag keeps the panel showing the last answer until the new one lands.
+  useReconnectRefetch(isConnected, () => {
+    if (hasAccess) {
+      void fetchStatus(false, true);
+    }
+  });
 
   const updateStatus = useCallback(
     (updater: (prev: SteamWebApiStatus | null) => SteamWebApiStatus | null) => {

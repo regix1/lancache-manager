@@ -142,26 +142,25 @@ const StatCard: React.FC<StatCardProps> = ({
       <div className="mt-auto">
         {loading ? (
           <div className="stat-card-skeleton-sparkline skeleton-shimmer h-8 mt-2" />
-        ) : Array.isArray(sparklineData) ? (
+        ) : !Array.isArray(sparklineData) ? (
+          // Empty spacer to maintain consistent card height when the card has no sparkline at all
+          <div className="sparkline-placeholder" />
+        ) : sparklineData.length > 1 ? (
           <Sparkline
-            data={
-              sparklineData.length === 0
-                ? [0, 0]
-                : sparklineData.length === 1
-                  ? [sparklineData[0], sparklineData[0]]
-                  : sparklineData
-            }
+            data={sparklineData}
             color={resolvedSparklineColor}
-            height={32}
             showArea={true}
             animated={true}
             ariaLabel={t('common.statCard.sparklineAria', { title, count: sparklineData.length })}
           />
         ) : (
-          <>
-            {/* Empty spacer to maintain consistent card height when no sparkline */}
-            <div className="sparkline-placeholder h-8 mt-2" />
-          </>
+          // A line needs two points and pointRadius is 0, so a single point paints nothing. Say
+          // which case it is rather than padding out a flat line that reads as measured.
+          <div className="sparkline-placeholder">
+            {sparklineData.length === 0
+              ? t('common.statCard.noDataInRange')
+              : t('common.statCard.notEnoughToChart')}
+          </div>
         )}
       </div>
     </div>

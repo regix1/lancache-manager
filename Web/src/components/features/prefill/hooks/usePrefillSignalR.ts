@@ -682,9 +682,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
   // If the socket genuinely reconnects and we still never adopted a server session (the initial
   // GetMySessions lost the race on a flaky mobile connect and its bounded retries gave up),
-  // re-run adoption now that the hub is healthy. Fires once per reconnect, never on first connect.
-  // An already-adopted session is reconciled by the onreconnected handler, so this only acts when
-  // there is no current session and initialization is not already in flight.
+  // re-run adoption now that the hub is healthy. Fires once per connect, and does nothing unless
+  // adoption never completed. An already-adopted session is reconciled by the onreconnected
+  // handler, so this only acts when there is no current session and initialization is not already
+  // in flight.
   useReconnectRefetch(isConnected, () => {
     if (!sessionRef.current && !isInitializing) {
       initializationAttempted.current = false;

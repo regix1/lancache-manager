@@ -6,14 +6,17 @@
  * without importing a React context. It wins over the local/server choice when it is on, and it is
  * only ever set from the timezone selector and the preferences that selector saves.
  *
- * It is only a default. A caller that builds its settings from the timezone context passes `useUtc`
- * outright, and that always wins - which is what a component must do, because this box holds no
- * subscribers and changing it re-renders nothing.
+ * It is only a default. A caller that passes `useUtc` outright still wins, and the reader below
+ * answers with the pending click ahead of the stored value.
  */
 
 import { createGlobalPreference } from './globalPreference';
+import { getPendingValue } from './pendingPreferences';
 
 const utcTimezonePreference = createGlobalPreference(false);
 
 export const setGlobalUtcPreference = utcTimezonePreference.set;
-export const getGlobalUtcPreference = utcTimezonePreference.get;
+
+/** The UTC half of the reader's clock, read the same way as getGlobalTimezonePreference. [60] */
+export const getGlobalUtcPreference = (): boolean =>
+  getPendingValue<boolean>('useUtcTimezone') ?? utcTimezonePreference.get();

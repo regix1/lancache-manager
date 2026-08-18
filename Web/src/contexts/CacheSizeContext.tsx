@@ -129,7 +129,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
   // A reconnect can swallow the CacheScanComplete of a scan that finished while the socket was
   // down - resync the persisted size on a genuine reconnect. Admin-only: /cache/size 403s for
   // guests, and this provider is global (mounted for every session), so a guest reconnect - or an
-  // admin->guest switch - must not fire it. First connect is already suppressed by the hook.
+  // admin->guest switch - must not fire it.
   useReconnectRefetch(isConnected, () => {
     if (isAdmin) {
       void fetchCacheSize();

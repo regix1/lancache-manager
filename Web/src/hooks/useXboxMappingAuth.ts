@@ -4,6 +4,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import ApiService from '@services/api.service';
 import { useNotifications, type NotificationStatus } from '@contexts/notifications';
 import { useErrorHandler } from './useErrorHandler';
+import { useReconnectRefetch } from './useReconnectRefetch';
 import { getErrorMessage } from '@utils/error';
 import type { XboxMappingAuthStateChangedEvent } from '../contexts/SignalRContext/types';
 
@@ -39,7 +40,7 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
 export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const { onSuccess, onError, loginStatusNotifications = false } = options;
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const { notifyError } = useErrorHandler();
   const { t } = useTranslation();
   const { addNotification } = useNotifications();
@@ -113,6 +114,38 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The one way a login ends in success, so the reconnect resync below can end it the same way the
+  // backend's own event does. No card is written here: the catalog resolve already completed the
+  // same card one message earlier, with the resolved games count. Writing one would replace that
+  // with a plainer message and re-arm the auto-dismiss from zero.
+  const finishLogin = useCallback(() => {
+    loginInProgressRef.current = false;
+    loginNotificationActiveRef.current = false;
+    setNeedsDeviceCode(false);
+    setLoading(false);
+    onSuccess?.();
+  }, [onSuccess]);
+
+  // The one way a login ends in failure, for the same reason finishLogin exists. Approval hands the
+  // card to the catalog resolve, which settles it with the real stage error one message before this
+  // runs, so ownership is snapshotted before it is cleared: the card is written only when this login
+  // still owns it, which is the pre-approval death where no reporter exists to settle it.
+  const failLogin = useCallback(
+    (message: string) => {
+      const loginCardActive = loginNotificationActiveRef.current;
+      loginInProgressRef.current = false;
+      loginNotificationActiveRef.current = false;
+      setNeedsDeviceCode(false);
+      setLoading(false);
+      setError(message);
+      if (loginCardActive) {
+        pushLoginCard('failed', t('signalr.xbox.mapping.failed'), message);
+      }
+      onError?.(message);
+    },
+    [onError, pushLoginCard, t]
+  );
+
   // Listen for the dedicated, non-notification auth event that signals login success or failure.
   useEffect(() => {
     const handleAuthStateChanged = (event: XboxMappingAuthStateChangedEvent) => {
@@ -127,28 +160,21 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
         return;
       }
       if (!TERMINAL_STATUSES.has(event.status)) return;
-      // Approval hands the card to the catalog resolve, which settles it with the real stage error
-      // (or the cancel) one message before this event lands. Snapshot ownership before clearing it
-      // so the terminal branches below write only when this login still owns the card - the
-      // pre-approval death, where no reporter exists and nothing else would settle it.
+      if (event.status === 'completed') {
+        finishLogin();
+        return;
+      }
+      if (event.status === 'failed') {
+        failLogin(event.error ?? event.message ?? t('modals.xboxAuth.errors.loginFailed'));
+        return;
+      }
+      // Cancelled. Same ownership snapshot failLogin takes, for the same reason.
       const loginCardActive = loginNotificationActiveRef.current;
       loginInProgressRef.current = false;
       loginNotificationActiveRef.current = false;
       setNeedsDeviceCode(false);
       setLoading(false);
-      if (event.status === 'completed') {
-        // No card written on success: the catalog resolve already completed the same card one
-        // message earlier, with the resolved games count. Writing here would replace that with a
-        // plainer message and re-arm the auto-dismiss from zero.
-        onSuccess?.();
-      } else if (event.status === 'failed') {
-        const message = event.error ?? event.message ?? t('modals.xboxAuth.errors.loginFailed');
-        setError(message);
-        if (loginCardActive) {
-          pushLoginCard('failed', t('signalr.xbox.mapping.failed'), message);
-        }
-        onError?.(message);
-      } else if (event.status === 'cancelled' && loginCardActive) {
+      if (loginCardActive) {
         // Reached when the poll is cancelled or expires server-side while the modal is still
         // open. Before approval the catalog reporter does not exist yet, so this is the only
         // event that can settle the card.
@@ -169,7 +195,42 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       off('XboxMappingAuthStateChanged', handleAuthStateChanged);
       off('XboxMappingStarted', handleMappingStarted);
     };
-  }, [on, off, onSuccess, onError, pushLoginCard, t]);
+  }, [on, off, finishLogin, failLogin, pushLoginCard, t]);
+
+  // The backend polls Microsoft for the device code and pushes the outcome, so a socket that drops
+  // during that wait loses the only message that can end this login: the modal would sit on a code
+  // the user has already approved, or on one the poll has since given up on. The status route reads
+  // cached flags with no I/O, so asking it again on recovery is cheap. A failed ask leaves the login
+  // in flight for the next recovery.
+  useReconnectRefetch(isConnected, () => {
+    if (!loginInProgressRef.current) return;
+    void ApiService.getXboxMappingAuthStatus()
+      .then((status) => {
+        // Closing the modal aborts nothing here, and two reconnects in quick succession both ask.
+        // Re-read the flag the caller checked before the request went out, or a login the user
+        // backed out of is completed anyway, and onSuccess fires twice for one login.
+        if (!loginInProgressRef.current) return;
+        if (status.isAuthenticated) {
+          finishLogin();
+          return;
+        }
+        // Signed out AND no attempt alive: the poll died while the socket was down, so nothing will
+        // ever end this login. loginInProgress stays true through the catalog stretch after
+        // approval, so a busy login never reaches here. The device code is the proof the backend
+        // registered this attempt at all - without it the login POST is still on the wire, its own
+        // rejection handles the failure, and reading the flag now would kill a login that has not
+        // started yet.
+        if (!status.loginInProgress && needsDeviceCode) {
+          failLogin(t('modals.xboxAuth.errors.loginFailed'));
+        }
+      })
+      .catch((error) => {
+        notifyError('Failed to resync Xbox mapping auth status', error, {
+          silent: true,
+          logLabel: 'useXboxMappingAuth reconnect'
+        });
+      });
+  });
 
   const startLogin = useCallback(async () => {
     resetAuthForm();

@@ -1,6 +1,7 @@
 import { antiforgeryHeaders } from '../utils/antiforgery';
 import { API_BASE } from '../utils/constants';
 import { isAbortError } from '../utils/error';
+import { getEffectiveTimezone } from '../utils/timezone';
 import { hasRecentUserInteraction } from '../utils/userInteractionTracker';
 import { ApiError, assertOk, buildApiError } from './apiError';
 import type {
@@ -368,6 +369,9 @@ class ApiService {
     if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
     if (eventId) params.append('eventId', eventId.toString());
     if (cacheBust) params.append('cacheBust', cacheBust.toString());
+    // The zone is sent by name, not as one offset: an offset read now is wrong for every row on
+    // the far side of a daylight-saving change. Read per call, since the reader can switch clocks.
+    params.append('timeZoneId', getEffectiveTimezone());
     if (params.toString()) url += `?${params}`;
 
     // No client-side cache. Backend IMemoryCache (60s non-live, 15s live)

@@ -14,6 +14,9 @@ node scripts/validate-lancache-spelling.mjs
 echo "pre-push: running knip..."
 npm run knip
 
+echo "pre-push: running the frontend tests..."
+npm test
+
 # Backend analyzer gate. This is the same build CI runs, so a CA/xUnit/nullable
 # violation fails here instead of arriving on GitHub as a warning annotation.
 # --no-incremental is required: an incremental build re-emits zero analyzer

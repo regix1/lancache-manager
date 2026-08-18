@@ -5,8 +5,6 @@ import authService, {
   type SessionType
 } from '@services/auth.service';
 import { useSignalR } from './SignalRContext/useSignalR';
-import type { ShowToastEvent } from './SignalRContext/types';
-import { isAbortError } from '@utils/error';
 import { AuthContext } from './AuthContext.types';
 import { APP_EVENTS } from '@utils/constants';
 
@@ -60,8 +58,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const data = await authService.checkAuth();
       if (data.reachable === false) {
-        // The stub checkAuth returns on a failed or timed-out status call is
-        // isAuthenticated: false. Applying it here would sign a live session out.
+        // The status call never landed, and the stub checkAuth returns for that is
+        // isAuthenticated: false, which would sign a live session out over a blip.
         return;
       }
 
@@ -95,42 +93,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       } else {
         setAuthMode('unauthenticated');
       }
-    } catch (error) {
-      console.error('[Auth] Failed to check auth status:', error);
-      // AuthProvider is an ancestor of NotificationsProvider in AppProviders.tsx, so
-      // useErrorHandler (useNotifications) is not reachable here - it would throw. Use the
-      // existing show-toast bridge instead (mirrors NotificationsContext.tsx:332-356). A failed
-      // session check silently defaults to unauthenticated below, so surface it - otherwise the
-      // user has no idea why they were logged out. Cancellation (request timeout abort) is not
-      // a failure worth surfacing.
-      if (!isAbortError(error)) {
-        window.dispatchEvent(
-          new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
-            detail: {
-              type: 'error',
-              message: 'Failed to verify your session. Please refresh the page.',
-              duration: 5000
-            }
-          })
-        );
-      }
-      setAuthenticationEnabled(true);
-      setAuthMode('unauthenticated');
-      setSessionType(null);
-      setSessionId(null);
-      setAccountId(null);
-      setIsMainAdmin(false);
-      setSessionExpiresAt(null);
-      setSteamPrefillEnabled(false);
-      setSteamPrefillExpiresAt(null);
-      setEpicPrefillEnabled(false);
-      setEpicPrefillExpiresAt(null);
-      setBattlenetPrefillEnabled(false);
-      setBattlenetPrefillExpiresAt(null);
-      setRiotPrefillEnabled(false);
-      setRiotPrefillExpiresAt(null);
-      setXboxPrefillEnabled(false);
-      setXboxPrefillExpiresAt(null);
     } finally {
       setIsLoading(false);
       notifyAuthSessionUpdated();

@@ -16,6 +16,21 @@
   opacity: 1;
 }
 
+/* Stands in for the sparkline when a card has nothing to draw. Same height and
+   offset as the chart it replaces, so the card does not change size, and it
+   centres the short caption that says why the chart is missing. */
+.sparkline-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  margin-top: 8px;
+  font-size: var(--font-size-xs);
+  line-height: 1.2;
+  color: var(--theme-text-muted);
+  text-align: center;
+}
+
 /* ===== SHARED DASHBOARD PANEL VOCABULARY =====
    Labeled readout strip (value over small-caps label, hairline dividers) and
    the bordered data well. Used by the Recent Downloads panel, the analytics
@@ -651,6 +666,28 @@
   flex-shrink: 0;
 }
 
+/* Phones: the controls wrap, and the actions' right-alignment would leave the wrapped
+   row at its natural width against the right edge. Give each control a full-width row
+   and split the actions row between them. Stretching a segmented control's container
+   alone leaves its buttons bunched at one end, so the segments split their width too,
+   the way the component's own fullWidth prop does. [80] */
+@media (max-width: 639.98px) {
+  .line-trend-controls > * {
+    flex: 1 1 100%;
+  }
+
+  /* Below ~330px of card width the picker and the metric toggle cannot both hold their
+     text, so they stack instead of running past the card edge. */
+  .line-trend-actions {
+    flex-wrap: wrap;
+  }
+
+  .line-trend-actions > *,
+  .line-trend-controls .segmented-control-container > * {
+    flex: 1 1 0;
+  }
+}
+
 .line-trend-legend {
   display: flex;
   flex-wrap: wrap;
@@ -661,12 +698,16 @@
   flex-shrink: 0;
 }
 
+/* The swatch and label together are only ~14px tall, which is below any touch
+   target minimum. The padding and min-height give the button a real hit area;
+   the legend's own row gap absorbs the extra height without moving the chart. */
 .line-trend-legend-item {
   display: flex;
   align-items: center;
   gap: 0.375rem;
+  min-height: 1.5rem;
   margin: 0;
-  padding: 0;
+  padding: 0.25rem 0.125rem;
   border: 0;
   background: transparent;
   cursor: pointer;
@@ -747,6 +788,39 @@
 
 .line-trend-swatch-event-8 {
   --legend-color: var(--theme-event-8);
+}
+
+.themed-card.line-trend-tooltip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  pointer-events: none;
+  transform: translate3d(var(--line-trend-tooltip-x, 0px), var(--line-trend-tooltip-y, 0px), 0);
+  transition: none;
+}
+
+.themed-card.line-trend-tooltip[hidden] {
+  display: none;
+}
+
+.line-trend-tooltip-title {
+  color: var(--theme-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* The tooltip reuses the legend row to read a value out, and nothing in it is
+   clickable, so it drops the hit area the real legend button needs. */
+.line-trend-tooltip .line-trend-legend-item {
+  cursor: default;
+  min-height: 0;
+  padding: 0;
 }
 
 /* Dashboard stat card grids */

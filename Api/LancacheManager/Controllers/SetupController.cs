@@ -442,6 +442,9 @@ public class SetupController : ControllerBase
     /// The character rule is the one with teeth: the value is written to postgres-credentials.json,
     /// and the .NET app, the Rust binaries and entrypoint.sh all rebuild their connection settings by
     /// reading that file back, which a backslash or a control character does not survive intact.
+    ///
+    /// The length ceiling is here rather than beside the embedded rules so both endpoints stop at the
+    /// same place: the value ends up in the same file whichever of the two wrote it.
     /// </summary>
     private static string? CheckPassword(string password)
     {
@@ -450,6 +453,9 @@ public class SetupController : ControllerBase
 
         if (password.Length < 8)
             return "Password must be at least 8 characters";
+
+        if (password.Length > 256)
+            return "Password cannot exceed 256 characters";
 
         if (password.AsSpan().IndexOfAny(_disallowedPasswordChars) >= 0)
             return "Password contains disallowed characters.";
@@ -475,9 +481,6 @@ public class SetupController : ControllerBase
 
         if (password.Length < 12)
             return "Password must be at least 12 characters";
-
-        if (password.Length > 256)
-            return "Password cannot exceed 256 characters";
 
         if (!UsesThreeCharacterClasses(password))
         {

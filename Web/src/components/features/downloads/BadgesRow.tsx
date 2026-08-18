@@ -25,7 +25,7 @@ export default function BadgesRow({
   return (
     <div className={`flex items-center gap-1.5 flex-wrap${className ? ` ${className}` : ''}`}>
       <span className="themed-badge" style={getServiceBadgeStyles(service)}>
-        {getServiceDisplayName(service).toUpperCase()}
+        {getServiceDisplayName(service)}
       </span>
       {showDatasource && datasource && <Badge variant="neutral">{datasource}</Badge>}
       {isEvicted && <EvictedBadge />}

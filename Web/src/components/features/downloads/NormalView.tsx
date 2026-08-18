@@ -1200,7 +1200,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
       {/* Title area with service badge */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
-          {getServiceDisplayName(group.service).toUpperCase()}
+          {getServiceDisplayName(group.service)}
         </span>
         {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
           <Badge variant="neutral">{group.downloads[0].datasource}</Badge>

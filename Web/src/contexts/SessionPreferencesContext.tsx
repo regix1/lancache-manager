@@ -21,6 +21,7 @@ import {
   getCachedDefaultGuestPreferences,
   type DefaultGuestPreferences
 } from '@hooks/useDefaultGuestPreferences';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { SessionPreferencesContext } from './SessionPreferencesContext.types';
 import { APP_EVENTS } from '@utils/constants';
 import {
@@ -42,8 +43,9 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   const pendingDefaultClocks = useRef<
     Map<string, { clock: ClockPreferences; previousClock: ClockPreferences }[]>
   >(new Map());
+  const loadGenerations = useRef<Map<string, number>>(new Map());
 
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const { isAdmin, hasSession, sessionId: authSessionId, isLoading: authLoading } = useAuth();
 
   const getCurrentSessionId = useCallback((): string | null => {
@@ -53,6 +55,13 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   useEffect(() => {
     preferencesRef.current = preferences;
   }, [preferences]);
+
+  /** The next number for a session, claimed by whoever is about to change what that session holds. */
+  const nextLoadGeneration = useCallback((sessionId: string): number => {
+    const generation = (loadGenerations.current.get(sessionId) ?? 0) + 1;
+    loadGenerations.current.set(sessionId, generation);
+    return generation;
+  }, []);
 
   const loadSessionPreferences = useCallback(
     async (sessionId: string) => {
@@ -76,6 +85,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       }
 
       loadingIds.current.add(sessionId);
+      const generation = nextLoadGeneration(sessionId);
 
       try {
         // Use cookie-based endpoint for current session, session-specific for others
@@ -107,6 +117,28 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         }
 
         const prefs = await response.json();
+
+        if (loadGenerations.current.get(sessionId) !== generation) {
+          // A write landed while the request was on the wire, so it is newer than this answer.
+          loadedIds.current.add(sessionId);
+          pendingDefaultClocks.current.delete(sessionId);
+          return;
+        }
+
+        // A pick still waiting on its save outranks the clock this answer carries. A pick the
+        // server has confirmed does not: the client just asked it directly, so that pick is let go.
+        const incomingUseLocal = prefs.useLocalTimezone ?? false;
+        const incomingUseUtc = prefs.useUtcTimezone ?? false;
+        const incomingUse24Hour = prefs.use24HourFormat ?? true;
+
+        const {
+          useLocal: useLocalTimezone,
+          useUtc: useUtcTimezone,
+          use24Hour: use24HourFormat
+        } = isCurrentSession
+          ? preferPendingTimezone(incomingUseLocal, incomingUseUtc, incomingUse24Hour)
+          : { useLocal: incomingUseLocal, useUtc: incomingUseUtc, use24Hour: incomingUse24Hour };
+
         const normalizedPrefs: UserPreferences = {
           selectedTheme: prefs.selectedTheme || null,
           sharpCorners: prefs.sharpCorners ?? false,
@@ -115,9 +147,9 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
           picsAlwaysVisible: prefs.picsAlwaysVisible ?? false,
           disableStickyNotifications: prefs.disableStickyNotifications ?? false,
           showDatasourceLabels: prefs.showDatasourceLabels ?? true,
-          useLocalTimezone: prefs.useLocalTimezone ?? false,
-          useUtcTimezone: prefs.useUtcTimezone ?? false,
-          use24HourFormat: prefs.use24HourFormat ?? true,
+          useLocalTimezone,
+          useUtcTimezone,
+          use24HourFormat,
           refreshRate: prefs.refreshRate ?? null,
           refreshRateLocked: prefs.refreshRateLocked ?? null,
           allowedTimeFormats: prefs.allowedTimeFormats ?? null
@@ -146,7 +178,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         loadingIds.current.delete(sessionId);
       }
     },
-    [isAdmin, getCurrentSessionId]
+    [isAdmin, getCurrentSessionId, nextLoadGeneration]
   );
 
   // Combined effect: reset and load atomically when session becomes available
@@ -163,6 +195,20 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       loadSessionPreferences(sessionId);
     }
   }, [getCurrentSessionId, loadSessionPreferences, authLoading, hasSession]);
+
+  // Nothing replays a preference changed while the socket was down, so clear the two markers that
+  // make a load a no-op and ask again. Declared after the load effect: a session and a connection
+  // arriving in one commit then load once rather than twice.
+  const resyncPreferences = useCallback(() => {
+    const sessionId = getCurrentSessionId();
+    if (!sessionId) return;
+
+    loadedIds.current.delete(sessionId);
+    failedIds.current.delete(sessionId);
+    loadSessionPreferences(sessionId);
+  }, [getCurrentSessionId, loadSessionPreferences]);
+
+  useReconnectRefetch(isConnected, resyncPreferences);
 
   // Reset when session is lost
   useEffect(() => {
@@ -237,12 +283,13 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         });
       }
 
+      nextLoadGeneration(sessionId);
       setPreferences((prev) => ({ ...prev, [sessionId]: normalizedPrefs }));
       if (!loadedIds.current.has(sessionId)) {
         loadedIds.current.add(sessionId);
       }
     },
-    [getCurrentSessionId]
+    [getCurrentSessionId, nextLoadGeneration]
   );
 
   // When bulk preferences are reset, clear all cached prefs so badges refresh.
@@ -314,6 +361,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       const sessionId = getCurrentSessionId();
       if (!sessionId) return;
 
+      nextLoadGeneration(sessionId);
       setPreferences((prev) => {
         const updated = {
           ...prev,
@@ -324,7 +372,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         return updated;
       });
     },
-    [getCurrentSessionId]
+    [getCurrentSessionId, nextLoadGeneration]
   );
 
   const setOptimisticPreference = useCallback(

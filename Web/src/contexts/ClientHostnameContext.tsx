@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 
 import ApiService, { type ClientHostnamesResponse } from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { getErrorMessage } from '@utils/error';
 import { ClientHostnameContext } from './ClientHostnameContext.types';
 
@@ -11,7 +12,7 @@ interface ClientHostnameProviderProps {
 
 export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ children }) => {
   const { authMode, isLoading: authLoading } = useAuth();
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const [hostnameLookup, setHostnameLookup] = useState<ClientHostnamesResponse>({
     enabled: false,
     hostnames: {},
@@ -97,6 +98,13 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
   useEffect(() => {
     authModeRef.current = authMode;
   }, [authMode]);
+
+  // A ClientHostnamesChanged raised while the socket was down is never delivered, so the labels stay
+  // as they were until something else refreshes them. Same signed-in check as the handler below.
+  useReconnectRefetch(isConnected, () => {
+    if (authModeRef.current !== 'authenticated' && authModeRef.current !== 'guest') return;
+    void refreshHostnames();
+  });
 
   // An admin flipping the setting changes every viewer's labels, so refresh for any signed-in
   // viewer rather than only the one who made the change.

@@ -56,9 +56,7 @@ export const APP_EVENTS = {
   /** The auth session token changed; SignalR reconnects (or drops) on the new credentials. */
   AUTH_SESSION_UPDATED: 'auth-session-updated',
   /** Auth state changed (e.g. a 401 cleared it); consumers re-evaluate access. */
-  AUTH_STATE_CHANGED: 'auth-state-changed',
-  /** SignalR reconnected; consumers refetch state that may have drifted while disconnected. */
-  SIGNALR_RECONNECTED: 'signalr-reconnected'
+  AUTH_STATE_CHANGED: 'auth-state-changed'
 } as const;
 
 // Services

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { storage } from '@utils/storage';
 import { TimeFilterContext, type TimeRange } from './TimeFilterContext.types';
-import { getTimeRangeHours, computeTimeRangeParams } from './TimeFilterContext.utils';
+import { computeTimeRangeParams, NO_TIME_WINDOW_HOURS } from './TimeFilterContext.utils';
 
 interface TimeFilterProviderProps {
   children: ReactNode;
@@ -126,14 +126,6 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     }
   }, [timeRange]);
 
-  const getTimeRangeInHours = useCallback((): number => {
-    if (timeRange === 'custom' && customStartDate && customEndDate) {
-      const diffMs = customEndDate.getTime() - customStartDate.getTime();
-      return Math.ceil(diffMs / (1000 * 60 * 60));
-    }
-    return getTimeRangeHours(timeRange);
-  }, [timeRange, customStartDate, customEndDate]);
-
   const getTimeRangeParams = useCallback((): { startTime?: number; endTime?: number } => {
     // Quantize to minute buckets so mousedown-prefetch and click-fetch
     // (often <500ms apart) produce identical cache keys → cache hit.
@@ -146,6 +138,16 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       customEndDate?.getTime()
     );
   }, [timeRange, customStartDate, customEndDate, rangeAnchorTime]);
+
+  // Measured off the window that is actually queried, so a custom pick reports the span the data
+  // covers: the dates alone stop at the start of the end day, while the query runs to the end of it.
+  const getTimeRangeInHours = useCallback((): number => {
+    const { startTime, endTime } = getTimeRangeParams();
+    if (startTime === undefined || endTime === undefined) {
+      return NO_TIME_WINDOW_HOURS;
+    }
+    return Math.ceil((endTime - startTime) / (60 * 60));
+  }, [getTimeRangeParams]);
 
   // Wrapped setters with optional logging
   const setCustomStartDateWithLogging = useCallback((date: Date | null) => {

@@ -28,6 +28,13 @@ public class AccountRefusalResponse
     public const string AdminRoleRequiresMainAdmin = "errors.accounts.adminRoleRequiresMainAdmin";
 
     /// <summary>
+    /// Deleting every account is the owning account's alone. Separate from
+    /// <see cref="AdminRoleRequiresMainAdmin"/> because the person who pressed the button reads
+    /// the refusal, and a wipe turned down with a sentence about roles names the wrong action.
+    /// </summary>
+    public const string WipeRequiresMainAdmin = "errors.accounts.wipeRequiresMainAdmin";
+
+    /// <summary>
     /// The caller's own account cannot be deleted, disabled or moved to another role. All three end
     /// the caller's sessions, and none of them can be undone by the person who did it: only the
     /// account that owns the installation creates accounts or grants the admin role. Renaming your

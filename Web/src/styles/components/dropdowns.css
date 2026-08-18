@@ -274,7 +274,7 @@
   }
 
   .msd-checkbox {
-    border-radius: 0.2rem;
+    border-radius: var(--theme-border-radius-sm, 0.2rem);
     transition:
       background-color 0.15s ease,
       border-color 0.15s ease,

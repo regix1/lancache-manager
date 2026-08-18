@@ -87,8 +87,6 @@ export interface Download {
   clientIp: string;
   startTimeUtc: string;
   endTimeUtc: string | null;
-  startTimeLocal: string;
-  endTimeLocal: string | null;
   cacheHitBytes: number;
   cacheMissBytes: number;
   totalBytes: number;
@@ -153,7 +151,6 @@ export interface ServiceStat {
   cacheHitPercent: number;
   totalDownloads: number;
   lastActivityUtc: string;
-  lastActivityLocal: string;
 }
 
 export interface DashboardStats {
@@ -612,8 +609,6 @@ export interface Event {
   description?: string;
   startTimeUtc: string;
   endTimeUtc: string;
-  startTimeLocal: string;
-  endTimeLocal: string;
   colorIndex: number; // 1-8, references theme event colors
   createdAtUtc: string;
   updatedAtUtc?: string;
@@ -624,8 +619,6 @@ export interface CreateEventRequest {
   description?: string;
   startTime: number; // Unix timestamp
   endTime: number; // Unix timestamp
-  startTimeLocal?: string;
-  endTimeLocal?: string;
   colorIndex?: number; // 1-8, references theme event colors
 }
 
@@ -634,8 +627,6 @@ export interface UpdateEventRequest {
   description?: string;
   startTime: number; // Unix timestamp
   endTime: number; // Unix timestamp
-  startTimeLocal?: string;
-  endTimeLocal?: string;
   colorIndex?: number; // 1-8, references theme event colors
 }
 
@@ -849,6 +840,10 @@ export interface XboxMappingAuthStatus {
   displayName: string | null;
   lastCollectionUtc: string | null;
   gamesDiscovered: number;
+  /** True while a device-code login attempt is still alive, covering the approval wait and the
+   *  catalog harvest after it. False alongside `isAuthenticated: false` is the only pair that means
+   *  the attempt is over and did not succeed. */
+  loginInProgress: boolean;
   expiresAtUtc: string | null;
 }
 

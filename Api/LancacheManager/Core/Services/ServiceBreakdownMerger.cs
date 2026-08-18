@@ -87,8 +87,7 @@ internal static class ServiceBreakdownMerger
             TotalCacheHitBytes = toMerge.Sum(r => r.TotalCacheHitBytes),
             TotalCacheMissBytes = toMerge.Sum(r => r.TotalCacheMissBytes),
             TotalDownloads = toMerge.Sum(r => r.TotalDownloads),
-            LastActivityUtc = toMerge.Max(r => r.LastActivityUtc),
-            LastActivityLocal = toMerge.Max(r => r.LastActivityLocal)
+            LastActivityUtc = toMerge.Max(r => r.LastActivityUtc)
         });
 
         return rest.OrderByDescending(r => r.TotalCacheHitBytes + r.TotalCacheMissBytes).ToList();
