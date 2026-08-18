@@ -23,7 +23,14 @@ set -eo pipefail
 
 SQLITE_DB="$1"
 PGDATABASE="$2"
-MIGRATION_MARKER="/data/postgres-migration.complete"
+MIGRATION_MARKER="${MIGRATION_MARKER:-/data/postgres-migration.complete}"
+
+# The marker means an earlier run's data COMMIT succeeded. COPYing again into a
+# populated database dies on duplicate primary keys, so never import twice.
+if [ -f "$MIGRATION_MARKER" ]; then
+    echo "[migration] Migration marker found at $MIGRATION_MARKER - skipping import."
+    exit 0
+fi
 
 # Validate prerequisites
 if ! command -v sqlite3 &>/dev/null; then
@@ -35,6 +42,15 @@ if [ ! -f "$SQLITE_DB" ]; then
     echo "[migration] ERROR: SQLite database not found at $SQLITE_DB"
     exit 1
 fi
+
+# Prove the marker is writable before importing anything. Discovering it is not, after the
+# data has been committed, would leave a loaded database that still looks unmigrated, and the
+# next start would copy into it again and die on duplicate primary keys.
+if ! mkdir -p "$(dirname "$MIGRATION_MARKER")" 2>/dev/null || ! touch "$MIGRATION_MARKER.probe" 2>/dev/null; then
+    echo "[migration] ERROR: cannot write the migration marker at $MIGRATION_MARKER"
+    exit 1
+fi
+rm -f "$MIGRATION_MARKER.probe"
 
 # Verify sqlite3 can read the database
 TABLE_COUNT=$(sqlite3 "$SQLITE_DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '__EFMigrationsHistory';" 2>&1) || {
@@ -102,6 +118,31 @@ SELECT pg_reload_conf();
 TUNEEOF
     echo "[migration] WARNING: Could not apply ALTER SYSTEM tuning (likely a managed DB). Continuing without it."
 fi
+
+# ALTER SYSTEM writes postgresql.auto.conf, which survives restarts, so an abort anywhere
+# below (set -e) would otherwise leave fsync off permanently and a later power cut would
+# corrupt the database. Undo the tuning on every exit path, success or failure.
+# Best-effort for the same managed-DB reason as the tuning itself.
+restore_postgres_settings() {
+    echo "[migration] Restoring safe PostgreSQL settings (best-effort)..."
+    run_psql <<'RESTOREEOF' 2>&1 || echo "[migration] WARNING: Could not restore ALTER SYSTEM defaults (likely a managed DB)."
+ALTER SYSTEM RESET synchronous_commit;
+ALTER SYSTEM RESET fsync;
+ALTER SYSTEM RESET full_page_writes;
+ALTER SYSTEM RESET wal_level;
+ALTER SYSTEM RESET max_wal_senders;
+ALTER SYSTEM RESET max_wal_size;
+ALTER SYSTEM RESET work_mem;
+ALTER SYSTEM RESET maintenance_work_mem;
+ALTER SYSTEM RESET autovacuum;
+SELECT pg_reload_conf();
+RESTOREEOF
+}
+trap restore_postgres_settings EXIT
+# Stopping the container sends SIGTERM. An untrapped signal kills the shell without running the
+# EXIT trap, which would leave the tuning above in postgresql.auto.conf; exiting instead runs it.
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 # ---------------------------------------------------------------------------
 # Phase 2: Drop non-PK/unique indexes for faster inserts
@@ -217,6 +258,13 @@ done
 # Phase 4: Post-migration cleanup
 # ---------------------------------------------------------------------------
 if [ "$MIGRATION_FAILED" -eq 0 ]; then
+    # The data COMMIT has succeeded, so write the marker now. Everything below is
+    # post-processing over data that is already correct: a failure there still exits
+    # non-zero to surface the problem, but the next start must skip the import instead
+    # of re-copying into a populated database and dying on duplicate primary keys.
+    mkdir -p "$(dirname "$MIGRATION_MARKER")"
+    touch "$MIGRATION_MARKER"
+
     # Recreate indexes that were dropped before the bulk load
     echo "[migration] Recreating indexes..."
     # ON_ERROR_STOP so a unique index the imported rows violate stops the script instead of
@@ -274,28 +322,10 @@ BEGIN
 END $$;
 SEQEOF
 
-    # Restore safe PostgreSQL settings after bulk load (best-effort, same caveat as tuning)
-    echo "[migration] Restoring safe PostgreSQL settings (best-effort)..."
-    run_psql <<'RESTOREEOF' 2>&1 || echo "[migration] WARNING: Could not restore ALTER SYSTEM defaults (likely a managed DB)."
-ALTER SYSTEM RESET synchronous_commit;
-ALTER SYSTEM RESET fsync;
-ALTER SYSTEM RESET full_page_writes;
-ALTER SYSTEM RESET wal_level;
-ALTER SYSTEM RESET max_wal_senders;
-ALTER SYSTEM RESET max_wal_size;
-ALTER SYSTEM RESET work_mem;
-ALTER SYSTEM RESET maintenance_work_mem;
-ALTER SYSTEM RESET autovacuum;
-SELECT pg_reload_conf();
-RESTOREEOF
-
     # Run ANALYZE so the planner has accurate stats after bulk import
     echo "[migration] Running ANALYZE..."
     run_psql -c "ANALYZE;"
 
-    # Write marker file at a mode-agnostic location
-    mkdir -p "$(dirname "$MIGRATION_MARKER")"
-    touch "$MIGRATION_MARKER"
     echo "[migration] Data migration complete. SQLite database preserved at $SQLITE_DB"
 else
     echo "[migration] ERROR: Data migration failed. Check output above."
