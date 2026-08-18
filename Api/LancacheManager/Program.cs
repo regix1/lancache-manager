@@ -341,19 +341,11 @@ else
 
 // Configure Data Protection for encrypting sensitive data
 // Keys are stored in the data directory and are machine-specific
-// Determine the path based on OS - must match PathResolver logic but cannot use DI yet
-string dataRoot;
-if (OperatingSystemDetector.IsWindows)
-{
-    // Windows: Find project root and use data directory
-    var projectRoot = FindProjectRootForDataProtection();
-    dataRoot = Path.Combine(projectRoot, "data");
-}
-else // Linux/Docker
-{
-    // Linux: /data
-    dataRoot = "/data";
-}
+// Determine the path the same way LinuxPathResolver does, but without DI: the container mounts
+// /data at the root, and outside one the data directory sits beside Api and Web.
+var dataRoot = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true"
+    ? "/data"
+    : Path.Combine(FindProjectRootForDataProtection(), "data");
 
 var legacyKeyPath = Path.Combine(dataRoot, "DataProtection-Keys");
 var securityDir = Path.Combine(dataRoot, "security");
@@ -1435,18 +1427,7 @@ app.Run();
 // Runs pre-DI; cannot use IPathResolver. Mirrors PathResolverBase.GetDataProtectionKeysPath()
 static string FindProjectRootForDataProtection()
 {
-    var currentDir = Directory.GetCurrentDirectory().Replace('/', '\\');
-
-    // Quick check: if we're in Api\LancacheManager, go up two levels
-    if (currentDir.EndsWith("\\Api\\LancacheManager", StringComparison.OrdinalIgnoreCase))
-    {
-        var projectRoot = Directory.GetParent(currentDir)?.Parent?.FullName;
-        if (projectRoot != null && Directory.Exists(Path.Combine(projectRoot, "Api")) &&
-            Directory.Exists(Path.Combine(projectRoot, "Web")))
-        {
-            return projectRoot;
-        }
-    }
+    var currentDir = Directory.GetCurrentDirectory();
 
     // Search up the directory tree
     var dir = new DirectoryInfo(currentDir);

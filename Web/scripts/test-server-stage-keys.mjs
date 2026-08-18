@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 /**
@@ -43,7 +44,7 @@ const translator = (bundle) => (key, options) =>
 // The keys the C# side emits
 // ---------------------------------------------------------------------------
 
-const apiRoot = path.resolve(repoFile('Api/LancacheManager').pathname.slice(1));
+const apiRoot = fileURLToPath(repoFile('Api/LancacheManager'));
 
 const csharpSources = readdirSync(apiRoot, { recursive: true, withFileTypes: true })
   .filter((entry) => entry.isFile() && entry.name.endsWith('.cs'))
