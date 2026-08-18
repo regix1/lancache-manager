@@ -183,11 +183,14 @@ public class DataMigrationController : ControllerBase
 
                     var service = reader.GetString(0);
                     var clientIp = reader.GetString(1);
-                    var startTimeUtc = reader.GetString(2);
-                    var endTimeUtc = reader.GetString(3);
+                    // The source is Postgres, where these are timestamptz and boolean. Npgsql refuses
+                    // to hand a timestamp back as a string or a boolean back as an int, so reading
+                    // them by their real type is what keeps the row from throwing.
+                    var startTimeUtc = reader.GetDateTime(2);
+                    var endTimeUtc = reader.GetDateTime(3);
                     var cacheHitBytes = reader.GetInt64(4);
                     var cacheMissBytes = reader.GetInt64(5);
-                    var isActive = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
+                    var isActive = !reader.IsDBNull(6) && reader.GetBoolean(6);
                     var depotId = reader.IsDBNull(7) ? (long?)null : reader.GetInt64(7);
                     var gameAppId = reader.IsDBNull(8) ? (long?)null : reader.GetInt64(8);
                     var datasource = reader.IsDBNull(9) ? "default" : reader.GetString(9);
