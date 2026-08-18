@@ -23,8 +23,8 @@ public readonly record struct ClientIpAggregate(
 public static class ClientStatsAggregationHelper
 {
     /// <summary>
-    /// Total seconds spanned by a client's downloads. SQLite cannot translate DateTime
-    /// subtraction inside an aggregate, so both call sites project min/max and fold here.
+    /// Total seconds spanned by a client's downloads. DateTime subtraction does not translate
+    /// inside an aggregate, so both call sites project min/max and fold here.
     /// </summary>
     public static double SpanSeconds(DateTime minStartUtc, DateTime maxEndUtc)
         => maxEndUtc > minStartUtc ? (maxEndUtc - minStartUtc).TotalSeconds : 0;

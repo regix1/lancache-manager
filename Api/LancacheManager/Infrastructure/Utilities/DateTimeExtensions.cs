@@ -3,15 +3,18 @@ using LancacheManager.Core.Interfaces;
 namespace LancacheManager.Infrastructure.Utilities;
 
 /// <summary>
-/// Extension methods for DateTime to simplify UTC timezone handling.
-/// SQLite doesn't preserve DateTimeKind, so we need to explicitly mark DateTimes as UTC after reading from DB.
+/// Extension methods for DateTime to simplify UTC timezone handling. Npgsql already hands back
+/// timestamptz columns with Kind set to Utc, so these are for the values that do not come from a
+/// query: anything deserialized, constructed in memory, or read out of a settings file arrives
+/// with Kind unset, and comparing that against a UTC value silently shifts it.
 /// </summary>
 public static class DateTimeExtensions
 {
     // ===== UTC Marking Methods =====
 
     /// <summary>
-    /// Marks a DateTime as UTC. Use after reading from SQLite which doesn't preserve DateTimeKind.
+    /// Marks a DateTime as UTC. Use on a value whose Kind is unset but which is known to already
+    /// hold a UTC instant; this labels it rather than converting it.
     /// </summary>
     public static DateTime AsUtc(this DateTime dt)
         => DateTime.SpecifyKind(dt, DateTimeKind.Utc);

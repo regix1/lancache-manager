@@ -8,8 +8,8 @@ public interface IMemoryManager
 {
     /// <summary>
     /// Performs aggressive garbage collection with platform-specific optimizations
-    /// On Windows: Standard GC + SQLite pool clearing
-    /// On Linux: Standard GC + SQLite pool clearing + malloc_trim to return memory to OS
+    /// On Windows: Standard GC + Npgsql pool clearing
+    /// On Linux: Standard GC + Npgsql pool clearing + malloc_trim to return memory to OS
     /// </summary>
     /// <param name="logger">Optional logger for diagnostics</param>
     void CollectGarbage(ILogger? logger = null);
