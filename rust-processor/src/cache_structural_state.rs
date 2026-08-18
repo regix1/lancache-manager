@@ -1,16 +1,15 @@
 use crate::cache_corruption_detector::{
     CorruptionCandidate, CorruptionEvidence, FileFingerprint, CORRUPTION_CONTRACT_VERSION,
 };
+use crate::db;
 use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
-use sqlx::{Connection, QueryBuilder, Row, Sqlite, SqliteConnection};
+use sqlx::postgres::PgRow;
+use sqlx::{Connection, PgConnection, Postgres, QueryBuilder, Row};
 use std::collections::HashMap;
-use std::fs::File;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::runtime::{Builder, Runtime};
 use uuid::Uuid;
 
@@ -19,6 +18,13 @@ pub const STATE_BATCH_SIZE: usize = 1_024;
 const LOOKUP_BATCH_SIZE: usize = 500;
 const LEASE_TIMEOUT_SECONDS: i64 = 300;
 const HEARTBEAT_INTERVAL_SECONDS: i64 = 30;
+
+/// Serializes first-time table creation. Concurrent first initializers (parallel test threads
+/// against a fresh database) would otherwise race CREATE TABLE IF NOT EXISTS, which PostgreSQL
+/// reports as a duplicate-key error on its catalog instead of treating as a no-op. Namespace
+/// lock keys are uniform SHA-256 prefixes, so a fixed constant collides with one namespace in
+/// 2^64.
+const SCHEMA_SETUP_LOCK_KEY: i64 = i64::from_be_bytes(*b"structur");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -147,7 +153,7 @@ pub enum SuccessfulOutcome<'a> {
 struct StoredRow {
     generation: String,
     fingerprint: FileFingerprint,
-    outcome: i64,
+    outcome: bool,
     candidate: Option<CorruptionCandidate>,
 }
 
@@ -155,110 +161,61 @@ struct StoredRow {
 struct PendingWrite {
     digest: u128,
     fingerprint: FileFingerprint,
-    outcome: i64,
+    outcome: bool,
     candidate_json: Option<String>,
 }
 
-/// Whether a live scanner process already owns this state database.
+/// Whether a live scanner process already owns this namespace.
 ///
 /// A heartbeat column cannot answer that question. It records when a scan was last *seen* alive,
 /// so a scan killed with SIGKILL (a redeploy, `docker stop`, the OOM killer) leaves a row that
-/// still looks fresh, and every later scan is refused until the lease times out. An advisory lock
-/// is held by the kernel on behalf of the process and is dropped the instant that process dies,
-/// however it dies, so it answers "is anyone actually scanning right now" exactly.
+/// still looks fresh, and every later scan is refused until the lease times out. A session
+/// advisory lock is held by the PostgreSQL server on behalf of the connection and is released
+/// the instant that connection dies, however its process dies, so it answers "is anyone actually
+/// scanning this namespace right now" exactly.
 enum StateLock {
-    /// We own the lock. No other scanner process is alive, whatever the database rows claim.
-    Acquired(File),
-    /// Another process holds it and is genuinely running.
+    /// We own the lock. No other scanner is alive in this namespace, whatever the rows claim.
+    Acquired,
+    /// Another connection holds it and is genuinely running.
     Busy,
-    /// No advisory locking on this platform, so fall back to the heartbeat lease. Unreachable on
-    /// Linux and Windows; kept so an exotic target degrades to the old behaviour instead of
-    /// failing to build.
+    /// Never produced against PostgreSQL, which can always take an advisory lock; kept so the
+    /// heartbeat-lease fallback below stays wired for a store that cannot answer the question.
     #[allow(dead_code)]
     Unsupported,
 }
 
-fn lock_path_for(path: &Path) -> PathBuf {
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(".lock");
-    path.with_file_name(name)
+/// First 64 bits of the namespace SHA-256, so each namespace gets its own advisory lock and two
+/// scopes can scan concurrently.
+fn advisory_lock_key(namespace_hash: &str) -> Result<i64> {
+    let key = u64::from_str_radix(&namespace_hash[..16], 16)
+        .context("structural namespace hash is not hexadecimal")?;
+    Ok(key as i64)
 }
 
-#[cfg(unix)]
-fn acquire_state_lock(path: &Path) -> Result<StateLock> {
-    use std::fs::OpenOptions;
-    use std::os::fd::AsRawFd;
-
-    let lock_path = lock_path_for(path);
-    let file = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .truncate(false)
-        .open(&lock_path)
-        .with_context(|| {
-            format!(
-                "failed to open structural state lock {}",
-                lock_path.display()
-            )
-        })?;
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-        return Ok(StateLock::Acquired(file));
-    }
-    let error = std::io::Error::last_os_error();
-    match error.raw_os_error() {
-        Some(code) if code == libc::EWOULDBLOCK || code == libc::EINTR => Ok(StateLock::Busy),
-        _ => Err(error)
-            .with_context(|| format!("failed to lock structural state {}", lock_path.display())),
-    }
-}
-
-/// Windows has no `flock`, but opening with a share mode of zero is the same bargain: the handle
-/// is exclusive, and the kernel closes it when the process dies.
-#[cfg(windows)]
-fn acquire_state_lock(path: &Path) -> Result<StateLock> {
-    use std::fs::OpenOptions;
-    use std::os::windows::fs::OpenOptionsExt;
-
-    /// ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION: someone else holds it.
-    const SHARING_VIOLATION: i32 = 32;
-    const LOCK_VIOLATION: i32 = 33;
-
-    let lock_path = lock_path_for(path);
-    match OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .truncate(false)
-        .share_mode(0)
-        .open(&lock_path)
-    {
-        Ok(file) => Ok(StateLock::Acquired(file)),
-        Err(error)
-            if matches!(
-                error.raw_os_error(),
-                Some(SHARING_VIOLATION) | Some(LOCK_VIOLATION)
-            ) =>
-        {
-            Ok(StateLock::Busy)
-        }
-        Err(error) => Err(error)
-            .with_context(|| format!("failed to lock structural state {}", lock_path.display())),
-    }
-}
-
-#[cfg(not(any(unix, windows)))]
-fn acquire_state_lock(_path: &Path) -> Result<StateLock> {
-    Ok(StateLock::Unsupported)
+async fn acquire_state_lock(
+    connection: &mut PgConnection,
+    namespace_hash: &str,
+) -> Result<StateLock> {
+    let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+        .bind(advisory_lock_key(namespace_hash)?)
+        .fetch_one(connection)
+        .await
+        .context("failed to take structural state advisory lock")?;
+    Ok(if acquired {
+        StateLock::Acquired
+    } else {
+        StateLock::Busy
+    })
 }
 
 pub struct StructuralState {
-    /// Held for the whole scan. Dropping it (including by dying) releases the lock.
-    _lock: Option<File>,
     runtime: Runtime,
-    connection: SqliteConnection,
+    /// Carries the session advisory lock for the whole scan. Dropping the connection (including
+    /// by dying) releases the lock on the server.
+    connection: PgConnection,
     namespace_hash: String,
     namespace_json: String,
+    scope: String,
     active_generation: Option<String>,
     staging_generation: String,
     scan_epoch: String,
@@ -272,17 +229,7 @@ pub struct StructuralState {
 }
 
 impl StructuralState {
-    pub fn open(path: &Path, namespace: StateNamespace, mode: StructuralScanMode) -> Result<Self> {
-        validate_state_path(path)?;
-        // Ask the kernel who is actually running, before trusting anything the database says
-        // about it. A scan killed mid-flight leaves a `running` row with a fresh heartbeat, and
-        // reading that row as "someone else is scanning" is what locked users out for five
-        // minutes after every restart.
-        let (lock, lock_proves_no_other_scanner) = match acquire_state_lock(path)? {
-            StateLock::Acquired(file) => (Some(file), true),
-            StateLock::Busy => bail!("another structural cache scan is already running"),
-            StateLock::Unsupported => (None, false),
-        };
+    pub fn open(namespace: StateNamespace, mode: StructuralScanMode) -> Result<Self> {
         let namespace_json = serde_json::to_string(&NamespaceDocument {
             state_format_version: STRUCTURAL_STATE_FORMAT_VERSION,
             report_contract_version: CORRUPTION_CONTRACT_VERSION,
@@ -299,21 +246,22 @@ impl StructuralState {
             .enable_all()
             .build()
             .context("failed to create structural state runtime")?;
-        let options = SqliteConnectOptions::new()
-            .filename(path)
-            .create_if_missing(true)
-            .foreign_keys(true)
-            .journal_mode(SqliteJournalMode::Wal)
-            .synchronous(SqliteSynchronous::Full)
-            .busy_timeout(Duration::from_secs(30));
+        // A dedicated connection rather than the shared pool: the advisory lock below is
+        // session-scoped, so it must live and die with exactly this scan's connection.
+        let options = db::build_connect_options()?;
         let mut connection = runtime
-            .block_on(SqliteConnection::connect_with(&options))
-            .with_context(|| {
-                format!(
-                    "failed to open structural state database {}",
-                    path.display()
-                )
-            })?;
+            .block_on(PgConnection::connect_with(&options))
+            .context("failed to connect to the structural state database")?;
+        // Ask the server who is actually running, before trusting anything the rows say about
+        // it. A scan killed mid-flight leaves a `running` row with a fresh heartbeat, and
+        // reading that row as "someone else is scanning" is what locked users out for five
+        // minutes after every restart.
+        let lock_proves_no_other_scanner =
+            match runtime.block_on(acquire_state_lock(&mut connection, &namespace_hash))? {
+                StateLock::Acquired => true,
+                StateLock::Busy => bail!("another structural cache scan is already running"),
+                StateLock::Unsupported => false,
+            };
         runtime.block_on(initialize_schema(&mut connection))?;
 
         let now = unix_timestamp()?;
@@ -322,7 +270,7 @@ impl StructuralState {
             .context("failed to begin structural state setup transaction")?;
         let existing_descriptor = runtime.block_on(
             sqlx::query(
-                "SELECT namespace_json FROM structural_namespaces WHERE namespace_hash = ?",
+                "SELECT namespace_json FROM structural_namespaces WHERE namespace_hash = $1",
             )
             .bind(&namespace_hash)
             .fetch_optional(&mut *transaction),
@@ -335,17 +283,19 @@ impl StructuralState {
         } else {
             runtime.block_on(
                 sqlx::query(
-                    "INSERT INTO structural_namespaces(namespace_hash, namespace_json) VALUES(?, ?)",
+                    "INSERT INTO structural_namespaces(namespace_hash, namespace_json, scope) \
+                     VALUES($1, $2, $3)",
                 )
                 .bind(&namespace_hash)
                 .bind(&namespace_json)
+                .bind(&namespace.scope)
                 .execute(&mut *transaction),
             )?;
         }
         let active_generation = runtime
             .block_on(
                 sqlx::query(
-                    "SELECT active_generation FROM structural_namespaces WHERE namespace_hash = ?",
+                    "SELECT active_generation FROM structural_namespaces WHERE namespace_hash = $1",
                 )
                 .bind(&namespace_hash)
                 .fetch_one(&mut *transaction),
@@ -359,8 +309,10 @@ impl StructuralState {
             let fresh_lease = runtime.block_on(
                 sqlx::query(
                     "SELECT generation FROM structural_runs \
-                     WHERE status = 'running' AND heartbeat_at >= ? LIMIT 1",
+                     WHERE namespace_hash = $1 AND status = 'running' AND heartbeat_at >= $2 \
+                     LIMIT 1",
                 )
+                .bind(&namespace_hash)
                 .bind(now.saturating_sub(LEASE_TIMEOUT_SECONDS))
                 .fetch_optional(&mut *transaction),
             )?;
@@ -368,10 +320,15 @@ impl StructuralState {
                 bail!("another structural cache scan is already running");
             }
         }
+        // Namespace-scoped because every scope shares these tables: another scope's scan may be
+        // genuinely running right now under its own advisory lock, and its row is not ours to
+        // interrupt.
         runtime.block_on(
             sqlx::query(
-                "UPDATE structural_runs SET status = 'interrupted' WHERE status = 'running'",
+                "UPDATE structural_runs SET status = 'interrupted' \
+                 WHERE namespace_hash = $1 AND status = 'running'",
             )
+            .bind(&namespace_hash)
             .execute(&mut *transaction),
         )?;
 
@@ -379,7 +336,7 @@ impl StructuralState {
             runtime.block_on(
                 sqlx::query(
                     "SELECT generation, effective_mode FROM structural_runs \
-                     WHERE namespace_hash = ? AND requested_mode = 'incremental' \
+                     WHERE namespace_hash = $1 AND requested_mode = 'incremental' \
                        AND status = 'interrupted' ORDER BY started_at DESC LIMIT 1",
                 )
                 .bind(&namespace_hash)
@@ -409,7 +366,7 @@ impl StructuralState {
                     "INSERT INTO structural_runs( \
                         generation, namespace_hash, requested_mode, effective_mode, status, \
                         started_at, heartbeat_at, enumeration_complete \
-                     ) VALUES(?, ?, ?, ?, 'running', ?, ?, 0)",
+                     ) VALUES($1, $2, $3, $4, 'running', $5, $6, FALSE)",
                 )
                 .bind(&generation)
                 .bind(&namespace_hash)
@@ -424,7 +381,7 @@ impl StructuralState {
         if resumed {
             runtime.block_on(
                 sqlx::query(
-                    "UPDATE structural_runs SET status = 'running', heartbeat_at = ? WHERE generation = ?",
+                    "UPDATE structural_runs SET status = 'running', heartbeat_at = $1 WHERE generation = $2",
                 )
                 .bind(now)
                 .bind(&staging_generation)
@@ -434,11 +391,11 @@ impl StructuralState {
         runtime.block_on(transaction.commit())?;
 
         let mut state = Self {
-            _lock: lock,
             runtime,
             connection,
             namespace_hash,
             namespace_json,
+            scope: namespace.scope,
             active_generation,
             staging_generation,
             scan_epoch: Uuid::new_v4().to_string(),
@@ -465,7 +422,8 @@ impl StructuralState {
     }
 
     /// Keeps the single-writer lease fresh during traversal phases that do not otherwise touch
-    /// SQLite. Without this, a long enumeration can look stale while the owning scan is healthy.
+    /// the database. Without this, a long enumeration can look stale while the owning scan is
+    /// healthy.
     pub fn maintain_lease(&mut self) -> Result<()> {
         self.heartbeat_if_due()
     }
@@ -484,7 +442,7 @@ impl StructuralState {
         }
         let mut rows = HashMap::<(String, u128), StoredRow>::new();
         for chunk in inputs.chunks(LOOKUP_BATCH_SIZE) {
-            let mut query = QueryBuilder::<Sqlite>::new(
+            let mut query = QueryBuilder::<Postgres>::new(
                 "SELECT generation, digest, dev, ino, len, mtime_ns, ctime_ns, outcome, candidate_json \
                  FROM structural_file_state WHERE namespace_hash = ",
             );
@@ -558,24 +516,20 @@ impl StructuralState {
                 decisions.push(ReuseDecision::Inspect);
                 continue;
             };
-            match stored.outcome {
-                0 => {
-                    // Rewrite even a staging hit so this resume epoch proves the file was seen.
-                    self.queue_write(input.digest, current.clone(), 0, None)?;
-                    decisions.push(ReuseDecision::ReuseConsistent);
+            if stored.outcome {
+                let candidate = stored
+                    .candidate
+                    .clone()
+                    .context("persisted proven outcome omitted its candidate")?;
+                validate_candidate_fingerprint(&candidate, current)?;
+                if stored.generation == self.staging_generation {
+                    self.queue_delete(input.digest);
                 }
-                1 => {
-                    let candidate = stored
-                        .candidate
-                        .clone()
-                        .context("persisted proven outcome omitted its candidate")?;
-                    validate_candidate_fingerprint(&candidate, current)?;
-                    if stored.generation == self.staging_generation {
-                        self.queue_delete(input.digest);
-                    }
-                    decisions.push(ReuseDecision::Revalidate(Box::new(candidate)));
-                }
-                other => bail!("persisted structural state used unknown outcome {other}"),
+                decisions.push(ReuseDecision::Revalidate(Box::new(candidate)));
+            } else {
+                // Rewrite even a staging hit so this resume epoch proves the file was seen.
+                self.queue_write(input.digest, current.clone(), false, None)?;
+                decisions.push(ReuseDecision::ReuseConsistent);
             }
         }
         self.flush_if_full()?;
@@ -590,11 +544,11 @@ impl StructuralState {
         outcome: SuccessfulOutcome<'_>,
     ) -> Result<()> {
         let (outcome, candidate_json) = match outcome {
-            SuccessfulOutcome::Consistent => (0, None),
+            SuccessfulOutcome::Consistent => (false, None),
             SuccessfulOutcome::Proven(candidate) => {
                 validate_candidate_fingerprint(candidate, &fingerprint)?;
                 (
-                    1,
+                    true,
                     Some(
                         serde_json::to_string(candidate)
                             .context("failed to serialize structural candidate for state")?,
@@ -612,7 +566,7 @@ impl StructuralState {
         let now = unix_timestamp()?;
         let affected = self.runtime.block_on(
             sqlx::query(
-                "UPDATE structural_runs SET status = 'interrupted', heartbeat_at = ? WHERE generation = ?",
+                "UPDATE structural_runs SET status = 'interrupted', heartbeat_at = $1 WHERE generation = $2",
             )
             .bind(now)
             .bind(&self.staging_generation)
@@ -622,7 +576,7 @@ impl StructuralState {
             bail!("structural state interruption lost its staging run");
         }
         self.finished = true;
-        self.checkpoint(false)
+        Ok(())
     }
 
     pub fn publish(&mut self) -> Result<(usize, usize)> {
@@ -638,8 +592,8 @@ impl StructuralState {
         let mut transaction = self.runtime.block_on(self.connection.begin())?;
         let run_update = self.runtime.block_on(
             sqlx::query(
-                "UPDATE structural_runs SET status = 'complete', enumeration_complete = 1, heartbeat_at = ? \
-                 WHERE generation = ?",
+                "UPDATE structural_runs SET status = 'complete', enumeration_complete = TRUE, heartbeat_at = $1 \
+                 WHERE generation = $2",
             )
             .bind(now)
             .bind(&self.staging_generation)
@@ -650,7 +604,7 @@ impl StructuralState {
         }
         let namespace_update = self.runtime.block_on(
             sqlx::query(
-                "UPDATE structural_namespaces SET active_generation = ? WHERE namespace_hash = ? AND namespace_json = ?",
+                "UPDATE structural_namespaces SET active_generation = $1 WHERE namespace_hash = $2 AND namespace_json = $3",
             )
             .bind(&self.staging_generation)
             .bind(&self.namespace_hash)
@@ -665,17 +619,12 @@ impl StructuralState {
             .active_generation
             .replace(self.staging_generation.clone());
         self.finished = true;
-        if let Err(error) = self.checkpoint(true) {
-            eprintln!(
-                "WARNING: structural state WAL checkpoint failed after publication: {error:#}"
-            );
-        }
         if let Some(old) = old_active {
             if let Err(error) = self.delete_generation_bounded(&old) {
                 eprintln!("WARNING: structural state old-generation cleanup failed: {error:#}");
             }
         }
-        if let Err(error) = self.cleanup_other_namespaces_bounded() {
+        if let Err(error) = self.cleanup_incompatible_namespaces_bounded() {
             eprintln!("WARNING: structural state incompatible-namespace cleanup failed: {error:#}");
         }
         Ok((pruned, new_count))
@@ -685,7 +634,7 @@ impl StructuralState {
         &mut self,
         digest: u128,
         fingerprint: FileFingerprint,
-        outcome: i64,
+        outcome: bool,
         candidate_json: Option<String>,
     ) -> Result<()> {
         if fingerprint.len > i64::MAX as u64 {
@@ -729,7 +678,7 @@ impl StructuralState {
             self.runtime.block_on(
                 sqlx::query(
                     "DELETE FROM structural_file_state \
-                     WHERE namespace_hash = ? AND generation = ? AND digest = ?",
+                     WHERE namespace_hash = $1 AND generation = $2 AND digest = $3",
                 )
                 .bind(&self.namespace_hash)
                 .bind(&self.staging_generation)
@@ -742,7 +691,7 @@ impl StructuralState {
                 sqlx::query(
                     "INSERT INTO structural_file_state( \
                         namespace_hash, generation, digest, dev, ino, len, mtime_ns, ctime_ns, outcome, candidate_json, seen_epoch \
-                     ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+                     ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
                      ON CONFLICT(namespace_hash, generation, digest) DO UPDATE SET \
                         dev=excluded.dev, ino=excluded.ino, len=excluded.len, \
                         mtime_ns=excluded.mtime_ns, ctime_ns=excluded.ctime_ns, \
@@ -764,7 +713,7 @@ impl StructuralState {
             )?;
         }
         self.runtime.block_on(
-            sqlx::query("UPDATE structural_runs SET heartbeat_at = ? WHERE generation = ?")
+            sqlx::query("UPDATE structural_runs SET heartbeat_at = $1 WHERE generation = $2")
                 .bind(now)
                 .bind(&self.staging_generation)
                 .execute(&mut *transaction),
@@ -777,7 +726,7 @@ impl StructuralState {
     fn heartbeat(&mut self) -> Result<()> {
         let now = unix_timestamp()?;
         let affected = self.runtime.block_on(
-            sqlx::query("UPDATE structural_runs SET heartbeat_at = ? WHERE generation = ?")
+            sqlx::query("UPDATE structural_runs SET heartbeat_at = $1 WHERE generation = $2")
                 .bind(now)
                 .bind(&self.staging_generation)
                 .execute(&mut self.connection),
@@ -792,7 +741,7 @@ impl StructuralState {
     fn count_generation(&mut self, generation: &str) -> Result<usize> {
         let count: i64 = self.runtime.block_on(
             sqlx::query_scalar(
-                "SELECT COUNT(*) FROM structural_file_state WHERE namespace_hash = ? AND generation = ?",
+                "SELECT COUNT(*) FROM structural_file_state WHERE namespace_hash = $1 AND generation = $2",
             )
             .bind(&self.namespace_hash)
             .bind(generation)
@@ -805,9 +754,9 @@ impl StructuralState {
         let count: i64 = self.runtime.block_on(
             sqlx::query_scalar(
                 "SELECT COUNT(*) FROM structural_file_state old \
-                 WHERE old.namespace_hash = ? AND old.generation = ? \
+                 WHERE old.namespace_hash = $1 AND old.generation = $2 \
                    AND NOT EXISTS(SELECT 1 FROM structural_file_state new \
-                     WHERE new.namespace_hash = old.namespace_hash AND new.generation = ? AND new.digest = old.digest)",
+                     WHERE new.namespace_hash = old.namespace_hash AND new.generation = $3 AND new.digest = old.digest)",
             )
             .bind(&self.namespace_hash)
             .bind(old)
@@ -823,12 +772,11 @@ impl StructuralState {
                 sqlx::query(
                     "DELETE FROM structural_file_state WHERE (namespace_hash, generation, digest) IN ( \
                        SELECT namespace_hash, generation, digest FROM structural_file_state \
-                       WHERE namespace_hash = ? AND generation != ? AND (? IS NULL OR generation != ?) LIMIT ? \
+                       WHERE namespace_hash = $1 AND generation != $2 AND ($3 IS NULL OR generation != $3) LIMIT $4 \
                      )",
                 )
                 .bind(&self.namespace_hash)
                 .bind(&self.staging_generation)
-                .bind(&self.active_generation)
                 .bind(&self.active_generation)
                 .bind(STATE_BATCH_SIZE as i64)
                 .execute(&mut self.connection),
@@ -840,12 +788,11 @@ impl StructuralState {
         }
         self.runtime.block_on(
             sqlx::query(
-                "DELETE FROM structural_runs WHERE namespace_hash = ? AND generation != ? \
-                 AND (? IS NULL OR generation != ?)",
+                "DELETE FROM structural_runs WHERE namespace_hash = $1 AND generation != $2 \
+                 AND ($3 IS NULL OR generation != $3)",
             )
             .bind(&self.namespace_hash)
             .bind(&self.staging_generation)
-            .bind(&self.active_generation)
             .bind(&self.active_generation)
             .execute(&mut self.connection),
         )?;
@@ -858,7 +805,7 @@ impl StructuralState {
                 sqlx::query(
                     "DELETE FROM structural_file_state WHERE (namespace_hash, generation, digest) IN ( \
                        SELECT namespace_hash, generation, digest FROM structural_file_state \
-                       WHERE namespace_hash = ? AND generation = ? AND seen_epoch != ? LIMIT ? \
+                       WHERE namespace_hash = $1 AND generation = $2 AND seen_epoch != $3 LIMIT $4 \
                      )",
                 )
                 .bind(&self.namespace_hash)
@@ -889,7 +836,7 @@ impl StructuralState {
                 sqlx::query(
                     "DELETE FROM structural_file_state WHERE (namespace_hash, generation, digest) IN ( \
                        SELECT namespace_hash, generation, digest FROM structural_file_state \
-                       WHERE namespace_hash = ? AND generation = ? LIMIT ? \
+                       WHERE namespace_hash = $1 AND generation = $2 LIMIT $3 \
                      )",
                 )
                 .bind(&self.namespace_hash)
@@ -902,22 +849,29 @@ impl StructuralState {
             }
         }
         self.runtime.block_on(
-            sqlx::query("DELETE FROM structural_runs WHERE generation = ?")
+            sqlx::query("DELETE FROM structural_runs WHERE generation = $1")
                 .bind(generation)
                 .execute(&mut self.connection),
         )?;
         Ok(())
     }
 
-    fn cleanup_other_namespaces_bounded(&mut self) -> Result<()> {
+    /// Collects predecessors of this scope whose namespace no longer matches: an older layout
+    /// signature, scanner policy version, OS or architecture leaves rows nothing will read
+    /// again. In the per-file store this could sweep every foreign namespace, because the file
+    /// belonged to one scope; these tables are shared by all scopes now, so the sweep stays
+    /// inside this scope and never touches another scope's live baseline.
+    fn cleanup_incompatible_namespaces_bounded(&mut self) -> Result<()> {
         loop {
             let affected = self.runtime.block_on(
                 sqlx::query(
                     "DELETE FROM structural_file_state WHERE (namespace_hash, generation, digest) IN ( \
-                       SELECT namespace_hash, generation, digest FROM structural_file_state \
-                       WHERE namespace_hash != ? LIMIT ? \
+                       SELECT f.namespace_hash, f.generation, f.digest FROM structural_file_state f \
+                       JOIN structural_namespaces n ON n.namespace_hash = f.namespace_hash \
+                       WHERE n.scope = $1 AND f.namespace_hash != $2 LIMIT $3 \
                      )",
                 )
+                .bind(&self.scope)
                 .bind(&self.namespace_hash)
                 .bind(STATE_BATCH_SIZE as i64)
                 .execute(&mut self.connection),
@@ -927,26 +881,21 @@ impl StructuralState {
             }
         }
         self.runtime.block_on(
-            sqlx::query("DELETE FROM structural_runs WHERE namespace_hash != ?")
-                .bind(&self.namespace_hash)
-                .execute(&mut self.connection),
+            sqlx::query(
+                "DELETE FROM structural_runs WHERE namespace_hash != $1 AND namespace_hash IN ( \
+                   SELECT namespace_hash FROM structural_namespaces WHERE scope = $2 \
+                 )",
+            )
+            .bind(&self.namespace_hash)
+            .bind(&self.scope)
+            .execute(&mut self.connection),
         )?;
         self.runtime.block_on(
-            sqlx::query("DELETE FROM structural_namespaces WHERE namespace_hash != ?")
+            sqlx::query("DELETE FROM structural_namespaces WHERE scope = $1 AND namespace_hash != $2")
+                .bind(&self.scope)
                 .bind(&self.namespace_hash)
                 .execute(&mut self.connection),
         )?;
-        Ok(())
-    }
-
-    fn checkpoint(&mut self, truncate: bool) -> Result<()> {
-        let command = if truncate {
-            "PRAGMA wal_checkpoint(TRUNCATE)"
-        } else {
-            "PRAGMA wal_checkpoint(PASSIVE)"
-        };
-        self.runtime
-            .block_on(sqlx::query(command).execute(&mut self.connection))?;
         Ok(())
     }
 }
@@ -957,7 +906,7 @@ impl Drop for StructuralState {
             let _ = self.flush();
             let _ = self.runtime.block_on(
                 sqlx::query(
-                    "UPDATE structural_runs SET status = 'interrupted' WHERE generation = ?",
+                    "UPDATE structural_runs SET status = 'interrupted' WHERE generation = $1",
                 )
                 .bind(&self.staging_generation)
                 .execute(&mut self.connection),
@@ -966,30 +915,53 @@ impl Drop for StructuralState {
     }
 }
 
-async fn initialize_schema(connection: &mut SqliteConnection) -> Result<()> {
-    let user_version: i64 = sqlx::query_scalar("PRAGMA user_version")
-        .fetch_one(&mut *connection)
+async fn initialize_schema(connection: &mut PgConnection) -> Result<()> {
+    let mut transaction = connection
+        .begin()
+        .await
+        .context("failed to begin structural state schema setup")?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(SCHEMA_SETUP_LOCK_KEY)
+        .execute(&mut *transaction)
         .await?;
-    if user_version != 0 && user_version != i64::from(STRUCTURAL_STATE_FORMAT_VERSION) {
-        bail!(
-            "unsupported structural state schema version {user_version}; expected {}",
-            STRUCTURAL_STATE_FORMAT_VERSION
-        );
+    // SQLite kept the schema generation in `PRAGMA user_version`; here it is a single-row
+    // table. A stored version this binary does not understand means another binary generation
+    // owns these tables, so refuse rather than misread them, exactly as before.
+    sqlx::query("CREATE TABLE IF NOT EXISTS structural_state_version(version BIGINT PRIMARY KEY)")
+        .execute(&mut *transaction)
+        .await?;
+    let stored_version: Option<i64> =
+        sqlx::query_scalar("SELECT version FROM structural_state_version LIMIT 1")
+            .fetch_optional(&mut *transaction)
+            .await?;
+    if let Some(version) = stored_version {
+        if version != i64::from(STRUCTURAL_STATE_FORMAT_VERSION) {
+            bail!(
+                "unsupported structural state schema version {version}; expected {}",
+                STRUCTURAL_STATE_FORMAT_VERSION
+            );
+        }
     }
-    sqlx::query("PRAGMA wal_autocheckpoint = 1000")
-        .execute(&mut *connection)
-        .await?;
-    sqlx::query("PRAGMA temp_store = MEMORY")
-        .execute(&mut *connection)
-        .await?;
+    // `scope` mirrors the namespace document's scope field as a real column so state for one
+    // cache root can be invalidated from outside this process with a plain
+    // `DELETE FROM structural_namespaces WHERE scope = ...`. External callers cannot compute
+    // `namespace_hash` (it also covers policy version, OS and architecture), and both cascades
+    // below carry that delete through structural_runs into structural_file_state.
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS structural_namespaces( \
             namespace_hash TEXT PRIMARY KEY, \
             namespace_json TEXT NOT NULL, \
+            scope TEXT NOT NULL, \
             active_generation TEXT NULL \
-         ) STRICT",
+         )",
     )
-    .execute(&mut *connection)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_structural_namespaces_scope \
+         ON structural_namespaces(scope)",
+    )
+    .execute(&mut *transaction)
     .await?;
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS structural_runs( \
@@ -998,63 +970,37 @@ async fn initialize_schema(connection: &mut SqliteConnection) -> Result<()> {
             requested_mode TEXT NOT NULL CHECK(requested_mode IN ('full','incremental')), \
             effective_mode TEXT NOT NULL CHECK(effective_mode IN ('full','incremental','baseline')), \
             status TEXT NOT NULL CHECK(status IN ('running','interrupted','complete')), \
-            started_at INTEGER NOT NULL, \
-            heartbeat_at INTEGER NOT NULL, \
-            enumeration_complete INTEGER NOT NULL CHECK(enumeration_complete IN (0,1)), \
+            started_at BIGINT NOT NULL, \
+            heartbeat_at BIGINT NOT NULL, \
+            enumeration_complete BOOLEAN NOT NULL, \
             FOREIGN KEY(namespace_hash) REFERENCES structural_namespaces(namespace_hash) ON DELETE CASCADE \
-         ) STRICT",
+         )",
     )
-    .execute(&mut *connection)
+    .execute(&mut *transaction)
     .await?;
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS structural_file_state( \
             namespace_hash TEXT NOT NULL, \
             generation TEXT NOT NULL, \
-            digest BLOB NOT NULL CHECK(length(digest) = 16), \
-            dev INTEGER NOT NULL, ino INTEGER NOT NULL, len INTEGER NOT NULL, \
-            mtime_ns INTEGER NOT NULL, ctime_ns INTEGER NOT NULL, \
-            outcome INTEGER NOT NULL CHECK(outcome IN (0,1)), \
+            digest BYTEA NOT NULL CHECK(octet_length(digest) = 16), \
+            dev BIGINT NOT NULL, ino BIGINT NOT NULL, len BIGINT NOT NULL, \
+            mtime_ns BIGINT NOT NULL, ctime_ns BIGINT NOT NULL, \
+            outcome BOOLEAN NOT NULL, \
             candidate_json TEXT NULL, \
             seen_epoch TEXT NOT NULL, \
             PRIMARY KEY(namespace_hash, generation, digest), \
             FOREIGN KEY(generation) REFERENCES structural_runs(generation) ON DELETE CASCADE \
-         ) WITHOUT ROWID, STRICT",
+         )",
     )
-    .execute(&mut *connection)
+    .execute(&mut *transaction)
     .await?;
-    sqlx::query(&format!(
-        "PRAGMA user_version = {}",
-        STRUCTURAL_STATE_FORMAT_VERSION
-    ))
-    .execute(&mut *connection)
-    .await?;
-    Ok(())
-}
-
-fn validate_state_path(path: &Path) -> Result<()> {
-    if !path.is_absolute() {
-        bail!("structural state database path must be absolute");
+    if stored_version.is_none() {
+        sqlx::query("INSERT INTO structural_state_version(version) VALUES($1)")
+            .bind(i64::from(STRUCTURAL_STATE_FORMAT_VERSION))
+            .execute(&mut *transaction)
+            .await?;
     }
-    let parent = path
-        .parent()
-        .context("structural state database path has no parent")?;
-    let parent_metadata = std::fs::symlink_metadata(parent).with_context(|| {
-        format!(
-            "failed to inspect structural state directory {}",
-            parent.display()
-        )
-    })?;
-    if parent_metadata.file_type().is_symlink() || !parent_metadata.is_dir() {
-        bail!("structural state parent must be a non-symlink directory");
-    }
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
-            bail!("structural state path must be a regular non-symlink file")
-        }
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).context("failed to inspect structural state path"),
-    }
+    transaction.commit().await?;
     Ok(())
 }
 
@@ -1063,7 +1009,7 @@ fn unix_timestamp() -> Result<i64> {
         .duration_since(UNIX_EPOCH)
         .context("system clock is before the Unix epoch")?
         .as_secs();
-    i64::try_from(seconds).context("system clock overflowed SQLite timestamp")
+    i64::try_from(seconds).context("system clock overflowed the state timestamp")
 }
 
 fn decode_digest(bytes: &[u8]) -> Result<u128> {
@@ -1073,7 +1019,7 @@ fn decode_digest(bytes: &[u8]) -> Result<u128> {
     Ok(u128::from_be_bytes(value))
 }
 
-fn fingerprint_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<FileFingerprint> {
+fn fingerprint_from_row(row: &PgRow) -> Result<FileFingerprint> {
     Ok(FileFingerprint {
         dev: row.try_get::<i64, _>("dev")? as u64,
         ino: row.try_get::<i64, _>("ino")? as u64,
@@ -1109,8 +1055,6 @@ fn validate_candidate_fingerprint(
 mod tests {
     use super::*;
     use crate::cache_corruption_detector::{StructuralEvidence, StructuralIssue};
-    use std::path::PathBuf;
-    use tempfile::TempDir;
 
     fn fingerprint(value: u64) -> FileFingerprint {
         FileFingerprint {
@@ -1131,17 +1075,18 @@ mod tests {
         }
     }
 
-    fn database(temp: &TempDir) -> PathBuf {
-        temp.path().join("state.sqlite3")
+    /// The store is one shared database, so tests isolate through the namespace instead of a
+    /// temp file: a scope no other test can collide with keeps rows and advisory locks apart.
+    fn unique_scope(prefix: &str) -> String {
+        format!("{prefix}-{}", Uuid::new_v4())
     }
 
     #[test]
     fn first_incremental_builds_then_reuses_consistent_state() {
-        let temp = TempDir::new().unwrap();
-        let path = database(&temp);
+        let _env = db::lock_test_env();
+        let scope = unique_scope("first-incremental");
         let mut first =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         assert_eq!(first.effective_mode(), EffectiveScanMode::Baseline);
         assert!(!first.can_reuse_existing());
         first
@@ -1151,8 +1096,7 @@ mod tests {
         drop(first);
 
         let mut second =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         assert!(second.can_reuse_existing());
         assert_eq!(second.effective_mode(), EffectiveScanMode::Incremental);
         assert!(matches!(
@@ -1172,11 +1116,10 @@ mod tests {
     /// this on every mount, so a host reboot must not cost the user a full rescan.
     #[test]
     fn a_new_device_number_alone_still_reuses_the_baseline() {
-        let temp = TempDir::new().unwrap();
-        let path = database(&temp);
+        let _env = db::lock_test_env();
+        let scope = unique_scope("new-device");
         let mut first =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         first
             .record_success(7, fingerprint(7), SuccessfulOutcome::Consistent)
             .unwrap();
@@ -1186,8 +1129,7 @@ mod tests {
         let mut remounted = fingerprint(7);
         remounted.dev += 4_000;
         let mut second =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         assert_eq!(second.effective_mode(), EffectiveScanMode::Incremental);
         assert!(matches!(
             second
@@ -1203,11 +1145,10 @@ mod tests {
 
     #[test]
     fn changed_fingerprint_is_inspected_and_deleted_rows_are_pruned() {
-        let temp = TempDir::new().unwrap();
-        let path = database(&temp);
+        let _env = db::lock_test_env();
+        let scope = unique_scope("changed-fingerprint");
         let mut first =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         first
             .record_success(1, fingerprint(1), SuccessfulOutcome::Consistent)
             .unwrap();
@@ -1218,8 +1159,7 @@ mod tests {
         drop(first);
 
         let mut second =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         assert!(matches!(
             second
                 .lookup_batch(&[LookupInput {
@@ -1238,11 +1178,10 @@ mod tests {
 
     #[test]
     fn interrupted_incremental_resumes_committed_staging_rows() {
-        let temp = TempDir::new().unwrap();
-        let path = database(&temp);
+        let _env = db::lock_test_env();
+        let scope = unique_scope("interrupted-resume");
         let mut first =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         first
             .record_success(1, fingerprint(1), SuccessfulOutcome::Consistent)
             .unwrap();
@@ -1250,8 +1189,7 @@ mod tests {
         drop(first);
 
         let mut resumed =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         assert!(resumed.resumed());
         assert!(matches!(
             resumed
@@ -1267,11 +1205,10 @@ mod tests {
 
     #[test]
     fn resumed_publication_drops_staging_rows_not_seen_again() {
-        let temp = TempDir::new().unwrap();
-        let path = database(&temp);
+        let _env = db::lock_test_env();
+        let scope = unique_scope("resumed-publication");
         let mut first =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         first
             .record_success(1, fingerprint(1), SuccessfulOutcome::Consistent)
             .unwrap();
@@ -1282,8 +1219,7 @@ mod tests {
         drop(first);
 
         let mut resumed =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         assert!(matches!(
             resumed
                 .lookup_batch(&[LookupInput {
@@ -1299,55 +1235,56 @@ mod tests {
 
     #[test]
     fn live_lease_blocks_a_second_writer() {
-        let temp = TempDir::new().unwrap();
-        let path = database(&temp);
+        let _env = db::lock_test_env();
+        let scope = unique_scope("live-lease");
         let mut first =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
-        let error =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .err()
-                .expect("a live scan must reject a second writer");
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
+        let error = StructuralState::open(namespace(&scope), StructuralScanMode::Incremental)
+            .err()
+            .expect("a live scan must reject a second writer");
         assert!(format!("{error:#}").contains("already running"));
         first.interrupt().unwrap();
     }
 
     #[test]
     fn full_never_resumes_abandoned_full_staging() {
-        let temp = TempDir::new().unwrap();
-        let path = database(&temp);
+        let _env = db::lock_test_env();
+        let scope = unique_scope("full-no-resume");
         let mut first =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Full).unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Full).unwrap();
         first
             .record_success(1, fingerprint(1), SuccessfulOutcome::Consistent)
             .unwrap();
         first.interrupt().unwrap();
         drop(first);
-        let second =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Full).unwrap();
+        let second = StructuralState::open(namespace(&scope), StructuralScanMode::Full).unwrap();
         assert!(!second.resumed());
         assert_eq!(second.effective_mode(), EffectiveScanMode::Full);
     }
 
     #[test]
     fn namespace_change_builds_a_new_baseline() {
-        let temp = TempDir::new().unwrap();
-        let path = database(&temp);
-        let mut first =
-            StructuralState::open(&path, namespace("one"), StructuralScanMode::Incremental)
-                .unwrap();
+        let _env = db::lock_test_env();
+        let base = unique_scope("namespace-change");
+        let mut first = StructuralState::open(
+            namespace(&format!("{base}-one")),
+            StructuralScanMode::Incremental,
+        )
+        .unwrap();
         first.publish().unwrap();
         drop(first);
-        let second =
-            StructuralState::open(&path, namespace("two"), StructuralScanMode::Incremental)
-                .unwrap();
+        let second = StructuralState::open(
+            namespace(&format!("{base}-two")),
+            StructuralScanMode::Incremental,
+        )
+        .unwrap();
         assert_eq!(second.effective_mode(), EffectiveScanMode::Baseline);
     }
 
     #[test]
     fn proven_rows_require_revalidation() {
-        let temp = TempDir::new().unwrap();
-        let path = database(&temp);
+        let _env = db::lock_test_env();
+        let scope = unique_scope("proven-revalidate");
         let fp = fingerprint(4);
         let candidate = CorruptionCandidate {
             candidate_id: "candidate".to_string(),
@@ -1374,16 +1311,14 @@ mod tests {
             },
         };
         let mut first =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         first
             .record_success(0, fp.clone(), SuccessfulOutcome::Proven(&candidate))
             .unwrap();
         first.publish().unwrap();
         drop(first);
         let mut second =
-            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         assert!(matches!(
             second
                 .lookup_batch(&[LookupInput {
@@ -1398,10 +1333,9 @@ mod tests {
 
     #[test]
     fn lease_maintenance_refreshes_a_scan_during_long_traversal() {
-        let temp = TempDir::new().unwrap();
+        let _env = db::lock_test_env();
         let mut state = StructuralState::open(
-            &database(&temp),
-            namespace("lease-refresh"),
+            namespace(&unique_scope("lease-refresh")),
             StructuralScanMode::Incremental,
         )
         .unwrap();
@@ -1410,7 +1344,7 @@ mod tests {
         state
             .runtime
             .block_on(
-                sqlx::query("UPDATE structural_runs SET heartbeat_at = ? WHERE generation = ?")
+                sqlx::query("UPDATE structural_runs SET heartbeat_at = $1 WHERE generation = $2")
                     .bind(stale)
                     .bind(&state.staging_generation)
                     .execute(&mut state.connection),
@@ -1421,9 +1355,11 @@ mod tests {
         let refreshed: i64 = state
             .runtime
             .block_on(
-                sqlx::query_scalar("SELECT heartbeat_at FROM structural_runs WHERE generation = ?")
-                    .bind(&state.staging_generation)
-                    .fetch_one(&mut state.connection),
+                sqlx::query_scalar(
+                    "SELECT heartbeat_at FROM structural_runs WHERE generation = $1",
+                )
+                .bind(&state.staging_generation)
+                .fetch_one(&mut state.connection),
             )
             .unwrap();
         assert!(refreshed > stale);
@@ -1432,33 +1368,29 @@ mod tests {
     /// The failure users actually hit: restart the container mid-scan (SIGKILL, so nothing gets
     /// to tidy up), press Scan, and the run row still says `running` with a heartbeat that looks
     /// fresh. Reading that as "another scan is live" refused every scan for the next five
-    /// minutes. No process owns the lock, so the next scan must simply start.
+    /// minutes. No connection holds the advisory lock, so the next scan must simply start.
     #[test]
     fn a_hard_killed_scan_does_not_lock_out_the_next_one() {
-        let temp = TempDir::new().unwrap();
-        let path = database(&temp);
+        let _env = db::lock_test_env();
+        let scope = unique_scope("hard-kill");
 
-        let state = StructuralState::open(
-            &path,
-            namespace("hard-kill"),
-            StructuralScanMode::Incremental,
-        )
-        .unwrap();
+        let state =
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         let generation = state.staging_generation.clone();
         drop(state);
 
         // Forge exactly what a SIGKILL leaves behind: still `running`, heartbeat still fresh.
         let runtime = Builder::new_current_thread().enable_all().build().unwrap();
         let mut connection = runtime
-            .block_on(SqliteConnection::connect_with(
-                &SqliteConnectOptions::new().filename(&path),
+            .block_on(PgConnection::connect_with(
+                &db::build_connect_options().unwrap(),
             ))
             .unwrap();
         runtime
             .block_on(
                 sqlx::query(
-                    "UPDATE structural_runs SET status = 'running', heartbeat_at = ? \
-                     WHERE generation = ?",
+                    "UPDATE structural_runs SET status = 'running', heartbeat_at = $1 \
+                     WHERE generation = $2",
                 )
                 .bind(unix_timestamp().unwrap())
                 .bind(&generation)
@@ -1468,11 +1400,7 @@ mod tests {
         drop(connection);
         drop(runtime);
 
-        let next = StructuralState::open(
-            &path,
-            namespace("hard-kill"),
-            StructuralScanMode::Incremental,
-        );
+        let next = StructuralState::open(namespace(&scope), StructuralScanMode::Incremental);
         assert!(
             next.is_ok(),
             "a hard-killed scan locked out the next one: {:?}",
@@ -1482,23 +1410,21 @@ mod tests {
 
     #[test]
     fn publication_failure_does_not_flip_the_active_generation() {
-        let temp = TempDir::new().unwrap();
-        let path = database(&temp);
+        let _env = db::lock_test_env();
+        let scope = unique_scope("atomic");
         let mut first =
-            StructuralState::open(&path, namespace("atomic"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         first.publish().unwrap();
         let previous_active = first.active_generation.clone().unwrap();
         drop(first);
 
         let mut second =
-            StructuralState::open(&path, namespace("atomic"), StructuralScanMode::Incremental)
-                .unwrap();
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
         second
             .runtime
             .block_on(
                 sqlx::query(
-                    "UPDATE structural_namespaces SET namespace_json = 'tampered' WHERE namespace_hash = ?",
+                    "UPDATE structural_namespaces SET namespace_json = 'tampered' WHERE namespace_hash = $1",
                 )
                 .bind(&second.namespace_hash)
                 .execute(&mut second.connection),
@@ -1510,7 +1436,7 @@ mod tests {
             .runtime
             .block_on(
                 sqlx::query_scalar(
-                    "SELECT active_generation FROM structural_namespaces WHERE namespace_hash = ?",
+                    "SELECT active_generation FROM structural_namespaces WHERE namespace_hash = $1",
                 )
                 .bind(&second.namespace_hash)
                 .fetch_one(&mut second.connection),

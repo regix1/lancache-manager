@@ -195,7 +195,6 @@ public class CorruptionDetectionService
         string progressFile,
         string scanStartedUtc,
         StructuralScanMode scanMode,
-        string stateDatabasePath,
         string stateScope,
         string keyScheme) =>
         [
@@ -206,8 +205,6 @@ public class CorruptionDetectionService
             scanStartedUtc,
             "--scan-mode",
             scanMode.ToWireString(),
-            "--state-db",
-            stateDatabasePath,
             "--state-scope",
             stateScope,
             "--key-scheme",
@@ -559,7 +556,6 @@ public class CorruptionDetectionService
                             progressFile,
                             scanStartedUtc,
                             scanMode ?? throw new ValidationException("Structural scan mode is required"),
-                            _pathResolver.GetStructuralCorruptionStateDatabasePath(datasourceName, cacheDir),
                             stateScope,
                             keyScheme)),
                 _ => throw new ValidationException("Unsupported corruption detection method")

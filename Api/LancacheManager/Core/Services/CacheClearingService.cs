@@ -578,11 +578,13 @@ public class CacheClearingService : ScheduledBackgroundService
                 reconciliation.CorruptionScans);
 
             // The filesystem mutation is now complete and the PostgreSQL projections are no
-            // longer authoritative. Quarantine each affected local baseline before publishing
-            // success so a later Incremental can only build/reuse post-clear state.
-            InvalidateStructuralCorruptionState(
+            // longer authoritative. Drop each affected baseline before publishing success so a
+            // later Incremental can only build/reuse post-clear state.
+            await InvalidateStructuralCorruptionStateAsync(
+                dbContext,
                 _pathResolver,
-                validCachePaths.Select(path => (path.Name, path.Path)).ToArray());
+                validCachePaths.Select(path => (path.Name, path.Path)).ToArray(),
+                finalizationToken);
 
             // Recreate zero-byte detection projections for the newly evicted entities so the
             // existing Evicted Items UI can display them immediately. Recovery is best-effort:
@@ -797,49 +799,43 @@ public class CacheClearingService : ScheduledBackgroundService
         return (games, services, corruptionCandidates, corruptionScans);
     }
 
-    internal static void InvalidateStructuralCorruptionState(
+    internal static async Task InvalidateStructuralCorruptionStateAsync(
+        AppDbContext dbContext,
         IPathResolver pathResolver,
-        IReadOnlyCollection<(string DatasourceName, string CachePath)> clearedDatasources)
+        IReadOnlyCollection<(string DatasourceName, string CachePath)> clearedDatasources,
+        CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(pathResolver);
 
-        foreach (var databasePath in clearedDatasources
-                     .Select(item => pathResolver.GetStructuralCorruptionStateDatabasePath(
-                         item.DatasourceName,
-                         item.CachePath))
-                     .Distinct(StringComparer.Ordinal))
+        // The scanner creates its own tables the first time it runs, so on an install that has
+        // never scanned there is nothing to delete and the table does not exist yet. Clearing the
+        // cache has to keep working there.
+        // Unqualified on purpose, so this resolves through the same search path as the delete
+        // below and the two can never disagree about which schema they mean.
+        var stateExists = await dbContext.Database
+            .SqlQueryRaw<bool>("SELECT to_regclass('structural_namespaces') IS NOT NULL AS \"Value\"")
+            .SingleAsync(cancellationToken);
+        if (!stateExists)
         {
-            if (File.Exists(databasePath))
-            {
-                // Renaming the main database first is the fail-closed boundary: even if cleanup
-                // of the quarantined file or detached WAL sidecars later fails, the canonical
-                // state path cannot be reopened as a valid pre-clear baseline.
-                var quarantinePath = $"{databasePath}.invalidated-{Guid.NewGuid():N}";
-                File.Move(databasePath, quarantinePath);
-                TryDeleteNonAuthoritativeStateFile(quarantinePath);
-            }
+            return;
+        }
 
-            TryDeleteNonAuthoritativeStateFile($"{databasePath}-wal");
-            TryDeleteNonAuthoritativeStateFile($"{databasePath}-shm");
-        }
-    }
+        var scopes = clearedDatasources
+            .Select(item => pathResolver.GetStructuralCorruptionStateScope(
+                item.DatasourceName,
+                item.CachePath))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
 
-    private static void TryDeleteNonAuthoritativeStateFile(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch (IOException)
-        {
-            // The canonical main database has already been removed, so a quarantined file or
-            // detached sidecar cannot be selected by a future scan and is safe to reap later.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Same safety argument as IOException above; do not turn safe quarantine cleanup
-            // into a false claim that the old canonical baseline is still usable.
-        }
+        // One statement for every cleared root is the fail-closed boundary: either all of the
+        // pre-clear baselines are gone or none are, so a later Incremental can never reuse a
+        // baseline describing files the clear has already deleted. The runs and per-file rows
+        // beneath each namespace go with it through ON DELETE CASCADE.
+        await dbContext.Database.ExecuteSqlRawAsync(
+            "DELETE FROM structural_namespaces WHERE scope = ANY({0})",
+            [scopes],
+            cancellationToken);
     }
 
     /// <summary>

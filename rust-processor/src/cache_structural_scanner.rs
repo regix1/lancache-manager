@@ -2734,7 +2734,6 @@ pub fn scan_with_state(
     scan_started_utc: DateTime<Utc>,
     progress_path: Option<&Path>,
     mode: StructuralScanMode,
-    state_db: &Path,
     state_scope: &str,
 ) -> Result<StructuralScanResult> {
     let config = StructuralScanConfig::production(root);
@@ -2747,7 +2746,7 @@ pub fn scan_with_state(
         config,
         &clock,
         None,
-        Some((mode, state_db, state_scope)),
+        Some((mode, state_scope)),
         &mut cancellation_requested,
     )
 }
@@ -2801,7 +2800,7 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
     config: StructuralScanConfig,
     clock: &dyn ScanClock,
     observer: Option<&dyn InspectionObserver>,
-    state_options: Option<(StructuralScanMode, &Path, &str)>,
+    state_options: Option<(StructuralScanMode, &str)>,
     cancellation_requested: &mut F,
 ) -> Result<StructuralScanResult> {
     let config = config.normalized();
@@ -2823,12 +2822,11 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
         bail!("structural cache root changed during setup");
     }
 
-    let (mut state, mut scan_summary) = if let Some((mode, state_db, state_scope)) = state_options {
+    let (mut state, mut scan_summary) = if let Some((mode, state_scope)) = state_options {
         if state_scope.trim().is_empty() {
             bail!("structural state scope must not be empty");
         }
         let state = StructuralState::open(
-            state_db,
             StateNamespace {
                 canonical_root_identity: canonical_root_identity(&canonical_root),
                 scope: state_scope.to_string(),
@@ -3269,10 +3267,17 @@ mod tests {
         }
     }
 
+    /// The state store is one shared database, so durable tests isolate through a scope no
+    /// other test can collide with instead of a per-test temp file.
+    #[cfg(unix)]
+    fn unique_state_scope(prefix: &str) -> String {
+        format!("{prefix}-{}", uuid::Uuid::new_v4())
+    }
+
     #[cfg(unix)]
     fn durable_scan(
         root: &Path,
-        state_db: &Path,
+        state_scope: &str,
         mode: StructuralScanMode,
         scan_started: DateTime<Utc>,
     ) -> StructuralScanResult {
@@ -3285,7 +3290,7 @@ mod tests {
             test_config(2, 2),
             &clock,
             None,
-            Some((mode, state_db, "default")),
+            Some((mode, state_scope)),
             &mut never_cancel,
         )
         .unwrap()
@@ -3301,9 +3306,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn durable_modes_build_reuse_refresh_change_and_prune() {
+        let _env = crate::db::lock_test_env();
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("cache");
-        let state_db = temp.path().join("structural.sqlite3");
+        let scope = unique_state_scope("durable-modes");
         let (path, _) = materialize(
             &root,
             b"steam/durable",
@@ -3312,19 +3318,19 @@ mod tests {
         );
         let started = fixed_scan_started();
 
-        let baseline = durable_scan(&root, &state_db, StructuralScanMode::Incremental, started);
+        let baseline = durable_scan(&root, &scope, StructuralScanMode::Incremental, started);
         assert_eq!(baseline.scan_summary.effective_scan_mode, "baseline");
         assert_eq!(baseline.scan_summary.files_inspected, 1);
         assert_eq!(baseline.scan_summary.files_reused, 0);
         assert!(baseline.scan_summary.state_committed);
 
-        let unchanged = durable_scan(&root, &state_db, StructuralScanMode::Incremental, started);
+        let unchanged = durable_scan(&root, &scope, StructuralScanMode::Incremental, started);
         assert_eq!(unchanged.scan_summary.effective_scan_mode, "incremental");
         assert_eq!(unchanged.scan_summary.files_inspected, 0);
         assert_eq!(unchanged.scan_summary.files_reused, 1);
         assert_eq!(unchanged.report.coverage.unwrap().files_checked, 0);
 
-        let full = durable_scan(&root, &state_db, StructuralScanMode::Full, started);
+        let full = durable_scan(&root, &scope, StructuralScanMode::Full, started);
         assert_eq!(full.scan_summary.effective_scan_mode, "full");
         assert_eq!(full.scan_summary.files_inspected, 1);
         assert_eq!(full.scan_summary.files_reused, 0);
@@ -3332,12 +3338,12 @@ mod tests {
         let replacement = path.with_extension("replacement");
         std::fs::write(&replacement, std::fs::read(&path).unwrap()).unwrap();
         std::fs::rename(&replacement, &path).unwrap();
-        let changed = durable_scan(&root, &state_db, StructuralScanMode::Incremental, started);
+        let changed = durable_scan(&root, &scope, StructuralScanMode::Incremental, started);
         assert_eq!(changed.scan_summary.files_inspected, 1);
         assert_eq!(changed.scan_summary.files_reused, 0);
 
         std::fs::remove_file(path).unwrap();
-        let deleted = durable_scan(&root, &state_db, StructuralScanMode::Incremental, started);
+        let deleted = durable_scan(&root, &scope, StructuralScanMode::Incremental, started);
         assert_eq!(deleted.scan_summary.files_pruned, 1);
         assert_eq!(deleted.scan_summary.state_entries, 0);
     }
@@ -3345,9 +3351,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn durable_incremental_revalidates_known_invalid_candidates() {
+        let _env = crate::db::lock_test_env();
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("cache");
-        let state_db = temp.path().join("structural.sqlite3");
+        let scope = unique_state_scope("invalid-durable");
         materialize(
             &root,
             b"steam/invalid-durable",
@@ -3355,9 +3362,9 @@ mod tests {
             b"1234",
         );
         let started = fixed_scan_started();
-        let first = durable_scan(&root, &state_db, StructuralScanMode::Incremental, started);
+        let first = durable_scan(&root, &scope, StructuralScanMode::Incremental, started);
         assert_eq!(first.report.total, 1);
-        let second = durable_scan(&root, &state_db, StructuralScanMode::Incremental, started);
+        let second = durable_scan(&root, &scope, StructuralScanMode::Incremental, started);
         assert_eq!(second.report.total, 1);
         assert_eq!(second.scan_summary.files_revalidated, 1);
         assert_eq!(second.scan_summary.files_inspected, 1);
@@ -3367,26 +3374,22 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn recent_skip_is_not_reused_as_success() {
+        let _env = crate::db::lock_test_env();
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("cache");
-        let state_db = temp.path().join("structural.sqlite3");
+        let scope = unique_state_scope("recent-durable");
         materialize(
             &root,
             b"steam/recent-durable",
             b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
             b"1234",
         );
-        let recent = durable_scan(
-            &root,
-            &state_db,
-            StructuralScanMode::Incremental,
-            Utc::now(),
-        );
+        let recent = durable_scan(&root, &scope, StructuralScanMode::Incremental, Utc::now());
         assert_eq!(recent.scan_summary.files_pending_retry, 1);
         assert_eq!(recent.scan_summary.state_entries, 0);
         let retry = durable_scan(
             &root,
-            &state_db,
+            &scope,
             StructuralScanMode::Incremental,
             fixed_scan_started(),
         );
@@ -4162,9 +4165,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn cancelled_incremental_flushes_staging_and_resumes_without_promotion() {
+        let _env = crate::db::lock_test_env();
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("cache");
-        let state_db = temp.path().join("structural.sqlite3");
+        let scope = unique_state_scope("durable-cancel");
         let parallelism = 4;
         for index in 0..64 {
             let key = format!("steam/durable-cancel-{index}");
@@ -4188,7 +4192,7 @@ mod tests {
             test_config(parallelism, parallelism),
             &clock,
             Some(&observer),
-            Some((StructuralScanMode::Incremental, &state_db, "default")),
+            Some((StructuralScanMode::Incremental, scope.as_str())),
             &mut cancel_when_workers_are_held,
         )
         .unwrap();
@@ -4199,7 +4203,7 @@ mod tests {
 
         let resumed = durable_scan(
             &root,
-            &state_db,
+            &scope,
             StructuralScanMode::Incremental,
             fixed_scan_started(),
         );

@@ -110,12 +110,10 @@ enum Commands {
         #[arg(long)]
         scan_started_utc: Option<String>,
         /// Durable scan mode. Omitted preserves the historical stateless full scan.
-        #[arg(long, value_enum, requires_all = ["state_db", "state_scope"])]
+        #[arg(long, value_enum, requires = "state_scope")]
         scan_mode: Option<cache_structural_state::StructuralScanMode>,
-        /// Absolute SQLite state path. Required whenever --scan-mode is supplied.
-        #[arg(long, requires = "scan_mode")]
-        state_db: Option<PathBuf>,
-        /// Stable datasource identity. Required whenever --scan-mode is supplied.
+        /// Stable datasource identity, which keys the scan state in PostgreSQL. Required
+        /// whenever --scan-mode is supplied.
         #[arg(long, requires = "scan_mode")]
         state_scope: Option<String>,
         #[arg(short, long)]
@@ -1405,7 +1403,6 @@ async fn main() -> Result<()> {
             progress_json,
             scan_started_utc,
             scan_mode,
-            state_db,
             state_scope,
             progress,
         } => {
@@ -1426,8 +1423,8 @@ async fn main() -> Result<()> {
                         "scanMode": scan_mode.unwrap_or(cache_structural_state::StructuralScanMode::Full).as_str(),
                     }),
                 );
-                if scan_mode.is_none() && (state_db.is_some() || state_scope.is_some()) {
-                    bail!("--state-db and --state-scope require --scan-mode");
+                if scan_mode.is_none() && state_scope.is_some() {
+                    bail!("--state-scope requires --scan-mode");
                 }
                 let result = tokio::task::spawn_blocking(move || match scan_mode {
                     None => cache_structural_scanner::scan(
@@ -1436,9 +1433,6 @@ async fn main() -> Result<()> {
                         progress_path.as_deref(),
                     ),
                     Some(mode) => {
-                        let state_db = state_db
-                            .as_deref()
-                            .context("--state-db is required when --scan-mode is supplied")?;
                         let state_scope = state_scope
                             .as_deref()
                             .context("--state-scope is required when --scan-mode is supplied")?;
@@ -1447,7 +1441,6 @@ async fn main() -> Result<()> {
                             scan_started_utc,
                             progress_path.as_deref(),
                             mode,
-                            state_db,
                             state_scope,
                         )
                     }
@@ -1812,8 +1805,6 @@ mod tests {
             "none",
             "--scan-mode",
             "incremental",
-            "--state-db",
-            "/state/structural.sqlite3",
             "--state-scope",
             "default",
         ])
@@ -1832,8 +1823,8 @@ mod tests {
             "structural-summary",
             "/cache",
             "none",
-            "--state-db",
-            "/state/structural.sqlite3",
+            "--state-scope",
+            "default",
         ])
         .is_err());
         assert!(Args::try_parse_from([

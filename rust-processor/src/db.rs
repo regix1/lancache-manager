@@ -56,7 +56,7 @@ fn describe_connection(options: &PgConnectOptions) -> String {
 /// Within 2 and 3, user, password and database come from env vars, then the credentials file,
 /// then the defaults. Host and port apply in external mode only, which is how the API resolves
 /// them too, so both halves of the app always reach the same server.
-fn build_connect_options() -> Result<PgConnectOptions> {
+pub(crate) fn build_connect_options() -> Result<PgConnectOptions> {
     if let Some(url) = env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) {
         return PgConnectOptions::from_str(&url).map_err(|e| {
             anyhow!("DATABASE_URL is not a usable PostgreSQL connection string: {e}")
@@ -239,39 +239,75 @@ fn read_credentials_file() -> Option<CredentialsFile> {
 }
 
 #[cfg(test)]
+const CONNECTION_VARS: [&str; 11] = [
+    "DATABASE_URL",
+    "POSTGRES_MODE",
+    "POSTGRES_HOST",
+    "POSTGRES_PORT",
+    "POSTGRES_USER",
+    "POSTGRES_PASSWORD",
+    "POSTGRES_DB",
+    "POSTGRES_CREDENTIALS_PATH",
+    // These three reach `PgConnectOptions::new()` as defaults, and the tests below set them on
+    // purpose to prove an ambient libpq variable cannot move the embedded connection. Clearing
+    // happens at the start of each test, so leaving one out lets the value a test sets leak
+    // into every test that runs after it. PGUSER and PGDATABASE are deliberately absent:
+    // `build_connect_options` sets username and database on every path, so neither can reach
+    // an assertion.
+    "PGHOST",
+    "PGPORT",
+    "PGSSLMODE",
+];
+
+/// Holds the test environment lock; dropping it restores every connection variable to the value
+/// it held when the lock was taken.
+#[cfg(test)]
+pub(crate) struct TestEnvLock {
+    _lock: std::sync::MutexGuard<'static, ()>,
+    saved: Vec<(&'static str, Option<String>)>,
+}
+
+#[cfg(test)]
+impl Drop for TestEnvLock {
+    fn drop(&mut self) {
+        for (var, value) in &self.saved {
+            match value {
+                Some(value) => env::set_var(var, value),
+                None => env::remove_var(var),
+            }
+        }
+    }
+}
+
+/// Connection settings come from process-wide environment variables, so every test that either
+/// mutates them or opens a connection through `build_connect_options` while other tests run
+/// holds this lock. The guard restores the prior values on drop, so one test clearing
+/// DATABASE_URL cannot send another test's connection to a host that does not exist.
+#[cfg(test)]
+pub(crate) fn lock_test_env() -> TestEnvLock {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let lock = LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let saved = CONNECTION_VARS
+        .iter()
+        .map(|var| (*var, env::var(var).ok()))
+        .collect();
+    TestEnvLock { _lock: lock, saved }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
     use std::path::PathBuf;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
 
-    const CONNECTION_VARS: [&str; 10] = [
-        "DATABASE_URL",
-        "POSTGRES_MODE",
-        "POSTGRES_HOST",
-        "POSTGRES_PORT",
-        "POSTGRES_USER",
-        "POSTGRES_PASSWORD",
-        "POSTGRES_DB",
-        // These three reach `PgConnectOptions::new()` as defaults, and the tests below set them on
-        // purpose to prove an ambient libpq variable cannot move the embedded connection. Clearing
-        // happens at the start of each test, so leaving one out lets the value a test sets leak
-        // into every test that runs after it. PGUSER and PGDATABASE are deliberately absent:
-        // `build_connect_options` sets username and database on every path, so neither can reach
-        // an assertion.
-        "PGHOST",
-        "PGPORT",
-        "PGSSLMODE",
-    ];
-
-    /// Connection settings come from process-wide environment variables, so these tests take a
-    /// lock and start from a known-empty environment rather than running in parallel.
-    fn lock_env() -> MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let guard = LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+    /// These tests additionally start from a known-empty environment, so ambient configuration
+    /// cannot reach their assertions.
+    fn lock_env() -> TestEnvLock {
+        let guard = lock_test_env();
 
         for var in CONNECTION_VARS {
             env::remove_var(var);
