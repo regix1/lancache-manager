@@ -12,7 +12,7 @@ import { ChevronDown, ChevronRight, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CustomScrollbar } from './CustomScrollbar';
 import { Tooltip } from './Tooltip';
-import { getEventColorVar } from '@utils/eventColors';
+import { getColorTierVar, getEventColorVar } from '@utils/eventColors';
 import { clampToViewport } from '@utils/viewportClamp';
 import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 import { useAnchorFollow, readAnchorRect, type AnchorRect } from '@hooks/useAnchorFollow';
@@ -1032,7 +1032,11 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                                               style={{
                                                 backgroundColor: isSubSelected
                                                   ? 'rgba(255,255,255,0.2)'
-                                                  : `${(subItem.badgeColor || 'var(--theme-status-success)').replace(')', '-muted)')}`,
+                                                  : getColorTierVar(
+                                                      subItem.badgeColor ||
+                                                        'var(--theme-status-success)',
+                                                      'muted'
+                                                    ),
                                                 color: isSubSelected
                                                   ? 'var(--theme-button-text)'
                                                   : subItem.badgeColor ||

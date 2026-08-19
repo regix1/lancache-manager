@@ -7,13 +7,14 @@ interface SegmentedControlOption {
   icon?: React.ReactNode;
   tooltip?: string;
   disabled?: boolean;
-  activeColor?: 'primary' | 'warning' | 'neutral';
 }
 
 interface SegmentedControlProps {
   options: SegmentedControlOption[];
   value: string;
   onChange: (value: string) => void;
+  /** Fill for whichever segment is selected. One control, one accent. */
+  activeColor?: 'primary' | 'warning' | 'neutral';
   size?: 'sm' | 'md';
   showLabels?: boolean | 'responsive'; // true, false, or 'responsive' (hide on mobile)
   fullWidth?: boolean;
@@ -24,6 +25,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
   options,
   value,
   onChange,
+  activeColor = 'primary',
   size = 'md',
   showLabels = false,
   fullWidth = false,
@@ -53,6 +55,13 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
 
   const sizes = sizeClasses[size];
 
+  const activeClass =
+    activeColor === 'warning'
+      ? 'bg-[var(--theme-warning)] text-themed-button'
+      : activeColor === 'neutral'
+        ? 'bg-[var(--theme-selected-bg)] text-[var(--theme-selected-text)]'
+        : 'bg-[var(--theme-primary)] text-themed-button';
+
   return (
     <div
       className={`inline-flex segmented-control-container ${sizes.container} ${fullWidth ? 'w-full' : ''} ${className} bg-themed-tertiary border border-themed-secondary`}
@@ -60,12 +69,6 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
       {options.map((option) => {
         const isActive = value === option.value;
         const isDisabled = option.disabled;
-        const activeClass =
-          option.activeColor === 'warning'
-            ? 'bg-[var(--theme-warning)] text-themed-button'
-            : option.activeColor === 'neutral'
-              ? 'bg-[var(--theme-selected-bg)] text-[var(--theme-selected-text)]'
-              : 'bg-[var(--theme-primary)] text-themed-button';
         // Disabled + selected: drop the vivid accent for a neutral muted fill so the whole control
         // reads as disabled (matching a disabled dropdown/toggle) instead of looking clickable.
         const segmentClass = isActive

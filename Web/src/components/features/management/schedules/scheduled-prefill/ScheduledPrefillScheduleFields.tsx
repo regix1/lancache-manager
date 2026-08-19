@@ -240,9 +240,9 @@ export function ScheduledPrefillScheduleFields({
             className="scheduled-prefill-segment-uniform"
             options={presetOptions.map((option) => ({
               ...option,
-              disabled: disabled || presetOverridden,
-              activeColor: presetOverridden ? 'warning' : 'primary'
+              disabled: disabled || presetOverridden
             }))}
+            activeColor={presetOverridden ? 'warning' : 'primary'}
             value={config.preset}
             onChange={(value) => {
               if (!isScheduledPrefillPreset(value)) return;

@@ -6,7 +6,7 @@ import { useTimezone } from '@contexts/useTimezone';
 import { useCalendarSettings } from '@contexts/useCalendarSettings';
 import { getDaysInMonth } from '@utils/calendar';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
-import { getEventColorVar } from '@utils/eventColors';
+import { getColorTierVar, getEventColorVar, type ColorTier } from '@utils/eventColors';
 import { clampToViewport } from '@utils/viewportClamp';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
@@ -76,7 +76,7 @@ interface WeekRow {
 }
 
 const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onDayClick }) => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { useLocalTimezone, useUtcTimezone } = useTimezone();
   const { settings } = useCalendarSettings();
   // 639.98px, not 640px, because the stylesheet's own phone block ends there and its desktop
@@ -128,10 +128,23 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
 
   // A phone leaves the shared navigation about 68px for the month select once the Today
   // button and the gear share its row, which is not enough for a full month name.
-  const shortMonthNames = useMemo(() => {
-    const format = new Intl.DateTimeFormat(i18n.language, { month: 'short' });
-    return Array.from({ length: 12 }, (_, index) => format.format(new Date(2000, index, 1)));
-  }, [i18n.language]);
+  const shortMonthNames = useMemo(
+    () => [
+      t('events.calendar.monthsShort.january'),
+      t('events.calendar.monthsShort.february'),
+      t('events.calendar.monthsShort.march'),
+      t('events.calendar.monthsShort.april'),
+      t('events.calendar.monthsShort.may'),
+      t('events.calendar.monthsShort.june'),
+      t('events.calendar.monthsShort.july'),
+      t('events.calendar.monthsShort.august'),
+      t('events.calendar.monthsShort.september'),
+      t('events.calendar.monthsShort.october'),
+      t('events.calendar.monthsShort.november'),
+      t('events.calendar.monthsShort.december')
+    ],
+    [t]
+  );
 
   // Week days order based on settings
   const weekDays = useMemo(() => {
@@ -670,30 +683,30 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                 // Every size on a bar lives in the stylesheet. Only the colour tiers cannot be
                 // derived from a colour variable in CSS, so those four ride in as properties.
                 const getSpanColors = (colorVar: string, isEnded: boolean): React.CSSProperties => {
-                  const tier = (suffix: string): string => colorVar.replace(')', `${suffix})`);
+                  const tier = (name: ColorTier): string => getColorTierVar(colorVar, name);
                   const solid = settings.eventOpacity === 'solid';
                   let from: string;
                   let to: string;
                   if (settings.compactMode) {
                     from = solid
                       ? isEnded
-                        ? tier('-emphasis')
+                        ? tier('emphasis')
                         : colorVar
                       : isEnded
-                        ? tier('-strong')
-                        : tier('-emphasis');
+                        ? tier('strong')
+                        : tier('emphasis');
                     to = from;
                   } else if (solid) {
-                    from = isEnded ? tier('-on-bg-soft') : tier('-on-bg-strong');
-                    to = isEnded ? tier('-on-bg-soft') : tier('-on-bg');
+                    from = isEnded ? tier('on-bg-soft') : tier('on-bg-strong');
+                    to = isEnded ? tier('on-bg-soft') : tier('on-bg');
                   } else {
-                    from = isEnded ? tier('-subtle') : tier('-muted');
-                    to = tier('-subtle');
+                    from = isEnded ? tier('subtle') : tier('muted');
+                    to = tier('subtle');
                   }
                   return {
                     '--event-span-from': from,
                     '--event-span-to': to,
-                    '--event-span-rule': isEnded ? tier('-muted') : tier('-strong')
+                    '--event-span-rule': isEnded ? tier('muted') : tier('strong')
                   } as React.CSSProperties;
                 };
 
@@ -834,10 +847,10 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                         <div className="space-y-1.5">
                           {dayEvents.map((event) => {
                             const colorVar = getEventColorVar(event.colorIndex);
-                            const subtleVar = colorVar.replace(')', '-subtle)');
-                            const mutedVar = colorVar.replace(')', '-muted)');
-                            const emphasisVar = colorVar.replace(')', '-emphasis)');
-                            const intenseVar = colorVar.replace(')', '-intense)');
+                            const subtleVar = getColorTierVar(colorVar, 'subtle');
+                            const mutedVar = getColorTierVar(colorVar, 'muted');
+                            const emphasisVar = getColorTierVar(colorVar, 'emphasis');
+                            const intenseVar = getColorTierVar(colorVar, 'intense');
                             const isEnded = hasEventEnded(event);
                             const rowColors = {
                               '--popover-event-fill': isEnded ? subtleVar : mutedVar,

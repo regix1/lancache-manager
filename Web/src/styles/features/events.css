@@ -734,3 +734,26 @@
   height: 4px;
   background-color: var(--event-list-color);
 }
+
+/* ===== Event list section headers =====
+   Each of the three sections (active, upcoming, past) paints its icon box, its heading and
+   its count badge from one colour that the component picks per section. That colour and its
+   subtle tier arrive on the header row as custom properties, the same carrier pattern as
+   --event-list-color above, and these rules read them back. The icon takes `color` rather
+   than each call site styling its own glyph, since a Lucide icon strokes with currentColor.
+   The count badge is compounded past .themed-badge because the prod build strips @layer,
+   which would otherwise leave a plain class tied with the badge's own fill. */
+
+.event-section-icon {
+  color: var(--event-section-color);
+  background-color: var(--event-section-subtle);
+}
+
+.event-section-title {
+  color: var(--event-section-color);
+}
+
+.themed-badge.event-section-count {
+  color: var(--event-section-color);
+  background-color: var(--event-section-subtle);
+}

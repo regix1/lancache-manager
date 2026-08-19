@@ -1,6 +1,7 @@
 import React from 'react';
 import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { formatCount } from '@utils/formatters';
+import { getColorTierVar } from '@utils/eventColors';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 
 /** Lucide icons or brand SVG components (SteamIcon, EpicIcon, …) that accept size/className/style. */
@@ -136,8 +137,8 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
                 isExpanded ? 'scale-105' : 'scale-100'
               }`}
               style={{
-                backgroundColor: `${iconColor.replace(')', '-subtle)')}`,
-                boxShadow: isExpanded ? `0 2px 8px ${iconColor.replace(')', '-muted)')}` : 'none'
+                backgroundColor: getColorTierVar(iconColor, 'subtle'),
+                boxShadow: isExpanded ? `0 2px 8px ${getColorTierVar(iconColor, 'muted')}` : 'none'
               }}
             >
               <Icon
@@ -184,7 +185,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
                   style={
                     isExpanded
                       ? {
-                          backgroundColor: `${iconColor.replace(')', '-muted)')}`,
+                          backgroundColor: getColorTierVar(iconColor, 'muted'),
                           color: iconColor
                         }
                       : undefined

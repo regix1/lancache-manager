@@ -22,7 +22,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatTimestamp } from '@utils/dateTimeFormat';
 import { formatBytes } from '@utils/formatters';
 import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
-import { getEventColorVar } from '@utils/eventColors';
+import { getColorTierVar, getEventColorVar } from '@utils/eventColors';
 import ApiService from '@services/api.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import type { Event, Download } from '../../../types';
@@ -278,6 +278,33 @@ const EventCard = React.memo(
 
 EventCard.displayName = 'EventCard';
 
+/** Section header component. Its one colour feeds the icon box, the heading and the count
+ *  badge, so it rides in as custom properties and events.css does the painting. */
+const SectionHeader: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  count: number;
+  color: string;
+}> = ({ icon, title, count, color }) => (
+  <div
+    className="flex items-center gap-2 mb-3"
+    style={
+      {
+        '--event-section-color': color,
+        '--event-section-subtle': getColorTierVar(color, 'subtle')
+      } as React.CSSProperties
+    }
+  >
+    <div className="event-section-icon w-6 h-6 rounded-md flex items-center justify-center">
+      {icon}
+    </div>
+    <h3 className="event-section-title text-sm font-semibold flex items-center gap-2">
+      {title}
+      <span className="themed-badge badge-count event-section-count">{count}</span>
+    </h3>
+  </div>
+);
+
 interface EventListProps {
   events: Event[];
   onEventClick: (event: Event) => void;
@@ -411,35 +438,6 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
     [setSelectedEventIds, setTimeRange]
   );
 
-  // Section header component
-  const SectionHeader: React.FC<{
-    icon: React.ReactNode;
-    title: string;
-    count: number;
-    color: string;
-  }> = ({ icon, title, count, color }) => (
-    <div className="flex items-center gap-2 mb-3">
-      <div
-        className="w-6 h-6 rounded-md flex items-center justify-center"
-        style={{ backgroundColor: color.replace(')', '-subtle)') }}
-      >
-        {icon}
-      </div>
-      <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color }}>
-        {title}
-        <span
-          className="themed-badge badge-count"
-          style={{
-            backgroundColor: color.replace(')', '-subtle)'),
-            color
-          }}
-        >
-          {count}
-        </span>
-      </h3>
-    </div>
-  );
-
   if (events.length === 0) {
     return (
       <div className="text-center py-16">
@@ -462,7 +460,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
       {groupedEvents.active.length > 0 && (
         <div>
           <SectionHeader
-            icon={<Zap className="w-3.5 h-3.5" style={{ color: 'var(--theme-status-success)' }} />}
+            icon={<Zap className="w-3.5 h-3.5" />}
             title={t('events.list.sections.active')}
             count={groupedEvents.active.length}
             color="var(--theme-status-success)"
@@ -490,9 +488,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
       {groupedEvents.upcoming.length > 0 && (
         <div>
           <SectionHeader
-            icon={
-              <CalendarClock className="w-3.5 h-3.5" style={{ color: 'var(--theme-primary)' }} />
-            }
+            icon={<CalendarClock className="w-3.5 h-3.5" />}
             title={t('events.list.sections.upcoming')}
             count={groupedEvents.upcoming.length}
             color="var(--theme-primary)"
@@ -520,7 +516,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
       {groupedEvents.past.length > 0 && (
         <div>
           <SectionHeader
-            icon={<History className="w-3.5 h-3.5" style={{ color: 'var(--theme-text-muted)' }} />}
+            icon={<History className="w-3.5 h-3.5" />}
             title={t('events.list.sections.past')}
             count={groupedEvents.past.length}
             color="var(--theme-text-muted)"

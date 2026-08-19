@@ -6,7 +6,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { LoadingState } from '@components/ui/ManagerCard';
-import { getEventColorVar } from '@utils/eventColors';
+import { getColorTierVar, getEventColorVar } from '@utils/eventColors';
 import EventCalendar from './EventCalendar';
 import EventModal from './EventModal';
 import EventList from './EventList';
@@ -60,18 +60,17 @@ const EventsTab: React.FC = () => {
               {
                 value: 'calendar',
                 label: 'Calendar',
-                icon: <LayoutGrid className="w-4 h-4" />,
-                activeColor: 'neutral'
+                icon: <LayoutGrid className="w-4 h-4" />
               },
               {
                 value: 'list',
                 label: 'List',
-                icon: <List className="w-4 h-4" />,
-                activeColor: 'neutral'
+                icon: <List className="w-4 h-4" />
               }
             ]}
             value={viewMode}
             onChange={(value) => setViewMode(value as ViewMode)}
+            activeColor="neutral"
             size="md"
             showLabels="responsive"
           />
@@ -115,7 +114,7 @@ const EventsTab: React.FC = () => {
                 style={
                   {
                     '--event-chip-color': eventColor,
-                    '--event-chip-bg': eventColor.replace(')', '-muted)')
+                    '--event-chip-bg': getColorTierVar(eventColor, 'muted')
                   } as React.CSSProperties
                 }
               >

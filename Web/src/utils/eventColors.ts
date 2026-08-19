@@ -20,3 +20,28 @@ export function clampEventColorIndex(colorIndex: number): number {
 export function getEventColorVar(colorIndex: number): string {
   return `var(--theme-event-${clampEventColorIndex(colorIndex)})`;
 }
+
+/**
+ * The suffixed variants the theme defines alongside a colour variable. Every theme colour
+ * that gets a tier spells the suffixes the same way, so the same names work for the event
+ * colours and for the status/primary/text colours the shared UI components pass in.
+ */
+export type ColorTier =
+  | 'subtle'
+  | 'muted'
+  | 'emphasis'
+  | 'intense'
+  | 'strong'
+  | 'on-bg'
+  | 'on-bg-soft'
+  | 'on-bg-strong';
+
+/**
+ * Get the CSS variable for one tier of a colour variable.
+ * @param colorVar - a `var(--name)` colour string, e.g. from getEventColorVar
+ * @param tier - which suffixed variant of it to read
+ * @returns CSS variable string like "var(--theme-event-1-subtle)"
+ */
+export function getColorTierVar(colorVar: string, tier: ColorTier): string {
+  return colorVar.replace(')', `-${tier})`);
+}
