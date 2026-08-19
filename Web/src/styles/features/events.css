@@ -36,7 +36,9 @@
 
 /* ==============================================
  * COMPONENTS - Event frame (active event border)
- * Solid border with pulsing glow + live badge
+ * Bordered frame whose top edge is a filled label bar. Bar, border and
+ * content are all normal flow, so the label stays seated on the frame and
+ * the frame tracks content height at every viewport width.
  * ============================================== */
 
 @keyframes eventFrameBorderPulse {
@@ -77,92 +79,56 @@
   }
 }
 
-/* Wrapper - contains everything and provides positioning context */
 .event-frame-wrapper {
   position: relative;
-  margin-top: var(--event-frame-top-margin);
-  margin-bottom: var(--event-frame-top-margin);
-  padding: var(--event-frame-offset);
+  margin-top: 20px;
+  margin-bottom: 20px;
+  border: 2px solid var(--event-frame-color, var(--theme-primary));
+  border-radius: 12px;
 }
 
-/* Content wrapper */
-.event-frame-content {
-  position: relative;
-  z-index: 1;
-}
-
-/* Solid border with soft pulsing glow */
-.event-frame-border {
-  position: absolute;
-  inset: var(--event-frame-offset-negative);
-  border-radius: var(--event-frame-border-radius);
-  border: var(--event-frame-stroke-width) solid var(--event-frame-color);
-  pointer-events: none;
-  z-index: 0;
-  box-sizing: border-box;
-}
-
-.event-frame-border::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  border: var(--event-frame-stroke-width) solid transparent;
-  box-sizing: border-box;
-  opacity: 0.25;
-  box-shadow: 0 0 8px var(--event-frame-color);
-  animation: eventFrameBorderPulse var(--event-frame-border-pulse-duration) ease-in-out infinite;
-  will-change: opacity, box-shadow;
-}
-
-/* Event badge container positioning */
-.event-frame-badge-container {
-  position: absolute;
-  top: var(--event-frame-offset-negative);
-  left: 50%;
-  transform: translate(-50%, -42%);
-  pointer-events: none;
-  max-width: calc(100% - 24px);
-  white-space: nowrap;
-  z-index: 2;
-}
-
-.event-frame-badge-bg {
-  display: none;
-}
-
-.event-frame-badge {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1.25rem;
-  border-radius: 1rem;
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  color: var(--theme-button-text);
-  background: var(--event-frame-color, var(--theme-primary));
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  letter-spacing: 0.02em;
-}
-
-/* Badge glow effect to match frame border */
-.event-frame-badge::after {
+/* Soft pulsing glow hugging the frame stroke */
+.event-frame-wrapper::after {
   content: '';
   position: absolute;
   inset: -2px;
   border-radius: inherit;
-  border: 2px solid transparent;
-  box-sizing: border-box;
-  opacity: 0.25;
-  box-shadow: 0 0 8px var(--event-frame-color, var(--theme-primary));
-  animation: eventFrameBorderPulse 3.2s ease-in-out infinite;
-  will-change: opacity, box-shadow;
   pointer-events: none;
+  opacity: 0.25;
+  box-shadow: 0 0 8px var(--event-frame-color);
+  animation: eventFrameBorderPulse var(--event-frame-border-pulse-duration, 3.2s) ease-in-out
+    infinite;
+  will-change: opacity, box-shadow;
 }
 
-.event-frame-badge-dot {
+.event-frame-content {
+  position: relative;
+  z-index: 1;
+  padding: 16px;
+}
+
+/* Filled label bar forming the frame's top edge */
+.event-frame-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.875rem;
+  /* Frame radius minus stroke width, so the fill meets the border cleanly */
+  border-radius: 10px 10px 0 0;
+  background: var(--event-frame-color, var(--theme-primary));
+  color: var(--theme-button-text);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Tooltip trigger wrapper around the bar when multiple events are active */
+.event-frame-bar-trigger {
+  display: block;
+  cursor: pointer;
+}
+
+.event-frame-bar-dot {
   position: relative;
   width: 0.5rem;
   height: 0.5rem;
@@ -170,7 +136,6 @@
   background-color: var(--theme-error);
   box-shadow: 0 0 6px var(--theme-error);
   flex: 0 0 auto;
-  margin-right: 0.25rem;
 }
 
 .event-frame-live-dot {
@@ -187,31 +152,19 @@
   animation: eventFrameLiveRing 1.6s ease-out infinite;
 }
 
-.event-frame-badge-name {
+.event-frame-bar-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
+  white-space: nowrap;
 }
 
-.event-frame-badge-tag {
+.event-frame-bar-tag {
+  margin-left: auto;
+  flex-shrink: 0;
   font-size: var(--font-size-2xs);
-  opacity: 1;
   text-transform: uppercase;
-}
-
-/* Interactive badge (when multiple events) */
-.event-frame-badge-interactive {
-  cursor: pointer;
-  pointer-events: auto;
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.event-frame-badge-interactive:hover {
-  transform: scale(1.02);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  letter-spacing: 0.08em;
 }
 
 /* Tooltip for multiple events */
@@ -258,34 +211,20 @@
   text-overflow: ellipsis;
 }
 
-/* Parent overflow fix - ensure frame extends outside content boundaries */
-@supports selector(:has(div)) {
-  .management-section:has(.event-frame-active),
-  .themed-card:has(.event-frame-active),
-  .glass-card:has(.event-frame-active) {
-    overflow: visible !important;
-  }
-}
-
 /* Mobile responsive: reduce spacing on smaller screens */
 @media (max-width: 767.98px) {
   .event-frame-wrapper {
-    --event-frame-offset: 0px;
-    --event-frame-offset-negative: 0px;
-    --event-frame-top-margin: 12px;
-    --event-frame-border-radius: 8px;
-    margin-top: var(--event-frame-top-margin);
-    margin-bottom: var(--event-frame-top-margin);
-    padding: 16px;
+    margin-top: 12px;
+    margin-bottom: 12px;
+    border-radius: 8px;
   }
 
-  .event-frame-border {
-    inset: 0;
-    border-radius: var(--event-frame-border-radius);
+  .event-frame-bar {
+    border-radius: 6px 6px 0 0;
   }
 
-  .event-frame-badge-container {
-    top: -12px;
+  .event-frame-content {
+    padding: 12px;
   }
 }
 
@@ -293,11 +232,6 @@
 @media (hover: none) and (pointer: coarse) {
   .event-frame-wrapper {
     --event-frame-border-pulse-duration: 4.4s;
-  }
-
-  .event-frame-border::after,
-  .event-frame-badge::after {
-    animation-duration: 4.4s;
   }
 
   .event-frame-live-dot {
@@ -311,8 +245,7 @@
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-  .event-frame-border::after,
-  .event-frame-badge::after,
+  .event-frame-wrapper::after,
   .event-frame-live-dot,
   .event-frame-live-dot::after {
     animation: none !important;
