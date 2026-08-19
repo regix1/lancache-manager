@@ -52,8 +52,8 @@ function CalendarNavigation({
     // 309px before any gap at all. So the actions wrap to a second line by design and are
     // right-aligned there by the auto margin, rather than a lone control being orphaned in the
     // centre of a row that ran out of room.
-    <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-      <div className="flex items-center gap-1.5">
+    <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-4">
+      <div className="flex items-center gap-1 sm:gap-1.5">
         {/* md is the shared 40px control height, and below the phone breakpoint the dropdown
             takes a 44px touch floor, so the icon-only arrows are squares at whichever of the
             two is current. */}
@@ -79,7 +79,7 @@ function CalendarNavigation({
           size="md"
           maxHeight="200px"
           dropdownWidth="w-40"
-          className="w-[96px] sm:w-[120px]"
+          className="w-[68px] sm:w-[120px]"
         />
 
         <EnhancedDropdown
@@ -91,7 +91,7 @@ function CalendarNavigation({
           alignRight
           maxHeight="200px"
           dropdownWidth="w-28"
-          className="w-[76px] sm:w-[92px]"
+          className="w-[72px] sm:w-[92px]"
         />
 
         <Button
