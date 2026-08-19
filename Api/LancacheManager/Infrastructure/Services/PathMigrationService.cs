@@ -81,7 +81,7 @@ public class PathMigrationService
             _pathResolver.GetOperationsDirectory(),
             result);
 
-        ReportStrandedSqliteDatabase(dataDirectory);
+        RemoveLegacySqliteDatabase(dataDirectory);
         RemoveOrphanedStructuralScanState();
 
         return result;
@@ -91,25 +91,54 @@ public class PathMigrationService
     /// An install that never ran the old SQLite import keeps a database nothing will read again.
     /// Everything else about it looks healthy: setup is already marked complete in state.json and
     /// the log offsets are stored, so the app skips the wizard and does not re-read the old lines.
-    /// Without this the only symptom is empty history next to a banner about the data mount, which
-    /// points at a cause that is not theirs.
+    /// The file and its write-ahead siblings go, along with the markers the old import wrote, so
+    /// the data volume does not carry a copy of history that nothing can reach. This is one way:
+    /// once removed there is no downgrading to a build that could still import it.
     /// </summary>
-    private void ReportStrandedSqliteDatabase(string dataDirectory)
+    private void RemoveLegacySqliteDatabase(string dataDirectory)
     {
         // Older builds kept it beside the data root before a later one moved it into db/.
-        string[] candidates =
+        string[] databases =
         [
             Path.Combine(dataDirectory, "db", "LancacheManager.db"),
             Path.Combine(dataDirectory, "LancacheManager.db")
         ];
 
-        foreach (var legacyDatabase in candidates.Where(File.Exists))
+        foreach (var database in databases.Where(File.Exists))
         {
             _logger.LogWarning(
-                "Found an old SQLite database at {Path}. This release reads PostgreSQL only and no "
-                + "longer imports it, so downloads recorded before the switch are not shown. The file "
-                + "is left alone; remove it once you no longer want that history.",
-                legacyDatabase);
+                "Removing the old SQLite database at {Path}. This release reads PostgreSQL only, so "
+                + "downloads recorded before the switch are gone rather than hidden.",
+                database);
+
+            // The -wal and -shm siblings are meaningless without it and would otherwise be left
+            // behind on their own.
+            foreach (var path in new[] { database, $"{database}-wal", $"{database}-shm" })
+            {
+                DeleteIfPresent(path);
+            }
+        }
+
+        // Bookkeeping the deleted import wrote. Nothing reads these now.
+        DeleteIfPresent(Path.Combine(dataDirectory, "postgres-migration.complete"));
+        DeleteIfPresent(Path.Combine(dataDirectory, "postgresql", ".migration_complete"));
+    }
+
+    private void DeleteIfPresent(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Reclaiming disk must never stop the app from starting; the next start tries again.
+            _logger.LogWarning(ex, "Could not remove {Path}", path);
         }
     }
 

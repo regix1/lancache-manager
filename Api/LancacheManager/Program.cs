@@ -33,10 +33,6 @@ using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var migrateOnly =
-    string.Equals(Environment.GetEnvironmentVariable("LANCACHE_MIGRATE_ONLY"), "1", StringComparison.Ordinal) ||
-    Array.Exists(args, arg => string.Equals(arg, "--migrate-only", StringComparison.OrdinalIgnoreCase));
-
 // Read version from VERSION file if not set in environment (for dev mode)
 if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION")))
 {
@@ -1086,11 +1082,6 @@ using (var scope = app.Services.CreateScope())
     // ask them to restart. Skip migration entirely - there is no DB to migrate yet.
     if (externalCredsMissing)
     {
-        if (migrateOnly)
-        {
-            logger.LogError("External mode without credentials - cannot run migrate-only without a target database.");
-            return;
-        }
         logger.LogWarning(
             "POSTGRES_MODE=external but no host/password configured. Starting in setup-only mode; submit DB credentials via the UI and restart the container.");
     }
@@ -1121,12 +1112,6 @@ using (var scope = app.Services.CreateScope())
             // Note: LancacheMetricsService will start automatically as IHostedService
 
             logger.LogInformation("Database initialization complete");
-
-            if (migrateOnly)
-            {
-                logger.LogInformation("Migration-only mode completed successfully. Exiting without starting the web host.");
-                return;
-            }
 
             // CachedDetectionSummary is derived data rather than schema state. Rebuild it only
             // when older persisted detection rows exist without their singleton summary.

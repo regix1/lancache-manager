@@ -19,6 +19,14 @@ const LOOKUP_BATCH_SIZE: usize = 500;
 const LEASE_TIMEOUT_SECONDS: i64 = 300;
 const HEARTBEAT_INTERVAL_SECONDS: i64 = 30;
 
+/// How long a namespace survives without being opened. Under the file store a renamed datasource
+/// or a repointed cache path simply orphaned a file somebody could delete; here the rows stay
+/// reachable only through a scope nothing computes any more, so they would accumulate forever.
+/// Age is the test rather than whether the datasource still exists, because a cache that is
+/// temporarily unmounted looks exactly like one that was deleted, and throwing away a live
+/// baseline costs a full rescan. Thirty days without a scan means the baseline is stale anyway.
+const NAMESPACE_RETENTION_SECONDS: i64 = 30 * 24 * 60 * 60;
+
 /// Serializes first-time table creation. Concurrent first initializers (parallel test threads
 /// against a fresh database) would otherwise race CREATE TABLE IF NOT EXISTS, which PostgreSQL
 /// reports as a duplicate-key error on its catalog instead of treating as a no-op. Namespace
@@ -280,6 +288,16 @@ impl StructuralState {
             if stored != namespace_json {
                 bail!("structural state namespace hash collision");
             }
+            // Opening is what keeps a namespace alive; the sweep at publish reaps whatever has
+            // not been opened for NAMESPACE_RETENTION_SECONDS.
+            runtime.block_on(
+                sqlx::query(
+                    "UPDATE structural_namespaces SET last_seen_at = $1 WHERE namespace_hash = $2",
+                )
+                .bind(unix_timestamp()?)
+                .bind(&namespace_hash)
+                .execute(&mut *transaction),
+            )?;
         } else {
             runtime.block_on(
                 sqlx::query(
@@ -627,6 +645,9 @@ impl StructuralState {
         if let Err(error) = self.cleanup_incompatible_namespaces_bounded() {
             eprintln!("WARNING: structural state incompatible-namespace cleanup failed: {error:#}");
         }
+        if let Err(error) = self.delete_unseen_namespaces_bounded() {
+            eprintln!("WARNING: structural state stale-namespace cleanup failed: {error:#}");
+        }
         Ok((pruned, new_count))
     }
 
@@ -861,6 +882,47 @@ impl StructuralState {
     /// again. In the per-file store this could sweep every foreign namespace, because the file
     /// belonged to one scope; these tables are shared by all scopes now, so the sweep stays
     /// inside this scope and never touches another scope's live baseline.
+    /// Reaps namespaces nothing has opened lately, whatever scope they belong to. This is the only
+    /// path that reaches a scope the app can no longer name: rename a datasource or repoint its
+    /// cache directory and the scope changes, leaving the old rows addressable by nobody. Unlike
+    /// the incompatible-namespace sweep beside it, this one deliberately looks outside this
+    /// scanner's own scope, because the whole point is the scopes that are gone.
+    fn delete_unseen_namespaces_bounded(&mut self) -> Result<()> {
+        let cutoff = unix_timestamp()? - NAMESPACE_RETENTION_SECONDS;
+        loop {
+            let affected = self.runtime.block_on(
+                sqlx::query(
+                    "DELETE FROM structural_file_state WHERE (namespace_hash, generation, digest) IN ( \
+                       SELECT f.namespace_hash, f.generation, f.digest FROM structural_file_state f \
+                       JOIN structural_namespaces n ON n.namespace_hash = f.namespace_hash \
+                       WHERE n.last_seen_at < $1 LIMIT $2 \
+                     )",
+                )
+                .bind(cutoff)
+                .bind(STATE_BATCH_SIZE as i64)
+                .execute(&mut self.connection),
+            )?;
+            if affected.rows_affected() < STATE_BATCH_SIZE as u64 {
+                break;
+            }
+        }
+        self.runtime.block_on(
+            sqlx::query(
+                "DELETE FROM structural_runs WHERE namespace_hash IN ( \
+                   SELECT namespace_hash FROM structural_namespaces WHERE last_seen_at < $1 \
+                 )",
+            )
+            .bind(cutoff)
+            .execute(&mut self.connection),
+        )?;
+        self.runtime.block_on(
+            sqlx::query("DELETE FROM structural_namespaces WHERE last_seen_at < $1")
+                .bind(cutoff)
+                .execute(&mut self.connection),
+        )?;
+        Ok(())
+    }
+
     fn cleanup_incompatible_namespaces_bounded(&mut self) -> Result<()> {
         loop {
             let affected = self.runtime.block_on(
@@ -970,8 +1032,17 @@ async fn initialize_schema(connection: &mut PgConnection) -> Result<()> {
             namespace_hash TEXT PRIMARY KEY, \
             namespace_json TEXT NOT NULL, \
             scope TEXT NOT NULL, \
-            active_generation TEXT NULL \
+            active_generation TEXT NULL, \
+            last_seen_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM now())::bigint) \
          )",
+    )
+    .execute(&mut *transaction)
+    .await?;
+    // Existing installs predate the column. The default fills their rows with the moment of the
+    // upgrade rather than the epoch, so nobody's baseline is swept the first time this runs.
+    sqlx::query(
+        "ALTER TABLE structural_namespaces ADD COLUMN IF NOT EXISTS last_seen_at BIGINT NOT NULL \
+         DEFAULT (EXTRACT(EPOCH FROM now())::bigint)",
     )
     .execute(&mut *transaction)
     .await?;
@@ -1146,6 +1217,89 @@ mod tests {
             [ReuseDecision::ReuseConsistent]
         ));
         assert_eq!(second.publish().unwrap(), (0, 1));
+    }
+
+    fn namespace_row_count(scope: &str) -> i64 {
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let mut connection = PgConnection::connect_with(&db::build_connect_options().unwrap())
+                .await
+                .unwrap();
+            sqlx::query_scalar("SELECT count(*) FROM structural_namespaces WHERE scope = $1")
+                .bind(scope)
+                .fetch_one(&mut connection)
+                .await
+                .unwrap()
+        })
+    }
+
+    fn backdate_namespace(scope: &str, seconds: i64) {
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let mut connection = PgConnection::connect_with(&db::build_connect_options().unwrap())
+                .await
+                .unwrap();
+            sqlx::query("UPDATE structural_namespaces SET last_seen_at = $1 WHERE scope = $2")
+                .bind(unix_timestamp().unwrap() - seconds)
+                .bind(scope)
+                .execute(&mut connection)
+                .await
+                .unwrap();
+        });
+    }
+
+    /// Renaming a datasource or repointing its cache directory changes the scope, and the rows
+    /// under the old one stop being addressable by anything the app can compute. Age is what
+    /// reaps them, so a scan of an unrelated scope has to clear a scope it has never heard of.
+    #[test]
+    fn a_scope_nothing_has_opened_in_a_month_is_swept_by_an_unrelated_scan() {
+        let _env = db::lock_test_env();
+        let abandoned = unique_scope("abandoned");
+        let mut state =
+            StructuralState::open(namespace(&abandoned), StructuralScanMode::Incremental).unwrap();
+        state
+            .record_success(21, fingerprint(21), SuccessfulOutcome::Consistent)
+            .unwrap();
+        state.publish().unwrap();
+        drop(state);
+        assert_eq!(namespace_row_count(&abandoned), 1);
+
+        backdate_namespace(&abandoned, NAMESPACE_RETENTION_SECONDS + 60);
+
+        // A completely different cache root, which has never seen the abandoned scope.
+        let live = unique_scope("live");
+        let mut other =
+            StructuralState::open(namespace(&live), StructuralScanMode::Incremental).unwrap();
+        other.publish().unwrap();
+
+        assert_eq!(namespace_row_count(&abandoned), 0);
+        assert_eq!(namespace_row_count(&live), 1);
+    }
+
+    /// The dangerous half. A cache that is merely unmounted for a while looks exactly like one
+    /// that was deleted, and throwing its baseline away costs a full rescan, so anything inside
+    /// the retention window has to survive a sweep.
+    #[test]
+    fn a_scope_seen_recently_survives_the_sweep() {
+        let _env = db::lock_test_env();
+        let idle = unique_scope("idle");
+        let mut state =
+            StructuralState::open(namespace(&idle), StructuralScanMode::Incremental).unwrap();
+        state
+            .record_success(22, fingerprint(22), SuccessfulOutcome::Consistent)
+            .unwrap();
+        state.publish().unwrap();
+        drop(state);
+
+        // Old, but not old enough.
+        backdate_namespace(&idle, NAMESPACE_RETENTION_SECONDS - 3600);
+
+        let live = unique_scope("sweeper");
+        let mut other =
+            StructuralState::open(namespace(&live), StructuralScanMode::Incremental).unwrap();
+        other.publish().unwrap();
+
+        assert_eq!(namespace_row_count(&idle), 1);
     }
 
     /// The version row covers the whole database rather than one file per cache root, so
