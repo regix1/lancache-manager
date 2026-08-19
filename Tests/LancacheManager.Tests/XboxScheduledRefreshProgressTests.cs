@@ -9,7 +9,7 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using LancacheManager.Security;
-using LancacheManager.Services.Xbox;
+using LancacheManager.Core.Services.Xbox;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -353,6 +353,7 @@ public class XboxScheduledRefreshProgressTests
         FindRepositoryRoot(),
         "Api",
         "LancacheManager",
+        "Core",
         "Services",
         "Xbox",
         "XboxCatalogMappingService.Authentication.cs"));
@@ -363,6 +364,7 @@ public class XboxScheduledRefreshProgressTests
         "LancacheManager",
         "Core",
         "Services",
+        "System",
         "ServiceScheduleRegistry.cs"));
 
     private static string FindRepositoryRoot()

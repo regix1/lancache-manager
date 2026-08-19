@@ -6,7 +6,6 @@ using DnsClient;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
-using LancacheManager.Models.Responses;
 using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Core.Services.StatusCheck;

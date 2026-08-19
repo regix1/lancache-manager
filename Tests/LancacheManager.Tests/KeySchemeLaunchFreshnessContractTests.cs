@@ -5,7 +5,7 @@ public sealed class KeySchemeLaunchFreshnessContractTests
     [Fact]
     public void SharedRemovalRunnerBuildsArgumentsAfterExecutionTimeRevalidation()
     {
-        var source = ReadSource("CacheManagementService.cs");
+        var source = ReadSource("Cache/CacheManagementService.cs");
         var runner = source.IndexOf("private async Task<TReport> RunRustRemovalProcessAsync", StringComparison.Ordinal);
         var revalidation = source.IndexOf("_capabilityService.CheckAllCanMapLogicalObjects()", runner, StringComparison.Ordinal);
         var factoryInvocation = source.IndexOf("var startInfo = createStartInfo()", revalidation, StringComparison.Ordinal);
@@ -18,10 +18,10 @@ public sealed class KeySchemeLaunchFreshnessContractTests
     }
 
     [Theory]
-    [InlineData("CacheManagementService.SteamRemoval.cs")]
-    [InlineData("CacheManagementService.EpicRemoval.cs")]
-    [InlineData("CacheManagementService.NamedRemoval.cs")]
-    [InlineData("CacheManagementService.ServiceRemoval.cs")]
+    [InlineData("Cache/CacheManagementService.SteamRemoval.cs")]
+    [InlineData("Cache/CacheManagementService.EpicRemoval.cs")]
+    [InlineData("Cache/CacheManagementService.NamedRemoval.cs")]
+    [InlineData("Cache/CacheManagementService.ServiceRemoval.cs")]
     public void RemovalFlavorsResolveKeySchemeInsideDeferredLaunchFactory(string fileName)
     {
         var source = ReadSource(fileName);
@@ -37,7 +37,7 @@ public sealed class KeySchemeLaunchFreshnessContractTests
     [Fact]
     public void CorruptionDetectionResolvesSchemeAfterAwaitedStartingNotification()
     {
-        var source = ReadSource("CorruptionDetectionService.cs");
+        var source = ReadSource("Corruption/CorruptionDetectionService.cs");
         var reportMethod = source.IndexOf("private async Task<DatasourceCorruptionReport> GetReportForDatasourceAsync", StringComparison.Ordinal);
         var startingNotification = source.IndexOf("await ReportProgressAsync", reportMethod, StringComparison.Ordinal);
         var scheme = source.IndexOf("_capabilityService.GetKeySchemeWireValue(datasource)", startingNotification, StringComparison.Ordinal);
@@ -54,7 +54,7 @@ public sealed class KeySchemeLaunchFreshnessContractTests
     [Fact]
     public void GameDetectionResolvesSchemeWithoutAwaitBeforeLaunch()
     {
-        var source = ReadSource("GameCacheDetectionService.cs");
+        var source = ReadSource("Detection/GameCacheDetectionService.cs");
         var datasourceLoop = source.IndexOf("foreach (var datasource in datasources)", StringComparison.Ordinal);
         var scheme = source.IndexOf("var keyScheme = _capabilityService.GetKeySchemeWireValue(datasource)", datasourceLoop, StringComparison.Ordinal);
         var startInfo = source.IndexOf("var startInfo = _rustProcessHelper.CreateProcessStartInfo", scheme, StringComparison.Ordinal);

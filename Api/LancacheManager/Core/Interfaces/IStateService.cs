@@ -1,6 +1,5 @@
 using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
-using LancacheManager.Models.Responses;
 
 namespace LancacheManager.Core.Interfaces;
 

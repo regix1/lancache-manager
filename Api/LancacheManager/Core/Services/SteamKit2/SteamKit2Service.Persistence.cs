@@ -1,4 +1,4 @@
-using LancacheManager.Extensions;
+using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
 

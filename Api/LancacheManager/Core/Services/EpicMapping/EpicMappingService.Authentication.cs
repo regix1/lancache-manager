@@ -1,4 +1,4 @@
-using LancacheManager.Core.Utilities;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;

@@ -56,7 +56,7 @@ public sealed class RustLogProcessorRefreshContractTests
     [Fact]
     public void CommittedRefreshPrecedesEveryPostPass()
     {
-        var source = ReadSource("Infrastructure", "Services", "RustLogProcessorService.cs");
+        var source = ReadSource("Infrastructure", "Services", "Rust", "RustLogProcessorService.cs");
 
         var committedEmit = source.IndexOf("await NotifyCommittedDownloadsAsync(finalProgress);", StringComparison.Ordinal);
         var autoTag = source.IndexOf("await AutoTagNewDownloadsAsync();", StringComparison.Ordinal);
@@ -74,7 +74,7 @@ public sealed class RustLogProcessorRefreshContractTests
     [Fact]
     public void AutoTagReturnsCountAndEmitsConditionalRefresh()
     {
-        var source = ReadSource("Infrastructure", "Services", "RustLogProcessorService.cs");
+        var source = ReadSource("Infrastructure", "Services", "Rust", "RustLogProcessorService.cs");
 
         var methodStart = source.IndexOf("private async Task<int> AutoTagNewDownloadsAsync()", StringComparison.Ordinal);
         Assert.True(methodStart >= 0, "AutoTagNewDownloadsAsync must return the tagged count");
@@ -89,7 +89,7 @@ public sealed class RustLogProcessorRefreshContractTests
     [Fact]
     public void ProcessorEmitsDownloadsRefreshOnlyViaAwaitedNotifyAllAsync()
     {
-        var source = ReadSource("Infrastructure", "Services", "RustLogProcessorService.cs");
+        var source = ReadSource("Infrastructure", "Services", "Rust", "RustLogProcessorService.cs");
 
         // Fire-and-forget skips the dashboard cache-generation bump that must precede the
         // hub send, so it can serve a refetch a stale batch. It must never appear here.
@@ -114,7 +114,7 @@ public sealed class RustLogProcessorRefreshContractTests
     [Theory]
     [InlineData("Core", "Services", "EpicMapping", "EpicMappingService.Mapping.cs")]
     [InlineData("Core", "Services", "BattleNet", "BattleNetMappingService.cs")]
-    [InlineData("Services", "Xbox", "XboxMappingService.cs")]
+    [InlineData("Core", "Services", "Xbox", "XboxMappingService.cs")]
     public void MappingPassesStillEmitTheirOwnRefresh(params string[] pathSegments)
     {
         var source = ReadSource(pathSegments);

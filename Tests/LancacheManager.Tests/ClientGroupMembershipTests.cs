@@ -748,7 +748,7 @@ public sealed class ClientGroupMembershipTests
     {
         // CreateClientGroupResponse extends the group shape by hand, so a field added to the group
         // would otherwise quietly stop appearing on the create response.
-        var source = ReadSource("Controllers", "ClientGroupsController.cs");
+        var source = ReadSource("Controllers", "Clients", "ClientGroupsController.cs");
 
         foreach (var property in typeof(ClientGroupDto).GetProperties())
         {

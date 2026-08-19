@@ -1,7 +1,6 @@
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
-using LancacheManager.Models.Responses;
 using Microsoft.Extensions.Configuration;
 
 namespace LancacheManager.Tests;
@@ -269,7 +268,7 @@ public sealed class DashboardBatchCacheContractTests
     [Fact]
     public void WarmerRetriesOnceAndReportsPartialWarms()
     {
-        var source = ReadSource("Infrastructure", "Services", "DashboardCacheWarmerService.cs");
+        var source = ReadSource("Infrastructure", "Services", "Cache", "DashboardCacheWarmerService.cs");
 
         var firstCheck = source.IndexOf("DashboardBatchService.HasFailedSection(response)", StringComparison.Ordinal);
         Assert.True(firstCheck >= 0, "the warm result must be checked for failed sections");
@@ -293,7 +292,7 @@ public sealed class DashboardBatchCacheContractTests
     [Fact]
     public void WarmRequestsTheZoneADefaultReaderSends()
     {
-        var source = ReadSource("Infrastructure", "Services", "DashboardCacheWarmerService.cs");
+        var source = ReadSource("Infrastructure", "Services", "Cache", "DashboardCacheWarmerService.cs");
 
         Assert.Contains("ServerTimeZone.IanaId(_configuration)", source, StringComparison.Ordinal);
         Assert.Contains("GetBatchAsync(null, null, null, serverZone,", source, StringComparison.Ordinal);
@@ -344,7 +343,7 @@ public sealed class DashboardBatchCacheContractTests
     }
 
     private static string BatchServiceSource()
-        => ReadSource("Core", "Services", "DashboardBatchService.cs");
+        => ReadSource("Core", "Services", "Dashboard", "DashboardBatchService.cs");
 
     private static string ReadSource(params string[] pathSegments)
     {

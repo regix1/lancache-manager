@@ -140,7 +140,7 @@ public sealed class CacheDashboardRefreshTests
     public void GameDetectionComplete_InvalidatesDetectionAcrossAllDashboardRanges()
     {
         var notificationSource = ReadSource("Infrastructure", "Services", "SignalRNotificationService.cs");
-        var batchSource = ReadSource("Core", "Services", "DashboardBatchService.cs");
+        var batchSource = ReadSource("Core", "Services", "Dashboard", "DashboardBatchService.cs");
 
         Assert.Contains(
             "GetRequiredService<IDashboardBatchService>().InvalidateDetectionCache()",
@@ -214,7 +214,7 @@ public sealed class CacheDashboardRefreshTests
     public void DashboardBatch_InvalidateAllCache_AdvancesLiveAndDetectionGenerations()
     {
         var interfaceSource = ReadSource("Core", "Interfaces", "IDashboardBatchService.cs");
-        var batchSource = ReadSource("Core", "Services", "DashboardBatchService.cs");
+        var batchSource = ReadSource("Core", "Services", "Dashboard", "DashboardBatchService.cs");
         var methodStart = batchSource.IndexOf("public void InvalidateAllCache()", StringComparison.Ordinal);
         var liveIncrement = batchSource.IndexOf(
             "Interlocked.Increment(ref _liveCacheGeneration)",
@@ -234,7 +234,7 @@ public sealed class CacheDashboardRefreshTests
     [Fact]
     public void DashboardBatch_CapturesGenerationBeforeComputeAndGuardsCacheStore()
     {
-        var source = ReadSource("Core", "Services", "DashboardBatchService.cs");
+        var source = ReadSource("Core", "Services", "Dashboard", "DashboardBatchService.cs");
         var captureIndex = source.IndexOf(
             "var detectionCacheGeneration = Volatile.Read",
             StringComparison.Ordinal);
@@ -252,7 +252,7 @@ public sealed class CacheDashboardRefreshTests
         // The game detection scan and the cache-file scan are independent: each owns its own data
         // and freshness. A detection run refreshes only its own on-disk summary and must never touch
         // the cache-file scan baseline, so detection can never clear or restate the Cache Files card.
-        var source = ReadSource("Core", "Services", "GameCacheDetectionService.cs");
+        var source = ReadSource("Core", "Services", "Detection", "GameCacheDetectionService.cs");
 
         Assert.DoesNotContain(
             "RefreshCacheScanStalenessBaselineAsync",
@@ -263,7 +263,7 @@ public sealed class CacheDashboardRefreshTests
     [Fact]
     public void SystemConfig_ExposesEffectiveSchemeOverrideAndDenialReason()
     {
-        var source = ReadSource("Controllers", "SystemController.cs");
+        var source = ReadSource("Controllers", "System", "SystemController.cs");
 
         Assert.Contains("SchemeOverride = ds.SchemeOverride.ToWireValue()", source, StringComparison.Ordinal);
         Assert.Contains("CacheKeyScheme = DatasourceCapabilityService.GetSchemeWireValue(capabilities)", source, StringComparison.Ordinal);
@@ -274,8 +274,8 @@ public sealed class CacheDashboardRefreshTests
     public void CacheScan_RemainsScheduledOnlyWithNoInitialScanService()
     {
         var servicesDirectory = GetRepositoryPath("Api", "LancacheManager", "Infrastructure", "Services");
-        var initialScanServices = Directory.GetFiles(servicesDirectory, "*Initial*Cache*Scan*.cs");
-        var scheduledSource = ReadSource("Infrastructure", "Services", "CacheSizeScanScheduledService.cs");
+        var initialScanServices = Directory.GetFiles(servicesDirectory, "*Initial*Cache*Scan*.cs", SearchOption.AllDirectories);
+        var scheduledSource = ReadSource("Infrastructure", "Services", "Cache", "CacheSizeScanScheduledService.cs");
 
         Assert.Empty(initialScanServices);
         Assert.Contains("public override bool DefaultRunOnStartup => false;", scheduledSource, StringComparison.Ordinal);

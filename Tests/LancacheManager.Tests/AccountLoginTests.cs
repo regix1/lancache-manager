@@ -222,7 +222,7 @@ public sealed class AccountLoginTests : IDisposable
             StatusOf(await sign.Controller.LoginAsync(NewLogin("operator", Password, _apiKeyService.GetApiKey()))));
 
         var controller = await File.ReadAllTextAsync(
-            Path.Combine(FindRepositoryRoot(), "Api", "LancacheManager", "Controllers", "AuthController.cs"));
+            Path.Combine(FindRepositoryRoot(), "Api", "LancacheManager", "Controllers", "Auth", "AuthController.cs"));
         Assert.Contains("_apiKeyService.ValidateApiKey(request.ApiKey)", controller, StringComparison.Ordinal);
         Assert.DoesNotContain("SequenceEqual", controller, StringComparison.Ordinal);
         Assert.DoesNotContain("FixedTimeEquals", controller, StringComparison.Ordinal);

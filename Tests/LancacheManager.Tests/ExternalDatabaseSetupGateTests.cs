@@ -203,7 +203,7 @@ public class ExternalDatabaseSetupGateTests : IDisposable
         Assert.NotNull(directory);
 
         var source = File.ReadAllText(Path.Combine(
-            directory!.FullName, "Api", "LancacheManager", "Controllers", "SetupController.cs"));
+            directory!.FullName, "Api", "LancacheManager", "Controllers", "Auth", "SetupController.cs"));
 
         Assert.Contains(
             "SELECT has_database_privilege(current_user, current_database(), 'CREATE')",

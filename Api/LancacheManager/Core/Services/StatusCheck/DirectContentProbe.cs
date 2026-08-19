@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Security.Authentication;
-using LancacheManager.Models.Responses;
+using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services.StatusCheck;
 

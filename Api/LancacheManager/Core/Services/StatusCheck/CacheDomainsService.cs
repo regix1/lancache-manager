@@ -3,7 +3,7 @@ using System.IO.Compression;
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
-using LancacheManager.Models.Responses;
+using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services.StatusCheck;
 

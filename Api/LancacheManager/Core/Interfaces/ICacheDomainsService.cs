@@ -1,4 +1,4 @@
-using LancacheManager.Models.Responses;
+using LancacheManager.Models;
 
 namespace LancacheManager.Core.Interfaces;
 

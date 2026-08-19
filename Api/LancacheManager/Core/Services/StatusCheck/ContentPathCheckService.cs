@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
-using LancacheManager.Models.Responses;
+using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services.StatusCheck;
 

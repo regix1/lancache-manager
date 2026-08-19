@@ -154,11 +154,11 @@ public sealed class CacheSizeConfigurationTests
     public void ConfiguredAndManualPaths_CallSharedParser()
     {
         var cacheService = File.ReadAllText(GetRepositoryPath(
-            "Api", "LancacheManager", "Core", "Services", "CacheManagementService.cs"));
+            "Api", "LancacheManager", "Core", "Services", "Cache", "CacheManagementService.cs"));
         var controller = File.ReadAllText(GetRepositoryPath(
-            "Api", "LancacheManager", "Controllers", "DatasourceConfigurationController.cs"));
+            "Api", "LancacheManager", "Controllers", "System", "DatasourceConfigurationController.cs"));
         var systemController = File.ReadAllText(GetRepositoryPath(
-            "Api", "LancacheManager", "Controllers", "SystemController.cs"));
+            "Api", "LancacheManager", "Controllers", "System", "SystemController.cs"));
 
         Assert.Contains("CacheSizeParser.TryParse(value", cacheService, StringComparison.Ordinal);
         Assert.Contains("CacheSizeParser.TryParse(request.Size", controller, StringComparison.Ordinal);

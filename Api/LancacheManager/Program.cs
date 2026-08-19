@@ -5,7 +5,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Core.Services.SteamKit2;
 using LancacheManager.Configuration;
-using LancacheManager.Extensions;
+using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Filters;
 using LancacheManager.Hubs;
@@ -807,15 +807,15 @@ builder.Services.AddDatabaseBackedHostedService<LancacheManager.Infrastructure.S
 
 // Register XboxApiDirectClient for direct HTTP calls to the public Microsoft Store DisplayCatalog
 // (no auth, no Docker) - used to fetch Xbox game banner art by ProductId at mapping time.
-builder.Services.AddHttpClient<LancacheManager.Services.Xbox.XboxApiDirectClient>();
+builder.Services.AddHttpClient<LancacheManager.Core.Services.Xbox.XboxApiDirectClient>();
 
 // Register XboxMappingService for re-tagging existing wsus downloads to Xbox titles by matching
 // the per-file CDN path fragments the authenticated daemon contributed (backfill of INACTIVE rows).
-builder.Services.AddSingleton<LancacheManager.Services.Xbox.XboxMappingService>();
+builder.Services.AddSingleton<LancacheManager.Core.Services.Xbox.XboxMappingService>();
 
 // Register XboxAuthClient - the typed HttpClient for the manager-side, daemon-free Xbox MSA device-code
 // login + catalog harvest (mirrors EpicApiDirectClient; no Docker, no prefill container).
-builder.Services.AddHttpClient<LancacheManager.Services.Xbox.XboxAuthClient>();
+builder.Services.AddHttpClient<LancacheManager.Core.Services.Xbox.XboxAuthClient>();
 
 // Register XboxAuthStorageService - encrypted persistence of the Xbox MSA refresh token + device key
 // (mirrors EpicAuthStorageService; ENC2: via SecureStateEncryptionService).
@@ -826,7 +826,7 @@ builder.Services.AddSingleton<LancacheManager.Infrastructure.Services.XboxAuthSt
 // runtime-configurable schedule + manual trigger + on-authentication nudge, decoupled from prefill,
 // by re-reading the daemon's already-authenticated session. Surfaces on the Schedules page as
 // "xboxMapping" (auto-discovered by ServiceScheduleRegistry as a ConfigurableScheduledService).
-builder.Services.AddDatabaseBackedHostedService<LancacheManager.Services.Xbox.XboxCatalogMappingService>(databaseAvailable);
+builder.Services.AddDatabaseBackedHostedService<LancacheManager.Core.Services.Xbox.XboxCatalogMappingService>(databaseAvailable);
 
 // Register GcScheduledService - runs on a user-configurable interval (managed through the
 // unified Schedules page) and performs aggressive GC when the working set exceeds the
@@ -997,7 +997,7 @@ builder.Logging.AddFilter("LancacheManager.Infrastructure.Platform.WindowsPathRe
 builder.Logging.AddFilter("LancacheManager.Security.ApiKeyService", LogLevel.Information);
 builder.Logging.AddFilter("LancacheManager.Infrastructure.Services.RustLogProcessorService", LogLevel.Information);
 builder.Logging.AddFilter("LancacheManager.Core.Services.CacheManagementService", LogLevel.Warning);
-builder.Logging.AddFilter("LancacheManager.Core.Services.PicsDataService", LogLevel.Information);
+builder.Logging.AddFilter("LancacheManager.Core.Services.SteamKit2.PicsDataService", LogLevel.Information);
 
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 

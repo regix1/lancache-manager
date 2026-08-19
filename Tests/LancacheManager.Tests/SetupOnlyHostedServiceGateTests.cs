@@ -1,4 +1,4 @@
-using LancacheManager.Extensions;
+using LancacheManager.Infrastructure.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 

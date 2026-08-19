@@ -2,7 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using LancacheManager.Services.Xbox;
+using LancacheManager.Core.Services.Xbox;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;

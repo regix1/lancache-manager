@@ -3,7 +3,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
-using LancacheManager.Services.Xbox;
+using LancacheManager.Core.Services.Xbox;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 

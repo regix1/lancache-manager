@@ -1,4 +1,4 @@
-using LancacheManager.Services.Xbox;
+using LancacheManager.Core.Services.Xbox;
 
 namespace LancacheManager.Tests;
 

@@ -7,7 +7,6 @@ using Docker.DotNet.Models;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
-using LancacheManager.Models.Responses;
 using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Core.Services.StatusCheck;

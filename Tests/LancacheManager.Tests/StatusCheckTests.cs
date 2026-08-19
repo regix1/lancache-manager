@@ -2,7 +2,6 @@ using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.StatusCheck;
 using LancacheManager.Models;
-using LancacheManager.Models.Responses;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 

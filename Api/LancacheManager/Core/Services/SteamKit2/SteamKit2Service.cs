@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using LancacheManager.Extensions;
+using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;

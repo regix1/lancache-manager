@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Middleware;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;

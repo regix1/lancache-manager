@@ -8,7 +8,6 @@ using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
-using LancacheManager.Models.Responses;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -280,7 +279,7 @@ public sealed class ClientHostnameServiceTests
         // stands. Only the resolver answering, or stating the name does not exist, settles anything
         // about the address. Reaching the branch needs a resolver on the network, so it is pinned
         // to the source here instead.
-        var source = ReadSource("Core", "Services", "ClientHostnameService.cs");
+        var source = ReadSource("Core", "Services", "Clients", "ClientHostnameService.cs");
 
         Assert.Contains(
             "var responseCode = response.Header.ResponseCode;", source, StringComparison.Ordinal);
@@ -571,7 +570,7 @@ public sealed class ClientHostnameServiceTests
     {
         // The bound is what keeps a network that never answers from holding a page open, so it is
         // locked here rather than left to a reviewer's eye.
-        var source = ReadSource("Core", "Services", "ClientHostnameService.cs");
+        var source = ReadSource("Core", "Services", "Clients", "ClientHostnameService.cs");
 
         Assert.Contains("_queryTimeout = TimeSpan.FromSeconds(2)", source, StringComparison.Ordinal);
         Assert.Contains("options.Timeout = _queryTimeout;", source, StringComparison.Ordinal);
@@ -801,7 +800,7 @@ public sealed class ClientHostnameServiceTests
         // than the query it prepares for. Charging it to the two-second query timeout would time
         // every lookup out on a cold start and cache the whole client list as unnamed for the full
         // name TTL, which is the one failure this feature can never recover from on its own.
-        var source = ReadSource("Core", "Services", "ClientHostnameService.cs");
+        var source = ReadSource("Core", "Services", "Clients", "ClientHostnameService.cs");
 
         Assert.Contains(
             "_resolverDetectionTimeout = TimeSpan.FromSeconds(5)", source, StringComparison.Ordinal);

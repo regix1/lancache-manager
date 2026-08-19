@@ -9,8 +9,8 @@ public sealed class BareMetalDiskFeatureContractTests
         // mapping is materialized in the database at ingest (the CDN host names the game), so
         // removal targets that game's URLs and the cache key never needs to encode the host.
         // Any reintroduction of a Riot-specific block would wrongly diverge from monolithic.
-        var namedRemoval = ReadSource("Core", "Services", "CacheManagementService.NamedRemoval.cs");
-        var controller = ReadSource("Controllers", "GamesController.cs");
+        var namedRemoval = ReadSource("Core", "Services", "Cache", "CacheManagementService.NamedRemoval.cs");
+        var controller = ReadSource("Controllers", "Cache", "GamesController.cs");
 
         Assert.DoesNotContain("EnsureNamedGameRemovalSupported", namedRemoval, StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -35,7 +35,7 @@ public sealed class BareMetalDiskFeatureContractTests
     [Fact]
     public void EvictionDatasourceConfigIncludesKeyScheme()
     {
-        var source = ReadSource("Core", "Services", "CacheReconciliationService.cs");
+        var source = ReadSource("Core", "Services", "Cache", "CacheReconciliationService.cs");
 
         Assert.Contains(
             "keyScheme = _capabilityService.GetKeySchemeWireValue(ds)",

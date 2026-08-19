@@ -1,5 +1,5 @@
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Models.Responses;
+using LancacheManager.Models;
 
 namespace LancacheManager.Tests;
 

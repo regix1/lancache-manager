@@ -5,7 +5,7 @@ using System.Text.Json;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.StatusCheck;
 using LancacheManager.Infrastructure.Utilities;
-using LancacheManager.Models.Responses;
+using LancacheManager.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;

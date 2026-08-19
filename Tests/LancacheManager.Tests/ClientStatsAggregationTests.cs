@@ -372,8 +372,8 @@ public sealed class ClientStatsAggregationTests
         // nicknames from the dashboard, so neither surface may rank clients on its own.
         foreach (var source in new[]
                  {
-                     ReadSource("Controllers", "StatsController.cs"),
-                     ReadSource("Core", "Services", "DashboardBatchService.cs")
+                     ReadSource("Controllers", "Dashboard", "StatsController.cs"),
+                     ReadSource("Core", "Services", "Dashboard", "DashboardBatchService.cs")
                  })
         {
             Assert.Contains("ClientStatsAggregationHelper.AggregateAndRank(", source, StringComparison.Ordinal);
@@ -383,7 +383,7 @@ public sealed class ClientStatsAggregationTests
     [Fact]
     public void ClientGroupWritesExpireTheLiveDashboardBatch()
     {
-        var source = ReadSource("Controllers", "ClientGroupsController.cs");
+        var source = ReadSource("Controllers", "Clients", "ClientGroupsController.cs");
 
         var invalidations = 0;
         var searchFrom = 0;
@@ -405,7 +405,7 @@ public sealed class ClientStatsAggregationTests
     {
         // UpdateAsync copies a hand-picked list of fields onto the tracked entity, so a field
         // left out of that list saves without error and reverts on the next fetch.
-        var source = ReadSource("Infrastructure", "Services", "ClientGroupsService.cs");
+        var source = ReadSource("Infrastructure", "Services", "Repositories", "ClientGroupsService.cs");
 
         Assert.Contains("existing.SeparateMemberRows = group.SeparateMemberRows;", source, StringComparison.Ordinal);
     }

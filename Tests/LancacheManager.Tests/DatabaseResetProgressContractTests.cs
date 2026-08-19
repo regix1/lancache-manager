@@ -99,6 +99,7 @@ public class DatabaseResetProgressContractTests
             "LancacheManager",
             "Infrastructure",
             "Services",
+            "System",
             "DatabaseService.cs"));
         var cleanup = source.IndexOf(
             "SET session_replication_role = DEFAULT;",

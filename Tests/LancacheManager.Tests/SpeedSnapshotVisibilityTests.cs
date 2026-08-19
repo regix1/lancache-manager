@@ -99,14 +99,14 @@ public sealed class SpeedSnapshotVisibilityTests
     [Fact]
     public void SignalRBroadcastAndRestEndpointUseTheSharedBuilder()
     {
-        var trackerSource = ReadSource(Path.Combine("Core", "Services", "RustSpeedTrackerService.cs"));
+        var trackerSource = ReadSource(Path.Combine("Core", "Services", "Logs", "RustSpeedTrackerService.cs"));
 
         var buildForBroadcast = trackerSource.IndexOf("var visibleSnapshot = BuildClientVisibleSnapshot(", StringComparison.Ordinal);
         var broadcast = trackerSource.IndexOf("NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, visibleSnapshot)", StringComparison.Ordinal);
         Assert.True(buildForBroadcast >= 0, "the broadcast must build the client-visible projection");
         Assert.True(broadcast > buildForBroadcast, "the hub send must use the client-visible projection");
 
-        var controllerSource = ReadSource(Path.Combine("Controllers", "SpeedsController.cs"));
+        var controllerSource = ReadSource(Path.Combine("Controllers", "Dashboard", "SpeedsController.cs"));
         Assert.Contains("_speedTrackerService.GetCurrentSnapshot()", controllerSource, StringComparison.Ordinal);
         Assert.DoesNotContain("GetHiddenClientIps", GetCurrentSpeedsSlice(controllerSource), StringComparison.Ordinal);
     }

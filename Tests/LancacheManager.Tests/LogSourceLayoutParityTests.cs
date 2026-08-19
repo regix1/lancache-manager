@@ -105,7 +105,7 @@ public sealed class LogSourceLayoutParityTests
     [Fact]
     public void DatasourceService_ProbesWritabilityAfterSourceRefresh()
     {
-        var source = ReadRepoFile("Api", "LancacheManager", "Core", "Services", "DatasourceService.cs");
+        var source = ReadRepoFile("Api", "LancacheManager", "Core", "Services", "System", "DatasourceService.cs");
 
         AssertOrderedWithin(
             source,

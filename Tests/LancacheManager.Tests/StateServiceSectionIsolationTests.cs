@@ -6,7 +6,6 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
-using LancacheManager.Models.Responses;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
