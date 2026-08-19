@@ -2,14 +2,11 @@
 
 # Resolves the Postgres mode and credentials, and starts the embedded server when there is one.
 #
-# SOURCED BY entrypoint.sh, NOT EXECUTED. That is load-bearing in three ways, so keep the
+# SOURCED BY entrypoint.sh, NOT EXECUTED. That is load-bearing in two ways, so keep the
 # `source` at the call site if this file is ever moved or renamed:
-#   1. Everything after the call site reads POSTGRES_MODE, PGHOST, PGPASSWORD, PGDATABASE,
-#      which are set here. A subprocess would drop all of them
-#      on exit and the migration step would then read empty values and skip itself.
-#   2. diagnose_write_denial() is defined in entrypoint.sh and called here for an unwritable
+#   1. diagnose_write_denial() is defined in entrypoint.sh and called here for an unwritable
 #      /data. A subprocess would not have that function.
-#   3. The `exit 1` failure paths below are meant to stop the container. From a subprocess they
+#   2. The `exit 1` failure paths below are meant to stop the container. From a subprocess they
 #      would only end the subprocess and the entrypoint would carry on and launch the app
 #      against a database that never started.
 

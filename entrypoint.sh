@@ -178,10 +178,9 @@ chmod +x /app/rust-processor/* 2>/dev/null || true
 # ---------------------------------------------------------------------------
 # PostgreSQL: mode, credentials, and the embedded server.
 #
-# Sourced rather than run, so it can use diagnose_write_denial() above, so the variables it
-# resolves (POSTGRES_MODE, PGHOST, PGPASSWORD, PGDATABASE) reach
-# the migration step below, and so its `exit 1` paths stop the container instead of stopping
-# only a subprocess and letting the app launch against a database that never started.
+# Sourced rather than run, so it can use diagnose_write_denial() above, and so its `exit 1`
+# paths stop the container instead of stopping only a subprocess and letting the app launch
+# against a database that never started.
 # ---------------------------------------------------------------------------
 source /scripts/postgres-setup.sh
 
