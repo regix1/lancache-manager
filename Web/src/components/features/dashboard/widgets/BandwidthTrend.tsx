@@ -48,8 +48,8 @@ const BandwidthTrend: React.FC = memo(() => {
 
   const bucketMinutes = sparklines?.bucketMinutes ?? 1440;
   const starts = sparklines?.bucketStarts ?? EMPTY_POINTS;
-  const saved = sparklines?.bandwidthSaved.data ?? EMPTY_POINTS;
-  const served = sparklines?.totalServed.data ?? EMPTY_POINTS;
+  const saved = sparklines?.bandwidthSaved?.data ?? EMPTY_POINTS;
+  const served = sparklines?.totalServed?.data ?? EMPTY_POINTS;
   const pointCount = Math.min(starts.length, saved.length, served.length);
   const hasSeries = pointCount > 0 && hasBandwidthPoints(saved, served);
   const isCompare = chartTab === 'compare';

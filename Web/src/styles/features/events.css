@@ -34,6 +34,16 @@
     0 8px 20px -8px rgba(0, 0, 0, 0.3);
 }
 
+/* The header is a full-bleed fill sitting on the top edge, so its own square corners
+   show against the rounded container. The panel fades in, and an opacity animation can
+   promote the child to its own layer where the container's clip no longer rounds it, so
+   the radius is set here rather than left to overflow. 11px is the 12px outer radius
+   less the 1px border. */
+.calendar-day-popover > :first-child {
+  border-top-left-radius: 11px;
+  border-top-right-radius: 11px;
+}
+
 /* ==============================================
  * COMPONENTS - Event frame (active event border)
  * Bordered frame whose top edge is a filled label bar. Bar, border and
