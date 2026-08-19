@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import CalendarNavigation from '@components/common/CalendarNavigation';
@@ -6,8 +7,14 @@ import { useTimezone } from '@contexts/useTimezone';
 import { useCalendarSettings } from '@contexts/useCalendarSettings';
 import { getDaysInMonth } from '@utils/calendar';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
-import { getColorTierVar, getEventColorVar, type ColorTier } from '@utils/eventColors';
+import {
+  eventColorToken,
+  themeColorVar,
+  type ColorTier,
+  type ColorToken
+} from '@utils/eventColors';
 import { clampToViewport } from '@utils/viewportClamp';
+import { useAnchorFollow, readAnchorRect, type AnchorRect } from '@hooks/useAnchorFollow';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
@@ -20,39 +27,60 @@ import type { Event } from '../../../types';
 const EXPANDED_DAY_POPOVER_GAP_PX = 8;
 // Minimum distance from the viewport edge, matching the other popovers in this app.
 const EXPANDED_DAY_POPOVER_GUTTER_PX = 12;
+// Drop below the week row's top edge so the row's own date numbers stay readable.
+const EXPANDED_DAY_POPOVER_DROP_PX = 4;
 // Pre-measurement guess, matching the className's max-w-[260px] below; the real
 // width is measured off the rendered node once it exists.
 const EXPANDED_DAY_POPOVER_MAX_WIDTH_PX = 260;
+// Below this the two positions are the same place, so re-rendering would only churn.
+const EXPANDED_DAY_POPOVER_EPSILON_PX = 0.5;
 
-// Anchors the expanded-day popover near its day column, then clamps the result to
-// the viewport. `rowRect` and `viewportWidth` are viewport-space measurements; the
-// return value is converted back to the row-local `left` the absolutely positioned
-// popover needs, since it stays inside the week row rather than being portalled.
-function computeExpandedDayPopoverLeft(
+/** Where the body-portalled popover sits on the page. */
+interface ExpandedDayPopoverPosition {
+  left: number;
+  top: number;
+}
+
+// Anchors the expanded-day popover near its day column, then keeps it on screen on
+// both axes. `rowRect` and the viewport sizes are viewport-space measurements; the
+// result is returned in document coordinates, because the popover is absolutely
+// positioned in a body portal so that scrolling carries it and its row together.
+function computeExpandedDayPopoverPosition(
   isRightSide: boolean,
   adjustedIndex: number,
   totalCols: number,
-  rowRect: DOMRect,
+  rowRect: AnchorRect,
   popoverWidth: number,
-  viewportWidth: number
-): number {
+  popoverHeight: number,
+  viewportWidth: number,
+  viewportHeight: number
+): ExpandedDayPopoverPosition {
   const maxIndex = totalCols - 1;
 
-  const desiredViewportLeft = isRightSide
+  const desiredLeft = isRightSide
     ? rowRect.right -
       ((maxIndex - adjustedIndex) / totalCols) * rowRect.width -
       EXPANDED_DAY_POPOVER_GAP_PX -
       popoverWidth
     : rowRect.left + (adjustedIndex / totalCols) * rowRect.width + EXPANDED_DAY_POPOVER_GAP_PX;
 
-  const clampedViewportLeft = clampToViewport(
-    desiredViewportLeft,
+  const left = clampToViewport(
+    desiredLeft,
     popoverWidth,
     viewportWidth,
     EXPANDED_DAY_POPOVER_GUTTER_PX
   );
 
-  return clampedViewportLeft - rowRect.left;
+  // A day in the last week row holds its popover below most of the viewport, so
+  // clamping the top is what keeps a tall list of events fully on screen.
+  const top = clampToViewport(
+    rowRect.top + EXPANDED_DAY_POPOVER_DROP_PX,
+    popoverHeight,
+    viewportHeight,
+    EXPANDED_DAY_POPOVER_GUTTER_PX
+  );
+
+  return { left: left + window.scrollX, top: top + window.scrollY };
 }
 
 interface EventCalendarProps {
@@ -87,7 +115,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
   const [expandedDay, setExpandedDay] = useState<{ day: number; weekIndex: number } | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const weekRowRef = useRef<HTMLDivElement>(null);
-  const [popoverLeft, setPopoverLeft] = useState<number | null>(null);
+  const [popoverPos, setPopoverPos] = useState<ExpandedDayPopoverPosition | null>(null);
 
   // Check if an event has ended
   const hasEventEnded = (event: Event): boolean => {
@@ -368,70 +396,60 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
   // Reset the measured position when the popover closes, matching CalendarSettingsPopover.
   useEffect(() => {
     if (expandedDay === null) {
-      setPopoverLeft(null);
+      setPopoverPos(null);
     }
   }, [expandedDay]);
 
-  // Position the expanded-day popover before paint, anchored near its day column and
-  // clamped to the viewport. Runs before the popover's actual width is known, so it
-  // uses the max-width guess; the effect below corrects it once the node is measured.
-  useLayoutEffect(() => {
-    if (!expandedDay || !weekRowRef.current) return;
+  const placeExpandedDayPopover = useCallback(
+    (rowRect: AnchorRect): void => {
+      if (!expandedDay) return;
 
-    const week = weekRows.find((w) => w.weekIndex === expandedDay.weekIndex);
-    if (!week) return;
+      const week = weekRows.find((w) => w.weekIndex === expandedDay.weekIndex);
+      if (!week) return;
 
-    const dayIndex = week.days.indexOf(expandedDay.day);
-    const isRightSide = dayIndex >= 4;
-    const totalCols = settings.showWeekNumbers ? 8 : 7;
-    const adjustedIndex = settings.showWeekNumbers ? dayIndex + 1 : dayIndex;
+      const dayIndex = week.days.indexOf(expandedDay.day);
+      const isRightSide = dayIndex >= 4;
+      const totalCols = settings.showWeekNumbers ? 8 : 7;
+      const adjustedIndex = settings.showWeekNumbers ? dayIndex + 1 : dayIndex;
 
-    const rowRect = weekRowRef.current.getBoundingClientRect();
-    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
-    const popoverWidth = popoverRef.current?.offsetWidth || EXPANDED_DAY_POPOVER_MAX_WIDTH_PX;
-
-    setPopoverLeft(
-      computeExpandedDayPopoverLeft(
+      const next = computeExpandedDayPopoverPosition(
         isRightSide,
         adjustedIndex,
         totalCols,
         rowRect,
-        popoverWidth,
-        viewportWidth
-      )
-    );
-  }, [expandedDay, weekRows, settings.showWeekNumbers]);
+        popoverRef.current?.offsetWidth || EXPANDED_DAY_POPOVER_MAX_WIDTH_PX,
+        popoverRef.current?.offsetHeight ?? 0,
+        document.documentElement.clientWidth || window.innerWidth,
+        document.documentElement.clientHeight || window.innerHeight
+      );
 
-  // Re-measure once the popover has actually rendered, correcting the initial
-  // max-width guess for content that renders narrower than 260px.
+      setPopoverPos((prev) =>
+        prev !== null &&
+        Math.abs(prev.left - next.left) <= EXPANDED_DAY_POPOVER_EPSILON_PX &&
+        Math.abs(prev.top - next.top) <= EXPANDED_DAY_POPOVER_EPSILON_PX
+          ? prev
+          : next
+      );
+    },
+    [expandedDay, weekRows, settings.showWeekNumbers]
+  );
+
+  // Place the popover before paint. The first pass runs while the node is still
+  // unmounted and so uses the max-width guess with no height; keying on the mounted
+  // flag re-runs it in the same commit the node appears in, with real measurements.
+  const isPopoverMounted = popoverPos !== null;
   useLayoutEffect(() => {
-    if (!expandedDay || popoverLeft === null || !weekRowRef.current || !popoverRef.current) return;
+    if (!expandedDay || !weekRowRef.current) return;
+    placeExpandedDayPopover(readAnchorRect(weekRowRef.current));
+  }, [expandedDay, isPopoverMounted, placeExpandedDayPopover]);
 
-    const week = weekRows.find((w) => w.weekIndex === expandedDay.weekIndex);
-    if (!week) return;
-
-    const dayIndex = week.days.indexOf(expandedDay.day);
-    const isRightSide = dayIndex >= 4;
-    const totalCols = settings.showWeekNumbers ? 8 : 7;
-    const adjustedIndex = settings.showWeekNumbers ? dayIndex + 1 : dayIndex;
-
-    const rowRect = weekRowRef.current.getBoundingClientRect();
-    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
-    const popoverWidth = popoverRef.current.offsetWidth;
-
-    const newLeft = computeExpandedDayPopoverLeft(
-      isRightSide,
-      adjustedIndex,
-      totalCols,
-      rowRect,
-      popoverWidth,
-      viewportWidth
-    );
-
-    if (Math.abs(newLeft - popoverLeft) > 0.5) {
-      setPopoverLeft(newLeft);
-    }
-  }, [expandedDay, popoverLeft, weekRows, settings.showWeekNumbers]);
+  useAnchorFollow({
+    enabled: isPopoverMounted,
+    anchorRef: weekRowRef,
+    onAnchorMove: placeExpandedDayPopover,
+    // Nothing left to anchor to once the week row is scrolled off screen.
+    onAnchorLost: () => setExpandedDay(null)
+  });
 
   // Check if current view includes today
   const now = new Date();
@@ -682,8 +700,12 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
 
                 // Every size on a bar lives in the stylesheet. Only the colour tiers cannot be
                 // derived from a colour variable in CSS, so those four ride in as properties.
-                const getSpanColors = (colorVar: string, isEnded: boolean): React.CSSProperties => {
-                  const tier = (name: ColorTier): string => getColorTierVar(colorVar, name);
+                const getSpanColors = (
+                  colorToken: ColorToken,
+                  isEnded: boolean
+                ): React.CSSProperties => {
+                  const colorVar = themeColorVar(colorToken);
+                  const tier = (name: ColorTier): string => themeColorVar(colorToken, name);
                   const solid = settings.eventOpacity === 'solid';
                   let from: string;
                   let to: string;
@@ -715,9 +737,11 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                     className={`calendar-events absolute inset-0 grid pointer-events-none ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
                   >
                     {stackedEvents.map((spanEvent, eventIndex) => {
-                      const colorVar = getEventColorVar(spanEvent.event.colorIndex);
                       const isEnded = hasEventEnded(spanEvent.event);
-                      const spanColors = getSpanColors(colorVar, isEnded);
+                      const spanColors = getSpanColors(
+                        eventColorToken(spanEvent.event.colorIndex),
+                        isEnded
+                      );
                       const label = showSpanLabel ? (
                         <span className="event-span-label">
                           {isEnded
@@ -796,109 +820,113 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                   </div>
                 );
               })()}
-
-              {/* Expanded day events popover */}
-              {expandedDay?.weekIndex === week.weekIndex &&
-                popoverLeft !== null &&
-                (() => {
-                  const dayEvents = getEventsForDay(expandedDay.day);
-
-                  return (
-                    <div
-                      ref={popoverRef}
-                      className="calendar-day-popover absolute z-50 min-w-[200px] max-w-[260px] overflow-hidden animate-fadeIn"
-                      style={{ left: popoverLeft }}
-                    >
-                      {/* Header */}
-                      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary)]">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold bg-[var(--theme-primary)] text-[var(--theme-primary-text)]">
-                            {expandedDay.day}
-                          </div>
-                          <span className="text-sm font-medium text-[var(--theme-text-primary)]">
-                            {monthNames[currentMonth.getMonth()]}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => setExpandedDay(null)}
-                          className="w-6 h-6 flex items-center justify-center rounded-md transition text-[var(--theme-text-muted)] bg-transparent hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)]"
-                        >
-                          <svg
-                            width="12"
-                            height="12"
-                            viewBox="0 0 12 12"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                          >
-                            <path d="M2 2l8 8M10 2l-8 8" />
-                          </svg>
-                        </button>
-                      </div>
-
-                      {/* Events count */}
-                      <div className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
-                        {t('events.calendar.eventCount', { count: dayEvents.length })}
-                      </div>
-
-                      {/* Events list */}
-                      <CustomScrollbar maxHeight="200px" paddingMode="compact" className="p-2">
-                        <div className="space-y-1.5">
-                          {dayEvents.map((event) => {
-                            const colorVar = getEventColorVar(event.colorIndex);
-                            const subtleVar = getColorTierVar(colorVar, 'subtle');
-                            const mutedVar = getColorTierVar(colorVar, 'muted');
-                            const emphasisVar = getColorTierVar(colorVar, 'emphasis');
-                            const intenseVar = getColorTierVar(colorVar, 'intense');
-                            const isEnded = hasEventEnded(event);
-                            const rowColors = {
-                              '--popover-event-fill': isEnded ? subtleVar : mutedVar,
-                              '--popover-event-edge': isEnded ? emphasisVar : colorVar,
-                              '--popover-event-text': isEnded ? intenseVar : colorVar,
-                              '--popover-event-dot': colorVar
-                            } as React.CSSProperties;
-                            return (
-                              <Tooltip
-                                key={event.id}
-                                content={
-                                  isEnded
-                                    ? t('events.calendar.eventEnded', { name: event.name })
-                                    : event.name
-                                }
-                                className="w-full"
-                              >
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onEventClick(event);
-                                    setExpandedDay(null);
-                                  }}
-                                  className={`calendar-day-popover-event${isEnded ? ' calendar-day-popover-event--ended' : ''}`}
-                                  style={rowColors}
-                                >
-                                  <span className="calendar-day-popover-dot" />
-                                  <span className="truncate">
-                                    {isEnded && (
-                                      <span className="calendar-day-popover-ended">
-                                        {t('events.ended')}{' '}
-                                      </span>
-                                    )}
-                                    {event.name}
-                                  </span>
-                                </button>
-                              </Tooltip>
-                            );
-                          })}
-                        </div>
-                      </CustomScrollbar>
-                    </div>
-                  );
-                })()}
             </div>
           );
         })}
       </div>
+
+      {/* Expanded day events popover. Portalled to the body so no ancestor of the week
+          row can clip it, and positioned in document coordinates so an ordinary scroll
+          carries it and the row together. */}
+      {expandedDay !== null &&
+        popoverPos !== null &&
+        (() => {
+          const dayEvents = getEventsForDay(expandedDay.day);
+
+          return createPortal(
+            <div
+              ref={popoverRef}
+              className="calendar-day-popover absolute z-[85] min-w-[200px] max-w-[260px] overflow-hidden animate-fadeIn"
+              style={{ left: popoverPos.left, top: popoverPos.top }}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary)]">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold bg-[var(--theme-primary)] text-[var(--theme-primary-text)]">
+                    {expandedDay.day}
+                  </div>
+                  <span className="text-sm font-medium text-[var(--theme-text-primary)]">
+                    {monthNames[currentMonth.getMonth()]}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setExpandedDay(null)}
+                  className="w-6 h-6 flex items-center justify-center rounded-md transition text-[var(--theme-text-muted)] bg-transparent hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)]"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  >
+                    <path d="M2 2l8 8M10 2l-8 8" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Events count */}
+              <div className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
+                {t('events.calendar.eventCount', { count: dayEvents.length })}
+              </div>
+
+              {/* Events list */}
+              <CustomScrollbar maxHeight="200px" paddingMode="compact" className="p-2">
+                <div className="space-y-1.5">
+                  {dayEvents.map((event) => {
+                    const colorToken = eventColorToken(event.colorIndex);
+                    const colorVar = themeColorVar(colorToken);
+                    const subtleVar = themeColorVar(colorToken, 'subtle');
+                    const mutedVar = themeColorVar(colorToken, 'muted');
+                    const emphasisVar = themeColorVar(colorToken, 'emphasis');
+                    const intenseVar = themeColorVar(colorToken, 'intense');
+                    const isEnded = hasEventEnded(event);
+                    const rowColors = {
+                      '--popover-event-fill': isEnded ? subtleVar : mutedVar,
+                      '--popover-event-edge': isEnded ? emphasisVar : colorVar,
+                      '--popover-event-text': isEnded ? intenseVar : colorVar,
+                      '--popover-event-dot': colorVar
+                    } as React.CSSProperties;
+                    return (
+                      <Tooltip
+                        key={event.id}
+                        content={
+                          isEnded
+                            ? t('events.calendar.eventEnded', { name: event.name })
+                            : event.name
+                        }
+                        className="w-full"
+                      >
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEventClick(event);
+                            setExpandedDay(null);
+                          }}
+                          className={`calendar-day-popover-event${isEnded ? ' calendar-day-popover-event--ended' : ''}`}
+                          style={rowColors}
+                        >
+                          <span className="calendar-day-popover-dot" />
+                          <span className="truncate">
+                            {isEnded && (
+                              <span className="calendar-day-popover-ended">
+                                {t('events.ended')}{' '}
+                              </span>
+                            )}
+                            {event.name}
+                          </span>
+                        </button>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              </CustomScrollbar>
+            </div>,
+            document.body
+          );
+        })()}
 
       {/* Empty month message */}
       {!hasEventsThisMonth && (

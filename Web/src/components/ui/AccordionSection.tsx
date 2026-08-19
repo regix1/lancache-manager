@@ -1,13 +1,22 @@
 import React from 'react';
 import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { formatCount } from '@utils/formatters';
-import { getColorTierVar } from '@utils/eventColors';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 
 /** Lucide icons or brand SVG components (SteamIcon, EpicIcon, …) that accept size/className/style. */
 type AccordionIcon =
   | LucideIcon
   | React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
+
+/**
+ * `iconColor` arrives as a finished `var(--name)` value from dozens of call sites across the
+ * app, so the tier suffix has to be spliced into that string rather than composed from a
+ * colour token. Colours the theme declares no tier for, the per-service brand colours among
+ * them, resolve to nothing and leave the icon box untinted.
+ */
+function iconColorTier(colorValue: string, tier: 'subtle' | 'muted'): string {
+  return colorValue.replace(')', `-${tier})`);
+}
 
 interface AccordionSectionProps {
   title: string;
@@ -137,8 +146,8 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
                 isExpanded ? 'scale-105' : 'scale-100'
               }`}
               style={{
-                backgroundColor: getColorTierVar(iconColor, 'subtle'),
-                boxShadow: isExpanded ? `0 2px 8px ${getColorTierVar(iconColor, 'muted')}` : 'none'
+                backgroundColor: iconColorTier(iconColor, 'subtle'),
+                boxShadow: isExpanded ? `0 2px 8px ${iconColorTier(iconColor, 'muted')}` : 'none'
               }}
             >
               <Icon
@@ -185,7 +194,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
                   style={
                     isExpanded
                       ? {
-                          backgroundColor: getColorTierVar(iconColor, 'muted'),
+                          backgroundColor: iconColorTier(iconColor, 'muted'),
                           color: iconColor
                         }
                       : undefined

@@ -6,7 +6,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { LoadingState } from '@components/ui/ManagerCard';
-import { getColorTierVar, getEventColorVar } from '@utils/eventColors';
+import { eventColorToken, themeColorVar } from '@utils/eventColors';
 import EventCalendar from './EventCalendar';
 import EventModal from './EventModal';
 import EventList from './EventList';
@@ -105,7 +105,7 @@ const EventsTab: React.FC = () => {
             {t('events.activeCount', { count: activeEvents.length })}
           </span>
           {activeEvents.map((event) => {
-            const eventColor = getEventColorVar(event.colorIndex);
+            const colorToken = eventColorToken(event.colorIndex);
             return (
               <button
                 key={event.id}
@@ -113,8 +113,8 @@ const EventsTab: React.FC = () => {
                 className="event-active-chip inline-flex items-center gap-1.5 px-2.5 py-1 text-sm themed-border-radius-sm font-medium transition hover:scale-105"
                 style={
                   {
-                    '--event-chip-color': eventColor,
-                    '--event-chip-bg': getColorTierVar(eventColor, 'muted')
+                    '--event-chip-color': themeColorVar(colorToken),
+                    '--event-chip-bg': themeColorVar(colorToken, 'muted')
                   } as React.CSSProperties
                 }
               >

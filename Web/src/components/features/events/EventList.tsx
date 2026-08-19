@@ -22,7 +22,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatTimestamp } from '@utils/dateTimeFormat';
 import { formatBytes } from '@utils/formatters';
 import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
-import { getColorTierVar, getEventColorVar } from '@utils/eventColors';
+import { getEventColorVar, themeColorVar, type ColorToken } from '@utils/eventColors';
 import ApiService from '@services/api.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import type { Event, Download } from '../../../types';
@@ -284,14 +284,14 @@ const SectionHeader: React.FC<{
   icon: React.ReactNode;
   title: string;
   count: number;
-  color: string;
+  color: ColorToken;
 }> = ({ icon, title, count, color }) => (
   <div
     className="flex items-center gap-2 mb-3"
     style={
       {
-        '--event-section-color': color,
-        '--event-section-subtle': getColorTierVar(color, 'subtle')
+        '--event-section-color': themeColorVar(color),
+        '--event-section-subtle': themeColorVar(color, 'subtle')
       } as React.CSSProperties
     }
   >
@@ -463,7 +463,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
             icon={<Zap className="w-3.5 h-3.5" />}
             title={t('events.list.sections.active')}
             count={groupedEvents.active.length}
-            color="var(--theme-status-success)"
+            color="--theme-success"
           />
           <div className="well-surface divided-list">
             {groupedEvents.active.map((event) => (
@@ -491,7 +491,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
             icon={<CalendarClock className="w-3.5 h-3.5" />}
             title={t('events.list.sections.upcoming')}
             count={groupedEvents.upcoming.length}
-            color="var(--theme-primary)"
+            color="--theme-primary"
           />
           <div className="well-surface divided-list">
             {groupedEvents.upcoming.map((event) => (
@@ -519,7 +519,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
             icon={<History className="w-3.5 h-3.5" />}
             title={t('events.list.sections.past')}
             count={groupedEvents.past.length}
-            color="var(--theme-text-muted)"
+            color="--theme-text-muted"
           />
           <div className="well-surface divided-list">
             {groupedEvents.past.map((event) => (
