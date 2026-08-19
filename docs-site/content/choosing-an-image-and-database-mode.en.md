@@ -107,6 +107,6 @@ Get this wrong and the app does not start rather than warning you. Database setu
 
 **Set `POSTGRES_MODE=external` but left the connection vars unset?** The app boots in setup-only mode and shows a UI form. Credentials submitted there are saved to `/data/config/postgres-credentials.json`; you'll be asked to restart the container so the new connection takes effect.
 
-**Already running embedded and want to switch?** Your existing data does not move on its own - the automatic migration only covers the old SQLite database, not embedded Postgres. Dump and restore it by hand first: see [Migrate Embedded to External PostgreSQL](https://github.com/regix1/lancache-manager/blob/main/docs/external-postgres-migration.md).
+**Already running embedded and want to switch?** Your existing data does not move on its own. Dump and restore it by hand first: see [Migrate Embedded to External PostgreSQL](https://github.com/regix1/lancache-manager/blob/main/docs/external-postgres-migration.md).
 
 -----

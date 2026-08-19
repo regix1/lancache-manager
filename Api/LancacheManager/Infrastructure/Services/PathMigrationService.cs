@@ -81,7 +81,69 @@ public class PathMigrationService
             _pathResolver.GetOperationsDirectory(),
             result);
 
+        ReportStrandedSqliteDatabase(dataDirectory);
+        RemoveOrphanedStructuralScanState();
+
         return result;
+    }
+
+    /// <summary>
+    /// An install that never ran the old SQLite import keeps a database nothing will read again.
+    /// Everything else about it looks healthy: setup is already marked complete in state.json and
+    /// the log offsets are stored, so the app skips the wizard and does not re-read the old lines.
+    /// Without this the only symptom is empty history next to a banner about the data mount, which
+    /// points at a cause that is not theirs.
+    /// </summary>
+    private void ReportStrandedSqliteDatabase(string dataDirectory)
+    {
+        // Older builds kept it beside the data root before a later one moved it into db/.
+        string[] candidates =
+        [
+            Path.Combine(dataDirectory, "db", "LancacheManager.db"),
+            Path.Combine(dataDirectory, "LancacheManager.db")
+        ];
+
+        foreach (var legacyDatabase in candidates.Where(File.Exists))
+        {
+            _logger.LogWarning(
+                "Found an old SQLite database at {Path}. This release reads PostgreSQL only and no "
+                + "longer imports it, so downloads recorded before the switch are not shown. The file "
+                + "is left alone; remove it once you no longer want that history.",
+                legacyDatabase);
+        }
+    }
+
+    /// <summary>
+    /// The corruption scanner keeps its baselines in PostgreSQL now, and nothing in the app names
+    /// this directory any more. Left alone it would sit on the data volume forever: one file per
+    /// cache root, each carrying a row per cached file. The baselines are derived state, so the
+    /// next scan rebuilds whatever is thrown away here.
+    /// </summary>
+    private void RemoveOrphanedStructuralScanState()
+    {
+        var legacyStateDirectory = Path.Combine(
+            _pathResolver.GetStateDirectory(),
+            "corruption-structural");
+        if (!Directory.Exists(legacyStateDirectory))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(legacyStateDirectory, recursive: true);
+            _logger.LogInformation(
+                "Removed the old structural scan state at {Path}; those baselines are in PostgreSQL now",
+                legacyStateDirectory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Reclaiming disk must never stop the app from starting; the next start tries again.
+            _logger.LogWarning(
+                ex,
+                "Could not remove the old structural scan state at {Path}",
+                legacyStateDirectory);
+        }
     }
 
     private void MoveMatchingFiles(string sourceDirectory, string pattern, string destinationDirectory, PathMigrationResult result)

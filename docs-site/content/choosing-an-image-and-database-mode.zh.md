@@ -107,6 +107,6 @@ CREATE EXTENSION IF NOT EXISTS citext;
 
 **设置了 `POSTGRES_MODE=external` 但没设置连接变量？** 应用会以仅设置模式启动，并显示一个 UI 表单。在那里提交的凭据会保存到 `/data/config/postgres-credentials.json`；系统会提示你重启容器以让新连接生效。
 
-**已经在用内置数据库，想切换过去？** 现有数据不会自动迁移——自动迁移只覆盖旧的 SQLite 数据库，不包括内置 Postgres。请先手动导出并恢复：参见[从内置迁移到外部 PostgreSQL](https://github.com/regix1/lancache-manager/blob/main/docs/external-postgres-migration.md)。
+**已经在用内置数据库，想切换过去？** 现有数据不会自动迁移。请先手动导出并恢复：参见[从内置迁移到外部 PostgreSQL](https://github.com/regix1/lancache-manager/blob/main/docs/external-postgres-migration.md)。
 
 -----
