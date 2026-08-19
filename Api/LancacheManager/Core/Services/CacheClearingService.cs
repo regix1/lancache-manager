@@ -580,11 +580,27 @@ public class CacheClearingService : ScheduledBackgroundService
             // The filesystem mutation is now complete and the PostgreSQL projections are no
             // longer authoritative. Drop each affected baseline before publishing success so a
             // later Incremental can only build/reuse post-clear state.
-            await InvalidateStructuralCorruptionStateAsync(
-                dbContext,
-                _pathResolver,
-                validCachePaths.Select(path => (path.Name, path.Path)).ToArray(),
-                finalizationToken);
+            //
+            // Best-effort by the same argument as the recovery below: the files are already gone
+            // and the eviction flags are committed, so failing the whole clear here would report a
+            // clear that did happen as one that did not. This is two database round trips rather
+            // than the rename it replaced, so it can now lose to a lock wait or a dropped
+            // connection. A baseline that survives is not free reuse either - the scanner still
+            // gates every file on its own fingerprint, and a deleted file matches nothing.
+            try
+            {
+                await InvalidateStructuralCorruptionStateAsync(
+                    dbContext,
+                    _pathResolver,
+                    validCachePaths.Select(path => (path.Name, path.Path)).ToArray(),
+                    finalizationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "[CacheClearing] Could not drop the structural scan baselines for the cleared roots; run a Full scan rather than an Incremental one to rebuild them");
+            }
 
             // Recreate zero-byte detection projections for the newly evicted entities so the
             // existing Evicted Items UI can display them immediately. Recovery is best-effort:

@@ -924,9 +924,12 @@ async fn initialize_schema(connection: &mut PgConnection) -> Result<()> {
         .bind(SCHEMA_SETUP_LOCK_KEY)
         .execute(&mut *transaction)
         .await?;
-    // SQLite kept the schema generation in `PRAGMA user_version`; here it is a single-row
-    // table. A stored version this binary does not understand means another binary generation
-    // owns these tables, so refuse rather than misread them, exactly as before.
+    // SQLite kept the schema generation in `PRAGMA user_version`, one per state file, so a
+    // version this binary did not understand was one file an admin could delete. Here it is a
+    // single row covering the whole database, and refusing on a mismatch would stop every scan
+    // on every cache root with nothing in the app able to clear it. All of this is derived
+    // state that the next scan rebuilds from the cache itself, so a version we do not recognise
+    // is discarded rather than refused.
     sqlx::query("CREATE TABLE IF NOT EXISTS structural_state_version(version BIGINT PRIMARY KEY)")
         .execute(&mut *transaction)
         .await?;
@@ -934,13 +937,28 @@ async fn initialize_schema(connection: &mut PgConnection) -> Result<()> {
         sqlx::query_scalar("SELECT version FROM structural_state_version LIMIT 1")
             .fetch_optional(&mut *transaction)
             .await?;
-    if let Some(version) = stored_version {
-        if version != i64::from(STRUCTURAL_STATE_FORMAT_VERSION) {
-            bail!(
-                "unsupported structural state schema version {version}; expected {}",
-                STRUCTURAL_STATE_FORMAT_VERSION
-            );
+    let stale_version = stored_version
+        .filter(|version| *version != i64::from(STRUCTURAL_STATE_FORMAT_VERSION));
+    if let Some(version) = stale_version {
+        eprintln!(
+            "WARNING: discarding structural scan state written for schema version {version}; \
+             this build expects {}. The next scan rebuilds it.",
+            STRUCTURAL_STATE_FORMAT_VERSION
+        );
+        // Dropped rather than migrated: the tables the old version left behind may not have the
+        // columns this one reads. Order matters only for readability, CASCADE handles the rest.
+        for table in [
+            "structural_file_state",
+            "structural_runs",
+            "structural_namespaces",
+        ] {
+            sqlx::query(&format!("DROP TABLE IF EXISTS {table} CASCADE"))
+                .execute(&mut *transaction)
+                .await?;
         }
+        sqlx::query("DELETE FROM structural_state_version")
+            .execute(&mut *transaction)
+            .await?;
     }
     // `scope` mirrors the namespace document's scope field as a real column so state for one
     // cache root can be invalidated from outside this process with a plain
@@ -994,7 +1012,8 @@ async fn initialize_schema(connection: &mut PgConnection) -> Result<()> {
     )
     .execute(&mut *transaction)
     .await?;
-    if stored_version.is_none() {
+    // Either there was never a version row, or the stale one was just deleted above.
+    if stored_version.is_none() || stale_version.is_some() {
         sqlx::query("INSERT INTO structural_state_version(version) VALUES($1)")
             .bind(i64::from(STRUCTURAL_STATE_FORMAT_VERSION))
             .execute(&mut *transaction)
@@ -1110,6 +1129,44 @@ mod tests {
             [ReuseDecision::ReuseConsistent]
         ));
         assert_eq!(second.publish().unwrap(), (0, 1));
+    }
+
+    /// The version row covers the whole database rather than one file per cache root, so
+    /// refusing to open on a version this build does not know would stop every scan on every
+    /// root at once, with nothing in the app able to clear it. Opening has to discard the old
+    /// state and carry on instead. The baseline is derived from the cache, so the only cost is
+    /// one full rescan.
+    #[test]
+    fn state_written_by_another_schema_version_is_discarded_not_refused() {
+        let _env = db::lock_test_env();
+        let scope = unique_scope("stale-version");
+        let mut first =
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
+        first
+            .record_success(11, fingerprint(11), SuccessfulOutcome::Consistent)
+            .unwrap();
+        first.publish().unwrap();
+        drop(first);
+
+        // Stand in for a future build having written the state.
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let mut connection = PgConnection::connect_with(&db::build_connect_options().unwrap())
+                .await
+                .unwrap();
+            sqlx::query("UPDATE structural_state_version SET version = $1")
+                .bind(i64::from(STRUCTURAL_STATE_FORMAT_VERSION) + 1)
+                .execute(&mut connection)
+                .await
+                .unwrap();
+        });
+
+        // Opening must succeed rather than bail, and must not offer the discarded baseline.
+        let mut reopened =
+            StructuralState::open(namespace(&scope), StructuralScanMode::Incremental).unwrap();
+        assert!(!reopened.can_reuse_existing());
+        assert_eq!(reopened.effective_mode(), EffectiveScanMode::Baseline);
+        assert_eq!(reopened.publish().unwrap(), (0, 0));
     }
 
     /// A remount hands out a new device number for files that never changed. NFS and SMB do
