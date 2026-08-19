@@ -1,4 +1,4 @@
-import React, { useMemo, memo } from 'react';
+import React, { useMemo, memo, useState } from 'react';
 import { Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatCount } from '@utils/formatters';
@@ -16,6 +16,8 @@ import {
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { hourlyMetricValue, type PeakUsageMetric } from './peakUsageMetric';
 
 interface PeakUsageHoursProps {
   /** Whether to use glassmorphism style */
@@ -55,6 +57,10 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   const { t } = useTranslation();
   const { use24HourFormat } = useTimezone();
 
+  // Bytes is the default because it is what the widget has always shown, and because one large
+  // game outweighing many small ones is the case the heatmap is usually being read for.
+  const [metric, setMetric] = useState<PeakUsageMetric>('bytes');
+
   // Consume hourly activity data from batched context
   const { hourlyActivity: displayData, loading, error, failed, refetch } = useHourlyActivity();
 
@@ -73,10 +79,12 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   // day of silence nobody measured.
   const hourlyData = useMemo((): HourlyActivityItem[] => displayData?.hours ?? [], [displayData]);
 
-  const maxBytesServed = useMemo(() => {
-    const max = Math.max(0, ...hourlyData.map((h) => h.bytesServed));
+  // What a full-brightness cell means. Rescaled per metric, so switching re-shades the grid
+  // against the busiest hour for the figure now being read rather than against bytes.
+  const maxMetricValue = useMemo(() => {
+    const max = Math.max(0, ...hourlyData.map((h) => hourlyMetricValue(h, metric)));
     return max || 1;
-  }, [hourlyData]);
+  }, [hourlyData, metric]);
 
   // Which hours of the day the range reached, or null when every cell on the grid was measured.
   const measuredWindow = useMemo((): { seconds: number; hours: Set<number> } | null => {
@@ -105,10 +113,12 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     return hourlyData.reduce((sum, h) => sum + h.bytesServed, 0);
   }, [hourlyData]);
 
+  const metricTotal = metric === 'bytes' ? totalBytesServed : totalDownloads;
+
   // A range of 3_600 seconds measured a single hour however it straddles the clock, so crowning it
   // would rank that hour against 23 cells nothing was measured in.
   const hasBusiestHour =
-    totalBytesServed > 0 && (measuredWindow === null || measuredWindow.seconds > 3_600);
+    metricTotal > 0 && (measuredWindow === null || measuredWindow.seconds > 3_600);
 
   const marksCurrentHour =
     isTodayInRange && (measuredWindow === null || measuredWindow.hours.has(currentHour));
@@ -137,19 +147,19 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   // The scale classes are declared after the ring classes in dashboard.css, so a cell carrying both
   // keeps the fill chosen here and takes only the ring from the marker class.
   const getIntensityColor = (
-    bytesServed: number,
+    value: number,
     isCurrentHour: boolean,
     isPeakHour: boolean
   ): string => {
-    if (bytesServed === 0) {
+    if (value === 0) {
       // Cells sit on the tertiary well surface, so idle needs its own step
       return 'peak-scale-swatch--0';
     }
 
-    const intensity = bytesServed / maxBytesServed;
+    const intensity = value / maxMetricValue;
 
     // Peak hour gets special color
-    if (isPeakHour && bytesServed > 0) {
+    if (isPeakHour && value > 0) {
       return 'peak-legend-swatch--peak';
     }
 
@@ -251,8 +261,14 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     );
   }
 
-  // Peak hour from API response
-  const peakHour = displayData.peakHour;
+  // The response carries a peak hour, but it is always the one that served the most bytes, so it
+  // cannot answer for the downloads view. Both are read off the same buckets the grid draws, and
+  // keeping the first of any tie matches what the server does for the bytes case.
+  const peakHour = hourlyData.reduce(
+    (busiest, hour) =>
+      hourlyMetricValue(hour, metric) > hourlyMetricValue(busiest, metric) ? hour : busiest,
+    hourlyData[0]
+  ).hour;
   const peakTimeOfDay = getTimeOfDayLabel(peakHour);
 
   return (
@@ -298,7 +314,11 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
                 ]}
               />
             </HelpSection>
-            <HelpNote type="info">{t('widgets.peakUsageHours.heatmapNote')}</HelpNote>
+            <HelpNote type="info">
+              {metric === 'bytes'
+                ? t('widgets.peakUsageHours.heatmapNoteBytes')
+                : t('widgets.peakUsageHours.heatmapNoteDownloads')}
+            </HelpNote>
           </HelpPopover>
         </div>
         <div className="flex items-center gap-2 text-xs text-themed-muted">
@@ -312,6 +332,19 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
               <span className="font-medium text-themed-warning">{peakTimeOfDay}</span>
             </>
           )}
+          <EnhancedDropdown
+            options={[
+              { value: 'bytes', label: t('widgets.peakUsageHours.metric.bytes') },
+              { value: 'downloads', label: t('widgets.peakUsageHours.metric.downloads') }
+            ]}
+            value={metric}
+            onChange={(next: string) => setMetric(next as PeakUsageMetric)}
+            size="sm"
+            variant="button"
+            alignRight
+            triggerAriaLabel={t('widgets.peakUsageHours.metric.label')}
+            className="peak-usage-metric-select"
+          />
         </div>
       </div>
 
@@ -332,9 +365,9 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
 
             const isCurrentHour = marksCurrentHour && hourData.hour === currentHour;
             const isPeakHour = hasBusiestHour && hourData.hour === peakHour;
+            const cellValue = hourlyMetricValue(hourData, metric);
             // An idle current hour keeps its idle fill, so the ring comes from a class of its own.
-            const markerClass =
-              hourData.bytesServed === 0 && isCurrentHour ? 'peak-legend-swatch--now' : '';
+            const markerClass = cellValue === 0 && isCurrentHour ? 'peak-legend-swatch--now' : '';
 
             return (
               <Tooltip
@@ -384,7 +417,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
               >
                 <div
                   className={`w-full h-6 rounded cursor-pointer transition-colors duration-200 hover:brightness-110 ${getIntensityColor(
-                    hourData.bytesServed,
+                    cellValue,
                     isCurrentHour,
                     isPeakHour
                   )} ${markerClass}`}

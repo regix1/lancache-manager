@@ -199,6 +199,13 @@
   }
 }
 
+/* The metric picker sits in the card header beside the "most active" readout. It is held to one
+   width because its two labels are different lengths, and a trigger that resizes on change drags
+   the readout beside it sideways every time the reader switches view. */
+.peak-usage-metric-select {
+  min-width: 9.5rem;
+}
+
 /* Peak Usage heatmap legend swatches (static styles; cell colors stay
    data-driven inline) */
 .peak-legend-swatch {

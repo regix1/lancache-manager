@@ -725,15 +725,21 @@
       },
       "peakHour": {
         "term": "Peak Hour",
-        "multiDay": "The hour that served the most data on an average day.",
-        "singleDay": "The hour that served the most data in the selected period."
+        "multiDay": "The busiest hour on an average day, by whichever measure you picked.",
+        "singleDay": "The busiest hour in the selected period, by whichever measure you picked."
+      },
+      "metric": {
+        "label": "Shade the chart by",
+        "bytes": "Data served",
+        "downloads": "Downloads"
       },
       "currentHour": {
         "term": "Current Hour",
         "multiDay": "What this hour usually looks like based on your history.",
         "singleDay": "Activity during the current hour."
       },
-      "heatmapNote": "Each block is one hour of the day. Brighter = more data served.",
+      "heatmapNoteBytes": "Each block is one hour of the day. Brighter = more data served.",
+      "heatmapNoteDownloads": "Each block is one hour of the day. Brighter = more downloads.",
       "tooltip": {
         "avgDownloadsPerDay": "avg downloads/day",
         "avgServedPerDay": "avg served/day",

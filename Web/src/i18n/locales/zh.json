@@ -725,15 +725,21 @@
       },
       "peakHour": {
         "term": "高峰时段",
-        "multiDay": "平均每天服务数据量最多的小时。",
-        "singleDay": "所选时段内服务数据量最多的小时。"
+        "multiDay": "按所选指标衡量，平均每天最繁忙的小时。",
+        "singleDay": "按所选指标衡量，所选时段内最繁忙的小时。"
+      },
+      "metric": {
+        "label": "图表着色依据",
+        "bytes": "服务的数据量",
+        "downloads": "下载次数"
       },
       "currentHour": {
         "term": "当前小时",
         "multiDay": "基于历史数据的当前小时通常情况。",
         "singleDay": "当前小时内的活动。"
       },
-      "heatmapNote": "每个方块代表一天中的一小时。越亮 = 服务的数据量越多。",
+      "heatmapNoteBytes": "每个方块代表一天中的一小时。越亮 = 服务的数据量越多。",
+      "heatmapNoteDownloads": "每个方块代表一天中的一小时。越亮 = 下载次数越多。",
       "tooltip": {
         "avgDownloadsPerDay": "日均下载",
         "avgServedPerDay": "日均服务量",
