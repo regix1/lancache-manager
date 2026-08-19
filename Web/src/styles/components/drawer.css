@@ -1,5 +1,9 @@
 /* ===== CUSTOM DRAWER COMPONENT ===== */
 
+/* These values only hold because Drawer.tsx portals this root to document.body. Rendered in
+   place it lands inside .event-frame-content (position: relative + z-index: 1 in events.css),
+   whose stacking context caps the whole drawer at 1 - the sticky nav (z-50) then paints over
+   the open panel and no number here can beat it. */
 .custom-drawer-root {
   position: fixed;
   inset: 0;
@@ -29,6 +33,13 @@
   animation: drawer-slide-in 0.2s ease-out;
   background: var(--theme-bg-elevated);
   color: var(--theme-text-primary);
+  /* Swipe-to-close offset; Drawer.tsx writes only the measured px onto the element. Deliberately
+     untransitioned: the panel has to sit exactly under the finger, and a transition here also has
+     to be suppressed during the drag, which means toggling it back on afterwards - and restoring
+     either `transition` or `animation` on this element replays the open. */
+  transform: translateX(var(--drawer-swipe-x, 0px));
+  /* Vertical panning stays native so the drawer body still scrolls; horizontal is the swipe. */
+  touch-action: pan-y;
 }
 
 .custom-drawer-right {
@@ -59,6 +70,16 @@
   to {
     transform: translateX(0);
   }
+}
+
+/* The first touch of a swipe retires the open animation for the rest of the panel's life, and it
+   must never come back: dropping a class that carried `animation: none` restarts drawer-slide-in
+   from translateX(100%), so the panel slid fully open again the moment the finger lifted and only
+   then vanished. Keeping it also stops a swipe started inside the 0.2s open window from being
+   overridden by the animation still running. Two classes to match the left-drawer rule above, and
+   placed after it so the equal specificity resolves this way. */
+.custom-drawer-panel.custom-drawer-panel--swiped {
+  animation: none;
 }
 
 .custom-drawer-header {
