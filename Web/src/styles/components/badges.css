@@ -14,17 +14,26 @@
 
   /* Badge Base Class */
   .themed-badge {
-    @apply px-1.5 py-0.5 font-medium;
+    @apply px-1.5 py-0.5 font-semibold;
     display: inline-flex;
     align-items: center;
     width: fit-content;
     flex-shrink: 0;
-    font-size: var(--font-size-2xs);
+    /* Below --font-size-2xs, which is the floor of the shared scale, because capitals have no
+       descenders and fill the cap height: the same size reads larger uppercase than it did in
+       mixed case. The scale keeps its floor for the labels that are still mixed case. */
+    font-size: 0.5625rem; /* 9px */
     line-height: 1.2;
+    /* The pill keeps the 16px it had at the larger type. Height here comes from line-height plus
+       padding, so shrinking the text alone would have taken the whole badge down to 14.8px and
+       moved it out of step with the controls it sits beside. */
+    min-height: 1rem;
     border-radius: 3px;
     white-space: nowrap;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    /* Tracking is em-relative, so it shrinks with the font. Nudged up to hold roughly the same
+       absolute air between capitals as the previous size did. */
+    letter-spacing: 0.05em;
   }
 
   /* Session badges */
