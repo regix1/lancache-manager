@@ -211,6 +211,7 @@ export interface EventCompareSeries {
   colorIndex: number;
   served: (number | null)[];
   saved: (number | null)[];
+  missed: (number | null)[];
 }
 
 export interface EventCompareResponse {

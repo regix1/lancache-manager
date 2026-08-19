@@ -88,7 +88,13 @@ public partial class DashboardBatchService
                         start,
                         bucketMinutes,
                         elapsed,
-                        b => b.CacheHitBytes)
+                        b => b.CacheHitBytes),
+                    Missed = SparklineBuckets.ProjectElapsed(
+                        filled,
+                        start,
+                        bucketMinutes,
+                        elapsed,
+                        b => b.CacheMissBytes)
                 });
         }
 

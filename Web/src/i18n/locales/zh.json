@@ -807,7 +807,8 @@
       },
       "metrics": {
         "served": "总服务量",
-        "saved": "缓存命中"
+        "saved": "缓存命中",
+        "missed": "缓存未命中"
       },
       "noEventsTitle": "没有可比较的活动",
       "noEventsDesc": "先在活动页面创建 LAN 聚会，再在这里选择。",

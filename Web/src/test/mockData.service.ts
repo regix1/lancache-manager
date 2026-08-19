@@ -782,10 +782,12 @@ class MockDataService {
         );
         const served: (number | null)[] = [];
         const saved: (number | null)[] = [];
+        const missed: (number | null)[] = [];
         for (let index = 0; index < maxBuckets; index++) {
           if (index >= eventBuckets) {
             served.push(null);
             saved.push(null);
+            missed.push(null);
             continue;
           }
 
@@ -793,6 +795,7 @@ class MockDataService {
           const point = profileWave(spec.profile, progress);
           served.push(point.served);
           saved.push(point.saved);
+          missed.push(point.served - point.saved);
         }
 
         return {
@@ -800,7 +803,8 @@ class MockDataService {
           name: spec.name,
           colorIndex: spec.colorIndex,
           served,
-          saved
+          saved,
+          missed
         };
       })
     };

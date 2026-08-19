@@ -14,4 +14,5 @@ public class EventCompareSeries
     public int ColorIndex { get; set; }
     public List<double?> Served { get; set; } = [];
     public List<double?> Saved { get; set; } = [];
+    public List<double?> Missed { get; set; } = [];
 }

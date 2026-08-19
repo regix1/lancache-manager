@@ -807,7 +807,8 @@
       },
       "metrics": {
         "served": "Total served",
-        "saved": "Cache hits"
+        "saved": "Cache hits",
+        "missed": "Cache misses"
       },
       "noEventsTitle": "No events to compare",
       "noEventsDesc": "Create LAN parties on the Events page, then pick them here.",

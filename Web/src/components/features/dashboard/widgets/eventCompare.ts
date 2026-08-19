@@ -48,7 +48,8 @@ export function clipCompareToHours(
     series: compare.series.map((series) => ({
       ...series,
       served: series.served.slice(0, elapsedMinutes.length),
-      saved: series.saved.slice(0, elapsedMinutes.length)
+      saved: series.saved.slice(0, elapsedMinutes.length),
+      missed: series.missed.slice(0, elapsedMinutes.length)
     }))
   };
 }

@@ -43,6 +43,9 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
+// The names match the fields on EventCompareSeries, so the picked metric indexes the series.
+type CompareMetric = 'served' | 'saved' | 'missed';
+
 const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tabControl }) => {
   const { t } = useTranslation();
   const themeRevision = useThemeRevision();
@@ -58,7 +61,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
     );
     return stored.length > 0 ? stored : defaultCompareEventIds(events);
   });
-  const [metric, setMetric] = useState<'served' | 'saved'>('served');
+  const [metric, setMetric] = useState<CompareMetric>('served');
   const [compare, setCompare] = useState<EventCompareResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const { hiddenSeries, toggleSeries, seriesKey } = useHiddenSeries();
@@ -151,7 +154,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
     return {
       labels,
       datasets: (visibleCompare?.series ?? []).map((series, index) => {
-        const values = metric === 'saved' ? series.saved : series.served;
+        const values = series[metric];
         const color = getThemeColor(`--theme-event-${clampEventColorIndex(series.colorIndex)}`);
         return {
           label: series.name,
@@ -231,10 +234,13 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
             size="md"
             showLabels
             value={metric}
-            onChange={(value) => setMetric(value === 'saved' ? 'saved' : 'served')}
+            onChange={(value) =>
+              setMetric(value === 'saved' || value === 'missed' ? value : 'served')
+            }
             options={[
               { value: 'served', label: t('widgets.eventCompare.metrics.served') },
-              { value: 'saved', label: t('widgets.eventCompare.metrics.saved') }
+              { value: 'saved', label: t('widgets.eventCompare.metrics.saved') },
+              { value: 'missed', label: t('widgets.eventCompare.metrics.missed') }
             ]}
           />
         </div>
