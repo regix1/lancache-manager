@@ -844,7 +844,8 @@
       "step3": {
         "before": "仅在首次创建或轮换密钥时才会写入日志。",
         "code": "docker logs lancache-manager"
-      }
+      },
+      "forgotPassword": "忘记主管理员密码？请重启容器，并按照启动日志中打印的恢复步骤操作。重置密码需要 API 密钥，因此只能在存放该密钥的机器上完成。"
     },
     "success": "认证成功！正在升级到完全访问...",
     "errors": {
@@ -7268,6 +7269,7 @@
     "accountSetup": {
       "apiKeyRequired": "有效的 API 密钥是必需的。",
       "claimWindowClosed": "创建首个账户的时间窗口已关闭。请重启应用程序以重新打开。",
+      "recoveryWindowClosed": "恢复主管理员密码的时间窗口已关闭。请重启应用程序以重新打开。",
       "accountExists": "此安装上已存在账户。",
       "mainAdminNotFound": "没有以该名称注册的主管理员账户。"
     },

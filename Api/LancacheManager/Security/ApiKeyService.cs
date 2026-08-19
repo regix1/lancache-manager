@@ -220,6 +220,16 @@ public class ApiKeyService
         {
             Console.WriteLine("  Authentication is ENABLED - use this API key to log in");
             Console.WriteLine("  Guest access allows read-only dashboard viewing");
+            Console.WriteLine("");
+            // Printed beside the key because whoever can read this banner is exactly who is allowed
+            // to recover, and because the alternative an operator finds on their own is deleting
+            // rows from the database by hand. Both recovery routes need the window this restart
+            // just opened, so the instructions belong on the start that opens it.
+            Console.WriteLine("  Forgot the main administrator password? While this start's window is");
+            Console.WriteLine("  open, POST the key with a new password to reset it:");
+            Console.WriteLine("    /api/account-setup/recover-main-admin");
+            Console.WriteLine("    body: { \"apiKey\": \"…\", \"username\": \"…\", \"password\": \"…\" }");
+            Console.WriteLine("  Restart the container to reopen the window if it has closed.");
         }
         else
         {

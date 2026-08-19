@@ -81,6 +81,37 @@ public sealed class MainAdminRecoveryTests : IDisposable
     }
 
     /// <summary>
+    /// Every ordinary sign-in needs the key, a username and a password together. This endpoint is
+    /// the one that accepts the key on its own, so on a process that has been up past the window it
+    /// refuses: a key that leaked by itself must not be a remote takeover of the account that
+    /// cannot be deleted or demoted. Reopening the window costs a restart, which needs the host the
+    /// key is stored on, and that is the second factor.
+    /// </summary>
+    [Fact]
+    public async Task RecoveryIsRefusedOnceTheClaimWindowHasClosed()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedAccountAsync(database.Factory, "owner", mainAdmin: true);
+
+        var closed = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
+        closed.Expire();
+
+        var result = await NewController(database.Factory, _apiKeyService, claimWindow: closed)
+            .RecoverMainAdminPasswordAsync(
+                NewRequest("owner", _apiKeyService.GetApiKey()),
+                NewSessionService(database.Factory),
+                new AccountLockout(NullLogger<AccountLockout>.Instance));
+
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(result));
+        Assert.Equal(AccountSetupRefusalResponse.RecoveryWindowClosed, StageKeyOf(result));
+
+        // The refusal has to leave the password alone, or the endpoint would still be a way in.
+        var account = await ReadAccountAsync(database, "owner");
+        Assert.Equal(PasswordVerificationResult.Success, Verify(account, OldPassword));
+        Assert.Equal(PasswordVerificationResult.Failed, Verify(account, NewPassword));
+    }
+
+    /// <summary>
     /// The key is read from the body and nowhere else. A correct key in the X-Api-Key header with
     /// nothing in the body is refused, which is what keeps this endpoint working on the day the
     /// header path stops authorizing ordinary routes.
@@ -383,11 +414,12 @@ public sealed class MainAdminRecoveryTests : IDisposable
     private static AccountSetupController NewController(
         IDbContextFactory<AppDbContext> dbContextFactory,
         ApiKeyService apiKeyService,
-        IdentityAuditService? auditService = null) =>
+        IdentityAuditService? auditService = null,
+        AccountClaimWindow? claimWindow = null) =>
         new(
             dbContextFactory,
             apiKeyService,
-            new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
+            claimWindow ?? new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
             new PasswordHasher<UserAccount>(),
             auditService ?? new IdentityAuditService(dbContextFactory, NullLogger<IdentityAuditService>.Instance),
             NullLogger<AccountSetupController>.Instance);

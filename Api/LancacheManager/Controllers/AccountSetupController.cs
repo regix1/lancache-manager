@@ -191,6 +191,23 @@ public class AccountSetupController : ControllerBase
                 });
         }
 
+        // The same window first-admin creation is held to, for the same reason. Every ordinary
+        // sign-in needs the key AND a username AND a password (AuthController.cs:259-265); this is
+        // the one route that reduces those three to the key alone, so a key that leaked on its own
+        // would otherwise be a remote takeover of the account that cannot be deleted or demoted.
+        // Requiring the window means recovery also costs a restart, which nobody has without
+        // reaching the host the key is stored on.
+        if (!_claimWindow.IsOpen)
+        {
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                new AccountSetupRefusalResponse
+                {
+                    StageKey = AccountSetupRefusalResponse.RecoveryWindowClosed,
+                    Error = "The window for recovering the main administrator password has closed. Restart the application to reopen it."
+                });
+        }
+
         await using var context = await _dbContextFactory.CreateDbContextAsync();
 
         // Trimmed to match how the name was stored (CreateFirstAdminAsync above), so a pasted name

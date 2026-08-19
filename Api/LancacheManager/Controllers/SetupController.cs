@@ -29,6 +29,7 @@ public class SetupController : ControllerBase
     private readonly AuthenticationHelper _authenticationHelper;
     private readonly IConfiguration _configuration;
     private readonly IAntiforgery _antiforgery;
+    private readonly AccountClaimWindow _claimWindow;
 
     public SetupController(
         ILogger<SetupController> logger,
@@ -36,7 +37,8 @@ public class SetupController : ControllerBase
         IDbContextFactory<AppDbContext> dbContextFactory,
         AuthenticationHelper authenticationHelper,
         IConfiguration configuration,
-        IAntiforgery antiforgery)
+        IAntiforgery antiforgery,
+        AccountClaimWindow claimWindow)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -44,6 +46,7 @@ public class SetupController : ControllerBase
         _authenticationHelper = authenticationHelper;
         _configuration = configuration;
         _antiforgery = antiforgery;
+        _claimWindow = claimWindow;
     }
 
     /// <summary>
@@ -302,6 +305,20 @@ public class SetupController : ControllerBase
         if (denied != null)
         {
             return denied;
+        }
+
+        // Second lock, the same one first-admin creation and password recovery are held to. This
+        // endpoint decides which database every process in the container rebuilds its settings
+        // from, so a key that leaked on its own could otherwise repoint the whole installation at a
+        // server the caller controls, and the claim window that opens on the next start would let
+        // them take the fresh database as its first administrator. Requiring the window means that
+        // also costs a restart, which needs the host the key is stored on.
+        if (!_claimWindow.IsOpen)
+        {
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                ApiResponse.Error(
+                    "The window for changing the database connection has closed. Restart the application to reopen it."));
         }
 
         var mode = Environment.GetEnvironmentVariable("POSTGRES_MODE") ?? "embedded";

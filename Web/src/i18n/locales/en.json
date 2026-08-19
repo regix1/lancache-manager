@@ -844,7 +844,8 @@
       "step3": {
         "before": "The key is printed to the logs only when it is first created or rotated.",
         "code": "docker logs lancache-manager"
-      }
+      },
+      "forgotPassword": "Forgot the main administrator password? Restart the container and follow the recovery steps printed in its startup log. Resetting it needs the API key, so it can only be done from the machine the key is stored on."
     },
     "success": "Authentication successful! Upgrading to full access...",
     "errors": {
@@ -7302,6 +7303,7 @@
     "accountSetup": {
       "apiKeyRequired": "A valid API key is required.",
       "claimWindowClosed": "The window for creating the first account has closed. Restart the application to reopen it.",
+      "recoveryWindowClosed": "The window for recovering the main administrator password has closed. Restart the application to reopen it.",
       "accountExists": "An account already exists on this installation.",
       "mainAdminNotFound": "No main administrator account is registered under that name."
     },

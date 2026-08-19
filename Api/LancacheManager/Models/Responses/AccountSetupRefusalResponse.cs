@@ -14,6 +14,13 @@ public class AccountSetupRefusalResponse
     public const string ClaimWindowClosed = "errors.accountSetup.claimWindowClosed";
 
     /// <summary>
+    /// Same window, refused for password recovery rather than first-account creation. Its own key
+    /// because the sentence names a different action, and an operator reading "the first account"
+    /// while trying to recover a password would think they had the wrong endpoint.
+    /// </summary>
+    public const string RecoveryWindowClosed = "errors.accountSetup.recoveryWindowClosed";
+
+    /// <summary>
     /// Somebody already owns this installation. The same refusal whether the count read it or the
     /// insert ran into it, so both paths name it with this key rather than two that drift apart.
     /// </summary>

@@ -47,6 +47,7 @@ public sealed class DisabledAuthKeyGateTests : IDisposable
             dbContextFactory: null!,
             authenticationHelper: _authenticationHelper,
             configuration: _configuration,
+            claimWindow: new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
             // Never reached: with authentication disabled the key is the only proof and the token
             // check belongs to the session case, which this configuration refuses outright.
             antiforgery: null!)

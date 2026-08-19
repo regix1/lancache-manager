@@ -162,6 +162,10 @@ const AuthenticateTab: React.FC = () => {
                 {t('auth.help.step3.before')} <code>{t('auth.help.step3.code')}</code>
               </li>
             </ol>
+            {/* Points at the container log rather than offering a field here. Recovery is proved by
+                the API key, and a form on this screen would be somewhere to paste the one secret
+                that owns the installation. Whoever can read that log is already who may recover. */}
+            <p className="auth-upgrade-help-recovery">{t('auth.help.forgotPassword')}</p>
           </div>
         </Card>
       </div>

@@ -89,7 +89,9 @@ public class ExternalDatabaseSetupGateTests : IDisposable
         _controller = CreateController(authenticationEnabled: true);
     }
 
-    private SetupController CreateController(bool authenticationEnabled)
+    private SetupController CreateController(
+        bool authenticationEnabled,
+        AccountClaimWindow? claimWindow = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -105,7 +107,8 @@ public class ExternalDatabaseSetupGateTests : IDisposable
             dbContextFactory: null!,
             _authenticationHelper,
             configuration,
-            _antiforgery)
+            _antiforgery,
+            claimWindow ?? new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -119,6 +122,29 @@ public class ExternalDatabaseSetupGateTests : IDisposable
         var response = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status401Unauthorized, response.StatusCode);
         Assert.Equal("API key required", ErrorOf(response));
+        Assert.False(File.Exists(Path.Combine(_root, "postgres-credentials.json")));
+    }
+
+    /// <summary>
+    /// This endpoint chooses the database every process in the container rebuilds its settings
+    /// from, so the real API key alone must not be enough on a process that has been up past the
+    /// window. Otherwise a key that leaked by itself repoints the installation at a server the
+    /// caller owns, and the window that opens on the next start hands them its first administrator.
+    /// Reopening costs a restart, which needs the host the key is stored on.
+    /// </summary>
+    [Fact]
+    public async Task TheRealApiKeyIsNotEnoughOnceTheClaimWindowHasClosed()
+    {
+        var closed = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
+        closed.Expire();
+        var controller = CreateController(authenticationEnabled: true, claimWindow: closed);
+        controller.HttpContext.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
+
+        var result = await controller.SetExternalCredentialsAsync(ConnectionRequest());
+
+        var response = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, response.StatusCode);
+        // Refused before the connection config is persisted, or the refusal would not be one.
         Assert.False(File.Exists(Path.Combine(_root, "postgres-credentials.json")));
     }
 

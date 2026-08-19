@@ -1,12 +1,17 @@
 namespace LancacheManager.Security;
 
 /// <summary>
-/// How long after a start the first administrator account may still be created. An installation
-/// that has been running for longer than this has to be restarted before anyone can claim it, so a
+/// How long after a start the main administrator account may be claimed or recovered. An
+/// installation that has been running for longer than this has to be restarted first, so a
 /// forgotten instance left on a network does not stay claimable indefinitely.
 ///
-/// The window is a second lock, not the only one: the API key is required as well, and the endpoint
-/// refuses the moment an account exists.
+/// The window is a second lock, not the only one: the API key is required as well, and first-admin
+/// creation refuses the moment an account exists.
+///
+/// It guards password recovery for a sharper reason. An ordinary sign-in needs the key, a username
+/// and a password together; recovery is the one route that accepts the key by itself. Without this
+/// window a key that leaked on its own would be a remote takeover of the one account that cannot be
+/// deleted or demoted. With it, recovery also costs a restart, which needs the host the key lives on.
 /// </summary>
 public class AccountClaimWindow : IHostedService
 {

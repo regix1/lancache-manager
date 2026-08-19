@@ -72,6 +72,14 @@
   color: var(--theme-text-secondary);
 }
 
+/* Sits under the numbered steps as a separate note, because it answers a different question from
+   them: those explain how to sign in, this one is for the person who cannot. */
+.auth-upgrade-help-recovery {
+  margin: 0.75rem 0 0;
+  font-size: var(--font-size-md);
+  color: var(--theme-text-muted);
+}
+
 .auth-upgrade-help-list code {
   padding: 0.1rem 0.35rem;
   border-radius: var(--theme-border-radius);
