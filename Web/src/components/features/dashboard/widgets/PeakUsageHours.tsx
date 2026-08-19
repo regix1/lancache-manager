@@ -274,7 +274,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   return (
     <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
       {/* Header */}
-      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-2 mb-3">
         <div className="flex items-center gap-2 min-w-0">
           <h3 className="dash-panel-title">{t('widgets.peakUsageHours.title')}</h3>
           {loading && displayData && <LoadingSpinner size="xs" inline />}
@@ -321,17 +321,19 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
             </HelpNote>
           </HelpPopover>
         </div>
-        <div className="flex items-center gap-2 text-xs text-themed-muted">
-          {isMultiDayPeriod && (
-            <span>{t('widgets.peakUsageHours.days', { count: daysInPeriod })}</span>
-          )}
-          {isMultiDayPeriod && hasBusiestHour && <span>·</span>}
-          {hasBusiestHour && (
-            <>
-              <span className="hidden sm:inline">{t('widgets.peakUsageHours.mostActive')}</span>
-              <span className="font-medium text-themed-warning">{peakTimeOfDay}</span>
-            </>
-          )}
+        <div className="flex items-center gap-2 text-xs text-themed-muted w-full justify-between xl:w-auto xl:justify-end">
+          <div className="flex items-center gap-2">
+            {isMultiDayPeriod && (
+              <span>{t('widgets.peakUsageHours.days', { count: daysInPeriod })}</span>
+            )}
+            {isMultiDayPeriod && hasBusiestHour && <span>·</span>}
+            {hasBusiestHour && (
+              <>
+                <span className="hidden sm:inline">{t('widgets.peakUsageHours.mostActive')}</span>
+                <span className="font-medium text-themed-warning">{peakTimeOfDay}</span>
+              </>
+            )}
+          </div>
           <EnhancedDropdown
             options={[
               { value: 'bytes', label: t('widgets.peakUsageHours.metric.bytes') },

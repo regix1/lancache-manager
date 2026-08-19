@@ -232,12 +232,7 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
           ref={triggerRef}
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="rounded-md border w-8 h-8 flex items-center justify-center"
-          style={{
-            backgroundColor: isOpen ? 'var(--theme-primary-subtle)' : 'transparent',
-            borderColor: isOpen ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
-            color: isOpen ? 'var(--theme-primary)' : 'var(--theme-text-secondary)'
-          }}
+          className={`calendar-settings-trigger themed-border-radius-sm border w-8 h-8 flex items-center justify-center${isOpen ? ' is-open' : ''}`}
         >
           <Settings className="w-4 h-4" />
         </button>

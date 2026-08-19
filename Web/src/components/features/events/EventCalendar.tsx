@@ -1,8 +1,7 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@components/ui/Button';
-import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import CalendarNavigation from '@components/common/CalendarNavigation';
 import { useTimezone } from '@contexts/useTimezone';
 import { useCalendarSettings } from '@contexts/useCalendarSettings';
 import { getDaysInMonth } from '@utils/calendar';
@@ -77,10 +76,13 @@ interface WeekRow {
 }
 
 const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onDayClick }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { useLocalTimezone, useUtcTimezone } = useTimezone();
   const { settings } = useCalendarSettings();
-  const isMobile = useMediaQuery('(max-width: 640px)');
+  // 639.98px, not 640px, because the stylesheet's own phone block ends there and its desktop
+  // block starts at 640: a query that includes 640 puts the component in phone mode on the
+  // exact pixel where the CSS has already switched to desktop tokens.
+  const isMobile = useMediaQuery('(max-width: 639.98px)');
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [expandedDay, setExpandedDay] = useState<{ day: number; weekIndex: number } | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -124,6 +126,13 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
     [t]
   );
 
+  // A phone leaves the shared navigation about 68px for the month select once the Today
+  // button and the gear share its row, which is not enough for a full month name.
+  const shortMonthNames = useMemo(() => {
+    const format = new Intl.DateTimeFormat(i18n.language, { month: 'short' });
+    return Array.from({ length: 12 }, (_, index) => format.format(new Date(2000, index, 1)));
+  }, [i18n.language]);
+
   // Week days order based on settings
   const weekDays = useMemo(() => {
     const days = [
@@ -144,18 +153,6 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
   const currentYear = new Date().getFullYear();
   const startYear = currentYear - 5;
   const endYear = currentYear + 5;
-
-  // Generate month options for dropdown
-  const monthOptions = monthNames.map((month, index) => ({
-    value: String(index),
-    label: month
-  }));
-
-  // Generate year options for dropdown
-  const yearOptions = Array.from({ length: endYear - startYear + 1 }, (_, i) => ({
-    value: String(startYear + i),
-    label: String(startYear + i)
-  }));
 
   // Get first day of month adjusted for week start setting
   const getFirstDayOfMonth = (date: Date): number => {
@@ -211,18 +208,6 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
       return currentMonth.getMonth() < today.getMonth();
     }
     return day < today.getDate();
-  };
-
-  const changeMonth = (increment: number) => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + increment, 1));
-  };
-
-  const handleMonthChange = (value: string) => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), parseInt(value), 1));
-  };
-
-  const handleYearChange = (value: string) => {
-    setCurrentMonth(new Date(parseInt(value), currentMonth.getMonth(), 1));
   };
 
   const goToToday = () => {
@@ -481,86 +466,53 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
 
   return (
     <div className="select-none">
-      {/* Header Navigation */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        {/* Left: Month/Year Selection */}
-        <div className="calendar-nav flex items-center gap-2">
-          {/* md puts the arrows on 40px, the height the dropdowns beside them already take.
-              Below the phone breakpoint the dropdown trigger picks up a 44px touch floor, so
-              the arrows grow to meet it and the row stays one height. min-h/min-w are what
-              reach it, because btn-icon-square pins a 40px width and height. */}
-          <Button
-            variant="default"
-            size="md"
-            onClick={() => changeMonth(-1)}
-            aria-label={t('events.calendar.previousMonth')}
-            className="btn-icon-square max-sm:min-h-11 max-sm:min-w-11"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-
-          <div className="flex items-center gap-2">
-            <EnhancedDropdown
-              options={monthOptions}
-              value={String(currentMonth.getMonth())}
-              onChange={handleMonthChange}
-              cleanStyle
-              className="w-[120px]"
-            />
-            <EnhancedDropdown
-              options={yearOptions}
-              value={String(currentMonth.getFullYear())}
-              onChange={handleYearChange}
-              cleanStyle
-              className="w-[80px]"
-            />
-          </div>
-
-          <Button
-            variant="default"
-            size="md"
-            onClick={() => changeMonth(1)}
-            aria-label={t('events.calendar.nextMonth')}
-            className="btn-icon-square max-sm:min-h-11 max-sm:min-w-11"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </div>
-
-        {/* Right: Today Button + Settings */}
-        <div className="flex items-center gap-2">
+      <div className="calendar-controls">
+        <CalendarNavigation
+          currentMonth={currentMonth}
+          startYear={startYear}
+          endYear={endYear}
+          monthNames={isMobile ? shortMonthNames : monthNames}
+          onChange={setCurrentMonth}
+        >
           {!isCurrentMonth && (
-            <Button variant="filled" color="gray" size="sm" onClick={goToToday}>
+            <Button
+              variant="filled"
+              color="gray"
+              size="md"
+              className="max-sm:min-h-11"
+              onClick={goToToday}
+            >
               {t('events.calendar.today')}
             </Button>
           )}
-          <CalendarSettingsPopover />
-        </div>
+          {/* The gear's own trigger is a fixed 32px square. This wrapper is the hook that lifts it
+              to the height the rest of the row uses, without reaching into the popover component. */}
+          <span className="calendar-gear">
+            <CalendarSettingsPopover />
+          </span>
+        </CalendarNavigation>
       </div>
 
-      {/* Week Days Header */}
       <div
-        className={`grid gap-1 mb-2 rounded-lg p-2 bg-[var(--theme-bg-tertiary)] ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
+        className={`calendar-grid${settings.compactMode ? ' calendar-grid--compact' : ''}${settings.showWeekNumbers ? ' calendar-grid--weeks' : ''}`}
       >
-        {settings.showWeekNumbers && (
-          <Tooltip content={t('events.calendar.weekNumber')} position="top" className="block">
-            <div className="text-center text-xs font-semibold py-2 text-[var(--theme-text-muted)]">
-              {t('events.calendar.weekAbbrev')}
+        {/* Week Days Header */}
+        <div
+          className={`calendar-weekdays grid ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
+        >
+          {settings.showWeekNumbers && (
+            <Tooltip content={t('events.calendar.weekNumber')} position="top" className="block">
+              <div className="calendar-weekday">{t('events.calendar.weekAbbrev')}</div>
+            </Tooltip>
+          )}
+          {weekDays.map((day) => (
+            <div key={day} className="calendar-weekday calendar-weekday--name">
+              {day}
             </div>
-          </Tooltip>
-        )}
-        {weekDays.map((day) => (
-          <div
-            key={day}
-            className="text-center text-xs font-semibold py-2 text-[var(--theme-text-secondary)]"
-          >
-            {day}
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
 
-      {/* Calendar Grid - Week by Week */}
-      <div className="space-y-1">
+        {/* Calendar Grid - Week by Week */}
         {weekRows.map((week) => {
           // Get the first valid day in this week for week number calculation
           const firstDayInWeek = week.days.find((d) => d !== null);
@@ -570,247 +522,201 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
               )
             : null;
 
+          // The row's height, the overlay's top padding and the bar height are one derived set.
+          // Bars live in an absolutely positioned overlay, so they add nothing to the natural
+          // height of a cell: the row has to reserve the stack itself or the bars paint outside it.
+          const stackedEvents = week.spanningEvents.slice(0, settings.compactMode ? 6 : 5);
+          const denseStack = !settings.compactMode && week.spanningEvents.length > 3;
+          const weekStyle = { '--calendar-stack': stackedEvents.length } as React.CSSProperties;
+
           return (
             <div
               key={week.weekIndex}
               ref={expandedDay?.weekIndex === week.weekIndex ? weekRowRef : undefined}
-              className="relative"
+              className={`calendar-week grid ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}${denseStack ? ' calendar-week--dense' : ''}`}
+              style={weekStyle}
             >
-              {/* Day cells grid */}
-              <div
-                className={`grid gap-1 ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
-              >
-                {/* Week number cell */}
-                {settings.showWeekNumbers && (
-                  <div
-                    className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg flex items-start justify-center pt-2 bg-[var(--theme-bg-tertiary-strong)]`}
+              {/* Week number cell */}
+              {settings.showWeekNumbers && (
+                <div className="calendar-cell calendar-cell--week">
+                  <Badge
+                    variant="neutral"
+                    ariaLabel={`${t('events.calendar.weekNumber')} ${weekNumber}`}
                   >
-                    <Badge
-                      variant="neutral"
-                      ariaLabel={`${t('events.calendar.weekNumber')} ${weekNumber}`}
-                    >
-                      {weekNumber}
-                    </Badge>
-                  </div>
-                )}
-                {week.days.map((day, colIndex) => {
-                  if (day === null) {
-                    // Calculate adjacent month day if setting is enabled
-                    if (settings.showAdjacentMonths) {
-                      const cellIndex = week.weekIndex * 7 + colIndex;
-                      const isBeforeMonth = cellIndex < firstDayOfMonth;
+                    {weekNumber}
+                  </Badge>
+                </div>
+              )}
+              {week.days.map((day, colIndex) => {
+                if (day === null) {
+                  // Calculate adjacent month day if setting is enabled
+                  if (settings.showAdjacentMonths) {
+                    const cellIndex = week.weekIndex * 7 + colIndex;
+                    const isBeforeMonth = cellIndex < firstDayOfMonth;
 
-                      let adjacentDay: number;
+                    let adjacentDay: number;
 
-                      if (isBeforeMonth) {
-                        // Previous month - calculate the day number
-                        const prevMonth = new Date(
-                          currentMonth.getFullYear(),
-                          currentMonth.getMonth() - 1,
-                          1
-                        );
-                        const daysInPrevMonth = getDaysInMonth(prevMonth);
-                        adjacentDay = daysInPrevMonth - (firstDayOfMonth - cellIndex - 1);
-                      } else {
-                        // Next month - calculate the day number
-                        const cellsAfterLastDay = cellIndex - (firstDayOfMonth + daysInMonth);
-                        adjacentDay = cellsAfterLastDay + 1;
-                      }
-
-                      return (
-                        <div
-                          key={`adjacent-${week.weekIndex}-${colIndex}`}
-                          className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg bg-[var(--theme-bg-tertiary-muted)]`}
-                        >
-                          <span className="text-sm font-medium w-6 h-6 flex items-center justify-center rounded-full text-[var(--theme-text-muted)] opacity-50">
-                            {adjacentDay}
-                          </span>
-                        </div>
+                    if (isBeforeMonth) {
+                      // Previous month - calculate the day number
+                      const prevMonth = new Date(
+                        currentMonth.getFullYear(),
+                        currentMonth.getMonth() - 1,
+                        1
                       );
+                      const daysInPrevMonth = getDaysInMonth(prevMonth);
+                      adjacentDay = daysInPrevMonth - (firstDayOfMonth - cellIndex - 1);
+                    } else {
+                      // Next month - calculate the day number
+                      const cellsAfterLastDay = cellIndex - (firstDayOfMonth + daysInMonth);
+                      adjacentDay = cellsAfterLastDay + 1;
                     }
 
                     return (
                       <div
-                        key={`empty-${week.weekIndex}-${colIndex}`}
-                        className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg bg-[var(--theme-bg-tertiary-muted)]`}
-                      />
+                        key={`adjacent-${week.weekIndex}-${colIndex}`}
+                        className="calendar-cell calendar-cell--outside"
+                      >
+                        <span className="calendar-day-number calendar-day-number--outside">
+                          {adjacentDay}
+                        </span>
+                      </div>
                     );
                   }
 
-                  const today = isToday(day);
-                  const pastDay = isPastDay(day);
-                  const eventCount = getEventCountForDay(day);
-
                   return (
                     <div
-                      key={day}
-                      onClick={() => {
-                        if (!pastDay) {
-                          onDayClick(
-                            new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
-                          );
-                        }
-                      }}
-                      className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg border transition duration-200 ${pastDay ? 'cursor-not-allowed opacity-60' : 'cursor-pointer group'}`}
-                      style={{
-                        backgroundColor: today
-                          ? 'var(--theme-primary-faint)'
-                          : 'var(--theme-bg-secondary)',
-                        borderColor: today
-                          ? 'var(--theme-primary)'
-                          : 'var(--theme-border-secondary)',
-                        borderWidth: today ? '2px' : '1px'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!today && !pastDay) {
-                          e.currentTarget.style.borderColor = 'var(--theme-primary)';
-                          e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!today && !pastDay) {
-                          e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
-                          e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
-                        }
-                      }}
-                    >
-                      {/* Day number */}
-                      <div className="flex items-center justify-between mb-1">
-                        <span
-                          className={`text-sm font-semibold w-6 h-6 flex items-center justify-center rounded-full transition-colors ${
-                            today ? '' : pastDay ? '' : 'group-hover:bg-[var(--theme-bg-hover)]'
-                          }`}
-                          style={{
-                            color: today
-                              ? 'var(--theme-primary)'
-                              : pastDay
-                                ? 'var(--theme-text-muted)'
-                                : 'var(--theme-text-primary)',
-                            backgroundColor: today ? 'var(--theme-primary-subtle)' : 'transparent'
-                          }}
-                        >
-                          {day}
-                        </span>
-                        {eventCount > 0 &&
-                          settings.eventDisplayStyle === 'spanning' &&
-                          (eventCount > 5 ? (
-                            <Tooltip
-                              content={t('events.calendar.eventCountTooltip', {
-                                count: eventCount
-                              })}
-                            >
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setExpandedDay(
-                                    expandedDay?.day === day &&
-                                      expandedDay?.weekIndex === week.weekIndex
-                                      ? null
-                                      : { day, weekIndex: week.weekIndex }
-                                  );
-                                }}
-                                className="themed-badge badge-count font-semibold transition hover:scale-105"
-                                style={{
-                                  backgroundColor: 'var(--theme-primary)',
-                                  color: 'var(--theme-primary-text)'
-                                }}
-                              >
-                                {eventCount}
-                              </button>
-                            </Tooltip>
-                          ) : (
-                            <Badge
-                              variant="neutral"
-                              className="badge-count"
-                              ariaLabel={t('events.calendar.eventCount', { count: eventCount })}
+                      key={`empty-${week.weekIndex}-${colIndex}`}
+                      className="calendar-cell calendar-cell--outside"
+                    />
+                  );
+                }
+
+                const today = isToday(day);
+                const pastDay = isPastDay(day);
+                const eventCount = getEventCountForDay(day);
+
+                return (
+                  <div
+                    key={day}
+                    onClick={() => {
+                      if (!pastDay) {
+                        onDayClick(
+                          new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
+                        );
+                      }
+                    }}
+                    aria-current={today ? 'date' : undefined}
+                    className={`calendar-cell calendar-day ${pastDay ? 'calendar-day--past' : 'group'}`}
+                  >
+                    {/* Day number */}
+                    <div className="calendar-day-head">
+                      <span
+                        className={`calendar-day-number ${
+                          today
+                            ? 'calendar-day-number--today'
+                            : pastDay
+                              ? ''
+                              : 'group-hover:bg-[var(--theme-bg-hover)]'
+                        }`}
+                      >
+                        {day}
+                      </span>
+                      {eventCount > 0 &&
+                        settings.eventDisplayStyle === 'spanning' &&
+                        (eventCount > 5 ? (
+                          <Tooltip
+                            content={t('events.calendar.eventCountTooltip', {
+                              count: eventCount
+                            })}
+                          >
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedDay(
+                                  expandedDay?.day === day &&
+                                    expandedDay?.weekIndex === week.weekIndex
+                                    ? null
+                                    : { day, weekIndex: week.weekIndex }
+                                );
+                              }}
+                              className="themed-badge badge-count badge-count-on-color calendar-day-count font-semibold"
                             >
                               {eventCount}
-                            </Badge>
-                          ))}
-                      </div>
+                            </button>
+                          </Tooltip>
+                        ) : (
+                          <Badge
+                            variant="neutral"
+                            className="badge-count"
+                            ariaLabel={t('events.calendar.eventCount', { count: eventCount })}
+                          >
+                            {eventCount}
+                          </Badge>
+                        ))}
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
 
               {/* Events overlay */}
               {(() => {
-                const eventCount = week.spanningEvents.length;
-                const maxEvents = settings.compactMode ? 6 : 5;
-                const visibleEvents = week.spanningEvents.slice(0, maxEvents);
-
-                // Dynamic sizing based on event count and compact mode
-                const getEventHeight = () => {
-                  if (settings.compactMode) {
-                    return '5px'; // Just colored lines in compact mode
-                  }
-                  if (isMobile) {
-                    return eventCount <= 3 ? '20px' : '16px';
-                  }
-                  return eventCount <= 3 ? '24px' : '18px'; // Bigger events in normal mode
-                };
-
-                const getEventGap = () => {
-                  if (settings.compactMode) return '2px';
-                  if (eventCount <= 3) return '3px';
-                  return '2px';
-                };
-
-                const getFontSize = () => {
-                  if (settings.compactMode) {
-                    return '0px'; // No text in compact mode
-                  }
-                  if (isMobile) {
-                    return eventCount <= 3 ? '11px' : '10px';
-                  }
-                  return eventCount <= 3 ? '13px' : '11px'; // Bigger text
-                };
-
-                const getPaddingTop = () => {
-                  if (settings.compactMode) return '32px';
-                  if (isMobile) return eventCount <= 3 ? '34px' : '30px';
-                  return eventCount <= 3 ? '42px' : '36px'; // More space for bigger cells
-                };
-
                 // Offset for week numbers column
                 const gridColOffset = settings.showWeekNumbers ? 1 : 0;
 
-                // Get event background style based on opacity setting
-                const getEventBackground = (colorVar: string, isEnded: boolean) => {
-                  const onBgSoft = colorVar.replace(')', '-on-bg-soft)');
-                  const onBg = colorVar.replace(')', '-on-bg)');
-                  const onBgStrong = colorVar.replace(')', '-on-bg-strong)');
-                  const subtleV = colorVar.replace(')', '-subtle)');
-                  const mutedV = colorVar.replace(')', '-muted)');
-                  if (settings.eventOpacity === 'solid') {
-                    // Solid mode: more vibrant, less transparent
-                    if (isEnded) {
-                      return `linear-gradient(90deg, ${onBgSoft} 0%, ${onBgSoft} 100%)`;
-                    }
-                    return `linear-gradient(90deg, ${onBgStrong} 0%, ${onBg} 100%)`;
+                // A 39px cell truncates a name to a fragment, so below the phone breakpoint the
+                // bar carries no text and the tooltip carries the name instead.
+                const showSpanLabel = !settings.compactMode && !isMobile;
+
+                // Every size on a bar lives in the stylesheet. Only the colour tiers cannot be
+                // derived from a colour variable in CSS, so those four ride in as properties.
+                const getSpanColors = (colorVar: string, isEnded: boolean): React.CSSProperties => {
+                  const tier = (suffix: string): string => colorVar.replace(')', `${suffix})`);
+                  const solid = settings.eventOpacity === 'solid';
+                  let from: string;
+                  let to: string;
+                  if (settings.compactMode) {
+                    from = solid
+                      ? isEnded
+                        ? tier('-emphasis')
+                        : colorVar
+                      : isEnded
+                        ? tier('-strong')
+                        : tier('-emphasis');
+                    to = from;
+                  } else if (solid) {
+                    from = isEnded ? tier('-on-bg-soft') : tier('-on-bg-strong');
+                    to = isEnded ? tier('-on-bg-soft') : tier('-on-bg');
+                  } else {
+                    from = isEnded ? tier('-subtle') : tier('-muted');
+                    to = tier('-subtle');
                   }
-                  // Transparent mode (default): subtle, transparent
-                  return `linear-gradient(90deg, ${isEnded ? subtleV : mutedV} 0%, ${isEnded ? subtleV : subtleV} 100%)`;
+                  return {
+                    '--event-span-from': from,
+                    '--event-span-to': to,
+                    '--event-span-rule': isEnded ? tier('-muted') : tier('-strong')
+                  } as React.CSSProperties;
                 };
 
                 return (
                   <div
-                    className={`absolute inset-0 grid pointer-events-none ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
-                    style={{
-                      paddingTop: getPaddingTop(),
-                      gap: `${getEventGap()} 4px`,
-                      alignContent: 'start',
-                      gridAutoRows: getEventHeight()
-                    }}
+                    className={`calendar-events absolute inset-0 grid pointer-events-none ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
                   >
-                    {visibleEvents.map((spanEvent, eventIndex) => {
+                    {stackedEvents.map((spanEvent, eventIndex) => {
                       const colorVar = getEventColorVar(spanEvent.event.colorIndex);
-                      const mutedVar = colorVar.replace(')', '-muted)');
-                      const strongVar = colorVar.replace(')', '-strong)');
-                      const emphasisVar = colorVar.replace(')', '-emphasis)');
                       const isEnded = hasEventEnded(spanEvent.event);
-                      const isSingleDayMobile =
-                        isMobile && !settings.compactMode && spanEvent.span === 1;
+                      const spanColors = getSpanColors(colorVar, isEnded);
+                      const label = showSpanLabel ? (
+                        <span className="event-span-label">
+                          {isEnded
+                            ? `${t('events.ended')} ${spanEvent.event.name}`
+                            : spanEvent.event.name}
+                        </span>
+                      ) : null;
+                      // Also the bar's accessible name: the in-bar text is dropped on a phone and
+                      // in compact mode, so without this the button would announce as unnamed.
+                      const tooltipContent = isEnded
+                        ? t('events.calendar.eventEnded', { name: spanEvent.event.name })
+                        : spanEvent.event.name;
 
                       // Daily mode: render individual bars for each day
                       if (settings.eventDisplayStyle === 'daily') {
@@ -823,18 +729,12 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                           dayBars.push(
                             <Tooltip
                               key={`${spanEvent.event.id}-${week.weekIndex}-${col}`}
-                              content={
-                                isEnded
-                                  ? t('events.calendar.eventEnded', { name: spanEvent.event.name })
-                                  : spanEvent.event.name
-                              }
+                              content={tooltipContent}
                               strategy="overlay"
-                              className="pointer-events-auto"
+                              className="pointer-events-auto event-span-slot event-span-slot--start event-span-slot--end"
                               style={{
                                 gridColumn: `${col + gridColOffset} / span 1`,
-                                gridRow: eventIndex + 1,
-                                marginLeft: '4px',
-                                marginRight: '4px'
+                                gridRow: eventIndex + 1
                               }}
                             >
                               <button
@@ -842,64 +742,11 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                                   e.stopPropagation();
                                   onEventClick(spanEvent.event);
                                 }}
-                                className="w-full h-full truncate font-bold"
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  height: getEventHeight(),
-                                  fontSize: isSingleDayMobile ? '10px' : getFontSize(),
-                                  lineHeight: '1',
-                                  textAlign: 'left',
-                                  paddingLeft: settings.compactMode
-                                    ? '0'
-                                    : isSingleDayMobile
-                                      ? '4px'
-                                      : '8px',
-                                  paddingRight: settings.compactMode
-                                    ? '0'
-                                    : isSingleDayMobile
-                                      ? '4px'
-                                      : '6px',
-                                  borderRadius: isSingleDayMobile ? '3px' : '4px',
-                                  background: settings.compactMode
-                                    ? settings.eventOpacity === 'solid'
-                                      ? isEnded
-                                        ? emphasisVar
-                                        : colorVar
-                                      : isEnded
-                                        ? strongVar
-                                        : emphasisVar
-                                    : getEventBackground(colorVar, isEnded),
-                                  borderLeft: settings.compactMode
-                                    ? 'none'
-                                    : `3px solid ${isEnded ? emphasisVar : colorVar}`,
-                                  borderTop: settings.compactMode
-                                    ? 'none'
-                                    : `1px solid ${isEnded ? mutedVar : strongVar}`,
-                                  borderBottom: settings.compactMode
-                                    ? 'none'
-                                    : `1px solid ${isEnded ? mutedVar : strongVar}`,
-                                  borderRight: settings.compactMode
-                                    ? 'none'
-                                    : `1px solid ${isEnded ? mutedVar : strongVar}`,
-                                  color: settings.compactMode
-                                    ? 'transparent'
-                                    : isEnded
-                                      ? 'rgba(255,255,255,0.7)'
-                                      : '#ffffff',
-                                  opacity: isEnded ? 0.7 : 1
-                                }}
+                                aria-label={tooltipContent}
+                                className={`event-span event-span--start event-span--end${isEnded ? ' event-span--ended' : ''}`}
+                                style={spanColors}
                               >
-                                {!settings.compactMode && (
-                                  <>
-                                    {isEnded && (
-                                      <span style={{ marginRight: '4px' }}>
-                                        {t('events.ended')}
-                                      </span>
-                                    )}
-                                    {spanEvent.event.name}
-                                  </>
-                                )}
+                                {label}
                               </button>
                             </Tooltip>
                           );
@@ -911,18 +758,12 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                       return (
                         <Tooltip
                           key={`${spanEvent.event.id}-${week.weekIndex}`}
-                          content={
-                            isEnded
-                              ? t('events.calendar.eventEnded', { name: spanEvent.event.name })
-                              : spanEvent.event.name
-                          }
+                          content={tooltipContent}
                           strategy="overlay"
-                          className="pointer-events-auto"
+                          className={`pointer-events-auto event-span-slot${spanEvent.isStart ? ' event-span-slot--start' : ''}${spanEvent.isEnd ? ' event-span-slot--end' : ''}`}
                           style={{
                             gridColumn: `${spanEvent.startCol + gridColOffset} / span ${spanEvent.span}`,
-                            gridRow: eventIndex + 1,
-                            marginLeft: spanEvent.isStart ? '4px' : '0',
-                            marginRight: spanEvent.isEnd ? '4px' : '0'
+                            gridRow: eventIndex + 1
                           }}
                         >
                           <button
@@ -930,82 +771,11 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                               e.stopPropagation();
                               onEventClick(spanEvent.event);
                             }}
-                            className="w-full h-full truncate font-bold"
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              height: getEventHeight(),
-                              fontSize: isSingleDayMobile ? '10px' : getFontSize(),
-                              lineHeight: '1',
-                              textAlign: 'left',
-                              paddingLeft: settings.compactMode
-                                ? '0'
-                                : spanEvent.isStart
-                                  ? isSingleDayMobile
-                                    ? '4px'
-                                    : '8px'
-                                  : '6px',
-                              paddingRight: settings.compactMode
-                                ? '0'
-                                : isSingleDayMobile
-                                  ? '4px'
-                                  : '6px',
-                              borderRadius: settings.compactMode
-                                ? '2px'
-                                : spanEvent.isStart && spanEvent.isEnd
-                                  ? isSingleDayMobile
-                                    ? '3px'
-                                    : '4px'
-                                  : spanEvent.isStart
-                                    ? isSingleDayMobile
-                                      ? '3px 0 0 3px'
-                                      : '4px 0 0 4px'
-                                    : spanEvent.isEnd
-                                      ? isSingleDayMobile
-                                        ? '0 3px 3px 0'
-                                        : '0 4px 4px 0'
-                                      : '0',
-                              background: settings.compactMode
-                                ? settings.eventOpacity === 'solid'
-                                  ? isEnded
-                                    ? emphasisVar
-                                    : colorVar
-                                  : isEnded
-                                    ? strongVar
-                                    : emphasisVar
-                                : getEventBackground(colorVar, isEnded),
-                              borderLeft: settings.compactMode
-                                ? 'none'
-                                : spanEvent.isStart
-                                  ? `3px solid ${isEnded ? emphasisVar : colorVar}`
-                                  : 'none',
-                              borderTop: settings.compactMode
-                                ? 'none'
-                                : `1px solid ${isEnded ? mutedVar : strongVar}`,
-                              borderBottom: settings.compactMode
-                                ? 'none'
-                                : `1px solid ${isEnded ? mutedVar : strongVar}`,
-                              borderRight: settings.compactMode
-                                ? 'none'
-                                : spanEvent.isEnd
-                                  ? `1px solid ${isEnded ? mutedVar : strongVar}`
-                                  : 'none',
-                              color: settings.compactMode
-                                ? 'transparent'
-                                : isEnded
-                                  ? 'rgba(255,255,255,0.7)'
-                                  : '#ffffff',
-                              opacity: isEnded ? 0.7 : 1
-                            }}
+                            aria-label={tooltipContent}
+                            className={`event-span${spanEvent.isStart ? ' event-span--start' : ''}${spanEvent.isEnd ? ' event-span--end' : ''}${isEnded ? ' event-span--ended' : ''}`}
+                            style={spanColors}
                           >
-                            {!settings.compactMode && spanEvent.isStart ? (
-                              <>
-                                {isEnded && <span style={{ marginRight: '4px' }}>(Ended)</span>}
-                                {spanEvent.event.name}
-                              </>
-                            ) : (
-                              ''
-                            )}
+                            {label}
                           </button>
                         </Tooltip>
                       );
@@ -1069,6 +839,12 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                             const emphasisVar = colorVar.replace(')', '-emphasis)');
                             const intenseVar = colorVar.replace(')', '-intense)');
                             const isEnded = hasEventEnded(event);
+                            const rowColors = {
+                              '--popover-event-fill': isEnded ? subtleVar : mutedVar,
+                              '--popover-event-edge': isEnded ? emphasisVar : colorVar,
+                              '--popover-event-text': isEnded ? intenseVar : colorVar,
+                              '--popover-event-dot': colorVar
+                            } as React.CSSProperties;
                             return (
                               <Tooltip
                                 key={event.id}
@@ -1085,34 +861,14 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                                     onEventClick(event);
                                     setExpandedDay(null);
                                   }}
-                                  className="w-full text-left px-3 py-2.5 text-xs font-medium truncate transition rounded-lg flex items-center gap-2"
-                                  style={{
-                                    backgroundColor: isEnded ? subtleVar : mutedVar,
-                                    borderLeft: `3px solid ${isEnded ? emphasisVar : colorVar}`,
-                                    color: isEnded ? intenseVar : colorVar,
-                                    opacity: isEnded ? 0.8 : 1
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.transform = 'translateX(3px)';
-                                    e.currentTarget.style.backgroundColor = isEnded
-                                      ? subtleVar
-                                      : mutedVar;
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.transform = 'translateX(0)';
-                                    e.currentTarget.style.backgroundColor = isEnded
-                                      ? subtleVar
-                                      : mutedVar;
-                                  }}
+                                  className={`calendar-day-popover-event${isEnded ? ' calendar-day-popover-event--ended' : ''}`}
+                                  style={rowColors}
                                 >
-                                  <span
-                                    className="w-2 h-2 rounded-full flex-shrink-0"
-                                    style={{ backgroundColor: colorVar }}
-                                  />
+                                  <span className="calendar-day-popover-dot" />
                                   <span className="truncate">
-                                    {hasEventEnded(event) && (
-                                      <span style={{ opacity: 0.7, marginRight: '4px' }}>
-                                        (Ended)
+                                    {isEnded && (
+                                      <span className="calendar-day-popover-ended">
+                                        {t('events.ended')}{' '}
                                       </span>
                                     )}
                                     {event.name}
@@ -1142,12 +898,6 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
           </p>
         </div>
       )}
-
-      {/* Legend/Help */}
-      <div className="mt-4 pt-4 flex flex-col gap-1 text-xs border-t border-[var(--theme-border-secondary)] text-[var(--theme-text-muted)] sm:flex-row sm:items-center sm:justify-between">
-        <span>{t('events.calendar.legend.create')}</span>
-        <span>{t('events.calendar.legend.edit')}</span>
-      </div>
     </div>
   );
 };

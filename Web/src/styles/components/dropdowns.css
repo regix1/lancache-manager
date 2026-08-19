@@ -157,14 +157,12 @@
       font-size: var(--font-size-xs);
     }
 
+    /* The chevron is the only thing telling a filled box apart from a static readout, so it
+       keeps its place at this width and gives up size instead. Dropping it saved 12px and
+       left every select on a phone reading as a label. */
     .ed-trigger svg {
       width: 12px;
       height: 12px;
-    }
-
-    /* Hide chevron on very small screens to save space */
-    .ed-trigger > svg:last-child {
-      display: none;
     }
   }
 
@@ -188,15 +186,6 @@
 
   .msd-trigger:focus-visible {
     outline-offset: -2px;
-  }
-
-  .calendar-nav .ed-trigger {
-    border-color: var(--theme-border-secondary);
-    color: var(--theme-text-primary);
-  }
-
-  .calendar-nav .ed-trigger:not(:disabled):hover {
-    background-color: var(--theme-bg-hover);
   }
 
   .ed-dropdown {

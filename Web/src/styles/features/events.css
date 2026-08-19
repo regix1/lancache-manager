@@ -251,3 +251,486 @@
     animation: none !important;
   }
 }
+
+/* ==============================================
+ * COMPONENTS - Event calendar month grid
+ *
+ * Row height, the day-number strip and the span overlay's top padding are ONE
+ * derived set. Span bars sit in an absolutely positioned overlay, so they add
+ * nothing to a cell's natural height: the row reserves the stack itself from
+ * the same numbers the overlay reads, or the bars paint outside their row.
+ *
+ *   strip      = cell padding + numeral box + the gap under it
+ *   row height = max(floor, strip + stack * (bar height + bar gap))
+ *   overlay    = padding-top: strip, grid-auto-rows: bar height, row-gap: bar gap
+ *
+ * --calendar-stack is the only one the component sets, because CSS cannot count
+ * the events in a week.
+ * ============================================== */
+
+.calendar-grid {
+  --calendar-cell-pad: 4px;
+  --calendar-numeral: 20px;
+  --calendar-numeral-gap: 4px;
+  --calendar-strip: calc(
+    var(--calendar-cell-pad) + var(--calendar-numeral) + var(--calendar-numeral-gap)
+  );
+  --calendar-row-floor: 44px;
+  --calendar-bar-h: 20px;
+  --calendar-bar-gap: 3px;
+  --calendar-bar-font: 13px;
+  --calendar-stack: 0;
+
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius-inner);
+  background-color: var(--theme-bg-secondary);
+}
+
+/* The shell rounds its corners without clipping its own descendants. The expanded-day
+   popover is positioned inside a week row rather than portalled, so a clipping ancestor
+   cut 161px off a 275px popover in the last row, with nothing to scroll it back. The two
+   elements that actually paint into the corners round themselves instead: the weekday
+   header at the top, and the last week's end cells at the bottom. A cell with no fill of
+   its own shows the shell's background, which the shell's own radius already rounds. */
+.calendar-weekdays {
+  border-top-left-radius: var(--theme-border-radius-inner);
+  border-top-right-radius: var(--theme-border-radius-inner);
+}
+
+.calendar-week:last-child .calendar-cell:first-child {
+  border-bottom-left-radius: var(--theme-border-radius-inner);
+}
+
+.calendar-week:last-child .calendar-cell:nth-child(7) {
+  border-bottom-right-radius: var(--theme-border-radius-inner);
+}
+
+/* The week-number column adds an eighth cell, so the right corner moves along one. */
+.calendar-grid--weeks .calendar-week:last-child .calendar-cell:nth-child(7) {
+  border-bottom-right-radius: 0;
+}
+
+.calendar-grid--weeks .calendar-week:last-child .calendar-cell:nth-child(8) {
+  border-bottom-right-radius: var(--theme-border-radius-inner);
+}
+
+/* A week with four or more stacked bars trades bar height for room. */
+.calendar-week--dense {
+  --calendar-bar-h: 16px;
+  --calendar-bar-gap: 2px;
+  --calendar-bar-font: 11px;
+}
+
+@media (min-width: 640px) {
+  .calendar-grid {
+    --calendar-cell-pad: 8px;
+    --calendar-numeral: 24px;
+    --calendar-row-floor: 96px;
+    --calendar-bar-h: 24px;
+  }
+
+  .calendar-week--dense {
+    --calendar-bar-h: 18px;
+  }
+
+  .calendar-day-number {
+    font-size: var(--font-size-base);
+  }
+}
+
+/* After the width block, because compact is a setting and outranks the width default.
+   A dense week never coincides with it: the component only marks a row dense when
+   compact is off. */
+.calendar-grid--compact {
+  --calendar-bar-h: 5px;
+  --calendar-bar-gap: 2px;
+}
+
+.calendar-weekdays {
+  border-bottom: 1px solid var(--theme-border-secondary);
+  background-color: var(--theme-bg-tertiary);
+}
+
+.calendar-weekday {
+  padding: 0.5rem 0;
+  text-align: center;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--theme-text-muted);
+}
+
+.calendar-weekday--name {
+  color: var(--theme-text-secondary);
+}
+
+.calendar-week {
+  position: relative;
+  min-height: max(
+    var(--calendar-row-floor),
+    calc(
+      var(--calendar-strip) + var(--calendar-stack) *
+        (var(--calendar-bar-h) + var(--calendar-bar-gap))
+    )
+  );
+}
+
+/* One hairline per seam: the header carries the edge above the first week, and
+   every later week carries its own. */
+.calendar-week + .calendar-week {
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+.calendar-cell {
+  padding: var(--calendar-cell-pad);
+  min-width: 0;
+}
+
+.calendar-cell + .calendar-cell {
+  border-left: 1px solid var(--theme-border-secondary);
+}
+
+.calendar-cell--outside {
+  background-color: var(--theme-bg-tertiary-muted);
+}
+
+.calendar-cell--week {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background-color: var(--theme-bg-tertiary-strong);
+}
+
+.calendar-day {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.calendar-day:hover {
+  background-color: var(--theme-bg-tertiary);
+}
+
+.calendar-day--past {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.calendar-day--past:hover {
+  background-color: transparent;
+}
+
+/* The gap under the numeral is padding, not margin, so the head's own box ends where
+   the strip ends and the first bar's top meets it exactly. */
+.calendar-day-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1px;
+  overflow: hidden;
+  padding-bottom: var(--calendar-numeral-gap);
+}
+
+.calendar-day-number {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--calendar-numeral);
+  height: var(--calendar-numeral);
+  border-radius: 9999px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--theme-text-primary);
+  transition: background-color 0.2s ease;
+}
+
+.calendar-day-number--today {
+  background-color: var(--theme-primary-subtle);
+  color: var(--theme-primary);
+}
+
+.calendar-day--past .calendar-day-number {
+  color: var(--theme-text-muted);
+}
+
+.calendar-day-number--outside {
+  color: var(--theme-text-muted);
+  opacity: 0.5;
+}
+
+/* Compounded so the fill wins over .themed-badge's own surface in the prod bundle,
+   where module order decides a plain single-class tie. */
+.themed-badge.calendar-day-count {
+  background-color: var(--theme-primary);
+  color: var(--theme-primary-text);
+  transition: background-color 0.15s ease;
+}
+
+/* The chip used to answer a hover by scaling, inside a head that clips its overflow, so the
+   growth was cut off and the button read as having no hover at all. Colour carries it instead. */
+.themed-badge.calendar-day-count:hover {
+  background-color: var(--theme-primary-hover);
+}
+
+/* A phone cell is about 42px wide, so the shared 20px count chip and the numeral cannot
+   both keep their default width. Compounded past .badge-count's own min-width. */
+@media (max-width: 639.98px) {
+  .calendar-day-head .badge-count {
+    min-width: 0;
+    padding-left: 2px;
+    padding-right: 2px;
+    font-size: var(--font-size-2xs);
+  }
+
+  /* The week-number column takes an eighth of the row, so the numeral and the chip
+     both give up a step to keep the pair inside the cell. */
+  .calendar-grid--weeks {
+    --calendar-numeral: 16px;
+  }
+
+  .calendar-grid--weeks .calendar-day-number {
+    font-size: var(--font-size-2xs);
+  }
+
+  .calendar-grid--weeks .calendar-day-head .badge-count {
+    padding-left: 1px;
+    padding-right: 1px;
+    font-size: 0.5625rem;
+  }
+}
+
+/* The gear's own trigger is a fixed 32px square inside the settings popover.
+   Lifting it here keeps one height across the control row without editing it. */
+.calendar-gear {
+  display: flex;
+  flex: none;
+}
+
+.calendar-gear button {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+/* The trigger was a transparent outlined square, which reads as a different system beside the
+   four filled controls it shares the row with. Same neutral control fill as the arrows and no
+   edge; the open state keeps the primary tint the popover already used. */
+.calendar-settings-trigger {
+  border-color: transparent;
+  background-color: var(--theme-bg-surface);
+  color: var(--theme-text-secondary);
+}
+
+.calendar-settings-trigger:hover {
+  background-color: var(--theme-bg-surface-hover);
+}
+
+.calendar-settings-trigger.is-open {
+  border-color: var(--theme-primary);
+  background-color: var(--theme-primary-subtle);
+  color: var(--theme-primary);
+}
+
+@media (max-width: 639.98px) {
+  .calendar-gear button {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+}
+
+/* ==============================================
+ * COMPONENTS - Event span bars (calendar overlay)
+ * The overlay reads the same derived set as the row above. Only grid placement
+ * stays on the element, because it is computed per bar.
+ * ============================================== */
+
+.calendar-events {
+  padding-top: var(--calendar-strip);
+  align-content: start;
+  column-gap: 0;
+  row-gap: var(--calendar-bar-gap);
+  grid-auto-rows: var(--calendar-bar-h);
+}
+
+/* A bar is inset from the cell edge only where the event truly starts or ends,
+   so a continuation reads as one bar running through the day boundary. */
+.event-span-slot--start {
+  margin-left: 4px;
+}
+
+.event-span-slot--end {
+  margin-right: 4px;
+}
+
+.event-span {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--calendar-bar-h);
+  padding-left: 6px;
+  padding-right: 6px;
+  border: 1px solid var(--event-span-rule);
+  border-left-width: 0;
+  border-right-width: 0;
+  font-size: var(--calendar-bar-font);
+  font-weight: 700;
+  line-height: 1;
+  text-align: left;
+  color: #ffffff;
+  background: linear-gradient(90deg, var(--event-span-from) 0%, var(--event-span-to) 100%);
+}
+
+/* The hairline closes the box on the day the event really starts and ends, and stays open
+   where the bar runs on into the next week. It is the same 1px rule as the top and bottom
+   edges, so a multi-day event reads as one continuous span. A heavier coloured stripe down
+   the start edge broke that up into separate chips. */
+.event-span--start {
+  padding-left: 8px;
+  border-left-width: 1px;
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+
+.event-span--end {
+  border-right-width: 1px;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+.event-span--ended {
+  opacity: 0.7;
+}
+
+.calendar-grid--compact .event-span {
+  padding-left: 0;
+  padding-right: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--event-span-from);
+}
+
+.event-span-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==============================================
+ * COMPONENTS - Expanded day popover event rows
+ * Only the popover's measured left stays on the element; the row's colours arrive
+ * as properties because a stylesheet cannot derive a tier from a colour variable.
+ * ============================================== */
+
+.calendar-day-popover-event {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--theme-border-radius-inner);
+  /* The event's colour rings the whole row. It used to be a stripe down the left edge only,
+     which reads as decoration bolted onto the row rather than as the row's own identity. */
+  border: 1px solid var(--popover-event-edge);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  text-align: left;
+  color: var(--popover-event-text);
+  background-color: var(--popover-event-fill);
+  transition: transform 0.15s ease;
+}
+
+.calendar-day-popover-event:hover {
+  transform: translateX(3px);
+}
+
+.calendar-day-popover-event--ended {
+  opacity: 0.8;
+}
+
+.calendar-day-popover-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background-color: var(--popover-event-dot);
+}
+
+.calendar-day-popover-ended {
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calendar-day-popover-event {
+    transition: none;
+  }
+
+  .calendar-day-popover-event:hover {
+    transform: none;
+  }
+}
+
+/* ===== Event colour carriers =====
+   An event's colour is dynamic, so it arrives on the element as a custom property. Reading
+   that property straight back with a Tailwind arbitrary value on the SAME element makes the
+   round trip a detour: the element declares the value, then a utility class fetches it from
+   the element that declared it. These rules consume it where the rest of the event colours
+   are already consumed, so one mechanism covers all of them. The property names stay as each
+   site already spells them. */
+
+.event-color-swatch {
+  background-color: var(--event-swatch-color);
+}
+
+.event-active-chip {
+  color: var(--event-chip-color);
+  background-color: var(--event-chip-bg);
+}
+
+/* ===== Edit-event dialog actions =====
+   Delete sits on the left and the Cancel/Save pair on the right, but the row only reads as
+   that split when the space between the two groups is clearly bigger than the space inside
+   the pair. Button has exactly one quiet look, so Cancel is told apart from Delete and Save
+   by colour and width instead of by variant: no fill, secondary text, and the tighter
+   horizontal padding a text button takes. The width it gives back lands in the middle,
+   because the row is justify-between. Compounded past the Tailwind padding and background
+   utilities the Button itself sets. */
+
+.event-modal-actions .event-modal-cancel {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  background-color: transparent;
+  color: var(--theme-text-secondary);
+}
+
+.event-modal-actions .event-modal-cancel:hover:not(:disabled) {
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-primary);
+}
+
+/* ===== Event list rows =====
+   The list view used to render each row as its own bordered, rounded, filled
+   card. Rows now sit inside a shared .well-surface.divided-list container
+   (the same combination ClientsTab and the management pages already use for
+   a bordered, clipped, hairline-divided list), so this block only needs the
+   per-row pieces that container doesn't supply: the event's own colour mark
+   and the past-event dimming. The status pill itself is a plain Badge and
+   needs no rule here. */
+
+.event-list-row {
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .event-list-row:hover {
+    background-color: var(--theme-bg-secondary-on-tertiary);
+  }
+}
+
+.event-list-row--past {
+  opacity: 0.65;
+}
+
+/* Full-bleed strip carrying the event's own colour, fed in as a custom
+   property from the row wrapper - the EventFrame.tsx:29 pattern. */
+.event-list-row-color {
+  height: 4px;
+  background-color: var(--event-list-color);
+}

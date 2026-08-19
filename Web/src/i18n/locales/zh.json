@@ -4436,10 +4436,6 @@
       "eventEnded": "{{name}}（已结束）",
       "emptyMonth": "{{month}} 没有事件",
       "emptyMonthHint": "点击某天创建事件。",
-      "legend": {
-        "create": "点击某天创建事件",
-        "edit": "点击事件进行编辑"
-      },
       "settings": {
         "title": "日历设置",
         "reset": "重置",
@@ -4480,6 +4476,8 @@
       }
     },
     "ended": "（已结束）",
+    "activeCount": "{{count}} 个进行中的活跃事件",
+    "activeCount_other": "{{count}} 个进行中的活跃事件",
     "list": {
       "unknownGame": "未知",
       "actionsMenuLabel": "事件操作",

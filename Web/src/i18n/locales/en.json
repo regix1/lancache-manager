@@ -4436,10 +4436,6 @@
       "eventEnded": "{{name}} (ended)",
       "emptyMonth": "No events in {{month}}",
       "emptyMonthHint": "Click a day to create an event.",
-      "legend": {
-        "create": "Click a day to create an event",
-        "edit": "Click an event to edit"
-      },
       "settings": {
         "title": "Calendar Settings",
         "reset": "Reset",
@@ -4480,6 +4476,8 @@
       }
     },
     "ended": "(Ended)",
+    "activeCount": "{{count}} active event in progress",
+    "activeCount_other": "{{count}} active events in progress",
     "list": {
       "unknownGame": "Unknown",
       "actionsMenuLabel": "Event actions",

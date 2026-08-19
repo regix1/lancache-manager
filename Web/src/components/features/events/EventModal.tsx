@@ -1,7 +1,8 @@
 import React, { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarDays, Trash2, Calendar, Check, BarChart3 } from 'lucide-react';
+import { CalendarDays, Trash2, Calendar, Check } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Button } from '@components/ui/Button';
 import { useEvents } from '@contexts/useEvents';
 import { useReaderClock } from '@hooks/useReaderClock';
@@ -186,6 +187,15 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
           <div className="flex items-center gap-2">
             <CalendarDays className="w-5 h-5 text-[var(--theme-primary)]" />
             <span>{event ? t('events.modal.editTitle') : t('events.modal.createTitle')}</span>
+            {event && (
+              <button
+                type="button"
+                onClick={handleViewOnDashboard}
+                className="text-sm font-normal text-[var(--theme-primary)] hover:underline"
+              >
+                {t('events.modal.actions.viewStats')}
+              </button>
+            )}
           </div>
         }
         size="lg"
@@ -264,18 +274,14 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
                     key={idx}
                     type="button"
                     onClick={() => setColorIndex(idx)}
-                    className={`w-8 h-8 rounded-lg transition flex items-center justify-center ${
+                    aria-pressed={isSelected}
+                    className={`event-color-swatch w-7 h-7 themed-border-radius-sm transition flex items-center justify-center ${
                       isSelected ? 'scale-110' : 'hover:scale-105'
                     }`}
-                    style={{
-                      backgroundColor: getEventColorVar(idx),
-                      boxShadow: isSelected
-                        ? `0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px var(--theme-primary)`
-                        : 'none'
-                    }}
+                    style={{ '--event-swatch-color': getEventColorVar(idx) } as React.CSSProperties}
                   >
                     {isSelected && (
-                      <Check className="w-5 h-5 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]" />
+                      <Check className="w-4 h-4 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]" />
                     )}
                   </button>
                 );
@@ -284,36 +290,19 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
           </div>
 
           {/* Actions */}
-          <div className="flex flex-col gap-3 pt-4 border-t border-[var(--theme-border-primary)] sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap gap-2">
-              {event && (
-                <>
-                  <Button
-                    type="button"
-                    color="red"
-                    variant="filled"
-                    onClick={handleDeleteClick}
-                    leftSection={<Trash2 className="w-4 h-4" />}
-                  >
-                    {t('events.modal.actions.delete')}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="filled"
-                    color="gray"
-                    onClick={handleViewOnDashboard}
-                    leftSection={<BarChart3 className="w-4 h-4" />}
-                  >
-                    {t('events.modal.actions.viewStats')}
-                  </Button>
-                </>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2 sm:justify-end">
+          <div className="event-modal-actions flex flex-row items-center justify-between gap-3 pt-4 border-t border-[var(--theme-border-primary)]">
+            {event ? (
+              <Button type="button" color="red" variant="filled" onClick={handleDeleteClick}>
+                {t('events.modal.actions.delete')}
+              </Button>
+            ) : (
+              <div />
+            )}
+            <div className="flex items-center gap-2">
               <Button
                 type="button"
-                variant="filled"
-                color="gray"
+                variant="default"
+                className="event-modal-cancel"
                 onClick={onClose}
                 disabled={saving || deleting}
               >
@@ -358,39 +347,21 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
       </Modal>
 
       {/* Delete Confirmation Modal - rendered as sibling, not nested */}
-      <Modal
+      <ConfirmationModal
         opened={showDeleteConfirm}
         onClose={() => setShowDeleteConfirm(false)}
-        title={
-          <div className="flex items-center gap-2">
-            <Trash2 className="w-5 h-5 text-[var(--theme-status-error)]" />
-            <span>{t('events.modal.deleteTitle')}</span>
-          </div>
-        }
-        size="sm"
+        onConfirm={handleDeleteConfirm}
+        title={t('events.modal.deleteTitle')}
+        confirmLabel={t('events.modal.actions.delete')}
+        confirmColor="red"
+        loading={deleting}
+        icon={<Trash2 className="w-6 h-6 text-[var(--theme-status-error)]" />}
       >
-        <div className="space-y-4">
-          <p className="text-[var(--theme-text-secondary)]">
-            {t('events.modal.deleteConfirm', { name: event?.name })}
-          </p>
-          <p className="text-sm text-[var(--theme-text-muted)]">
-            {t('events.modal.deleteWarning')}
-          </p>
-          <div className="flex justify-end gap-2 pt-4 border-t border-[var(--theme-border-primary)]">
-            <Button
-              variant="filled"
-              color="gray"
-              onClick={() => setShowDeleteConfirm(false)}
-              disabled={deleting}
-            >
-              {t('actions.cancel')}
-            </Button>
-            <Button variant="filled" color="red" onClick={handleDeleteConfirm} loading={deleting}>
-              {t('events.modal.actions.delete')}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        <p className="text-[var(--theme-text-secondary)]">
+          {t('events.modal.deleteConfirm', { name: event?.name })}
+        </p>
+        <p className="text-sm text-[var(--theme-text-muted)]">{t('events.modal.deleteWarning')}</p>
+      </ConfirmationModal>
     </>
   );
 };

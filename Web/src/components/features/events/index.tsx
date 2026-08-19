@@ -1,11 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { Plus, List, LayoutGrid, Sparkles } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Plus, List, LayoutGrid } from 'lucide-react';
 import { useEvents } from '@contexts/useEvents';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { LoadingState } from '@components/ui/ManagerCard';
-import { getEventColorStyles } from '@utils/eventColors';
+import { getEventColorVar } from '@utils/eventColors';
 import EventCalendar from './EventCalendar';
 import EventModal from './EventModal';
 import EventList from './EventList';
@@ -14,6 +15,7 @@ import type { Event } from '../../../types';
 type ViewMode = 'calendar' | 'list';
 
 const EventsTab: React.FC = () => {
+  const { t } = useTranslation();
   const { events, activeEvents, loading, error, refreshEvents } = useEvents();
   const [viewMode, setViewMode] = useState<ViewMode>('calendar');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -55,8 +57,18 @@ const EventsTab: React.FC = () => {
           {/* View Toggle */}
           <SegmentedControl
             options={[
-              { value: 'calendar', label: 'Calendar', icon: <LayoutGrid className="w-4 h-4" /> },
-              { value: 'list', label: 'List', icon: <List className="w-4 h-4" /> }
+              {
+                value: 'calendar',
+                label: 'Calendar',
+                icon: <LayoutGrid className="w-4 h-4" />,
+                activeColor: 'neutral'
+              },
+              {
+                value: 'list',
+                label: 'List',
+                icon: <List className="w-4 h-4" />,
+                activeColor: 'neutral'
+              }
             ]}
             value={viewMode}
             onChange={(value) => setViewMode(value as ViewMode)}
@@ -84,34 +96,34 @@ const EventsTab: React.FC = () => {
         </div>
       )}
 
-      {/* Active Events Banner */}
+      {/* Active Events. The count and its chips sit on the shared quiet well rather than on the
+          page background - one line of text and a chip with no container of their own read as
+          stray copy. The well carries no colour of its own, so the chips stay the only
+          saturated thing on the row. */}
       {activeEvents.length > 0 && (
-        <Card padding="md" glassmorphism>
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-[var(--theme-success-subtle)]">
-              <Sparkles className="w-4 h-4 text-[var(--theme-status-success)]" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm font-medium text-[var(--theme-status-success)]">
-                  {activeEvents.length} active event{activeEvents.length > 1 ? 's' : ''} in progress
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {activeEvents.map((event) => (
-                  <button
-                    key={event.id}
-                    onClick={() => handleEditEvent(event)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-sm rounded-full font-medium transition hover:scale-105"
-                    style={getEventColorStyles(event.colorIndex)}
-                  >
-                    {event.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </Card>
+        <div className="well-surface flex flex-wrap items-center gap-2 px-3 py-2">
+          <span className="text-sm text-themed-secondary">
+            {t('events.activeCount', { count: activeEvents.length })}
+          </span>
+          {activeEvents.map((event) => {
+            const eventColor = getEventColorVar(event.colorIndex);
+            return (
+              <button
+                key={event.id}
+                onClick={() => handleEditEvent(event)}
+                className="event-active-chip inline-flex items-center gap-1.5 px-2.5 py-1 text-sm themed-border-radius-sm font-medium transition hover:scale-105"
+                style={
+                  {
+                    '--event-chip-color': eventColor,
+                    '--event-chip-bg': eventColor.replace(')', '-muted)')
+                  } as React.CSSProperties
+                }
+              >
+                {event.name}
+              </button>
+            );
+          })}
+        </div>
       )}
 
       {/* Main Content */}

@@ -17,11 +17,12 @@ import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
+import type { BadgeVariant } from '@components/ui/Badge.types';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatTimestamp } from '@utils/dateTimeFormat';
 import { formatBytes } from '@utils/formatters';
 import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
-import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
+import { getEventColorVar } from '@utils/eventColors';
 import ApiService from '@services/api.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import type { Event, Download } from '../../../types';
@@ -105,53 +106,34 @@ const EventCard = React.memo(
     );
 
     const colorVar = getEventColorVar(event.colorIndex);
+    const colorStyle = { '--event-list-color': colorVar } as React.CSSProperties;
+    const statusLabel =
+      status === 'active'
+        ? t('events.list.status.live')
+        : status === 'upcoming'
+          ? t('events.list.status.upcoming')
+          : t('events.list.status.ended');
+    const statusVariant: BadgeVariant =
+      status === 'active' ? 'success' : status === 'upcoming' ? 'info' : 'neutral';
 
     return (
       <div
-        className="rounded-lg border overflow-hidden cursor-pointer"
-        style={{
-          backgroundColor: 'var(--theme-bg-secondary)',
-          borderColor: isExpanded
-            ? colorVar
-            : status === 'active'
-              ? colorVar
-              : 'var(--theme-border-primary)',
-          borderWidth: status === 'active' || isExpanded ? '2px' : '1px',
-          opacity: status === 'past' ? 0.65 : 1
-        }}
+        className={`event-list-row${status === 'past' ? ' event-list-row--past' : ''}`}
+        style={colorStyle}
         onClick={() => onExpandClick(event.id)}
       >
-        {/* Active indicator bar */}
-        {status === 'active' && (
-          <div
-            className="h-1"
-            style={{
-              background: `linear-gradient(90deg, ${colorVar}, ${colorVar.replace(')', '-intense)')})`
-            }}
-          />
-        )}
+        {/* Event's own colour, now that the status pill no longer carries it */}
+        <div className="event-list-row-color" />
 
         <div className="p-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
-              {/* Header row with badge and name */}
+              {/* Header row: expand arrow and name */}
               <div className="flex items-center gap-2.5 mb-2">
                 {/* Expand arrow */}
                 <ChevronRight
                   className={`w-4 h-4 flex-shrink-0 text-[var(--theme-text-secondary)] ${isExpanded ? 'rotate-90' : ''}`}
                 />
-
-                {/* Event color badge - pill style */}
-                <span
-                  className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-semibold rounded-full uppercase tracking-wide"
-                  style={getEventColorStyles(event.colorIndex)}
-                >
-                  {status === 'active'
-                    ? t('events.list.status.live')
-                    : status === 'upcoming'
-                      ? t('events.list.status.upcoming')
-                      : t('events.list.status.ended')}
-                </span>
 
                 <Tooltip content={event.name} position="top" className="flex min-w-0">
                   <h3 className="font-semibold truncate text-[var(--theme-text-primary)]">
@@ -169,8 +151,14 @@ const EventCard = React.memo(
                 </Tooltip>
               )}
 
-              {/* Meta info row */}
+              {/* Meta info row - the status pill lives here so the name keeps the header line */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 ml-6">
+                <Badge
+                  variant={statusVariant}
+                  className={status === 'active' ? 'live-badge' : undefined}
+                >
+                  {statusLabel}
+                </Badge>
                 <div className="flex items-center gap-1.5 text-xs text-[var(--theme-text-muted)]">
                   <Calendar className="w-3.5 h-3.5" />
                   <span>{formattedStart}</span>
@@ -229,7 +217,7 @@ const EventCard = React.memo(
         {/* Expanded downloads section */}
         <CollapsibleRegion
           open={isExpanded}
-          contentClassName="border-t border-[var(--theme-border-secondary)] px-4 py-3 bg-[var(--theme-bg-tertiary)]"
+          contentClassName="border-t border-[var(--theme-border-secondary)] px-4 py-3 bg-[var(--theme-bg-primary-emphasis)]"
         >
           {isLoading ? (
             <div className="flex items-center justify-center py-4 gap-2">
@@ -479,7 +467,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
             count={groupedEvents.active.length}
             color="var(--theme-status-success)"
           />
-          <div className="space-y-3">
+          <div className="well-surface divided-list">
             {groupedEvents.active.map((event) => (
               <EventCard
                 key={event.id}
@@ -509,7 +497,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
             count={groupedEvents.upcoming.length}
             color="var(--theme-primary)"
           />
-          <div className="space-y-3">
+          <div className="well-surface divided-list">
             {groupedEvents.upcoming.map((event) => (
               <EventCard
                 key={event.id}
@@ -537,7 +525,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
             count={groupedEvents.past.length}
             color="var(--theme-text-muted)"
           />
-          <div className="space-y-3">
+          <div className="well-surface divided-list">
             {groupedEvents.past.map((event) => (
               <EventCard
                 key={event.id}

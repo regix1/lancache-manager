@@ -7,7 +7,7 @@ interface SegmentedControlOption {
   icon?: React.ReactNode;
   tooltip?: string;
   disabled?: boolean;
-  activeColor?: 'primary' | 'warning';
+  activeColor?: 'primary' | 'warning' | 'neutral';
 }
 
 interface SegmentedControlProps {
@@ -63,7 +63,9 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
         const activeClass =
           option.activeColor === 'warning'
             ? 'bg-[var(--theme-warning)] text-themed-button'
-            : 'bg-[var(--theme-primary)] text-themed-button';
+            : option.activeColor === 'neutral'
+              ? 'bg-[var(--theme-selected-bg)] text-[var(--theme-selected-text)]'
+              : 'bg-[var(--theme-primary)] text-themed-button';
         // Disabled + selected: drop the vivid accent for a neutral muted fill so the whole control
         // reads as disabled (matching a disabled dropdown/toggle) instead of looking clickable.
         const segmentClass = isActive
