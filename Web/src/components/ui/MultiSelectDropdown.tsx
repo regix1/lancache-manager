@@ -168,7 +168,10 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
       return opt?.label || defaultPlaceholder;
     }
     if (selectedCount === options.length) return t('ui.multiSelect.allSelected');
-    return `${selectedCount} ${t('ui.multiSelect.selected')}`;
+    // The trigger already carries a count badge, so repeating the number here printed it
+    // twice ("8 selected" beside an 8). Every caller passes a placeholder that names what is
+    // being picked, which is more useful next to the badge than the word on its own.
+    return defaultPlaceholder;
   }, [selectedCount, options, valuesSet, placeholder, t]);
 
   const updatePosition = useCallback(() => {

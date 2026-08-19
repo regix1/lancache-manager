@@ -742,10 +742,25 @@
   line-height: 0;
 }
 
+/* Series names come from user data. Compared events are named things like
+   route-access-16a7f4b0397d4091b005578d1721bd43, and eight of those at full length wrapped
+   into two rows that outweighed the chart they label. The cap keeps one legend row per
+   series; the tooltip on the button carries the whole name. */
 .line-trend-legend-label {
+  display: block;
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   line-height: 1;
   text-box-trim: trim-both;
   text-box-edge: cap alphabetic;
+}
+
+@media (min-width: 1024px) {
+  .line-trend-legend-label {
+    max-width: 22ch;
+  }
 }
 
 .line-trend-legend-item.is-hidden .line-trend-legend-swatch {
