@@ -1012,6 +1012,23 @@ async fn initialize_schema(connection: &mut PgConnection) -> Result<()> {
     )
     .execute(&mut *transaction)
     .await?;
+    // These two tables churn far harder than anything else in this database: an incremental scan
+    // rewrites a row per cached file and then deletes the whole previous generation, so a 2M-file
+    // cache turns over millions of rows per scan. At the 20% default, autovacuum would wait for
+    // hundreds of thousands of dead rows before starting, and the table would carry that bloat in
+    // between. Triggering ten times earlier keeps the dead tuples reclaimable while the deletes
+    // are still committing in batches. Set on the tables rather than globally, because the rest of
+    // this database is ordinary read-mostly traffic that the defaults already suit.
+    for table in ["structural_file_state", "structural_runs"] {
+        sqlx::query(&format!(
+            "ALTER TABLE {table} SET ( \
+                autovacuum_vacuum_scale_factor = 0.02, \
+                autovacuum_vacuum_threshold = 500 \
+             )"
+        ))
+        .execute(&mut *transaction)
+        .await?;
+    }
     // Either there was never a version row, or the stale one was just deleted above.
     if stored_version.is_none() || stale_version.is_some() {
         sqlx::query("INSERT INTO structural_state_version(version) VALUES($1)")
