@@ -873,7 +873,12 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
               </div>
 
               {/* Events list */}
-              <CustomScrollbar maxHeight="200px" paddingMode="compact" className="p-2">
+              <CustomScrollbar
+                maxHeight="200px"
+                paddingMode="compact"
+                radius="none"
+                className="p-2"
+              >
                 <div className="space-y-1.5">
                   {dayEvents.map((event) => {
                     const colorToken = eventColorToken(event.colorIndex);
