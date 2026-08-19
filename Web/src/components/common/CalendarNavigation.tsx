@@ -43,65 +43,71 @@ function CalendarNavigation({
   }));
 
   return (
-    // One cluster, one gap. The row used to be justify-between with the two selects boxed in
-    // their own gap-2 wrapper, which spread the arrows to the container edges and left four
-    // different gaps in the same row - 272px of void either side of the selects at desktop
-    // width. Every control is a direct flex item now, so the single gap-2 is the only spacing
-    // in the row and the cluster sits at its own width instead of being stretched across one.
-    // Centred, so the leftover in a track wider than the cluster is split rather than dumped
-    // on one side: it fills the Events card at phone width and sits symmetrically in the
-    // 314px picker popovers, which are the two callers with nothing in the trailing slot.
-    <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
-      {/* md is the shared 40px control height, and below the phone breakpoint the dropdown
-          takes a 44px touch floor, so the icon-only arrows are squares at whichever of the two
-          is current. */}
-      <Button
-        variant="filled"
-        color="gray"
-        size="md"
-        className="btn-icon-square max-sm:w-11 max-sm:h-11"
-        onClick={() => changeMonth(-1)}
-      >
-        <ChevronLeft className="w-5 h-5" />
-      </Button>
+    // Two groups, not six loose controls. Stepping a month is one job, so the arrows and the
+    // two selects sit in a tight cluster and read as one control; the caller's own actions are
+    // a separate job and get a generous gap and the trailing edge. The wide gap is what makes
+    // the two groups legible, so the inner gap stays deliberately smaller than it.
+    //
+    // Six controls cannot share one line on a phone: at a 298px track their own widths total
+    // 309px before any gap at all. So the actions wrap to a second line by design and are
+    // right-aligned there by the auto margin, rather than a lone control being orphaned in the
+    // centre of a row that ran out of room.
+    <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex items-center gap-1.5">
+        {/* md is the shared 40px control height, and below the phone breakpoint the dropdown
+            takes a 44px touch floor, so the icon-only arrows are squares at whichever of the
+            two is current. */}
+        <Button
+          variant="filled"
+          color="gray"
+          size="md"
+          className="btn-icon-square max-sm:w-11 max-sm:h-11"
+          onClick={() => changeMonth(-1)}
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </Button>
 
-      {/* No width class: the trigger is a flex item now, so each select takes its own label
-          plus its padding. The month names are all three letters on a phone and the years are
-          all four digits, so the widths are stable without being pinned. */}
-      <EnhancedDropdown
-        options={monthOptions}
-        value={String(currentMonth.getMonth())}
-        onChange={handleMonthSelect}
-        variant="button"
-        size="md"
-        maxHeight="200px"
-        dropdownWidth="w-40"
-      />
+        {/* Both selects are pinned. Letting them size to their label moves every control after
+            them whenever the month changes, because proportional type gives Sep, May and Jul
+            three different widths, and monthNames is localized so a locale can be wider still.
+            The widths hold the longest label each list can produce, so the arrows never move. */}
+        <EnhancedDropdown
+          options={monthOptions}
+          value={String(currentMonth.getMonth())}
+          onChange={handleMonthSelect}
+          variant="button"
+          size="md"
+          maxHeight="200px"
+          dropdownWidth="w-40"
+          className="w-[96px] sm:w-[120px]"
+        />
 
-      <EnhancedDropdown
-        options={yearOptions}
-        value={String(currentMonth.getFullYear())}
-        onChange={handleYearSelect}
-        variant="button"
-        size="md"
-        alignRight
-        maxHeight="200px"
-        dropdownWidth="w-28"
-      />
+        <EnhancedDropdown
+          options={yearOptions}
+          value={String(currentMonth.getFullYear())}
+          onChange={handleYearSelect}
+          variant="button"
+          size="md"
+          alignRight
+          maxHeight="200px"
+          dropdownWidth="w-28"
+          className="w-[76px] sm:w-[92px]"
+        />
 
-      <Button
-        variant="filled"
-        color="gray"
-        size="md"
-        className="btn-icon-square max-sm:w-11 max-sm:h-11"
-        onClick={() => changeMonth(1)}
-      >
-        <ChevronRight className="w-5 h-5" />
-      </Button>
+        <Button
+          variant="filled"
+          color="gray"
+          size="md"
+          className="btn-icon-square max-sm:w-11 max-sm:h-11"
+          onClick={() => changeMonth(1)}
+        >
+          <ChevronRight className="w-5 h-5" />
+        </Button>
+      </div>
 
-      {/* Optional trailing slot, unwrapped so its controls join the row's own gap rather than
-          carrying a second one of their own. */}
-      {children}
+      {/* Only the two Events callers pass anything here. The auto margin is inside the guard so
+          the two date pickers, which pass nothing, keep a cluster that is not pushed anywhere. */}
+      {children ? <div className="ml-auto flex items-center gap-2">{children}</div> : null}
     </div>
   );
 }
