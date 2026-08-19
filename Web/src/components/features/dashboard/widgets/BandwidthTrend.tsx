@@ -44,13 +44,14 @@ const BandwidthTrend: React.FC = memo(() => {
   const themeRevision = useThemeRevision();
   const { sparklines, loading } = useSparklines();
   const [chartTab, setChartTab] = useState<ChartTab>('bandwidth');
-  const { hiddenSeries, toggleSeries } = useHiddenSeries();
+  const { hiddenSeries, toggleSeries, seriesKey } = useHiddenSeries();
 
   const bucketMinutes = sparklines?.bucketMinutes ?? 1440;
   const starts = sparklines?.bucketStarts ?? EMPTY_POINTS;
   const saved = sparklines?.bandwidthSaved?.data ?? EMPTY_POINTS;
   const served = sparklines?.totalServed?.data ?? EMPTY_POINTS;
-  const pointCount = Math.min(starts.length, saved.length, served.length);
+  const missed = sparklines?.addedToCache?.data ?? EMPTY_POINTS;
+  const pointCount = Math.min(starts.length, saved.length, served.length, missed.length);
   const hasSeries = pointCount > 0 && hasBandwidthPoints(saved, served);
   const isCompare = chartTab === 'compare';
 
@@ -85,16 +86,39 @@ const BandwidthTrend: React.FC = memo(() => {
           hidden: hiddenSeries.has(1),
           pointRadius: 0,
           pointHoverRadius: 4
+        },
+        {
+          label: t('widgets.bandwidthTrend.missed'),
+          data: missed.slice(0, pointCount),
+          borderColor: getThemeColor('--theme-warning'),
+          backgroundColor: getThemeColor('--theme-warning-muted'),
+          fill: true,
+          tension: 0.25,
+          hidden: hiddenSeries.has(2),
+          pointRadius: 0,
+          pointHoverRadius: 4
         }
       ]
     };
-  }, [bucketMinutes, clock, hiddenSeries, pointCount, saved, served, starts, t, themeRevision]);
+  }, [
+    bucketMinutes,
+    clock,
+    hiddenSeries,
+    missed,
+    pointCount,
+    saved,
+    served,
+    starts,
+    t,
+    themeRevision
+  ]);
 
   const chartOptions: ChartOptions<'line'> = useMemo(() => {
     void themeRevision;
     return {
       responsive: true,
       maintainAspectRatio: false,
+      animation: { duration: 400, easing: 'easeOutQuart' },
       layout: {
         padding: { top: 4, right: 16, bottom: 4, left: 4 }
       },
@@ -104,8 +128,12 @@ const BandwidthTrend: React.FC = memo(() => {
           display: false
         },
         tooltip: lineChartTooltip({
-          swatchClass: (datasetIndex) =>
-            datasetIndex === 1 ? 'line-trend-swatch-success' : 'line-trend-swatch-primary'
+          swatchClass: (datasetIndex) => {
+            if (datasetIndex === 1) {
+              return 'line-trend-swatch-success';
+            }
+            return datasetIndex === 2 ? 'line-trend-swatch-warning' : 'line-trend-swatch-primary';
+          }
         })
       },
       scales: lineChartScales()
@@ -123,6 +151,11 @@ const BandwidthTrend: React.FC = memo(() => {
         label: t('widgets.bandwidthTrend.saved'),
         colorClass: 'line-trend-swatch-success',
         hidden: hiddenSeries.has(1)
+      },
+      {
+        label: t('widgets.bandwidthTrend.missed'),
+        colorClass: 'line-trend-swatch-warning',
+        hidden: hiddenSeries.has(2)
       }
     ],
     [hiddenSeries, t]
@@ -192,7 +225,7 @@ const BandwidthTrend: React.FC = memo(() => {
             <>
               <LineChartLegend items={legendItems} onToggle={toggleSeries} />
               <div className="dash-line-chart">
-                <Line data={chartData} options={chartOptions} />
+                <Line key={seriesKey} data={chartData} options={chartOptions} />
               </div>
             </>
           ) : (

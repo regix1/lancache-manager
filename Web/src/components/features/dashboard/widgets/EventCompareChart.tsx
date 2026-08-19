@@ -61,7 +61,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
   const [metric, setMetric] = useState<'served' | 'saved'>('served');
   const [compare, setCompare] = useState<EventCompareResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const { hiddenSeries, toggleSeries } = useHiddenSeries();
+  const { hiddenSeries, toggleSeries, seriesKey } = useHiddenSeries();
 
   useEffect(() => {
     // Sign-in, sign-out and a failed fetch all empty `events`, and pruning against nothing would
@@ -176,6 +176,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
     return {
       responsive: true,
       maintainAspectRatio: false,
+      animation: { duration: 400, easing: 'easeOutQuart' },
       layout: {
         padding: { top: 4, right: 16, bottom: 4, left: 4 }
       },
@@ -258,7 +259,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
           <>
             <LineChartLegend items={legendItems} onToggle={toggleSeries} />
             <div className="dash-line-chart">
-              <Line data={chartData} options={chartOptions} />
+              <Line key={seriesKey} data={chartData} options={chartOptions} />
             </div>
           </>
         ) : (

@@ -7,6 +7,7 @@ import { getThemeColor } from '../ServiceAnalyticsChart/chartTheme';
 interface HiddenSeries {
   hiddenSeries: ReadonlySet<number>;
   toggleSeries: (index: number) => void;
+  seriesKey: string;
 }
 
 /**
@@ -28,7 +29,12 @@ export function useHiddenSeries(): HiddenSeries {
     });
   }, []);
 
-  return { hiddenSeries, toggleSeries };
+  // React key for the canvas. A hidden dataset keeps tracking the axis while it is out of view, so
+  // reusing the canvas animates a restored series down from off the top of the plot as the axis
+  // grows back. A fresh canvas starts every series at the zero line and grows up instead.
+  const seriesKey = Array.from(hiddenSeries).sort().join(',');
+
+  return { hiddenSeries, toggleSeries, seriesKey };
 }
 
 export function lineChartScales(): ChartOptions<'line'>['scales'] {

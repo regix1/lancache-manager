@@ -780,6 +780,10 @@
   --legend-color: var(--theme-success);
 }
 
+.line-trend-swatch-warning {
+  --legend-color: var(--theme-warning);
+}
+
 .line-trend-swatch-event-1 {
   --legend-color: var(--theme-event-1);
 }

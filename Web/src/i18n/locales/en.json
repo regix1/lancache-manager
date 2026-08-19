@@ -780,6 +780,7 @@
       "title": "Bandwidth",
       "saved": "Cache hits",
       "served": "Total served",
+      "missed": "Cache misses",
       "noDataTitle": "No bandwidth data",
       "noDataDesc": "No downloads in this range yet.",
       "resolution": {
@@ -791,7 +792,7 @@
       },
       "help": {
         "aboutTitle": "About This Chart",
-        "about": "Cache hits and total served over the selected range. Short windows use hour or 3-hour buckets so a one-day range still has a readable line.",
+        "about": "Total served, cache hits and cache misses over the selected range. Total served is the other two added together. Short windows use hour or 3-hour buckets so a one-day range still has a readable line.",
         "resolution": "The badge is the bucket width. It follows the hours that actually have downloads, not only the picker."
       }
     },
