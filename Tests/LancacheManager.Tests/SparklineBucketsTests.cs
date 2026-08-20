@@ -416,28 +416,103 @@ public class SparklineBucketsTests
     }
 
     /// <summary>
-    /// The bucket keys are built in the database while the grid they are looked up in is built in
-    /// UTC by <see cref="SparklineBuckets.AlignStart"/>, so every key must name UTC in the SQL.
-    /// Unanchored they follow the server's session timezone, and on a zone offset by anything other
-    /// than whole hours every lookup in <see cref="SparklineBuckets.Fill"/> misses. [14]
+    /// An hour-long download over 15-minute buckets lands a quarter of its bytes in each, and its
+    /// keys sit on the UTC grid <see cref="SparklineBuckets.Fill"/> looks buckets up on. Summed
+    /// into its start bucket instead, a long download drew as one spike and then a flatline.
     /// </summary>
-    [Theory]
-    [InlineData(1440, "date_trunc('day', d.\"StartTimeUtc\", 'UTC')")]
-    [InlineData(180, "date_part('hour', d.\"StartTimeUtc\" AT TIME ZONE 'UTC')")]
-    [InlineData(15, "date_part('minute', d.\"StartTimeUtc\" AT TIME ZONE 'UTC')")]
-    public void PresentBucketsQuery_AnchorsEveryBucketKeyToUtcInSql(int bucketMinutes, string anchoredKey)
+    [Fact]
+    public void Spread_SpreadsBytesAcrossTheBucketsTheDownloadWasActive()
     {
-        using var context = new AppDbContext(
-            new DbContextOptionsBuilder<AppDbContext>()
-                .UseNpgsql("Host=localhost;Database=sparkline_bucket_translation_smoke_test")
-                .Options);
+        var spans = new[]
+        {
+            new HourOfDayBuckets.Span(
+                new DateTime(2026, 8, 16, 10, 0, 0, DateTimeKind.Utc),
+                new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc),
+                8_000,
+                4_000)
+        };
 
-        var sql = DashboardBatchService
-            .PresentBucketsQuery(context.Downloads.AsNoTracking(), bucketMinutes)
-            .ToQueryString();
+        var buckets = SparklineBuckets.Spread(spans, 15, null, null);
 
-        Assert.Contains("date_trunc('day', d.\"StartTimeUtc\", 'UTC')", sql, StringComparison.Ordinal);
-        Assert.Contains(anchoredKey, sql, StringComparison.Ordinal);
-        Assert.Contains("GROUP BY", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(4, buckets.Count);
+        Assert.All(buckets, bucket => Assert.Equal(2_000, bucket.CacheHitBytes));
+        Assert.All(buckets, bucket => Assert.Equal(1_000, bucket.CacheMissBytes));
+        Assert.Equal(new DateTime(2026, 8, 16, 10, 0, 0, DateTimeKind.Utc), buckets[0].Start);
+        Assert.Equal(new DateTime(2026, 8, 16, 10, 45, 0, DateTimeKind.Utc), buckets[3].Start);
+    }
+
+    /// <summary>
+    /// A download that starts mid-bucket gives its first bucket only the minutes it was actually
+    /// running there, so the first point is not inflated by time the download had not begun.
+    /// </summary>
+    [Fact]
+    public void Spread_WeighsAPartialFirstBucketByItsMinutes()
+    {
+        var spans = new[]
+        {
+            new HourOfDayBuckets.Span(
+                new DateTime(2026, 8, 16, 10, 30, 0, DateTimeKind.Utc),
+                new DateTime(2026, 8, 16, 11, 30, 0, DateTimeKind.Utc),
+                6_000,
+                0)
+        };
+
+        var buckets = SparklineBuckets.Spread(spans, 60, null, null);
+
+        Assert.Equal(2, buckets.Count);
+        Assert.Equal(3_000, buckets[0].CacheHitBytes);
+        Assert.Equal(3_000, buckets[1].CacheHitBytes);
+    }
+
+    /// <summary>
+    /// Began an hour before the window and ran an hour into it: only the half served inside is
+    /// drawn, and the share is measured against the whole run so the outside half is dropped
+    /// rather than squeezed into the first bucket.
+    /// </summary>
+    [Fact]
+    public void Spread_ClipsAStraddlerToTheWindow()
+    {
+        var spans = new[]
+        {
+            new HourOfDayBuckets.Span(
+                new DateTime(2026, 8, 16, 9, 0, 0, DateTimeKind.Utc),
+                new DateTime(2026, 8, 16, 11, 0, 0, DateTimeKind.Utc),
+                6_000,
+                0)
+        };
+
+        var buckets = SparklineBuckets.Spread(
+            spans,
+            60,
+            new DateTime(2026, 8, 16, 10, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 8, 16, 20, 0, 0, DateTimeKind.Utc));
+
+        var bucket = Assert.Single(buckets);
+        Assert.Equal(new DateTime(2026, 8, 16, 10, 0, 0, DateTimeKind.Utc), bucket.Start);
+        Assert.Equal(3_000, bucket.CacheHitBytes);
+    }
+
+    /// <summary>
+    /// An end of default(DateTime) sits before the start. The row still carries its bytes, and
+    /// they land in the bucket the download began in rather than being spread over a negative run.
+    /// </summary>
+    [Fact]
+    public void Spread_TreatsAnUnwrittenEndAsInstantaneous()
+    {
+        var spans = new[]
+        {
+            new HourOfDayBuckets.Span(
+                new DateTime(2026, 8, 16, 10, 20, 0, DateTimeKind.Utc),
+                default,
+                5_000,
+                2_000)
+        };
+
+        var buckets = SparklineBuckets.Spread(spans, 15, null, null);
+
+        var bucket = Assert.Single(buckets);
+        Assert.Equal(new DateTime(2026, 8, 16, 10, 15, 0, DateTimeKind.Utc), bucket.Start);
+        Assert.Equal(5_000, bucket.CacheHitBytes);
+        Assert.Equal(2_000, bucket.CacheMissBytes);
     }
 }

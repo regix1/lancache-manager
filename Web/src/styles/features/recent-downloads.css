@@ -40,21 +40,34 @@
   min-height: 1.5rem;
 }
 
-/* Takes the row rather than sizing to its two words: "Recent" and "Active" are short enough that
-   a content-sized pair read as two small chips against the width of the panel. It grows into
-   whatever the detail toggle and the pickers beside it do not use, and fullWidth on the control
-   splits that evenly between the two segments. */
+/* Content-sized, like every other segmented control on the dashboard: the pair sits next to the
+   title and the detail toggle keeps the row's right edge. */
 .rdl-view-switch {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 0 0 auto;
 }
 
-.rdl-view-switch > .segmented-control-container {
-  flex: 1 1 auto;
-  min-width: 0;
+/* Phone only: "Recent" and "Active" are short enough that a content-sized pair reads as two small
+   chips against the panel's width once the card has the screen to itself. Here it takes whatever
+   the detail toggle does not use and splits it evenly between the two segments. The slot class is
+   in the list because a tooltip-wrapped segment, not the button, is the container's flex child. */
+@media (max-width: 639.98px) {
+  .rdl-view-switch {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .rdl-view-switch > .segmented-control-container {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .rdl-view-switch .segmented-control-button,
+  .rdl-view-switch .segmented-control-slot {
+    flex: 1 1 0;
+  }
 }
 
 /* The detail toggle leads the filter row. Its siblings there are `flex: 1` with a 120px floor so

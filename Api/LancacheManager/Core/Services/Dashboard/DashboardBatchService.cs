@@ -440,12 +440,18 @@ public partial class DashboardBatchService : IDashboardBatchService
         var periodHitRatio = periodTotal > 0 ? (periodHitBytes * 100.0) / periodTotal : 0;
         var periodDownloadCount = periodAgg?.Count ?? 0;
 
-        // Active downloads (last 5 minutes, not ended)
+        // Active downloads: the flag the cleanup service maintains, gated on the end still being
+        // recent. Same predicate as GET /api/dashboard/stats, which fills the same response field.
+        // The old check asked for an unset EndTimeUtc, which the ingestion never leaves behind: it
+        // stamps an end on insert and advances it on every update, so this count was always zero.
         var activeThreshold = DateTime.UtcNow.AddMinutes(-5);
-        var activeDownloads = await context.Downloads.AsNoTracking()
+        var activeQuery = context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode)
-            .CountAsync(d => d.StartTimeUtc >= activeThreshold && d.EndTimeUtc == default, ct);
+            .Where(d => d.IsActive && d.EndTimeUtc > activeThreshold);
+        if (statsExcludedOnlyIps.Count > 0)
+            activeQuery = activeQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
+        var activeDownloads = await activeQuery.CountAsync(ct);
 
         // Unique clients in period
         var uniqueClientsQuery = statsExcludedOnlyIps.Count > 0
@@ -625,14 +631,19 @@ public partial class DashboardBatchService : IDashboardBatchService
         var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
 
+        DateTime? cutoffTime = null;
+        DateTime? endDateTime = null;
+
         if (startTime.HasValue)
         {
-            var cutoffTime = startTime.Value.FromUnixSeconds();
-            query = query.Where(d => d.StartTimeUtc >= cutoffTime);
+            cutoffTime = startTime.Value.FromUnixSeconds();
+            // Same overlap rule as the hourly section: a download still running at the cutoff
+            // served part of its bytes inside the range. The start arm keeps unwritten ends.
+            query = query.Where(d => d.EndTimeUtc >= cutoffTime || d.StartTimeUtc >= cutoffTime);
         }
         if (endTime.HasValue)
         {
-            var endDateTime = endTime.Value.FromUnixSeconds();
+            endDateTime = endTime.Value.FromUnixSeconds();
             query = query.Where(d => d.StartTimeUtc <= endDateTime);
         }
 
@@ -640,42 +651,64 @@ public partial class DashboardBatchService : IDashboardBatchService
             ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
             : query;
 
-        // Width comes from the hours that actually have downloads, not only the picker. A live
+        // Rows, not a GROUP BY: spreading a download's bytes over the buckets it was active in
+        // needs each row's own window, which no per-bucket aggregate carries.
+        var spans = await filteredQuery
+            .Select(d => new HourOfDayBuckets.Span(d.StartTimeUtc, d.EndTimeUtc, d.CacheHitBytes, d.CacheMissBytes))
+            .ToListAsync(ct);
+
+        // The drawn extent: every download's active window clipped to the picked range. Width and
+        // chart window both come from this, so a still-running download carries the series to its
+        // last write instead of ending it at the moment it began.
+        DateTime? firstDrawn = null;
+        DateTime? lastDrawn = null;
+        foreach (var span in spans)
+        {
+            var start = span.StartUtc;
+            var end = span.EndUtc > start ? span.EndUtc : start;
+            var from = cutoffTime is { } lower && lower > start ? lower : start;
+            var to = endDateTime is { } upper && upper < end ? upper : end;
+            if (to < from)
+            {
+                continue;
+            }
+            if (firstDrawn is null || from < firstDrawn)
+            {
+                firstDrawn = from;
+            }
+            if (lastDrawn is null || to > lastDrawn)
+            {
+                lastDrawn = to;
+            }
+        }
+
+        // Width comes from the stretch that actually has downloads, not only the picker. A live
         // view or a 7-day window that only contains one event day would otherwise stay on daily
         // buckets and collapse to a single point.
-        var bounds = await filteredQuery
-            .GroupBy(_ => 1)
-            .Select(g => new
-            {
-                First = g.Min(d => d.StartTimeUtc),
-                Last = g.Max(d => d.StartTimeUtc)
-            })
-            .FirstOrDefaultAsync(ct);
-
         double rangeHours = 999999;
         if (startTime.HasValue && endTime.HasValue)
         {
             rangeHours = (endTime.Value - startTime.Value) / 3600.0;
         }
 
-        if (bounds is not null)
+        if (firstDrawn is not null && lastDrawn is not null)
         {
-            var dataHours = Math.Max((bounds.Last - bounds.First).TotalHours, 0);
+            var dataHours = Math.Max((lastDrawn.Value - firstDrawn.Value).TotalHours, 0);
             rangeHours = startTime.HasValue && endTime.HasValue
                 ? Math.Min(rangeHours, dataHours)
                 : dataHours;
         }
 
         var bucketMinutes = SparklineBuckets.ResolveMinutes(rangeHours);
-        var present = await PresentBucketsQuery(filteredQuery, bucketMinutes).ToListAsync(ct);
+        var present = SparklineBuckets.Spread(spans, bucketMinutes, cutoffTime, endDateTime);
 
         // The window comes from the rows the query returned, never from the picker: the width above
         // is already narrowed to those rows, and the two have to agree.
         DateTime windowStart;
         DateTime windowEnd;
-        if (bounds is not null)
+        if (firstDrawn is not null && lastDrawn is not null)
         {
-            (windowStart, windowEnd) = SparklineBuckets.CoveringWindow(bounds.First, bounds.Last, bucketMinutes);
+            (windowStart, windowEnd) = SparklineBuckets.CoveringWindow(firstDrawn.Value, lastDrawn.Value, bucketMinutes);
         }
         else
         {
@@ -730,7 +763,10 @@ public partial class DashboardBatchService : IDashboardBatchService
         if (startTime.HasValue)
         {
             cutoffTime = startTime.Value.FromUnixSeconds();
-            query = query.Where(d => d.StartTimeUtc >= cutoffTime);
+            // In range when the active window reaches past the cutoff, not only when the download
+            // began inside it: one still running at the cutoff served part of its bytes in range.
+            // The start-time arm keeps rows whose end was never written.
+            query = query.Where(d => d.EndTimeUtc >= cutoffTime || d.StartTimeUtc >= cutoffTime);
         }
         if (endTime.HasValue)
         {
@@ -738,67 +774,51 @@ public partial class DashboardBatchService : IDashboardBatchService
             query = query.Where(d => d.StartTimeUtc <= endDateTime);
         }
 
-        int daysInPeriod = 1;
-        long? periodStartTimestamp = null;
-        long? periodEndTimestamp = null;
-
-        if (startTime.HasValue && endTime.HasValue)
-        {
-            daysInPeriod = Math.Max(1, (int)Math.Ceiling((endDateTime!.Value - cutoffTime!.Value).TotalDays));
-            periodStartTimestamp = startTime.Value;
-            periodEndTimestamp = endTime.Value;
-        }
-        else
-        {
-            // Divisor for the per-day averages below, so the days are counted on the same clock the
-            // hours are bucketed on. On the server's clock it is a whole day out at a midnight the
-            // reader has not reached. [51]
-            var dateRange = await ActivityDatesQuery(query, readerTimeZoneId).ToListAsync(ct);
-
-            daysInPeriod = Math.Max(1, dateRange.Count);
-
-            if (dateRange.Count > 0)
-            {
-                // Taken from the recorded instants, not the calendar dates above: a local date
-                // stamped with a zero offset is out by the server's own offset, and the widget
-                // checks these bounds against the real start and end of today.
-                var recorded = await query
-                    .GroupBy(d => 1)
-                    .Select(g => new
-                    {
-                        First = g.Min(d => d.StartTimeUtc),
-                        Last = g.Max(d => d.StartTimeUtc)
-                    })
-                    .FirstOrDefaultAsync(ct);
-
-                if (recorded is not null)
-                {
-                    periodStartTimestamp = new DateTimeOffset(recorded.First.AsUtc()).ToUnixTimeSeconds();
-                    periodEndTimestamp = new DateTimeOffset(recorded.Last.AsUtc()).ToUnixTimeSeconds();
-                }
-            }
-        }
-
         var filteredQuery = statsExcludedOnlyIps.Count > 0
             ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
             : query;
 
-        // Bucketed on the reader's clock, the same one the widget draws its current-hour marker on.
-        var hourlyData = await HourlyActivityQuery(filteredQuery, readerTimeZoneId).ToListAsync(ct);
+        // Rows, not a GROUP BY: spreading a download's bytes over the hours it was active needs
+        // each row's own window, which no per-hour aggregate carries.
+        var spans = await filteredQuery
+            .Select(d => new HourOfDayBuckets.Span(d.StartTimeUtc, d.EndTimeUtc, d.CacheHitBytes, d.CacheMissBytes))
+            .ToListAsync(ct);
 
-        var allHours = Enumerable.Range(0, 24)
-            .Select(h => {
-                var existing = hourlyData.FirstOrDefault(hd => hd.Hour == h);
-                if (existing != null)
-                {
-                    existing.AvgDownloads = Math.Round((double)existing.Downloads / daysInPeriod, 1);
-                    existing.AvgBytesServed = existing.BytesServed / daysInPeriod;
-                    return existing;
-                }
-                return new HourlyActivityItem { Hour = h };
-            })
-            .OrderBy(h => h.Hour)
-            .ToList();
+        // Divisor for the per-day averages: how many times each hour of the day repeats over the
+        // period. For a picked range that is the range's own length; with no range it is the
+        // stretch the recorded downloads cover. Both arms count the same way, where counting only
+        // days that saw traffic shrank the divisor over every quiet day and inflated the averages.
+        var periodStart = cutoffTime;
+        var periodEnd = endDateTime;
+        if (spans.Count > 0)
+        {
+            periodStart ??= spans.Min(s => s.StartUtc);
+            periodEnd ??= spans.Max(s => s.EndUtc > s.StartUtc ? s.EndUtc : s.StartUtc);
+        }
+
+        var daysInPeriod = periodStart.HasValue && periodEnd.HasValue
+            ? Math.Max(1, (int)Math.Ceiling((periodEnd.Value - periodStart.Value).TotalDays))
+            : 1;
+
+        long? periodStartTimestamp = periodStart is { } first
+            ? new DateTimeOffset(first.AsUtc()).ToUnixTimeSeconds()
+            : null;
+        long? periodEndTimestamp = periodEnd is { } last
+            ? new DateTimeOffset(last.AsUtc()).ToUnixTimeSeconds()
+            : null;
+
+        // Every name this field can carry came out of KnownTimeZoneId or ServerTimeZone.IanaId,
+        // both of which only pass names this resolver accepts.
+        var zone = ScheduleTiming.ResolveTimeZone(readerTimeZoneId)!;
+
+        // Bucketed on the reader's clock, the same one the widget draws its current-hour marker on.
+        var allHours = HourOfDayBuckets.Build(spans, zone, cutoffTime, endDateTime);
+
+        foreach (var hour in allHours)
+        {
+            hour.AvgDownloads = Math.Round((double)hour.Downloads / daysInPeriod, 1);
+            hour.AvgBytesServed = hour.BytesServed / daysInPeriod;
+        }
 
         var peakHour = PeakHour(allHours);
 
@@ -847,60 +867,11 @@ public partial class DashboardBatchService : IDashboardBatchService
     // ───────────────────── Shared query helpers ─────────────────────
 
     /// <summary>
-    /// Downloads grouped in the database at the given width. Every key names UTC, so it lands on
-    /// the grid <see cref="SparklineBuckets.AlignStart"/> builds and <c>Fill</c> can find it. [14]
-    /// </summary>
-    internal static IQueryable<SparklineBuckets.Bucket> PresentBucketsQuery(
-        IQueryable<Download> filteredQuery,
-        int bucketMinutes)
-    {
-        if (bucketMinutes >= 1440)
-        {
-            return filteredQuery
-                .GroupBy(d => d.StartTimeUtc.Date)
-                .OrderBy(g => g.Key)
-                .Select(g => new SparklineBuckets.Bucket(
-                    DateTime.SpecifyKind(g.Key, DateTimeKind.Utc),
-                    g.Sum(d => d.CacheHitBytes),
-                    g.Sum(d => d.CacheMissBytes)));
-        }
-
-        if (bucketMinutes >= 60)
-        {
-            var hoursPerBucket = bucketMinutes / 60;
-            return filteredQuery
-                .GroupBy(d => new { d.StartTimeUtc.Date, Slot = d.StartTimeUtc.Hour / hoursPerBucket })
-                .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Slot)
-                .Select(g => new SparklineBuckets.Bucket(
-                    DateTime.SpecifyKind(g.Key.Date, DateTimeKind.Utc)
-                        .AddHours(g.Key.Slot * hoursPerBucket),
-                    g.Sum(d => d.CacheHitBytes),
-                    g.Sum(d => d.CacheMissBytes)));
-        }
-
-        return filteredQuery
-            .GroupBy(d => new
-            {
-                d.StartTimeUtc.Date,
-                d.StartTimeUtc.Hour,
-                MinuteBucket = d.StartTimeUtc.Minute / bucketMinutes
-            })
-            .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Hour).ThenBy(g => g.Key.MinuteBucket)
-            .Select(g => new SparklineBuckets.Bucket(
-                DateTime.SpecifyKind(g.Key.Date, DateTimeKind.Utc)
-                    .AddHours(g.Key.Hour)
-                    .AddMinutes(g.Key.MinuteBucket * bucketMinutes),
-                g.Sum(d => d.CacheHitBytes),
-                g.Sum(d => d.CacheMissBytes)));
-    }
-
-    /// <summary>
-    /// The zone id in the spelling the database reads, or null when this server does not know the
-    /// zone. An unknown name is rejected when the query runs and takes the whole batch down with
-    /// it, so it is dropped here and the grouping stays on the server's own clock. Neither the
-    /// incoming name nor TimeZoneInfo.Id can be forwarded as it stands: either can be the Windows
-    /// spelling, which .NET resolves happily and Postgres then refuses, so the name is put into
-    /// IANA form first and the resolve runs against that. [58] [65]
+    /// The zone id in IANA form, or null when this server cannot resolve the name. An unresolvable
+    /// name would leave the hourly section with no clock to bucket on, so it is refused here and
+    /// the caller falls back to the server's own zone. Neither the incoming name nor
+    /// TimeZoneInfo.Id is kept as it stands: either can be the Windows spelling, and one zone has
+    /// to mean one cache key, so the name is put into IANA form first.
     /// </summary>
     internal static string? KnownTimeZoneId(string? timeZoneId)
     {
@@ -911,40 +882,6 @@ public partial class DashboardBatchService : IDashboardBatchService
 
         var ianaId = ServerTimeZone.IanaId(timeZoneId, timeZoneId);
         return ScheduleTiming.ResolveTimeZone(ianaId) is not null ? ianaId : null;
-    }
-
-    /// <summary>
-    /// Downloads counted into the hours of the day on the reader's clock. The zone is named rather
-    /// than reduced to one offset, so the database resolves it at each row's own instant, which a
-    /// single stored local time cannot do across a daylight-saving boundary.
-    /// </summary>
-    internal static IQueryable<HourlyActivityItem> HourlyActivityQuery(
-        IQueryable<Download> filteredQuery,
-        string timeZoneId)
-    {
-        return filteredQuery
-            .GroupBy(d => TimeZoneInfo.ConvertTimeBySystemTimeZoneId(d.StartTimeUtc, timeZoneId).Hour)
-            .Select(g => new HourlyActivityItem
-            {
-                Hour = g.Key,
-                Downloads = g.Count(),
-                BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                CacheMissBytes = g.Sum(d => d.CacheMissBytes)
-            });
-    }
-
-    /// <summary>
-    /// The distinct calendar days the downloads fall on, on the reader's clock. Same conversion as
-    /// <see cref="HourlyActivityQuery"/>, so the day count and the hours it divides share a clock.
-    /// </summary>
-    internal static IQueryable<DateTime> ActivityDatesQuery(
-        IQueryable<Download> filteredQuery,
-        string timeZoneId)
-    {
-        return filteredQuery
-            .Select(d => TimeZoneInfo.ConvertTimeBySystemTimeZoneId(d.StartTimeUtc, timeZoneId).Date)
-            .Distinct();
     }
 
     /// <summary>

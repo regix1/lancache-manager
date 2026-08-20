@@ -80,7 +80,7 @@ public class HourlyActivityResponse
     public long TotalBytesServed { get; set; }
 
     /// <summary>
-    /// Number of distinct days in the queried period
+    /// Days the period spans, rounded up: the divisor behind the per-hour averages
     /// </summary>
     public int DaysInPeriod { get; set; } = 1;
 
@@ -121,22 +121,24 @@ public class HourlyActivityItem
     public double AvgDownloads { get; set; }
 
     /// <summary>
-    /// Total bytes served in this hour (total across all days in period)
+    /// Bytes served during this hour across all days in the period. A download's bytes are spread
+    /// over the hours it was active and clipped to the selected range, not credited whole to the
+    /// hour it started in.
     /// </summary>
     public long BytesServed { get; set; }
 
     /// <summary>
-    /// Average bytes served per day for this hour
+    /// Average bytes served per day for this hour (BytesServed / DaysInPeriod)
     /// </summary>
     public long AvgBytesServed { get; set; }
 
     /// <summary>
-    /// Cache hit bytes in this hour
+    /// Cache hit share of <see cref="BytesServed"/>
     /// </summary>
     public long CacheHitBytes { get; set; }
 
     /// <summary>
-    /// Cache miss bytes in this hour
+    /// Cache miss share of <see cref="BytesServed"/>
     /// </summary>
     public long CacheMissBytes { get; set; }
 }

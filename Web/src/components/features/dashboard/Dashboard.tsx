@@ -11,7 +11,6 @@ import {
   Files,
   Eye,
   EyeOff,
-  ChevronDown,
   Search,
   GripVertical,
   LayoutGrid,
@@ -760,11 +759,6 @@ const Dashboard: React.FC = () => {
                   onClick={() => setDropdownOpen(!dropdownOpen)}
                   aria-label={t('dashboard.hidden')}
                   leftSection={<EyeOff className="w-4 h-4" />}
-                  rightSection={
-                    <ChevronDown
-                      className={`w-3 h-3 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
-                    />
-                  }
                   className="min-h-10"
                 />
               </Tooltip>

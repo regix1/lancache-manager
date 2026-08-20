@@ -113,8 +113,13 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.375rem 0.875rem;
-  /* Frame radius minus stroke width, so the fill meets the border cleanly */
-  border-radius: var(--theme-border-radius-lg) var(--theme-border-radius-lg) 0 0;
+  /* Frame radius MINUS the 2px stroke, because the bar sits against the wrapper's padding box and
+     that box curves by exactly that much less. Given the frame's own radius the bar over-curves by
+     the width of the stroke and the wrapper shows through as a dark notch in each top corner.
+     max() holds it at 0 for the sharp-corners theme, where the radius is 0px and a bare subtraction
+     would compute a negative length and void the whole declaration. */
+  border-radius: max(0px, calc(var(--theme-border-radius-lg) - 2px))
+    max(0px, calc(var(--theme-border-radius-lg) - 2px)) 0 0;
   background: var(--event-frame-color, var(--theme-primary));
   color: var(--theme-button-text);
   font-size: var(--font-size-sm);
@@ -213,14 +218,12 @@
 
 /* Mobile responsive: reduce spacing on smaller screens */
 @media (max-width: 767.98px) {
+  /* Spacing only. Both radii used to be restated here at the values the base rules already set,
+     which did nothing until the bar's corners were corrected above and then re-broke them on
+     phones. */
   .event-frame-wrapper {
     margin-top: 12px;
     margin-bottom: 12px;
-    border-radius: var(--theme-border-radius-lg);
-  }
-
-  .event-frame-bar {
-    border-radius: var(--theme-border-radius-lg) var(--theme-border-radius-lg) 0 0;
   }
 
   .event-frame-content {

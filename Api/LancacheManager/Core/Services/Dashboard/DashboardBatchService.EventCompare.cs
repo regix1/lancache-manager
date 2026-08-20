@@ -61,15 +61,21 @@ public partial class DashboardBatchService
             var evt = events[index];
             var (start, end) = windows[index];
             HashSet<long> taggedIds = taggedByEvent.GetValueOrDefault(evt.Id) ?? [];
+            // Same overlap-and-spread treatment as the stat-card sparklines: a download still
+            // running when the event began served part of its bytes inside the window, and its
+            // bytes belong to every bucket it was active in, not to the one it started in.
             var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode)
                 .ApplyEventFilter([evt.Id], taggedIds)
-                .Where(d => d.StartTimeUtc >= start && d.StartTimeUtc <= end);
+                .Where(d => (d.EndTimeUtc >= start || d.StartTimeUtc >= start) && d.StartTimeUtc <= end);
             if (statsExcludedOnlyIps.Count > 0)
             {
                 query = query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
             }
 
-            var present = await PresentBucketsQuery(query, bucketMinutes).ToListAsync(ct);
+            var spans = await query
+                .Select(d => new HourOfDayBuckets.Span(d.StartTimeUtc, d.EndTimeUtc, d.CacheHitBytes, d.CacheMissBytes))
+                .ToListAsync(ct);
+            var present = SparklineBuckets.Spread(spans, bucketMinutes, start, end);
             var filled = SparklineBuckets.Fill(start, end, bucketMinutes, present);
             series.Add(
                 new EventCompareSeries

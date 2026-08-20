@@ -740,8 +740,8 @@
         "multiDay": "What this hour usually looks like based on your history.",
         "singleDay": "Activity during the current hour."
       },
-      "heatmapNoteBytes": "Each block is one hour of the day. Brighter = more data served.",
-      "heatmapNoteDownloads": "Each block is one hour of the day. Brighter = more downloads.",
+      "heatmapNoteBytes": "Each block is one hour of the day. Brighter = more data served. Data counts toward every hour a download was active, not just the hour it started.",
+      "heatmapNoteDownloads": "Each block is one hour of the day. Brighter = more downloads. A download is counted in the hour it started.",
       "tooltip": {
         "avgDownloadsPerDay": "avg downloads/day",
         "avgServedPerDay": "avg served/day",
@@ -3435,7 +3435,7 @@
         "hitRate": "Cache hit rate percentage",
         "bandwidthSaved": "Bandwidth saved (24h)",
         "cacheUsage": "Cache usage in GB",
-        "peakHour": "Peak usage hour (0-23)",
+        "peakHour": "Busiest hour by data served (0-23)",
         "hourlyDownloads": "Downloads by hour heatmap",
         "growthRate": "Cache growth rate (GB/day)",
         "daysUntilFull": "Days until cache full",

@@ -234,7 +234,7 @@ public sealed class DashboardBatchCacheContractTests
         [
             "await GetEventDownloadIdsAsync(eventIdList, ct)",
             "await EnrichGameNamesAsync(context, downloads, ct);",
-            ".CountAsync(d => d.StartTimeUtc >= activeThreshold && d.EndTimeUtc == default, ct)",
+            "await activeQuery.CountAsync(ct)",
             ".ToDictionaryAsync(m => m.DepotId, m => m, ct)",
             ".ToDictionaryAsync(m => m.AppId, m => m.Name, ct)",
             ".ToDictionaryAsync(m => m.ProductId, m => m.Title, ct)",

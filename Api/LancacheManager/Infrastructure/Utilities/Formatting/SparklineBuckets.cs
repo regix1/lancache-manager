@@ -15,6 +15,77 @@ internal static class SparklineBuckets
 
     public readonly record struct Bucket(DateTime Start, long CacheHitBytes, long CacheMissBytes);
 
+    /// <summary>
+    /// Downloads spread over the UTC bucket grid in proportion to the time each was actively
+    /// serving, clipped to the window being drawn. Summing a download into the bucket its start
+    /// falls in put a three-hour game entirely into one 15-minute slot and drew zeros for the rest
+    /// of its run. Only buckets that received traffic come back, in grid order, which is the
+    /// contract <see cref="Fill"/> reads.
+    /// </summary>
+    public static List<Bucket> Spread(
+        IReadOnlyList<HourOfDayBuckets.Span> spans,
+        int bucketMinutes,
+        DateTime? clipStartUtc,
+        DateTime? clipEndUtc)
+    {
+        var buckets = new Dictionary<DateTime, (double Hit, double Miss)>();
+
+        void Add(DateTime key, double hit, double miss)
+        {
+            buckets[key] = buckets.TryGetValue(key, out var held)
+                ? (held.Hit + hit, held.Miss + miss)
+                : (hit, miss);
+        }
+
+        foreach (var span in spans)
+        {
+            var start = span.StartUtc;
+            // An end that was never written, or sits behind the start, reads as instantaneous.
+            var end = span.EndUtc > start ? span.EndUtc : start;
+
+            if (end == start)
+            {
+                var inWindow = (clipStartUtc is null || start >= clipStartUtc)
+                    && (clipEndUtc is null || start <= clipEndUtc);
+                if (inWindow)
+                {
+                    Add(AlignStart(start, bucketMinutes), span.CacheHitBytes, span.CacheMissBytes);
+                }
+                continue;
+            }
+
+            var from = clipStartUtc is { } lower && lower > start ? lower : start;
+            var to = clipEndUtc is { } upper && upper < end ? upper : end;
+            if (to <= from)
+            {
+                // The active window lies entirely outside the one being drawn.
+                continue;
+            }
+
+            // The share is measured against the download's whole run, so the part served outside
+            // the clip is dropped rather than squeezed into the buckets inside it.
+            var runSeconds = (end - start).TotalSeconds;
+            var cursor = AlignStart(from, bucketMinutes);
+            while (cursor < to)
+            {
+                var next = cursor.AddMinutes(bucketMinutes);
+                var overlapFrom = from > cursor ? from : cursor;
+                var overlapTo = to < next ? to : next;
+                var share = (overlapTo - overlapFrom).TotalSeconds / runSeconds;
+                Add(cursor, span.CacheHitBytes * share, span.CacheMissBytes * share);
+                cursor = next;
+            }
+        }
+
+        return buckets
+            .OrderBy(pair => pair.Key)
+            .Select(pair => new Bucket(
+                pair.Key,
+                (long)Math.Round(pair.Value.Hit),
+                (long)Math.Round(pair.Value.Miss)))
+            .ToList();
+    }
+
     public static int ResolveMinutes(double rangeHours)
     {
         if (rangeHours <= 2)

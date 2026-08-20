@@ -107,7 +107,9 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   }, [displayData, viewerZone]);
 
   // Buckets carry an hour number even when nothing was recorded, so a length check never fires.
-  const hasHourlyActivity = hourlyData.some((h) => h.downloads > 0);
+  // Bytes count too: a range can hold only the tail of a download that began before it, which
+  // arrives as served bytes with no download count.
+  const hasHourlyActivity = hourlyData.some((h) => h.downloads > 0 || h.bytesServed > 0);
   const totalDownloads = displayData?.totalDownloads ?? 0;
 
   // Calculate total bytes served across all hours
@@ -247,7 +249,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   }
 
   // Empty state — nothing recorded, and equally totals that arrived without their hourly buckets
-  if (!displayData || totalDownloads === 0 || !hasHourlyActivity) {
+  if (!displayData || !hasHourlyActivity) {
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
         <div className="flex items-center gap-2 mb-3">
@@ -279,7 +281,9 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   return (
     <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
       {/* Header */}
-      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-2 mb-3">
+      {/* The heading gets a row to itself; the period line and the metric picker share the row
+          under it, so the title is never squeezed against a control. */}
+      <div className="mb-3">
         <div className="flex items-center gap-2 min-w-0">
           <h3 className="dash-panel-title">{t('widgets.peakUsageHours.title')}</h3>
           {loading && displayData && <LoadingSpinner size="xs" inline />}
@@ -326,15 +330,17 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
             </HelpNote>
           </HelpPopover>
         </div>
-        <div className="flex items-center gap-2 text-xs text-themed-muted w-full justify-between xl:w-auto xl:justify-end">
-          <div className="flex items-center gap-2">
+        {/* The period line and the picker share this row. It renders even with nothing to say
+            about the period, because the picker still has to land somewhere. */}
+        <div className="flex items-center justify-between gap-2 mt-2">
+          <div className="flex items-center gap-2 text-xs text-themed-muted min-w-0">
             {isMultiDayPeriod && (
               <span>{t('widgets.peakUsageHours.days', { count: daysInPeriod })}</span>
             )}
             {isMultiDayPeriod && hasBusiestHour && <span>·</span>}
             {hasBusiestHour && (
               <>
-                <span className="hidden sm:inline">{t('widgets.peakUsageHours.mostActive')}</span>
+                <span>{t('widgets.peakUsageHours.mostActive')}</span>
                 <span className="font-medium text-themed-warning">{peakTimeOfDay}</span>
               </>
             )}

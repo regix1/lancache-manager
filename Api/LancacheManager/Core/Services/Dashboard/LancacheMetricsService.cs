@@ -376,13 +376,13 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         _meter.CreateObservableGauge(
             "lancache_peak_hour",
             () => _peakHour,
-            description: "Hour of day with most downloads (0-23)"
+            description: "Hour of day that served the most data (0-23, 7-day period)"
         );
 
         _meter.CreateObservableGauge(
             "lancache_peak_hour_downloads",
             () => Interlocked.Read(ref _peakHourDownloads),
-            description: "Number of downloads in peak hour (7-day period)"
+            description: "Number of downloads started in peak hour (7-day period)"
         );
 
         _meter.CreateObservableGauge(
@@ -401,13 +401,13 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         _meter.CreateObservableGauge(
             "lancache_hourly_downloads",
             HourlyDownloadsObserver,
-            description: "Downloads per hour of day (7-day period)"
+            description: "Downloads started per hour of day (7-day period)"
         );
 
         _meter.CreateObservableGauge(
             "lancache_hourly_bytes",
             HourlyBytesObserver,
-            description: "Bytes served per hour of day (7-day period)"
+            description: "Bytes served per hour of day, spread across the hours each download was active (7-day period)"
         );
 
         // ============================================
@@ -1112,44 +1112,37 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
 
-        // Same clock as the dashboard's hourly aggregate: the zone travels as a name so the database
-        // resolves each row's own offset rather than one offset taken now.
-        var serverZone = ServerTimeZone.IanaId(_configuration);
-        var hourlyActivity = await downloads
-            .Where(d => d.StartTimeUtc >= sevenDaysAgo)
-            .GroupBy(d => TimeZoneInfo.ConvertTimeBySystemTimeZoneId(d.StartTimeUtc, serverZone).Hour)
-            .Select(g => new
-            {
-                Hour = g.Key,
-                Downloads = g.LongCount(),
-                BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes)
-            })
+        // Same clock, same bucketing and same peak rule as the dashboard's Peak Usage Hours widget,
+        // so a Grafana panel and the app cannot name different busiest hours off the same data.
+        var serverZone = TimeZoneInfo.FindSystemTimeZoneById(ServerTimeZone.IanaId(_configuration));
+
+        // In window when the active span reaches into it, not only when the download began inside:
+        // one still running at the boundary served part of its bytes in the last seven days. The
+        // start-time arm keeps rows whose end was never written.
+        var spans = await downloads
+            .Where(d => d.EndTimeUtc >= sevenDaysAgo || d.StartTimeUtc >= sevenDaysAgo)
+            .Select(d => new HourOfDayBuckets.Span(d.StartTimeUtc, d.EndTimeUtc, d.CacheHitBytes, d.CacheMissBytes))
             .ToListAsync(cancellationToken);
 
-        // Initialize all 24 hours
-        for (int hour = 0; hour < 24; hour++)
+        var hourlyActivity = HourOfDayBuckets.Build(spans, serverZone, sevenDaysAgo, null);
+
+        foreach (var hourData in hourlyActivity)
         {
-            var hourMetrics = _hourlyMetrics.GetOrAdd(hour, _ => new HourlyMetrics());
-            var hourData = hourlyActivity.FirstOrDefault(h => h.Hour == hour);
-            Interlocked.Exchange(ref hourMetrics.Downloads, hourData?.Downloads ?? 0);
-            Interlocked.Exchange(ref hourMetrics.BytesServed, hourData?.BytesServed ?? 0);
+            var hourMetrics = _hourlyMetrics.GetOrAdd(hourData.Hour, _ => new HourlyMetrics());
+            Interlocked.Exchange(ref hourMetrics.Downloads, hourData.Downloads);
+            Interlocked.Exchange(ref hourMetrics.BytesServed, hourData.BytesServed);
         }
 
-        // Find peak hour
-        var peakHourData = hourlyActivity.OrderByDescending(h => h.Downloads).FirstOrDefault();
-        if (peakHourData != null)
-        {
-            _peakHour = peakHourData.Hour;
-            Interlocked.Exchange(ref _peakHourDownloads, peakHourData.Downloads);
-            _peakTimeOfDay = GetTimeOfDayLabel(peakHourData.Hour);
-        }
+        var peakHour = DashboardBatchService.PeakHour(hourlyActivity);
+        _peakHour = peakHour;
+        Interlocked.Exchange(ref _peakHourDownloads, hourlyActivity[peakHour].Downloads);
+        _peakTimeOfDay = GetTimeOfDayLabel(peakHour);
 
-        // Current hour downloads, named on the same zone the buckets above were grouped on. The
+        // Current hour downloads, named on the same zone the buckets above were built on. The
         // machine clock can sit in a different zone from the configured one, which would look up
         // the wrong bucket.
-        var currentHour = TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTime.UtcNow, serverZone).Hour;
-        var currentHourData = hourlyActivity.FirstOrDefault(h => h.Hour == currentHour);
-        Interlocked.Exchange(ref _currentHourDownloads, currentHourData?.Downloads ?? 0);
+        var currentHour = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, serverZone).Hour;
+        Interlocked.Exchange(ref _currentHourDownloads, hourlyActivity[currentHour].Downloads);
 
         // ============================================
         // CACHE GROWTH METRICS (7-day period)

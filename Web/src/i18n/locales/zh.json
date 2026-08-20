@@ -740,8 +740,8 @@
         "multiDay": "基于历史数据的当前小时通常情况。",
         "singleDay": "当前小时内的活动。"
       },
-      "heatmapNoteBytes": "每个方块代表一天中的一小时。越亮 = 服务的数据量越多。",
-      "heatmapNoteDownloads": "每个方块代表一天中的一小时。越亮 = 下载次数越多。",
+      "heatmapNoteBytes": "每个方块代表一天中的一小时。越亮 = 服务的数据量越多。数据计入下载活跃的每个小时，而不只是开始下载的那个小时。",
+      "heatmapNoteDownloads": "每个方块代表一天中的一小时。越亮 = 下载次数越多。每次下载计入其开始的那个小时。",
       "tooltip": {
         "avgDownloadsPerDay": "日均下载",
         "avgServedPerDay": "日均服务量",
@@ -3435,7 +3435,7 @@
         "hitRate": "缓存命中率百分比",
         "bandwidthSaved": "节省的带宽（24 小时）",
         "cacheUsage": "缓存使用量（GB）",
-        "peakHour": "高峰使用时段（0-23）",
+        "peakHour": "按服务数据量计算的最繁忙时段（0-23）",
         "hourlyDownloads": "按小时热图显示下载量",
         "growthRate": "缓存增长率（GB/天）",
         "daysUntilFull": "缓存存满天数",

@@ -148,15 +148,11 @@
   flex-shrink: 0;
 }
 
-/* Which view picker is on screen. The strip of five labelled tabs measures 437px and the toggle
-   and service picker beside it 240px, so the row needs 685px to hold them on one line. Below that
-   the strip gives way to the dropdown, which is the control the phone layout already used, and the
-   row stays on one line instead of dropping the pair onto a row of their own.
-   690 and not 740: a container query resolves against the panel's CONTENT box, which is about 50px
-   narrower than the panel itself. A two-column dashboard column leaves 438-566px here, well under
-   the threshold; a full-width column leaves 691px and keeps the strip.
-   Measured against the panel and not the viewport, because the same browser window gives this
-   panel a different width depending on the dashboard's column count. */
+/* Which view picker is on screen. The dropdown is the phone control; every wider screen gets the
+   strip of labelled tabs, so the views read as a row of choices rather than one hidden behind a
+   menu. This used to key off the panel's own width, which meant a two-column dashboard served the
+   dropdown on a full-size monitor. Where the strip and the actions beside it cannot share a line,
+   the row wraps rather than swapping the control out. */
 /* Held at the width of the longest view label ("Cache Misses", 125px) rather than sized to
    whichever label is showing. Content-sized, the trigger ran from 86px on "Games" to 125px on
    "Cache Misses", so the picker changed width every time the view changed and shunted the toggle
@@ -167,12 +163,35 @@
   flex-shrink: 0;
 }
 
-@container (max-width: 690px) {
+@media (max-width: 639.98px) {
   .service-analytics-controls > .segmented-control-container {
     display: none;
   }
 
   .service-analytics-view-select {
+    display: block;
+  }
+}
+
+/* The Games view carries a service picker the other four do not, and that fixed 12rem box is what
+   breaks the row: strip (437px) + toggle (40px) + picker (192px) + two gaps needs 685px, and a
+   half-width dashboard column has 566px. Measured wrapping at every panel width from 521 to 616,
+   which is the whole 1100-1500px viewport range. Rather than let the pair drop to a second line,
+   the strip gives way to the compact picker this panel already ships for phones: 136px instead of
+   437px, so the row holds one line down to the narrowest panel. Keyed on the service picker being
+   present rather than on a view name, so the swap follows the control whose width causes the
+   overflow.
+   The width here is the container's CONTENT box, which is what the controls row actually gets -
+   50px less than the panel's own width. Reading it as the panel width puts this bound 50px out and
+   swaps the strip away on a panel that had room for it. */
+@container (max-width: 719px) {
+  .service-analytics-controls:has(.service-analytics-game-service-select)
+    > .segmented-control-container {
+    display: none;
+  }
+
+  .service-analytics-controls:has(.service-analytics-game-service-select)
+    .service-analytics-view-select {
     display: block;
   }
 }
