@@ -425,6 +425,16 @@
   min-height: 2.5rem !important;
 }
 
+/* Phone: the row this pins to is 44px, not 40px, because dropdowns, segmented controls and
+   buttons all take the touch floor below this breakpoint. Pinning to 40px here left the one
+   control carrying this class shorter than everything beside it, and the !important above
+   outranks the touch floor those controls set for themselves, so it has to be restated. */
+@media (max-width: 639.98px) {
+  .control-h-md {
+    min-height: 44px !important;
+  }
+}
+
 /* Compact search input for toolbar clusters: pins the box to the 32px sm control
    height so it lines up with size="sm" buttons and dropdowns beside it. Compound
    with .themed-input so the height/padding win over the base input recipe

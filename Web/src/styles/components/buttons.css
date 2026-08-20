@@ -155,6 +155,18 @@
     height: 2rem;
   }
 
+  /* Phone: the same 44px touch minimum dropdowns.css gives button.ed-trigger and forms.css gives
+     the segmented control. Without it a standard button standing next to either one is 4px
+     shorter, since those two grow for touch and this box keeps its 40px utility height. The
+     smaller sizes are left alone: they sit in dense rows with no room for a 44px control, and
+     .btn-icon-square is excluded because its width is pinned to the 40px height, so raising only
+     the height would leave it taller than it is wide. */
+  @media (max-width: 639.98px) {
+    button.button-press.min-h-10:not(.btn-icon-square) {
+      min-height: 44px;
+    }
+  }
+
   /* Grows a small control's pointer target to the 44px touch floor while its visual box keeps
      the size its row or chip was built around. The overlay is centred, so it takes up the gap
      beside the control rather than reaching over a neighbour. Moving the floor happens here. */
