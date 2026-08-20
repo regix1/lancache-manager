@@ -131,19 +131,29 @@ export const Tooltip: React.FC<TooltipProps> = ({
       }
     };
 
-    // A drawer or modal opening underneath an open tooltip. The tooltip paints at z-300, above
-    // the drawer's 200/201 on purpose so tooltips inside a drawer stay readable, which means a
-    // phone tap on a Downloads card leaves the card's title tooltip stranded over the panel that
-    // same tap opened: the tap never lands outside the trigger, so click-outside never fires.
-    // Watching for the class to ARRIVE, rather than reading its current value, is what keeps a
-    // tooltip opened inside an already-open drawer from dismissing itself.
-    let overlayWasOpen = document.documentElement.classList.contains('modal-open');
+    // A drawer or modal covering an open tooltip. The tooltip paints at z-300, above the drawer's
+    // 200/201 on purpose so tooltips inside a drawer stay readable, which means a phone tap on a
+    // Downloads card leaves the card's title tooltip stranded over the panel that same tap opened:
+    // the tap never lands outside the trigger, so click-outside never fires.
+    // What decides it is where the trigger sits, not when the panel appeared. Only Drawer and Modal
+    // carry role="dialog", so a trigger inside one is on top of the panel and keeps its tooltip,
+    // while a trigger outside is behind it and loses one. Asking about position rather than timing
+    // is what makes this independent of whether the panel or the tooltip updated first, which a
+    // check for the class arriving was not.
+    const overlayCoversTrigger = () =>
+      document.documentElement.classList.contains('modal-open') &&
+      !!triggerRef.current &&
+      !triggerRef.current.closest('[role="dialog"]');
+
+    if (overlayCoversTrigger()) {
+      setShow(false);
+      return;
+    }
+
     const overlayObserver = new MutationObserver(() => {
-      const overlayIsOpen = document.documentElement.classList.contains('modal-open');
-      if (overlayIsOpen && !overlayWasOpen) {
+      if (overlayCoversTrigger()) {
         setShow(false);
       }
-      overlayWasOpen = overlayIsOpen;
     });
     overlayObserver.observe(document.documentElement, {
       attributes: true,
