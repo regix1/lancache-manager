@@ -3160,7 +3160,7 @@
         "canAccessRestricted": "可以访问试玩和受限游戏",
         "publicOnly": "仅公开游戏可用"
       },
-      "accountLogin": "账户登录",
+      "accountLogin": "使用 Steam 登录",
       "anonymous": "匿名",
       "depotMappingAfterLogin": "登录后的仓库映射",
       "autoRebuild": "登录后自动重建仓库映射",

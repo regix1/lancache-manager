@@ -3160,7 +3160,7 @@
         "canAccessRestricted": "Can access playtest and restricted games",
         "publicOnly": "Only public games available"
       },
-      "accountLogin": "Account Login",
+      "accountLogin": "Login with Steam",
       "anonymous": "Anonymous",
       "depotMappingAfterLogin": "Depot Mapping After Login",
       "autoRebuild": "Automatically rebuild depot mappings after login",
