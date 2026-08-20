@@ -841,12 +841,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                   {t('dashboard.downloadsPanel.hitRate')}
                 </div>
               </div>
-              <div className="dash-readout-item">
-                <div className="dash-readout-value">{getTimeRangeLabel}</div>
-                <div className="caps-label caps-label--wide dash-readout-label">
-                  {t('dashboard.downloadsPanel.period')}
-                </div>
-              </div>
               {groupedItems.totalGroups > 0 && (
                 <div className="dash-readout-item">
                   <div className="dash-readout-value">
@@ -859,9 +853,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               )}
             </>
           )}
+          {badge ? <div className="dash-readout-item dash-readout-item--chip">{badge}</div> : null}
         </div>
       )}
-      {badge ? <div className="dash-range-footer">{badge}</div> : null}
+      {/* Only when the strip above is absent, so the chip never sits on a band of its own under a
+          footer that already exists. */}
+      {!showFooterReadout && badge ? <div className="dash-range-footer">{badge}</div> : null}
     </Card>
   );
 };

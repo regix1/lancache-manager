@@ -402,6 +402,9 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                   <div className="caps-label caps-label--wide dash-readout-label">{stat.label}</div>
                 </div>
               ))}
+              {badge ? (
+                <div className="dash-readout-item dash-readout-item--chip">{badge}</div>
+              ) : null}
             </div>
             {/* The Games view reads the detection cache, which has no time arguments, so its
                 numbers answer a different question from the four windowed views. */}
@@ -435,7 +438,6 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             />
           </div>
         )}
-        {badge ? <div className="dash-range-footer">{badge}</div> : null}
       </Card>
     );
   }

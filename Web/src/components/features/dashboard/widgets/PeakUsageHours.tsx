@@ -505,8 +505,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
             {t('widgets.peakUsageHours.dataServed')}
           </div>
         </div>
+        {badge ? <div className="dash-readout-item dash-readout-item--chip">{badge}</div> : null}
       </div>
-      {badge ? <div className="dash-range-footer">{badge}</div> : null}
     </div>
   );
 });

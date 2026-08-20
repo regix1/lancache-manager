@@ -103,6 +103,16 @@
   padding: 0.15rem 1rem;
 }
 
+/* The range chip rides the readout strip as its last cell rather than claiming a band of its own
+   under it: the strip already is the card's footer, and a second rule below it left one small chip
+   on an otherwise empty row. It hugs the right edge of its column and carries no label, since the
+   chip says what it is. */
+.dash-readout-item--chip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .dash-readout-item:first-child {
   /* Flush with the card's content edge so readouts align with headers/wells */
   padding-left: 0;

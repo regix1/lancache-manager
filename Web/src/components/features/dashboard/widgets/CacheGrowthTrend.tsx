@@ -159,9 +159,16 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
                 {t('widgets.cacheGrowthTrend.recordedPercent')}
               </div>
             </div>
+            {badge ? (
+              <div className="dash-readout-item dash-readout-item--chip">{badge}</div>
+            ) : null}
           </div>
         )}
-        {badge ? <div className="dash-range-footer">{badge}</div> : null}
+        {/* Only when the strip above is absent, so the chip never sits on a band of its own
+            under a footer that already exists. */}
+        {!(growth && !error && !failed) && badge ? (
+          <div className="dash-range-footer">{badge}</div>
+        ) : null}
       </div>
     );
   }
