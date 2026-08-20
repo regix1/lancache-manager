@@ -208,11 +208,6 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
               </>
             )}
           </HelpPopover>
-          {hasSeries ? (
-            <Badge variant="neutral">
-              {t(`widgets.bandwidthTrend.resolution.${bucketMinutes}`)}
-            </Badge>
-          ) : null}
         </div>
         {!isCompare ? <div className="line-trend-controls">{tabControl}</div> : null}
       </div>
@@ -245,7 +240,18 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
           )}
         </div>
       )}
-      {badge ? <div className="dash-range-footer">{badge}</div> : null}
+      {/* The bucket size the chart drew at, beside the range it drew for: both are chips, both
+          neutral, so the row reads as one statement about this card's data. */}
+      <div className="dash-range-footer">
+        <span>
+          {hasSeries ? (
+            <Badge variant="neutral">
+              {t(`widgets.bandwidthTrend.resolution.${bucketMinutes}`)}
+            </Badge>
+          ) : null}
+        </span>
+        {badge}
+      </div>
     </div>
   );
 });

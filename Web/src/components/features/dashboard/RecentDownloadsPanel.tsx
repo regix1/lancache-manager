@@ -853,12 +853,17 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               )}
             </>
           )}
-          {badge ? <div className="dash-readout-item dash-readout-item--chip">{badge}</div> : null}
         </div>
       )}
-      {/* Only when the strip above is absent, so the chip never sits on a band of its own under a
-          footer that already exists. */}
-      {!showFooterReadout && badge ? <div className="dash-range-footer">{badge}</div> : null}
+      {/* Joins the strip above when there is one, rules the card off itself when there is not. */}
+      {badge ? (
+        <div
+          className={`dash-range-footer${showFooterReadout ? ' dash-range-footer--seamless' : ''}`}
+        >
+          <span />
+          {badge}
+        </div>
+      ) : null}
     </Card>
   );
 };

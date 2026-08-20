@@ -402,10 +402,13 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                   <div className="caps-label caps-label--wide dash-readout-label">{stat.label}</div>
                 </div>
               ))}
-              {badge ? (
-                <div className="dash-readout-item dash-readout-item--chip">{badge}</div>
-              ) : null}
             </div>
+            {badge ? (
+              <div className="dash-range-footer dash-range-footer--seamless">
+                <span />
+                {badge}
+              </div>
+            ) : null}
             {/* The Games view reads the detection cache, which has no time arguments, so its
                 numbers answer a different question from the four windowed views. */}
             {activeTab === 'games' && (
