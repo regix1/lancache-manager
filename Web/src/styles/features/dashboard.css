@@ -948,17 +948,57 @@
   background-color: var(--theme-bg-hover);
 }
 
-/* Phone: the range chip and the sort picker wrap to a line below the title, and there the
-   picker's fixed 12rem left a gap down the right edge with a 17px chip stranded beside a 44px
-   control. Full width with the picker taking the remainder lands the row on both edges. */
-@media (max-width: 640px) {
-  .top-clients-controls {
-    width: 100%;
-  }
+/* The title owns the first line and the picker spans the second, the same shape the Downloads
+   panel header uses. The range chip sits beside the title now, so there is nothing left on the
+   control line for the picker to share it with. */
+.top-clients-controls {
+  width: 100%;
+}
 
-  .top-clients-sort {
-    flex: 1 1 auto;
-    width: auto;
-    min-width: 0;
-  }
+.top-clients-sort {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ===== CARD FOOTER =====
+   One strip on the floor of every dashboard card, ruled off from the content above it. The note
+   reads from the left edge and the range chip anchors the right, so a card with only a note and a
+   card with only a chip still land on the same baseline as the ones beside them. The chip used to
+   sit on the title line, where it took the width the title needed and pushed it onto a second row
+   on any narrow column. */
+.stat-card-footer,
+.dash-range-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.75rem;
+  margin-top: auto;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+/* The chart keeps the height it always reserved so cards with and without a sparkline stay the
+   same height in a shared grid; its own words moved to the footer. */
+.stat-card-chart {
+  min-height: 40px;
+  margin-top: 0.5rem;
+  /* Breathing room above the footer rule. It sits on the chart box, which every stat card renders
+     whether or not it has a sparkline to draw, so a card with a chart and a card without keep the
+     same gap and the same overall height. */
+  margin-bottom: 0.5rem;
+}
+
+/* A panel footer carries the chip alone, and a lone child in a space-between row sits left. The
+   chip holds the same right edge it does on the stat cards beside them. */
+.dash-range-footer {
+  justify-content: flex-end;
+}
+
+.stat-card-footer-note {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--font-size-xs);
+  line-height: 1.2;
+  color: var(--theme-text-secondary);
 }

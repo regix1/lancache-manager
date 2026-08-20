@@ -22,6 +22,8 @@ import { hourlyMetricValue, type PeakUsageMetric } from './peakUsageMetric';
 interface PeakUsageHoursProps {
   /** Whether to use glassmorphism style */
   glassmorphism?: boolean;
+  /** The dashboard's range chip, shown beside the title. */
+  badge?: React.ReactNode;
 }
 
 /**
@@ -53,7 +55,7 @@ function todayOverlapsPeriod(
  * Uses backend aggregation for efficiency
  * Intelligently handles multi-day ranges by showing averages
  */
-const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = false }) => {
+const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = false, badge }) => {
   const { t } = useTranslation();
   const { use24HourFormat } = useTimezone();
 
@@ -217,6 +219,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
             <div className="peak-usage-skeleton-legend-item skeleton-shimmer" />
           </div>
         </div>
+        {badge ? <div className="dash-range-footer">{badge}</div> : null}
       </div>
     );
   }
@@ -238,6 +241,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
             </Button>
           }
         />
+        {badge ? <div className="dash-range-footer">{badge}</div> : null}
       </div>
     );
   }
@@ -257,6 +261,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
             subtitle={t('widgets.peakUsageHours.noDataAvailable')}
           />
         </div>
+        {badge ? <div className="dash-range-footer">{badge}</div> : null}
       </div>
     );
   }
@@ -501,6 +506,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
           </div>
         </div>
       </div>
+      {badge ? <div className="dash-range-footer">{badge}</div> : null}
     </div>
   );
 });

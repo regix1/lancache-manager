@@ -101,6 +101,17 @@ const StatCard: React.FC<StatCardProps> = ({
     return classes.join(' ');
   }, [glassmorphism, tone]);
 
+  /* What the chart would have said if it could draw. A line needs two points and pointRadius is
+     0, so one point paints nothing: say which case it is rather than leaving a blank strip. Only
+     used when the card has no subtitle of its own. */
+  const chartNote = !Array.isArray(sparklineData)
+    ? null
+    : sparklineData.length === 0
+      ? t('common.statCard.noDataInRange')
+      : sparklineData.length === 1
+        ? t('common.statCard.notEnoughToChart')
+        : null;
+
   const cardContent = (
     <div className={cardClasses} data-stat-card={title.toLowerCase().replace(/\s+/g, '')}>
       <div className="flex items-start justify-between">
@@ -131,23 +142,12 @@ const StatCard: React.FC<StatCardProps> = ({
         </div>
       </div>
 
-      {loading ? (
-        <div className="stat-card-skeleton-subtitle skeleton-shimmer mt-1" />
-      ) : (
-        <>
-          {subtitle ? <p className="text-xs text-themed-secondary mt-1">{subtitle}</p> : null}
-          {badge ? <div className="mt-1.5">{badge}</div> : null}
-        </>
-      )}
-
-      {/* Sparkline or placeholder for consistent card height - mt-auto pushes to bottom */}
-      <div className="mt-auto">
+      {/* The chart alone. Any words it used to carry now belong to the footer, so the card has
+          one place for secondary text instead of two that sat at different heights. */}
+      <div className="stat-card-chart">
         {loading ? (
-          <div className="stat-card-skeleton-sparkline skeleton-shimmer h-8 mt-2" />
-        ) : !Array.isArray(sparklineData) ? (
-          // Empty spacer to maintain consistent card height when the card has no sparkline at all
-          <div className="sparkline-placeholder" />
-        ) : sparklineData.length > 1 ? (
+          <div className="stat-card-skeleton-sparkline skeleton-shimmer h-8" />
+        ) : Array.isArray(sparklineData) && sparklineData.length > 1 ? (
           <Sparkline
             data={sparklineData}
             color={resolvedSparklineColor}
@@ -155,15 +155,19 @@ const StatCard: React.FC<StatCardProps> = ({
             animated={true}
             ariaLabel={t('common.statCard.sparklineAria', { title, count: sparklineData.length })}
           />
+        ) : null}
+      </div>
+
+      {/* One footer on the floor of every card, badged or not: the note reads from the left edge
+          and the range chip anchors the right, so the row lands on both edges whichever of the
+          two a card happens to have. */}
+      <div className="stat-card-footer">
+        {loading ? (
+          <div className="stat-card-skeleton-subtitle skeleton-shimmer" />
         ) : (
-          // A line needs two points and pointRadius is 0, so a single point paints nothing. Say
-          // which case it is rather than padding out a flat line that reads as measured.
-          <div className="sparkline-placeholder">
-            {sparklineData.length === 0
-              ? t('common.statCard.noDataInRange')
-              : t('common.statCard.notEnoughToChart')}
-          </div>
+          <p className="stat-card-footer-note">{subtitle ?? chartNote}</p>
         )}
+        {badge}
       </div>
     </div>
   );

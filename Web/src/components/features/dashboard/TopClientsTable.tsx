@@ -3,18 +3,17 @@ import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { isSeparatedMemberRow } from '@utils/clientRows';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
-import { useReaderClock } from '@hooks/useReaderClock';
 import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { Card } from '@components/ui/Card';
-import Badge from '@components/ui/Badge';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { EmptyState } from '@components/ui/ManagerCard';
-import { formatTimestamp } from '@utils/dateTimeFormat';
 import { Users, ArrowDown } from 'lucide-react';
 import type { ClientStat } from '@/types';
 
 interface TopClientsTableProps {
   clientStats?: ClientStat[];
+  /** The dashboard's range chip, shown beside the title. */
+  badge?: React.ReactNode;
   timeRange?: string;
   customStartDate?: Date | null;
   customEndDate?: Date | null;
@@ -87,36 +86,9 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
 };
 
 const TopClientsTable: React.FC<TopClientsTableProps> = memo(
-  ({
-    clientStats = [],
-    timeRange = 'live',
-    customStartDate,
-    customEndDate,
-    glassmorphism = false,
-    loading = false
-  }) => {
+  ({ clientStats = [], badge, glassmorphism = false, loading = false }) => {
     const { t } = useTranslation();
-    const clock = useReaderClock();
     const [sortBy, setSortBy] = useState<SortOption>('total');
-
-    const timeRangeLabel = useMemo(() => {
-      if (timeRange === 'custom' && customStartDate && customEndDate) {
-        const start = formatTimestamp(customStartDate, {
-          ...clock,
-          forceYear: false,
-          style: 'dateShort'
-        });
-        const end = formatTimestamp(customEndDate, {
-          ...clock,
-          forceYear: false,
-          style: 'dateShort'
-        });
-        return `${start} - ${end}`;
-      }
-
-      const key = `dashboard.topClients.timeRanges.${timeRange}` as const;
-      return t(key);
-    }, [clock, timeRange, customStartDate, customEndDate, t]);
 
     const sortedClients = useMemo(() => {
       const sorted = [...clientStats];
@@ -188,11 +160,6 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             <CacheInfoTooltip />
           </h3>
           <div className="cluster top-clients-controls">
-            {/* The range these rows cover. A chip rather than the loose muted line it used to be,
-                so it reads as a marker on the control row instead of stray text beside the sort.
-                Ahead of the sort so the picker keeps the row's right edge. The cluster class also
-                gives the chip the standard 12px stand-off from the picker. */}
-            <Badge variant="neutral">{timeRangeLabel}</Badge>
             <EnhancedDropdown
               options={[
                 { value: 'total', label: t('dashboard.topClients.sort.total') },
@@ -202,7 +169,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
               ]}
               value={sortBy}
               onChange={(value) => setSortBy(value as SortOption)}
-              className="w-48 top-clients-sort"
+              className="top-clients-sort"
             />
           </div>
         </div>
@@ -269,6 +236,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             />
           </div>
         )}
+        {badge ? <div className="dash-range-footer">{badge}</div> : null}
       </Card>
     );
   },

@@ -47,6 +47,8 @@ import { resolveGameDetection } from '@utils/gameDetection';
 
 interface RecentDownloadsPanelProps {
   downloads: Download[];
+  /** The dashboard's range chip, shown beside the title. */
+  badge?: React.ReactNode;
   loading?: boolean;
   timeRange?: string;
   glassmorphism?: boolean;
@@ -321,6 +323,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
 
 const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   downloads = [],
+  badge,
   loading = false,
   timeRange = 'live',
   glassmorphism = false,
@@ -858,6 +861,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           )}
         </div>
       )}
+      {badge ? <div className="dash-range-footer">{badge}</div> : null}
     </Card>
   );
 };

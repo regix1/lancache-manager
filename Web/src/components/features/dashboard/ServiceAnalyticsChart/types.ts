@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { ServiceStat } from '@/types';
 
 export type TabId = 'service' | 'hit-ratio' | 'bandwidth' | 'misses' | 'games';
@@ -32,6 +33,8 @@ export interface LegendItem {
 
 export interface ServiceAnalyticsChartProps {
   serviceStats: ServiceStat[];
+  /** The dashboard's range chip, shown beside the title. */
+  badge?: ReactNode;
   glassmorphism?: boolean;
   loading?: boolean;
   onExpandedChange?: (expanded: boolean) => void;

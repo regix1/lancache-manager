@@ -317,27 +317,14 @@ const Dashboard: React.FC = () => {
     dragHintStorageKey: 'dashboard-hide-drag-hint'
   });
 
-  const getTimeRangeLabel = useCallback(() => {
-    switch (timeRange) {
-      case '1h':
-        return t('dashboard.timeRanges.1h');
-      case '6h':
-        return t('dashboard.timeRanges.6h');
-      case '12h':
-        return t('dashboard.timeRanges.12h');
-      case '24h':
-        return t('dashboard.timeRanges.24h');
-      case '7d':
-        return t('dashboard.timeRanges.7d');
-      case '30d':
-        return t('dashboard.timeRanges.30d');
-      case 'live':
-        return t('dashboard.timeRanges.live');
-      case 'custom':
-        return t('dashboard.timeRanges.custom');
-      default:
-        return t('dashboard.timeRanges.24h');
-    }
+  /* The chip form of the range: "24h", not "Last 24 hours". The long sentence pushed a stat
+     card's title onto a second line on any narrow column, so badged cards sat a line lower than
+     the ones beside them. These are the same short codes the range picker shows against each
+     option, so the chip repeats a word the reader has already met. */
+  const getTimeRangeChip = useCallback(() => {
+    if (timeRange === 'custom') return t('dashboard.timeRanges.customShort');
+    if (timeRange === 'live') return t('dashboard.timeRanges.liveShort');
+    return t(`common.timeFilter.options.${timeRange}.rightLabel`);
   }, [timeRange, t]);
 
   const [cardVisibility, setCardVisibility] = useState<CardVisibility>(() => {
@@ -397,7 +384,6 @@ const Dashboard: React.FC = () => {
   }, []);
 
   const formattedCacheScanTime = useFormattedDateTime(cacheInfo?.cacheScanTimestampUtc);
-  const periodLabel = getTimeRangeLabel().toLowerCase();
 
   /* The range the card's number covers, for the four cards whose value is period-scoped. It reads
      as a chip like the staleness markers beside it and the resolution chip on the bandwidth chart,
@@ -407,8 +393,8 @@ const Dashboard: React.FC = () => {
      rebuild every card on every render. */
   const periodBadge = useMemo(
     () =>
-      failedSections.dashboard ? undefined : <Badge variant="neutral">{getTimeRangeLabel()}</Badge>,
-    [failedSections.dashboard, getTimeRangeLabel]
+      failedSections.dashboard ? undefined : <Badge variant="neutral">{getTimeRangeChip()}</Badge>,
+    [failedSections.dashboard, getTimeRangeChip]
   );
 
   const stats = useMemo(() => {
@@ -568,8 +554,7 @@ const Dashboard: React.FC = () => {
               t('dashboard.cards.liveNow'),
               stats.periodDownloads != null
                 ? t('dashboard.cards.downloadsInRange', {
-                    count: stats.periodDownloads,
-                    period: periodLabel
+                    count: stats.periodDownloads
                   })
                 : null
             ]
@@ -590,8 +575,7 @@ const Dashboard: React.FC = () => {
               t('dashboard.cards.liveNow'),
               stats.uniqueClients != null
                 ? t('dashboard.cards.uniqueClientsInRange', {
-                    count: stats.uniqueClients,
-                    period: periodLabel
+                    count: stats.uniqueClients
                   })
                 : null
             ]
@@ -686,7 +670,6 @@ const Dashboard: React.FC = () => {
       cardVisibility,
       stats,
       loading,
-      periodLabel,
       periodBadge,
       isHistoricalView,
       statTooltips,
@@ -1074,6 +1057,7 @@ const Dashboard: React.FC = () => {
           <div className="w-full h-full">
             <ServiceAnalyticsChart
               serviceStats={serviceStats}
+              badge={periodBadge}
               loading={loading}
               onExpandedChange={setIsChartExpanded}
             />
@@ -1085,6 +1069,7 @@ const Dashboard: React.FC = () => {
           <div className="w-full h-full">
             <RecentDownloadsPanel
               downloads={filteredLatestDownloads}
+              badge={periodBadge}
               loading={loading}
               timeRange={timeRange}
               detectionLookup={detectionLookup}
@@ -1096,11 +1081,12 @@ const Dashboard: React.FC = () => {
       </div>
 
       <div className="dashboard-widget-grid">
-        <BandwidthTrend />
-        <PeakUsageHours />
+        <BandwidthTrend badge={periodBadge} />
+        <PeakUsageHours badge={periodBadge} />
         <CacheGrowthTrend
           usedCacheSize={cacheInfo?.usedCacheSize || 0}
           totalCacheSize={cacheInfo?.totalCacheSize || 0}
+          badge={periodBadge}
         />
       </div>
 
@@ -1108,6 +1094,7 @@ const Dashboard: React.FC = () => {
       <div>
         <TopClientsTable
           clientStats={filteredClientStats}
+          badge={periodBadge}
           timeRange={timeRange}
           customStartDate={customStartDate}
           customEndDate={customEndDate}

@@ -16,6 +16,8 @@ interface CacheGrowthTrendProps {
   totalCacheSize: number;
   /** Whether to use glassmorphism style */
   glassmorphism?: boolean;
+  /** The dashboard's range chip, shown beside the title. */
+  badge?: React.ReactNode;
 }
 
 /**
@@ -23,7 +25,7 @@ interface CacheGrowthTrendProps {
  * Reads the cache snapshot slice of the batched dashboard response
  */
 const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
-  ({ usedCacheSize, totalCacheSize, glassmorphism = false }) => {
+  ({ usedCacheSize, totalCacheSize, glassmorphism = false, badge }) => {
     const { t } = useTranslation();
     const { timeRange } = useTimeFilter();
     const { cacheSnapshot, loading, error, failed, refetch } = useCacheSnapshot();
@@ -159,6 +161,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
             </div>
           </div>
         )}
+        {badge ? <div className="dash-range-footer">{badge}</div> : null}
       </div>
     );
   }

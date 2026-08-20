@@ -482,6 +482,8 @@
       "7d": "过去7天",
       "30d": "过去30天",
       "live": "实时数据",
+      "liveShort": "实时",
+      "customShort": "自定义",
       "custom": "自定义范围"
     },
     "cards": {
@@ -505,8 +507,8 @@
       "onDiskNow": "当前磁盘上",
       "fullDiskLimit": "使用整个磁盘",
       "overConfiguredLimit": "已用配置上限的 {{percent}}",
-      "downloadsInRange": "{{count}} 次下载 · {{period}}",
-      "uniqueClientsInRange": "{{count}} 个独立客户端 · {{period}}",
+      "downloadsInRange": "{{count}} 次下载",
+      "uniqueClientsInRange": "{{count}} 个独立客户端",
       "gamesOnDisk": "磁盘上的游戏",
       "gamesDetected": "检测到 {{count}} 个游戏",
       "noScanData": "暂无扫描数据",

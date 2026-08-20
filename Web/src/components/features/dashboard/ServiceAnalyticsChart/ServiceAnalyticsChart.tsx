@@ -29,7 +29,7 @@ interface TabOption {
 }
 
 const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
-  ({ serviceStats, glassmorphism = false, loading = false, onExpandedChange }) => {
+  ({ serviceStats, badge, glassmorphism = false, loading = false, onExpandedChange }) => {
     const { t } = useTranslation();
     const [activeTab, setActiveTab] = useState<TabId>('service');
     const [showList, setShowList] = useState<boolean>(true);
@@ -435,6 +435,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             />
           </div>
         )}
+        {badge ? <div className="dash-range-footer">{badge}</div> : null}
       </Card>
     );
   }

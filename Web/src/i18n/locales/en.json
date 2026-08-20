@@ -482,6 +482,8 @@
       "7d": "Last 7 days",
       "30d": "Last 30 days",
       "live": "Live data",
+      "liveShort": "Live",
+      "customShort": "Custom",
       "custom": "Custom range"
     },
     "cards": {
@@ -505,8 +507,8 @@
       "onDiskNow": "on disk now",
       "fullDiskLimit": "Using full disk",
       "overConfiguredLimit": "{{percent}} of configured limit",
-      "downloadsInRange": "{{count}} downloads · {{period}}",
-      "uniqueClientsInRange": "{{count}} unique · {{period}}",
+      "downloadsInRange": "{{count}} downloads",
+      "uniqueClientsInRange": "{{count}} unique",
       "gamesOnDisk": "Games on Disk",
       "gamesDetected": "{{count}} games detected",
       "noScanData": "No scan data yet",

@@ -38,7 +38,12 @@ const EMPTY_POINTS: number[] = [];
 
 type ChartTab = 'bandwidth' | 'compare';
 
-const BandwidthTrend: React.FC = memo(() => {
+interface BandwidthTrendProps {
+  /** The dashboard's range chip, shown beside the title. */
+  badge?: React.ReactNode;
+}
+
+const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
   const { t } = useTranslation();
   const clock = useReaderClock();
   const themeRevision = useThemeRevision();
@@ -240,6 +245,7 @@ const BandwidthTrend: React.FC = memo(() => {
           )}
         </div>
       )}
+      {badge ? <div className="dash-range-footer">{badge}</div> : null}
     </div>
   );
 });
