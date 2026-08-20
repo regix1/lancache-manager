@@ -63,7 +63,7 @@ curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 
 !!! note "无需会话即可应答的端点"
 
-    284 个端点中有 22 个必须在调用方尚无凭据时就能工作：登录、访客模式配置、首次运行初始化，以及容器健康检查。它们在下载的参考文件中标记为 **public**，其余端点标记为 **requires a signed-in session**。
+    284 个端点中有 22 个必须在调用方尚无凭据时就能工作：登录、访客模式配置、首次运行初始化、游戏封面图、版本横幅，以及容器健康检查。它们在下载的参考文件中标记为 **public**，其余端点标记为 **requires a signed-in session**。
 
 ## 各分组的内容
 

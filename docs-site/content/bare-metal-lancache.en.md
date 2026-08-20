@@ -79,6 +79,6 @@ set $cacheidentifier steam;   # blizzard / epicgames / riot / wsus per site
 access_log /srv/lancache/logs/http/access.log cachelog;
 ```
 
-Reload with `sudo nginx -s reopen` (or `systemctl reload nginx`) and mount `/srv/lancache/logs/http` as above. **One warning, and it matters.** The combined log makes the manager read the install as a standard container, but the files on disk still use bare-metal cache keys. Disk actions (game removal, cache clearing, corruption scans) stop being blocked, yet they no longer match what is actually on disk. Do not use them on a patched cache.
+Reload with `sudo nginx -s reload` (or `systemctl reload nginx`) and mount `/srv/lancache/logs/http` as above. **One warning, and it matters.** The combined log makes LANCache Manager read the install as a standard container, but the files on disk still carry bare-metal cache keys, so game removal and corruption scans look for files under keys that do not exist. While the old per-service logs are still present alongside the combined log, LANCache Manager sees mixed evidence and refuses those features outright. Clearing the whole cache keeps working either way. Do not remove games or scan for corruption on a patched cache.
 
 -----

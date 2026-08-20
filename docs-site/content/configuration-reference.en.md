@@ -45,7 +45,7 @@ The mode decision and full compose examples live in [Choosing an Image and Datab
 | `Security__EnableAuthentication` | `true` | Require an API key for admin actions and API documentation. Only turn off for local development. |
 | `Security__GuestSessionDurationHours` | `6` | Default guest session length (also configurable in the UI). |
 | `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. The UI toggle in Management → Integrations overrides this when set. |
-| `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty allows all. |
+| `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty means same-origin only (the safe default). `*` allows any origin without credentials; an explicit list allows those origins with credentials. |
 | `Security__ApiKeyPath` | `/data/security/api_key.txt` | Override the file path the admin API key is read from and written to. Useful if you bind-mount secrets from outside `/data`. |
 | `Security__KnownProxyNetworks` | (empty) | Comma-separated CIDR list of trusted proxy networks for `X-Forwarded-For` (e.g. `172.16.0.0/12,10.0.0.0/8`). Set this when nginx, Traefik, or another reverse proxy fronts the manager so client IPs are reported correctly. Loopback is always trusted. Leaving it empty behind a proxy on another host or container also means the sign-in rate limit counts every client against the proxy's address, so one person getting their password wrong repeatedly can lock everybody else out for a minute. |
 | `Security__TrustAllProxies` | `false` | Trust every upstream proxy unconditionally. Convenient for local dev. **Never enable on an internet-exposed host** - anyone can spoof a client IP. |
@@ -62,7 +62,7 @@ Not every `/metrics` setting has an environment variable. The update interval, t
 | **User** | Signed-in access to the app. Sees and manages only non-administrator accounts. Cannot see the Primary account or its sessions. | Browse downloads, change own settings |
 | **Guest** | Read-only views. Requires a guest session. | Browse downloads, stats, events, client data |
 
-To give someone read-only access without sharing an account, make sure guest logins are **Unlocked** on the **Users** page. Your guest then clicks **Guest Mode** on the sign-in screen. Session length and other defaults live under **Guest Defaults**. Every page and action needs a signed-in account or a guest session, with one exception: `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`.
+To give someone read-only access without sharing an account, make sure guest logins are **Unlocked** on the **Users** page. Your guest then clicks **Guest Mode** on the sign-in screen. Session length and other defaults live under **Guest Defaults**. Every page and action needs a signed-in account or a guest session, with two exceptions: `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`, and the `/health` liveness probe always answers. Sign-in and first-run setup endpoints are public by necessity.
 
 ### Prefill settings { #prefill-config }
 
@@ -75,7 +75,7 @@ Prefill auto-detects the right values for almost everything in this table. Three
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `Prefill__LancacheIp` | (unset) | IP or hostname of your **cache server** (the HTTP server holding cached files, port 80). Forwarded to the daemon as `LANCACHE_IP`; the daemon then connects directly with a spoofed `Host:` header and skips DNS for CDN traffic. The single most reliable override - set this whenever your DNS isn't a stock `lancache-dns`. |
-| `Prefill__LancacheDnsIp` | `auto` | IP of your **DNS server** (lancache-dns, AdGuard, Pi-hole - port 53). Written into the prefill container's `/etc/resolv.conf` so the daemon resolves CDN hostnames against it. Used in `bridge` mode only - Docker silently drops DNS overrides on `host`-network containers. `auto` reuses the IP of your detected `lancache-dns` container. |
+| `Prefill__LancacheDnsIp` | `auto` | IP of your **DNS server** (lancache-dns, AdGuard, Pi-hole - port 53). Written into the prefill container's `/etc/resolv.conf` so the daemon resolves CDN hostnames against it. Used in `bridge` mode only - LANCache Manager sets it only on bridge-mode prefill containers; in `host` mode the container uses the host's own DNS. `auto` reuses the IP of your detected `lancache-dns` container. |
 | `Prefill__NetworkMode` | `auto` | Docker network mode for prefill containers. Accepts `host`, `bridge`, or a Docker network name. `auto` infers the mode from your `lancache-dns` container. |
 | `Prefill__SteamDockerImage` | `ghcr.io/regix1/steam-prefill-daemon:latest` | Docker image used for Steam prefill containers. |
 | `Prefill__EpicDockerImage` | `ghcr.io/regix1/epic-prefill-daemon:latest` | Docker image used for Epic prefill containers. |
@@ -84,6 +84,7 @@ Prefill auto-detects the right values for almost everything in this table. Three
 | `Prefill__XboxDockerImage` | `ghcr.io/regix1/xbox-prefill-daemon:latest` | Docker image used for Xbox prefill containers. |
 | `Prefill__SessionTimeoutMinutes` | `120` | Total lifetime of a non-persistent admin prefill session. Guest and persistent sessions use their own limits. |
 | `Prefill__StallTimeoutSeconds` | `180` | Advanced. No-progress time before a non-persistent session counts as stalled. Scheduled Prefill uses its own 30-minute cutoff. |
+| `Prefill__AbandonedLoginTimeoutSeconds` | `900` | Advanced. Seconds a prefill sign-in may sit waiting in the browser before the session is cleaned up. |
 | `Prefill__DaemonBasePath` | `/data/prefill` | Container path where prefill session state is stored. |
 | `Prefill__HostDataPath` | `auto` | Host path that maps to the manager's `/data` volume. Detected from the manager's mount config; set explicitly only when detection fails (unusual platforms, custom volume drivers). |
 | `Prefill__UseTcp` | `auto` | Communicate with the daemon over TCP instead of a Unix domain socket. `auto` resolves to `true` on Windows, `false` on Linux. *Linux users only need to set this if they want to force TCP mode.* |
@@ -165,7 +166,7 @@ services:
       # - Security__EnableAuthentication=true     # false turns off ALL auth; local dev only
       # - Security__RequireAuthForMetrics=false   # true = /metrics needs a Bearer token
       # - Security__GuestSessionDurationHours=6
-      # - Security__AllowedOrigins=               # CSV of CORS origins; empty allows all
+      # - Security__AllowedOrigins=               # CSV of CORS origins; empty = same-origin only, * = any origin (no credentials)
       # - Security__ForceSecureCookies=false      # set true behind a TLS-terminating proxy
       # - Security__KnownProxyNetworks=           # CSV CIDRs of trusted proxies, e.g. 172.16.0.0/12
       # - Security__TrustAllProxies=false         # never true on an internet-exposed host
@@ -182,6 +183,7 @@ services:
       # - Prefill__XboxDockerImage=ghcr.io/regix1/xbox-prefill-daemon:latest
       # - Prefill__SessionTimeoutMinutes=120      # lifetime of a non-persistent admin session
       # - Prefill__StallTimeoutSeconds=180        # advanced: stall cutoff for non-persistent sessions
+      # - Prefill__AbandonedLoginTimeoutSeconds=900   # advanced: cleans up sign-ins nobody finishes
       # - Prefill__DaemonBasePath=/data/prefill   # must stay under /data
       # - Prefill__HostDataPath=auto              # host path of /data; set only if detection fails
       # - Prefill__UseTcp=auto                    # auto = TCP on Windows, Unix socket on Linux
@@ -217,12 +219,12 @@ services:
       # - LanCache__DataSources__1__Enabled=true
 
       # --- Power users ---
-      # - ConnectionStrings__DefaultConnection=Host=/var/run/postgresql;Database=lancache;Username=lancache;Maximum Pool Size=20;Minimum Pool Size=2   # overrides POSTGRES_*; secret if it embeds a password
+      # - ConnectionStrings__DefaultConnection=Host=/var/run/postgresql;Database=lancache;Username=lancache;Maximum Pool Size=20;Minimum Pool Size=2   # base string; POSTGRES_* values you also set override its user/password/host/port/db fields; secret if it embeds a password
       # - Logging__LogLevel__LancacheManager.Infrastructure.Platform=Debug   # any logging category; values Trace..None
 ```
 
 </details>
 
-**Coming from 1.10.3?** Three variables were added, all optional: `Prefill__XboxDockerImage` (Xbox is the fifth prefill platform), the advanced `Prefill__StallTimeoutSeconds`, and the per-datasource `LanCache__DataSources__<n>__SchemeOverride` for bare-metal installs whose log filenames defeat auto-detection. Nothing was renamed or removed, so existing Compose files keep working. One cleanup: `Security__MaxAdminDevices` is an old no-op setting that current code ignores - you can delete it.
+**Coming from 1.10.3?** Four variables were added, all optional: `Prefill__XboxDockerImage` (Xbox is the fifth prefill platform), the advanced `Prefill__StallTimeoutSeconds` and `Prefill__AbandonedLoginTimeoutSeconds`, and the per-datasource `LanCache__DataSources__<n>__SchemeOverride` for bare-metal installs whose log filenames defeat auto-detection. Nothing was renamed or removed, so existing Compose files keep working. One cleanup: `Security__MaxAdminDevices` is an old no-op setting that current code ignores - you can delete it.
 
 -----

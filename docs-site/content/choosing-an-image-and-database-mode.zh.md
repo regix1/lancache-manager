@@ -2,7 +2,7 @@
 
 # 选择镜像与数据库模式 { #prefill-routing }
 
-这是一个决定，而不是两个：**PostgreSQL 在哪里运行？** LANCache Manager 把所有数据存储在 PostgreSQL 中，镜像标签由你的答案决定。
+这是一个决定，而不是两个：**PostgreSQL 在哪里运行？** LANCache Manager 把它的数据库（下载历史、统计数据、游戏数据）保存在 PostgreSQL 中，镜像标签由你的答案决定。
 
 | 模式 | 含义 | 镜像标签 |
 |------|------|----------|

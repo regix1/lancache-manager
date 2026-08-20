@@ -30,7 +30,7 @@ Discovery walks your cache and log paths together, level by level, to a maximum 
 The matching rules:
 
 - **Names are matched** exactly first, then case-insensitively, then normalized (dashes, underscores, and a trailing "s" are ignored).
-- **A differently-named wrapper folder doesn't block discovery.** If a cache folder and a log folder at the same level don't share a name but each holds exactly one child, that pair is followed anyway. Two folders that are already valid datasources in their own right are never paired with each other.
+- **A differently-named wrapper folder doesn't block discovery.** If a level holds exactly one cache folder and exactly one log folder and the two don't share a name, that pair is followed anyway. Two folders that are already valid datasources in their own right are never paired with each other.
 - **Skipped without stopping the scan:** hidden and system folders, LANCache's two-character hash buckets, symlinks, and branches it can't read.
 - **A name that collides with one already found is skipped and logged**, rather than silently shadowing the first.
 - **If nothing valid turns up anywhere,** the app falls back to a single `default` datasource built from the paths you configured.

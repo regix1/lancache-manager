@@ -72,6 +72,6 @@ set $cacheidentifier steam;   # 各站点分别为 blizzard / epicgames / riot /
 access_log /srv/lancache/logs/http/access.log cachelog;
 ```
 
-执行 `sudo nginx -s reopen`（或 `systemctl reload nginx`）重新加载，并按上文挂载 `/srv/lancache/logs/http`。**有一个警告，而且很重要。** 合并日志会让管理器把该环境识别为标准容器安装，但磁盘上的文件仍然使用裸机缓存键。磁盘操作（移除游戏、清除缓存、损坏扫描）不再被拦截，但它们已经对不上磁盘上的实际内容。请勿在打过补丁的缓存上使用这些操作。
+执行 `sudo nginx -s reload`（或 `systemctl reload nginx`）重新加载，并按上文挂载 `/srv/lancache/logs/http`。**有一个警告，而且很重要。** 合并日志会让 LANCache Manager 把该环境识别为标准容器安装，但磁盘上的文件仍然带着裸机缓存键，因此移除游戏和损坏扫描会按并不存在的键去查找文件。只要旧的按服务日志仍与合并日志并存，LANCache Manager 看到的就是相互矛盾的证据，会直接拒绝这些功能。无论哪种情况，清空整个缓存都仍然可用。请勿在打过补丁的缓存上移除游戏或进行损坏扫描。
 
 -----

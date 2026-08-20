@@ -2,7 +2,7 @@
 
 # Choosing an Image and Database Mode { #prefill-routing }
 
-This is one decision, not two: **where does PostgreSQL run?** LANCache Manager stores everything in PostgreSQL, and the image tag follows from your answer.
+This is one decision, not two: **where does PostgreSQL run?** LANCache Manager keeps its database (download history, stats, game data) in PostgreSQL, and the image tag follows from your answer.
 
 | Mode | What it means | Image tag |
 |------|---------------|-----------|

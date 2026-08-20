@@ -1,6 +1,6 @@
 # 反向代理 { #nginx-reverse-proxy }
 
-LANCache Manager 可以在 nginx 后面正常运行。建议使用 HTTPS，如果计划跨域使用访客会话则是必需的（跨域图片 Cookie 需要 `Secure`）。
+LANCache Manager 可以在 nginx 后面正常运行。建议使用 HTTPS。
 
 !!! tip
     在管理器前面架设了代理？记得同时设置 `Security__KnownProxyNetworks`（见[安全](configuration-reference.md#security)），这样客户端 IP 才能被正确报告。
@@ -17,7 +17,7 @@ server {
   ssl_certificate     /etc/letsencrypt/live/lancache.example.com/fullchain.pem;
   ssl_certificate_key /etc/letsencrypt/live/lancache.example.com/privkey.pem;
 
-  # 如果响应体较大可以调高此值
+  # 请求体大小上限——如果大文件上传（比如数据库导入）返回 413，就调高此值
   client_max_body_size 50m;
 
   location / {
@@ -32,7 +32,7 @@ server {
     # SignalR（WebSocket）
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_read_timeout 600s;  # 保持在 600 秒或以上，避免空闲的 SignalR WebSocket 连接被断开
+    proxy_read_timeout 600s;  # 为缓慢时段留出余量；SignalR 每 10 秒的保活消息通常足以让连接保持存活
   }
 }
 
@@ -48,8 +48,8 @@ server {
 如果 UI 和 API 位于不同的主机名：
 
 - 用 `VITE_API_URL=https://api.lancache.example.com` 构建 UI。
-- 保留 `SameSite=None; Secure` Cookie（应用已经这样设置）。
-- 在 CORS 中为 UI 来源允许携带凭据。
+- 把 UI 来源加入 `Security__AllowedOrigins`，让 CORS 允许它携带凭据。
+- 让两个主机名保持在同一个可注册域名之下（如本例所示）。LANCache Manager 签发的是 `SameSite=Lax` Cookie，浏览器只在两个主机名同属一个站点时才会发送这类 Cookie——API 位于完全不同的域名时无法使用 Cookie 登录。
 
 ```nginx
 server {
@@ -71,7 +71,7 @@ server {
     # SignalR（WebSocket）
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_read_timeout 600s;  # 保持在 600 秒或以上，避免空闲的 SignalR WebSocket 连接被断开
+    proxy_read_timeout 600s;  # 为缓慢时段留出余量；SignalR 每 10 秒的保活消息通常足以让连接保持存活
   }
 }
 ```

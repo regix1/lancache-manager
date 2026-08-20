@@ -13,7 +13,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 ### 要求
 
 - 已挂载 Docker 套接字（`/var/run/docker.sock`）
-- 在 lancache-manager 中以管理员身份登录
+- 以管理员或普通用户账号登录 LANCache Manager（访客只能在管理员授权的平台上进行预填充）
 - 预填充容器可以访问到你的缓存服务器（参见下方的[网络设置](#prefill-network)）
 
 ### 运行一次预填充
@@ -33,7 +33,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
     - **Steam**：[steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon)，[steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) 的分支，原作者 [@tpill90](https://github.com/tpill90)
     - **Epic**：[epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon)——通过 OAuth 登录账号
     - **Battle.net**：[battlenet-prefill-daemon](https://github.com/regix1/battlenet-prefill-daemon)——完全匿名，无需账号
-    - **Riot**：[riot-prefill-daemon](https://github.com/regix1/riot-prefill-daemon)，[riot-lancache-prefill](https://github.com/tpill90/riot-lancache-prefill) 的分支——完全匿名；覆盖英雄联盟和无畏契约
+    - **Riot**：[riot-prefill-daemon](https://github.com/regix1/riot-prefill-daemon)，基于 [@tpill90](https://github.com/tpill90) 的 lancache-prefill 系列工具构建——完全匿名；覆盖英雄联盟和无畏契约
     - **Xbox**：[xbox-prefill-daemon](https://github.com/regix1/xbox-prefill-daemon)——使用 Microsoft 设备代码登录（与 Epic 一样需要账号）
 
 ### 导入 Steam App ID
@@ -48,7 +48,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
    - 每行一个
 4. 点击**导入**
 
-对话框会告诉你添加了多少个游戏、有多少已经在选中列表中、以及有多少 ID 不在你的 Steam 游戏库中（这些会在预填充时被跳过）。
+对话框会告诉你添加了多少个游戏、有多少已经在选中列表中、以及有多少 ID 不在你的 Steam 游戏库中（这些不会被加入你的选择）。
 
 !!! tip
     **从 `steam-lancache-prefill` 迁移过来？** 打开 `selectedAppsToPrefill.json`，把内容直接粘贴到导入框中——JSON 数组会按原样解析。
@@ -65,7 +65,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 
 <em>持久容器*是指你启动一次就让它一直运行的预填充容器，登录状态也保存在其中。这里只有一条规则贯穿始终：**计划运行只会复用已经在运行的持久容器，它从不自行启动容器。*</em>
 
-所以在为某个服务安排计划之前，先启动它的持久容器，如果该平台需要账号就先登录。尚未就绪的服务会被*跳过*，标记为"需要登录"，其他服务照常运行。如果一次运行里只有跳过、没有真正执行的服务，会以警告结束，而不是失败。
+所以在为某个服务安排计划之前，先启动它的持久容器，如果该平台需要账号就先登录。尚未就绪的服务会被*跳过*，标记为"需要登录"，其他服务照常运行。只要有其他服务完成了预填充，被跳过的服务不会导致这次运行失败；如果所有服务都被跳过，这次运行会报告为未成功，原因会显示在通知上。
 
 它的具体行为：
 
@@ -73,7 +73,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 - **预设或手动选择游戏。** 预设有**全部**、**最近**和**前 N 项**三种。并非每个平台都支持全部预设：Epic 没有"最近"（它的 API 不提供最近游玩数据），Battle.net 和 Riot 只支持"全部"。手动挑选具体游戏会覆盖预设。
 - **首次运行会在你保存后的一个间隔之后触发。** 保存本身不会立即开始预填充。卡片上的**立即运行**是唯一的即时触发方式。
 - **新建的计划在*上次运行*处显示**从未运行**是正常的。** *下次运行*由间隔推算得出，而*上次运行*只统计真正完成的运行，所以在第一次运行完成之前会一直显示**从未运行**。
-- **停止持久容器会让它登出。** 登录状态保存在容器自身的存储中；停止容器后，该服务在下次计划运行前需要重新登录。如果想显式清空，也有一个"清除已保存的登录"控件。
+- **停止持久容器会让它登出。** 只要你停止容器，LANCache Manager 就会清除已保存的登录，因此该服务在下次计划运行前需要重新登录。如果想显式清空，也有一个"清除已保存的登录"控件。
 - **Battle.net 和 Riot 开箱即用。** 它们不需要账号，因此默认已启用——但它们的持久容器仍然必须处于运行状态。
 - **目标平台筛选仅限 Steam。** Steam 可以预填充 Windows、Linux 或 macOS 的 depot（默认 Windows）；其他平台不支持目标平台筛选。
 - **强制下载和并发数同样按服务单独设置。** 强制下载会重新拉取即使看起来已经完整的游戏（默认关闭）。最大并发数可以是自动，也可以固定为 1-256 个连接。
@@ -160,7 +160,7 @@ environment:
 ```
 
 !!! tip
-    **预填充容器没有互联网？** 试试 `Prefill__NetworkMode=bridge`。有些 Docker 环境会在 host 模式下阻断出站流量。
+    **预填充容器没有互联网？** 试试 `Prefill__NetworkMode=bridge`。
 
 #### 网络诊断
 

@@ -9,9 +9,9 @@ Before working through the entries below, open **Management → Status Check**. 
 3. Choose **Process All** from the `⋯` menu on that same page.
 4. Look at the container logs: `docker logs lancache-manager`.
 
-### The web UI says "No log file" (but the file exists)
+### The web UI says "No log sources" (but the log file exists)
 
-`LanCache__LogPath` must be the **full path to the access log file inside the container**, including the filename - e.g. `/logs/access.log`, not just `/logs`. Confirm:
+Point `LanCache__LogPath` at the directory holding `access.log` (e.g. `/logs`); the full file path `/logs/access.log` works too, because LANCache Manager always reads the file named `access.log` in that directory. A log under any other filename is not picked up. Confirm:
 
 1. Your volume mounts the host log directory into the container (e.g. `- /host/path/lancache/logs:/logs`).
 2. `LanCache__LogPath` points at the file at that *container* path (`/logs/access.log`).
@@ -81,9 +81,9 @@ The checklist is the same for all five platforms. Work down the list:
    - Set `Prefill__NetworkMode=bridge` (works for most setups).
    - Confirm your Docker network has outbound internet.
    - Check firewall rules for outbound traffic.
-5. **HTTP 400 errors during download.** The container can't resolve CDN domains to your cache. The most reliable fix is `Prefill__LancacheIp=<your-cache-ip>` - it bypasses DNS entirely for CDN traffic. The full decision table (and what `LancacheDnsIp`/`NetworkMode` do instead) is in [Network setup](prefill.md#prefill-network).
-6. **IPv6 traffic bypassing DNS.** If your network has IPv6, queries can bypass `lancache-dns`. The app already disables IPv6 in prefill containers to prevent this.
-7. **Epic OAuth never connects.** Complete the OAuth flow in the browser window that pops open. The token is stored securely and persists across sessions.
+5. **Downloads fail or error out mid-run.** Often the container can't resolve CDN domains to your cache. The most reliable fix is `Prefill__LancacheIp=<your-cache-ip>` - it bypasses DNS entirely for CDN traffic. The full decision table (and what `LancacheDnsIp`/`NetworkMode` do instead) is in [Network setup](prefill.md#prefill-network).
+6. **IPv6 traffic bypassing DNS.** If your network has IPv6, queries can bypass `lancache-dns`. LANCache Manager disables IPv6 inside bridge-mode prefill containers to prevent this; Docker doesn't allow that with host networking, so a host-mode container needs IPv6 handled at the network level instead.
+7. **Epic OAuth never connects.** Complete the OAuth flow in the browser window that pops open. The token lives in the prefill container's own storage: a persistent container stays signed in (even across LANCache Manager restarts) until you stop it; a temporary session starts signed out.
 
 To find the IP of your `lancache-dns`:
 
@@ -101,7 +101,7 @@ Usually nothing is wrong - the number includes the prefill itself. The dashboard
 
 On an empty cache, a prefill run is close to 100% MISS and the install that follows is close to 100% HIT. Together, one game blends to roughly 50%. Each reinstall pushes the number toward 66%, 75%, and higher, because the MISS bytes are a fixed floor while every install adds more HIT bytes.
 
-To hide the prefill traffic from view, filter out client `127.0.0.1` in the Downloads/Dashboard client filter. The daemon runs on the same host, so this hides its traffic without touching the underlying data. Client Exclusions under **Management → Clients** go further: a client excluded there is also left out of [`/metrics`](prometheus-metrics.md).
+To hide the prefill traffic from view, filter out the daemon's client in the Downloads/Dashboard client filter - it shows as `localhost` when the daemon reaches the cache over loopback (host networking on the cache machine), or as a Docker bridge address in bridge mode. Filtering hides its traffic without touching the underlying data. Client Exclusions under **Management → Clients** go further: a client excluded there is also left out of [`/metrics`](prometheus-metrics.md).
 
 For a specific install's real hit rate, switch Downloads to the **Retro** view, open the settings panel, leave **Group by game** unchecked under **Display**, and check that client's own row - or grep `access.log` for its IP. The manager only counts literal `HIT`/`MISS` from nginx's `upstream_cache_status`, so it always agrees with a manual log count.
 

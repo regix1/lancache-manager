@@ -13,7 +13,7 @@ Steam, Epic, Battle.net, Riot, and Xbox each run in their own container, so you 
 ### Requirements
 
 - Docker socket mounted (`/var/run/docker.sock`)
-- Logged in as admin in lancache-manager
+- Signed in to LANCache Manager with an admin or user account (guests can prefill only on platforms an admin has granted them)
 - Your cache server is reachable from the prefill container (see [Network setup](#prefill-network) below)
 - For Xbox specifically, a container-based lancache. Bare-metal has no Xbox Live log, so its downloads stay invisible to the manager - see [Bare-Metal LANCache](bare-metal-lancache.md#bare-metal)
 
@@ -34,7 +34,7 @@ That's it. Leave it running - when guests arrive, everything's cached.
     - **Steam**: [steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon), a fork of [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90)
     - **Epic**: [epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon) - account login via OAuth
     - **Battle.net**: [battlenet-prefill-daemon](https://github.com/regix1/battlenet-prefill-daemon) - fully anonymous, no account needed
-    - **Riot**: [riot-prefill-daemon](https://github.com/regix1/riot-prefill-daemon), a fork of [riot-lancache-prefill](https://github.com/tpill90/riot-lancache-prefill) - fully anonymous; covers League of Legends and Valorant
+    - **Riot**: [riot-prefill-daemon](https://github.com/regix1/riot-prefill-daemon), built on [@tpill90](https://github.com/tpill90)'s lancache-prefill tools - fully anonymous; covers League of Legends and Valorant
     - **Xbox**: [xbox-prefill-daemon](https://github.com/regix1/xbox-prefill-daemon) - signs in with a Microsoft device code (account required, like Epic)
 
 ### Importing Steam App IDs
@@ -49,7 +49,7 @@ Have a list of App IDs from `steam-lancache-prefill` or somewhere else? Skip the
    - One per line
 4. Click **Import**
 
-The dialog tells you how many games were added, how many were already selected, and how many IDs aren't in your Steam library (those are skipped at prefill time).
+The dialog tells you how many games were added, how many were already selected, and how many IDs aren't in your Steam library (those aren't added to your selection).
 
 !!! tip
     **Coming from `steam-lancache-prefill`?** Open `selectedAppsToPrefill.json` and paste the contents straight into the import field - the JSON array is parsed as-is.
@@ -66,7 +66,7 @@ Set this up once and stop prefilling by hand before every event. Go to **Managem
 
 A *persistent container* is a prefill container you start once and leave running, with its sign-in kept inside it. One rule governs everything here: **a scheduled run reuses a persistent container that is already running. It never starts one.**
 
-So before scheduling a service, start its persistent container and sign in if the platform needs an account. A service that isn't ready is *skipped* as "needs login" while the others still run. A run with only skips finishes as a warning, not a failure.
+So before scheduling a service, start its persistent container and sign in if the platform needs an account. A service that isn't ready is *skipped* as "needs login" while the others still run. A skipped service doesn't fail a run where another service prefills; a run where every service was skipped reports as unsuccessful, with the reason shown on the notification.
 
 How it behaves:
 
@@ -74,7 +74,7 @@ How it behaves:
 - **Presets or hand-picked games.** Presets are **All**, **Recent**, and **Top**. Not every platform supports every preset: Epic has no Recent (its API exposes no last-played data), and Battle.net and Riot are All-only. Picking specific games overrides the preset.
 - **The first run comes one interval after you save.** Saving never starts a prefill immediately. **Run Now** on the card is the only instant path.
 - **"Last run: Never" is normal on a new schedule.** *Next run* is predicted from the interval, but *Last run* only counts runs that actually finished, so it stays "Never" until the first one completes.
-- **Stopping a persistent container signs it out.** Logins live inside the container's storage; stop it and that service needs a fresh sign-in before its next scheduled run. There's also a "Clear stored logins" control if you want that explicitly.
+- **Stopping a persistent container signs it out.** LANCache Manager erases the stored login whenever you stop the container, so that service needs a fresh sign-in before its next scheduled run. There's also a "Clear stored logins" control if you want that explicitly.
 - **Battle.net and Riot work out of the box.** They need no account, so they're enabled by default - but their persistent containers still have to be running.
 - **Target platforms is Steam-only.** Steam can prefill Windows, Linux, or macOS depots (Windows by default); the other services don't offer the filter.
 - **Force re-download and Connections are per service too.** Force re-download re-fetches games even when they look complete (off by default). Connections is **Auto**, or **Fixed** at 1-256.
@@ -161,7 +161,7 @@ environment:
 ```
 
 !!! tip
-    **Prefill container has no internet?** Try `Prefill__NetworkMode=bridge`. Some Docker setups block outbound traffic in host mode.
+    **Prefill container has no internet?** Try `Prefill__NetworkMode=bridge`.
 
 #### Network diagnostics
 

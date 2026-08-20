@@ -45,7 +45,7 @@
 | `Security__EnableAuthentication` | `true` | 管理操作和 API 文档需要 API 密钥。仅在本地开发时关闭。 |
 | `Security__GuestSessionDurationHours` | `6` | 默认访客会话时长（也可在 UI 中配置）。 |
 | `Security__RequireAuthForMetrics` | `false` | `/metrics` 端点是否需要 API 密钥。管理 → 集成中的 UI 开关设置后会覆盖此值。 |
-| `Security__AllowedOrigins` | （空） | 逗号分隔的 CORS 允许列表。为空则允许所有来源。 |
+| `Security__AllowedOrigins` | （空） | 逗号分隔的 CORS 允许列表。为空表示仅允许同源访问（安全的默认值）。`*` 允许任意来源但不携带凭据；显式列表则允许所列来源并携带凭据。 |
 | `Security__ApiKeyPath` | `/data/security/api_key.txt` | 覆盖管理员 API 密钥的读写文件路径。当你从 `/data` 之外绑定挂载密钥时很有用。 |
 | `Security__KnownProxyNetworks` | （空） | 用于 `X-Forwarded-For` 的可信代理网络 CIDR 列表，逗号分隔（例如 `172.16.0.0/12,10.0.0.0/8`）。当 nginx、Traefik 或其他反向代理位于管理器前面时设置此项，客户端 IP 才能被正确报告。回环地址始终受信任。如果代理位于另一台主机或另一个容器上而此项留空，登录限流会把所有客户端都算在代理的地址上，此时一个人反复输错密码就会把其他所有人锁在门外一分钟。 |
 | `Security__TrustAllProxies` | `false` | 无条件信任每一个上游代理。方便本地开发使用。**切勿在暴露于公网的主机上启用**——任何人都能伪造客户端 IP。 |
@@ -62,7 +62,7 @@
 | **用户** | 登录后使用应用。只能查看和管理非管理员账户。不能看到主要账户及其会话。 | 浏览下载、更改自己的设置 |
 | **访客** | 只读视图。需要访客会话。 | 浏览下载、统计、事件、客户端数据 |
 
-要在不分享账户的情况下让别人获得只读访问权限，请在**用户**页面确认访客登录处于**未锁定**状态，访客随后在登录界面点击**访客模式**即可。会话时长等其他默认值在**访客默认设置**中。每个页面和每项操作都需要已登录账户或一个访客会话，只有一个例外：除非你设置 `Security__RequireAuthForMetrics=true`，否则 `/metrics` 是公开的。
+要在不分享账户的情况下让别人获得只读访问权限，请在**用户**页面确认访客登录处于**未锁定**状态，访客随后在登录界面点击**访客模式**即可。会话时长等其他默认值在**访客默认设置**中。每个页面和每项操作都需要已登录账户或一个访客会话，只有两个例外：除非你设置 `Security__RequireAuthForMetrics=true`，否则 `/metrics` 是公开的；`/health` 存活探针则始终会应答。登录和首次运行设置端点出于必要而公开。
 
 ### 预填充设置 { #prefill-config }
 
@@ -75,7 +75,7 @@
 | 变量 | 默认值 | 描述 |
 |----------|---------|-------------|
 | `Prefill__LancacheIp` | （未设置） | 你**缓存服务器**（保存缓存文件的 HTTP 服务器，端口 80）的 IP 或主机名。会作为 `LANCACHE_IP` 转发给守护进程；随后守护进程使用伪造的 `Host:` 头直接连接，跳过 CDN 流量的 DNS 查询。最可靠的覆盖项——只要你的 DNS 不是标准的 `lancache-dns`，就应该设置它。 |
-| `Prefill__LancacheDnsIp` | `auto` | 你**DNS 服务器**（lancache-dns、AdGuard、Pi-hole——端口 53）的 IP。会写入预填充容器的 `/etc/resolv.conf`，让守护进程用它解析 CDN 主机名。仅在 `bridge` 模式下使用——Docker 会在 `host` 网络容器上静默丢弃 DNS 覆盖。`auto` 会复用检测到的 `lancache-dns` 容器的 IP。 |
+| `Prefill__LancacheDnsIp` | `auto` | 你**DNS 服务器**（lancache-dns、AdGuard、Pi-hole——端口 53）的 IP。会写入预填充容器的 `/etc/resolv.conf`，让守护进程用它解析 CDN 主机名。仅在 `bridge` 模式下使用——LANCache Manager 只会在 bridge 模式的预填充容器上设置它；`host` 模式下容器使用主机自身的 DNS。`auto` 会复用检测到的 `lancache-dns` 容器的 IP。 |
 | `Prefill__NetworkMode` | `auto` | 预填充容器的 Docker 网络模式。接受 `host`、`bridge` 或某个 Docker 网络名称。`auto` 会根据你的 `lancache-dns` 容器推断模式。 |
 | `Prefill__SteamDockerImage` | `ghcr.io/regix1/steam-prefill-daemon:latest` | Steam 预填充容器所用的 Docker 镜像。 |
 | `Prefill__EpicDockerImage` | `ghcr.io/regix1/epic-prefill-daemon:latest` | Epic 预填充容器所用的 Docker 镜像。 |
@@ -84,6 +84,7 @@
 | `Prefill__XboxDockerImage` | `ghcr.io/regix1/xbox-prefill-daemon:latest` | Xbox 预填充容器所用的 Docker 镜像。 |
 | `Prefill__SessionTimeoutMinutes` | `120` | 非持久管理员预填充会话的总生命周期。访客会话和持久会话使用各自独立的限制。 |
 | `Prefill__StallTimeoutSeconds` | `180` | 高级设置。非持久会话被判定为停滞前的无进展时长。计划预填充使用自己独立的 30 分钟超时。 |
+| `Prefill__AbandonedLoginTimeoutSeconds` | `900` | 高级设置。预填充登录可以在浏览器中等待的秒数，超时后该会话会被清理。 |
 | `Prefill__DaemonBasePath` | `/data/prefill` | 存储预填充会话状态的容器内路径。 |
 | `Prefill__HostDataPath` | `auto` | 映射到管理器 `/data` 数据卷的主机路径。从管理器的挂载配置中检测；仅在检测失败时（不常见的平台、自定义数据卷驱动）才需要显式设置。 |
 | `Prefill__UseTcp` | `auto` | 使用 TCP 而非 Unix 域套接字与守护进程通信。`auto` 在 Windows 上解析为 `true`，在 Linux 上为 `false`。*Linux 用户只有在想强制使用 TCP 模式时才需要设置此项。* |
@@ -164,7 +165,7 @@ services:
       # - Security__EnableAuthentication=true     # false 会关闭全部认证；仅限本地开发
       # - Security__RequireAuthForMetrics=false   # true = /metrics 需要 Bearer 令牌
       # - Security__GuestSessionDurationHours=6
-      # - Security__AllowedOrigins=               # CORS 来源列表，逗号分隔；为空表示全部允许
+      # - Security__AllowedOrigins=               # CORS 来源列表，逗号分隔；为空 = 仅同源，* = 任意来源（不携带凭据）
       # - Security__ForceSecureCookies=false      # 在 TLS 终止型代理之后运行时设为 true
       # - Security__KnownProxyNetworks=           # 可信代理的 CIDR 列表，逗号分隔，例如 172.16.0.0/12
       # - Security__TrustAllProxies=false         # 暴露于公网的主机上永远不要设为 true
@@ -181,6 +182,7 @@ services:
       # - Prefill__XboxDockerImage=ghcr.io/regix1/xbox-prefill-daemon:latest
       # - Prefill__SessionTimeoutMinutes=120      # 非持久管理员会话的生命周期
       # - Prefill__StallTimeoutSeconds=180        # 高级设置：非持久会话的停滞超时
+      # - Prefill__AbandonedLoginTimeoutSeconds=900   # 高级设置：清理无人完成的登录
       # - Prefill__DaemonBasePath=/data/prefill   # 必须位于 /data 之下
       # - Prefill__HostDataPath=auto              # /data 对应的主机路径；仅检测失败时设置
       # - Prefill__UseTcp=auto                    # auto = Windows 用 TCP，Linux 用 Unix 套接字
@@ -216,12 +218,12 @@ services:
       # - LanCache__DataSources__1__Enabled=true
 
       # --- 高级用户 ---
-      # - ConnectionStrings__DefaultConnection=Host=/var/run/postgresql;Database=lancache;Username=lancache;Maximum Pool Size=20;Minimum Pool Size=2   # 覆盖 POSTGRES_*；若内嵌了密码则属于密钥
+      # - ConnectionStrings__DefaultConnection=Host=/var/run/postgresql;Database=lancache;Username=lancache;Maximum Pool Size=20;Minimum Pool Size=2   # 基础连接字符串；你同时设置的 POSTGRES_* 值会覆盖其中的用户/密码/主机/端口/数据库字段；若内嵌了密码则属于密钥
       # - Logging__LogLevel__LancacheManager.Infrastructure.Platform=Debug   # 任意日志分类；取值 Trace..None
 ```
 
 </details>
 
-**从 1.10.3 升级？** 新增了两个变量：`Prefill__XboxDockerImage`（Xbox 成为第五个预填充平台）和高级选项 `Prefill__StallTimeoutSeconds`。没有变量被重命名或移除，所以现有的 Compose 文件可以照常使用。一处清理：`Security__MaxAdminDevices` 是一个旧的无效设置，当前代码不会读取它——可以删除。
+**从 1.10.3 升级？** 新增了四个变量，全部可选：`Prefill__XboxDockerImage`（Xbox 成为第五个预填充平台）、高级选项 `Prefill__StallTimeoutSeconds` 和 `Prefill__AbandonedLoginTimeoutSeconds`，以及按数据源设置的 `LanCache__DataSources__<n>__SchemeOverride`，供日志文件名让自动检测失效的裸机安装使用。没有变量被重命名或移除，所以现有的 Compose 文件可以照常使用。一处清理：`Security__MaxAdminDevices` 是一个旧的无效设置，当前代码不会读取它——可以删除。
 
 -----

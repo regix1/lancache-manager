@@ -9,9 +9,9 @@
 3. 在同一页面的 `⋯` 菜单中选择**全部处理**。
 4. 查看容器日志：`docker logs lancache-manager`。
 
-### Web 界面显示"无日志文件"（但文件确实存在）
+### Web 界面显示"无日志来源"（但日志文件确实存在）
 
-`LanCache__LogPath` 必须是**容器内访问日志文件的完整路径**，需要包含文件名——例如 `/logs/access.log`，而不只是 `/logs`。请确认：
+把 `LanCache__LogPath` 指向存放 `access.log` 的目录（例如 `/logs`）；完整文件路径 `/logs/access.log` 也可以，因为 LANCache Manager 总是读取该目录下名为 `access.log` 的文件。使用其他文件名的日志不会被读取。请确认：
 
 1. 你的数据卷已把宿主机的日志目录挂载进容器（例如 `- /host/path/lancache/logs:/logs`）。
 2. `LanCache__LogPath` 指向该*容器内*路径下的文件（`/logs/access.log`）。
@@ -81,9 +81,9 @@ ls -n /path/to/cache
    - 设置 `Prefill__NetworkMode=bridge`（适用于大多数环境）。
    - 确认你的 Docker 网络有出站互联网。
    - 检查防火墙的出站流量规则。
-5. **下载过程中出现 HTTP 400 错误。** 容器无法把 CDN 域名解析到你的缓存。最可靠的修复是设置 `Prefill__LancacheIp=<你的缓存 IP>`——它会为 CDN 流量完全绕开 DNS。完整决策表（以及 `LancacheDnsIp`/`NetworkMode` 各自的作用）见[网络设置](prefill.md#prefill-network)。
-6. **IPv6 流量绕过了 DNS。** 如果你的网络启用了 IPv6，查询可能会绕过 `lancache-dns`。应用已经在预填充容器中禁用了 IPv6 以防止这种情况。
-7. **Epic OAuth 始终无法连接。** 在弹出的浏览器窗口中完成 OAuth 流程。令牌会被安全存储，并在会话之间保持有效。
+5. **下载失败或中途报错。** 常见原因是容器无法把 CDN 域名解析到你的缓存。最可靠的修复是设置 `Prefill__LancacheIp=<你的缓存 IP>`——它会为 CDN 流量完全绕开 DNS。完整决策表（以及 `LancacheDnsIp`/`NetworkMode` 各自的作用）见[网络设置](prefill.md#prefill-network)。
+6. **IPv6 流量绕过了 DNS。** 如果你的网络启用了 IPv6，查询可能会绕过 `lancache-dns`。LANCache Manager 会在 bridge 模式的预填充容器内禁用 IPv6 来防止这种情况；host 网络模式下 Docker 不允许这样做，所以 host 模式的容器需要在网络层面另行处理 IPv6。
+7. **Epic OAuth 始终无法连接。** 在弹出的浏览器窗口中完成 OAuth 流程。令牌保存在预填充容器自身的存储中：持久容器在你停止它之前会一直保持登录（即使 LANCache Manager 重启也不受影响）；临时会话则以未登录状态开始。
 
 查找 `lancache-dns` 的 IP：
 
@@ -101,7 +101,7 @@ docker inspect lancache-dns | grep IPAddress
 
 在空缓存上，一次预填充运行接近 100% 未命中，随后的安装接近 100% 命中。两者合起来，单个游戏大致会拉平到 50% 左右。每次重复安装都会把这个数字推向 66%、75% 甚至更高，因为未命中的字节数是固定的基数，而每次安装都会给总数增加更多命中字节。
 
-想把预填充流量从视图中隐藏，可以在下载/仪表板的客户端筛选器中过滤掉客户端 `127.0.0.1`。守护进程运行在同一台主机上，这样就能隐藏它的流量而不影响底层数据。**管理 → 客户端**中的客户端排除更进一步：在那里被排除的客户端也会被排除在 [`/metrics`](prometheus-metrics.md) 之外。
+想把预填充流量从视图中隐藏，可以在下载/仪表板的客户端筛选器中过滤掉守护进程对应的客户端——当守护进程通过环回地址访问缓存时（缓存与守护进程在同一台机器上使用 host 网络），它显示为 `localhost`；在 bridge 模式下则显示为一个 Docker 网桥地址。过滤只是隐藏它的流量，不会影响底层数据。**管理 → 客户端**中的客户端排除更进一步：在那里被排除的客户端也会被排除在 [`/metrics`](prometheus-metrics.md) 之外。
 
 想查看某次具体安装的真实命中率，可以把下载页切换到**复古**视图，打开设置面板，让**显示**下的**按游戏分组**保持未勾选，再查看该客户端自己的那一行，或者在 `access.log` 中按其 IP 进行 grep。管理器只统计 nginx `upstream_cache_status` 中字面意义上的 `HIT`/`MISS`，因此结果始终与手动统计日志的结果一致。
 

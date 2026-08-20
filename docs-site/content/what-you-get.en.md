@@ -65,9 +65,9 @@ The Status Check tab (Management → Status Check) answers "is my LANCache actua
 
 Your browser runs that one probe, not the server, so it reports what your client sees. It requests `http://lancache.steamcontent.com/lancache-heartbeat`, and a real cache node answers `204` with an `X-LanCache-Processed-By` header naming itself.
 
-Browsers won't let a page read that header across origins unless the cache opts in, and out of the box it doesn't. So the card falls back to a request that proves *something* answered but not *what*, reports **inconclusive**, and logs a CORS error in your browser console. Nothing is broken. Every other Status Check result comes from the server and is unaffected.
+Browsers won't let a page read that header across origins unless the cache opts in. Current `lancachenet/monolithic` images have shipped that opt-in for years, so a definitive answer is the normal case. On an older image or a custom nginx config, the card falls back to a request that proves *something* answered but not *what*, reports **inconclusive**, and logs a CORS error in your browser console. Nothing is broken. Every other Status Check result comes from the server and is unaffected.
 
-To get a definitive answer, let the cache expose the header. Add these to the heartbeat location in your cache's nginx config:
+To fix an older or custom cache, add these to the heartbeat location in its nginx config:
 
 ```nginx
 location /lancache-heartbeat {

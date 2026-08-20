@@ -36,7 +36,7 @@ Add the suffix:        111.2.16.172.in-addr.arpa
 
 ## Adding the reverse record
 
-The reverse record has to live on your network's DNS server, not in this app. Most home and small-office routers create one automatically for every device they hand out an address to over DHCP, alongside the forward name. If yours doesn't do this, or the address is static rather than DHCP-assigned, check your DNS server's own documentation for "reverse DNS" or "PTR records" to find out how to add one by hand.
+The reverse record has to live on your network's DNS server, not in this app. Routers that run dnsmasq - OpenWrt and many vendor firmwares - create one automatically for every device they hand out an address to over DHCP, alongside the forward name. If yours doesn't do this, or the address is static rather than DHCP-assigned, check your DNS server's own documentation for "reverse DNS" or "PTR records" to find out how to add one by hand.
 
 ## dnsmasq, OpenWrt, and Pi-hole
 
@@ -90,6 +90,6 @@ If you still get an answer, even though `172.16.99.99` isn't a real server, your
 
 ## If you don't see a name for anything
 
-If **nothing** on your network shows a name, not just the one address you were trying to fix, the usual cause is that your DNS server has never been told to ask your router for reverse lookups at all. Most routers already name every device they hand an address to over DHCP. Once your DNS server is set up to ask the router for reverse records, those names usually appear across your whole network at once, not just for the one address you were troubleshooting.
+If **nothing** on your network shows a name, not just the one address you were trying to fix, the usual cause is that your DNS server has never been told to ask your router for reverse lookups at all. Routers that run dnsmasq already name every device they hand an address to over DHCP. Once your DNS server is set up to ask the router for reverse records, those names usually appear across your whole network at once, not just for the one address you were troubleshooting.
 
 Some devices don't answer a name query by any method at all. If a machine has no reverse record and also doesn't respond to a direct name query, there's no way for anything to discover its name automatically, and giving it a manual nickname is the only option.

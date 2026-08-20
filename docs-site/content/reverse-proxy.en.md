@@ -1,6 +1,6 @@
 # Reverse Proxy { #nginx-reverse-proxy }
 
-LANCache Manager runs fine behind nginx. HTTPS is recommended, and required if you plan to use guest sessions across origins (cross-origin image cookies need `Secure`).
+LANCache Manager runs fine behind nginx. HTTPS is recommended.
 
 !!! tip
     Fronting the manager with a proxy? Also set `Security__KnownProxyNetworks` (see [Security](configuration-reference.md#security)) so client IPs are reported correctly.
@@ -17,7 +17,7 @@ server {
   ssl_certificate     /etc/letsencrypt/live/lancache.example.com/fullchain.pem;
   ssl_certificate_key /etc/letsencrypt/live/lancache.example.com/privkey.pem;
 
-  # Increase if you have large responses
+  # Max request body size - raise it if large uploads (like database imports) fail with 413
   client_max_body_size 50m;
 
   location / {
@@ -32,7 +32,7 @@ server {
     # SignalR (WebSockets)
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_read_timeout 600s;  # Keep at 600s or higher so idle SignalR WebSocket connections aren't dropped
+    proxy_read_timeout 600s;  # Headroom for slow periods; SignalR's 10s keepalives normally keep the socket alive
   }
 }
 
@@ -48,8 +48,8 @@ server {
 If the UI and API live on different hostnames:
 
 - Build the UI with `VITE_API_URL=https://api.lancache.example.com`.
-- Keep `SameSite=None; Secure` cookies (the app already sets this).
-- Allow credentials in CORS for the UI origin.
+- List the UI origin in `Security__AllowedOrigins` so CORS allows it with credentials.
+- Keep both hostnames under the same registrable domain, as in this example. LANCache Manager issues `SameSite=Lax` cookies, and a browser only sends those when the two hostnames share a site - an API on an entirely different domain cannot use cookie sign-in.
 
 ```nginx
 server {
@@ -71,7 +71,7 @@ server {
     # SignalR (WebSockets)
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_read_timeout 600s;  # Keep at 600s or higher so idle SignalR WebSocket connections aren't dropped
+    proxy_read_timeout 600s;  # Headroom for slow periods; SignalR's 10s keepalives normally keep the socket alive
   }
 }
 ```

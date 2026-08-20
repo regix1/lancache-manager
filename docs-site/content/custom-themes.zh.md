@@ -8,14 +8,14 @@
 [meta]
 name = "My Theme"
 id = "my-theme"
-isDark = true
-version = "1.0.0"
-author = "Your Name"
 
 [colors]
 primaryColor = "#3b82f6"
 bgPrimary = "#111827"
+bgSecondary = "#1f2937"
 textPrimary = "#ffffff"
 ```
+
+这就是全部要求：`meta.name`、`meta.id` 和这四个颜色。缺少其中任何一项的主题会在加载时被拒绝。`isDark`、`version`、`author` 等可选项可以在此基础上添加。
 
 -----

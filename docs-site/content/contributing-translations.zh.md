@@ -1,6 +1,6 @@
 # 贡献翻译 { #contributing-translations }
 
-LANCache Manager 支持国际化（i18n），欢迎社区贡献翻译。所有 UI 字符串都已经外部化——你不需要重构任何代码就能开始翻译。
+LANCache Manager 支持国际化（i18n），欢迎社区贡献翻译。UI 的字符串都来自 `Web/src/i18n/locales/` 中的语言文件。
 
 ### 如何贡献
 
@@ -8,7 +8,8 @@ LANCache Manager 支持国际化（i18n），欢迎社区贡献翻译。所有 U
 2. 打开 `Web/src/i18n/locales/`。
 3. 把 `en.json` 复制一份，命名为你的语言（例如 `de.json`、`fr.json`、`es.json`、`pt-BR.json`）。
 4. 翻译其中的值，键保持不变。
-5. 提交一个 **Pull Request**。
+5. **注册这门语言**——在 `Web/src/i18n/index.ts` 中导入你的文件并把它加入 `resources` 和 `supportedLngs`，再把它的标签加入 `Web/src/components/common/LanguageSelector.tsx` 中的 `LANGUAGE_LABELS`。缺少这一步，应用永远不会读取你的文件。
+6. 提交一个 **Pull Request**。
 
 ### 文件结构
 
@@ -30,7 +31,7 @@ Web/src/i18n/locales/
 ### 翻译示例
 
 ```json
-// en.json
+// 简化示意——真实的键在 en.json 中
 {
   "dashboard": {
     "title": "Dashboard",
@@ -39,7 +40,7 @@ Web/src/i18n/locales/
   }
 }
 
-// de.json
+// 你的翻译（de.json）
 {
   "dashboard": {
     "title": "Übersicht",

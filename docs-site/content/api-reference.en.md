@@ -64,7 +64,7 @@ Reads need nothing more than the jar. A request that changes something (`POST`, 
 
 !!! note "The endpoints that answer without a session"
 
-    Twenty-two of the 284 have to work before a caller has credentials: signing in, guest-mode configuration, first-run setup, and the container health probe. They are marked **public** in the downloadable reference, and the rest are marked **requires a signed-in session**.
+    Twenty-two of the 284 have to work before a caller has credentials: signing in, guest-mode configuration, first-run setup, game artwork, the version banner, and the container health probe. They are marked **public** in the downloadable reference, and the rest are marked **requires a signed-in session**.
 
 ## What is in each group
 
