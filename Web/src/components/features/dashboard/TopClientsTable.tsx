@@ -6,6 +6,7 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useReaderClock } from '@hooks/useReaderClock';
 import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { Card } from '@components/ui/Card';
+import Badge from '@components/ui/Badge';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { formatTimestamp } from '@utils/dateTimeFormat';
@@ -198,7 +199,9 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
               onChange={(value) => setSortBy(value as SortOption)}
               className="w-48"
             />
-            <span className="text-xs text-themed-muted whitespace-nowrap">{timeRangeLabel}</span>
+            {/* The range these rows cover. A chip rather than the loose muted line it used to be,
+                so it reads as a marker on the control row instead of stray text beside the sort. */}
+            <Badge variant="neutral">{timeRangeLabel}</Badge>
           </div>
         </div>
 

@@ -399,6 +399,18 @@ const Dashboard: React.FC = () => {
   const formattedCacheScanTime = useFormattedDateTime(cacheInfo?.cacheScanTimestampUtc);
   const periodLabel = getTimeRangeLabel().toLowerCase();
 
+  /* The range the card's number covers, for the four cards whose value is period-scoped. It reads
+     as a chip like the staleness markers beside it and the resolution chip on the bandwidth chart,
+     rather than the loose lowercase line it used to be. Dropped when the section failed to load,
+     because the subtitle carries the failure instead.
+     Memoised so the card list below keeps a stable dependency: a fresh element every render would
+     rebuild every card on every render. */
+  const periodBadge = useMemo(
+    () =>
+      failedSections.dashboard ? undefined : <Badge variant="neutral">{getTimeRangeLabel()}</Badge>,
+    [failedSections.dashboard, getTimeRangeLabel]
+  );
+
   const stats = useMemo(() => {
     // The titles already read the new range, so a missing batch yields null and renders an em dash
     // rather than pairing the new range with the old range's bytes.
@@ -517,9 +529,8 @@ const Dashboard: React.FC = () => {
         key: 'bandwidthSaved',
         title: t('dashboard.cards.bandwidthSaved'),
         value: stats.bandwidthSaved != null && !loading ? formatBytes(stats.bandwidthSaved) : '—',
-        subtitle: failedSections.dashboard
-          ? t('common.failedToLoad')
-          : getTimeRangeLabel().toLowerCase(),
+        subtitle: failedSections.dashboard ? t('common.failedToLoad') : undefined,
+        badge: periodBadge,
         icon: TrendingUp,
         color: 'green' as const,
         visible: cardVisibility.bandwidthSaved,
@@ -529,9 +540,8 @@ const Dashboard: React.FC = () => {
         key: 'addedToCache',
         title: t('dashboard.cards.addedToCache'),
         value: stats.addedToCache != null && !loading ? formatBytes(stats.addedToCache) : '—',
-        subtitle: failedSections.dashboard
-          ? t('common.failedToLoad')
-          : getTimeRangeLabel().toLowerCase(),
+        subtitle: failedSections.dashboard ? t('common.failedToLoad') : undefined,
+        badge: periodBadge,
         icon: Zap,
         color: 'teal' as const,
         visible: cardVisibility.addedToCache,
@@ -541,9 +551,8 @@ const Dashboard: React.FC = () => {
         key: 'totalServed',
         title: t('dashboard.cards.totalServed'),
         value: stats.totalServed != null && !loading ? formatBytes(stats.totalServed) : '—',
-        subtitle: failedSections.dashboard
-          ? t('common.failedToLoad')
-          : getTimeRangeLabel().toLowerCase(),
+        subtitle: failedSections.dashboard ? t('common.failedToLoad') : undefined,
+        badge: periodBadge,
         icon: Server,
         color: 'teal' as const,
         visible: cardVisibility.totalServed,
@@ -597,9 +606,8 @@ const Dashboard: React.FC = () => {
         key: 'cacheHitRatio',
         title: t('dashboard.cards.cacheHitRatio'),
         value: stats.cacheHitRatio != null && !loading ? formatPercent(stats.cacheHitRatio) : '—',
-        subtitle: failedSections.dashboard
-          ? t('common.failedToLoad')
-          : getTimeRangeLabel().toLowerCase(),
+        subtitle: failedSections.dashboard ? t('common.failedToLoad') : undefined,
+        badge: periodBadge,
         icon: Activity,
         color: 'green' as const,
         visible: cardVisibility.cacheHitRatio,
@@ -679,7 +687,7 @@ const Dashboard: React.FC = () => {
       stats,
       loading,
       periodLabel,
-      getTimeRangeLabel,
+      periodBadge,
       isHistoricalView,
       statTooltips,
       gamesOnDiskStats,
