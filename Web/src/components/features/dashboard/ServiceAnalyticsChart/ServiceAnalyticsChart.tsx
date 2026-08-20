@@ -403,9 +403,6 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                 </div>
               ))}
             </div>
-            {badge ? (
-              <div className="dash-range-footer dash-range-footer--seamless">{badge}</div>
-            ) : null}
             {/* The Games view reads the detection cache, which has no time arguments, so its
                 numbers answer a different question from the four windowed views. */}
             {activeTab === 'games' && (
@@ -438,6 +435,16 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             />
           </div>
         )}
+        {/* Outside the branches: the range still applies when the panel has nothing to show, and
+            every other card keeps its chip in that state. It only joins the readout strip above
+            when that strip rendered; otherwise it rules itself off. */}
+        {badge ? (
+          <div
+            className={`dash-range-footer${!loading && !chartData.isEmpty ? ' dash-range-footer--seamless' : ''}`}
+          >
+            {badge}
+          </div>
+        ) : null}
       </Card>
     );
   }
