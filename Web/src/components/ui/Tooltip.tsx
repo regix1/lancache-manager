@@ -131,6 +131,25 @@ export const Tooltip: React.FC<TooltipProps> = ({
       }
     };
 
+    // A drawer or modal opening underneath an open tooltip. The tooltip paints at z-300, above
+    // the drawer's 200/201 on purpose so tooltips inside a drawer stay readable, which means a
+    // phone tap on a Downloads card leaves the card's title tooltip stranded over the panel that
+    // same tap opened: the tap never lands outside the trigger, so click-outside never fires.
+    // Watching for the class to ARRIVE, rather than reading its current value, is what keeps a
+    // tooltip opened inside an already-open drawer from dismissing itself.
+    let overlayWasOpen = document.documentElement.classList.contains('modal-open');
+    const overlayObserver = new MutationObserver(() => {
+      const overlayIsOpen = document.documentElement.classList.contains('modal-open');
+      if (overlayIsOpen && !overlayWasOpen) {
+        setShow(false);
+      }
+      overlayWasOpen = overlayIsOpen;
+    });
+    overlayObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+
     // Listen for scroll events on window and any scrollable parents
     window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
     window.addEventListener('touchmove', handleScroll, { passive: true, capture: true });
@@ -144,6 +163,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
 
     return () => {
       clearTimeout(timeoutId);
+      overlayObserver.disconnect();
       window.removeEventListener('scroll', handleScroll, { capture: true });
       window.removeEventListener('touchmove', handleScroll, { capture: true });
       document.removeEventListener('keydown', handleKeyDown, { capture: true });
