@@ -105,8 +105,8 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         onToggle();
       }}
       className={`flex items-center justify-center ${
-        surface === 'well' ? 'w-7 h-7 themed-border-radius-sm' : 'w-10 h-10 themed-border-radius-sm'
-      } transition duration-300 flex-shrink-0 ${
+        surface === 'well' ? 'w-7 h-7' : 'w-10 h-10'
+      } themed-button-radius transition duration-300 flex-shrink-0 ${
         isExpanded ? 'bg-[var(--theme-accent-subtle)]' : 'bg-transparent hover:bg-themed-tertiary'
       }`}
       aria-label={isExpanded ? 'Collapse section' : 'Expand section'}
@@ -216,14 +216,13 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
             against the flex-1 title (the section wrapper is overflow-hidden).
             `section-header-actions` pushes this row's last child to the far edge on
             phones, so a plain chip and a wrapped cluster both end flush right under the
-            chevron instead of leaving most of the line empty. The gap is `gap-2 sm:gap-3`
-            to match the column gap of the header row above it: this is a nested flex
-            container, so gap does not inherit, and a slot holding two children at a plain
-            `gap-2` puts 8px between them while the row around them uses 12px. The
+            chevron instead of leaving most of the line empty. Chip-to-control gap is the
+            6px on `.section-header-actions` (patterns.css), not the header row's 12px
+            column gap: that 12px next to a ~16px chip read as a missing item. The
             header's row gap is wider (`gap-y-3`) on purpose, so this row clears the title
             block by 12px once it wraps onto its own line. */}
         {badge && (
-          <div className="section-header-actions flex flex-wrap items-center gap-2 sm:gap-3 w-full order-3 sm:w-auto sm:order-2 sm:flex-shrink-0">
+          <div className="section-header-actions flex flex-wrap items-center w-full order-3 sm:w-auto sm:order-2 sm:flex-shrink-0">
             {badge}
           </div>
         )}

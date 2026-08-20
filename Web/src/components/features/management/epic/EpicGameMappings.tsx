@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DataTableColumn } from '@components/ui/DataTable';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import ApiService from '@services/api.service';
 import GameMappingsCatalog from '../game-mappings/GameMappingsCatalog';
 import type { EpicGameMappingDto, EpicMappingStats } from '../../../../types';
@@ -13,49 +14,29 @@ const loadEpicStats = (): Promise<EpicMappingStats> => ApiService.getEpicMapping
 const searchEpicMappings = (query: string): Promise<EpicGameMappingDto[]> =>
   ApiService.searchEpicGames(query);
 
-/** Returns a badge CSS class based on the discovery source */
-const getSourceBadgeClass = (source: string): string => {
-  const key = source.toLowerCase();
-  const classMap: Record<string, string> = {
-    'mapping-login': 'source-badge-mapping-login',
-    'prefill-login': 'source-badge-prefill-login',
-    'free-games': 'source-badge-free-games',
-    library: 'source-badge-library',
-    wishlist: 'source-badge-wishlist',
-    store: 'source-badge-store',
-    manual: 'source-badge-manual',
-    daemon: 'source-badge-daemon'
-  };
-  return classMap[key] ?? 'source-badge-default';
-};
-
-/** Returns the i18n key suffix for source description tooltip */
-const getSourceDescriptionKey = (source: string): string => {
-  const key = source.toLowerCase();
-  const validKeys = [
-    'mapping-login',
-    'prefill-login',
-    'free-games',
-    'library',
-    'wishlist',
-    'store',
-    'manual',
-    'daemon'
-  ];
-  return validKeys.includes(key) ? key : 'unknown';
+/** Discovery source to Badge variant; unknown or legacy values fall back to neutral. */
+const SOURCE_VARIANTS: Record<string, 'success' | 'info' | 'waiting' | 'neutral'> = {
+  'mapping-login': 'success',
+  'prefill-login': 'info',
+  'free-games': 'waiting',
+  manual: 'neutral'
 };
 
 /** Source badge with tooltip explaining discovery method */
 const SourceBadgeCell: React.FC<{ source: string }> = ({ source }) => {
   const { t } = useTranslation();
+  const key = source.toLowerCase();
+  const descriptionKey = key in SOURCE_VARIANTS ? key : 'unknown';
   return (
     <Tooltip
       content={t(
-        `management.sections.integrations.epicGameMappings.sourceDescriptions.${getSourceDescriptionKey(source)}`
+        `management.sections.integrations.epicGameMappings.sourceDescriptions.${descriptionKey}`
       )}
       position="top"
     >
-      <span className={`epic-source-badge ${getSourceBadgeClass(source)}`}>{source}</span>
+      <Badge variant={SOURCE_VARIANTS[key] ?? 'neutral'} className="epic-source-badge">
+        {source}
+      </Badge>
     </Tooltip>
   );
 };

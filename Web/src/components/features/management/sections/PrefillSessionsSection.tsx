@@ -91,25 +91,21 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
 
   const effectiveStatus = getEffectiveStatus();
 
-  const getStatusConfig = () => {
+  const getStatusVariant = (): 'success' | 'info' | 'error' | 'warning' | 'neutral' => {
     switch (effectiveStatus) {
       case 'completed':
-        return { className: 'prefill-status-badge prefill-status-completed' };
+        return 'success';
       case 'inprogress':
-        return { className: 'prefill-status-badge prefill-status-progress' };
+        return 'info';
       case 'failed':
       case 'error':
-        return { className: 'prefill-status-badge prefill-status-failed' };
+        return 'error';
       case 'cancelled':
-        return { className: 'prefill-status-badge prefill-status-cancelled' };
-      case 'cached':
-        return { className: 'prefill-status-badge prefill-status-cached' };
+        return 'warning';
       default:
-        return { className: 'prefill-status-badge prefill-status-default' };
+        return 'neutral';
     }
   };
-
-  const config = getStatusConfig();
 
   const getDisplayStatus = () => {
     switch (effectiveStatus) {
@@ -130,7 +126,11 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
     }
   };
 
-  return <span className={config.className}>{getDisplayStatus()}</span>;
+  return (
+    <Badge variant={getStatusVariant()} className="prefill-status-badge">
+      {getDisplayStatus()}
+    </Badge>
+  );
 };
 
 // Resolve a session's raw platform string (e.g. "Steam", "Epic", "battlenet")

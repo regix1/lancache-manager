@@ -183,6 +183,29 @@
    what makes it read as a status, and it matters most on phones, where the action row drops to its
    own full-width line and a 40px chip has nothing left to line up with. */
 
+/* Chips at the 12px header/row gap read as separate stray items, so chip-to-chip in
+   these clusters is 6px - the rhythm of the badge box itself. Button-only clusters
+   keep their own gap. */
+.section-header-actions,
+.mgmt-row__actions:has(.themed-badge),
+.cluster:has(.themed-badge) {
+  gap: 0.375rem;
+}
+
+/* Anything that is not a chip - a kebab, a dropdown trigger, a text button - belongs
+   to the frame, not the chip cluster: at the 6px chip gap it reads glued to the last
+   badge while the identical accordion chevron next to it sits at the header row's
+   12px. A non-chip element that follows a chip gets that same 12px separation
+   (6px gap + 6px margin). Chip-to-chip stays 6px. Desktop only: below 640px the
+   slot's last child is pushed to the far edge instead. */
+@media (min-width: 640px) {
+  :is(.section-header-actions, .mgmt-row__actions, .cluster)
+    > :is(.themed-badge, :has(> .themed-badge))
+    + :not(.themed-badge, :has(> .themed-badge)) {
+    margin-inline-start: 0.375rem;
+  }
+}
+
 /* Phones: AccordionSection drops the action row to its own full-width line under the
    title, and the cluster is only ever a chip or two plus one trailing control. Left
    alignment then leaves most of the row empty - on the Users page the chip and kebab

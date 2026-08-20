@@ -311,7 +311,7 @@
   z-index: 90;
   pointer-events: none;
   padding: 0.625rem 0.875rem;
-  border-radius: 0.5rem;
+  border-radius: var(--theme-border-radius);
   font-size: var(--font-size-base);
   line-height: 1.4;
   max-width: min(320px, calc(100vw - 24px));
@@ -387,7 +387,7 @@
   display: inline-block;
   width: 0.625rem;
   height: 0.625rem;
-  border-radius: 0.125rem;
+  border-radius: var(--theme-border-radius-sm);
   border: 1px solid;
   flex-shrink: 0;
   margin-top: 0.3125rem;
@@ -572,7 +572,7 @@
 .legend-dot {
   width: 0.6rem;
   height: 0.6rem;
-  border-radius: 0.2rem;
+  border-radius: var(--theme-border-radius-sm);
   background: var(--legend-color);
   flex-shrink: 0;
 }
@@ -900,14 +900,21 @@
   justify-content: center;
 }
 
-/* Faint placeholder donut ring (NOT a broken 0-slice donut) - a thick muted
-   ring with a hollow center mirrors the real donut so empty reads as "no data
-   yet" rather than a rendering error. */
+/* Slowly orbiting dashed ring, the same placeholder the Active downloads empty
+   state uses. A static ring read as a rendering artifact; the drift says the
+   panel is waiting for data rather than broken. */
 .empty-icon-bg {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 7px solid var(--theme-bg-secondary-strong);
+  border: 2px dashed var(--theme-border-secondary);
+  animation: spin 20s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-icon-bg {
+    animation: none;
+  }
 }
 
 .empty-icon svg {
@@ -1044,8 +1051,12 @@
      picker wrap to a line of their own. Left to the desktop rules that pair is content-sized and
      the auto margin shunts it right, leaving dead space down the left of the row. Here the group
      takes the whole line and the picker absorbs whatever the toggle does not use, so the row reads
-     edge to edge like every other control on the panel. */
-  .service-analytics-controls .service-analytics-actions {
+     edge to edge like every other control on the panel.
+     Only when there IS a service picker beside the toggle: on every other view the group holds
+     nothing but the 44px button, and a full-width line gave that one button a row to itself with
+     300px of empty space after it. With the rule off, the base auto margin keeps it at the right
+     edge of the picker's own line. */
+  .service-analytics-controls .service-analytics-actions:has(> :nth-child(2)) {
     flex: 1 1 100%;
   }
 

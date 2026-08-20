@@ -38,7 +38,7 @@ import { resolveDatasources } from '@utils/datasources';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { formatCount } from '@utils/formatters';
 import { AccordionSection } from '@components/ui/AccordionSection';
-import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
+import { HelpDefinition, HelpNote, HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -962,14 +962,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           </div>
         )}
       </div>
-      {displayedDetectionMethod === 'structural' && (
-        <>
-          <p className="mgmt-scanmeta">{t('management.corruption.structuralScanHelp')}</p>
-          <p className="mgmt-scanmeta text-themed-warning">
-            {t('management.corruption.incrementalScanLimitation')}
-          </p>
-        </>
-      )}
       {hasCachedResults && lastDetectionTime && !isScanBusy && !isLoading && (
         <p className="mgmt-scanmeta">
           {t('common.resultsFromPreviousScan')} · {formattedLastDetection} ·{' '}
@@ -1134,11 +1126,35 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     </SectionHeaderActions>
   );
 
+  /* The two scan modes used to explain themselves in a pair of paragraphs above the controls,
+     which is a lot of prose to read past every time the section is open. It lives here instead,
+     where the rest of the section's documentation already is. */
   const helpAccessory = (
     <HelpPopover position="left" width={320}>
       <HelpSection title={t('management.corruption.help.aboutTitle')}>
         {t('management.corruption.summary')}
       </HelpSection>
+      {/* What separates the two methods is what they can prove, which is the thing to know before
+          picking one. The dropdown already carries a one-line description of each, so these say
+          when to reach for which instead of repeating it. */}
+      <HelpSection title={t('management.corruption.help.methodsTitle')} variant="subtle">
+        <HelpDefinition
+          items={[
+            {
+              term: t('management.corruption.methods.structural.label'),
+              description: t('management.corruption.help.structuralWhen')
+            },
+            {
+              term: t('management.corruption.methods.repeatedMiss.label'),
+              description: t('management.corruption.help.repeatedMissWhen')
+            }
+          ]}
+        />
+      </HelpSection>
+      <HelpSection title={t('management.corruption.help.scanModesTitle')} variant="subtle">
+        {t('management.corruption.structuralScanHelp')}
+      </HelpSection>
+      <HelpNote type="warning">{t('management.corruption.incrementalScanLimitation')}</HelpNote>
     </HelpPopover>
   );
 
@@ -1264,29 +1280,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                               formattedCount: formatCount(count)
                             })}
                           </Badge>
-                          <Button
-                            variant="filled"
-                            color="gray"
-                            size="xs"
-                            className="mgmt-row__toggle"
-                            onClick={() => toggleDetails(service)}
-                            aria-label={
-                              isExpanded
-                                ? t('management.corruption.collapseDetails', {
-                                    service: getServiceDisplayName(service)
-                                  })
-                                : t('management.corruption.expandDetails', {
-                                    service: getServiceDisplayName(service)
-                                  })
-                            }
-                            aria-expanded={isExpanded}
-                          >
-                            {isExpanded ? (
-                              <ChevronUp className="w-4 h-4" />
-                            ) : (
-                              <ChevronDown className="w-4 h-4" />
-                            )}
-                          </Button>
                           <DiskObjectActionGate
                             available={diskObjectsAvailable}
                             tooltip={
@@ -1322,6 +1315,32 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                               </Button>
                             </NginxReopenActionGate>
                           </DiskObjectActionGate>
+                          {/* Ends the row: the expander is the quietest control here, and sitting
+                              between the count and the remove button it split the pair that belong
+                              together. */}
+                          <Button
+                            variant="filled"
+                            color="gray"
+                            size="xs"
+                            className="mgmt-row__toggle"
+                            onClick={() => toggleDetails(service)}
+                            aria-label={
+                              isExpanded
+                                ? t('management.corruption.collapseDetails', {
+                                    service: getServiceDisplayName(service)
+                                  })
+                                : t('management.corruption.expandDetails', {
+                                    service: getServiceDisplayName(service)
+                                  })
+                            }
+                            aria-expanded={isExpanded}
+                          >
+                            {isExpanded ? (
+                              <ChevronUp className="w-4 h-4" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4" />
+                            )}
+                          </Button>
                         </div>
                       </div>
                       <CollapsibleRegion open={isExpanded} contentClassName="mgmt-row-detail">

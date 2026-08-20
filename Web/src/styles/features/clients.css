@@ -172,7 +172,7 @@
    jump when data arrives. */
 .clients-skeleton-line {
   height: 0.875rem;
-  border-radius: 0.25rem;
+  border-radius: var(--theme-border-radius-sm);
 }
 
 .clients-skeleton-line--title {

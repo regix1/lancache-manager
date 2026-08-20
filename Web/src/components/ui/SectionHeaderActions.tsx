@@ -10,11 +10,9 @@ interface SectionHeaderActionsProps {
  * The row of status chips and action buttons a section header hands to
  * AccordionSection's `badge` slot.
  *
- * The gap is `gap-2 sm:gap-3`, the same column-gap pair AccordionSection's own header row uses.
- * It has to be repeated because this is a nested flex container and gap does not
- * inherit: when the two values drifted apart, the chip-to-kebab gap was 8px while the
- * kebab-to-chevron gap beside it was 12px on every screen above the sm breakpoint.
- * Declaring it once here is what keeps them from drifting again.
+ * Gap lives on `.section-header-actions` in patterns.css (6px). Nested flex does
+ * not inherit the header row's 12px column gap, and matching that 12px next to a
+ * ~16px chip left a hole between the chip and the kebab/button.
  *
  * `.section-header-actions` carries the phone behaviour (patterns.css): the row is
  * full width there, so the trailing control moves to the right edge instead of the
@@ -22,7 +20,7 @@ interface SectionHeaderActionsProps {
  */
 export function SectionHeaderActions({ children }: SectionHeaderActionsProps) {
   return (
-    <div className="section-header-actions flex flex-wrap items-center gap-2 sm:gap-3 w-full justify-start sm:w-auto sm:justify-end">
+    <div className="section-header-actions flex flex-wrap items-center w-full justify-start sm:w-auto sm:justify-end">
       {children}
     </div>
   );

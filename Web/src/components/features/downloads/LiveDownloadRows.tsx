@@ -51,9 +51,7 @@ const LiveDownloadRows: React.FC<LiveDownloadRowsProps> = ({ previews, variant }
               <div className="rdl-row-info">
                 <div className="rdl-row-name">
                   <span className="rdl-name-text">{preview.displayName}</span>
-                  <Badge variant="neutral" className="rdl-live-badge">
-                    {t('dashboard.downloadsPanel.inProgress')}
-                  </Badge>
+                  <Badge variant="neutral">{t('dashboard.downloadsPanel.inProgress')}</Badge>
                 </div>
                 <div className="rdl-row-meta">
                   <BadgesRow service={preview.service} showDatasource={false} />
@@ -104,9 +102,7 @@ const LiveDownloadRows: React.FC<LiveDownloadRowsProps> = ({ previews, variant }
             <div className="dl-live-name">
               <BadgesRow service={preview.service} showDatasource={false} />
               <span className="dl-live-name-text">{preview.displayName}</span>
-              <Badge variant="neutral" className="dl-live-badge">
-                {t('downloads.provisional.inProgress')}
-              </Badge>
+              <Badge variant="neutral">{t('downloads.provisional.inProgress')}</Badge>
             </div>
             {preview.clientIp && (
               <div className="dl-live-meta">

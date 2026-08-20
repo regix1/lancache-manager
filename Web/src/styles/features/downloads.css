@@ -203,7 +203,7 @@
 
   .dl-card-cache-bar {
     height: 3px;
-    border-radius: 2px;
+    border-radius: var(--theme-border-radius-sm);
     background: var(--theme-bg-tertiary);
     overflow: hidden;
   }
@@ -211,7 +211,7 @@
   .dl-card-cache-bar-fill,
   .card-grid-item-cache-bar-fill {
     height: 100%;
-    border-radius: 2px;
+    border-radius: var(--theme-border-radius-sm);
     background: var(--theme-success);
     transition: width 0.3s ease;
   }
@@ -271,7 +271,7 @@
   .downloads-header {
     position: relative;
     padding: 1.25rem;
-    border-radius: var(--theme-border-radius-xl);
+    border-radius: var(--theme-border-radius-lg);
     background: var(--theme-card-bg);
     border: 1px solid var(--theme-border-primary);
     overflow: hidden;
@@ -304,7 +304,7 @@
     justify-content: center;
     width: 72px;
     height: 72px;
-    border-radius: var(--theme-border-radius-xl);
+    border-radius: var(--theme-border-radius-lg);
     background: var(--theme-bg-tertiary);
     border: 1px solid var(--theme-border-secondary);
   }
@@ -317,7 +317,10 @@
   .downloads-header .speed-ring {
     position: absolute;
     inset: -3px;
-    border-radius: calc(var(--theme-border-radius-xl) + 2px);
+    /* The same token as the indicator it wraps, not that token plus a fixed offset: an additive
+       calc keeps its 2px when the theme zeroes the token for sharp corners, so the ring stayed
+       rounded around a square box. */
+    border-radius: var(--theme-border-radius-lg);
     border: 2px solid transparent;
     opacity: 0;
     transition: opacity 0.3s ease;
@@ -455,7 +458,9 @@
   .downloads-header .tab-container {
     display: flex;
     padding: 4px;
-    border-radius: var(--theme-border-radius-lg);
+    /* Control corner outside, one step down inside, the same pair as .view-toggle. On the
+       container step this cluster read rounder than the stat boxes sitting beside it. */
+    border-radius: var(--theme-border-radius);
     background: var(--theme-bg-tertiary);
     border: 1px solid var(--theme-border-secondary);
   }
@@ -471,7 +476,7 @@
     color: var(--theme-text-muted);
     background: transparent;
     border: none;
-    border-radius: var(--theme-border-radius);
+    border-radius: var(--theme-border-radius-sm);
     cursor: pointer;
     transition:
       color 0.2s ease,
@@ -516,7 +521,7 @@
     font-weight: 700;
     line-height: 1;
     text-align: center;
-    border-radius: 3px;
+    border-radius: var(--theme-border-radius-sm);
     border: 1px solid var(--theme-border-secondary);
     background: var(--theme-text-muted-muted);
     color: inherit;
@@ -668,7 +673,7 @@
   }
 
   .card-grid-item {
-    border-radius: 0.5rem;
+    border-radius: var(--theme-border-radius-lg);
     border: 1px solid var(--theme-border-primary);
     background: var(--theme-card-bg);
     overflow: hidden;
@@ -721,7 +726,7 @@
   .card-grid-item-cache-bar {
     width: 100%;
     height: 4px;
-    border-radius: 2px;
+    border-radius: var(--theme-border-radius-sm);
     background: var(--theme-bg-tertiary);
     margin-top: 0.5rem;
     overflow: hidden;
@@ -729,12 +734,12 @@
 
   /* Banner-only mode: show just the game banner with no info text */
   .card-grid-item.banner-only {
-    border-radius: 0.5rem;
+    border-radius: var(--theme-border-radius-lg);
     overflow: hidden;
   }
 
   .card-grid-item.banner-only .card-grid-item-banner {
-    border-radius: 0.5rem;
+    border-radius: var(--theme-border-radius-lg);
   }
 
   /* ===== GAME DETAIL DRAWER ===== */
@@ -861,7 +866,9 @@
   .active-downloads-view .view-toggle {
     display: flex;
     padding: 3px;
-    border-radius: 10px;
+    /* Control corner outside, one step down inside: the inner button keeps the concentric
+       relationship (inner = outer - padding) this pair was already built on. */
+    border-radius: var(--theme-border-radius);
     background: var(--theme-bg-tertiary);
     border: 1px solid var(--theme-border-secondary);
   }
@@ -876,7 +883,7 @@
     color: var(--theme-text-muted);
     background: transparent;
     border: none;
-    border-radius: 7px;
+    border-radius: var(--theme-border-radius-sm);
     cursor: pointer;
     transition:
       color 0.2s ease,
@@ -910,7 +917,7 @@
     color: var(--theme-text-muted);
     background: var(--theme-bg-surface);
     border: 1px solid var(--theme-border-secondary);
-    border-radius: 6px;
+    border-radius: var(--theme-border-radius);
     cursor: pointer;
     transition:
       color 0.2s ease,
@@ -940,7 +947,7 @@
     align-items: center;
     gap: 1rem;
     padding: 1rem;
-    border-radius: 12px;
+    border-radius: var(--theme-border-radius-lg);
     background: var(--theme-bg-secondary);
     border: 1px solid var(--theme-border-secondary);
     transition:
@@ -966,7 +973,7 @@
     position: relative;
     width: 48px;
     height: 48px;
-    border-radius: 10px;
+    border-radius: var(--theme-border-radius);
     flex-shrink: 0;
     background: var(--theme-bg-tertiary);
     display: flex;
@@ -1087,7 +1094,7 @@
     justify-content: space-between;
     padding: 0.75rem 1rem;
     margin-top: 0.5rem;
-    border-radius: 8px;
+    border-radius: var(--theme-border-radius);
     background: var(--theme-bg-tertiary);
     border: 1px solid var(--theme-border-secondary);
     font-size: var(--font-size-sm);
@@ -1123,7 +1130,7 @@
     .active-downloads-view .download-avatar {
       width: 36px;
       height: 36px;
-      border-radius: 8px;
+      border-radius: var(--theme-border-radius);
     }
 
     .active-downloads-view .download-item {
@@ -1305,7 +1312,7 @@
   .section-divider-accent {
     width: 3px;
     flex-shrink: 0;
-    border-radius: 3px;
+    border-radius: var(--theme-border-radius-sm);
     background: var(--theme-primary);
     margin-right: 0.75rem;
   }
@@ -1444,7 +1451,7 @@
   .retro-resize-handle-line {
     width: 1px;
     height: 1rem;
-    border-radius: 1px;
+    border-radius: var(--theme-border-radius-sm);
     background: var(--theme-primary);
     opacity: 0.3;
   }
@@ -1688,7 +1695,7 @@
 
   .retro-skeleton-bar {
     height: 0.625rem;
-    border-radius: 4px;
+    border-radius: var(--theme-border-radius-sm);
   }
 
   .retro-skeleton-bar + .retro-skeleton-bar {
@@ -1910,14 +1917,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.dl-live-badge {
-  font-size: var(--font-size-2xs);
-  line-height: 1.4;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  flex-shrink: 0;
 }
 
 .dl-live-meta {

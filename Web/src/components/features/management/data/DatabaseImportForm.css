@@ -23,7 +23,7 @@
 }
 
 .database-import-form__advanced-toggle {
-  border-radius: 0.5rem;
+  border-radius: var(--theme-border-radius);
   overflow: hidden;
 }
 

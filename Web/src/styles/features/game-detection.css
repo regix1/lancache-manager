@@ -67,7 +67,7 @@
   width: 92px;
   height: 43px;
   object-fit: cover;
-  border-radius: 0.25rem;
+  border-radius: var(--theme-border-radius-sm);
   flex-shrink: 0;
   background-color: var(--theme-bg-elevated);
 }

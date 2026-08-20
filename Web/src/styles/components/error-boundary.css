@@ -20,7 +20,7 @@
     background-color: var(--theme-bg-secondary);
     color: var(--theme-text-primary);
     border: 1px solid var(--theme-border-primary);
-    border-radius: 0.5rem;
+    border-radius: var(--theme-border-radius-lg);
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     padding: 2rem;
   }
@@ -65,7 +65,7 @@
     text-align: left;
     background-color: var(--theme-bg-tertiary);
     padding: 1rem;
-    border-radius: 0.25rem;
+    border-radius: var(--theme-border-radius);
     border: 1px solid var(--theme-border-primary);
   }
 
@@ -77,7 +77,7 @@
     font-size: var(--font-size-lg);
     font-weight: 500;
     border: none;
-    border-radius: 0.375rem;
+    border-radius: var(--theme-border-radius);
     cursor: pointer;
     transition: background-color 0.2s;
   }

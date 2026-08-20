@@ -160,7 +160,7 @@
 /* Compounds .icon-box so the wider radius wins over the shared default regardless of
    bundle order (see patterns.css). */
 .icon-box.prefill-service-icon {
-  border-radius: 0.75rem;
+  border-radius: var(--theme-border-radius);
   background: var(--service-accent);
 }
 

@@ -210,6 +210,15 @@ const ClientsTab: React.FC = () => {
             <CacheInfoTooltip />
           </h3>
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Direction ahead of the picker, so the picker keeps the row's right edge the way it
+                does on Top Clients and the dashboard panels. */}
+            <SegmentedControl
+              options={directionOptions}
+              value={sortDirection}
+              onChange={(value) => setSortDirection(value as SortDirection)}
+              size="md"
+              showLabels={false}
+            />
             <EnhancedDropdown
               options={sortOptions}
               value={sortBy}
@@ -218,13 +227,6 @@ const ClientsTab: React.FC = () => {
               className="clients-sort-field"
               size="md"
               cleanStyle
-            />
-            <SegmentedControl
-              options={directionOptions}
-              value={sortDirection}
-              onChange={(value) => setSortDirection(value as SortDirection)}
-              size="md"
-              showLabels={false}
             />
           </div>
         </div>

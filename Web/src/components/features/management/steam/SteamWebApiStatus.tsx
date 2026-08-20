@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Alert } from '@components/ui/Alert';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import Badge from '@components/ui/Badge';
 
 import SteamWebApiKeyModal from '@components/modals/setup/SteamWebApiKeyModal';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -25,7 +25,6 @@ const SteamWebApiStatus: React.FC = () => {
   const [removing, setRemoving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Format last checked time with timezone awareness
   const formattedLastChecked = useFormattedDateTime(status?.lastChecked || null);
 
   const needsApiKey =
@@ -54,7 +53,6 @@ const SteamWebApiStatus: React.FC = () => {
       const data = await response.json();
 
       if (response.ok) {
-        // Optimistically update the status immediately - no loading flicker
         updateStatus((prev) => {
           if (!prev) return prev;
 
@@ -73,7 +71,6 @@ const SteamWebApiStatus: React.FC = () => {
           };
         });
 
-        // Update PICS progress in useEffect, not during render
         updateNotification(cardId, {
           status: 'completed',
           message: t('signalr.steamWebApi.keyRemoved'),
@@ -103,11 +100,9 @@ const SteamWebApiStatus: React.FC = () => {
   };
 
   const handleApiKeySuccess = () => {
-    // Optimistically update the status immediately - no loading flicker
     updateStatus((prev) => {
       if (!prev) return prev;
 
-      // Update status to reflect added/updated API key
       return {
         ...prev,
         hasApiKey: true,
@@ -118,12 +113,8 @@ const SteamWebApiStatus: React.FC = () => {
         lastChecked: new Date().toISOString()
       };
     });
-
-    // Update PICS progress will happen in useEffect
   };
 
-  // Sync Steam Web API status to PICS progress context using useEffect
-  // This prevents setState during render
   useEffect(() => {
     if (status) {
       updateProgress((prevProgress) => {
@@ -131,7 +122,6 @@ const SteamWebApiStatus: React.FC = () => {
 
         const newIsWebApiAvailable = status.isFullyOperational;
 
-        // Only update if the value changed to avoid unnecessary re-renders
         if (prevProgress.isWebApiAvailable === newIsWebApiAvailable) {
           return prevProgress;
         }
@@ -144,56 +134,35 @@ const SteamWebApiStatus: React.FC = () => {
     }
   }, [status?.isFullyOperational, status, updateProgress]);
 
-  const getStatusIcon = () => {
-    if (loading) {
-      return <LoadingSpinner inline size="md" className="text-themed-muted" />;
-    }
-
-    if (status?.isFullyOperational) {
-      return <CheckCircle className="w-5 h-5 icon-success" />;
-    }
-
-    if (needsApiKey) {
-      return <AlertCircle className="w-5 h-5 icon-warning" />;
-    }
-
-    return <AlertCircle className="w-5 h-5 icon-error" />;
-  };
-
-  const getStatusColor = () => {
-    if (loading) return 'var(--theme-muted)';
-    if (status?.isFullyOperational) return 'var(--theme-success)';
-    if (needsApiKey) return 'var(--theme-warning)';
-    return 'var(--theme-error)';
-  };
-
-  const getVersionBadge = (version: string, available: boolean, needsKey?: boolean) => {
-    const Icon = available ? CheckCircle : needsKey ? AlertTriangle : XCircle;
-    const colorClass = available
-      ? 'bg-themed-success text-themed-success'
-      : needsKey
-        ? 'bg-themed-warning text-themed-warning'
-        : 'bg-themed-error text-themed-error';
-
-    return (
-      <span
-        // py-[7px] (not the default py-1) so this tonal, non-interactive badge lands on the
-        // same 32px height as the adjacent Button size="sm" refresh action in this row.
-        className={`inline-flex items-center gap-1.5 px-2.5 py-[7px] rounded-md text-xs font-medium ${colorClass}`}
-      >
-        <Icon className="w-3.5 h-3.5" />
-        {version}
-      </span>
-    );
-  };
+  const statusTone = loading
+    ? undefined
+    : status?.isFullyOperational
+      ? 'ok'
+      : needsApiKey
+        ? 'warn'
+        : 'err';
+  const stateLabel = loading
+    ? t('management.steamWebApi.checkingStatus')
+    : !status
+      ? t('management.steamWebApi.unknownStatus')
+      : status.isFullyOperational
+        ? t('management.steamWebApi.state.operational')
+        : needsApiKey
+          ? t('management.steamWebApi.state.needsKey')
+          : t('management.steamWebApi.state.down');
+  const statusTitleClass = [
+    'mgmt-row__title',
+    'steam-integration__status',
+    statusTone ? `steam-integration__status--${statusTone}` : ''
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <>
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <h4 className="text-sm font-semibold text-themed-primary">
-            {t('management.steamWebApi.sectionTitle')}
-          </h4>
+      <div className="steam-integration">
+        <div className="steam-integration__subhead">
+          <h4 className="mgmt-subhead caps-label">{t('management.steamWebApi.sectionTitle')}</h4>
           <HelpPopover position="left" width={320}>
             <HelpSection
               title={t('management.steamWebApi.help.apiVersions.title')}
@@ -232,42 +201,45 @@ const SteamWebApiStatus: React.FC = () => {
           </HelpPopover>
         </div>
 
-        {/* Status Overview */}
-        <div>
-          <div className="p-4 rounded-lg mb-4 bg-themed-tertiary">
-            {/* Status message - full width */}
-            <div className="flex items-start gap-2.5 mb-3">
-              <div className="mt-0.5 flex-shrink-0">{getStatusIcon()}</div>
-              <p
-                className="text-sm font-medium leading-relaxed"
-                style={{ color: getStatusColor() }}
-              >
-                {loading
-                  ? t('management.steamWebApi.checkingStatus')
-                  : status?.message || t('management.steamWebApi.unknownStatus')}
-              </p>
-            </div>
+        {showWarning && status?.version === 'BothFailed' && status?.hasApiKey && (
+          <Alert color="red" title={t('management.steamWebApi.bothUnavailable.title')}>
+            {t('management.steamWebApi.bothUnavailable.description')}
+          </Alert>
+        )}
 
-            {/* Version badges and refresh button */}
-            <div className="flex items-center justify-between gap-3">
-              {!loading && status ? (
-                <div className="flex flex-wrap gap-2">
-                  {getVersionBadge('V2', status.isV2Available)}
-                  {getVersionBadge(
-                    status.hasApiKey
+        <div className="mgmt-list">
+          <div className="mgmt-row">
+            <div className="mgmt-row__body">
+              <p className={statusTitleClass}>
+                {loading && <LoadingSpinner inline size="xs" />}
+                {stateLabel}
+              </p>
+              {!loading && status && (
+                <p className="mgmt-row__meta">
+                  {t('management.steamWebApi.lastChecked')}: {formattedLastChecked}
+                </p>
+              )}
+            </div>
+            <div className="mgmt-row__actions">
+              {!loading && status && (
+                <>
+                  <Badge variant={status.isV2Available ? 'success' : 'error'}>V2</Badge>
+                  <Badge
+                    variant={
+                      status.isV1Available ? 'success' : !status.hasApiKey ? 'warning' : 'error'
+                    }
+                  >
+                    {status.hasApiKey
                       ? t('management.steamWebApi.v1WithKey')
-                      : t('management.steamWebApi.v1NoKey'),
-                    status.isV1Available,
-                    !status.isV1Available && !status.hasApiKey
-                  )}
-                </div>
-              ) : (
-                <div />
+                      : t('management.steamWebApi.v1NoKey')}
+                  </Badge>
+                </>
               )}
               <Button
                 variant="filled"
                 color="gray"
                 size="sm"
+                stableWidth
                 onClick={async () => {
                   setRefreshing(true);
                   try {
@@ -278,66 +250,51 @@ const SteamWebApiStatus: React.FC = () => {
                 }}
                 disabled={loading || refreshing}
                 loading={refreshing}
-                className="flex-shrink-0"
               >
                 {t('common.refresh')}
               </Button>
             </div>
           </div>
 
-          {/* Warning Banner - Only show for critical errors (both APIs down with key configured) */}
-          {showWarning && status?.version === 'BothFailed' && status?.hasApiKey && (
-            <div className="mb-4 p-3 rounded-lg border bg-themed-error border-error">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 icon-error" />
-                <div className="flex-1">
-                  <p className="font-medium text-sm mb-1 text-themed-error">
-                    {t('management.steamWebApi.bothUnavailable.title')}
-                  </p>
-                  <p className="text-xs text-themed-error opacity-90">
-                    {t('management.steamWebApi.bothUnavailable.description')}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Configure/Remove Buttons */}
           {(needsApiKey || status?.hasApiKey) && (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="filled"
-                color="blue"
-                onClick={() => setShowConfigModal(true)}
-                disabled={removing}
-              >
-                {status?.hasApiKey
-                  ? t('management.steamWebApi.updateApiKey')
-                  : t('management.steamWebApi.configureApiKey')}
-              </Button>
-              {status?.hasApiKey && (
+            <div className="mgmt-row">
+              <div className="mgmt-row__body">
+                <p className="mgmt-row__title">{t('management.steamWebApi.keyRow')}</p>
+                <p className="mgmt-row__meta">
+                  {status?.hasApiKey
+                    ? t('management.steamWebApi.keyConfigured')
+                    : t('management.steamWebApi.keyMissing')}
+                </p>
+              </div>
+              <div className="mgmt-row__actions">
                 <Button
                   variant="filled"
-                  color="red"
-                  onClick={() => setShowRemoveModal(true)}
-                  disabled={removing || loading}
+                  color="blue"
+                  size="sm"
+                  onClick={() => setShowConfigModal(true)}
+                  disabled={removing}
                 >
-                  {t('management.steamWebApi.remove')}
+                  {status?.hasApiKey
+                    ? t('management.steamWebApi.updateApiKey')
+                    : t('management.steamWebApi.configureApiKey')}
                 </Button>
-              )}
+                {status?.hasApiKey && (
+                  <Button
+                    variant="filled"
+                    color="red"
+                    size="sm"
+                    onClick={() => setShowRemoveModal(true)}
+                    disabled={removing || loading}
+                  >
+                    {t('management.steamWebApi.remove')}
+                  </Button>
+                )}
+              </div>
             </div>
-          )}
-
-          {/* Last Checked */}
-          {!loading && status && (
-            <p className="text-xs text-themed-muted mt-3">
-              {t('management.steamWebApi.lastChecked')}: {formattedLastChecked}
-            </p>
           )}
         </div>
       </div>
 
-      {/* Configuration Modal */}
       <SteamWebApiKeyModal
         isOpen={showConfigModal}
         onClose={() => setShowConfigModal(false)}
@@ -345,7 +302,6 @@ const SteamWebApiStatus: React.FC = () => {
         statusNotifications
       />
 
-      {/* Remove Confirmation Modal */}
       <ConfirmationModal
         opened={showRemoveModal}
         onClose={() => setShowRemoveModal(false)}

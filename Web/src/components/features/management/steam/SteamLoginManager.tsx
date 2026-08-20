@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle } from 'lucide-react';
+import { User, UserCheck } from 'lucide-react';
 
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
-import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
@@ -49,13 +48,12 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
     onSuccess: (message) => {
       setContextSteamAuthMode('authenticated');
       setShowAuthModal(false);
-      refreshSteamAuth(); // Refresh to get the authenticated username
+      refreshSteamAuth();
       onSuccess?.(message);
     }
   });
 
   useEffect(() => {
-    // Load auto-start preference from localStorage
     const savedPref = storage.getItem('autoStartPics');
     if (savedPref !== null) {
       setAutoStartPics(savedPref === 'true');
@@ -65,16 +63,6 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   const handleAutoStartPicsChange = (enabled: boolean) => {
     setAutoStartPics(enabled);
     storage.setItem('autoStartPics', enabled.toString());
-  };
-
-  const handleModeChange = (newMode: string) => {
-    if (newMode === 'authenticated' && steamAuthMode === 'anonymous') {
-      // Show auth modal when switching to authenticated
-      setShowAuthModal(true);
-    } else if (newMode === 'anonymous' && steamAuthMode === 'authenticated') {
-      // Switch back to anonymous
-      handleSwitchToAnonymous();
-    }
   };
 
   const handleSwitchToAnonymous = async () => {
@@ -93,8 +81,6 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
       );
 
       if (response.ok) {
-        // Update context directly - no need to refresh from backend
-        // The backend has already cleared the Steam auth, just update local state
         setContextSteamAuthMode('anonymous');
         setContextUsername('');
         onSuccess?.(t('management.steamAuth.switchedToAnonymous'));
@@ -116,26 +102,14 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
     }
   };
 
-  const dropdownOptions = [
-    {
-      value: 'anonymous',
-      label: t('management.steamAuth.anonymous'),
-      description: t('management.steamAuth.status.publicOnly')
-    },
-    {
-      value: 'authenticated',
-      label: t('management.steamAuth.accountLogin'),
-      description: t('management.steamAuth.status.canAccessRestricted')
-    }
-  ];
+  const canManage = authMode === 'authenticated' && !mockMode;
+  const isAuthenticated = steamAuthMode === 'authenticated';
 
   return (
     <>
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <h4 className="text-sm font-semibold text-themed-primary">
-            {t('management.steamAuth.sectionTitle')}
-          </h4>
+      <div className="steam-integration">
+        <div className="steam-integration__subhead">
+          <h4 className="mgmt-subhead caps-label">{t('management.steamAuth.sectionTitle')}</h4>
           <HelpPopover position="left" width={320}>
             <HelpSection title={t('management.steamAuth.help.authModes.title')} variant="subtle">
               <HelpDefinition
@@ -167,107 +141,94 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
               />
             </HelpSection>
 
+            <HelpNote type="warning">
+              {t('management.steamAuth.prefillWarning.description')}
+            </HelpNote>
+
             <HelpNote type="info">{t('management.steamAuth.help.note')}</HelpNote>
           </HelpPopover>
         </div>
 
-        {/* Auto-logout warning banner */}
         {autoLogoutMessage && (
-          <Alert color="red" className="mb-4" icon={<AlertTriangle className="w-5 h-5" />}>
-            <div className="flex items-start gap-3">
-              <div className="flex-1">
-                <p className="font-medium text-sm mb-1">
-                  {t('management.steamAuth.autoLogout.title')}
-                </p>
-                <p className="text-xs opacity-90">{autoLogoutMessage}</p>
-              </div>
-              <Button
-                size="xs"
-                variant="filled"
-                onClick={clearAutoLogoutMessage}
-                className="bg-white/20 text-themed-button border-none hover:!bg-white/30"
-              >
-                {t('common.dismiss')}
-              </Button>
-            </div>
+          <Alert
+            color="red"
+            title={t('management.steamAuth.autoLogout.title')}
+            withCloseButton
+            onClose={clearAutoLogoutMessage}
+          >
+            {autoLogoutMessage}
           </Alert>
         )}
 
-        {/* Prefill session warning banner */}
-        {steamAuthMode === 'authenticated' && (
-          <Alert color="yellow" className="mb-4" icon={<AlertTriangle className="w-5 h-5" />}>
-            <div>
-              <p className="font-medium text-sm mb-1">
-                {t('management.steamAuth.prefillWarning.title')}
+        <div className="mgmt-list">
+          <div className="mgmt-row">
+            <div
+              className={`icon-box icon-box--sm steam-integration__account-icon${
+                isAuthenticated ? ' steam-integration__account-icon--on' : ''
+              }`}
+            >
+              {isAuthenticated ? <UserCheck className="w-4 h-4" /> : <User className="w-4 h-4" />}
+            </div>
+            <div className="mgmt-row__body">
+              <p className="mgmt-row__title">
+                {isAuthenticated
+                  ? authenticatedUsername || t('management.steamAuth.steamUser')
+                  : t('management.steamAuth.status.anonymous')}
               </p>
-              <p className="text-xs opacity-90">
-                {t('management.steamAuth.prefillWarning.description')}
+              <p className="mgmt-row__meta">
+                {isAuthenticated
+                  ? t('management.steamAuth.status.canAccessRestricted')
+                  : t('management.steamAuth.status.publicOnly')}
               </p>
             </div>
-          </Alert>
-        )}
-
-        {/* Main auth mode selector */}
-        <div className="space-y-2">
-          <div className="p-3 rounded-lg bg-themed-tertiary">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="text-themed-primary text-sm font-medium mb-1">
-                  {steamAuthMode === 'authenticated'
-                    ? t('management.steamAuth.status.loggedIn')
-                    : t('management.steamAuth.status.anonymous')}
-                </p>
-                <p className="text-xs text-themed-muted">
-                  {steamAuthMode === 'authenticated'
-                    ? t('management.steamAuth.status.canAccessRestricted')
-                    : t('management.steamAuth.status.publicOnly')}
-                </p>
-              </div>
-
-              {authMode === 'authenticated' && !mockMode ? (
-                <div className="w-full sm:w-auto sm:min-w-[220px]">
-                  <EnhancedDropdown
-                    options={dropdownOptions}
-                    value={steamAuthMode}
-                    onChange={handleModeChange}
+            <div className="mgmt-row__actions">
+              {canManage ? (
+                isAuthenticated ? (
+                  <Button
+                    onClick={handleSwitchToAnonymous}
+                    loading={loading}
+                    variant="filled"
+                    color="red"
+                    size="sm"
+                    stableWidth
+                  >
+                    {t('management.steamAuth.logout')}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => setShowAuthModal(true)}
+                    variant="filled"
+                    color="blue"
+                    size="sm"
                     disabled={loading}
-                    dropdownWidth="w-72"
-                    alignRight={true}
-                  />
-                </div>
+                  >
+                    {t('management.steamAuth.accountLogin')}
+                  </Button>
+                )
               ) : (
-                <div className="w-full sm:w-auto sm:min-w-[180px] px-3 py-2 rounded-lg text-center bg-themed-secondary border border-themed-primary">
-                  <p className="text-sm text-themed-muted">
-                    {steamAuthMode === 'authenticated'
-                      ? t('management.steamAuth.accountLogin')
-                      : t('management.steamAuth.anonymous')}
-                  </p>
-                </div>
+                <Badge variant={isAuthenticated ? 'success' : 'neutral'}>
+                  {isAuthenticated
+                    ? t('management.steamAuth.connected')
+                    : t('management.steamAuth.anonymous')}
+                </Badge>
               )}
             </div>
           </div>
 
-          {/* Configuration section */}
-          <div className="p-3 rounded-lg bg-themed-tertiary">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <p className="text-themed-primary font-medium text-sm mb-1">
-                  {t('management.steamAuth.depotMappingAfterLogin')}
-                </p>
-                <p className="text-xs text-themed-muted">
-                  {autoStartPics
-                    ? t('management.steamAuth.autoRebuild')
-                    : t('management.steamAuth.manualRebuild')}
-                </p>
-              </div>
-              {/* The row stacks below sm, where the control becomes a block child of the setting
-                  row. Sized to its own labels it leaves dead space against the row's right edge and
-                  the two options come out at different widths, so it fills the row and splits evenly
-                  instead. It keeps its natural width once the row turns horizontal. */}
+          <div className="mgmt-row">
+            <div className="mgmt-row__body">
+              <p className="mgmt-row__title">{t('management.steamAuth.depotMappingAfterLogin')}</p>
+              <p className="mgmt-row__meta">
+                {autoStartPics
+                  ? t('management.steamAuth.autoRebuild')
+                  : t('management.steamAuth.manualRebuild')}
+              </p>
+            </div>
+            <div className="mgmt-row__actions">
               <SegmentedControl
                 size="sm"
                 fullWidth
-                className="sm:w-auto sm:min-w-[13rem]"
+                className="steam-integration__segments"
                 value={autoStartPics ? 'automatic' : 'manual'}
                 onChange={(value) => handleAutoStartPicsChange(value === 'automatic')}
                 options={[
@@ -285,39 +246,9 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
               />
             </div>
           </div>
-
-          {/* Authenticated status row */}
-          {steamAuthMode === 'authenticated' && (
-            <div className="p-3 rounded-lg bg-themed-tertiary">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <p className="text-themed-primary text-sm font-medium">
-                    {t('management.steamAuth.authenticatedAs')}{' '}
-                    <strong>{authenticatedUsername || t('management.steamAuth.steamUser')}</strong>
-                  </p>
-                </div>
-                <div className="flex-shrink-0">
-                  {authMode === 'authenticated' && !mockMode ? (
-                    <Button
-                      onClick={handleSwitchToAnonymous}
-                      loading={loading}
-                      variant="filled"
-                      color="red"
-                      size="sm"
-                    >
-                      {t('management.steamAuth.logout')}
-                    </Button>
-                  ) : (
-                    <Badge variant="success">{t('management.steamAuth.connected')}</Badge>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Authentication Modal */}
       <SteamAuthModal
         opened={showAuthModal}
         onClose={handleCloseModal}

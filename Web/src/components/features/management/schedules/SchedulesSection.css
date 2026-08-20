@@ -198,7 +198,6 @@
   height: 1.125rem;
   justify-content: center;
   text-align: center;
-  font-size: var(--font-size-2xs);
   white-space: nowrap;
 }
 
@@ -1452,7 +1451,6 @@
 }
 
 .scheduled-prefill-platforms__nav-badge {
-  font-size: var(--font-size-2xs);
   /* Equal-width pills: floor sized to the widest settled label
      (Enabled/Disabled/Running/Stopped/Visible/Silent) so the stack reads as one column. */
   min-width: 4rem;

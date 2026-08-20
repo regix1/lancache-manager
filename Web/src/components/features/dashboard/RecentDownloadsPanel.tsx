@@ -606,8 +606,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             options={[
               {
                 value: 'recent',
-                label: t('dashboard.downloadsPanel.recent'),
-                icon: <Clock size={14} />
+                label: t('dashboard.downloadsPanel.recent')
               },
               {
                 value: 'active',
@@ -619,7 +618,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                     )}
                   </span>
                 ),
-                icon: <Activity size={14} />,
                 disabled: isHistoricalView,
                 tooltip: isHistoricalView
                   ? t('dashboard.downloadsPanel.activeDownloadsOnly')
@@ -630,6 +628,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             onChange={(value) => setViewMode(value as 'recent' | 'active')}
             size="md"
             showLabels={true}
+            fullWidth
           />
         </div>
 

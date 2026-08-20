@@ -1,3 +1,12 @@
+/* Corner scale: chips, controls, containers, the same three steps the app uses. In px, not rem,
+   because Material scales its root font size from 125% up to 150% by breakpoint, so a rem radius
+   would grow with the viewport while the app's stayed put. */
+:root {
+  --docs-radius-chip: 3px;
+  --docs-radius-control: 6px;
+  --docs-radius-container: 12px;
+}
+
 /* Material's default `code { word-break: break-word }` splits long identifiers
    (Prefill__… / LanCache__…) into orphaned single letters. Prefer keeping the
    token intact; wide tables scroll instead. */
@@ -19,7 +28,7 @@
 .md-typeset table.env-var-table {
   background-color: var(--md-default-bg-color);
   border: 0.05rem solid var(--md-typeset-table-color);
-  border-radius: 0.1rem;
+  border-radius: var(--docs-radius-container);
   display: table;
   font-size: 0.64rem;
   touch-action: auto;
@@ -79,7 +88,7 @@ html .md-typeset__table table.env-var-table,
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 0.2rem;
+  border-radius: var(--docs-radius-chip);
   color: var(--md-default-fg-color--lighter);
   background: transparent;
   cursor: pointer;
@@ -214,7 +223,7 @@ html[lang^="zh"] .md-header .md-select > .md-header__button::after {
   top: calc(100% + 0.25rem);
   margin-top: 0;
   transform: translate3d(0, 0.25rem, 0);
-  border-radius: 0.7rem;
+  border-radius: var(--docs-radius-container);
   border: 1px solid var(--md-default-fg-color--lightest);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
   overflow: hidden;
@@ -227,7 +236,7 @@ html[lang^="zh"] .md-header .md-select > .md-header__button::after {
 }
 
 .md-header .md-select__list {
-  border-radius: 0.7rem;
+  border-radius: var(--docs-radius-container);
   padding: 0.35rem;
 }
 
@@ -242,7 +251,7 @@ html[lang^="zh"] .md-header .md-select > .md-header__button::after {
   width: auto;
   margin: 0;
   padding: 0.55rem 0.7rem;
-  border-radius: 0.5rem;
+  border-radius: var(--docs-radius-control);
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--md-default-fg-color);

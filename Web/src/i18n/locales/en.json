@@ -555,7 +555,7 @@
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
-        "description": "Size of cache files matched to known games during the last Game Cache Detection scan. Shared files are counted once using actual file sizes computed when the scan completes. Service-level cache (Windows Update, etc.) and unidentified cache files are not included here. They appear in the unmapped cache portion when a cache file scan is available."
+        "description": "Size of cache files matched to known games during the last Game Cache Detection scan. Shared files are counted once using actual file sizes computed when the scan completes. Service-level cache (Windows Update, etc.) is not included here. Cache files nothing identified appear in the unmapped cache portion when a cache file scan is available."
       },
       "unmappedCache": "{{size}} unmapped cache"
     },
@@ -847,7 +847,7 @@
         "before": "The key is printed to the logs only when it is first created or rotated.",
         "code": "docker logs lancache-manager"
       },
-      "forgotPassword": "Forgot the main administrator password? Restart the container and follow the recovery steps printed in its startup log. Resetting it needs the API key, so it can only be done from the machine the key is stored on."
+      "forgotPassword": "Forgot the main administrator password? Restart the container to reopen the recovery window, then reset the password with the recover-main-admin API request described in the API reference, using the API key from /data/security/api_key.txt. Because it needs the key and a restart, it can only be done from the machine LANCache Manager runs on."
     },
     "success": "Authentication successful! Upgrading to full access...",
     "errors": {
@@ -1040,7 +1040,7 @@
       "timeFormats": {
         "title": "Allowed Time Formats",
         "placeholder": "Select allowed formats",
-        "note": "First selected format is the default for guests",
+        "note": "If the current default is removed from this list, the first remaining format becomes the default for guests",
         "server24h": {
           "label": "Server (24h)",
           "description": "Server timezone, 24-hour format"
@@ -1094,8 +1094,8 @@
         "sectionTitle": "Prefill Services",
         "sectionSubtitle": "Control guest prefill permissions per service",
         "updated": "Prefill configuration updated",
-        "existingGuestsNote": "These defaults apply to new guest sessions only. Use Active Sessions to change prefill permissions for guests who are already logged in.",
-        "warning": "Security risk: All new guests will be able to trigger prefills. Consider keeping this off and granting access per-session instead.",
+        "existingGuestsNote": "Turning a service on also grants access to guests who are already logged in and have no unexpired grant for it; turning it off, or changing the duration or thread limit, affects new guest sessions only. Use Active Sessions to revoke or change access for guests who are already logged in.",
+        "warning": "Security risk: every guest, including those already logged in, will be able to trigger prefills. Consider keeping this off and granting access per-session instead.",
         "services": {
           "help": {
             "aboutTitle": "About"
@@ -1669,7 +1669,7 @@
     },
     "nginxReopen": {
       "alertTitle": "Cannot reopen nginx logs after changes",
-      "grantSignalPrivilege": "The manager can see host nginx but was denied permission to signal it, which means the CAP_KILL capability is missing. CAP_KILL is granted by default, so ensure it was not removed with cap_drop.",
+      "grantSignalPrivilege": "The manager can see host nginx but was denied permission to signal it. Check that CAP_KILL was not removed with cap_drop (Docker grants it by default), and that AppArmor or user-namespace remapping is not blocking signals from containers to host processes.",
       "enablePidHost": "Nginx appears to run on the host, so run the manager with pid: host so it can signal nginx after log changes. CAP_KILL is granted by default; do not drop it.",
       "dockerUnavailable": "Nginx appears to run in a container, so mount /var/run/docker.sock into the manager to reopen nginx logs after log changes."
     },
@@ -1910,7 +1910,7 @@
         "tagUnverified": "unverified",
         "tagNoAnswer": "no answer",
         "tagBlocked": "blocked",
-        "reasonBlocked": "Your DNS deliberately drops this name (0.0.0.0), usually an intentionally blocked telemetry or crash-reporting endpoint. No traffic leaves your network, and downloads are unaffected.",
+        "reasonBlocked": "Your DNS deliberately drops this name (0.0.0.0), usually an intentionally blocked telemetry or crash-reporting endpoint. No traffic leaves your network. Downloads are normally unaffected, unless the blocked name is one a game actually downloads from.",
         "checks": {
           "dns": "DNS",
           "heartbeat": "cache",
@@ -2010,7 +2010,7 @@
         "evictionRemoveConfirmButton": "Enable Remove Mode",
         "evictionRemoveAll": "Remove All",
         "evictionRemoveAllConfirmTitle": "Remove all evicted items?",
-        "evictionRemoveAllConfirmMessage": "This will remove all {{count}} evicted items in a single batched operation (one log rewrite plus database cleanup). The operation cannot be undone.",
+        "evictionRemoveAllConfirmMessage": "This will remove all {{count}} evicted items in a single batched operation (one log rewrite per datasource plus database cleanup). The operation cannot be undone.",
         "evictionRemoveAllConfirmWarning": "Only the evicted depots are removed - partially-cached games keep their on-disk files.",
         "gameCacheRemoveAll": "Remove All",
         "gameCacheRemoveAllStarting": "Removing 0 of {{total}} cached items...",
@@ -2098,8 +2098,8 @@
           },
           "cachedCorruptionDetections": {
             "label": "Corruption Scan Results",
-            "description": "Saved repeated-MISS candidates with exact cache paths",
-            "details": "Pre-computed suspect cache files verified present by the scan",
+            "description": "Saved corruption scan results for both methods",
+            "details": "Completed structural and repeated-MISS scans with their flagged cache paths and stored evidence. Clearing also removes the scan history.",
             "affectedPages": "Cache tab • Corruption Detection and Removal"
           },
           "clientGroups": {
@@ -2423,11 +2423,7 @@
             "mapping-login": "Discovered when a user logs in and their Epic Games library is scanned",
             "prefill-login": "Discovered by the prefill daemon during authenticated login",
             "free-games": "Discovered from the Epic Games Store free games catalog",
-            "library": "Discovered from user's Epic Games library - games they own or have claimed",
-            "wishlist": "Found on a user's Epic Games wishlist",
-            "store": "Discovered from the Epic Games Store catalog",
             "manual": "Manually added mapping entry",
-            "daemon": "Automatically discovered by the prefill daemon service",
             "unknown": "Unknown discovery method"
           }
         },
@@ -2562,26 +2558,12 @@
         "rsyncDesc": "Rsync with empty directory (best for NFS/SMB)"
       },
       "help": {
-        "title": "How Cache Clearing Works",
-        "preserve": {
-          "description": "Deletes cached files individually but keeps the folder structure. Good default choice."
-        },
-        "removeAll": {
-          "description": "Deletes entire folders at once. Fastest option for local drives."
-        },
-        "rsync": {
-          "description": "Uses rsync to safely delete files. Best choice if your cache is on a network drive (NFS/SMB)."
-        },
-        "warning": "This deletes all cached game files. Your clients will need to re-download everything.",
         "aboutTitle": "About"
       },
       "alerts": {
         "readOnly": {
           "title": "Cache directory is read-only",
           "description": "Remove :ro from your docker-compose volume mounts to enable cache clearing."
-        },
-        "importantPoints": {
-          "redownload": "Clients will need to download content from the internet"
         }
       },
       "modal": {
@@ -2611,12 +2593,15 @@
     },
     "corruption": {
       "help": {
-        "aboutTitle": "About"
+        "aboutTitle": "About",
+        "methodsTitle": "Which method to use",
+        "structuralWhen": "Reads the files themselves and reports only damage it can prove. Use it when you want a definite answer.",
+        "repeatedMissWhen": "Infers suspect files from downloads that keep missing the cache. Catches more, but it is evidence rather than proof.",
+        "scanModesTitle": "Structural scan modes"
       },
       "title": "Corruption Detection and Removal",
       "titleShort": "Corruption",
       "summary": "Find structurally invalid cache files or repeated-MISS suspects, then remove only exact paths verified by the saved scan.",
-      "directoryMissing": "Removal unavailable: required directories not found",
       "scanningMessage": "Scanning logs for repeated cache misses on files still present on disk… This may take several minutes for large log files.",
       "scanningRepeatedMissMessage": "Scanning logs for repeated cache misses on files still present on disk… This may take several minutes for large log files.",
       "scanningStructuralMessage": "Checking nginx cache headers, payload offsets, and authoritative payload lengths… Only proven structural failures are flagged.",
@@ -2634,14 +2619,12 @@
       "runAgain": "Run again",
       "fullScan": "Full Scan",
       "incrementalScan": "Incremental Scan",
-      "structuralScanHelp": "Full Scan re-reads every eligible cache file and refreshes the baseline it compares against. Incremental Scan re-reads only the files whose size or timestamps changed since the last scan, and reads everything once when there is no usable baseline yet.",
-      "incrementalScanLimitation": "Incremental Scan decides what to re-read from file sizes and timestamps alone, so it walks past a file that was damaged without those changing, which is exactly what a power cut or an unclean shutdown leaves behind. Full Scan re-reads every file, so choose it after a crash or whenever you want a definite answer.",
+      "structuralScanHelp": "Full Scan re-reads every cache file. Incremental Scan re-reads only the files whose size or timestamp changed, and reads everything once when there is no baseline yet.",
+      "incrementalScanLimitation": "Incremental Scan trusts any file whose size and timestamps are unchanged, so damage that never touched them stays invisible to it, such as a failing disk altering data underneath. Run a Full Scan to rule that out.",
       "scanningStructuralFullMessage": "Checking every eligible nginx cache file and refreshing the incremental baseline…",
       "scanningStructuralIncrementalMessage": "Checking new, changed, unresolved, or previously invalid cache files against the incremental baseline…",
       "buildingStructuralBaselineMessage": "No compatible baseline was available. This Incremental Scan is checking every eligible cache file once to create one…",
       "resumingStructuralIncrementalMessage": "Resuming safely committed work from the interrupted Incremental Scan…",
-      "readOnly": "Removal unavailable: storage is read-only",
-      "dockerSocketRequired": "Removal unavailable: Docker socket required",
       "cache": "Cache:",
       "datasource": "Datasource:",
       "normalizedUri": "Normalized URI:",
@@ -2760,21 +2743,6 @@
           "description": "Content-Length and Content-Range declare conflicting authoritative payload sizes."
         }
       },
-      "alerts": {
-        "cacheMissing": "Cache directory does not exist",
-        "directoryNotFound": "The required directories were not found. Ensure they are mounted correctly in docker-compose.",
-        "logsAndCacheMissing": "Logs and cache files do not exist",
-        "logsAndCacheReadOnly": "Logs and cache files are read-only",
-        "logsMissing": "Logs directory does not exist",
-        "logsReadOnly": "Logs directory is read-only",
-        "cacheReadOnly": "Cache directory is read-only",
-        "requiresWriteAccess": "Validated-path removal requires write access to both logs and cache. Remove",
-        "requiresCacheWriteAccess": "Structural removal requires write access to the cache. Remove",
-        "requiresLogsWriteAccess": "Validated-path removal requires write access to logs. Remove",
-        "fromVolumeMounts": "from your docker-compose volume mounts.",
-        "dockerSocketUnavailable": "Docker socket not available",
-        "requiresNginxSignal": "Validated-path removal requires signaling nginx to reopen logs afterward."
-      },
       "emptyStates": {
         "noCorrupted": {
           "structuralTitle": "No structurally invalid cache files found",
@@ -2806,7 +2774,7 @@
         "title": "Remove Suspect Cache Files",
         "confirmRemove": "Remove the exact cache paths verified by this scan for {{service}}?",
         "removalSummaryStructural": "Deletes the matching cache files and their saved scan records. Files that changed since the scan are skipped, and this cannot be undone.",
-        "removalSummaryRepeatedMiss": "Deletes the matching cache files along with their log and database records. Files that changed since the scan are skipped, and this cannot be undone.",
+        "removalSummaryRepeatedMiss": "Deletes the matching cache files along with their log and database records. Files already gone are skipped, and this cannot be undone.",
         "removalScopeService": "Removes up to {{count}} files for {{service}}.",
         "removalScopeAllServices": "Runs across every affected service in turn.",
         "deleteCacheAndLogs": "Delete Cache & Logs",
@@ -2905,7 +2873,7 @@
       "removingService": "Removing {{name}} service...",
       "failedToRemoveService": "Failed to remove service from cache",
       "filterPrefix": "Filter:",
-      "scanningMultipleDatasources": "Scanning database and {{count}} cache files...",
+      "scanningMultipleDatasources": "Scanning the database and {{count}} caches...",
       "scanningSingle": "Scanning database and cache files...",
       "scanningNote": "This may take several minutes for large databases and cache files",
       "collapseAll": "Collapse All",
@@ -2913,25 +2881,6 @@
       "filteredBy": "Filtered by <1>{{datasource}}</1>: {{gameCount}} game{{gameCount, plural, one {} other {s}}}, {{serviceCount}} service{{serviceCount, plural, one {} other {s}}}",
       "clearFilter": "Clear filter",
       "help": {
-        "removal": {
-          "title": "What You Can Remove",
-          "game": {
-            "description": "Deletes all cached files, logs, and database records for one specific game"
-          },
-          "service": {
-            "description": "Removes everything for a whole platform like Epic, Blizzard, Riot, or WSUS"
-          }
-        },
-        "howItWorks": {
-          "title": "How It Works",
-          "description": "Looks up games and services in your database, checks which files actually exist on disk, and shows the size and file count."
-        },
-        "note": "Make sure you've processed your access logs first, otherwise there won't be anything to show.",
-        "unknownGames": {
-          "title": "Unknown & Delisted Games",
-          "description": "Games that no longer appear in Steam's app list (delisted titles) still show up as \"Unknown Game (Depot XXXXXX)\". You can remove them the same way as any other game - run a scan and click Remove.",
-          "tip": "Removing an unknown game is the recommended way to fix corrupted or broken game downloads."
-        },
         "aboutTitle": "About"
       },
       "emptyState": {
@@ -3079,17 +3028,6 @@
       },
       "errors": {},
       "help": {
-        "importTypes": {
-          "title": "Options",
-          "lancacheManager": {
-            "description": "Restore from a LANCache Manager database backup"
-          }
-        },
-        "compatibility": {
-          "title": "Important",
-          "description": "Make sure you pick the right import type for your database. If the file is outside the Docker container, mount it as a volume first."
-        },
-        "warning": "Stop the other application before importing so the database isn't locked.",
         "aboutTitle": "About"
       },
       "alerts": {
@@ -3125,10 +3063,10 @@
       "modal": {
         "removeServiceLogs": "Remove Service Logs",
         "removeQuestion": "Remove all {{service}} entries from {{datasource}} logs? This will reduce log size and improve performance.",
-        "serviceSummary": "Cached {{service}} game files stay where they are, but the removed log entries cannot be recovered.",
+        "serviceSummary": "Cached {{service}} game files stay where they are, but the removed log entries and the service's download history and statistics cannot be recovered.",
         "deleteEntireLogFile": "Delete Entire Log File",
-        "deleteQuestion": "Delete the entire access.log file for {{datasource}}? This will remove all download history for this datasource.",
-        "fileSummary": "Deletes every log entry in the file, so download history and statistics are lost. Cached game files stay where they are, and this cannot be undone.",
+        "deleteQuestion": "Delete all log files for {{datasource}}? Entries not yet processed are lost and the logs cannot be reprocessed later.",
+        "fileSummary": "Deletes the raw log files. Download history already in the database is kept, cached game files stay where they are, and this cannot be undone.",
         "batchSummary": "This cannot be undone."
       },
       "errors": {
@@ -3138,29 +3076,7 @@
         "deleteFailed": "Failed to delete log file"
       },
       "help": {
-        "whatThisDoes": {
-          "title": "What This Does",
-          "description": "Removes log entries for a specific service (like Steam or Epic) to free up space and speed up log processing."
-        },
-        "whatItAffects": {
-          "title": "What Gets Removed"
-        },
-        "note": "Your cached game files are not touched -- only log data is removed.",
         "aboutTitle": "About"
-      },
-      "alerts": {
-        "logsReadOnly": {
-          "title": "Logs directory is read-only",
-          "description": "Remove :ro from your docker-compose volume mounts to enable log removal."
-        },
-        "logsMissing": {
-          "title": "Logs directory does not exist",
-          "description": "The logs directory was not found. Ensure it is mounted correctly in docker-compose."
-        },
-        "dockerSocket": {
-          "title": "Docker socket not available",
-          "description": "Log removal requires signaling nginx to reopen logs afterward."
-        }
       },
       "emptyState": {
         "title": "No services with log entries found",
@@ -3170,8 +3086,19 @@
     "steamWebApi": {
       "title": "Steam Web API Status",
       "sectionTitle": "Web API",
+      "badgeOperational": "Web API",
+      "badgeNeedsKey": "API key needed",
+      "badgeUnavailable": "Web API down",
+      "keyRow": "API Key",
+      "keyConfigured": "A V1 key is stored on this server",
+      "keyMissing": "V1 fallback needs a Steam Web API key",
       "checkingStatus": "Checking status...",
       "unknownStatus": "Unknown status",
+      "state": {
+        "operational": "Web API operational",
+        "needsKey": "V2 unavailable, V1 needs an API key",
+        "down": "Web API unavailable"
+      },
       "v1WithKey": "V1 (with key)",
       "v1NoKey": "V1 (no key)",
       "updateApiKey": "Update API Key",
@@ -3197,7 +3124,7 @@
           },
           "v1": {
             "term": "V1 (Recommended)",
-            "description": "Requires a free API key from Steam. More reliable than V2 and used automatically when configured."
+            "description": "Requires a free API key from Steam. Used automatically as a fallback whenever V2 fails."
           }
         },
         "apiKey": {
@@ -3215,10 +3142,9 @@
       "title": "Steam PICS Authentication",
       "sectionTitle": "PICS Authentication",
       "connected": "Connected",
-      "switchedToAnonymous": "Switched to anonymous Steam mode. Depot mappings preserved.",
+      "switchedToAnonymous": "Switched to anonymous Steam mode. Depot mappings preserved; any running Steam prefill sessions were ended.",
       "prefillWarning": {
-        "title": "Prefill requires separate login",
-        "description": "Auto-login is not available for prefill sessions. Steam requires each connection to authenticate with its own credentials - sharing a session token causes one connection to be disconnected. Each prefill session must be logged in manually."
+        "description": "Auto-login is not available for prefill sessions. Reusing the manager's saved Steam session for a prefill connection risks Steam dropping one of the two connections, so each prefill session must be logged in manually."
       },
       "autoLogout": {
         "title": "Steam Session Auto-Logout",
@@ -3241,7 +3167,6 @@
       "manualRebuild": "Manually trigger depot mapping rebuild after login",
       "automatic": "Automatic",
       "manual": "Manual",
-      "authenticatedAs": "Authenticated as",
       "steamUser": "Steam User",
       "logout": "Logout",
       "help": {
@@ -4016,14 +3941,14 @@
         },
         "epicMapping": {
           "displayName": "Epic Game Mapping",
-          "description": "Refreshes the Epic Games Store catalog used to identify Epic downloads in your cache: game titles, CDN URL patterns, and depot mappings.",
+          "description": "Refreshes the Epic Games Store catalog used to identify Epic downloads in your cache: game titles and CDN URL patterns.",
           "summary": "Keeps the Epic Games Store catalog up to date.",
           "gain": "Newly released or updated Epic games are mapped to their cached downloads sooner, allowing them to appear in the game list without waiting for the next detection cycle",
           "loss": "New or renamed Epic games may not appear in the game list until the next scheduled refresh"
         },
         "xboxMapping": {
           "displayName": "Xbox Game Mapping",
-          "description": "Refreshes the Xbox / Microsoft Store catalog used to name Xbox downloads in your cache. Reads the owned-games list and per-file CDN patterns from your authenticated Xbox prefill session, with no prefill download required.",
+          "description": "Refreshes the Xbox / Microsoft Store catalog used to name Xbox downloads in your cache. Reads the owned-games list and per-file CDN patterns from the signed-in Xbox account or an authenticated Xbox prefill session, with no prefill download required.",
           "summary": "Keeps the Xbox catalog up to date.",
           "gain": "Owned Xbox games are mapped to their cached downloads on a schedule, so titles downloaded on a real Xbox or PC are named without starting a prefill",
           "loss": "Newly acquired Xbox games may not appear in the game list until the next scheduled refresh or a daemon login",
@@ -4068,7 +3993,7 @@
         },
         "cacheSnapshot": {
           "displayName": "Cache Snapshots",
-          "description": "Saves a periodic snapshot of used cache size and total capacity so the dashboard can chart growth over time. Snapshots older than 90 days are deleted automatically.",
+          "description": "Saves a periodic snapshot of used cache size and total capacity so the dashboard can chart growth over time. Snapshots older than 90 days (configurable) are deleted automatically.",
           "summary": "Records cache usage over time for the dashboard chart.",
           "gain": "The cache growth chart has finer granularity, making it easier to spot trends and spikes",
           "loss": "The growth chart will have wider gaps between data points, making short-term trends harder to see"
@@ -4137,12 +4062,12 @@
       },
       "regenerateModal": {
         "title": "Regenerate API Key",
-        "message": "Regenerating the API key deletes every other user account and immediately logs out all connected devices and guests. Your own account keeps its username and password, so you sign back in with those and the new key.",
+        "message": "Regenerating the API key deletes every other user account, immediately logs out all connected devices and guests, and clears the Steam sign-in and stored Steam Web API key. Your own account keeps its username and password, so you sign back in with those and the new key.",
         "important": "Important:"
       },
       "rotatedModal": {
         "title": "Your New API Key",
-        "message": "This is the only time this key is shown. Copy it now, because everyone has been signed out and signing back in needs it.",
+        "message": "This is the only time the app shows this key (it is also printed once to the server logs). Copy it now, because everyone has been signed out and signing back in needs it.",
         "copied": "Copied!",
         "copyFailed": "This browser would not let the page copy for you. Select the key above and copy it by hand before closing."
       }
@@ -4290,7 +4215,7 @@
       "modals": {
         "terminateAll": {
           "title": "Terminate All Sessions",
-          "message": "This will terminate {{count}} active prefill session(s). All Docker containers will be stopped and removed.",
+          "message": "This will terminate {{count}} active prefill session(s) and stop and remove their Docker containers. Persistent containers are not affected.",
           "warning": "Users will need to restart their prefill sessions.",
           "cancel": "Cancel",
           "confirm": "Terminate All"

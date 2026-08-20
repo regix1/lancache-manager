@@ -50,7 +50,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             {/* Folder Icon */}
             <div
-              className={`w-7 h-7 themed-border-radius-sm flex items-center justify-center transition duration-300 ${
+              className={`w-7 h-7 themed-button-radius flex items-center justify-center transition duration-300 ${
                 isExpanded
                   ? 'bg-[var(--theme-icon-blue-subtle)] scale-105'
                   : 'bg-themed-tertiary scale-100'
@@ -96,7 +96,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 
             {/* Chevron with rotation animation */}
             <div
-              className={`flex items-center justify-center w-7 h-7 themed-border-radius-sm transition duration-300 ${
+              className={`flex items-center justify-center w-7 h-7 themed-button-radius transition duration-300 ${
                 isExpanded ? 'bg-[var(--theme-accent-subtle)]' : 'bg-transparent'
               }`}
             >

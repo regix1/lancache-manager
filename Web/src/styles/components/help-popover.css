@@ -37,7 +37,7 @@
   .help-section-subtle {
     background-color: var(--theme-bg-secondary);
     padding: 0.625rem;
-    border-radius: var(--theme-border-radius-lg, 0.75rem);
+    border-radius: var(--theme-border-radius-lg);
     margin: 0 -0.25rem;
   }
 
@@ -46,7 +46,7 @@
     display: flex;
     gap: 0.5rem;
     padding: 0.5rem 0.625rem;
-    border-radius: var(--theme-border-radius-lg, 0.75rem);
+    border-radius: var(--theme-border-radius-lg);
     font-size: var(--font-size-xs);
     line-height: 1.5;
     border: 1px solid transparent;

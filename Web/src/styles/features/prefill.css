@@ -239,7 +239,7 @@
   /* Command tile icon container. Layout/size from shared .icon-box icon-box--sm;
      radius stays fixed at 0.5rem (independent of the theme radius token). */
   .icon-box.cmd-tile-icon {
-    border-radius: 0.5rem;
+    border-radius: var(--theme-border-radius);
   }
 
   /* Settings inline panel - integrated look */

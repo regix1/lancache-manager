@@ -132,7 +132,6 @@ export function useChartData(
             backgroundColor: bgColors,
             borderColor,
             borderWidth: 2,
-            borderRadius: 4,
             spacing: 2,
             hoverOffset: 8
           }
@@ -173,7 +172,6 @@ export function useChartData(
               backgroundColor: sorted.map((s) => getColor(s.name)),
               borderColor,
               borderWidth: 2,
-              borderRadius: 4,
               spacing: 2,
               hoverOffset: 8
             }
@@ -208,7 +206,6 @@ export function useChartData(
               backgroundColor: [getCacheHitColor(), getCacheMissColor()],
               borderColor,
               borderWidth: 2,
-              borderRadius: 4,
               spacing: 2,
               hoverOffset: 8
             }
@@ -243,7 +240,6 @@ export function useChartData(
               backgroundColor: sorted.map((s) => getColor(s.name)),
               borderColor,
               borderWidth: 2,
-              borderRadius: 4,
               spacing: 2,
               hoverOffset: 8
             }
@@ -277,7 +273,6 @@ export function useChartData(
               backgroundColor: sorted.map((s) => getColor(s.name)),
               borderColor,
               borderWidth: 2,
-              borderRadius: 4,
               spacing: 2,
               hoverOffset: 8
             }

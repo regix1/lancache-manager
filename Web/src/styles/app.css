@@ -23,7 +23,7 @@
   align-items: center;
   gap: 1rem;
   padding: 2rem;
-  border-radius: 0.75rem;
+  border-radius: var(--theme-border-radius-lg);
   border: 1px solid var(--theme-border-primary);
   background-color: var(--theme-bg-secondary);
   width: 100%;

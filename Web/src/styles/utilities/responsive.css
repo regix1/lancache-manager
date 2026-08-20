@@ -7,73 +7,78 @@
   /* Override common Tailwind rounded classes with theme variables */
   .rounded,
   .rounded-md {
-    border-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-radius: var(--theme-border-radius) !important;
   }
 
   .rounded-lg {
-    border-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-radius: var(--theme-border-radius-lg) !important;
   }
 
+  /* The container step, same as `rounded-lg`. These used to resolve one step rounder, which is
+     why an icon tile or an inner well came out visibly rounder than the card holding it. Every
+     card-like surface in the app now shares one corner. */
   .rounded-xl {
-    border-radius: var(--theme-border-radius-xl, 1rem) !important;
+    border-radius: var(--theme-border-radius-lg) !important;
   }
 
   .rounded-2xl {
-    border-radius: var(--theme-border-radius-xl, 1rem) !important;
+    border-radius: var(--theme-border-radius-lg) !important;
   }
 
+  /* The chip step, matching the class name. It used to resolve to the control token, so a
+     `rounded-sm` element would have come out the same size as `rounded-md`. */
   .rounded-sm {
-    border-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-radius: var(--theme-border-radius-sm) !important;
   }
 
   /* Corner-specific overrides */
   .rounded-t,
   .rounded-t-md {
-    border-top-left-radius: var(--theme-border-radius, 0.5rem) !important;
-    border-top-right-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-top-left-radius: var(--theme-border-radius) !important;
+    border-top-right-radius: var(--theme-border-radius) !important;
   }
 
   .rounded-t-lg {
-    border-top-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
-    border-top-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-top-left-radius: var(--theme-border-radius-lg) !important;
+    border-top-right-radius: var(--theme-border-radius-lg) !important;
   }
 
   .rounded-b,
   .rounded-b-md {
-    border-bottom-left-radius: var(--theme-border-radius, 0.5rem) !important;
-    border-bottom-right-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-bottom-left-radius: var(--theme-border-radius) !important;
+    border-bottom-right-radius: var(--theme-border-radius) !important;
   }
 
   .rounded-b-lg {
-    border-bottom-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
-    border-bottom-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-bottom-left-radius: var(--theme-border-radius-lg) !important;
+    border-bottom-right-radius: var(--theme-border-radius-lg) !important;
   }
 
   .rounded-b-xl {
-    border-bottom-left-radius: var(--theme-border-radius-xl, 1rem) !important;
-    border-bottom-right-radius: var(--theme-border-radius-xl, 1rem) !important;
+    border-bottom-left-radius: var(--theme-border-radius-lg) !important;
+    border-bottom-right-radius: var(--theme-border-radius-lg) !important;
   }
 
   .rounded-l,
   .rounded-l-md {
-    border-top-left-radius: var(--theme-border-radius, 0.5rem) !important;
-    border-bottom-left-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-top-left-radius: var(--theme-border-radius) !important;
+    border-bottom-left-radius: var(--theme-border-radius) !important;
   }
 
   .rounded-l-lg {
-    border-top-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
-    border-bottom-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-top-left-radius: var(--theme-border-radius-lg) !important;
+    border-bottom-left-radius: var(--theme-border-radius-lg) !important;
   }
 
   .rounded-r,
   .rounded-r-md {
-    border-top-right-radius: var(--theme-border-radius, 0.5rem) !important;
-    border-bottom-right-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-top-right-radius: var(--theme-border-radius) !important;
+    border-bottom-right-radius: var(--theme-border-radius) !important;
   }
 
   .rounded-r-lg {
-    border-top-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
-    border-bottom-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-top-right-radius: var(--theme-border-radius-lg) !important;
+    border-bottom-right-radius: var(--theme-border-radius-lg) !important;
   }
 
   /* Line clamp utility */

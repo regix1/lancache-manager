@@ -186,7 +186,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
       {/* dvh, not vh: on a phone vh includes the space the browser's own chrome occupies, so the
           card is sized taller than what the person can actually see and the last control sits under
           the address bar. */}
-      <div className="relative z-10 w-full max-w-4xl rounded-xl border overflow-hidden flex flex-col bg-themed-secondary border-themed-primary max-h-[calc(100dvh-2rem)]">
+      <div className="relative z-10 w-full max-w-4xl themed-border-radius border overflow-hidden flex flex-col bg-themed-secondary border-themed-primary max-h-[calc(100dvh-2rem)]">
         {/* Header */}
         <div className="px-5 sm:px-8 py-4 sm:py-5 border-b flex items-center justify-between border-themed-secondary">
           <div className="flex items-center gap-3">

@@ -96,8 +96,9 @@
     color: var(--theme-icon-red);
   }
 
-  /* Theme-aware button border radius. Base token, not -lg: buttons follow the
-     squarer small-control corner; the -lg radius is for card shells. */
+  /* Theme-aware button border radius. The base token is the control corner shared by buttons,
+     inputs and dropdown triggers, so a button and the picker beside it always agree. Cards take
+     the -lg step and end up at twice this. */
   .themed-button-radius {
     border-radius: var(--theme-border-radius);
   }
@@ -132,8 +133,8 @@
     box-shadow: none;
   }
 
-  /* Square icon-only Button footprints at md/sm control heights, with the non-lg
-     radius for the squarer-corner look. */
+  /* Square icon-only Button footprints at md/sm control heights, on the same corner as every
+     other button. */
   .btn-icon-square {
     width: 2.5rem;
     height: 2.5rem;

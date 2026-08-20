@@ -74,18 +74,6 @@
   min-width: 0;
 }
 
-/* Compact categorical type chip (User / Guest). Colour comes from the shared
-   .session-badge-user / .session-badge-guest classes in badges.css. */
-.session-type-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.05rem 0.4rem;
-  font-size: var(--font-size-2xs);
-  font-weight: 500;
-  line-height: 1.4;
-  border-radius: 3px;
-}
-
 .session-you {
   font-size: var(--font-size-2xs);
   font-weight: 500;

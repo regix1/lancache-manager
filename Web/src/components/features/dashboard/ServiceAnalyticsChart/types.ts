@@ -9,7 +9,6 @@ export interface ChartDataset {
   backgroundColor: string[];
   borderColor: string;
   borderWidth: number;
-  borderRadius?: number;
   spacing?: number;
   hoverOffset?: number;
 }

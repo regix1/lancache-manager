@@ -1017,7 +1017,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <span className="mgmt-row__title block truncate">{parsedUA.title}</span>
               </Tooltip>
               <span
-                className={`themed-badge session-type-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
+                className={`themed-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
               >
                 {admin
                   ? t('activeSessions.labels.userBadge')
@@ -1309,19 +1309,15 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <span className="mgmt-row__title block truncate">{parsedUA.title}</span>
             </Tooltip>
             <span
-              className={`themed-badge session-type-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
+              className={`themed-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
             >
               {admin ? t('activeSessions.labels.userBadge') : t('activeSessions.labels.guestBadge')}
             </span>
             {session.isRevoked && (
-              <Badge variant="error" className="session-type-badge">
-                {t('activeSessions.status.revoked')}
-              </Badge>
+              <Badge variant="error">{t('activeSessions.status.revoked')}</Badge>
             )}
             {session.isExpired && !session.isRevoked && (
-              <Badge variant="warning" className="session-type-badge">
-                {t('activeSessions.prefill.status.expired')}
-              </Badge>
+              <Badge variant="warning">{t('activeSessions.prefill.status.expired')}</Badge>
             )}
           </div>
           <div className="mgmt-row__meta session-row__meta">

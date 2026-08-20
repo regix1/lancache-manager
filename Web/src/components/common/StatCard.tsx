@@ -75,6 +75,8 @@ const StatCard: React.FC<StatCardProps> = ({
 
   const cardClasses = useMemo(() => {
     const classes = [
+      // The container corner, same as the widget cards. The radius utilities are mapped to the
+      // theme tokens in styles/utilities/responsive.css, not to Tailwind's pixel scale.
       'rounded-lg',
       'p-4',
       'border',

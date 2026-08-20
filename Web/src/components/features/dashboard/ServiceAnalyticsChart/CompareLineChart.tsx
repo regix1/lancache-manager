@@ -18,7 +18,7 @@ import { formatBytes } from '@utils/formatters';
 import { clampToViewport } from '@utils/viewportClamp';
 import type { ServiceStat } from '@/types';
 import { useServiceColors } from './useServiceColors';
-import { getThemeColor, useThemeRevision } from './chartTheme';
+import { getThemeColor, getThemeRadius, useThemeRevision } from './chartTheme';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -301,6 +301,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
     const hitColor = getCacheHitColor() || getThemeColor('--theme-chart-cache-hit');
     const missColor = getCacheMissColor() || getThemeColor('--theme-chart-cache-miss');
     const borderColor = getBorderColor() || getThemeColor('--theme-chart-border');
+    const barRadius = getThemeRadius('--theme-border-radius-sm');
 
     return {
       labels,
@@ -314,7 +315,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
           hoverBackgroundColor: hitColor,
           borderColor,
           borderWidth: 1,
-          borderRadius: 4,
+          borderRadius: barRadius,
           borderSkipped: false,
           minBarLength: MIN_BAR_LENGTH,
           barPercentage: 0.92,
@@ -329,7 +330,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
           hoverBackgroundColor: missColor,
           borderColor,
           borderWidth: 1,
-          borderRadius: 4,
+          borderRadius: barRadius,
           borderSkipped: false,
           minBarLength: MIN_BAR_LENGTH,
           barPercentage: 0.92,

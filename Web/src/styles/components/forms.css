@@ -190,7 +190,7 @@
     );
     background-repeat: no-repeat;
     height: 6px;
-    border-radius: 3px;
+    border-radius: var(--theme-border-radius-sm);
     border: 1px solid var(--theme-border-primary);
     box-shadow: var(--shadow-control-inset);
   }
@@ -207,7 +207,7 @@
     );
     background-repeat: no-repeat;
     height: 6px;
-    border-radius: 3px;
+    border-radius: var(--theme-border-radius-sm);
     border: 1px solid var(--theme-border-primary);
     box-shadow: var(--shadow-control-inset);
   }

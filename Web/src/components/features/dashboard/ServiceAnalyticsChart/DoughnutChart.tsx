@@ -12,7 +12,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatCount } from '@utils/formatters';
 import type { DoughnutChartProps, GameSliceExtra } from './types';
-import { getThemeColor, useThemeRevision } from './chartTheme';
+import { getThemeColor, getThemeRadius, useThemeRevision } from './chartTheme';
 
 // Register only what we need (tree shaking)
 ChartJS.register(ArcElement, Tooltip, Legend);
@@ -27,6 +27,7 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
     const chartData: ChartData<'doughnut'> = useMemo(() => {
       void themeRevision;
       const wrapperBg = getThemeColor('--theme-bg-secondary');
+      const sliceRadius = getThemeRadius('--theme-border-radius-sm');
       return {
         labels,
         datasets: datasets.map((ds) => ({
@@ -34,7 +35,7 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
           backgroundColor: ds.backgroundColor,
           borderColor: wrapperBg,
           borderWidth: 2,
-          borderRadius: ds.borderRadius ?? 4,
+          borderRadius: sliceRadius,
           spacing: ds.spacing ?? 2,
           hoverOffset: ds.hoverOffset ?? 8
         }))
@@ -49,6 +50,7 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
       const tooltipTitle = getThemeColor('--theme-text-primary');
       const tooltipBody = getThemeColor('--theme-text-muted');
       const tooltipBorder = getThemeColor('--theme-border-secondary');
+      const swatchRadius = getThemeRadius('--theme-border-radius-sm');
 
       return {
         responsive: true,
@@ -96,7 +98,7 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
                   borderWidth: style.borderWidth,
                   borderDash: style.borderDash,
                   borderDashOffset: style.borderDashOffset,
-                  borderRadius: 3
+                  borderRadius: swatchRadius
                 };
               },
               label: (context) => {

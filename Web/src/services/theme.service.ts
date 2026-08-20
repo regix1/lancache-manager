@@ -1122,10 +1122,13 @@ class ThemeService {
     const colors = theme.colors;
 
     // Get border radius settings from theme (already set above)
-    const borderRadius = sharpCorners ? '0px' : '0.5rem';
+    // The control corner: buttons, inputs, dropdown triggers and menus, and inner wells. 6px
+    // rather than the 8px this used to be, because 8px on a 24px-tall xs button is most of the
+    // way to a pill. Containers stay on the -lg step below, which keeps cards at twice the
+    // control radius, the ratio shadcn and most systems use.
+    const borderRadius = sharpCorners ? '0px' : '0.375rem';
     const borderRadiusSm = sharpCorners ? '0px' : '0.2rem';
     const borderRadiusLg = sharpCorners ? '0px' : '0.75rem';
-    const borderRadiusXl = sharpCorners ? '0px' : '1rem';
 
     // Helper to convert hex to RGB
     const hexToRgb = (hex: string): string => {
@@ -1181,7 +1184,6 @@ class ThemeService {
       --theme-border-radius: ${borderRadius};
       --theme-border-radius-sm: ${borderRadiusSm};
       --theme-border-radius-lg: ${borderRadiusLg};
-      --theme-border-radius-xl: ${borderRadiusXl};
 
       /* Navigation Variables */
       --theme-nav-bg: ${colors.navBg};

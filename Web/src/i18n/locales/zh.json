@@ -555,7 +555,7 @@
       },
       "gamesOnDisk": {
         "term": "磁盘上的游戏",
-        "description": "上次游戏缓存检测扫描中与已知游戏匹配的缓存文件大小。共享文件按扫描完成时计算出的实际文件大小只统计一次。服务级缓存（Windows 更新等）和未识别的缓存文件不包含在内。当有缓存文件扫描结果时，它们会显示在未映射缓存部分中。"
+        "description": "上次游戏缓存检测扫描中与已知游戏匹配的缓存文件大小。共享文件按扫描完成时计算出的实际文件大小只统计一次。服务级缓存（Windows 更新等）不包含在内。当有缓存文件扫描结果时，未被识别的缓存文件会显示在未映射缓存部分中。"
       },
       "unmappedCache": "{{size}} 未映射缓存"
     },
@@ -847,7 +847,7 @@
         "before": "仅在首次创建或轮换密钥时才会写入日志。",
         "code": "docker logs lancache-manager"
       },
-      "forgotPassword": "忘记主管理员密码？请重启容器，并按照启动日志中打印的恢复步骤操作。重置密码需要 API 密钥，因此只能在存放该密钥的机器上完成。"
+      "forgotPassword": "忘记主管理员密码？请重启容器以重新打开恢复窗口，然后按 API 参考中的 recover-main-admin 请求重置密码，使用 /data/security/api_key.txt 中的 API 密钥。由于需要密钥和重启，只能在运行 LANCache Manager 的机器上完成。"
     },
     "success": "认证成功！正在升级到完全访问...",
     "errors": {
@@ -1040,7 +1040,7 @@
       "timeFormats": {
         "title": "允许的时间格式",
         "placeholder": "选择允许的格式",
-        "note": "首先选择的格式是访客的默认格式",
+        "note": "如果当前默认格式被从此列表中移除，剩余的第一个格式将成为访客的默认格式",
         "server24h": {
           "label": "服务器（24小时制）",
           "description": "服务器时区，24小时制"
@@ -1094,8 +1094,8 @@
         "sectionTitle": "预填充服务",
         "sectionSubtitle": "按服务控制访客预填充权限",
         "updated": "预填充配置已更新",
-        "existingGuestsNote": "这些默认设置仅适用于新的访客会话。对于已登录的访客，请使用“活动会话”修改预填充权限。",
-        "warning": "安全风险：所有新访客都将能够触发预填充。建议保持关闭，改为按会话授予访问权限。",
+        "existingGuestsNote": "开启某个服务时，也会向已登录且该服务没有未过期授权的访客立即授予访问权限；关闭它或更改时长、线程数只影响新的访客会话。要撤销或修改已登录访客的权限，请使用“活动会话”。",
+        "warning": "安全风险：所有访客（包括已登录的）都将能够触发预填充。建议保持关闭，改为按会话授予访问权限。",
         "services": {
           "help": {
             "aboutTitle": "关于"
@@ -1669,7 +1669,7 @@
     },
     "nginxReopen": {
       "alertTitle": "更改后无法重新打开 nginx 日志",
-      "grantSignalPrivilege": "管理器可以看到宿主机上的 nginx，但向其发送信号时被拒绝，这说明缺少 CAP_KILL 能力。Docker 默认授予 CAP_KILL，请确认没有通过 cap_drop 将其移除。",
+      "grantSignalPrivilege": "管理器可以看到宿主机上的 nginx，但向其发送信号时被拒绝。请确认没有通过 cap_drop 移除 CAP_KILL（Docker 默认授予），并确认宿主机上的 AppArmor 或用户命名空间重映射没有阻止容器向宿主机进程发送信号。",
       "enablePidHost": "nginx 似乎在宿主机上运行，请使用 pid: host 运行管理器，以便在日志更改后向 nginx 发送信号。Docker 默认授予 CAP_KILL，请勿将其移除。",
       "dockerUnavailable": "nginx 似乎在容器中运行，请将 /var/run/docker.sock 挂载到管理器，使其能在日志更改后重新打开 nginx 日志。"
     },
@@ -1910,7 +1910,7 @@
         "tagUnverified": "未验证",
         "tagNoAnswer": "无响应",
         "tagBlocked": "已屏蔽",
-        "reasonBlocked": "被您的 DNS 有意黑洞处理(0.0.0.0),通常是被有意屏蔽的遥测端点。没有流量流向互联网,下载不受影响。",
+        "reasonBlocked": "被您的 DNS 有意黑洞处理(0.0.0.0),通常是被有意屏蔽的遥测端点。没有流量流向互联网。下载通常不受影响，除非被屏蔽的域名正是游戏实际下载所用的。",
         "checks": {
           "dns": "DNS",
           "heartbeat": "心跳",
@@ -2010,7 +2010,7 @@
         "evictionRemoveConfirmButton": "启用移除模式",
         "evictionRemoveAll": "全部移除",
         "evictionRemoveAllConfirmTitle": "移除所有已淘汰项目？",
-        "evictionRemoveAllConfirmMessage": "这将通过一次批量操作移除全部 {{count}} 个已淘汰项目（一次日志重写加数据库清理）。此操作无法撤销。",
+        "evictionRemoveAllConfirmMessage": "这将通过一次批量操作移除全部 {{count}} 个已淘汰项目（每个数据源一次日志重写，加数据库清理）。此操作无法撤销。",
         "evictionRemoveAllConfirmWarning": "仅移除已淘汰的仓库 - 部分缓存的游戏保留其磁盘文件。",
         "gameCacheRemoveAll": "全部移除",
         "gameCacheRemoveAllStarting": "正在移除 0 / {{total}} 个缓存项目...",
@@ -2098,8 +2098,8 @@
           },
           "cachedCorruptionDetections": {
             "label": "损坏扫描结果",
-            "description": "已保存的重复 MISS 候选项及其精确缓存路径",
-            "details": "扫描验证为仍在磁盘上的预计算可疑缓存文件",
+            "description": "两种扫描方式保存的损坏扫描结果",
+            "details": "已完成的结构扫描与重复 MISS 扫描、其标记的缓存路径及保存的证据。清除时也会删除扫描历史。",
             "affectedPages": "缓存标签页 • 损坏检测与移除"
           },
           "clientGroups": {
@@ -2423,11 +2423,7 @@
             "mapping-login": "当用户登录并扫描其 Epic Games 库时发现",
             "prefill-login": "在认证登录期间由预填充守护进程发现",
             "free-games": "从 Epic Games 商店免费游戏目录发现",
-            "library": "从用户的 Epic Games 库发现 - 他们拥有或认领的游戏",
-            "wishlist": "在用户的 Epic Games 愿望单上发现",
-            "store": "从 Epic Games 商店目录发现",
             "manual": "手动添加的映射条目",
-            "daemon": "由预填充守护进程服务自动发现",
             "unknown": "未知的发现方法"
           }
         },
@@ -2562,26 +2558,12 @@
         "rsyncDesc": "使用空目录进行 Rsync（最适合 NFS/SMB）"
       },
       "help": {
-        "title": "缓存清除的工作原理",
-        "preserve": {
-          "description": "逐个删除缓存文件但保留文件夹结构。良好的默认选择。"
-        },
-        "removeAll": {
-          "description": "一次性删除整个文件夹。本地驱动器的最快选项。"
-        },
-        "rsync": {
-          "description": "使用 rsync 安全地删除文件。如果缓存位于网络驱动器（NFS/SMB）上，这是最佳选择。"
-        },
-        "warning": "这将删除所有缓存的游戏文件。您的客户端将需要重新下载所有内容。",
         "aboutTitle": "关于"
       },
       "alerts": {
         "readOnly": {
           "title": "缓存目录为只读",
           "description": "从 docker-compose 卷挂载中移除 :ro 以启用缓存清除。"
-        },
-        "importantPoints": {
-          "redownload": "客户端将需要从互联网下载内容"
         }
       },
       "modal": {
@@ -2611,12 +2593,15 @@
     },
     "corruption": {
       "help": {
-        "aboutTitle": "关于"
+        "aboutTitle": "关于",
+        "methodsTitle": "该选择哪种方式",
+        "structuralWhen": "直接读取文件，只报告能够证实的损坏。想要确切结论时使用。",
+        "repeatedMissWhen": "根据反复未命中缓存的下载来推断可疑文件。覆盖更广，但属于线索而非证据。",
+        "scanModesTitle": "结构扫描模式"
       },
       "title": "损坏检测与移除",
       "titleShort": "损坏检测与移除",
       "summary": "查找结构无效的缓存文件或重复 MISS 嫌疑项，并仅移除已保存扫描验证过的精确路径。",
-      "directoryMissing": "无法移除：未找到所需目录",
       "scanningMessage": "正在扫描日志，查找仍在磁盘上却反复缓存未命中的文件…对于大型日志文件，可能需要几分钟。",
       "scanningRepeatedMissMessage": "正在扫描日志，查找仍在磁盘上却反复缓存未命中的文件…对于大型日志文件，可能需要几分钟。",
       "scanningStructuralMessage": "正在检查 nginx 缓存头、有效负载偏移和权威有效负载长度…仅标记已证实的结构故障。",
@@ -2634,14 +2619,12 @@
       "runAgain": "再次运行",
       "fullScan": "全面扫描",
       "incrementalScan": "增量扫描",
-      "structuralScanHelp": "全面扫描会重新读取每个符合条件的缓存文件，并刷新用于比对的基线。增量扫描只重新读取自上次扫描以来大小或时间戳发生变化的文件；没有可用基线时，会先完整读取一次。",
-      "incrementalScanLimitation": "增量扫描仅凭文件大小和时间戳来决定重新读取哪些文件，因此会跳过大小和时间戳未变但内容已损坏的文件，而断电或非正常关机造成的损坏正是这种情况。全面扫描会重新读取每个文件，断电或崩溃之后、或者想要确切结果时，请选择全面扫描。",
+      "structuralScanHelp": "全面扫描会重新读取每个缓存文件。增量扫描只重新读取大小或时间戳发生变化的文件；没有基线时会先完整读取一次。",
+      "incrementalScanLimitation": "增量扫描会信任大小和时间戳未变的文件，因此未触及这些属性的损坏它无法察觉，例如硬盘故障在底层改动了数据。想要排除这种情况请运行全面扫描。",
       "scanningStructuralFullMessage": "正在检查每个符合条件的 nginx 缓存文件并刷新增量基线…",
       "scanningStructuralIncrementalMessage": "正在根据增量基线检查新增、已更改、未解决或之前无效的缓存文件…",
       "buildingStructuralBaselineMessage": "没有可用的兼容基线。此次增量扫描将完整检查每个符合条件的缓存文件一次，以创建基线…",
       "resumingStructuralIncrementalMessage": "正在从上次中断的增量扫描中安全提交的工作继续…",
-      "readOnly": "无法移除：存储为只读",
-      "dockerSocketRequired": "无法移除：需要 Docker 套接字",
       "cache": "缓存：",
       "datasource": "数据源：",
       "normalizedUri": "规范化 URI：",
@@ -2760,21 +2743,6 @@
           "description": "Content-Length 和 Content-Range 声明了相互冲突的权威有效负载大小。"
         }
       },
-      "alerts": {
-        "cacheMissing": "缓存目录不存在",
-        "directoryNotFound": "未找到所需目录。请确保它们在 docker-compose 中正确挂载。",
-        "logsAndCacheMissing": "日志和缓存文件不存在",
-        "logsAndCacheReadOnly": "日志和缓存文件为只读",
-        "logsMissing": "日志目录不存在",
-        "logsReadOnly": "日志目录为只读",
-        "cacheReadOnly": "缓存目录为只读",
-        "requiresWriteAccess": "已验证路径移除需要对日志和缓存都具有写权限。请移除",
-        "requiresCacheWriteAccess": "结构移除需要对缓存具有写权限。请移除",
-        "requiresLogsWriteAccess": "已验证路径移除需要对日志具有写权限。请移除",
-        "fromVolumeMounts": "（位于 docker-compose 卷挂载中）。",
-        "dockerSocketUnavailable": "Docker 套接字不可用",
-        "requiresNginxSignal": "已验证路径移除需要通知 nginx 在之后重新打开日志。"
-      },
       "emptyStates": {
         "noCorrupted": {
           "structuralTitle": "未发现结构无效的缓存文件",
@@ -2806,7 +2774,7 @@
         "title": "移除可疑缓存文件",
         "confirmRemove": "移除此扫描为 {{service}} 验证的精确缓存路径？",
         "removalSummaryStructural": "将删除匹配的缓存文件及其保存的扫描记录。扫描后发生变化的文件会被跳过，且此操作无法撤销。",
-        "removalSummaryRepeatedMiss": "将删除匹配的缓存文件及其日志和数据库记录。扫描后发生变化的文件会被跳过，且此操作无法撤销。",
+        "removalSummaryRepeatedMiss": "将删除匹配的缓存文件及其日志和数据库记录。已经不存在的文件会被跳过，且此操作无法撤销。",
         "removalScopeService": "最多删除 {{service}} 的 {{count}} 个文件。",
         "removalScopeAllServices": "将依次处理每个受影响的服务。",
         "deleteCacheAndLogs": "删除缓存和日志",
@@ -2905,7 +2873,7 @@
       "removingService": "正在移除 {{name}} 服务...",
       "failedToRemoveService": "从缓存中移除服务失败",
       "filterPrefix": "筛选：",
-      "scanningMultipleDatasources": "正在扫描数据库和 {{count}} 个缓存文件...",
+      "scanningMultipleDatasources": "正在扫描数据库和 {{count}} 个缓存...",
       "scanningSingle": "正在扫描数据库和缓存文件...",
       "scanningNote": "对于大型数据库和缓存文件，可能需要几分钟",
       "collapseAll": "全部折叠",
@@ -2913,25 +2881,6 @@
       "filteredBy": "按 <1>{{datasource}}</1> 筛选：{{gameCount}} 个游戏，{{serviceCount}} 个服务",
       "clearFilter": "清除筛选",
       "help": {
-        "removal": {
-          "title": "您可以移除的内容",
-          "game": {
-            "description": "删除一个特定游戏的所有缓存文件、日志和数据库记录"
-          },
-          "service": {
-            "description": "移除整个平台（如 Epic、Blizzard、Riot 或 WSUS）的所有内容"
-          }
-        },
-        "howItWorks": {
-          "title": "工作原理",
-          "description": "在数据库中查找游戏和服务，检查哪些文件实际存在于磁盘上，并显示大小和文件数。"
-        },
-        "note": "确保您已先处理访问日志，否则将没有任何内容可显示。",
-        "unknownGames": {
-          "title": "未知和已下架游戏",
-          "description": "不再出现在 Steam 应用列表中的游戏（已下架游戏）仍显示为\"未知游戏（仓库 XXXXXX）\"。您可以像任何其他游戏一样移除它们 - 运行扫描并点击移除。",
-          "tip": "移除未知游戏是修复损坏或异常游戏下载的推荐方法。"
-        },
         "aboutTitle": "关于"
       },
       "emptyState": {
@@ -3079,17 +3028,6 @@
       },
       "errors": {},
       "help": {
-        "importTypes": {
-          "title": "选项",
-          "lancacheManager": {
-            "description": "从 LANCache Manager 数据库备份恢复"
-          }
-        },
-        "compatibility": {
-          "title": "重要提示",
-          "description": "请确保为您的数据库选择了正确的导入类型。如果文件在 Docker 容器外部，请先将其挂载为卷。"
-        },
-        "warning": "在导入前停止其他应用程序，以免数据库被锁定。",
         "aboutTitle": "关于"
       },
       "alerts": {
@@ -3125,10 +3063,10 @@
       "modal": {
         "removeServiceLogs": "移除服务日志",
         "removeQuestion": "从 {{datasource}} 日志中移除所有 {{service}} 条目？这将减小日志大小并提高性能。",
-        "serviceSummary": "缓存的 {{service}} 游戏文件将保持不变，但已移除的日志条目无法恢复。",
+        "serviceSummary": "缓存的 {{service}} 游戏文件将保持不变，但已移除的日志条目以及该服务的下载历史记录和统计信息无法恢复。",
         "deleteEntireLogFile": "删除整个日志文件",
-        "deleteQuestion": "删除 {{datasource}} 的整个 access.log 文件？这将移除该数据源的所有下载历史记录。",
-        "fileSummary": "将删除该文件中的所有日志条目，下载历史记录和统计信息也会丢失。缓存的游戏文件保持不变，且此操作无法撤销。",
+        "deleteQuestion": "删除 {{datasource}} 的全部日志文件？尚未处理的条目将丢失，日志此后也无法重新处理。",
+        "fileSummary": "将删除原始日志文件。数据库中已有的下载历史记录会保留，缓存的游戏文件保持不变，且此操作无法撤销。",
         "batchSummary": "此操作无法撤销。"
       },
       "errors": {
@@ -3138,29 +3076,7 @@
         "deleteFailed": "删除日志文件失败"
       },
       "help": {
-        "whatThisDoes": {
-          "title": "功能说明",
-          "description": "移除特定服务（如 Steam 或 Epic）的日志条目以释放空间并加快日志处理速度。"
-        },
-        "whatItAffects": {
-          "title": "被移除的内容"
-        },
-        "note": "您的缓存游戏文件不会受到影响 -- 仅移除日志数据。",
         "aboutTitle": "关于"
-      },
-      "alerts": {
-        "logsReadOnly": {
-          "title": "日志目录为只读",
-          "description": "从您的 docker-compose 卷挂载中移除 :ro 以启用日志移除。"
-        },
-        "logsMissing": {
-          "title": "日志目录不存在",
-          "description": "未找到日志目录。请确保其在 docker-compose 中正确挂载。"
-        },
-        "dockerSocket": {
-          "title": "Docker 套接字不可用",
-          "description": "日志移除需要通知 nginx 在之后重新打开日志。"
-        }
       },
       "emptyState": {
         "title": "未找到包含日志条目的服务",
@@ -3170,8 +3086,19 @@
     "steamWebApi": {
       "title": "Steam Web API 状态",
       "sectionTitle": "Web API",
+      "badgeOperational": "Web API",
+      "badgeNeedsKey": "需要 API 密钥",
+      "badgeUnavailable": "Web API 不可用",
+      "keyRow": "API 密钥",
+      "keyConfigured": "此服务器已存储 V1 密钥",
+      "keyMissing": "V1 回退需要 Steam Web API 密钥",
       "checkingStatus": "正在检查状态...",
       "unknownStatus": "未知状态",
+      "state": {
+        "operational": "Web API 运行正常",
+        "needsKey": "V2 不可用，V1 需要 API 密钥",
+        "down": "Web API 不可用"
+      },
       "v1WithKey": "V1（有密钥）",
       "v1NoKey": "V1（无密钥）",
       "updateApiKey": "更新 API 密钥",
@@ -3197,7 +3124,7 @@
           },
           "v1": {
             "term": "V1（推荐）",
-            "description": "需要来自 Steam 的免费 API 密钥。比 V2 更可靠，配置后会自动使用。"
+            "description": "需要来自 Steam 的免费 API 密钥。仅在 V2 失效时自动作为后备使用。"
           }
         },
         "apiKey": {
@@ -3215,10 +3142,9 @@
       "title": "Steam PICS 身份验证",
       "sectionTitle": "PICS 身份验证",
       "connected": "已连接",
-      "switchedToAnonymous": "已切换至匿名 Steam 模式，Depot 映射已保留。",
+      "switchedToAnonymous": "已切换至匿名 Steam 模式，Depot 映射已保留；所有运行中的 Steam 预填充会话已被结束。",
       "prefillWarning": {
-        "title": "预填充需要单独登录",
-        "description": "预填充会话不支持自动登录。Steam 要求每个连接使用自己的凭据进行身份验证，共享会话令牌会导致其中一个连接断开。每个预填充会话都必须手动登录。"
+        "description": "预填充会话不支持自动登录。让预填充连接复用管理器已保存的 Steam 会话可能导致 Steam 断开其中一个连接，因此每个预填充会话都必须手动登录。"
       },
       "autoLogout": {
         "title": "Steam 会话自动登出",
@@ -3241,7 +3167,6 @@
       "manualRebuild": "登录后手动触发仓库映射重建",
       "automatic": "自动",
       "manual": "手动",
-      "authenticatedAs": "已认证为",
       "steamUser": "Steam 用户",
       "logout": "登出",
       "help": {
@@ -4016,14 +3941,14 @@
         },
         "epicMapping": {
           "displayName": "Epic 游戏映射",
-          "description": "刷新用于识别缓存中 Epic 下载的 Epic 游戏商店目录：游戏标题、CDN URL 模式和仓库映射。",
+          "description": "刷新用于识别缓存中 Epic 下载的 Epic 游戏商店目录：游戏标题和 CDN URL 模式。",
           "summary": "保持 Epic 商店目录为最新。",
           "gain": "新发布或更新的 Epic 游戏更快地映射到其缓存下载，使其出现在游戏列表中而无需等待下一个检测周期",
           "loss": "新发布或更名的 Epic 游戏可能不会出现在游戏列表中，直到下次计划刷新"
         },
         "xboxMapping": {
           "displayName": "Xbox 游戏映射",
-          "description": "刷新用于命名缓存中 Xbox 下载的 Xbox / 微软商店目录。从已认证的 Xbox 预填充会话读取已拥有的游戏列表和每个文件的 CDN 模式，无需进行预填充下载。",
+          "description": "刷新用于命名缓存中 Xbox 下载的 Xbox / 微软商店目录。从已登录的 Xbox 账户或已认证的 Xbox 预填充会话读取已拥有的游戏列表和每个文件的 CDN 模式，无需进行预填充下载。",
           "summary": "保持 Xbox 目录为最新。",
           "gain": "已拥有的 Xbox 游戏会按计划映射到其缓存下载，因此在真实 Xbox 或 PC 上下载的游戏无需启动预填充即可被命名",
           "loss": "新获得的 Xbox 游戏可能不会出现在游戏列表中，直到下次计划刷新或守护进程登录",
@@ -4068,7 +3993,7 @@
         },
         "cacheSnapshot": {
           "displayName": "缓存快照",
-          "description": "定期保存已用缓存大小和总容量的快照，以便仪表板可以绘制随时间变化的增长图。超过 90 天的快照会自动删除。",
+          "description": "定期保存已用缓存大小和总容量的快照，以便仪表板可以绘制随时间变化的增长图。超过 90 天（可配置）的快照会自动删除。",
           "summary": "定期记录缓存用量供仪表盘绘图。",
           "gain": "缓存增长图表具有更精细的粒度，更容易发现趋势和峰值",
           "loss": "增长图将具有更宽的数据点间隙，使短期趋势更难看到"
@@ -4137,12 +4062,12 @@
       },
       "regenerateModal": {
         "title": "重新生成 API 密钥",
-        "message": "重新生成 API 密钥将删除其他所有用户账户，并立即登出所有已连接的设备和访客。您自己的账户会保留用户名和密码，请使用它们和新密钥重新登录。",
+        "message": "重新生成 API 密钥将删除其他所有用户账户，立即登出所有已连接的设备和访客，并清除 Steam 登录和已保存的 Steam Web API 密钥。您自己的账户会保留用户名和密码，请使用它们和新密钥重新登录。",
         "important": "重要提示："
       },
       "rotatedModal": {
         "title": "您的新 API 密钥",
-        "message": "此密钥仅显示这一次。请立即复制，因为所有人都已被登出，重新登录需要它。",
+        "message": "应用只显示这一次此密钥（它还会在服务器日志中打印一次）。请立即复制，因为所有人都已被登出，重新登录需要它。",
         "copied": "已复制！",
         "copyFailed": "此浏览器不允许页面代为复制。请在关闭前手动选中上方的密钥并复制。"
       }
@@ -4290,7 +4215,7 @@
       "modals": {
         "terminateAll": {
           "title": "终止所有会话",
-          "message": "这将终止 {{count}} 个活跃的预填充会话。所有 Docker 容器将被停止并移除。",
+          "message": "这将终止 {{count}} 个活跃的预填充会话，并停止和移除它们的 Docker 容器。持久容器不受影响。",
           "warning": "用户需要重新启动其预填充会话。",
           "cancel": "取消",
           "confirm": "全部终止"

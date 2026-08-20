@@ -72,12 +72,12 @@
 
   *::-webkit-scrollbar-track {
     background: var(--theme-scrollbar-track);
-    border-radius: var(--theme-border-radius, 0.5rem);
+    border-radius: var(--theme-border-radius);
   }
 
   *::-webkit-scrollbar-thumb {
     background: var(--theme-scrollbar-thumb);
-    border-radius: var(--theme-border-radius, 0.5rem);
+    border-radius: var(--theme-border-radius);
   }
 
   *::-webkit-scrollbar-thumb:hover {

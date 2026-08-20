@@ -39,7 +39,9 @@
        splits evenly. It also squares the plain badge up with the count chip, which the border was
        already pushing to this height. */
     min-height: 1.0625rem; /* 17px */
-    border-radius: 3px;
+    /* The chip step of the scale, not a literal 3px: hard-coded, a badge kept its corners even
+       when the theme asked for sharp ones, which every other surface honours. */
+    border-radius: var(--theme-border-radius-sm);
     white-space: nowrap;
     text-transform: uppercase;
     /* Tracking is em-relative, so it shrinks with the font. Nudged up to hold roughly the same

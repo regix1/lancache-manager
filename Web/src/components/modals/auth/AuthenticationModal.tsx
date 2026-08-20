@@ -254,7 +254,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       {/* dvh, not vh: on a phone vh includes the space the browser's own chrome occupies, so the
           card is sized taller than what the person can actually see and the sign-in button sits
           under the address bar. */}
-      <div className="relative z-10 w-full max-w-xl rounded-xl border overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)] bg-themed-secondary border-themed-primary">
+      <div className="relative z-10 w-full max-w-xl themed-border-radius border overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)] bg-themed-secondary border-themed-primary">
         {/* Header */}
         <div className="px-5 sm:px-8 py-4 sm:py-5 border-b flex items-center justify-between border-themed-secondary">
           <div className="flex items-center gap-2">

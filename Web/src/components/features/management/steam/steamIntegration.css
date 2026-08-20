@@ -1,0 +1,70 @@
+/* Steam integration card: settings-list layout, matching mgmt-row density. */
+
+.steam-integration {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.steam-integration__subhead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.steam-integration .mgmt-row {
+  flex-wrap: wrap;
+  row-gap: 0.5rem;
+}
+
+/* Account identity tile: the section's one anchor. The green tint reflects the real
+   backend auth state; anonymous stays neutral. */
+.steam-integration__account-icon {
+  background-color: var(--theme-text-secondary-muted);
+  color: var(--theme-text-secondary);
+}
+
+.steam-integration__account-icon--on {
+  background-color: var(--theme-success-bg);
+  color: var(--theme-success);
+}
+
+.steam-integration .mgmt-row__actions {
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.steam-integration__status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mgmt-row__title.steam-integration__status--ok {
+  color: var(--theme-success-text);
+}
+
+.mgmt-row__title.steam-integration__status--warn {
+  color: var(--theme-warning-text);
+}
+
+.mgmt-row__title.steam-integration__status--err {
+  color: var(--theme-error-text);
+}
+
+.steam-integration .steam-integration__segments {
+  min-width: 13rem;
+  width: auto;
+}
+
+@media (max-width: 639.98px) {
+  .steam-integration .mgmt-row__actions {
+    width: 100%;
+  }
+
+  .steam-integration .steam-integration__segments {
+    width: 100%;
+    min-width: 0;
+  }
+}

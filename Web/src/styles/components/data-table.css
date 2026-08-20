@@ -7,7 +7,7 @@
 
   /* Container */
   .data-table {
-    border-radius: 0.5rem;
+    border-radius: var(--theme-border-radius-lg);
     overflow: hidden;
     background-color: transparent;
   }

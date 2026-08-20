@@ -14,27 +14,47 @@
 
 /* ----- Header: title + view switch + filters ----- */
 
-/* The filters are a wrapped line of this same strip rather than a separate block, so the row gap
-   between the two lines is one value instead of two stacked margins that have to agree. */
+/* Two lines at every width: the title owns the first, every control shares the second. The filters
+   are a wrapped line of this same strip rather than a separate block, so the row gap between the
+   two lines is one value instead of two stacked margins that have to agree. */
 .rdl-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   flex-wrap: wrap;
-  column-gap: 1rem;
-  row-gap: 0.85rem;
-  margin-bottom: 0.75rem;
+  column-gap: 0.75rem;
+  row-gap: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 .rdl-header h3 {
   min-width: 0;
 }
 
+/* The title never shares its line with the switch - the switch belongs with the detail toggle and
+   the pickers below it. This is also the one dashboard title with no help trigger beside it, so it
+   carries the row height the other four get from theirs and its text lands on their baseline. */
+.rdl-header .dash-panel-title {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  min-height: 1.5rem;
+}
+
+/* Takes the row rather than sizing to its two words: "Recent" and "Active" are short enough that
+   a content-sized pair read as two small chips against the width of the panel. It grows into
+   whatever the detail toggle and the pickers beside it do not use, and fullWidth on the control
+   splits that evenly between the two segments. */
 .rdl-view-switch {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.rdl-view-switch > .segmented-control-container {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* The detail toggle leads the filter row. Its siblings there are `flex: 1` with a 120px floor so
@@ -62,7 +82,7 @@
   padding: 0 5px;
   font-size: var(--font-size-2xs);
   font-weight: 700;
-  border-radius: 3px;
+  border-radius: var(--theme-border-radius-sm);
   border: 1px solid var(--theme-badge-white-subtle);
   background: var(--theme-success);
   color: var(--theme-button-text);
@@ -93,11 +113,17 @@
 
 /* ----- Filters ----- */
 
+/* Sits on the control line beside the view switch rather than claiming a line of its own - the
+   switch, the detail toggle and the pickers read as one cluster. Pushed to the right edge with an
+   auto margin: the switch is a fixed-width pair of words, so without it the detail toggle backed
+   straight up against "Active" with the rest of the row empty after it. */
 .rdl-filters {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
-  flex: 1 0 100%;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
 }
 
 .rdl-filters > * {
@@ -121,59 +147,12 @@
     min-width: 140px;
   }
 
-  /* Fixed rather than content-sized, matching the Games picker on the chart panel beside this one.
-     The row is right-aligned, so a trigger that resized with its label would shift its neighbours
-     every time the selection changed. 12rem fits the longest label with its prefix. */
+  /* Fixed rather than content-sized, matching the Games picker on the chart panel beside this one,
+     so a trigger that resized with its label cannot shift its neighbours every time the selection
+     changes. 12rem fits the longest label with its prefix. */
   .rdl-filters > .rdl-filter-select {
     width: 12rem;
     flex: 0 0 auto;
-  }
-}
-
-/* Once the panel can hold the view switch and the filter pair on one line, the title takes the first
-   line by itself and every control drops to the second. That gives this panel the same two lines as
-   the chart panel next to it, so title sits with title, controls with controls and the list starts
-   level with the chart. The floor is the 240px switch plus the 288px filter pair plus the gap; below
-   it the two clusters cannot share a line, so the title keeps the switch for company. */
-@container (min-width: 560px) {
-  .rdl-header {
-    justify-content: flex-start;
-    column-gap: 0.75rem;
-    row-gap: 0.75rem;
-    margin-bottom: 1rem;
-  }
-
-  /* This is the one dashboard title with no help trigger beside it, so it carries the row height the
-     other four get from theirs and its text lands on their baseline. */
-  .rdl-header .dash-panel-title {
-    flex: 1 0 100%;
-    display: flex;
-    align-items: center;
-    min-height: 1.5rem;
-  }
-
-  .rdl-filters {
-    flex: 1 1 auto;
-    justify-content: flex-end;
-  }
-}
-
-/* Labelled, the switch is 184px, and with the filter trio's 448px and the 12px gap the second row
-   needs 644px. Between the 560px floor above and that 644px the title had already taken its own
-   line, so the filters had nowhere to go and the panel showed three rows. Dropping the two labels
-   takes the switch to about 88px, which brings the row back under the width available.
-   Hidden rather than removed: the text still names each button for a screen reader, and the icons
-   carry Recent and Active on screen. Above 644px the labels come back. */
-@container (min-width: 560px) and (max-width: 643.98px) {
-  .rdl-view-switch .segmented-control-button > span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
 }
 
@@ -367,14 +346,6 @@
    Reuse the active pulse row layout; the badge and the window-bytes figure are
    what distinguish a preview from a recorded row. Fixed line-height figures so
    per-tick speed updates cannot shift the layout. */
-
-.rdl-live-badge {
-  font-size: var(--font-size-2xs);
-  line-height: 1.4;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  flex-shrink: 0;
-}
 
 .rdl-window-bytes {
   font-size: var(--font-size-xs);

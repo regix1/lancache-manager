@@ -192,7 +192,7 @@
 
 .pagination-inline__btn {
   padding: 0.125rem;
-  border-radius: 0.25rem;
+  border-radius: var(--theme-border-radius);
   background-color: transparent;
   color: var(--theme-text-secondary);
   border: none;

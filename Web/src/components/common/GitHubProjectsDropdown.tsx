@@ -774,7 +774,9 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
                       <div className="github-repo-name-row">
                         <span className="github-repo-name">{repo.name}</span>
                         {repo.isFork && (
-                          <span className="github-fork-pill">{t('nav.githubProjects.fork')}</span>
+                          <span className="themed-badge github-fork-pill">
+                            {t('nav.githubProjects.fork')}
+                          </span>
                         )}
                       </div>
                       <span className="github-repo-short">/{repo.shortName}</span>
@@ -828,7 +830,9 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
                       <div className="github-repo-name-row">
                         <span className="github-repo-name">{repo.name}</span>
                         {repo.isFork && (
-                          <span className="github-fork-pill">{t('nav.githubProjects.fork')}</span>
+                          <span className="themed-badge github-fork-pill">
+                            {t('nav.githubProjects.fork')}
+                          </span>
                         )}
                       </div>
                       <span className="github-repo-short">/{repo.shortName}</span>

@@ -187,10 +187,11 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             {t('dashboard.topClients.title')}
             <CacheInfoTooltip />
           </h3>
-          <div className="flex items-center gap-2">
+          <div className="cluster top-clients-controls">
             {/* The range these rows cover. A chip rather than the loose muted line it used to be,
                 so it reads as a marker on the control row instead of stray text beside the sort.
-                Ahead of the sort so the picker keeps the row's right edge. */}
+                Ahead of the sort so the picker keeps the row's right edge. The cluster class also
+                gives the chip the standard 12px stand-off from the picker. */}
             <Badge variant="neutral">{timeRangeLabel}</Badge>
             <EnhancedDropdown
               options={[
@@ -201,7 +202,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
               ]}
               value={sortBy}
               onChange={(value) => setSortBy(value as SortOption)}
-              className="w-48"
+              className="w-48 top-clients-sort"
             />
           </div>
         </div>

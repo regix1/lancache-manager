@@ -154,7 +154,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
           <button
             onClick={onClick}
             aria-current={isActive ? 'page' : undefined}
-            className={`flex items-center space-x-2 px-3 py-2 rounded-lg font-medium transition duration-200 bg-transparent ${className}`}
+            className={`flex items-center space-x-2 px-3 py-2 rounded-md font-medium transition duration-200 bg-transparent ${className}`}
             style={{
               color: isActive ? 'var(--theme-nav-tab-active)' : 'var(--theme-nav-tab-inactive)'
             }}
