@@ -18,10 +18,13 @@
     /* Vertical padding is deliberately lopsided. Centring aligns the font's box, not the glyphs,
        and the box reserves descender room this badge can never use: the text is always uppercase,
        so nothing is drawn below the baseline. That empty descent pushed the visible characters
-       0.9px above centre. Moving 1px of the 4px from the bottom to the top puts the ink back on
-       the centre line. */
-    padding-top: 3px;
-    padding-bottom: 1px;
+       0.9px above centre. Moving most of 1px of the 4px from the bottom to the top puts the ink
+       back on the centre line.
+       2.9 and not a round 3: at 3px the text lands 0.19 CSS px low, which nothing shows on a 1x
+       display but a phone renders as more than half a device pixel, so the ink sits visibly off
+       centre there and nowhere else. Measured even at 1x, 2x and 3x at this split. */
+    padding-top: 2.9px;
+    padding-bottom: 1.1px;
     display: inline-flex;
     align-items: center;
     width: fit-content;
