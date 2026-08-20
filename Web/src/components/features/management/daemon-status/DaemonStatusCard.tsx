@@ -137,8 +137,11 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
                 {extraDetail}
               </div>
               {readout && <div className="flex-shrink-0">{readout}</div>}
+              {/* Stacked, the row is a column and the button would sit against the left edge while
+                  Steam's card keeps its actions on the right. self-end holds that edge below sm;
+                  above it justify-between already does the job. */}
               {auth?.enabled && (
-                <div className="flex-shrink-0">
+                <div className="flex-shrink-0 self-end sm:self-auto">
                   {connected ? (
                     <Button
                       onClick={auth.onLogout}
