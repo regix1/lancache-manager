@@ -188,6 +188,10 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             <CacheInfoTooltip />
           </h3>
           <div className="flex items-center gap-2">
+            {/* The range these rows cover. A chip rather than the loose muted line it used to be,
+                so it reads as a marker on the control row instead of stray text beside the sort.
+                Ahead of the sort so the picker keeps the row's right edge. */}
+            <Badge variant="neutral">{timeRangeLabel}</Badge>
             <EnhancedDropdown
               options={[
                 { value: 'total', label: t('dashboard.topClients.sort.total') },
@@ -199,9 +203,6 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
               onChange={(value) => setSortBy(value as SortOption)}
               className="w-48"
             />
-            {/* The range these rows cover. A chip rather than the loose muted line it used to be,
-                so it reads as a marker on the control row instead of stray text beside the sort. */}
-            <Badge variant="neutral">{timeRangeLabel}</Badge>
           </div>
         </div>
 
