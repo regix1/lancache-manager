@@ -14,7 +14,14 @@
 
   /* Badge Base Class */
   .themed-badge {
-    @apply px-1.5 py-0.5 font-semibold;
+    @apply px-1.5 font-semibold;
+    /* Vertical padding is deliberately lopsided. Centring aligns the font's box, not the glyphs,
+       and the box reserves descender room this badge can never use: the text is always uppercase,
+       so nothing is drawn below the baseline. That empty descent pushed the visible characters
+       0.9px above centre. Moving 1px of the 4px from the bottom to the top puts the ink back on
+       the centre line. */
+    padding-top: 3px;
+    padding-bottom: 1px;
     display: inline-flex;
     align-items: center;
     width: fit-content;
@@ -24,10 +31,14 @@
        mixed case. The scale keeps its floor for the labels that are still mixed case. */
     font-size: 0.5625rem; /* 9px */
     line-height: 1.2;
-    /* The pill keeps the 16px it had at the larger type. Height here comes from line-height plus
-       padding, so shrinking the text alone would have taken the whole badge down to 14.8px and
-       moved it out of step with the controls it sits beside. */
-    min-height: 1rem;
+    /* The pill keeps roughly the 16px it had at the larger type. Height here comes from
+       line-height plus padding, so shrinking the text alone would have taken the whole badge down
+       to 14.8px and moved it out of step with the controls it sits beside.
+       17 and not 16 because the capitals paint exactly 7px tall: an even box leaves an odd number
+       of pixels to share, so the text can only ever sit a pixel high or a pixel low. An odd box
+       splits evenly. It also squares the plain badge up with the count chip, which the border was
+       already pushing to this height. */
+    min-height: 1.0625rem; /* 17px */
     border-radius: 3px;
     white-space: nowrap;
     text-transform: uppercase;
