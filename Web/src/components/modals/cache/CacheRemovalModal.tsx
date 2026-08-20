@@ -39,6 +39,7 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
   const filesCount = target.data.cache_files_found;
   const totalSize = target.data.total_size_bytes;
   const depotCount = isGame ? (target.data as GameCacheInfo).depot_ids.length : 0;
+  const isEvictedRemoval = titleOverride !== undefined && evictedCount !== undefined;
 
   const modalTitle =
     titleOverride ??
@@ -63,49 +64,23 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
     >
       <p className="text-themed-secondary">{modalDescription}</p>
 
+      {/* One sentence rather than the six bullets this used to be. The old list spelled out the
+          record tables and where progress appears, which is not what the reader is deciding. */}
       <Alert color="yellow">
-        <div>
-          <p className="text-xs font-medium mb-2">{t('modals.cacheRemoval.thisWill')}</p>
-          <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-            {titleOverride !== undefined && evictedCount !== undefined ? (
-              <>
-                <li>
-                  {t('modals.cacheRemoval.actions.removeEvictedLogEntries', {
-                    count: evictedCount
-                  })}
-                </li>
-                <li>
-                  {t('modals.cacheRemoval.actions.freeSpace', {
-                    size: formatBytes(evictedBytes ?? 0)
-                  })}
-                </li>
-              </>
-            ) : (
-              <>
-                <li>
-                  {t('modals.cacheRemoval.actions.deleteFiles', {
-                    count: filesCount,
-                    formattedCount: formatCount(filesCount)
-                  })}
-                </li>
-                <li>
-                  {t('modals.cacheRemoval.actions.freeSpace', { size: formatBytes(totalSize) })}
-                </li>
-                {isGame && depotCount > 0 && (
-                  <li>{t('modals.cacheRemoval.actions.removeDepots', { count: depotCount })}</li>
-                )}
-                {!isGame && (
-                  <>
-                    <li>{t('modals.cacheRemoval.actions.removeLogEntries')}</li>
-                    <li>{t('modals.cacheRemoval.actions.removeDownloadRecords')}</li>
-                  </>
-                )}
-              </>
-            )}
-            <li>{t('modals.cacheRemoval.actions.showProgress')}</li>
-            <li>{t('modals.cacheRemoval.actions.cannotUndo')}</li>
-          </ul>
-        </div>
+        <p className="text-xs">
+          {isEvictedRemoval
+            ? t('modals.cacheRemoval.summaryEvicted', {
+                count: evictedCount,
+                size: formatBytes(evictedBytes ?? 0)
+              })
+            : t(isGame ? 'modals.cacheRemoval.summaryGame' : 'modals.cacheRemoval.summaryService', {
+                formattedCount: formatCount(filesCount),
+                size: formatBytes(totalSize)
+              })}
+          {!isEvictedRemoval && isGame && depotCount > 0
+            ? ` ${t('modals.cacheRemoval.depotScope', { count: depotCount })}`
+            : null}
+        </p>
       </Alert>
     </ConfirmationModal>
   );

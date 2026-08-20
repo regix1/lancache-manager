@@ -1421,7 +1421,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         </p>
         <CorruptionRemovalWarning
           detectionMethod={detectionMethod}
-          extraCautions={<li>{t('management.corruption.modal.removeAllAcrossAllServices')}</li>}
+          scopeNote={t('management.corruption.modal.removalScopeAllServices')}
         />
       </ConfirmationModal>
 
@@ -1486,22 +1486,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         </p>
         <CorruptionRemovalWarning
           detectionMethod={detectionMethod}
-          extraCautions={
-            <>
-              <li>
-                {t('management.corruption.modal.validFilesRemain', {
-                  service: pendingServiceRemoval
-                    ? getServiceDisplayName(pendingServiceRemoval)
-                    : undefined
-                })}
-              </li>
-              <li>
-                {t('management.corruption.modal.removesApproximately', {
-                  count: corruptionCounts[pendingServiceRemoval ?? ''] ?? 0
-                })}
-              </li>
-            </>
-          }
+          scopeNote={t('management.corruption.modal.removalScopeService', {
+            count: corruptionCounts[pendingServiceRemoval ?? ''] ?? 0,
+            service: pendingServiceRemoval
+              ? getServiceDisplayName(pendingServiceRemoval)
+              : undefined
+          })}
         />
       </ConfirmationModal>
     </>

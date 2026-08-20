@@ -933,22 +933,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         </p>
 
         <Alert color="yellow">
-          <div>
-            <p className="text-sm font-medium mb-2">
-              {t('management.logRemoval.modal.important')}:
-            </p>
-            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-              <li>{t('management.logRemoval.modal.cannotUndo')}</li>
-              <li>{t('management.logRemoval.modal.mayTakeMinutes')}</li>
-              <li>
-                {t('management.logRemoval.modal.cachedFilesRemain', {
-                  service: pendingServiceRemoval
-                    ? getServiceDisplayName(pendingServiceRemoval.service)
-                    : undefined
-                })}
-              </li>
-            </ul>
-          </div>
+          <p className="text-sm">
+            {t('management.logRemoval.modal.serviceSummary', {
+              service: pendingServiceRemoval
+                ? getServiceDisplayName(pendingServiceRemoval.service)
+                : undefined
+            })}
+          </p>
         </Alert>
       </ConfirmationModal>
 
@@ -974,17 +965,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         </p>
 
         <Alert color="red">
-          <div>
-            <p className="text-sm font-medium mb-2">
-              {t('management.logRemoval.modal.warningDestructive')}:
-            </p>
-            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-              <li>{t('management.logRemoval.modal.permanentlyDelete')}</li>
-              <li>{t('management.logRemoval.modal.historyLost')}</li>
-              <li>{t('management.logRemoval.modal.cannotUndo')}</li>
-              <li>{t('management.logRemoval.modal.cachedGamesRemain')}</li>
-            </ul>
-          </div>
+          <p className="text-sm">{t('management.logRemoval.modal.fileSummary')}</p>
         </Alert>
       </ConfirmationModal>
 
@@ -1004,15 +985,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         </p>
 
         <Alert color="yellow">
-          <div>
-            <p className="text-sm font-medium mb-2">
-              {t('management.logRemoval.modal.important')}:
-            </p>
-            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-              <li>{t('management.logRemoval.modal.cannotUndo')}</li>
-              <li>{t('management.logRemoval.modal.mayTakeMinutes')}</li>
-            </ul>
-          </div>
+          <p className="text-sm">{t('management.logRemoval.modal.batchSummary')}</p>
         </Alert>
       </ConfirmationModal>
     </>

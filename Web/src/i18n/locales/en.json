@@ -1153,24 +1153,13 @@
       "resetModal": {
         "title": "Reset All Guests to Defaults",
         "message": "Are you sure you want to reset all guest session preferences to the default values?",
-        "noteTitle": "This action will:",
-        "points": {
-          "theme": "Reset theme to default guest theme",
-          "refreshRate": "Reset refresh rate to default guest refresh rate",
-          "preferences": "Reset all display and timezone preferences",
-          "active": "Guest sessions will remain active"
-        },
+        "summary": "Resets theme, refresh rate and every display and timezone preference to the guest defaults. Guest sessions stay active.",
         "confirm": "Reset All Guests"
       },
       "clearModal": {
         "title": "Clear All Guest Sessions",
         "message": "Are you sure you want to remove all guest sessions? This action cannot be undone.",
-        "noteTitle": "Warning:",
-        "points": {
-          "deleted": "All guest sessions will be permanently deleted",
-          "logout": "All connected guests will be logged out immediately",
-          "data": "Guest preferences and session data will be lost"
-        },
+        "summary": "Deletes every guest session and logs connected guests out immediately. Their preferences and session data are lost.",
         "confirm": "Clear All Guests"
       }
     },
@@ -1295,23 +1284,13 @@
     "revokeModal": {
       "title": "Revoke Device",
       "message": "Are you sure you want to revoke this {{type}}?",
-      "noteTitle": "What happens when you revoke:",
-      "points": {
-        "marked": "The device is marked as revoked but not deleted",
-        "logout": "The user will be logged out immediately",
-        "history": "The device record remains in history"
-      },
+      "summary": "The user is logged out immediately. The device is marked revoked rather than deleted, so it stays in history.",
       "confirm": "Revoke Device"
     },
     "deleteModal": {
       "title": "Delete Device",
       "message": "Are you sure you want to permanently delete this {{type}}?",
-      "noteTitle": "Warning:",
-      "points": {
-        "noUndo": "This action cannot be undone",
-        "removed": "The device will be permanently removed from history",
-        "logout": "The user will be logged out immediately"
-      },
+      "summary": "The user is logged out immediately and the device is removed from history for good. This cannot be undone.",
       "confirm": "Delete Permanently"
     },
     "preferencesModal": {
@@ -2065,22 +2044,18 @@
         "affects": "Affects:",
         "confirmClearTitle": "Clear Selected Tables",
         "confirmClearMessage": "You are about to permanently delete data from the following table(s):",
-        "confirmClearImportant": "Important:",
         "confirmClearWarnings": {
-          "noUndo": "This action cannot be undone",
-          "exportFirst": "Export any data you need before continuing",
-          "reportsAffected": "Historical reports may be affected",
-          "depotMappings": "Games will show as \"Unknown\" until mappings are rebuilt",
-          "events": "All events and their download associations will be permanently deleted",
-          "userSessionsLogout": "All devices will be logged out and the application will reload",
-          "userSessionsCleared": "All registered devices will be cleared - you will need to re-authenticate",
-          "clientGroups": "All client groups and their member associations will be permanently deleted",
-          "prefillSessions": "All prefill sessions will be permanently deleted",
-          "bannedPrefillUsers": "All banned prefill users will be unblocked and can prefill again",
-          "epicGameMappings": "Epic games will show as \"Unknown\" until mappings are rebuilt",
-          "epicCdnPatterns": "Epic game detection may not work until CDN patterns are re-fetched",
-          "xboxGameMappings": "Xbox games will show as \"Unknown\" until mappings are rebuilt",
-          "xboxCdnPatterns": "Xbox game detection may not work until CDN patterns are re-fetched"
+          "clearSummary": "Export anything you need first. This cannot be undone, and historical reports may be affected.",
+          "depotMappings": "Games will show as \"Unknown\" until mappings are rebuilt.",
+          "events": "All events and their download associations are deleted.",
+          "userSessions": "All devices are logged out and cleared, so everyone has to authenticate again.",
+          "clientGroups": "All client groups and their members are deleted.",
+          "prefillSessions": "All prefill sessions are deleted.",
+          "bannedPrefillUsers": "Banned prefill users are unblocked and can prefill again.",
+          "epicGameMappings": "Epic games will show as \"Unknown\" until mappings are rebuilt.",
+          "epicCdnPatterns": "Epic game detection may not work until CDN patterns are re-fetched.",
+          "xboxGameMappings": "Xbox games will show as \"Unknown\" until mappings are rebuilt.",
+          "xboxCdnPatterns": "Xbox game detection may not work until CDN patterns are re-fetched."
         },
         "clearTables": "Clear {{count}} Table",
         "clearTables_other": "Clear {{count}} Tables",
@@ -2605,7 +2580,6 @@
           "title": "Cache directory is read-only",
           "description": "Remove :ro from your docker-compose volume mounts to enable cache clearing."
         },
-        "important": "Important:",
         "importantPoints": {
           "redownload": "Clients will need to download content from the internet"
         }
@@ -2613,9 +2587,7 @@
       "modal": {
         "deleteFromDatasource": "This will permanently delete all cached game files from the {{datasource}} cache. Games will need to redownload content after clearing.",
         "deleteFromAll": "This will permanently delete all cached game files from all datasources. Games will need to redownload content after clearing.",
-        "cannotBeUndone": "This action cannot be undone",
-        "stopActiveDownloads": "Stop all active downloads before proceeding",
-        "historyPreserved": "Download history and settings will be preserved",
+        "clearSummary": "Stop any active downloads first. Download history and settings are kept, but the cached files cannot be recovered.",
         "deleteDatasourceCache": "Delete {{datasource}} Cache",
         "deleteAllCaches": "Delete All Caches"
       },
@@ -2833,38 +2805,27 @@
       "modal": {
         "title": "Remove Suspect Cache Files",
         "confirmRemove": "Remove the exact cache paths verified by this scan for {{service}}?",
-        "willDelete": "This will DELETE:",
-        "cacheFilesLabel": "Cache files",
-        "cacheFilesDesc": "only exact regular files that still pass root, symlink, identity, stability, and evidence revalidation",
-        "logEntriesLabel": "Log entries",
-        "logEntriesDesc": "only the observations attached to these candidates",
-        "databaseRecordsLabel": "Database records",
-        "databaseRecordsDesc": "only where stored evidence can be matched exactly",
-        "savedScanRecordsLabel": "Saved scan records",
-        "savedScanRecordsDesc": "only evidence matched to files successfully resolved or removed",
-        "cannotBeUndone": "This action cannot be undone",
-        "revalidationSkip": "Files that changed, disappeared, healed, became linked, or failed revalidation are skipped",
-        "mayTakeSeveralMinutes": "May take several minutes for large cache files",
-        "validFilesRemain": "Other {{service}} cache paths remain untouched",
-        "removesApproximately": "Removes up to {{count}} flagged cache files with verified paths",
+        "removalSummaryStructural": "Deletes the matching cache files and their saved scan records. Files that changed since the scan are skipped, and this cannot be undone.",
+        "removalSummaryRepeatedMiss": "Deletes the matching cache files along with their log and database records. Files that changed since the scan are skipped, and this cannot be undone.",
+        "removalScopeService": "Removes up to {{count}} files for {{service}}.",
+        "removalScopeAllServices": "Runs across every affected service in turn.",
         "deleteCacheAndLogs": "Delete Cache & Logs",
         "removeAllTitle": "Remove All Suspect Cache Files",
         "confirmRemoveAll": "Remove {{candidates}} suspect cache files across {{services}} services?",
         "confirmRemoveSelected": "Remove {{candidates}} suspect cache files across {{services}} selected services?",
-        "removeAllAcrossAllServices": "Removal will run across all affected services in sequence",
         "removeAllConfirm": "Remove All Suspects",
         "structuralTitle": "Remove Invalid Cache Files",
         "repeatedMissTitle": "Remove Repeated-MISS Suspects",
-        "confirmRemoveStructural": "Remove the exact invalid cache files from the saved scan for {{service}}? Files are revalidated immediately before deletion.",
-        "confirmRemoveRepeatedMiss": "Remove the exact repeated-MISS suspects from the saved scan for {{service}}? Files are revalidated immediately before deletion.",
+        "confirmRemoveStructural": "Remove the invalid cache files found for {{service}}?",
+        "confirmRemoveRepeatedMiss": "Remove the repeated-MISS suspects found for {{service}}?",
         "removeAllStructuralTitle": "Remove All Invalid Cache Files",
         "removeAllRepeatedMissTitle": "Remove All Repeated-MISS Suspects",
         "removeSelectedStructuralTitle": "Remove Selected Invalid Cache Files",
         "removeSelectedRepeatedMissTitle": "Remove Selected Repeated-MISS Suspects",
-        "confirmRemoveAllStructural": "Remove {{candidates}} invalid cache files across {{services}} services? Files are revalidated immediately before deletion.",
-        "confirmRemoveAllRepeatedMiss": "Remove {{candidates}} repeated-MISS suspects across {{services}} services? Files are revalidated immediately before deletion.",
-        "confirmRemoveSelectedStructural": "Remove {{candidates}} invalid cache files across {{services}} selected services? Files are revalidated immediately before deletion.",
-        "confirmRemoveSelectedRepeatedMiss": "Remove {{candidates}} repeated-MISS suspects across {{services}} selected services? Files are revalidated immediately before deletion.",
+        "confirmRemoveAllStructural": "Remove {{candidates}} invalid cache files across {{services}} services?",
+        "confirmRemoveAllRepeatedMiss": "Remove {{candidates}} repeated-MISS suspects across {{services}} services?",
+        "confirmRemoveSelectedStructural": "Remove {{candidates}} invalid cache files across {{services}} selected services?",
+        "confirmRemoveSelectedRepeatedMiss": "Remove {{candidates}} repeated-MISS suspects across {{services}} selected services?",
         "removeInvalidFiles": "Remove Invalid Files",
         "removeSuspects": "Remove Suspects",
         "removeAllStructuralConfirm": "Remove All Invalid Files",
@@ -3164,16 +3125,11 @@
       "modal": {
         "removeServiceLogs": "Remove Service Logs",
         "removeQuestion": "Remove all {{service}} entries from {{datasource}} logs? This will reduce log size and improve performance.",
-        "important": "Important",
-        "cannotUndo": "This action cannot be undone",
-        "mayTakeMinutes": "May take several minutes for large log files",
-        "cachedFilesRemain": "Cached {{service}} game files will remain intact",
+        "serviceSummary": "Cached {{service}} game files stay where they are, but the removed log entries cannot be recovered.",
         "deleteEntireLogFile": "Delete Entire Log File",
         "deleteQuestion": "Delete the entire access.log file for {{datasource}}? This will remove all download history for this datasource.",
-        "warningDestructive": "Warning - Destructive Action",
-        "permanentlyDelete": "This will permanently delete all log entries",
-        "historyLost": "Download history and statistics will be lost",
-        "cachedGamesRemain": "Cached game files will remain intact"
+        "fileSummary": "Deletes every log entry in the file, so download history and statistics are lost. Cached game files stay where they are, and this cannot be undone.",
+        "batchSummary": "This cannot be undone."
       },
       "errors": {
         "unexpectedResponse": "Unexpected response when starting log removal for {{service}}",
@@ -5194,18 +5150,11 @@
       "titleService": "Remove Service from Cache",
       "confirmGame": "Are you sure you want to remove {{name}} from cache?",
       "confirmService": "Are you sure you want to remove {{name}} service from cache?",
-      "thisWill": "This will:",
-      "actions": {
-        "deleteFiles": "Delete approximately {{formattedCount}} cache files",
-        "freeSpace": "Free up approximately {{size}}",
-        "removeDepots": "Remove cache for {{count}} depot",
-        "removeDepots_other": "Remove cache for {{count}} depots",
-        "removeLogEntries": "Remove ALL log entries for this service from the database",
-        "removeDownloadRecords": "Remove ALL download records for this service from the database",
-        "showProgress": "Progress will be shown in the notification bar at the top",
-        "cannotUndo": "This action cannot be undone",
-        "removeEvictedLogEntries": "Remove {{count}} evicted download record(s) and their log entries"
-      },
+      "summaryGame": "Deletes about {{formattedCount}} cache files and frees about {{size}}. This cannot be undone.",
+      "summaryService": "Deletes about {{formattedCount}} cache files and frees about {{size}}, along with every log entry and download record for this service. This cannot be undone.",
+      "summaryEvicted": "Removes {{count}} evicted download records and their log entries, freeing about {{size}}. This cannot be undone.",
+      "depotScope": "Covers {{count}} depot.",
+      "depotScope_other": "Covers {{count}} depots.",
       "removeButton": "Remove from Cache",
       "removeEvictedButton": "Remove Evicted Data",
       "titlePartialEvictedGame": "Remove Evicted Data",

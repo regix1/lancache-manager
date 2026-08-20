@@ -6,68 +6,38 @@ import type { CorruptionDetectionMethod } from '@/types';
 interface CorruptionRemovalWarningProps {
   detectionMethod: CorruptionDetectionMethod;
   /**
-   * Extra <li> cautions appended to the yellow "important" list. The red
-   * "will delete" block and shared revalidation cautions are identical across
-   * every corruption removal modal;
-   * only these trailing cautions differ per modal.
+   * One sentence naming what this particular modal covers, such as the file count. Everything
+   * else is identical across the three removal modals and lives in the summary below.
    */
-  extraCautions?: React.ReactNode;
+  scopeNote?: string;
 }
 
 /**
- * The shared destructive-removal warning shown in all three corruption removal
- * confirmation modals (Remove, Remove Selected, Remove All). Extracted so the
- * identical red "will delete" alert and shared cautions live in one place.
+ * The shared destructive-removal warning shown in all three corruption removal confirmation
+ * modals (Remove, Remove Selected, Remove All).
+ *
+ * One short paragraph rather than the two stacked alerts and nine bullets it used to be. The
+ * bullets spelled out which revalidation checks run and which record tables are touched, which is
+ * implementation detail nobody can act on while deciding whether to press the button. What is left
+ * is what the reader needs: what disappears, what is spared, and that it is permanent.
  */
 const CorruptionRemovalWarning: React.FC<CorruptionRemovalWarningProps> = ({
   detectionMethod,
-  extraCautions
+  scopeNote
 }) => {
   const { t } = useTranslation();
-  const removesRepeatedMissEvidence = detectionMethod === 'repeated_miss';
 
   return (
-    <>
-      <Alert color="red">
-        <div>
-          <p className="text-sm font-medium mb-2">{t('management.corruption.modal.willDelete')}</p>
-          <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-            <li>
-              <strong>{t('management.corruption.modal.cacheFilesLabel')}</strong>{' '}
-              {t('management.corruption.modal.cacheFilesDesc')}
-            </li>
-            {removesRepeatedMissEvidence && (
-              <>
-                <li>
-                  <strong>{t('management.corruption.modal.logEntriesLabel')}</strong>{' '}
-                  {t('management.corruption.modal.logEntriesDesc')}
-                </li>
-                <li>
-                  <strong>{t('management.corruption.modal.databaseRecordsLabel')}</strong>{' '}
-                  {t('management.corruption.modal.databaseRecordsDesc')}
-                </li>
-              </>
-            )}
-            <li>
-              <strong>{t('management.corruption.modal.savedScanRecordsLabel')}</strong>{' '}
-              {t('management.corruption.modal.savedScanRecordsDesc')}
-            </li>
-          </ul>
-        </div>
-      </Alert>
-
-      <Alert color="yellow">
-        <div>
-          <p className="text-sm font-medium mb-2">{t('management.cache.alerts.important')}</p>
-          <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-            <li>{t('management.corruption.modal.cannotBeUndone')}</li>
-            <li>{t('management.corruption.modal.revalidationSkip')}</li>
-            <li>{t('management.corruption.modal.mayTakeSeveralMinutes')}</li>
-            {extraCautions}
-          </ul>
-        </div>
-      </Alert>
-    </>
+    <Alert color="red">
+      <p className="text-sm">
+        {t(
+          detectionMethod === 'repeated_miss'
+            ? 'management.corruption.modal.removalSummaryRepeatedMiss'
+            : 'management.corruption.modal.removalSummaryStructural'
+        )}
+        {scopeNote ? ` ${scopeNote}` : null}
+      </p>
+    </Alert>
   );
 };
 

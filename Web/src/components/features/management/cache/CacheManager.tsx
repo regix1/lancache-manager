@@ -626,14 +626,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         )}
 
         <Alert color="yellow">
-          <div>
-            <p className="text-sm font-medium mb-2">{t('management.cache.alerts.important')}</p>
-            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-              <li>{t('management.cache.modal.cannotBeUndone')}</li>
-              <li>{t('management.cache.modal.stopActiveDownloads')}</li>
-              <li>{t('management.cache.modal.historyPreserved')}</li>
-            </ul>
-          </div>
+          <p className="text-sm">{t('management.cache.modal.clearSummary')}</p>
         </Alert>
       </ConfirmationModal>
     </>

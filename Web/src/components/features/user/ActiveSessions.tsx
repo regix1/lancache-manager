@@ -1644,14 +1644,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         )}
 
         <Alert color="yellow">
-          <div>
-            <p className="text-sm font-medium mb-2">{t('activeSessions.revokeModal.noteTitle')}</p>
-            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-              <li>{t('activeSessions.revokeModal.points.marked')}</li>
-              <li>{t('activeSessions.revokeModal.points.logout')}</li>
-              <li>{t('activeSessions.revokeModal.points.history')}</li>
-            </ul>
-          </div>
+          <p className="text-sm">{t('activeSessions.revokeModal.summary')}</p>
         </Alert>
       </ConfirmationModal>
 
@@ -1687,14 +1680,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         )}
 
         <Alert color="red">
-          <div>
-            <p className="text-sm font-medium mb-2">{t('activeSessions.deleteModal.noteTitle')}</p>
-            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-              <li>{t('activeSessions.deleteModal.points.noUndo')}</li>
-              <li>{t('activeSessions.deleteModal.points.removed')}</li>
-              <li>{t('activeSessions.deleteModal.points.logout')}</li>
-            </ul>
-          </div>
+          <p className="text-sm">{t('activeSessions.deleteModal.summary')}</p>
         </Alert>
       </ConfirmationModal>
 
@@ -1713,15 +1699,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         <p className="text-themed-secondary">{t('user.bulkActions.resetModal.message')}</p>
 
         <Alert color="yellow">
-          <div>
-            <p className="text-sm font-medium mb-2">{t('user.bulkActions.resetModal.noteTitle')}</p>
-            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-              <li>{t('user.bulkActions.resetModal.points.theme')}</li>
-              <li>{t('user.bulkActions.resetModal.points.refreshRate')}</li>
-              <li>{t('user.bulkActions.resetModal.points.preferences')}</li>
-              <li>{t('user.bulkActions.resetModal.points.active')}</li>
-            </ul>
-          </div>
+          <p className="text-sm">{t('user.bulkActions.resetModal.summary')}</p>
         </Alert>
       </ConfirmationModal>
 
@@ -1739,14 +1717,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         <p className="text-themed-secondary">{t('user.bulkActions.clearModal.message')}</p>
 
         <Alert color="red">
-          <div>
-            <p className="text-sm font-medium mb-2">{t('user.bulkActions.clearModal.noteTitle')}</p>
-            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-              <li>{t('user.bulkActions.clearModal.points.deleted')}</li>
-              <li>{t('user.bulkActions.clearModal.points.logout')}</li>
-              <li>{t('user.bulkActions.clearModal.points.data')}</li>
-            </ul>
-          </div>
+          <p className="text-sm">{t('user.bulkActions.clearModal.summary')}</p>
         </Alert>
       </ConfirmationModal>
 

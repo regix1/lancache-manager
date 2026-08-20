@@ -14,6 +14,23 @@ import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import DataImporter from '../data/DataImporter';
 
+/**
+ * Tables whose loss costs the reader something beyond the rows themselves, and the sentence that
+ * says so. Tables absent from this list clear without a consequence worth spelling out.
+ */
+const TABLE_CLEAR_CONSEQUENCES = [
+  { table: 'SteamDepotMappings', key: 'depotMappings' },
+  { table: 'Events', key: 'events' },
+  { table: 'UserSessions', key: 'userSessions' },
+  { table: 'ClientGroups', key: 'clientGroups' },
+  { table: 'PrefillSessions', key: 'prefillSessions' },
+  { table: 'BannedPrefillUsers', key: 'bannedPrefillUsers' },
+  { table: 'EpicGameMappings', key: 'epicGameMappings' },
+  { table: 'EpicCdnPatterns', key: 'epicCdnPatterns' },
+  { table: 'XboxGameMappings', key: 'xboxGameMappings' },
+  { table: 'XboxCdnPatterns', key: 'xboxCdnPatterns' }
+] as const;
+
 interface DataSectionProps {
   isAdmin: boolean;
   authMode: AuthMode;
@@ -450,54 +467,17 @@ const DataSection: React.FC<DataSectionProps> = ({
           ))}
         </div>
 
+        {/* The generic cautions are one lead sentence; what follows is only the consequences the
+            selected tables actually carry, run together as prose rather than a bullet per table. */}
         <Alert color="yellow">
-          <div>
-            <p className="text-sm font-medium mb-2">
-              {t('management.sections.data.confirmClearImportant')}
-            </p>
-            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-              <li>{t('management.sections.data.confirmClearWarnings.noUndo')}</li>
-              <li>{t('management.sections.data.confirmClearWarnings.exportFirst')}</li>
-              <li>{t('management.sections.data.confirmClearWarnings.reportsAffected')}</li>
-              {selectedTables.includes('SteamDepotMappings') && (
-                <li>{t('management.sections.data.confirmClearWarnings.depotMappings')}</li>
-              )}
-              {selectedTables.includes('Events') && (
-                <li>{t('management.sections.data.confirmClearWarnings.events')}</li>
-              )}
-              {selectedTables.includes('UserSessions') && (
-                <li className="font-semibold">
-                  {t('management.sections.data.confirmClearWarnings.userSessionsLogout')}
-                </li>
-              )}
-              {selectedTables.includes('UserSessions') && (
-                <li className="font-semibold">
-                  {t('management.sections.data.confirmClearWarnings.userSessionsCleared')}
-                </li>
-              )}
-              {selectedTables.includes('ClientGroups') && (
-                <li>{t('management.sections.data.confirmClearWarnings.clientGroups')}</li>
-              )}
-              {selectedTables.includes('PrefillSessions') && (
-                <li>{t('management.sections.data.confirmClearWarnings.prefillSessions')}</li>
-              )}
-              {selectedTables.includes('BannedPrefillUsers') && (
-                <li>{t('management.sections.data.confirmClearWarnings.bannedPrefillUsers')}</li>
-              )}
-              {selectedTables.includes('EpicGameMappings') && (
-                <li>{t('management.sections.data.confirmClearWarnings.epicGameMappings')}</li>
-              )}
-              {selectedTables.includes('EpicCdnPatterns') && (
-                <li>{t('management.sections.data.confirmClearWarnings.epicCdnPatterns')}</li>
-              )}
-              {selectedTables.includes('XboxGameMappings') && (
-                <li>{t('management.sections.data.confirmClearWarnings.xboxGameMappings')}</li>
-              )}
-              {selectedTables.includes('XboxCdnPatterns') && (
-                <li>{t('management.sections.data.confirmClearWarnings.xboxCdnPatterns')}</li>
-              )}
-            </ul>
-          </div>
+          <p className="text-sm">
+            {[
+              t('management.sections.data.confirmClearWarnings.clearSummary'),
+              ...TABLE_CLEAR_CONSEQUENCES.filter(({ table }) => selectedTables.includes(table)).map(
+                ({ key }) => t(`management.sections.data.confirmClearWarnings.${key}`)
+              )
+            ].join(' ')}
+          </p>
         </Alert>
       </ConfirmationModal>
     </div>

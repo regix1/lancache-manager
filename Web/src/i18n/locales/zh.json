@@ -1153,24 +1153,13 @@
       "resetModal": {
         "title": "将所有访客重置为默认值",
         "message": "您确定要将所有访客会话首选项重置为默认值吗？",
-        "noteTitle": "此操作将会：",
-        "points": {
-          "theme": "将主题重置为默认访客主题",
-          "refreshRate": "将刷新率重置为默认访客刷新率",
-          "preferences": "重置所有显示和时区首选项",
-          "active": "访客会话将保持活跃"
-        },
+        "summary": "会将主题、刷新率以及所有显示和时区首选项重置为访客默认值。访客会话将保持活跃。",
         "confirm": "重置所有访客"
       },
       "clearModal": {
         "title": "清除所有访客会话",
         "message": "您确定要删除所有访客会话吗？此操作无法撤销。",
-        "noteTitle": "警告：",
-        "points": {
-          "deleted": "所有访客会话将被永久删除",
-          "logout": "所有已连接的访客将立即登出",
-          "data": "访客首选项和会话数据将丢失"
-        },
+        "summary": "将删除所有访客会话，并立即登出已连接的访客。他们的首选项和会话数据将丢失。",
         "confirm": "清除所有访客"
       }
     },
@@ -1295,23 +1284,13 @@
     "revokeModal": {
       "title": "撤销设备",
       "message": "您确定要撤销此 {{type}} 吗？",
-      "noteTitle": "撤销时会发生什么：",
-      "points": {
-        "marked": "设备被标记为已撤销但不会被删除",
-        "logout": "用户将立即被登出",
-        "history": "设备记录保留在历史中"
-      },
+      "summary": "用户将立即被登出。设备会被标记为已撤销而不是删除，因此仍保留在历史中。",
       "confirm": "撤销设备"
     },
     "deleteModal": {
       "title": "删除设备",
       "message": "您确定要永久删除此 {{type}} 吗？",
-      "noteTitle": "警告：",
-      "points": {
-        "noUndo": "此操作无法撤销",
-        "removed": "该设备将从历史中永久删除",
-        "logout": "用户将立即被登出"
-      },
+      "summary": "用户将立即被登出，该设备也会从历史中永久删除。此操作无法撤销。",
       "confirm": "永久删除"
     },
     "preferencesModal": {
@@ -2065,22 +2044,18 @@
         "affects": "影响：",
         "confirmClearTitle": "清除所选表",
         "confirmClearMessage": "您即将永久删除以下表中的数据：",
-        "confirmClearImportant": "重要：",
         "confirmClearWarnings": {
-          "noUndo": "此操作无法撤销",
-          "exportFirst": "在继续之前导出您需要的任何数据",
-          "reportsAffected": "历史报告可能受影响",
-          "depotMappings": "游戏将显示为\"未知\"，直到重新建立映射",
-          "events": "所有事件及其下载关联将被永久删除",
-          "userSessionsLogout": "所有设备将被登出，应用程序将重新加载",
-          "userSessionsCleared": "所有注册设备将被清除 - 您需要重新认证",
-          "clientGroups": "所有客户端组及其成员关联将被永久删除",
-          "prefillSessions": "所有预填充会话将被永久删除",
-          "bannedPrefillUsers": "所有被封禁的预填充用户将被解封并可以再次预填充",
-          "epicGameMappings": "Epic 游戏将显示为\"未知\"，直到重新建立映射",
-          "epicCdnPatterns": "在重新获取 CDN 模式之前，Epic 游戏检测可能无法工作",
-          "xboxGameMappings": "Xbox 游戏将显示为\"未知\"，直到重新建立映射",
-          "xboxCdnPatterns": "在重新获取 CDN 模式之前，Xbox 游戏检测可能无法工作"
+          "clearSummary": "请先导出您需要的数据。此操作无法撤销，历史报告可能受影响。",
+          "depotMappings": "游戏将显示为\"未知\"，直到重新建立映射。",
+          "events": "所有事件及其下载关联都会被删除。",
+          "userSessions": "所有设备都会被登出并清除，每个人都需要重新认证。",
+          "clientGroups": "所有客户端组及其成员都会被删除。",
+          "prefillSessions": "所有预填充会话都会被删除。",
+          "bannedPrefillUsers": "被封禁的预填充用户会被解封，可以再次预填充。",
+          "epicGameMappings": "Epic 游戏将显示为\"未知\"，直到重新建立映射。",
+          "epicCdnPatterns": "在重新获取 CDN 模式之前，Epic 游戏检测可能无法工作。",
+          "xboxGameMappings": "Xbox 游戏将显示为\"未知\"，直到重新建立映射。",
+          "xboxCdnPatterns": "在重新获取 CDN 模式之前，Xbox 游戏检测可能无法工作。"
         },
         "clearTables": "清除 {{count}} 个表",
         "clearTables_other": "清除 {{count}} 个表",
@@ -2605,7 +2580,6 @@
           "title": "缓存目录为只读",
           "description": "从 docker-compose 卷挂载中移除 :ro 以启用缓存清除。"
         },
-        "important": "重要提示：",
         "importantPoints": {
           "redownload": "客户端将需要从互联网下载内容"
         }
@@ -2613,9 +2587,7 @@
       "modal": {
         "deleteFromDatasource": "这将永久删除 {{datasource}} 缓存中的所有缓存游戏文件。清除后游戏需要重新下载内容。",
         "deleteFromAll": "这将永久删除所有数据源中的所有缓存游戏文件。清除后游戏需要重新下载内容。",
-        "cannotBeUndone": "此操作无法撤销",
-        "stopActiveDownloads": "在继续之前停止所有活跃下载",
-        "historyPreserved": "下载历史记录和设置将保留",
+        "clearSummary": "请先停止所有活跃下载。下载历史记录和设置会保留，但缓存文件无法恢复。",
         "deleteDatasourceCache": "删除 {{datasource}} 缓存",
         "deleteAllCaches": "删除所有缓存"
       },
@@ -2833,38 +2805,27 @@
       "modal": {
         "title": "移除可疑缓存文件",
         "confirmRemove": "移除此扫描为 {{service}} 验证的精确缓存路径？",
-        "willDelete": "这将删除：",
-        "cacheFilesLabel": "缓存文件",
-        "cacheFilesDesc": "仅限仍通过根目录、符号链接、身份、稳定性和证据重新验证的精确普通文件",
-        "logEntriesLabel": "日志条目",
-        "logEntriesDesc": "只删除附加到这些候选项的观察记录",
-        "databaseRecordsLabel": "数据库记录",
-        "databaseRecordsDesc": "仅限能与已存储证据精确匹配的记录",
-        "savedScanRecordsLabel": "已保存的扫描记录",
-        "savedScanRecordsDesc": "仅限与成功解决或移除的文件匹配的证据",
-        "cannotBeUndone": "此操作无法撤销",
-        "revalidationSkip": "已更改、消失、恢复正常、变为链接或重新验证失败的文件将被跳过",
-        "mayTakeSeveralMinutes": "对于大型缓存文件可能需要几分钟",
-        "validFilesRemain": "其他 {{service}} 缓存路径保持不变",
-        "removesApproximately": "最多移除 {{count}} 个具有已验证路径的已标记缓存文件",
+        "removalSummaryStructural": "将删除匹配的缓存文件及其保存的扫描记录。扫描后发生变化的文件会被跳过，且此操作无法撤销。",
+        "removalSummaryRepeatedMiss": "将删除匹配的缓存文件及其日志和数据库记录。扫描后发生变化的文件会被跳过，且此操作无法撤销。",
+        "removalScopeService": "最多删除 {{service}} 的 {{count}} 个文件。",
+        "removalScopeAllServices": "将依次处理每个受影响的服务。",
         "deleteCacheAndLogs": "删除缓存和日志",
         "removeAllTitle": "移除所有可疑缓存文件",
         "confirmRemoveAll": "移除 {{services}} 个服务中的 {{candidates}} 个可疑缓存文件？",
         "confirmRemoveSelected": "移除 {{services}} 个所选服务中的 {{candidates}} 个可疑缓存文件？",
-        "removeAllAcrossAllServices": "移除将按顺序在所有受影响的服务上运行",
         "removeAllConfirm": "移除所有嫌疑项",
         "structuralTitle": "移除无效缓存文件",
         "repeatedMissTitle": "移除重复 MISS 嫌疑项",
-        "confirmRemoveStructural": "移除已保存扫描中 {{service}} 的精确无效缓存文件？文件将在删除前立即重新验证。",
-        "confirmRemoveRepeatedMiss": "移除已保存扫描中 {{service}} 的精确重复 MISS 嫌疑项？文件将在删除前立即重新验证。",
+        "confirmRemoveStructural": "移除为 {{service}} 找到的无效缓存文件？",
+        "confirmRemoveRepeatedMiss": "移除为 {{service}} 找到的重复 MISS 嫌疑项？",
         "removeAllStructuralTitle": "移除所有无效缓存文件",
         "removeAllRepeatedMissTitle": "移除所有重复 MISS 嫌疑项",
         "removeSelectedStructuralTitle": "移除所选无效缓存文件",
         "removeSelectedRepeatedMissTitle": "移除所选重复 MISS 嫌疑项",
-        "confirmRemoveAllStructural": "移除 {{services}} 个服务中的 {{candidates}} 个无效缓存文件？文件将在删除前立即重新验证。",
-        "confirmRemoveAllRepeatedMiss": "移除 {{services}} 个服务中的 {{candidates}} 个重复 MISS 嫌疑项？文件将在删除前立即重新验证。",
-        "confirmRemoveSelectedStructural": "移除 {{services}} 个所选服务中的 {{candidates}} 个无效缓存文件？文件将在删除前立即重新验证。",
-        "confirmRemoveSelectedRepeatedMiss": "移除 {{services}} 个所选服务中的 {{candidates}} 个重复 MISS 嫌疑项？文件将在删除前立即重新验证。",
+        "confirmRemoveAllStructural": "移除 {{services}} 个服务中的 {{candidates}} 个无效缓存文件？",
+        "confirmRemoveAllRepeatedMiss": "移除 {{services}} 个服务中的 {{candidates}} 个重复 MISS 嫌疑项？",
+        "confirmRemoveSelectedStructural": "移除 {{services}} 个所选服务中的 {{candidates}} 个无效缓存文件？",
+        "confirmRemoveSelectedRepeatedMiss": "移除 {{services}} 个所选服务中的 {{candidates}} 个重复 MISS 嫌疑项？",
         "removeInvalidFiles": "移除无效文件",
         "removeSuspects": "移除嫌疑项",
         "removeAllStructuralConfirm": "移除所有无效文件",
@@ -3164,16 +3125,11 @@
       "modal": {
         "removeServiceLogs": "移除服务日志",
         "removeQuestion": "从 {{datasource}} 日志中移除所有 {{service}} 条目？这将减小日志大小并提高性能。",
-        "important": "重要提示",
-        "cannotUndo": "此操作无法撤销",
-        "mayTakeMinutes": "对于大型日志文件，可能需要几分钟",
-        "cachedFilesRemain": "缓存的 {{service}} 游戏文件将保持不变",
+        "serviceSummary": "缓存的 {{service}} 游戏文件将保持不变，但已移除的日志条目无法恢复。",
         "deleteEntireLogFile": "删除整个日志文件",
         "deleteQuestion": "删除 {{datasource}} 的整个 access.log 文件？这将移除该数据源的所有下载历史记录。",
-        "warningDestructive": "警告 - 破坏性操作",
-        "permanentlyDelete": "这将永久删除所有日志条目",
-        "historyLost": "下载历史记录和统计信息将丢失",
-        "cachedGamesRemain": "缓存的游戏文件将保持不变"
+        "fileSummary": "将删除该文件中的所有日志条目，下载历史记录和统计信息也会丢失。缓存的游戏文件保持不变，且此操作无法撤销。",
+        "batchSummary": "此操作无法撤销。"
       },
       "errors": {
         "unexpectedResponse": "启动 {{service}} 的日志移除时出现意外响应",
@@ -5194,18 +5150,11 @@
       "titleService": "从缓存中移除服务",
       "confirmGame": "您确定要从缓存中移除 {{name}} 吗？",
       "confirmService": "您确定要从缓存中移除 {{name}} 服务吗？",
-      "thisWill": "此操作将：",
-      "actions": {
-        "deleteFiles": "删除约 {{formattedCount}} 个缓存文件",
-        "freeSpace": "释放约 {{size}} 空间",
-        "removeDepots": "移除 {{count}} 个仓库的缓存",
-        "removeDepots_other": "移除 {{count}} 个仓库的缓存",
-        "removeLogEntries": "从数据库中删除此服务的所有日志条目",
-        "removeDownloadRecords": "从数据库中删除此服务的所有下载记录",
-        "showProgress": "进度将显示在顶部的通知栏中",
-        "cannotUndo": "此操作无法撤销",
-        "removeEvictedLogEntries": "移除 {{count}} 条已淘汰的下载记录及其日志条目"
-      },
+      "summaryGame": "将删除约 {{formattedCount}} 个缓存文件，释放约 {{size}} 空间。此操作无法撤销。",
+      "summaryService": "将删除约 {{formattedCount}} 个缓存文件并释放约 {{size}} 空间，同时删除此服务的所有日志条目和下载记录。此操作无法撤销。",
+      "summaryEvicted": "将移除 {{count}} 条已淘汰的下载记录及其日志条目，释放约 {{size}} 空间。此操作无法撤销。",
+      "depotScope": "涉及 {{count}} 个仓库。",
+      "depotScope_other": "涉及 {{count}} 个仓库。",
       "removeButton": "从缓存中移除",
       "removeEvictedButton": "移除已淘汰的数据",
       "titlePartialEvictedGame": "移除已淘汰的数据",
