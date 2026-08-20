@@ -166,7 +166,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
                   {datasources.map((ds) => (
                     <span
                       key={ds}
-                      className="px-1.5 py-0.5 rounded text-[10px] font-medium capitalize bg-themed-accent-subtle text-themed-accent"
+                      className="themed-badge bg-themed-accent-subtle text-themed-accent"
                     >
                       {ds}
                     </span>

@@ -97,10 +97,10 @@ const GameCard: React.FC<GameCardProps> = ({
       ? `game-card-service-badge--${game.service}`
       : 'game-card-service-badge--named';
   const serviceBadgeClass = isEpic
-    ? 'game-card-service-badge game-card-service-badge--epic'
+    ? 'themed-badge game-card-service-badge game-card-service-badge--epic'
     : isNamed
-      ? `game-card-service-badge ${namedBadgeModifier}`
-      : 'game-card-service-badge game-card-service-badge--steam';
+      ? `themed-badge game-card-service-badge ${namedBadgeModifier}`
+      : 'themed-badge game-card-service-badge game-card-service-badge--steam';
 
   // Named-service label: prefer an explicit translation (blizzard/riot), otherwise capitalize the
   // raw service id so unrecognised name-keyed services still render a sensible label.

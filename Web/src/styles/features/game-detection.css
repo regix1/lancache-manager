@@ -2,19 +2,12 @@
  * GAME DETECTION - Game cards, service badges
  * ============================================== */
 
-/* Service badge base styling */
+/* Service badge. The box, type and corners come from .themed-badge, which this element carries in
+   the markup: it sits directly beside the AppID badge on the same line, and a pill of its own
+   height and radius next to a square one is what made the pair look mismatched. Only the gap for
+   the Epic icon and the per-service colours below are ours. */
 .game-card-service-badge {
-  display: inline-flex;
-  align-items: center;
   gap: 0.25rem;
-  padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
-  font-size: var(--font-size-2xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  line-height: 1.4;
-  flex-shrink: 0;
 }
 
 /* Steam service badge */
