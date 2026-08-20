@@ -243,13 +243,9 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
       {/* The bucket size the chart drew at, beside the range it drew for: both are chips, both
           neutral, so the row reads as one statement about this card's data. */}
       <div className="dash-range-footer">
-        <span>
-          {hasSeries ? (
-            <Badge variant="neutral">
-              {t(`widgets.bandwidthTrend.resolution.${bucketMinutes}`)}
-            </Badge>
-          ) : null}
-        </span>
+        {hasSeries ? (
+          <Badge variant="neutral">{t(`widgets.bandwidthTrend.resolution.${bucketMinutes}`)}</Badge>
+        ) : null}
         {badge}
       </div>
     </div>
