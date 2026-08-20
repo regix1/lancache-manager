@@ -391,6 +391,13 @@ const Dashboard: React.FC = () => {
      because the subtitle carries the failure instead.
      Memoised so the card list below keeps a stable dependency: a fresh element every render would
      rebuild every card on every render. */
+  /* The two live-only cards said "Live now" in their subtitle while every other card carried a
+     chip. Same marker, same corner of the card, and the count beside it keeps the words it needs. */
+  const liveBadge = useMemo(
+    () => <Badge variant="neutral">{t('dashboard.timeRanges.liveShort')}</Badge>,
+    [t]
+  );
+
   const periodBadge = useMemo(
     () =>
       failedSections.dashboard ? undefined : <Badge variant="neutral">{getTimeRangeChip()}</Badge>,
@@ -550,16 +557,10 @@ const Dashboard: React.FC = () => {
         value: isHistoricalView ? t('dashboard.cards.disabled') : stats.totalActiveDownloads,
         subtitle: isHistoricalView
           ? t('dashboard.cards.liveDataOnly')
-          : [
-              t('dashboard.cards.liveNow'),
-              stats.periodDownloads != null
-                ? t('dashboard.cards.downloadsInRange', {
-                    count: stats.periodDownloads
-                  })
-                : null
-            ]
-              .filter(Boolean)
-              .join(' · '),
+          : stats.periodDownloads != null
+            ? t('dashboard.cards.downloadsInRange', { count: stats.periodDownloads })
+            : undefined,
+        badge: liveBadge,
         icon: Download,
         color: 'orange' as const,
         visible: cardVisibility.activeDownloads,
@@ -571,16 +572,10 @@ const Dashboard: React.FC = () => {
         value: isHistoricalView ? t('dashboard.cards.disabled') : stats.activeClients,
         subtitle: isHistoricalView
           ? t('dashboard.cards.liveDataOnly')
-          : [
-              t('dashboard.cards.liveNow'),
-              stats.uniqueClients != null
-                ? t('dashboard.cards.uniqueClientsInRange', {
-                    count: stats.uniqueClients
-                  })
-                : null
-            ]
-              .filter(Boolean)
-              .join(' · '),
+          : stats.uniqueClients != null
+            ? t('dashboard.cards.uniqueClientsInRange', { count: stats.uniqueClients })
+            : undefined,
+        badge: liveBadge,
         icon: Users,
         color: 'orange' as const,
         visible: cardVisibility.activeClients,
@@ -671,6 +666,7 @@ const Dashboard: React.FC = () => {
       stats,
       loading,
       periodBadge,
+      liveBadge,
       isHistoricalView,
       statTooltips,
       gamesOnDiskStats,
