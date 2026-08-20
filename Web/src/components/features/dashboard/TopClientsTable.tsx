@@ -236,12 +236,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             />
           </div>
         )}
-        {badge ? (
-          <div className="dash-range-footer">
-            <span />
-            {badge}
-          </div>
-        ) : null}
+        {badge ? <div className="dash-range-footer">{badge}</div> : null}
       </Card>
     );
   },

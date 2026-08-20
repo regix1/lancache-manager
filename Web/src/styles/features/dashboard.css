@@ -1000,7 +1000,11 @@
 /* A badge row, not a caption: whatever the card says about its own data sits on the left and the
    range chip closes the right. Both are the same neutral chip, so the row reads as one family. */
 .dash-range-footer {
-  justify-content: space-between;
+  justify-content: flex-start;
+}
+
+.dash-range-footer > :last-child {
+  margin-left: auto;
 }
 
 /* After a readout strip the rule is already drawn by the strip, so this row joins it rather than

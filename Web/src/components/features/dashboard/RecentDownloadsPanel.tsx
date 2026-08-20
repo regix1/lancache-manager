@@ -860,7 +860,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         <div
           className={`dash-range-footer${showFooterReadout ? ' dash-range-footer--seamless' : ''}`}
         >
-          <span />
           {badge}
         </div>
       ) : null}

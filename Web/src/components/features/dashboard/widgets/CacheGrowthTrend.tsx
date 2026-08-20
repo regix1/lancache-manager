@@ -166,7 +166,6 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           <div
             className={`dash-range-footer${growth && !error && !failed ? ' dash-range-footer--seamless' : ''}`}
           >
-            <span />
             {badge}
           </div>
         ) : null}

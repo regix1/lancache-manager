@@ -506,12 +506,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
           </div>
         </div>
       </div>
-      {badge ? (
-        <div className="dash-range-footer dash-range-footer--seamless">
-          <span />
-          {badge}
-        </div>
-      ) : null}
+      {badge ? <div className="dash-range-footer dash-range-footer--seamless">{badge}</div> : null}
     </div>
   );
 });
