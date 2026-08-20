@@ -158,6 +158,25 @@
   }
 }
 
+/* Labelled, the switch is 184px, and with the filter trio's 448px and the 12px gap the second row
+   needs 644px. Between the 560px floor above and that 644px the title had already taken its own
+   line, so the filters had nowhere to go and the panel showed three rows. Dropping the two labels
+   takes the switch to about 88px, which brings the row back under the width available.
+   Hidden rather than removed: the text still names each button for a screen reader, and the icons
+   carry Recent and Active on screen. Above 644px the labels come back. */
+@container (min-width: 560px) and (max-width: 643.98px) {
+  .rdl-view-switch .segmented-control-button > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 /* ----- The list well: one bordered surface, hairline dividers ----- */
 
 /* .rdl-well surface (bg/border/radius/overflow) comes from .well-surface; this

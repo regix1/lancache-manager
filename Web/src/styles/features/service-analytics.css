@@ -148,6 +148,35 @@
   flex-shrink: 0;
 }
 
+/* Which view picker is on screen. The strip of five labelled tabs measures 437px and the toggle
+   and service picker beside it 240px, so the row needs 685px to hold them on one line. Below that
+   the strip gives way to the dropdown, which is the control the phone layout already used, and the
+   row stays on one line instead of dropping the pair onto a row of their own.
+   690 and not 740: a container query resolves against the panel's CONTENT box, which is about 50px
+   narrower than the panel itself. A two-column dashboard column leaves 438-566px here, well under
+   the threshold; a full-width column leaves 691px and keeps the strip.
+   Measured against the panel and not the viewport, because the same browser window gives this
+   panel a different width depending on the dashboard's column count. */
+/* Held at the width of the longest view label ("Cache Misses", 125px) rather than sized to
+   whichever label is showing. Content-sized, the trigger ran from 86px on "Games" to 125px on
+   "Cache Misses", so the picker changed width every time the view changed and shunted the toggle
+   and service picker along the row with it. A fixed box also means the label never truncates. */
+.service-analytics-view-select {
+  display: none;
+  width: 8.5rem;
+  flex-shrink: 0;
+}
+
+@container (max-width: 690px) {
+  .service-analytics-controls > .segmented-control-container {
+    display: none;
+  }
+
+  .service-analytics-view-select {
+    display: block;
+  }
+}
+
 /* Toggle + service picker as one group, pinned to the right edge. The auto margin has to sit on
    this element rather than on the toggle itself: the toggle is wrapped in a Tooltip, so the button
    is not the flex child of the row and a margin there computes to 0 and moves nothing. That is

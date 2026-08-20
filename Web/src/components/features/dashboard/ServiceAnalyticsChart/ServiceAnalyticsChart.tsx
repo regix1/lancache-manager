@@ -9,7 +9,6 @@ import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { useMediaQuery } from '@hooks/useMediaQuery';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpDefinition } from '@components/ui/HelpPopover';
 import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
@@ -38,10 +37,6 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     const { gameDetectionData } = useGameDetection();
     const isCompareTab = activeTab === 'hit-ratio';
     const hasBreakdownList = !isCompareTab;
-    // Five labelled tabs do not fit a phone-width panel, so the view picker becomes a dropdown
-    // below the same breakpoint the stylesheet uses. Swapped in JS rather than rendered twice
-    // and hidden, so only one picker exists in the accessibility tree.
-    const isPhone = useMediaQuery('(max-width: 639.98px)');
 
     // Call onExpandedChange initially and when showList changes
     React.useEffect(() => {
@@ -268,25 +263,27 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
               toggle is not rendered at all, and the tab strip keeps the same left edge on all five
               views. The toggle carries the auto margin, so it and the service picker sit
               against the right edge once the header stacks and the row has room to spare. */}
+          {/* Both view pickers are rendered and the panel's own width picks one, in CSS. The tab
+              strip plus the actions beside it need more width than a two-column dashboard column
+              has, so the pair used to drop onto a row of its own; below that width the strip gives
+              way to the dropdown and the row stays on one line. The hidden one is display:none, so
+              only the picker on screen is in the accessibility tree. */}
           <div className="service-analytics-controls">
-            {isPhone ? (
-              <EnhancedDropdown
-                options={tabs}
-                value={activeTab}
-                onChange={(next: string) => setActiveTab(next as TabId)}
-                size="md"
-                variant="button"
-                className="service-analytics-view-select"
-              />
-            ) : (
-              <SegmentedControl
-                options={tabs}
-                value={activeTab}
-                onChange={(next) => setActiveTab(next as TabId)}
-                size="md"
-                showLabels
-              />
-            )}
+            <EnhancedDropdown
+              options={tabs}
+              value={activeTab}
+              onChange={(next: string) => setActiveTab(next as TabId)}
+              size="md"
+              variant="button"
+              className="service-analytics-view-select"
+            />
+            <SegmentedControl
+              options={tabs}
+              value={activeTab}
+              onChange={(next) => setActiveTab(next as TabId)}
+              size="md"
+              showLabels
+            />
             {/* Toggle and service picker travel together as one right-aligned group, so when the
                 row runs out of width they wrap as a pair and stay against the right edge instead
                 of the picker dropping to its own left-aligned line. */}
