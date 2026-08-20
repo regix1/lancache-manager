@@ -209,7 +209,7 @@ const ClientsTab: React.FC = () => {
             {t('clients.subtitle')}
             <CacheInfoTooltip />
           </h3>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap clients-sort-controls">
             {/* Direction ahead of the picker, so the picker keeps the row's right edge the way it
                 does on Top Clients and the dashboard panels. */}
             <SegmentedControl

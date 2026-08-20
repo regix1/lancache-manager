@@ -4,15 +4,26 @@
    cluster still comes from managementSectionContent.css (imported by
    ClientsTab.tsx). */
 
-/* Sort cluster: the field dropdown is full-width on the narrowest screens so the
-   toolbar wraps instead of overflowing, then takes a fixed width from `sm` up. The
-   direction control sits beside it at its own intrinsic width, both 40px tall. */
+/* Sort cluster: the field dropdown shares its row with the direction pair, so it takes what is
+   left of that row rather than a full line of its own, which is what dropped it below the
+   direction buttons on a phone. From `sm` up it holds a fixed width instead, so a longer sort
+   label cannot move the buttons beside it. Both are 40px tall. */
 .clients-sort-field {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Phone: the cluster takes the card's width so the picker fills everything the direction pair
+   does not, instead of both sitting content-sized against the left edge. */
+@media (max-width: 639.98px) {
+  .clients-sort-controls {
+    width: 100%;
+  }
 }
 
 @media (min-width: 640px) {
   .clients-sort-field {
+    flex: 0 0 auto;
     width: 11rem;
   }
 }
