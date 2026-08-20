@@ -984,6 +984,13 @@
   border-top: 1px solid var(--theme-border-secondary);
 }
 
+/* A panel's own padding is roomier than a stat card's, so the chips need more air under the rule
+   to sit between it and the card's edge rather than clinging to the line. Same 1.25rem the readout
+   strip gives its values. */
+.dash-range-footer {
+  padding-top: 1.25rem;
+}
+
 /* The chart keeps the height it always reserved so cards with and without a sparkline stay the
    same height in a shared grid; its own words moved to the footer. */
 .stat-card-chart {
