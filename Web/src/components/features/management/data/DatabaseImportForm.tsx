@@ -7,6 +7,7 @@ import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import FormField from '@components/ui/FormField';
 import ApiService from '@services/api.service';
 import { formatCount } from '@utils/formatters';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -140,88 +141,101 @@ export function DatabaseImportForm({
           <>
             <div className="database-import-form__field-row">
               <div className="database-import-form__field">
-                <label className="form-field-label">
-                  {t('initialization.importHistorical.host')}
-                </label>
-                <input
-                  type="text"
-                  value={pgConfig.host}
-                  onChange={(e) => {
-                    setPgConfig((prev) => ({ ...prev, host: e.target.value }));
-                    setValidationResult(null);
-                  }}
-                  placeholder="localhost"
-                  className="w-full px-3 py-2.5 themed-input"
-                  disabled={isDisabled}
-                />
+                <FormField label={t('initialization.importHistorical.host')}>
+                  {(field) => (
+                    <input
+                      {...field}
+                      type="text"
+                      value={pgConfig.host}
+                      onChange={(e) => {
+                        setPgConfig((prev) => ({ ...prev, host: e.target.value }));
+                        setValidationResult(null);
+                      }}
+                      placeholder="localhost"
+                      className="w-full px-3 py-2.5 themed-input"
+                      disabled={isDisabled}
+                    />
+                  )}
+                </FormField>
               </div>
               <div className="database-import-form__field">
-                <label className="form-field-label">
-                  {t('initialization.importHistorical.port')}
-                </label>
-                <input
-                  type="number"
-                  value={pgConfig.port}
-                  onChange={(e) => {
-                    setPgConfig((prev) => ({ ...prev, port: parseInt(e.target.value) || 5432 }));
-                    setValidationResult(null);
-                  }}
-                  placeholder="5432"
-                  className="w-full px-3 py-2.5 themed-input"
-                  disabled={isDisabled}
-                />
+                <FormField label={t('initialization.importHistorical.port')}>
+                  {(field) => (
+                    <input
+                      {...field}
+                      type="number"
+                      value={pgConfig.port}
+                      onChange={(e) => {
+                        setPgConfig((prev) => ({
+                          ...prev,
+                          port: parseInt(e.target.value) || 5432
+                        }));
+                        setValidationResult(null);
+                      }}
+                      placeholder="5432"
+                      className="w-full px-3 py-2.5 themed-input"
+                      disabled={isDisabled}
+                    />
+                  )}
+                </FormField>
               </div>
             </div>
 
             <div className="database-import-form__field">
-              <label className="form-field-label">
-                {t('initialization.importHistorical.database')}
-              </label>
-              <input
-                type="text"
-                value={pgConfig.database}
-                onChange={(e) => {
-                  setPgConfig((prev) => ({ ...prev, database: e.target.value }));
-                  setValidationResult(null);
-                }}
-                placeholder="lancache"
-                className="w-full px-3 py-2.5 themed-input"
-                disabled={isDisabled}
-              />
+              <FormField label={t('initialization.importHistorical.database')}>
+                {(field) => (
+                  <input
+                    {...field}
+                    type="text"
+                    value={pgConfig.database}
+                    onChange={(e) => {
+                      setPgConfig((prev) => ({ ...prev, database: e.target.value }));
+                      setValidationResult(null);
+                    }}
+                    placeholder="lancache"
+                    className="w-full px-3 py-2.5 themed-input"
+                    disabled={isDisabled}
+                  />
+                )}
+              </FormField>
             </div>
 
             <div className="database-import-form__field-row">
               <div className="database-import-form__field">
-                <label className="form-field-label">
-                  {t('initialization.importHistorical.username')}
-                </label>
-                <input
-                  type="text"
-                  value={pgConfig.username}
-                  onChange={(e) => {
-                    setPgConfig((prev) => ({ ...prev, username: e.target.value }));
-                    setValidationResult(null);
-                  }}
-                  placeholder="postgres"
-                  className="w-full px-3 py-2.5 themed-input"
-                  disabled={isDisabled}
-                />
+                <FormField label={t('initialization.importHistorical.username')}>
+                  {(field) => (
+                    <input
+                      {...field}
+                      type="text"
+                      value={pgConfig.username}
+                      onChange={(e) => {
+                        setPgConfig((prev) => ({ ...prev, username: e.target.value }));
+                        setValidationResult(null);
+                      }}
+                      placeholder="postgres"
+                      className="w-full px-3 py-2.5 themed-input"
+                      disabled={isDisabled}
+                    />
+                  )}
+                </FormField>
               </div>
               <div className="database-import-form__field">
-                <label className="form-field-label">
-                  {t('initialization.importHistorical.password')}
-                </label>
-                <input
-                  type="password"
-                  value={pgConfig.password}
-                  onChange={(e) => {
-                    setPgConfig((prev) => ({ ...prev, password: e.target.value }));
-                    setValidationResult(null);
-                  }}
-                  placeholder="••••••••"
-                  className="w-full px-3 py-2.5 themed-input"
-                  disabled={isDisabled}
-                />
+                <FormField label={t('initialization.importHistorical.password')}>
+                  {(field) => (
+                    <input
+                      {...field}
+                      type="password"
+                      value={pgConfig.password}
+                      onChange={(e) => {
+                        setPgConfig((prev) => ({ ...prev, password: e.target.value }));
+                        setValidationResult(null);
+                      }}
+                      placeholder="••••••••"
+                      className="w-full px-3 py-2.5 themed-input"
+                      disabled={isDisabled}
+                    />
+                  )}
+                </FormField>
               </div>
             </div>
           </>
@@ -229,20 +243,22 @@ export function DatabaseImportForm({
 
         {showRawConnectionString && (
           <div className="database-import-form__field">
-            <label className="form-field-label">
-              {t('initialization.importHistorical.connectionString')}
-            </label>
-            <input
-              type="text"
-              value={rawConnectionString}
-              onChange={(e) => {
-                setRawConnectionString(e.target.value);
-                setValidationResult(null);
-              }}
-              placeholder="Host=localhost;Port=5432;Database=lancache;Username=postgres;Password=..."
-              className="w-full px-3 py-2.5 themed-input"
-              disabled={isDisabled}
-            />
+            <FormField label={t('initialization.importHistorical.connectionString')}>
+              {(field) => (
+                <input
+                  {...field}
+                  type="text"
+                  value={rawConnectionString}
+                  onChange={(e) => {
+                    setRawConnectionString(e.target.value);
+                    setValidationResult(null);
+                  }}
+                  placeholder="Host=localhost;Port=5432;Database=lancache;Username=postgres;Password=..."
+                  className="w-full px-3 py-2.5 themed-input"
+                  disabled={isDisabled}
+                />
+              )}
+            </FormField>
           </div>
         )}
 
@@ -297,27 +313,23 @@ export function DatabaseImportForm({
 
       {/* Validation Result */}
       {validationResult && (
-        <div
-          className={`p-3 rounded-lg flex items-start gap-3 ${validationResult.valid ? 'bg-themed-success' : 'bg-themed-error'}`}
+        <Alert
+          color={validationResult.valid ? 'success' : 'error'}
+          icon={
+            validationResult.valid ? (
+              <CheckCircle className="w-4 h-4" />
+            ) : (
+              <XCircle className="w-4 h-4" />
+            )
+          }
         >
-          {validationResult.valid ? (
-            <CheckCircle className="w-5 h-5 flex-shrink-0 icon-success" />
-          ) : (
-            <XCircle className="w-5 h-5 flex-shrink-0 icon-error" />
-          )}
-          <div
-            className={`text-sm ${validationResult.valid ? 'text-themed-success' : 'text-themed-error'}`}
-          >
-            <p>
-              {validationResult.message}
-              {validationResult.recordCount != null &&
-                ` ${t('initialization.importHistorical.foundRecords', {
-                  count: validationResult.recordCount ?? 0,
-                  formattedCount: formatCount(validationResult.recordCount ?? 0)
-                })}`}
-            </p>
-          </div>
-        </div>
+          {validationResult.message}
+          {validationResult.recordCount != null &&
+            ` ${t('initialization.importHistorical.foundRecords', {
+              count: validationResult.recordCount ?? 0,
+              formattedCount: formatCount(validationResult.recordCount ?? 0)
+            })}`}
+        </Alert>
       )}
 
       {/* Import in Progress */}

@@ -9,6 +9,7 @@ import Badge from '@components/ui/Badge';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import FormField from '@components/ui/FormField';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
 import { Pagination } from '@components/ui/Pagination';
 import {
@@ -433,42 +434,44 @@ const UserAccounts: React.FC = () => {
         >
           <div className="space-y-4">
             <div>
-              <label className="form-field-label" htmlFor="account-username">
-                {t('user.accounts.form.username')}
-              </label>
-              <input
-                id="account-username"
-                type="text"
-                autoComplete="username"
-                className="w-full px-3 py-2.5 themed-input"
-                value={editor.username}
-                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                  setEditor({ ...editor, username: event.target.value })
-                }
-              />
+              <FormField label={t('user.accounts.form.username')}>
+                {(field) => (
+                  <input
+                    {...field}
+                    type="text"
+                    autoComplete="username"
+                    className="w-full px-3 py-2.5 themed-input"
+                    value={editor.username}
+                    onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                      setEditor({ ...editor, username: event.target.value })
+                    }
+                  />
+                )}
+              </FormField>
             </div>
 
             <div>
-              <label className="form-field-label" htmlFor="account-password">
-                {editor.account
-                  ? t('user.accounts.form.newPassword')
-                  : t('user.accounts.form.password')}
-              </label>
-              <input
-                id="account-password"
-                type="password"
-                autoComplete="new-password"
-                className="w-full px-3 py-2.5 themed-input"
-                value={editor.password}
-                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                  setEditor({ ...editor, password: event.target.value })
+              <FormField
+                label={
+                  editor.account
+                    ? t('user.accounts.form.newPassword')
+                    : t('user.accounts.form.password')
                 }
-              />
-              {editor.account && (
-                <p className="text-xs text-themed-muted mt-1">
-                  {t('user.accounts.form.passwordHint')}
-                </p>
-              )}
+                hint={editor.account ? t('user.accounts.form.passwordHint') : undefined}
+              >
+                {(field) => (
+                  <input
+                    {...field}
+                    type="password"
+                    autoComplete="new-password"
+                    className="w-full px-3 py-2.5 themed-input"
+                    value={editor.password}
+                    onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                      setEditor({ ...editor, password: event.target.value })
+                    }
+                  />
+                )}
+              </FormField>
             </div>
 
             {!editor.account && (

@@ -85,16 +85,6 @@
   flex-basis: 100%;
 }
 
-@media (hover: hover) {
-  .mgmt-search-clear:hover {
-    color: var(--theme-text-primary);
-  }
-}
-
-.mgmt-search-clear:active {
-  opacity: 0.8;
-}
-
 /* Contained data list: ONE bordered tertiary surface with hairline dividers
    between items instead of per-item rounded boxes. Direct children are items -
    either a .mgmt-row, or a plain wrapper holding a row plus its expanded

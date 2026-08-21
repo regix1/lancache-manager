@@ -4,6 +4,7 @@ import { CalendarDays, Trash2, Calendar, Check } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Button } from '@components/ui/Button';
+import FormField from '@components/ui/FormField';
 import { useEvents } from '@contexts/useEvents';
 import { useReaderClock } from '@hooks/useReaderClock';
 import { useTimeFilter } from '@contexts/useTimeFilter';
@@ -210,56 +211,72 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
           {/* Name */}
           <div>
-            <label className="form-field-label">{t('events.modal.labels.name')} *</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t('events.modal.placeholders.name')}
-              className="themed-input w-full px-3 py-2"
-              autoFocus
-            />
+            <FormField label={t('events.modal.labels.name')} required>
+              {(field) => (
+                <input
+                  {...field}
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t('events.modal.placeholders.name')}
+                  className="themed-input w-full px-3 py-2"
+                  autoFocus
+                />
+              )}
+            </FormField>
           </div>
 
           {/* Description */}
           <div>
-            <label className="form-field-label">{t('events.modal.labels.description')}</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t('events.modal.placeholders.description')}
-              rows={3}
-              className="themed-input w-full px-3 py-2 resize-none"
-            />
+            <FormField label={t('events.modal.labels.description')}>
+              {(field) => (
+                <textarea
+                  {...field}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={t('events.modal.placeholders.description')}
+                  rows={3}
+                  className="themed-input w-full px-3 py-2 resize-none"
+                />
+              )}
+            </FormField>
           </div>
 
           {/* Date/Time */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="form-field-label">{t('events.modal.labels.startDateTime')} *</label>
-              <button
-                type="button"
-                onClick={() => setShowStartPicker(true)}
-                className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
-              >
-                <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
-                <span className="truncate text-sm min-w-0 flex-1">
-                  {formatDateTime(startDateTime)}
-                </span>
-              </button>
+              <FormField label={t('events.modal.labels.startDateTime')} required>
+                {(field) => (
+                  <button
+                    {...field}
+                    type="button"
+                    onClick={() => setShowStartPicker(true)}
+                    className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
+                  >
+                    <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
+                    <span className="truncate text-sm min-w-0 flex-1">
+                      {formatDateTime(startDateTime)}
+                    </span>
+                  </button>
+                )}
+              </FormField>
             </div>
             <div>
-              <label className="form-field-label">{t('events.modal.labels.endDateTime')} *</label>
-              <button
-                type="button"
-                onClick={() => setShowEndPicker(true)}
-                className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
-              >
-                <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
-                <span className="truncate text-sm min-w-0 flex-1">
-                  {formatDateTime(endDateTime)}
-                </span>
-              </button>
+              <FormField label={t('events.modal.labels.endDateTime')} required>
+                {(field) => (
+                  <button
+                    {...field}
+                    type="button"
+                    onClick={() => setShowEndPicker(true)}
+                    className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
+                  >
+                    <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
+                    <span className="truncate text-sm min-w-0 flex-1">
+                      {formatDateTime(endDateTime)}
+                    </span>
+                  </button>
+                )}
+              </FormField>
             </div>
           </div>
 

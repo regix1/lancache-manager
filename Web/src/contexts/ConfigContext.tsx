@@ -5,6 +5,7 @@ import type { Config } from '../types';
 import ApiService from '../services/api.service';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import { Button } from '@components/ui/Button';
+import FormField from '@components/ui/FormField';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { API_BASE } from '../utils/constants';
@@ -124,51 +125,54 @@ const PostgresPasswordRecovery: React.FC<PostgresPasswordRecoveryProps> = ({ onS
         </p>
 
         <div>
-          <label className="form-field-label" htmlFor="config-recovery-api-key">
-            {t('modals.auth.labels.apiKey')}
-          </label>
-          <input
-            id="config-recovery-api-key"
-            type="password"
-            className="themed-input config-error-recovery-input"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            placeholder={t('app.configError.recovery.apiKeyPlaceholder')}
-            autoComplete="off"
-            disabled={isSaving}
-          />
+          <FormField label={t('modals.auth.labels.apiKey')}>
+            {(field) => (
+              <input
+                {...field}
+                type="password"
+                className="themed-input config-error-recovery-input"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder={t('app.configError.recovery.apiKeyPlaceholder')}
+                autoComplete="off"
+                disabled={isSaving}
+              />
+            )}
+          </FormField>
         </div>
 
         <div>
-          <label className="form-field-label" htmlFor="config-recovery-username">
-            {t('app.configError.recovery.usernameLabel')}
-          </label>
-          <input
-            id="config-recovery-username"
-            type="text"
-            className="themed-input config-error-recovery-input"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            placeholder={t('app.configError.recovery.usernamePlaceholder')}
-            autoComplete="username"
-            disabled={isSaving}
-          />
+          <FormField label={t('app.configError.recovery.usernameLabel')}>
+            {(field) => (
+              <input
+                {...field}
+                type="text"
+                className="themed-input config-error-recovery-input"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                placeholder={t('app.configError.recovery.usernamePlaceholder')}
+                autoComplete="username"
+                disabled={isSaving}
+              />
+            )}
+          </FormField>
         </div>
 
         <div>
-          <label className="form-field-label" htmlFor="config-recovery-password">
-            {t('app.configError.recovery.passwordLabel')}
-          </label>
-          <input
-            id="config-recovery-password"
-            type="password"
-            className="themed-input config-error-recovery-input"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder={t('app.configError.recovery.passwordPlaceholder')}
-            autoComplete="new-password"
-            disabled={isSaving}
-          />
+          <FormField label={t('app.configError.recovery.passwordLabel')}>
+            {(field) => (
+              <input
+                {...field}
+                type="password"
+                className="themed-input config-error-recovery-input"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder={t('app.configError.recovery.passwordPlaceholder')}
+                autoComplete="new-password"
+                disabled={isSaving}
+              />
+            )}
+          </FormField>
         </div>
 
         {failureMessage && (

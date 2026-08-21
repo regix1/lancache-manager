@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Key } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
+import FormField from '@components/ui/FormField';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { cancelAuthModalLogin } from './authModalCancel';
 import { LoginSteps } from './LoginSteps';
@@ -216,69 +217,81 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
             {!needsTwoFactor && !needsEmailCode && (
               <>
                 <div>
-                  <label className="form-field-label">
-                    {t('modals.steamAuth.labels.username')}
-                  </label>
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder={t('modals.steamAuth.placeholders.username')}
-                    className="w-full px-3 py-2.5 themed-input"
-                    disabled={loading || awaitingChallenge || waitingForMobileConfirmation}
-                    autoComplete="username"
-                  />
+                  <FormField label={t('modals.steamAuth.labels.username')}>
+                    {(field) => (
+                      <input
+                        {...field}
+                        type="text"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        placeholder={t('modals.steamAuth.placeholders.username')}
+                        className="w-full px-3 py-2.5 themed-input"
+                        disabled={loading || awaitingChallenge || waitingForMobileConfirmation}
+                        autoComplete="username"
+                      />
+                    )}
+                  </FormField>
                 </div>
 
                 <div>
-                  <label className="form-field-label">
-                    {t('modals.steamAuth.labels.password')}
-                  </label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                    placeholder={t('modals.steamAuth.placeholders.password')}
-                    className="w-full px-3 py-2.5 themed-input"
-                    disabled={loading || awaitingChallenge || waitingForMobileConfirmation}
-                    autoComplete="current-password"
-                  />
+                  <FormField label={t('modals.steamAuth.labels.password')}>
+                    {(field) => (
+                      <input
+                        {...field}
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
+                        placeholder={t('modals.steamAuth.placeholders.password')}
+                        className="w-full px-3 py-2.5 themed-input"
+                        disabled={loading || awaitingChallenge || waitingForMobileConfirmation}
+                        autoComplete="current-password"
+                      />
+                    )}
+                  </FormField>
                 </div>
               </>
             )}
 
             {needsEmailCode && (
               <div>
-                <label className="form-field-label">{t('modals.steamAuth.labels.emailCode')}</label>
-                <input
-                  type="text"
-                  value={emailCode}
-                  onChange={(e) => setEmailCode(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                  placeholder={t('modals.steamAuth.placeholders.guardCode')}
-                  className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
-                  disabled={loading}
-                  autoFocus
-                  maxLength={5}
-                />
+                <FormField label={t('modals.steamAuth.labels.emailCode')}>
+                  {(field) => (
+                    <input
+                      {...field}
+                      type="text"
+                      value={emailCode}
+                      onChange={(e) => setEmailCode(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
+                      placeholder={t('modals.steamAuth.placeholders.guardCode')}
+                      className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
+                      disabled={loading}
+                      autoFocus
+                      maxLength={5}
+                    />
+                  )}
+                </FormField>
               </div>
             )}
 
             {needsTwoFactor && (
               <div>
-                <label className="form-field-label">{t('modals.steamAuth.labels.guardCode')}</label>
-                <input
-                  type="text"
-                  value={twoFactorCode}
-                  onChange={(e) => setTwoFactorCode(e.target.value.toUpperCase())}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                  placeholder={t('modals.steamAuth.placeholders.guardCode')}
-                  className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
-                  disabled={loading}
-                  autoFocus
-                  maxLength={5}
-                />
+                <FormField label={t('modals.steamAuth.labels.guardCode')}>
+                  {(field) => (
+                    <input
+                      {...field}
+                      type="text"
+                      value={twoFactorCode}
+                      onChange={(e) => setTwoFactorCode(e.target.value.toUpperCase())}
+                      onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
+                      placeholder={t('modals.steamAuth.placeholders.guardCode')}
+                      className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
+                      disabled={loading}
+                      autoFocus
+                      maxLength={5}
+                    />
+                  )}
+                </FormField>
               </div>
             )}
 

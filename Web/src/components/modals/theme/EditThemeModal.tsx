@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { Checkbox } from '../../ui/Checkbox';
+import FormField from '../../ui/FormField';
 import ThemeEditorForm from '../../features/management/theme/ThemeEditorForm';
 import { useColorHistory } from '@hooks/useColorHistory';
 import { type Theme, type EditableTheme } from '../../features/management/theme/types';
@@ -65,35 +66,47 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
           </h4>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-field-label">{t('modals.theme.form.themeName')}</label>
-              <input
-                type="text"
-                value={editedTheme.name || ''}
-                onChange={(e) => setEditedTheme({ ...editedTheme, name: e.target.value })}
-                placeholder={t('modals.theme.placeholders.themeName')}
-                className="w-full px-3 py-2 focus:outline-none themed-input"
-              />
+              <FormField label={t('modals.theme.form.themeName')}>
+                {(field) => (
+                  <input
+                    {...field}
+                    type="text"
+                    value={editedTheme.name || ''}
+                    onChange={(e) => setEditedTheme({ ...editedTheme, name: e.target.value })}
+                    placeholder={t('modals.theme.placeholders.themeName')}
+                    className="w-full px-3 py-2 focus:outline-none themed-input"
+                  />
+                )}
+              </FormField>
             </div>
             <div>
-              <label className="form-field-label">{t('modals.theme.form.author')}</label>
-              <input
-                type="text"
-                value={editedTheme.author || ''}
-                onChange={(e) => setEditedTheme({ ...editedTheme, author: e.target.value })}
-                placeholder={t('modals.theme.placeholders.author')}
-                className="w-full px-3 py-2 focus:outline-none themed-input"
-              />
+              <FormField label={t('modals.theme.form.author')}>
+                {(field) => (
+                  <input
+                    {...field}
+                    type="text"
+                    value={editedTheme.author || ''}
+                    onChange={(e) => setEditedTheme({ ...editedTheme, author: e.target.value })}
+                    placeholder={t('modals.theme.placeholders.author')}
+                    className="w-full px-3 py-2 focus:outline-none themed-input"
+                  />
+                )}
+              </FormField>
             </div>
           </div>
           <div>
-            <label className="form-field-label">{t('modals.theme.form.description')}</label>
-            <input
-              type="text"
-              value={editedTheme.description || ''}
-              onChange={(e) => setEditedTheme({ ...editedTheme, description: e.target.value })}
-              placeholder={t('modals.theme.placeholders.description')}
-              className="w-full px-3 py-2 rounded focus:outline-none themed-input"
-            />
+            <FormField label={t('modals.theme.form.description')}>
+              {(field) => (
+                <input
+                  {...field}
+                  type="text"
+                  value={editedTheme.description || ''}
+                  onChange={(e) => setEditedTheme({ ...editedTheme, description: e.target.value })}
+                  placeholder={t('modals.theme.placeholders.description')}
+                  className="w-full px-3 py-2 rounded focus:outline-none themed-input"
+                />
+              )}
+            </FormField>
           </div>
           <div className="space-y-3">
             <div className="flex items-center gap-4">

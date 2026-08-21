@@ -3,6 +3,7 @@ import { ExternalLink } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
+import FormField from '@components/ui/FormField';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { LoginSteps } from './LoginSteps';
 import { LoginAttemptStatus } from './LoginAttemptStatus';
@@ -160,23 +161,25 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
 
                 {/* Code Input */}
                 <div>
-                  <label className="form-field-label">
-                    {t('modals.epicAuth.authorizationCodeLabel')}
-                  </label>
-                  <input
-                    type="password"
-                    value={authorizationCode}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setAuthorizationCode(e.target.value)
-                    }
-                    onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) =>
-                      e.key === 'Enter' && handleSubmit()
-                    }
-                    placeholder={t('modals.epicAuth.authorizationCodePlaceholder')}
-                    className="w-full px-3 py-2.5 themed-input font-mono text-sm"
-                    disabled={loading}
-                    autoFocus
-                  />
+                  <FormField label={t('modals.epicAuth.authorizationCodeLabel')}>
+                    {(field) => (
+                      <input
+                        {...field}
+                        type="password"
+                        value={authorizationCode}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                          setAuthorizationCode(e.target.value)
+                        }
+                        onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) =>
+                          e.key === 'Enter' && handleSubmit()
+                        }
+                        placeholder={t('modals.epicAuth.authorizationCodePlaceholder')}
+                        className="w-full px-3 py-2.5 themed-input font-mono text-sm"
+                        disabled={loading}
+                        autoFocus
+                      />
+                    )}
+                  </FormField>
                 </div>
               </div>
             </>

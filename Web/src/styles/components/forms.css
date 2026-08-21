@@ -445,3 +445,17 @@
   padding-bottom: 0;
   font-size: var(--font-size-sm);
 }
+
+/* Clear affordance sitting inside a search field. The hover swap is media-guarded because
+   on touch the hovered colour sticks to the button after the tap that emptied the box, so
+   the control keeps reading as pressed next to a field that is already clear. */
+.search-input-clear {
+  color: var(--theme-text-muted);
+  transition: color 0.15s ease;
+}
+
+@media (hover: hover) {
+  .search-input-clear:hover {
+    color: var(--theme-text-primary);
+  }
+}
