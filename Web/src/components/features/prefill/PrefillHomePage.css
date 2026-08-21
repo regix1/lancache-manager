@@ -262,7 +262,6 @@
 .prefill-service-action {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   flex-wrap: wrap;
   gap: 0.875rem 1rem;
   margin-top: auto;
@@ -286,9 +285,11 @@
   opacity: 0.6;
 }
 
+/* Takes a line of its own and fills it. The note beside it is `flex: 1 1 12rem`, which is
+   already wider than a card in this grid, so the two never shared a line anyway - the button
+   just wrapped underneath and sat at its 9rem minimum against the left edge. */
 .prefill-service-action button {
-  flex: 0 0 auto;
-  min-width: 9rem;
+  flex: 1 1 100%;
   white-space: nowrap;
 }
 
@@ -326,7 +327,6 @@
   }
 
   .prefill-service-action button {
-    width: 100%;
     min-height: 44px;
   }
 
