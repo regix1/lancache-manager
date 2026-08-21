@@ -1,7 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import { Database, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import FormField from '@components/ui/FormField';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
@@ -200,46 +202,48 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
 
       {/* Username Input */}
       <div>
-        <label className="form-field-label">
-          {t('initialization.databaseSetup.usernameLabel')}
-        </label>
-        <input
-          type="text"
-          value={form.username}
-          onChange={handleInputChange('username')}
-          placeholder={t('initialization.databaseSetup.usernamePlaceholder')}
-          className="w-full px-3 py-2.5 themed-input"
-          autoComplete="username"
-          disabled={isSubmitting}
-        />
-        {errors.username && <p className="text-xs text-themed-error mt-1">{errors.username}</p>}
+        <FormField label={t('initialization.databaseSetup.usernameLabel')} error={errors.username}>
+          {(field) => (
+            <input
+              {...field}
+              type="text"
+              value={form.username}
+              onChange={handleInputChange('username')}
+              placeholder={t('initialization.databaseSetup.usernamePlaceholder')}
+              className="w-full px-3 py-2.5 themed-input"
+              autoComplete="username"
+              disabled={isSubmitting}
+            />
+          )}
+        </FormField>
       </div>
 
       {/* Password Input */}
       <div>
-        <label className="form-field-label">
-          {t('initialization.databaseSetup.passwordLabel')}
-        </label>
-        <div className="relative">
-          <input
-            type={showPassword ? 'text' : 'password'}
-            value={form.password}
-            onChange={handleInputChange('password')}
-            placeholder={t('initialization.databaseSetup.passwordPlaceholder')}
-            className="w-full px-3 py-2.5 pr-10 themed-input"
-            autoComplete="new-password"
-            disabled={isSubmitting}
-          />
-          <button
-            type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-themed-muted"
-            onClick={() => setShowPassword((prev: boolean) => !prev)}
-            tabIndex={-1}
-          >
-            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-        </div>
-        {errors.password && <p className="text-xs text-themed-error mt-1">{errors.password}</p>}
+        <FormField label={t('initialization.databaseSetup.passwordLabel')} error={errors.password}>
+          {(field) => (
+            <div className="relative">
+              <input
+                {...field}
+                type={showPassword ? 'text' : 'password'}
+                value={form.password}
+                onChange={handleInputChange('password')}
+                placeholder={t('initialization.databaseSetup.passwordPlaceholder')}
+                className="w-full px-3 py-2.5 pr-10 themed-input"
+                autoComplete="new-password"
+                disabled={isSubmitting}
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-themed-muted"
+                onClick={() => setShowPassword((prev: boolean) => !prev)}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          )}
+        </FormField>
         {passwordStrength && (
           <div className="flex items-center gap-2 mt-1">
             <div className="flex-1 h-1.5 rounded-full bg-themed-tertiary overflow-hidden">
@@ -274,51 +278,55 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
 
       {/* Confirm Password Input */}
       <div>
-        <label className="form-field-label">
-          {t('initialization.databaseSetup.confirmPasswordLabel')}
-        </label>
-        <div className="relative">
-          <input
-            type={showConfirmPassword ? 'text' : 'password'}
-            value={form.confirmPassword}
-            onChange={handleInputChange('confirmPassword')}
-            placeholder={t('initialization.databaseSetup.confirmPasswordPlaceholder')}
-            className="w-full px-3 py-2.5 pr-10 themed-input"
-            autoComplete="new-password"
-            disabled={isSubmitting}
-          />
-          <button
-            type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-themed-muted"
-            onClick={() => setShowConfirmPassword((prev: boolean) => !prev)}
-            tabIndex={-1}
-          >
-            {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-        </div>
-        {errors.confirmPassword && (
-          <p className="text-xs text-themed-error mt-1">{errors.confirmPassword}</p>
-        )}
+        <FormField
+          label={t('initialization.databaseSetup.confirmPasswordLabel')}
+          error={errors.confirmPassword}
+        >
+          {(field) => (
+            <div className="relative">
+              <input
+                {...field}
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={form.confirmPassword}
+                onChange={handleInputChange('confirmPassword')}
+                placeholder={t('initialization.databaseSetup.confirmPasswordPlaceholder')}
+                className="w-full px-3 py-2.5 pr-10 themed-input"
+                autoComplete="new-password"
+                disabled={isSubmitting}
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-themed-muted"
+                onClick={() => setShowConfirmPassword((prev: boolean) => !prev)}
+                tabIndex={-1}
+              >
+                {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          )}
+        </FormField>
       </div>
 
       {authenticationEnabled === false && (
         <div>
-          <label className="form-field-label">
-            {t('initialization.databaseSetup.apiKeyLabel')}
-          </label>
-          <input
-            type="password"
-            value={form.apiKey}
-            onChange={handleInputChange('apiKey')}
-            placeholder={t('initialization.databaseSetup.apiKeyPlaceholder')}
-            className="w-full px-3 py-2.5 themed-input"
-            autoComplete="off"
-            disabled={isSubmitting}
-          />
-          {errors.apiKey && <p className="text-xs text-themed-error mt-1">{errors.apiKey}</p>}
-          <p className="text-xs text-themed-muted mt-1">
-            {t('initialization.databaseSetup.apiKeyHint')}
-          </p>
+          <FormField
+            label={t('initialization.databaseSetup.apiKeyLabel')}
+            error={errors.apiKey}
+            hint={t('initialization.databaseSetup.apiKeyHint')}
+          >
+            {(field) => (
+              <input
+                {...field}
+                type="password"
+                value={form.apiKey}
+                onChange={handleInputChange('apiKey')}
+                placeholder={t('initialization.databaseSetup.apiKeyPlaceholder')}
+                className="w-full px-3 py-2.5 themed-input"
+                autoComplete="off"
+                disabled={isSubmitting}
+              />
+            )}
+          </FormField>
         </div>
       )}
 
@@ -349,11 +357,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
       </div>
 
       {/* Error */}
-      {submitError && (
-        <div className="p-3 rounded-lg bg-themed-error">
-          <p className="text-sm text-themed-error">{submitError}</p>
-        </div>
-      )}
+      {submitError && <Alert color="error">{submitError}</Alert>}
     </form>
   );
 };

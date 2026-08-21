@@ -9,6 +9,7 @@ import {
   Container
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -257,11 +258,7 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
       </div>
 
       {/* Error message */}
-      {error && (
-        <div className="p-3 rounded-lg bg-themed-error">
-          <p className="text-sm text-themed-error">{error}</p>
-        </div>
-      )}
+      {error && <Alert color="error">{error}</Alert>}
 
       {/* Summary Banner */}
       {!isChecking && !error && (
@@ -317,11 +314,7 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
       </div>
 
       {timedOut && (
-        <div className="p-3 rounded-lg bg-themed-warning">
-          <p className="text-sm text-themed-warning">
-            {t('initialization.permissionsCheck.timeoutMessage')}
-          </p>
-        </div>
+        <Alert color="warning">{t('initialization.permissionsCheck.timeoutMessage')}</Alert>
       )}
     </div>
   );

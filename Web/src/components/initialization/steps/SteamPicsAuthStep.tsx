@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Shield, CheckCircle, Users, User } from 'lucide-react';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
@@ -145,11 +146,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
         </div>
 
         {/* Error Display */}
-        {error && (
-          <div className="p-3 rounded-lg bg-themed-error">
-            <p className="text-sm text-themed-error">{error}</p>
-          </div>
-        )}
+        {error && <Alert color="error">{error}</Alert>}
 
         {/* Continue Button */}
         {selectedMode === 'anonymous' && (

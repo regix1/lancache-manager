@@ -1,7 +1,9 @@
 import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Key, ExternalLink, CheckCircle, XCircle, Shield } from 'lucide-react';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import FormField from '@components/ui/FormField';
 import { storage } from '@utils/storage';
 import { useSteamApiKey } from '@hooks/useSteamApiKey';
 
@@ -75,38 +77,34 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
 
       {/* API Key Input */}
       <div>
-        <label className="form-field-label">{t('initialization.steamWebApiKey.label')}</label>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => {
-            setApiKey(e.target.value);
-            resetTestResult();
-          }}
-          placeholder={t('initialization.steamWebApiKey.placeholder')}
-          className="w-full px-3 py-2.5 themed-input"
-          disabled={testing || saving}
-        />
+        <FormField label={t('initialization.steamWebApiKey.label')}>
+          {(field) => (
+            <input
+              {...field}
+              type="password"
+              value={apiKey}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                resetTestResult();
+              }}
+              placeholder={t('initialization.steamWebApiKey.placeholder')}
+              className="w-full px-3 py-2.5 themed-input"
+              disabled={testing || saving}
+            />
+          )}
+        </FormField>
       </div>
 
       {/* Test Result */}
       {testResult && (
-        <div
-          className={`p-3 rounded-lg flex items-start gap-3 ${
-            testResult.valid ? 'bg-themed-success' : 'bg-themed-error'
-          }`}
+        <Alert
+          color={testResult.valid ? 'success' : 'error'}
+          icon={
+            testResult.valid ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />
+          }
         >
-          {testResult.valid ? (
-            <CheckCircle className="w-5 h-5 flex-shrink-0 icon-success" />
-          ) : (
-            <XCircle className="w-5 h-5 flex-shrink-0 icon-error" />
-          )}
-          <p
-            className={`text-sm ${testResult.valid ? 'text-themed-success' : 'text-themed-error'}`}
-          >
-            {testResult.message}
-          </p>
-        </div>
+          {testResult.message}
+        </Alert>
       )}
 
       {/* Security Note */}

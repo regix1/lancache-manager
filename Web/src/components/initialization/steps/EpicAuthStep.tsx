@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, ExternalLink, KeyRound, Shield } from 'lucide-react';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
+import FormField from '@components/ui/FormField';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import ApiService from '@services/api.service';
@@ -140,29 +142,29 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
 
         {/* Authorization Code Input */}
         <div>
-          <label className="form-field-label">{t('initialization.epicAuth.codeLabel')}</label>
-          <input
-            type="password"
-            value={state.authorizationCode}
-            onChange={handleAuthorizationCodeChange}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && state.authorizationCode.trim() && !state.loading) {
-                event.preventDefault();
-                void handleAuthenticate();
-              }
-            }}
-            placeholder={t('initialization.epicAuth.codePlaceholder')}
-            className="w-full px-3 py-2.5 themed-input"
-            disabled={state.loading}
-          />
+          <FormField label={t('initialization.epicAuth.codeLabel')}>
+            {(field) => (
+              <input
+                {...field}
+                type="password"
+                value={state.authorizationCode}
+                onChange={handleAuthorizationCodeChange}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && state.authorizationCode.trim() && !state.loading) {
+                    event.preventDefault();
+                    void handleAuthenticate();
+                  }
+                }}
+                placeholder={t('initialization.epicAuth.codePlaceholder')}
+                className="w-full px-3 py-2.5 themed-input"
+                disabled={state.loading}
+              />
+            )}
+          </FormField>
         </div>
 
         {/* Error Display */}
-        {error && (
-          <div className="p-3 rounded-lg bg-themed-error">
-            <p className="text-sm text-themed-error">{error}</p>
-          </div>
-        )}
+        {error && <Alert color="error">{error}</Alert>}
 
         {/* Action Buttons */}
         <div className="flex gap-3">
@@ -218,11 +220,7 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
       </div>
 
       {/* Error Display */}
-      {error && (
-        <div className="p-3 rounded-lg bg-themed-error">
-          <p className="text-sm text-themed-error">{error}</p>
-        </div>
-      )}
+      {error && <Alert color="error">{error}</Alert>}
 
       {/* Connect Button */}
       <Button

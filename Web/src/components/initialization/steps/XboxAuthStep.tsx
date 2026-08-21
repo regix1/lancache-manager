@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, ExternalLink, KeyRound, Shield } from 'lucide-react';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -203,11 +204,7 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
       </div>
 
       {/* Error Display */}
-      {error && (
-        <div className="p-3 rounded-lg bg-themed-error">
-          <p className="text-sm text-themed-error">{error}</p>
-        </div>
-      )}
+      {error && <Alert color="error">{error}</Alert>}
 
       {/* Connect Button */}
       <Button

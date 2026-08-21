@@ -1,7 +1,9 @@
 import React, { useState, useCallback } from 'react';
-import { UserPlus, Eye, EyeOff, CheckCircle, AlertTriangle } from 'lucide-react';
+import { UserPlus, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import FormField from '@components/ui/FormField';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
@@ -230,57 +232,55 @@ export const AdminAccountStep: React.FC = () => {
           crosses the same network. isSecureContext is the browser's own answer, so a loopback
           address during setup is not warned about. */}
       {!window.isSecureContext && (
-        <div className="p-3 rounded-lg flex items-start gap-3 bg-themed-warning">
-          <AlertTriangle className="w-5 h-5 flex-shrink-0 icon-warning" />
-          <div>
-            <p className="text-sm font-medium text-themed-warning">
-              {t('initialization.adminAccount.insecureConnection.title')}
-            </p>
-            <p className="text-xs mt-1 text-themed-warning">
-              {t('initialization.adminAccount.insecureConnection.description')}
-            </p>
-          </div>
-        </div>
+        <Alert color="warning" title={t('initialization.adminAccount.insecureConnection.title')}>
+          {t('initialization.adminAccount.insecureConnection.description')}
+        </Alert>
       )}
 
       {/* Username Input */}
       <div>
-        <label className="form-field-label">{t('initialization.adminAccount.usernameLabel')}</label>
-        <input
-          type="text"
-          value={form.username}
-          onChange={handleInputChange('username')}
-          placeholder={t('initialization.adminAccount.usernamePlaceholder')}
-          className="w-full px-3 py-2.5 themed-input"
-          autoComplete="username"
-          disabled={isSubmitting}
-        />
-        {errors.username && <p className="text-xs text-themed-error mt-1">{errors.username}</p>}
+        <FormField label={t('initialization.adminAccount.usernameLabel')} error={errors.username}>
+          {(field) => (
+            <input
+              {...field}
+              type="text"
+              value={form.username}
+              onChange={handleInputChange('username')}
+              placeholder={t('initialization.adminAccount.usernamePlaceholder')}
+              className="w-full px-3 py-2.5 themed-input"
+              autoComplete="username"
+              disabled={isSubmitting}
+            />
+          )}
+        </FormField>
       </div>
 
       {/* Password Input */}
       <div>
-        <label className="form-field-label">{t('initialization.adminAccount.passwordLabel')}</label>
-        <div className="relative">
-          <input
-            type={showPassword ? 'text' : 'password'}
-            value={form.password}
-            onChange={handleInputChange('password')}
-            placeholder={t('initialization.adminAccount.passwordPlaceholder')}
-            className="w-full px-3 py-2.5 pr-10 themed-input"
-            autoComplete="new-password"
-            disabled={isSubmitting}
-          />
-          <button
-            type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-themed-muted"
-            onClick={() => setShowPassword((prev: boolean) => !prev)}
-            tabIndex={-1}
-          >
-            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-        </div>
-        {errors.password && <p className="text-xs text-themed-error mt-1">{errors.password}</p>}
+        <FormField label={t('initialization.adminAccount.passwordLabel')} error={errors.password}>
+          {(field) => (
+            <div className="relative">
+              <input
+                {...field}
+                type={showPassword ? 'text' : 'password'}
+                value={form.password}
+                onChange={handleInputChange('password')}
+                placeholder={t('initialization.adminAccount.passwordPlaceholder')}
+                className="w-full px-3 py-2.5 pr-10 themed-input"
+                autoComplete="new-password"
+                disabled={isSubmitting}
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-themed-muted"
+                onClick={() => setShowPassword((prev: boolean) => !prev)}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          )}
+        </FormField>
         {passwordStrength && (
           <div className="flex items-center gap-2 mt-1">
             <div className="flex-1 h-1.5 rounded-full bg-themed-tertiary overflow-hidden">
@@ -315,49 +315,55 @@ export const AdminAccountStep: React.FC = () => {
 
       {/* Confirm Password Input */}
       <div>
-        <label className="form-field-label">
-          {t('initialization.adminAccount.confirmPasswordLabel')}
-        </label>
-        <div className="relative">
-          <input
-            type={showConfirmPassword ? 'text' : 'password'}
-            value={form.confirmPassword}
-            onChange={handleInputChange('confirmPassword')}
-            placeholder={t('initialization.adminAccount.confirmPasswordPlaceholder')}
-            className="w-full px-3 py-2.5 pr-10 themed-input"
-            autoComplete="new-password"
-            disabled={isSubmitting}
-          />
-          <button
-            type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-themed-muted"
-            onClick={() => setShowConfirmPassword((prev: boolean) => !prev)}
-            tabIndex={-1}
-          >
-            {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-        </div>
-        {errors.confirmPassword && (
-          <p className="text-xs text-themed-error mt-1">{errors.confirmPassword}</p>
-        )}
+        <FormField
+          label={t('initialization.adminAccount.confirmPasswordLabel')}
+          error={errors.confirmPassword}
+        >
+          {(field) => (
+            <div className="relative">
+              <input
+                {...field}
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={form.confirmPassword}
+                onChange={handleInputChange('confirmPassword')}
+                placeholder={t('initialization.adminAccount.confirmPasswordPlaceholder')}
+                className="w-full px-3 py-2.5 pr-10 themed-input"
+                autoComplete="new-password"
+                disabled={isSubmitting}
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-themed-muted"
+                onClick={() => setShowConfirmPassword((prev: boolean) => !prev)}
+                tabIndex={-1}
+              >
+                {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          )}
+        </FormField>
       </div>
 
       {/* API key Input */}
       <div>
-        <label className="form-field-label">{t('initialization.adminAccount.apiKeyLabel')}</label>
-        <input
-          type="password"
-          value={form.apiKey}
-          onChange={handleInputChange('apiKey')}
-          placeholder={t('initialization.adminAccount.apiKeyPlaceholder')}
-          className="w-full px-3 py-2.5 themed-input"
-          autoComplete="off"
-          disabled={isSubmitting}
-        />
-        {errors.apiKey && <p className="text-xs text-themed-error mt-1">{errors.apiKey}</p>}
-        <p className="text-xs text-themed-muted mt-1">
-          {t('initialization.adminAccount.apiKeyHint')}
-        </p>
+        <FormField
+          label={t('initialization.adminAccount.apiKeyLabel')}
+          error={errors.apiKey}
+          hint={t('initialization.adminAccount.apiKeyHint')}
+        >
+          {(field) => (
+            <input
+              {...field}
+              type="password"
+              value={form.apiKey}
+              onChange={handleInputChange('apiKey')}
+              placeholder={t('initialization.adminAccount.apiKeyPlaceholder')}
+              className="w-full px-3 py-2.5 themed-input"
+              autoComplete="off"
+              disabled={isSubmitting}
+            />
+          )}
+        </FormField>
       </div>
 
       {/* Submit Button */}
@@ -377,11 +383,7 @@ export const AdminAccountStep: React.FC = () => {
       </div>
 
       {/* Error */}
-      {submitError && (
-        <div className="p-3 rounded-lg bg-themed-error">
-          <p className="text-sm text-themed-error">{submitError}</p>
-        </div>
-      )}
+      {submitError && <Alert color="error">{submitError}</Alert>}
     </form>
   );
 };

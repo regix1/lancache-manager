@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Cloud, Database, AlertTriangle, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Cloud, Database, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -330,11 +331,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         )}
 
         {/* Error */}
-        {error && (
-          <div className="p-3 rounded-lg bg-themed-error">
-            <p className="text-sm text-themed-error">{error}</p>
-          </div>
-        )}
+        {error && <Alert color="error">{error}</Alert>}
       </div>
     );
   }
@@ -357,26 +354,21 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
 
       {/* Steam Auth Warning */}
       {usingSteamAuth && (
-        <div className="p-3 rounded-lg flex items-start gap-3 bg-themed-warning">
-          <AlertTriangle className="w-5 h-5 flex-shrink-0 icon-warning" />
-          <div className="flex-1">
-            <p className="text-sm text-themed-warning">
-              {t('initialization.depotInit.githubUnavailable')}
-            </p>
-            {onBackToSteamAuth && (
-              <Button
-                size="xs"
-                variant="filled"
-                color="secondary"
-                onClick={onBackToSteamAuth}
-                className="mt-2"
-              >
-                <ArrowLeft className="w-3 h-3 mr-1" />
-                {t('initialization.depotInit.changeAuthMethod')}
-              </Button>
-            )}
-          </div>
-        </div>
+        <Alert color="warning">
+          <p>{t('initialization.depotInit.githubUnavailable')}</p>
+          {onBackToSteamAuth && (
+            <Button
+              size="xs"
+              variant="filled"
+              color="secondary"
+              onClick={onBackToSteamAuth}
+              className="mt-2"
+            >
+              <ArrowLeft className="w-3 h-3 mr-1" />
+              {t('initialization.depotInit.changeAuthMethod')}
+            </Button>
+          )}
+        </Alert>
       )}
 
       {/* Status Display */}
@@ -408,11 +400,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       )}
 
       {/* Error */}
-      {error && (
-        <div className="p-3 rounded-lg bg-themed-error">
-          <p className="text-sm text-themed-error">{error}</p>
-        </div>
-      )}
+      {error && <Alert color="error">{error}</Alert>}
 
       {/* PICS Status */}
       {picsData && (

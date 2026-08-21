@@ -1,6 +1,7 @@
 import React from 'react';
 import { Rocket, ArrowLeft } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { useTranslation } from 'react-i18next';
@@ -243,9 +244,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
             step's last control is clipped away with no way to scroll to it. */}
         <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-8">
           {syncError && (
-            <div className="mb-4 p-3 rounded-lg bg-themed-error">
-              <p className="text-sm text-themed-error">{syncError}</p>
-            </div>
+            <Alert color="error" className="mb-4">
+              {syncError}
+            </Alert>
           )}
           {renderStep(currentStep)}
         </div>

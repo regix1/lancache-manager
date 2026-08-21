@@ -1,7 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import { Database, Eye, EyeOff, CheckCircle, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import FormField from '@components/ui/FormField';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 
@@ -160,102 +162,117 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="sm:col-span-2">
-          <label className="form-field-label">{t('initialization.externalDb.fields.host')}</label>
-          <input
-            type="text"
-            value={form.host}
-            onChange={handleFieldChange('host')}
-            placeholder="lancache-db"
-            disabled={isSubmitting}
-            className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
-          />
-          {errors.host && <p className="text-xs text-themed-error mt-1">{errors.host}</p>}
+          <FormField label={t('initialization.externalDb.fields.host')} error={errors.host}>
+            {(field) => (
+              <input
+                {...field}
+                type="text"
+                value={form.host}
+                onChange={handleFieldChange('host')}
+                placeholder="lancache-db"
+                disabled={isSubmitting}
+                className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
+              />
+            )}
+          </FormField>
         </div>
         <div>
-          <label className="form-field-label">{t('initialization.externalDb.fields.port')}</label>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={form.port}
-            onChange={handleFieldChange('port')}
-            placeholder="5432"
-            disabled={isSubmitting}
-            className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
-          />
-          {errors.port && <p className="text-xs text-themed-error mt-1">{errors.port}</p>}
+          <FormField label={t('initialization.externalDb.fields.port')} error={errors.port}>
+            {(field) => (
+              <input
+                {...field}
+                type="text"
+                inputMode="numeric"
+                value={form.port}
+                onChange={handleFieldChange('port')}
+                placeholder="5432"
+                disabled={isSubmitting}
+                className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
+              />
+            )}
+          </FormField>
         </div>
       </div>
 
       <div>
-        <label className="form-field-label">{t('initialization.externalDb.fields.database')}</label>
-        <input
-          type="text"
-          value={form.database}
-          onChange={handleFieldChange('database')}
-          placeholder="lancache"
-          disabled={isSubmitting}
-          className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
-        />
-        {errors.database && <p className="text-xs text-themed-error mt-1">{errors.database}</p>}
+        <FormField label={t('initialization.externalDb.fields.database')} error={errors.database}>
+          {(field) => (
+            <input
+              {...field}
+              type="text"
+              value={form.database}
+              onChange={handleFieldChange('database')}
+              placeholder="lancache"
+              disabled={isSubmitting}
+              className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
+            />
+          )}
+        </FormField>
       </div>
 
       <div>
-        <label className="form-field-label">{t('initialization.externalDb.fields.username')}</label>
-        <input
-          type="text"
-          value={form.username}
-          onChange={handleFieldChange('username')}
-          placeholder="lancache"
-          disabled={isSubmitting}
-          className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
-        />
-        {errors.username && <p className="text-xs text-themed-error mt-1">{errors.username}</p>}
+        <FormField label={t('initialization.externalDb.fields.username')} error={errors.username}>
+          {(field) => (
+            <input
+              {...field}
+              type="text"
+              value={form.username}
+              onChange={handleFieldChange('username')}
+              placeholder="lancache"
+              disabled={isSubmitting}
+              className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
+            />
+          )}
+        </FormField>
       </div>
 
       <div>
-        <label className="form-field-label">{t('initialization.externalDb.fields.password')}</label>
-        <div className="relative">
-          <input
-            type={showPassword ? 'text' : 'password'}
-            value={form.password}
-            onChange={handleFieldChange('password')}
-            disabled={isSubmitting}
-            className="w-full px-3 py-2 pr-10 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
-          />
-          <button
-            type="button"
-            onClick={() => setShowPassword((s) => !s)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-themed-secondary"
-            tabIndex={-1}
-          >
-            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-        </div>
-        {errors.password && <p className="text-xs text-themed-error mt-1">{errors.password}</p>}
+        <FormField label={t('initialization.externalDb.fields.password')} error={errors.password}>
+          {(field) => (
+            <div className="relative">
+              <input
+                {...field}
+                type={showPassword ? 'text' : 'password'}
+                value={form.password}
+                onChange={handleFieldChange('password')}
+                disabled={isSubmitting}
+                className="w-full px-3 py-2 pr-10 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((s) => !s)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-themed-secondary"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          )}
+        </FormField>
       </div>
 
       <div>
-        <label className="form-field-label">{t('initialization.apiKey.label')}</label>
-        <input
-          type="password"
-          value={form.apiKey}
-          onChange={handleFieldChange('apiKey')}
-          placeholder={t('initialization.apiKey.placeholder')}
-          disabled={isSubmitting}
-          autoComplete="off"
-          className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
-        />
-        {errors.apiKey && <p className="text-xs text-themed-error mt-1">{errors.apiKey}</p>}
-        <p className="text-xs text-themed-muted mt-1">
-          {t('initialization.externalDb.apiKeyHelp')}
-        </p>
+        <FormField
+          label={t('initialization.apiKey.label')}
+          error={errors.apiKey}
+          hint={t('initialization.externalDb.apiKeyHelp')}
+        >
+          {(field) => (
+            <input
+              {...field}
+              type="password"
+              value={form.apiKey}
+              onChange={handleFieldChange('apiKey')}
+              placeholder={t('initialization.apiKey.placeholder')}
+              disabled={isSubmitting}
+              autoComplete="off"
+              className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
+            />
+          )}
+        </FormField>
       </div>
 
-      {submitError && (
-        <div className="rounded-md p-3 text-sm bg-themed-error text-themed-error">
-          {submitError}
-        </div>
-      )}
+      {submitError && <Alert color="error">{submitError}</Alert>}
 
       <Button variant="default" onClick={handleSubmit} disabled={isSubmitting} className="w-full">
         {isSubmitting

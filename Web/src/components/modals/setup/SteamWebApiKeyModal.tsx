@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Key, Lock, ExternalLink, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import FormField from '@components/ui/FormField';
 import { Modal } from '@components/ui/Modal';
 import { useTranslation } from 'react-i18next';
 import { useSteamApiKey } from '@hooks/useSteamApiKey';
@@ -110,17 +111,21 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
 
         {/* API Key Input */}
         <div>
-          <label className="form-field-label">{t('modals.steamWebApi.labels.apiKey')}</label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => {
-              setApiKey(e.target.value);
-              resetTestResult();
-            }}
-            placeholder={t('modals.steamWebApi.placeholder')}
-            className="w-full px-4 py-2 rounded-lg themed-input"
-          />
+          <FormField label={t('modals.steamWebApi.labels.apiKey')}>
+            {(field) => (
+              <input
+                {...field}
+                type="password"
+                value={apiKey}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  resetTestResult();
+                }}
+                placeholder={t('modals.steamWebApi.placeholder')}
+                className="w-full px-4 py-2 rounded-lg themed-input"
+              />
+            )}
+          </FormField>
         </div>
 
         {/* Security Notice */}
