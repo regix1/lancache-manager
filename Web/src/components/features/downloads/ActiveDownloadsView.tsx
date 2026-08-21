@@ -6,10 +6,12 @@ import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { formatBytes, formatSpeed } from '@utils/formatters';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { Tooltip } from '@components/ui/Tooltip';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import Badge from '@components/ui/Badge';
 import BadgesRow from './BadgesRow';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { buildTrafficKey } from './liveDownloadPreviews';
+import { efficiencyTier, HIT_TIER_CLASS } from '@utils/efficiencyTier';
 import type { GameSpeedInfo, ClientSpeedInfo } from '../../../types';
 
 const ActiveDownloadsView: React.FC = () => {
@@ -66,32 +68,41 @@ const ActiveDownloadsView: React.FC = () => {
     <div className="active-downloads-view">
       {/* View Toggle */}
       <div className="view-toggle-row">
-        <div className="view-toggle">
-          <button
-            className={`view-toggle-btn ${viewMode === 'games' ? 'active' : ''}`}
-            onClick={() => setViewMode('games')}
-          >
-            <HardDrive />
-            {t('downloads.active.tabs.games')}
-            {games.length > 0 && (
-              <Badge variant="neutral" className="badge-count">
-                {games.length}
-              </Badge>
-            )}
-          </button>
-          <button
-            className={`view-toggle-btn ${viewMode === 'clients' ? 'active' : ''}`}
-            onClick={() => setViewMode('clients')}
-          >
-            <Users />
-            {t('downloads.active.tabs.clients')}
-            {clients.length > 0 && (
-              <Badge variant="neutral" className="badge-count">
-                {clients.length}
-              </Badge>
-            )}
-          </button>
-        </div>
+        <SegmentedControl
+          value={viewMode}
+          onChange={(next) => setViewMode(next as 'games' | 'clients')}
+          showLabels
+          options={[
+            {
+              value: 'games',
+              icon: <HardDrive />,
+              label: (
+                <>
+                  {t('downloads.active.tabs.games')}
+                  {games.length > 0 && (
+                    <Badge variant="neutral" className="badge-count">
+                      {games.length}
+                    </Badge>
+                  )}
+                </>
+              )
+            },
+            {
+              value: 'clients',
+              icon: <Users />,
+              label: (
+                <>
+                  {t('downloads.active.tabs.clients')}
+                  {clients.length > 0 && (
+                    <Badge variant="neutral" className="badge-count">
+                      {clients.length}
+                    </Badge>
+                  )}
+                </>
+              )
+            }
+          ]}
+        />
 
         <button className="refresh-btn" onClick={refreshSpeed}>
           <RefreshCw />
@@ -128,13 +139,7 @@ const ActiveDownloadsView: React.FC = () => {
                     <span className="meta-item">{formatBytes(game.totalBytes)}</span>
                     <span className="meta-divider">•</span>
                     <span
-                      className={`meta-item cache-hit ${
-                        game.cacheHitPercent >= 80
-                          ? ''
-                          : game.cacheHitPercent >= 50
-                            ? 'medium'
-                            : 'low'
-                      }`}
+                      className={`meta-item cache-hit ${HIT_TIER_CLASS[efficiencyTier(game.cacheHitPercent)]}`}
                     >
                       {t('downloads.active.hitRate', {
                         percent: Math.round(game.cacheHitPercent)

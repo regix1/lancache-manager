@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Database, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import { ProgressBar } from '@components/ui/ProgressBar';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import ApiService from '@services/api.service';
@@ -158,18 +159,17 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
           </div>
 
           {/* Progress Bar */}
-          <div>
-            <div className="w-full rounded-full h-2.5 overflow-hidden bg-themed-tertiary">
-              <div
-                className="h-full transition-[width] duration-300 ease-out rounded-full bg-primary"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-            <p className="text-sm text-themed-secondary text-center mt-2">
-              {Math.round(progressPercent)}%
-              {isInitializing() && ` - ${t('initialization.picsProgress.preparing')}`}
-            </p>
-          </div>
+          <ProgressBar
+            value={progressPercent}
+            height="lg"
+            label={t('aria.progressLabel')}
+            caption={
+              <p className="text-sm text-themed-secondary text-center mt-2">
+                {Math.round(progressPercent)}%
+                {isInitializing() && ` - ${t('initialization.picsProgress.preparing')}`}
+              </p>
+            }
+          />
 
           {/* Info */}
           <p className="text-xs text-themed-muted text-center">

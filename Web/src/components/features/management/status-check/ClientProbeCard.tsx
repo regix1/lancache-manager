@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { MonitorSmartphone } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { useCopyFeedback } from '@hooks/useCopyFeedback';
+import { copyText } from '@utils/clipboard';
 import { CLIENT_PROBE_HOST, CLIENT_PROBE_TIMEOUT_MS, CLIENT_PROBE_URL } from './constants';
 import type { ClientProbeState, ClientProbeStatus } from './types';
 
@@ -46,17 +48,13 @@ const ClientProbeCard: React.FC<ClientProbeCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const keys = 'management.sections.statusCheck';
-  const [copied, setCopied] = useState(false);
+  const [copied, markCopied] = useCopyFeedback(false);
 
   const handleCopyCommands = async () => {
-    try {
-      // The blocked state only exists on https pages, i.e. secure contexts, where the
-      // Clipboard API is always available.
-      await navigator.clipboard.writeText(BLOCKED_FALLBACK_COMMANDS);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard permission denied - the commands stay visible for manual selection.
+    // The blocked state only exists on https pages, i.e. secure contexts, where the
+    // Clipboard API is always available.
+    if (await copyText(BLOCKED_FALLBACK_COMMANDS)) {
+      markCopied(true);
     }
   };
 

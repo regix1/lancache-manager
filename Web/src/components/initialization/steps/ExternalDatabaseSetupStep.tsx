@@ -1,9 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { Database, Eye, EyeOff, CheckCircle, RefreshCw } from 'lucide-react';
+import { Database, CheckCircle, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import FormField from '@components/ui/FormField';
+import { PostgresConnectionFields } from '@components/ui/PostgresConnectionFields';
+import type { PostgresConnectionField } from '@components/ui/PostgresConnectionFields.types';
+import { StepHeader } from '@components/initialization/StepHeader';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 
@@ -49,7 +52,6 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
     password: null,
     apiKey: null
   });
-  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [setupSuccess, setSetupSuccess] = useState(false);
@@ -62,6 +64,12 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
     },
     []
   );
+
+  const handlePostgresFieldChange = useCallback((field: PostgresConnectionField, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    setErrors((prev) => ({ ...prev, [field]: null }));
+    setSubmitError(null);
+  }, []);
 
   const validateForm = useCallback((): boolean => {
     const next: FormErrors = {
@@ -124,17 +132,12 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
   if (setupSuccess) {
     return (
       <div className="space-y-5">
-        <div className="flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-success">
-            <CheckCircle className="w-7 h-7 icon-success" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">
-            {t('initialization.externalDb.successTitle')}
-          </h3>
-          <p className="text-sm text-themed-secondary max-w-md">
-            {t('initialization.externalDb.successBody')}
-          </p>
-        </div>
+        <StepHeader
+          icon={<CheckCircle className="w-7 h-7 icon-success" />}
+          iconBackground="bg-themed-success"
+          title={t('initialization.externalDb.successTitle')}
+          description={t('initialization.externalDb.successBody')}
+        />
 
         <div className="rounded-lg border border-themed-secondary bg-themed-tertiary p-4 flex items-start gap-3">
           <RefreshCw className="w-5 h-5 mt-0.5 icon-primary flex-shrink-0" />
@@ -148,108 +151,40 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-tertiary">
-          <Database className="w-7 h-7 icon-primary" />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">
-          {t('initialization.externalDb.title')}
-        </h3>
-        <p className="text-sm text-themed-secondary max-w-md">
-          {t('initialization.externalDb.body')}
-        </p>
-      </div>
+      <StepHeader
+        icon={<Database className="w-7 h-7 icon-primary" />}
+        iconBackground="bg-themed-tertiary"
+        title={t('initialization.externalDb.title')}
+        description={t('initialization.externalDb.body')}
+      />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="sm:col-span-2">
-          <FormField label={t('initialization.externalDb.fields.host')} error={errors.host}>
-            {(field) => (
-              <input
-                {...field}
-                type="text"
-                value={form.host}
-                onChange={handleFieldChange('host')}
-                placeholder="lancache-db"
-                disabled={isSubmitting}
-                className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
-              />
-            )}
-          </FormField>
-        </div>
-        <div>
-          <FormField label={t('initialization.externalDb.fields.port')} error={errors.port}>
-            {(field) => (
-              <input
-                {...field}
-                type="text"
-                inputMode="numeric"
-                value={form.port}
-                onChange={handleFieldChange('port')}
-                placeholder="5432"
-                disabled={isSubmitting}
-                className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
-              />
-            )}
-          </FormField>
-        </div>
-      </div>
-
-      <div>
-        <FormField label={t('initialization.externalDb.fields.database')} error={errors.database}>
-          {(field) => (
-            <input
-              {...field}
-              type="text"
-              value={form.database}
-              onChange={handleFieldChange('database')}
-              placeholder="lancache"
-              disabled={isSubmitting}
-              className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
-            />
-          )}
-        </FormField>
-      </div>
-
-      <div>
-        <FormField label={t('initialization.externalDb.fields.username')} error={errors.username}>
-          {(field) => (
-            <input
-              {...field}
-              type="text"
-              value={form.username}
-              onChange={handleFieldChange('username')}
-              placeholder="lancache"
-              disabled={isSubmitting}
-              className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
-            />
-          )}
-        </FormField>
-      </div>
-
-      <div>
-        <FormField label={t('initialization.externalDb.fields.password')} error={errors.password}>
-          {(field) => (
-            <div className="relative">
-              <input
-                {...field}
-                type={showPassword ? 'text' : 'password'}
-                value={form.password}
-                onChange={handleFieldChange('password')}
-                disabled={isSubmitting}
-                className="w-full px-3 py-2 pr-10 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((s) => !s)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-themed-secondary"
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          )}
-        </FormField>
-      </div>
+      <PostgresConnectionFields
+        values={{
+          host: form.host,
+          port: form.port,
+          database: form.database,
+          username: form.username,
+          password: form.password
+        }}
+        labels={{
+          host: t('initialization.postgresFields.host'),
+          port: t('initialization.postgresFields.port'),
+          database: t('initialization.postgresFields.database'),
+          username: t('initialization.postgresFields.username'),
+          password: t('initialization.postgresFields.password')
+        }}
+        errors={{
+          host: errors.host,
+          port: errors.port,
+          database: errors.database,
+          username: errors.username,
+          password: errors.password
+        }}
+        onFieldChange={handlePostgresFieldChange}
+        inputClassName="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
+        disabled={isSubmitting}
+        passwordReveal={{ showLabel: t('aria.showPassword'), hideLabel: t('aria.hidePassword') }}
+      />
 
       <div>
         <FormField

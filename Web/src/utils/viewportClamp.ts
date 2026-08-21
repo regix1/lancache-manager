@@ -1,3 +1,7 @@
+/** Menus keep 8px from the viewport edge; popovers and tooltips keep 12. */
+export const MENU_GUTTER_PX = 8;
+export const POPOVER_GUTTER_PX = 12;
+
 /**
  * Keeps one axis of a floating box inside the viewport.
  *

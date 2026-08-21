@@ -21,6 +21,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { HelpNote, HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
+import { WidgetPanel } from '../WidgetPanel';
 import { getThemeColor, useThemeRevision } from '../ServiceAnalyticsChart/chartTheme';
 import {
   bandwidthTickLabel,
@@ -200,7 +201,7 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
   );
 
   return (
-    <div className="widget-card widget-card--wide line-trend-card">
+    <WidgetPanel className="widget-card--wide line-trend-card">
       <div className="line-trend-header">
         <div className="line-trend-heading flex items-center gap-1 min-h-6">
           <h3 className="dash-panel-title">
@@ -263,7 +264,7 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
         ) : null}
         {badge}
       </div>
-    </div>
+    </WidgetPanel>
   );
 });
 

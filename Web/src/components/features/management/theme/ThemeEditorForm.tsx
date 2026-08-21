@@ -4,11 +4,13 @@ import { useTranslation } from 'react-i18next';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import FormField from '@components/ui/FormField';
 import { SearchInput } from '@components/ui/SearchInput';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ImprovedColorPicker } from './ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from './constants';
 import { type ColorGroup } from './types';
 import { copyText } from '@utils/clipboard';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 
 interface ThemeEditorFormProps {
   themeData: Record<string, string | boolean>;
@@ -31,7 +33,7 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
   const [organizationMode, setOrganizationMode] = useState<'category' | 'page'>('category');
   const [selectedPage, setSelectedPage] = useState('all');
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['foundation']);
-  const [copiedColor, setCopiedColor] = useState<string | null>(null);
+  const [copiedColor, markCopied] = useCopyFeedback<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   const toggleGroup = (groupName: string) => {
@@ -44,8 +46,7 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
     // Only claims the copy when it happened. The bare clipboard call this replaced threw on a page
     // served over plain http, where the API does not exist, and still showed the copied tick.
     if (await copyText(color)) {
-      setCopiedColor(color);
-      setTimeout(() => setCopiedColor(null), 2000);
+      markCopied(color);
     }
   };
 
@@ -136,30 +137,16 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
   return (
     <>
       {/* Organization Mode Toggle */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => setOrganizationMode('category')}
-          className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition duration-200 ${
-            organizationMode === 'category'
-              ? 'bg-primary text-themed-button'
-              : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
-          }`}
-        >
-          <Layers className="w-4 h-4 inline-block mr-2" />
-          {t('modals.theme.organization.byCategory')}
-        </button>
-        <button
-          onClick={() => setOrganizationMode('page')}
-          className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition duration-200 ${
-            organizationMode === 'page'
-              ? 'bg-primary text-themed-button'
-              : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
-          }`}
-        >
-          <Layout className="w-4 h-4 inline-block mr-2" />
-          {t('modals.theme.organization.byPage')}
-        </button>
-      </div>
+      <SegmentedControl
+        options={[
+          { value: 'category', label: t('modals.theme.organization.byCategory'), icon: <Layers /> },
+          { value: 'page', label: t('modals.theme.organization.byPage'), icon: <Layout /> }
+        ]}
+        value={organizationMode}
+        onChange={(value) => setOrganizationMode(value as 'category' | 'page')}
+        showLabels
+        fullWidth
+      />
 
       {/* Page Selector (when in page mode) */}
       <CollapsibleRegion open={organizationMode === 'page'} contentClassName="mt-4">

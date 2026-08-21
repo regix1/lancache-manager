@@ -1,11 +1,10 @@
 import React from 'react';
-import { Moon, Sun, Info, Save } from 'lucide-react';
+import { Moon, Sun, Save } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
-import { Checkbox } from '../../ui/Checkbox';
-import FormField from '../../ui/FormField';
 import ThemeEditorForm from '../../features/management/theme/ThemeEditorForm';
+import { ThemeFields } from './ThemeFields';
 import { useColorHistory } from '@hooks/useColorHistory';
 import { type EditableTheme } from '../../features/management/theme/types';
 import themeService from '@services/theme.service';
@@ -50,63 +49,17 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
     <Modal opened={opened} onClose={onClose} title={t('modals.theme.create.title')} size="xl">
       <div className="space-y-6">
         {/* Theme Metadata */}
-        <div className="space-y-4">
-          <h4 className="text-sm font-semibold flex items-center gap-2 text-themed-primary">
-            <Info className="w-4 h-4" />
-            {t('modals.theme.form.themeInfo')}
-          </h4>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <FormField label={t('modals.theme.form.themeName')}>
-                {(field) => (
-                  <input
-                    {...field}
-                    type="text"
-                    value={newTheme.name}
-                    onChange={(e) => setNewTheme({ ...newTheme, name: e.target.value })}
-                    placeholder={t('modals.theme.placeholders.themeName')}
-                    className="w-full px-3 py-2 focus:outline-none themed-input"
-                  />
-                )}
-              </FormField>
-            </div>
-            <div>
-              <FormField label={t('modals.theme.form.author')}>
-                {(field) => (
-                  <input
-                    {...field}
-                    type="text"
-                    value={newTheme.author}
-                    onChange={(e) => setNewTheme({ ...newTheme, author: e.target.value })}
-                    placeholder={t('modals.theme.placeholders.author')}
-                    className="w-full px-3 py-2 focus:outline-none themed-input"
-                  />
-                )}
-              </FormField>
-            </div>
-          </div>
-          <div>
-            <FormField label={t('modals.theme.form.description')}>
-              {(field) => (
-                <input
-                  {...field}
-                  type="text"
-                  value={newTheme.description}
-                  onChange={(e) => setNewTheme({ ...newTheme, description: e.target.value })}
-                  placeholder={t('modals.theme.placeholders.description')}
-                  className="w-full px-3 py-2 rounded focus:outline-none themed-input"
-                />
-              )}
-            </FormField>
-          </div>
-          <div className="space-y-3">
-            <div className="flex items-center gap-4">
-              <Checkbox
-                checked={newTheme.isDark}
-                onChange={(e) => loadPresetColors(e.target.checked ? 'dark' : 'light')}
-                variant="rounded"
-                label={t('modals.theme.form.darkTheme')}
-              />
+        <ThemeFields
+          name={newTheme.name}
+          author={newTheme.author}
+          description={newTheme.description}
+          isDark={newTheme.isDark}
+          onNameChange={(value) => setNewTheme({ ...newTheme, name: value })}
+          onAuthorChange={(value) => setNewTheme({ ...newTheme, author: value })}
+          onDescriptionChange={(value) => setNewTheme({ ...newTheme, description: value })}
+          onDarkChange={(checked) => loadPresetColors(checked ? 'dark' : 'light')}
+          trailingContent={
+            <>
               <button
                 onClick={() => loadPresetColors('dark')}
                 className="px-3 py-1 text-xs rounded-lg flex items-center gap-1 bg-themed-tertiary text-themed-secondary"
@@ -121,9 +74,9 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                 <Sun className="w-3 h-3" />
                 {t('modals.theme.form.loadLightPreset')}
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         {/* Color Editor */}
         <ThemeEditorForm

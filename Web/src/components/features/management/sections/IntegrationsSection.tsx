@@ -2,6 +2,8 @@ import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
+import { GroupHeading } from '@components/ui/GroupHeading';
+import { TabPanel } from '@components/features/management/TabPanel';
 import HighlightGlow from '@components/ui/HighlightGlow';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { type AuthMode } from '@services/auth.service';
@@ -36,23 +38,14 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
   const { t } = useTranslation();
 
   return (
-    <div
-      className="management-section animate-fade-in"
-      role="tabpanel"
-      id="panel-integrations"
-      aria-labelledby="tab-integrations"
-    >
+    <TabPanel tabId="integrations">
       {/* Steam - merged PICS authentication + Web API */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-steam)]" />
-            <h3 className="management-group-label caps-label">
-              {t('management.sections.integrations.steamIntegration')}
-            </h3>
-          </div>
-          <AccordionGroupToggle />
-        </div>
+        <GroupHeading
+          label={t('management.sections.integrations.steamIntegration')}
+          accent="steam"
+          actions={<AccordionGroupToggle />}
+        />
         <HighlightGlow enabled={highlightSteamApi} scrollIntoView>
           <SteamIntegrationCard
             authMode={authMode}
@@ -65,12 +58,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
 
       {/* Epic Games - merged authentication + library */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-epic)]" />
-          <h3 className="management-group-label caps-label">
-            {t('management.sections.integrations.epicIntegration')}
-          </h3>
-        </div>
+        <GroupHeading label={t('management.sections.integrations.epicIntegration')} accent="epic" />
         <HighlightGlow enabled={highlightEpic} scrollIntoView>
           <EpicDaemonStatus
             authMode={authMode}
@@ -83,12 +71,10 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
 
       {/* Battle.net - anonymous prefill daemon status (no account login) */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-blizzard)]" />
-          <h3 className="management-group-label caps-label">
-            {t('management.sections.integrations.battlenetIntegration')}
-          </h3>
-        </div>
+        <GroupHeading
+          label={t('management.sections.integrations.battlenetIntegration')}
+          accent="blizzard"
+        />
         <HighlightGlow enabled={highlightBattleNet} scrollIntoView>
           <BattleNetDaemonStatus onError={onError} />
         </HighlightGlow>
@@ -96,23 +82,13 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
 
       {/* Riot - anonymous prefill daemon status (no account login) */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-riot)]" />
-          <h3 className="management-group-label caps-label">
-            {t('management.sections.integrations.riotIntegration')}
-          </h3>
-        </div>
+        <GroupHeading label={t('management.sections.integrations.riotIntegration')} accent="riot" />
         <RiotDaemonStatus onError={onError} />
       </div>
 
       {/* Xbox - login-required mapping status */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-xbox)]" />
-          <h3 className="management-group-label caps-label">
-            {t('management.sections.integrations.xboxIntegration')}
-          </h3>
-        </div>
+        <GroupHeading label={t('management.sections.integrations.xboxIntegration')} accent="xbox" />
         <HighlightGlow enabled={highlightXbox} scrollIntoView>
           <XboxDaemonStatus
             authMode={authMode}
@@ -125,12 +101,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
 
       {/* Monitoring - Grafana endpoints (last group: no bottom margin) */}
       <div>
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-          <h3 className="management-group-label caps-label">
-            {t('management.sections.integrations.monitoringMetrics')}
-          </h3>
-        </div>
+        <GroupHeading label={t('management.sections.integrations.monitoringMetrics')} />
         <Suspense
           fallback={
             <Card>
@@ -145,7 +116,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
           <GrafanaEndpoints />
         </Suspense>
       </div>
-    </div>
+    </TabPanel>
   );
 };
 

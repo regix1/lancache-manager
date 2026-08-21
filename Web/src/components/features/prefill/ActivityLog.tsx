@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePaginatedList } from '@/hooks/usePaginatedList';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { Pagination } from '@components/ui/Pagination';
 import { useReaderClock } from '@hooks/useReaderClock';
 import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
 import {
@@ -13,8 +14,6 @@ import {
   Loader2 as Loader2Icon,
   XCircle,
   Terminal,
-  ChevronLeft,
-  ChevronRight,
   Activity
 } from 'lucide-react';
 
@@ -250,30 +249,14 @@ export function ActivityLog({
               </span>
 
               {/* Navigation controls - centered on very small screens */}
-              <div className="flex items-center gap-1 sm:gap-1.5 mx-auto sm:mx-0">
-                <button
-                  onClick={() => handlePageChange(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  className="flex items-center justify-center w-9 h-9 rounded-lg transition-[background-color,border-color] duration-150 disabled:opacity-30 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-hover)] hover:border-[var(--theme-border-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)]"
-                  aria-label={t('aria.previousPage')}
-                >
-                  <ChevronLeft size={14} />
-                </button>
-
-                {/* Page indicator */}
-                <span className="text-[11px] font-medium tabular-nums px-1.5 min-w-[48px] text-center text-[var(--theme-text-primary)]">
-                  {currentPage} / {totalPages}
-                </span>
-
-                <button
-                  onClick={() => handlePageChange(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                  className="flex items-center justify-center w-9 h-9 rounded-lg transition-[background-color,border-color] duration-150 disabled:opacity-30 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-hover)] hover:border-[var(--theme-border-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)]"
-                  aria-label={t('aria.nextPage')}
-                >
-                  <ChevronRight size={14} />
-                </button>
-              </div>
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={handlePageChange}
+                variant="inline"
+                showCard={false}
+                className="mx-auto sm:mx-0"
+              />
             </div>
           )}
         </>

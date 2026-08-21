@@ -2,6 +2,7 @@ import React, { useMemo, memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { isSeparatedMemberRow } from '@utils/clientRows';
+import { efficiencyTier, HIT_TIER_CLASS } from '@utils/efficiencyTier';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { Card } from '@components/ui/Card';
@@ -71,9 +72,7 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
       </td>
       <td className="text-right whitespace-nowrap">
         <span
-          className={`text-xs font-semibold tabular-nums ${
-            client.cacheHitPercent > 50 ? 'text-themed-success' : 'text-themed-warning'
-          }`}
+          className={`text-xs font-semibold tabular-nums ${HIT_TIER_CLASS[efficiencyTier(client.cacheHitPercent)]}`}
         >
           {formatPercent(client.cacheHitPercent)}
         </span>

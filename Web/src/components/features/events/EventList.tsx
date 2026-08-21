@@ -8,13 +8,13 @@ import {
   History,
   CalendarClock,
   Pencil,
-  BarChart3,
-  MoreVertical
+  BarChart3
 } from 'lucide-react';
 import { useReaderClock } from '@hooks/useReaderClock';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
-import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
+import { ActionMenuItem } from '@components/ui/ActionMenu';
+import { RowActionsMenu } from '@components/ui/RowActionsMenu';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import type { BadgeVariant } from '@components/ui/Badge.types';
@@ -173,43 +173,30 @@ const EventCard = React.memo(
             {/* Row actions collapsed into a single kebab menu instead of two
                 always-visible icon buttons, so the row reads calm. */}
             <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-              <ActionMenu
-                isOpen={menuOpen}
-                onClose={() => setMenuOpen(false)}
-                align="right"
-                trigger={
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMenuOpen((prev) => !prev);
-                    }}
-                    className="btn-icon-square btn-icon-square--sm flex items-center hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]"
-                    aria-label={t('events.list.actionsMenuLabel')}
-                  >
-                    <MoreVertical className="w-4 h-4" />
-                  </button>
-                }
-              >
-                <ActionMenuItem
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onViewStatsClick(event);
-                  }}
-                  icon={<BarChart3 className="w-4 h-4" />}
-                >
-                  {t('events.list.tooltips.viewStats')}
-                </ActionMenuItem>
-                <ActionMenuItem
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onEditClick(event);
-                  }}
-                  icon={<Pencil className="w-4 h-4" />}
-                >
-                  {t('events.list.tooltips.edit')}
-                </ActionMenuItem>
-              </ActionMenu>
+              <RowActionsMenu open={menuOpen} onOpenChange={setMenuOpen}>
+                {(close) => (
+                  <>
+                    <ActionMenuItem
+                      onClick={() => {
+                        close();
+                        onViewStatsClick(event);
+                      }}
+                      icon={<BarChart3 className="w-4 h-4" />}
+                    >
+                      {t('events.list.tooltips.viewStats')}
+                    </ActionMenuItem>
+                    <ActionMenuItem
+                      onClick={() => {
+                        close();
+                        onEditClick(event);
+                      }}
+                      icon={<Pencil className="w-4 h-4" />}
+                    >
+                      {t('events.list.tooltips.edit')}
+                    </ActionMenuItem>
+                  </>
+                )}
+              </RowActionsMenu>
             </div>
           </div>
         </div>

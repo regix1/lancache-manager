@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import {
@@ -24,7 +24,8 @@ import { getEventColorVar } from '@utils/eventColors';
 import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
 import { formatEventDateRange } from '@utils/formatters';
 import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
-import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
+import { useAnchoredPanel } from '@hooks/useAnchoredPanel';
+import { MENU_GUTTER_PX } from '@utils/viewportClamp';
 
 interface TimeFilterProps {
   iconOnly?: boolean;
@@ -60,19 +61,27 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ iconOnly = false }) => {
   );
 
   const [isOpen, setIsOpen] = useState(false);
-  const { present, closing } = useExitPresence(isOpen, DROPDOWN_EXIT_MS);
   const [showDatePicker, setShowDatePicker] = useState(false);
   // Local state for date picker - only committed to context on close/apply
   const [pendingStartDate, setPendingStartDate] = useState<Date | null>(customStartDate);
   const [pendingEndDate, setPendingEndDate] = useState<Date | null>(customEndDate);
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
-  const [dropdownStyle, setDropdownStyle] = useState<{ animation: string }>({ animation: '' });
   const [isMobile, setIsMobile] = useState(false);
   const [eventPage, setEventPage] = useState(0);
   const touchStartX = useRef<number | null>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const closeDropdown = useCallback((): void => setIsOpen(false), []);
+
+  const { present, closing, position } = useAnchoredPanel({
+    open: isOpen,
+    anchorRef: buttonRef,
+    panelRef: dropdownRef,
+    onClose: closeDropdown,
+    gutter: MENU_GUTTER_PX,
+    align: 'right'
+  });
 
   // Sort events: active first, then upcoming, then past
   const sortedEvents = useMemo(() => sortEventsByStatus(events), [events]);
@@ -148,48 +157,6 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ iconOnly = false }) => {
     [t]
   );
 
-  // Calculate position before paint - for portal rendering
-  useLayoutEffect(() => {
-    if (!isOpen || !buttonRef.current) return;
-
-    const calculatePosition = () => {
-      if (!buttonRef.current) return null;
-
-      const rect = buttonRef.current.getBoundingClientRect();
-      const dropdownHeight = 400; // Approximate max height
-      const dropdownWidth = 256; // w-64 = 16rem = 256px
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const spaceAbove = rect.top;
-      const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
-
-      // Calculate horizontal position - align right edge with button right edge
-      let left = rect.right - dropdownWidth;
-
-      // Ensure dropdown doesn't go off-screen left
-      if (left < 8) {
-        left = 8;
-      }
-
-      // Ensure dropdown doesn't go off-screen right
-      if (left + dropdownWidth > window.innerWidth - 8) {
-        left = window.innerWidth - dropdownWidth - 8;
-      }
-
-      // Calculate vertical position
-      const top = shouldOpenUpward ? rect.top - dropdownHeight - 8 : rect.bottom + 4;
-
-      return { top, left, shouldOpenUpward };
-    };
-
-    const pos = calculatePosition();
-    if (pos) {
-      setDropdownPosition({ top: pos.top, left: pos.left });
-      setDropdownStyle({
-        animation: `${pos.shouldOpenUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
-      });
-    }
-  }, [isOpen]);
-
   useEffect(() => {
     const updateIsMobile = () => {
       setIsMobile(window.innerWidth < 640);
@@ -214,27 +181,11 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ iconOnly = false }) => {
       }
     };
 
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false);
-    };
-
-    // Close on scroll to prevent dropdown from being mispositioned
-    const handleScroll = (e: Event) => {
-      // Ignore scroll events originating from inside the dropdown
-      if (dropdownRef.current && dropdownRef.current.contains(e.target as Node)) {
-        return;
-      }
-      setIsOpen(false);
-    };
-
+    // No scroll handler and no Escape handler: the menu is positioned on the page and
+    // carried by its trigger, so a scroll can no longer misposition it, and Escape is
+    // the shared hook's job.
     document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    window.addEventListener('scroll', handleScroll, true);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-      window.removeEventListener('scroll', handleScroll, true);
-    };
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
   const handleTimeRangeChange = useCallback(
@@ -309,13 +260,12 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ iconOnly = false }) => {
 
   const selectedTimeOption = timeOptions.find((o) => o.value === timeRange);
 
-  // While closing, swap the entrance keyframe for its exit mirror. The open
-  // direction is encoded in the entrance animation string set on open (it is
-  // not overwritten during the close, since that effect is gated on isOpen).
-  const isUpwardMenu = dropdownStyle.animation.includes('dropdownSlideUp');
+  // While closing, swap the entrance keyframe for its exit mirror in the same
+  // direction. Both directions are anchored by `top`, so the side the menu opened on
+  // comes from the placement rather than being inferred from the coordinates.
   const menuAnimation = closing
-    ? `${isUpwardMenu ? 'dropdownSlideOutUp' : 'dropdownSlideOutDown'} 0.14s ease-in forwards`
-    : dropdownStyle.animation;
+    ? `${position.openUpward ? 'dropdownSlideOutUp' : 'dropdownSlideOutDown'} 0.14s ease-in forwards`
+    : `${position.openUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`;
 
   return (
     <>
@@ -367,10 +317,10 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ iconOnly = false }) => {
             createPortal(
               <div
                 ref={dropdownRef}
-                className="ed-dropdown fixed w-64 themed-border-radius-sm border overflow-hidden bg-[var(--theme-bg-secondary)] border-[var(--theme-border-primary)] max-w-[calc(100vw-32px)] z-[85]"
+                className="ed-dropdown absolute w-64 themed-border-radius-sm border overflow-hidden bg-[var(--theme-bg-secondary)] border-[var(--theme-border-primary)] max-w-[calc(100vw-32px)] z-[85]"
                 style={{
-                  top: dropdownPosition.top,
-                  left: dropdownPosition.left,
+                  top: position.top,
+                  left: position.left,
                   animation: menuAnimation,
                   pointerEvents: closing ? 'none' : undefined
                 }}

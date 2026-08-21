@@ -7,6 +7,8 @@ import { TogglePill } from '@components/ui/TogglePill';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
+import { GroupHeading } from '@components/ui/GroupHeading';
+import { TabPanel } from '@components/features/management/TabPanel';
 import ApiService, {
   type StatusCheckDomainGroup,
   type StatusCheckDomainsSource,
@@ -324,14 +326,7 @@ const StatusCheckSection: React.FC = () => {
   }, [reloadDomains]);
 
   const sectionShell = (children: React.ReactNode): React.ReactElement => (
-    <div
-      className="management-section animate-fade-in"
-      role="tabpanel"
-      id="panel-status-check"
-      aria-labelledby="tab-status-check"
-    >
-      {children}
-    </div>
+    <TabPanel tabId="status-check">{children}</TabPanel>
   );
 
   if (isLoading) {
@@ -395,24 +390,23 @@ const StatusCheckSection: React.FC = () => {
 
         {(lastResult || isRunning) && (
           <section>
-            <div className="flex items-center justify-between gap-3 flex-wrap mb-3 sm:mb-4">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-                <h3 className="management-group-label caps-label">{t(`${keys}.serverLane`)}</h3>
-              </div>
-              <div className="flex items-center gap-2">
-                {lastResult && (
-                  <TogglePill
-                    size="sm"
-                    active={problemsOnly}
-                    onClick={() => setProblemsOnly((previous) => !previous)}
-                  >
-                    {t(`${keys}.showOnlyProblems`)}
-                  </TogglePill>
-                )}
-                <AccordionGroupToggle />
-              </div>
-            </div>
+            <GroupHeading
+              label={t(`${keys}.serverLane`)}
+              actions={
+                <div className="flex items-center gap-2">
+                  {lastResult && (
+                    <TogglePill
+                      size="sm"
+                      active={problemsOnly}
+                      onClick={() => setProblemsOnly((previous) => !previous)}
+                    >
+                      {t(`${keys}.showOnlyProblems`)}
+                    </TogglePill>
+                  )}
+                  <AccordionGroupToggle />
+                </div>
+              }
+            />
             {lastResult ? (
               <ServiceResultsList
                 services={sortedServices}
@@ -429,10 +423,7 @@ const StatusCheckSection: React.FC = () => {
         )}
 
         <section>
-          <div className="flex items-center gap-2 mb-3 sm:mb-4">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-            <h3 className="management-group-label caps-label">{t(`${keys}.deviceLane`)}</h3>
-          </div>
+          <GroupHeading label={t(`${keys}.deviceLane`)} />
           <ClientProbeCard
             state={probeState}
             onRetry={retryProbe}
@@ -441,10 +432,7 @@ const StatusCheckSection: React.FC = () => {
         </section>
 
         <section>
-          <div className="flex items-center gap-2 mb-3 sm:mb-4">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-            <h3 className="management-group-label caps-label">{t(`${keys}.testLane`)}</h3>
-          </div>
+          <GroupHeading label={t(`${keys}.testLane`)} />
           <TestDomainCard groups={domainGroups} />
         </section>
 

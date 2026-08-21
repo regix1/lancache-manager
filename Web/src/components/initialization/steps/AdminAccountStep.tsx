@@ -1,14 +1,16 @@
 import React, { useState, useCallback } from 'react';
-import { UserPlus, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { UserPlus, CheckCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import FormField from '@components/ui/FormField';
+import { PasswordField } from '@components/ui/PasswordField';
+import { PasswordStrengthMeter } from '@components/ui/PasswordStrengthMeter';
+import { StepHeader } from '@components/initialization/StepHeader';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
 import { getErrorMessage } from '@utils/error';
-import { getPasswordStrength } from './passwordStrength';
 
 interface FormState {
   username: string;
@@ -58,13 +60,9 @@ export const AdminAccountStep: React.FC = () => {
     confirmPassword: null,
     apiKey: null
   });
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [accountCreated, setAccountCreated] = useState(false);
-
-  const passwordStrength = form.password ? getPasswordStrength(form.password) : null;
 
   const validateForm = useCallback((): boolean => {
     const newErrors: FormErrors = {
@@ -189,18 +187,12 @@ export const AdminAccountStep: React.FC = () => {
   if (accountCreated) {
     return (
       <div className="space-y-5">
-        {/* Header */}
-        <div className="flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-success">
-            <CheckCircle className="w-7 h-7 icon-success" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">
-            {t('initialization.adminAccount.createdHeading')}
-          </h3>
-          <p className="text-sm text-themed-secondary max-w-md">
-            {t('initialization.adminAccount.createdDescription')}
-          </p>
-        </div>
+        <StepHeader
+          icon={<CheckCircle className="w-7 h-7 icon-success" />}
+          iconBackground="bg-themed-success"
+          title={t('initialization.adminAccount.createdHeading')}
+          description={t('initialization.adminAccount.createdDescription')}
+        />
       </div>
     );
   }
@@ -213,18 +205,12 @@ export const AdminAccountStep: React.FC = () => {
         void handleSubmit();
       }}
     >
-      {/* Header */}
-      <div className="flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
-          <UserPlus className="w-7 h-7 icon-info" />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">
-          {t('initialization.adminAccount.heading')}
-        </h3>
-        <p className="text-sm text-themed-secondary max-w-md">
-          {t('initialization.adminAccount.description')}
-        </p>
-      </div>
+      <StepHeader
+        icon={<UserPlus className="w-7 h-7 icon-info" />}
+        iconBackground="bg-themed-info"
+        title={t('initialization.adminAccount.heading')}
+        description={t('initialization.adminAccount.description')}
+      />
 
       {/* The session cookie is only marked Secure on an HTTPS request, because forcing it on a
           plain-HTTP LAN deployment would stop the browser sending it at all. That was a fair trade
@@ -257,91 +243,40 @@ export const AdminAccountStep: React.FC = () => {
 
       {/* Password Input */}
       <div>
-        <FormField label={t('initialization.adminAccount.passwordLabel')} error={errors.password}>
-          {(field) => (
-            <div className="relative">
-              <input
-                {...field}
-                type={showPassword ? 'text' : 'password'}
-                value={form.password}
-                onChange={handleInputChange('password')}
-                placeholder={t('initialization.adminAccount.passwordPlaceholder')}
-                className="w-full px-3 py-2.5 pr-10 themed-input"
-                autoComplete="new-password"
-                disabled={isSubmitting}
-              />
-              <button
-                type="button"
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-themed-muted"
-                onClick={() => setShowPassword((prev: boolean) => !prev)}
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          )}
-        </FormField>
-        {passwordStrength && (
-          <div className="flex items-center gap-2 mt-1">
-            <div className="flex-1 h-1.5 rounded-full bg-themed-tertiary overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-[width] duration-150 ${
-                  passwordStrength === 'weak'
-                    ? 'w-1/3 bg-[var(--theme-error-text)]'
-                    : passwordStrength === 'medium'
-                      ? 'w-2/3 bg-[var(--theme-warning-text)]'
-                      : 'w-full bg-[var(--theme-success-text)]'
-                }`}
-              />
-            </div>
-            <span
-              className={`text-xs ${
-                passwordStrength === 'weak'
-                  ? 'text-themed-error'
-                  : passwordStrength === 'medium'
-                    ? 'text-themed-warning'
-                    : 'text-themed-success'
-              }`}
-            >
-              {passwordStrength === 'weak'
-                ? t('initialization.adminAccount.strengthWeak')
-                : passwordStrength === 'medium'
-                  ? t('initialization.adminAccount.strengthMedium')
-                  : t('initialization.adminAccount.strengthStrong')}
-            </span>
-          </div>
-        )}
+        <PasswordField
+          label={t('initialization.adminAccount.passwordLabel')}
+          value={form.password}
+          onChange={handleInputChange('password')}
+          error={errors.password}
+          placeholder={t('initialization.adminAccount.passwordPlaceholder')}
+          autoComplete="new-password"
+          disabled={isSubmitting}
+          inputClassName="w-full px-3 py-2.5 themed-input"
+          showPasswordLabel={t('aria.showPassword')}
+          hidePasswordLabel={t('aria.hidePassword')}
+        />
+        <PasswordStrengthMeter
+          password={form.password}
+          weakLabel={t('passwordStrength.weak')}
+          mediumLabel={t('passwordStrength.medium')}
+          strongLabel={t('passwordStrength.strong')}
+        />
       </div>
 
       {/* Confirm Password Input */}
       <div>
-        <FormField
+        <PasswordField
           label={t('initialization.adminAccount.confirmPasswordLabel')}
+          value={form.confirmPassword}
+          onChange={handleInputChange('confirmPassword')}
           error={errors.confirmPassword}
-        >
-          {(field) => (
-            <div className="relative">
-              <input
-                {...field}
-                type={showConfirmPassword ? 'text' : 'password'}
-                value={form.confirmPassword}
-                onChange={handleInputChange('confirmPassword')}
-                placeholder={t('initialization.adminAccount.confirmPasswordPlaceholder')}
-                className="w-full px-3 py-2.5 pr-10 themed-input"
-                autoComplete="new-password"
-                disabled={isSubmitting}
-              />
-              <button
-                type="button"
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-themed-muted"
-                onClick={() => setShowConfirmPassword((prev: boolean) => !prev)}
-                tabIndex={-1}
-              >
-                {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          )}
-        </FormField>
+          placeholder={t('initialization.adminAccount.confirmPasswordPlaceholder')}
+          autoComplete="new-password"
+          disabled={isSubmitting}
+          inputClassName="w-full px-3 py-2.5 themed-input"
+          showPasswordLabel={t('aria.showPassword')}
+          hidePasswordLabel={t('aria.hidePassword')}
+        />
       </div>
 
       {/* API key Input */}

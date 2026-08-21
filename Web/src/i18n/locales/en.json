@@ -1472,7 +1472,6 @@
       },
       "tooltips": {
         "settings": "Settings",
-        "export": "Export Data",
         "fitColumns": "Fit columns to page",
         "refreshImages": "Refresh game banners"
       },
@@ -6402,6 +6401,13 @@
         "required": "API key is required"
       }
     },
+    "postgresFields": {
+      "host": "Host",
+      "port": "Port",
+      "database": "Database",
+      "username": "Username",
+      "password": "Password"
+    },
     "externalDb": {
       "title": "External PostgreSQL Connection",
       "body": "POSTGRES_MODE is set to external but connection details were not provided via environment variables. Enter the details for your PostgreSQL server below.",
@@ -6883,7 +6889,16 @@
   "aria": {
     "managementSections": "Management sections",
     "previousPage": "Previous page",
-    "nextPage": "Next page"
+    "nextPage": "Next page",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "progressLabel": "Progress",
+    "progressValue": "{{percent}}% complete"
+  },
+  "passwordStrength": {
+    "weak": "Weak",
+    "medium": "Medium",
+    "strong": "Strong"
   },
   "ui": {
     "pagination": {

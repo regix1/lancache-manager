@@ -17,6 +17,8 @@ import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
+import { GroupHeading } from '@components/ui/GroupHeading';
+import { TabPanel } from '@components/features/management/TabPanel';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
@@ -759,12 +761,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   );
 
   return (
-    <div
-      className="management-section animate-fade-in"
-      role="tabpanel"
-      id="panel-storage"
-      aria-labelledby="tab-storage"
-    >
+    <TabPanel tabId="storage">
       {/* Recheck-permissions action. Only rendered when a directory is actually read-only -
           otherwise this wrapper left an empty margin-box above the first group header, so
           Storage sat lower than the other sections. */}
@@ -789,15 +786,10 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
       {/* ==================== LOG OPERATIONS ==================== */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-            <h3 className="management-group-label caps-label">
-              {t('management.sections.storage.logOperations')}
-            </h3>
-          </div>
-          <AccordionGroupToggle />
-        </div>
+        <GroupHeading
+          label={t('management.sections.storage.logOperations')}
+          actions={<AccordionGroupToggle />}
+        />
 
         <div className="space-y-4">
           {/* Log Processing */}
@@ -816,12 +808,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
       {/* ==================== CACHE OPERATIONS ==================== */}
       <div>
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-          <h3 className="management-group-label caps-label">
-            {t('management.sections.storage.cacheOperations')}
-          </h3>
-        </div>
+        <GroupHeading label={t('management.sections.storage.cacheOperations')} />
 
         <div className="space-y-4">
           {/* Cache Clearing */}
@@ -1214,7 +1201,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
             />
           );
         })()}
-    </div>
+    </TabPanel>
   );
 };
 

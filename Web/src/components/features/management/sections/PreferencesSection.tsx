@@ -1,4 +1,5 @@
 import React from 'react';
+import { TabPanel } from '@components/features/management/TabPanel';
 import ThemeManager from '../theme/ThemeManager';
 
 interface PreferencesSectionProps {
@@ -7,14 +8,9 @@ interface PreferencesSectionProps {
 
 const PreferencesSection: React.FC<PreferencesSectionProps> = ({ isAdmin }) => {
   return (
-    <div
-      className="management-section animate-fade-in"
-      role="tabpanel"
-      id="panel-preferences"
-      aria-labelledby="tab-preferences"
-    >
+    <TabPanel tabId="preferences">
       <ThemeManager isAdmin={isAdmin} />
-    </div>
+    </TabPanel>
   );
 };
 

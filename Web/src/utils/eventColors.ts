@@ -28,7 +28,6 @@ export type ColorToken =
   | '--theme-primary'
   | '--theme-accent'
   | '--theme-success'
-  | '--theme-icon-red'
   | '--theme-text-muted';
 
 /**

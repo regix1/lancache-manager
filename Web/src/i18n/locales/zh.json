@@ -1472,7 +1472,6 @@
       },
       "tooltips": {
         "settings": "设置",
-        "export": "导出数据",
         "fitColumns": "列宽适应页面",
         "refreshImages": "刷新游戏横幅"
       },
@@ -6368,6 +6367,13 @@
         "required": "API 密钥是必需的"
       }
     },
+    "postgresFields": {
+      "host": "主机",
+      "port": "端口",
+      "database": "数据库",
+      "username": "用户名",
+      "password": "密码"
+    },
     "externalDb": {
       "title": "外部 PostgreSQL 连接",
       "body": "POSTGRES_MODE 已设置为 external，但未通过环境变量提供连接详细信息。请在下方输入您的 PostgreSQL 服务器的详细信息。",
@@ -6849,7 +6855,16 @@
   "aria": {
     "managementSections": "管理区域",
     "previousPage": "上一页",
-    "nextPage": "下一页"
+    "nextPage": "下一页",
+    "showPassword": "显示密码",
+    "hidePassword": "隐藏密码",
+    "progressLabel": "进度",
+    "progressValue": "已完成 {{percent}}%"
+  },
+  "passwordStrength": {
+    "weak": "弱",
+    "medium": "中",
+    "strong": "强"
   },
   "ui": {
     "pagination": {

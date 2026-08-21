@@ -4,6 +4,7 @@ import { Download, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
+import { GroupHeading } from '@components/ui/GroupHeading';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
@@ -474,13 +475,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-          <h3 className="caps-label management-group-label">{t('user.groups.guestDefaults')}</h3>
-        </div>
-        <AccordionGroupToggle />
-      </div>
+      <GroupHeading label={t('user.groups.guestDefaults')} actions={<AccordionGroupToggle />} />
 
       <div className="space-y-4">
         <AccessSecurityCard

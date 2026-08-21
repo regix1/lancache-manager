@@ -12,6 +12,7 @@ import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
+import { rowToggleHandlers } from '@utils/rowToggle';
 
 export interface ExpandableItemStat {
   icon: React.ComponentType<{ className?: string }>;
@@ -102,9 +103,16 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
         ? nginxReopenUnavailableMessage
         : removeTooltip;
 
+  // The dedicated chevron button already toggles the same details section, so the whole row
+  // toggles too - the nested-control guard lets the button (and the selection checkbox) still
+  // handle their own clicks. Only wired up when there is something to expand: with no expandable
+  // content the row has nothing to toggle. [28]
   return (
     <div>
-      <div className="mgmt-row mgmt-row--interactive focus-ring--inset">
+      <div
+        className={`mgmt-row${hasExpandableContent ? ' mgmt-row--interactive focus-ring--inset' : ''}`}
+        {...(hasExpandableContent ? rowToggleHandlers(() => onToggleDetails(id)) : {})}
+      >
         {selectable && (
           <Checkbox
             checked={selected}

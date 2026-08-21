@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Tooltip } from '../../ui/Tooltip';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import { XboxAuthModal } from '@components/modals/auth/XboxAuthModal';
@@ -30,7 +32,6 @@ import { PrefillHomePage } from './PrefillHomePage';
 import { PrefillLoadingState } from './PrefillLoadingState';
 import { PrefillProgressCard } from './PrefillProgressCard';
 import { PrefillCommandButtons } from './PrefillCommandButtons';
-import { PrefillConfirmModal } from './PrefillConfirmModal';
 import { CompletionBanner } from './CompletionBanner';
 import { usePrefillSignalR } from './hooks/usePrefillSignalR';
 import { prefillServiceConfig } from './hooks/prefillServiceConfig';
@@ -39,6 +40,7 @@ import {
   type CommandType,
   type EstimatedSize,
   type EstimatedSizeApp,
+  formatBytes,
   formatTimeRemaining
 } from './types';
 import type { DaemonAuthState } from '@/types/operations';
@@ -1078,6 +1080,10 @@ function ServicePrefillPanel({
   }
 
   // Active session - full interface
+  const confirmMessage = pendingConfirmCommand
+    ? getConfirmationMessage(pendingConfirmCommand)
+    : null;
+
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Auth Modal - Battle.net and Riot are anonymous, so no modal */}
@@ -1124,13 +1130,102 @@ function ServicePrefillPanel({
       />
 
       {/* Large Prefill Confirmation Dialog */}
-      <PrefillConfirmModal
-        pendingCommand={pendingConfirmCommand}
-        estimatedSize={estimatedSize}
+      <ConfirmationModal
+        opened={!!pendingConfirmCommand}
+        onClose={handleCancelConfirm}
         onConfirm={handleConfirmCommand}
-        onCancel={handleCancelConfirm}
-        getConfirmationMessage={getConfirmationMessage}
-      />
+        title={confirmMessage?.title ?? ''}
+        confirmLabel={
+          pendingConfirmCommand === 'prefill'
+            ? t('prefill.confirm.startDownload')
+            : t('prefill.confirm.yesContinue')
+        }
+        confirmColor="run"
+        confirmDisabled={pendingConfirmCommand === 'prefill' && estimatedSize.loading}
+      >
+        {confirmMessage && <p className="text-sm text-themed-muted">{confirmMessage.message}</p>}
+
+        {pendingConfirmCommand === 'prefill' && (
+          <div className="p-3 rounded-lg bg-[var(--theme-bg-secondary)]">
+            {estimatedSize.loading ? (
+              <div className="flex items-center gap-2">
+                <LoadingSpinner inline size="sm" className="text-[var(--theme-primary)]" />
+                <span className="text-sm text-themed-muted">
+                  {t('prefill.confirm.calculatingSize')}
+                </span>
+              </div>
+            ) : estimatedSize.error ? (
+              <span className="text-sm text-themed-muted">{estimatedSize.error}</span>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-themed-muted">
+                    {t('prefill.confirm.totalEstimated')}
+                  </span>
+                  <span className="text-sm font-semibold text-[var(--theme-primary)]">
+                    {formatBytes(estimatedSize.bytes)}
+                  </span>
+                </div>
+                {estimatedSize.apps && estimatedSize.apps.length > 0 && (
+                  <div className="pt-2 border-t border-[var(--theme-border-primary)]">
+                    <div className="text-xs text-themed-muted mb-1">
+                      {t('prefill.confirm.breakdown', { count: estimatedSize.apps.length })}:
+                    </div>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {estimatedSize.apps.map((app) => {
+                        const sizeSpan = (
+                          <span
+                            className={`whitespace-nowrap ${
+                              app.isUnsupportedOs
+                                ? 'text-[var(--theme-warning)]'
+                                : 'text-themed-muted'
+                            }`}
+                          >
+                            {app.isUnsupportedOs
+                              ? app.unavailableReason || t('prefill.confirm.unsupportedOs')
+                              : formatBytes(app.downloadSize)}
+                          </span>
+                        );
+                        return (
+                          <div
+                            key={app.appId}
+                            className={`flex items-center justify-between text-xs ${
+                              app.isUnsupportedOs ? 'opacity-50' : ''
+                            }`}
+                          >
+                            <Tooltip
+                              content={app.unavailableReason || app.name}
+                              position="top"
+                              className="flex min-w-0"
+                            >
+                              <span
+                                className={`truncate mr-2 max-w-[200px] ${
+                                  app.isUnsupportedOs
+                                    ? 'text-themed-muted line-through'
+                                    : 'text-themed-secondary'
+                                }`}
+                              >
+                                {app.name}
+                              </span>
+                            </Tooltip>
+                            {app.unavailableReason ? (
+                              <Tooltip content={app.unavailableReason} position="top">
+                                {sizeSpan}
+                              </Tooltip>
+                            ) : (
+                              sizeSpan
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </ConfirmationModal>
 
       {/* Session Expired Notice */}
       {isSessionExpired && (

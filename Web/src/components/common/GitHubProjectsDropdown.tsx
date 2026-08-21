@@ -3,6 +3,13 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Github, ExternalLink, Heart, ChevronRight } from 'lucide-react';
 import { Tooltip } from '@components/ui/Tooltip';
+import { useAnchoredPanel } from '@hooks/useAnchoredPanel';
+import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
+import { MENU_GUTTER_PX } from '@utils/viewportClamp';
+
+const DROPDOWN_WIDTH_PX = 320;
+/** How long the trigger bounces when a firework launches. */
+const BOUNCE_MS = 300;
 
 // Custom event for firework explosion - other components can listen to this
 const FIREWORK_EXPLOSION_EVENT = 'catFireworkExplosion';
@@ -494,9 +501,6 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(
-    null
-  );
   const [isRocketSpinning, setIsRocketSpinning] = useState(false);
   const [isBouncing, setIsBouncing] = useState(false);
   const [fireworks, setFireworks] = useState<
@@ -513,19 +517,24 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
   const nextFireworkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fireworkKeyRef = useRef(0);
 
+  const scheduleBounceEnd = useTimeoutCallback(BOUNCE_MS);
+
   // Launch a single firework by index from the queue
-  const launchFireworkByIndex = useCallback((index: number) => {
-    const direction = fireworkDirections.current[index];
-    if (!direction) return;
+  const launchFireworkByIndex = useCallback(
+    (index: number) => {
+      const direction = fireworkDirections.current[index];
+      if (!direction) return;
 
-    fireworkKeyRef.current += 1;
-    const origin = fireworkOriginRef.current;
-    setFireworks([{ x: origin.x, y: origin.y, direction }]);
+      fireworkKeyRef.current += 1;
+      const origin = fireworkOriginRef.current;
+      setFireworks([{ x: origin.x, y: origin.y, direction }]);
 
-    // Trigger bounce animation
-    setIsBouncing(true);
-    setTimeout(() => setIsBouncing(false), 300);
-  }, []);
+      // Trigger bounce animation
+      setIsBouncing(true);
+      scheduleBounceEnd(() => setIsBouncing(false));
+    },
+    [scheduleBounceEnd]
+  );
 
   // Handle firework completion - trigger particle burst, then launch next
   const handleFireworkComplete = useCallback(
@@ -562,43 +571,23 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
     [launchFireworkByIndex]
   );
 
-  const updatePosition = useCallback(() => {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      const dropdownWidth = 320;
-      let left = rect.right - dropdownWidth;
+  const closeDropdown = useCallback((): void => setIsOpen(false), []);
 
-      // Ensure dropdown doesn't go off-screen on the left
-      if (left < 8) {
-        left = 8;
-      }
+  const { present, closing, position } = useAnchoredPanel({
+    open: isOpen,
+    anchorRef: triggerRef,
+    panelRef: dropdownRef,
+    onClose: closeDropdown,
+    gutter: MENU_GUTTER_PX,
+    align: 'right'
+  });
 
-      // Ensure dropdown doesn't go off-screen on the right
-      if (left + dropdownWidth > window.innerWidth - 8) {
-        left = window.innerWidth - dropdownWidth - 8;
-      }
-
-      setPosition({
-        top: rect.bottom + 4,
-        left,
-        width: dropdownWidth
-      });
-    }
-  }, []);
-
+  // Click-outside only. Escape belongs to the shared hook, and the old
+  // reposition-on-scroll listener is gone: the menu is positioned on the page now, so
+  // a scroll carries it and its trigger together with no JavaScript at all.
   useEffect(() => {
-    if (isOpen) {
-      updatePosition();
-      window.addEventListener('resize', updatePosition);
-      window.addEventListener('scroll', updatePosition, true);
-      return () => {
-        window.removeEventListener('resize', updatePosition);
-        window.removeEventListener('scroll', updatePosition, true);
-      };
-    }
-  }, [isOpen, updatePosition]);
+    if (!isOpen) return;
 
-  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
         dropdownRef.current &&
@@ -610,20 +599,8 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
       }
     };
 
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('keydown', handleEscape);
-      return () => {
-        document.removeEventListener('mousedown', handleClickOutside);
-        document.removeEventListener('keydown', handleEscape);
-      };
-    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
   // Cleanup timer on unmount
@@ -707,19 +684,24 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
   );
 
   const dropdown =
-    isOpen &&
-    position &&
+    present &&
     createPortal(
       <div
         ref={dropdownRef}
-        className="github-dropdown-container"
+        className={`github-dropdown-container absolute z-[85] motion-reduce:animate-none ${
+          closing
+            ? position.openUpward
+              ? 'animate-[dropdownSlideOutUp_0.14s_ease-in_forwards]'
+              : 'animate-[dropdownSlideOutDown_0.14s_ease-in_forwards]'
+            : position.openUpward
+              ? 'animate-[dropdownSlideUp_0.15s_cubic-bezier(0.16,1,0.3,1)]'
+              : 'animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]'
+        }`}
         style={{
-          position: 'fixed',
           top: position.top,
           left: position.left,
-          width: position.width,
-          zIndex: 85,
-          animation: 'dropdownSlideDown 0.15s cubic-bezier(0.16, 1, 0.3, 1)'
+          width: DROPDOWN_WIDTH_PX,
+          pointerEvents: closing ? 'none' : undefined
         }}
       >
         <div className="github-dropdown themed-border-radius-sm border border-themed-primary bg-themed-secondary">

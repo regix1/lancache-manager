@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Shield, CheckCircle, Users, User } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import { StepHeader } from '@components/initialization/StepHeader';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import ApiService from '@services/api.service';
@@ -65,18 +66,12 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
   return (
     <>
       <div className="space-y-5">
-        {/* Header */}
-        <div className="flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
-            <Shield className="w-7 h-7 icon-info" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">
-            {t('initialization.steamPicsAuth.title')}
-          </h3>
-          <p className="text-sm text-themed-secondary max-w-md">
-            {t('initialization.steamPicsAuth.subtitle')}
-          </p>
-        </div>
+        <StepHeader
+          icon={<Shield className="w-7 h-7 icon-info" />}
+          iconBackground="bg-themed-info"
+          title={t('initialization.steamPicsAuth.title')}
+          description={t('initialization.steamPicsAuth.subtitle')}
+        />
 
         {/* Info Box */}
         <div className="p-3 rounded-lg text-sm bg-themed-tertiary">

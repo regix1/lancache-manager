@@ -4,6 +4,7 @@ import { Cloud, Database, CheckCircle, Gamepad2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
+import { StepHeader } from '@components/initialization/StepHeader';
 import type { CompletedPlatforms } from '@hooks/useInitializationFlow';
 
 type SelectedPlatform = 'github' | 'steam' | 'epic' | 'xbox' | null;
@@ -210,18 +211,12 @@ export const PlatformSetupStep: React.FC<PlatformSetupStepProps> = ({
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-primary-subtle">
-          <Gamepad2 className="w-7 h-7 icon-primary" />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">
-          {t('initialization.platformSetup.title')}
-        </h3>
-        <p className="text-sm text-themed-secondary max-w-md">
-          {t('initialization.platformSetup.subtitle')}
-        </p>
-      </div>
+      <StepHeader
+        icon={<Gamepad2 className="w-7 h-7 icon-primary" />}
+        iconBackground="bg-themed-primary-subtle"
+        title={t('initialization.platformSetup.title')}
+        description={t('initialization.platformSetup.subtitle')}
+      />
 
       {/* Info Banner */}
       <div className="p-3 rounded-lg text-sm bg-themed-tertiary">

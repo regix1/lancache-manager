@@ -1,0 +1,13 @@
+@layer components {
+  /* Progress bar fill width (dynamic). Set via the `--progress-width` custom property on the
+     element rather than an inline `style={{ width }}` object; see ProgressBar.tsx. */
+  .progress-bar-fill {
+    width: var(--progress-width);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-bar-fill {
+    transition: none;
+  }
+}

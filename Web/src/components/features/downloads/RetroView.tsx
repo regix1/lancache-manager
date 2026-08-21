@@ -38,8 +38,8 @@ import { useThemeRevision } from '@components/features/dashboard/ServiceAnalytic
 import RetroRow from './RetroRow';
 import { useRetroDownloads } from './useRetroDownloads';
 import { cacheHitPercent } from './downloadGrouping';
+import { efficiencyTier } from '@utils/efficiencyTier';
 import {
-  efficiencyTier,
   formatTimeRange,
   formatTimeRangeLines,
   mapDtoToDepotGroupedData,

@@ -2,6 +2,7 @@ import React from 'react';
 import { Database, CheckCircle, ArrowRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
+import { StepHeader } from '@components/initialization/StepHeader';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 
 interface ExternalDbInfoStepProps {
@@ -22,21 +23,20 @@ export const ExternalDbInfoStep: React.FC<ExternalDbInfoStepProps> = ({ onContin
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-success">
-          <CheckCircle className="w-7 h-7 icon-success" />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">
-          {isExternal
+      <StepHeader
+        icon={<CheckCircle className="w-7 h-7 icon-success" />}
+        iconBackground="bg-themed-success"
+        title={
+          isExternal
             ? t('initialization.dbInfo.externalTitle')
-            : t('initialization.dbInfo.embeddedTitle')}
-        </h3>
-        <p className="text-sm text-themed-secondary max-w-md">
-          {isExternal
+            : t('initialization.dbInfo.embeddedTitle')
+        }
+        description={
+          isExternal
             ? t('initialization.dbInfo.externalBody')
-            : t('initialization.dbInfo.embeddedBody')}
-        </p>
-      </div>
+            : t('initialization.dbInfo.embeddedBody')
+        }
+      />
 
       <div className="rounded-lg border border-themed-secondary bg-themed-tertiary p-4 space-y-2">
         <div className="flex items-center gap-2 text-sm font-semibold text-themed-primary">

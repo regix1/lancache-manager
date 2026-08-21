@@ -7,6 +7,7 @@ import { SearchInput } from '@components/ui/SearchInput';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
+import { EmptyState } from '@components/ui/ManagerCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { SignalREventName } from '@contexts/SignalRContext/types';
 import { FormattedDateCell } from '@components/common/FormattedDateTime';
@@ -283,7 +284,7 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
 
         {/* Empty State */}
         {mappings.length === 0 && !searchQuery && (
-          <p className="text-xs text-themed-secondary text-center py-6">{t(labels.noGames)}</p>
+          <EmptyState variant="text" title={t(labels.noGames)} />
         )}
 
         {/* Search and Table */}
@@ -299,9 +300,7 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
 
             {/* DataTable */}
             {mappings.length === 0 ? (
-              <p className="text-xs text-themed-secondary text-center py-4">
-                {t(labels.noResults)}
-              </p>
+              <EmptyState variant="text" title={t(labels.noResults)} />
             ) : (
               <DataTable<TMapping>
                 columns={columns}

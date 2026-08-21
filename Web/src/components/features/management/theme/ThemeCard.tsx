@@ -1,24 +1,9 @@
 import React from 'react';
-import {
-  Moon,
-  Sun,
-  Lock,
-  MoreVertical,
-  Check,
-  Eye,
-  EyeOff,
-  Edit,
-  Download,
-  Trash2
-} from 'lucide-react';
+import { Moon, Sun, Lock, Check, Eye, EyeOff, Edit, Download, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { type Theme } from './types';
-import {
-  ActionMenu,
-  ActionMenuItem,
-  ActionMenuDivider,
-  ActionMenuDangerItem
-} from '@components/ui/ActionMenu';
+import { ActionMenuItem, ActionMenuDivider, ActionMenuDangerItem } from '@components/ui/ActionMenu';
+import { RowActionsMenu } from '@components/ui/RowActionsMenu';
 import Badge from '@components/ui/Badge';
 import { Tooltip } from '@components/ui/Tooltip';
 
@@ -134,81 +119,80 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
         </div>
 
         {/* Action Menu Button */}
-        <ActionMenu
-          isOpen={isMenuOpen}
-          onClose={() => onMenuToggle(null)}
-          trigger={
-            <button
-              onClick={() => onMenuToggle(themeActionMenu === currentMenuId ? null : currentMenuId)}
-              className={`p-1.5 rounded-lg hover:bg-themed-hover transition-colors opacity-0 group-hover:opacity-100 ${
-                isMenuOpen ? 'bg-themed-hover' : 'bg-transparent'
-              }`}
-            >
-              <MoreVertical className="w-4 h-4 text-themed-muted" />
-            </button>
-          }
+        <RowActionsMenu
+          open={isMenuOpen}
+          onOpenChange={(open) => onMenuToggle(open ? currentMenuId : null)}
+          revealOnHover
         >
-          {!isGuest && !isActive && (
-            <ActionMenuItem
-              onClick={() => {
-                onApplyTheme(currentMenuId);
-                onMenuToggle(null);
-              }}
-              icon={<Check className="w-3.5 h-3.5" />}
-            >
-              {t('management.themes.actions.applyTheme')}
-            </ActionMenuItem>
-          )}
-          {!isGuest && !isActive && (
-            <ActionMenuItem
-              onClick={() => {
-                onPreview(currentMenuId);
-                onMenuToggle(null);
-              }}
-              icon={
-                isPreviewing ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />
-              }
-            >
-              {isPreviewing
-                ? t('management.themes.actions.stopPreview')
-                : t('management.themes.actions.preview')}
-            </ActionMenuItem>
-          )}
-          {!isSystem && isAdmin && (
-            <ActionMenuItem
-              onClick={() => {
-                onEdit(theme);
-                onMenuToggle(null);
-              }}
-              icon={<Edit className="w-3.5 h-3.5" />}
-            >
-              {t('management.themes.actions.editTheme')}
-            </ActionMenuItem>
-          )}
-          <ActionMenuItem
-            onClick={() => {
-              onExport(theme);
-              onMenuToggle(null);
-            }}
-            icon={<Download className="w-3.5 h-3.5" />}
-          >
-            {t('management.themes.actions.export')}
-          </ActionMenuItem>
-          {!isSystem && isAdmin && (
+          {(close) => (
             <>
-              <ActionMenuDivider />
-              <ActionMenuDangerItem
+              {!isGuest && !isActive && (
+                <ActionMenuItem
+                  onClick={() => {
+                    onApplyTheme(currentMenuId);
+                    close();
+                  }}
+                  icon={<Check className="w-3.5 h-3.5" />}
+                >
+                  {t('management.themes.actions.applyTheme')}
+                </ActionMenuItem>
+              )}
+              {!isGuest && !isActive && (
+                <ActionMenuItem
+                  onClick={() => {
+                    onPreview(currentMenuId);
+                    close();
+                  }}
+                  icon={
+                    isPreviewing ? (
+                      <EyeOff className="w-3.5 h-3.5" />
+                    ) : (
+                      <Eye className="w-3.5 h-3.5" />
+                    )
+                  }
+                >
+                  {isPreviewing
+                    ? t('management.themes.actions.stopPreview')
+                    : t('management.themes.actions.preview')}
+                </ActionMenuItem>
+              )}
+              {!isSystem && isAdmin && (
+                <ActionMenuItem
+                  onClick={() => {
+                    onEdit(theme);
+                    close();
+                  }}
+                  icon={<Edit className="w-3.5 h-3.5" />}
+                >
+                  {t('management.themes.actions.editTheme')}
+                </ActionMenuItem>
+              )}
+              <ActionMenuItem
                 onClick={() => {
-                  onDelete(currentMenuId, theme.meta.name);
-                  onMenuToggle(null);
+                  onExport(theme);
+                  close();
                 }}
-                icon={<Trash2 className="w-3.5 h-3.5" />}
+                icon={<Download className="w-3.5 h-3.5" />}
               >
-                {t('management.themes.actions.delete')}
-              </ActionMenuDangerItem>
+                {t('management.themes.actions.export')}
+              </ActionMenuItem>
+              {!isSystem && isAdmin && (
+                <>
+                  <ActionMenuDivider />
+                  <ActionMenuDangerItem
+                    onClick={() => {
+                      onDelete(currentMenuId, theme.meta.name);
+                      close();
+                    }}
+                    icon={<Trash2 className="w-3.5 h-3.5" />}
+                  >
+                    {t('management.themes.actions.delete')}
+                  </ActionMenuDangerItem>
+                </>
+              )}
             </>
           )}
-        </ActionMenu>
+        </RowActionsMenu>
       </div>
 
       {/* Color Preview Strip */}

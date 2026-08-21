@@ -497,8 +497,11 @@ interface EmptyStateProps {
   title: string;
   subtitle?: string;
   action?: React.ReactNode;
-  /** 'panel' renders the dashboard ring-icon block (.empty-state family) */
-  variant?: 'plain' | 'panel';
+  /**
+   * 'panel' renders the dashboard ring-icon block (.empty-state family). 'text' renders a bare
+   * centered sentence with no icon, for a list that only ever needs one line ("No games found").
+   */
+  variant?: 'plain' | 'panel' | 'text';
 }
 
 /**
@@ -523,6 +526,9 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
         {action && <div className="mt-4">{action}</div>}
       </div>
     );
+  }
+  if (variant === 'text') {
+    return <p className="py-4 text-center text-sm text-themed-muted">{title}</p>;
   }
   return (
     <div className="text-center py-8 text-themed-muted">

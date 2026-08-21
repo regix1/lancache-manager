@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Cloud, Database, ArrowLeft, CheckCircle } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import { ProgressBar } from '@components/ui/ProgressBar';
+import { StepHeader } from '@components/initialization/StepHeader';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
@@ -306,17 +308,17 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
               </p>
             </div>
             {progress > 0 && (
-              <div>
-                <div className="w-full rounded-full h-2.5 overflow-hidden bg-themed-tertiary">
-                  <div
-                    className="h-full transition-[width] duration-500 ease-out rounded-full bg-primary"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-                <p className="text-sm text-themed-secondary text-center mt-2">
-                  {formatPercent(progress, 1)}
-                </p>
-              </div>
+              <ProgressBar
+                value={progress}
+                height="lg"
+                duration={500}
+                label={t('aria.progressLabel')}
+                caption={
+                  <p className="text-sm text-themed-secondary text-center mt-2">
+                    {formatPercent(progress, 1)}
+                  </p>
+                }
+              />
             )}
           </div>
         )}
@@ -339,18 +341,12 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   // Regular mode - show choice options
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
-          <Database className="w-7 h-7 icon-info" />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">
-          {t('initialization.depotInit.title')}
-        </h3>
-        <p className="text-sm text-themed-secondary max-w-md">
-          {t('initialization.depotInit.subtitle')}
-        </p>
-      </div>
+      <StepHeader
+        icon={<Database className="w-7 h-7 icon-info" />}
+        iconBackground="bg-themed-info"
+        title={t('initialization.depotInit.title')}
+        description={t('initialization.depotInit.subtitle')}
+      />
 
       {/* Steam Auth Warning */}
       {usingSteamAuth && (
@@ -389,12 +385,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             </p>
           </div>
           {progress > 0 && progress < 100 && (
-            <div className="w-full rounded-full h-1.5 overflow-hidden bg-themed-tertiary">
-              <div
-                className="h-full transition-[width] duration-300 bg-primary"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
+            <ProgressBar value={progress} height="md" label={t('aria.progressLabel')} />
           )}
         </div>
       )}

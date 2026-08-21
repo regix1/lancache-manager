@@ -7,6 +7,7 @@ import { useCacheSnapshot, useStats } from '@contexts/DashboardDataContext/hooks
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { WidgetPanel } from '../WidgetPanel';
 import { getCacheGrowth } from './cacheGrowth';
 
 interface CacheGrowthTrendProps {
@@ -64,7 +65,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           : 'text-themed-primary';
 
     return (
-      <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
+      <WidgetPanel glass={glassmorphism}>
         <div className="flex items-center gap-2 mb-3">
           <h3 className="dash-panel-title">{t('widgets.cacheGrowthTrend.title')}</h3>
         </div>
@@ -165,7 +166,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
             {badge}
           </div>
         ) : null}
-      </div>
+      </WidgetPanel>
     );
   }
 );

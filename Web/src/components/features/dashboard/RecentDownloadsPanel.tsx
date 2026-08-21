@@ -36,6 +36,7 @@ import {
   getServiceFilterKey
 } from '@utils/serviceDisplayName';
 import { buildClientFilterOptions } from '@utils/clientFilterOptions';
+import { efficiencyTier, HIT_TIER_CLASS } from '@utils/efficiencyTier';
 import type {
   Download,
   DownloadGroup,
@@ -112,7 +113,7 @@ const ActiveDownloadItem: React.FC<{
         <div className="rdl-row-figures">
           <span className="rdl-row-speed tabular-nums">{formatSpeed(game.bytesPerSecond)}</span>
           <div
-            className={`tabular-nums rdl-hit ${game.cacheHitPercent >= 80 ? 'high' : game.cacheHitPercent >= 50 ? 'medium' : 'low'}`}
+            className={`tabular-nums rdl-hit ${HIT_TIER_CLASS[efficiencyTier(game.cacheHitPercent)]}`}
           >
             {formatPercent(game.cacheHitPercent, 0)} {t('dashboard.downloadsPanel.hitLabel')}
           </div>
@@ -228,14 +229,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
 
   // Shared hit-rate band so the simple and detailed views color the figure the
   // same way (green = mostly served from cache, red = mostly missed).
-  const hitClass =
-    display.cacheHitPercent >= 75
-      ? 'high'
-      : display.cacheHitPercent >= 50
-        ? 'medium'
-        : display.cacheHitPercent >= 25
-          ? 'low'
-          : 'critical';
+  const hitClass = HIT_TIER_CLASS[efficiencyTier(display.cacheHitPercent)];
 
   const handleClick = useCallback(() => {
     // Service buckets use a synthesized display name ("Wsus Downloads") that the
@@ -586,12 +580,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const totalSpeed = speedSnapshot?.totalBytesPerSecond || 0;
   const hasActiveDownloads = speedSnapshot?.hasActiveDownloads || false;
 
-  const hitRateClass =
-    stats.overallHitRate >= 75
-      ? 'is-success'
-      : stats.overallHitRate >= 50
-        ? 'is-warning'
-        : 'is-error';
+  const hitRateClass = HIT_TIER_CLASS[efficiencyTier(stats.overallHitRate)];
 
   // Footer readout only appears once there's real data to summarize, so an
   // empty panel shows no placeholder strip (matches Service Analytics / Peak Usage).
@@ -618,12 +607,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               {
                 value: 'active',
                 label: (
-                  <span className="segmented-control-label">
+                  <>
                     {t('dashboard.downloadsPanel.active')}
                     {!isHistoricalView && activeCount > 0 && (
                       <span className="rdl-tab-badge tabular-nums">{activeCount}</span>
                     )}
-                  </span>
+                  </>
                 ),
                 disabled: isHistoricalView,
                 tooltip: isHistoricalView

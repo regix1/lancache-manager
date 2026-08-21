@@ -1,23 +1,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { UserCog, MoreVertical } from 'lucide-react';
+import { UserCog } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
-import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
+import { RowActionsMenu } from '@components/ui/RowActionsMenu';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import FormField from '@components/ui/FormField';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
 import { Pagination } from '@components/ui/Pagination';
-import {
-  ActionMenu,
-  ActionMenuItem,
-  ActionMenuDivider,
-  ActionMenuDangerItem
-} from '@components/ui/ActionMenu';
+import { ActionMenuItem, ActionMenuDivider, ActionMenuDangerItem } from '@components/ui/ActionMenu';
 import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
@@ -282,75 +277,62 @@ const UserAccounts: React.FC = () => {
         const yourself = account.id === accountId;
 
         return (
-          <ActionMenu
-            isOpen={openMenuAccountId === account.id}
-            onClose={() => setOpenMenuAccountId(null)}
-            align="right"
-            trigger={
-              <Tooltip content={t('common.moreActions')}>
-                <Button
-                  variant="filled"
-                  color="secondary"
-                  size="sm"
-                  className="btn-icon-square btn-icon-square--sm pointer-target-44"
-                  onClick={() =>
-                    setOpenMenuAccountId((prev: string | null) =>
-                      prev === account.id ? null : account.id
-                    )
-                  }
-                  aria-label={t('common.moreActions')}
-                >
-                  <MoreVertical className="w-4 h-4" />
-                </Button>
-              </Tooltip>
-            }
+          <RowActionsMenu
+            open={openMenuAccountId === account.id}
+            onOpenChange={(open) => setOpenMenuAccountId(open ? account.id : null)}
           >
-            <ActionMenuItem
-              disabled={owner || busy}
-              onClick={() => {
-                setOpenMenuAccountId(null);
-                setFormError(null);
-                setEditor({
-                  account,
-                  username: account.username,
-                  password: '',
-                  role: account.role
-                });
-              }}
-            >
-              {t('common.edit')}
-            </ActionMenuItem>
-            <ActionMenuItem
-              disabled={owner || yourself || busy || (promoting && !isMainAdmin)}
-              onClick={() => {
-                setOpenMenuAccountId(null);
-                setConfirmation({ kind: 'role', account });
-              }}
-            >
-              {promoting ? t('user.accounts.actions.promote') : t('user.accounts.actions.demote')}
-            </ActionMenuItem>
-            <ActionMenuItem
-              disabled={owner || yourself || busy}
-              onClick={() => {
-                setOpenMenuAccountId(null);
-                setDisabled(account, !account.isDisabled);
-              }}
-            >
-              {account.isDisabled
-                ? t('user.accounts.actions.enable')
-                : t('user.accounts.actions.disable')}
-            </ActionMenuItem>
-            <ActionMenuDivider />
-            <ActionMenuDangerItem
-              disabled={owner || yourself || busy}
-              onClick={() => {
-                setOpenMenuAccountId(null);
-                setConfirmation({ kind: 'delete', account });
-              }}
-            >
-              {t('common.delete')}
-            </ActionMenuDangerItem>
-          </ActionMenu>
+            {(close) => (
+              <>
+                <ActionMenuItem
+                  disabled={owner || busy}
+                  onClick={() => {
+                    close();
+                    setFormError(null);
+                    setEditor({
+                      account,
+                      username: account.username,
+                      password: '',
+                      role: account.role
+                    });
+                  }}
+                >
+                  {t('common.edit')}
+                </ActionMenuItem>
+                <ActionMenuItem
+                  disabled={owner || yourself || busy || (promoting && !isMainAdmin)}
+                  onClick={() => {
+                    close();
+                    setConfirmation({ kind: 'role', account });
+                  }}
+                >
+                  {promoting
+                    ? t('user.accounts.actions.promote')
+                    : t('user.accounts.actions.demote')}
+                </ActionMenuItem>
+                <ActionMenuItem
+                  disabled={owner || yourself || busy}
+                  onClick={() => {
+                    close();
+                    setDisabled(account, !account.isDisabled);
+                  }}
+                >
+                  {account.isDisabled
+                    ? t('user.accounts.actions.enable')
+                    : t('user.accounts.actions.disable')}
+                </ActionMenuItem>
+                <ActionMenuDivider />
+                <ActionMenuDangerItem
+                  disabled={owner || yourself || busy}
+                  onClick={() => {
+                    close();
+                    setConfirmation({ kind: 'delete', account });
+                  }}
+                >
+                  {t('common.delete')}
+                </ActionMenuDangerItem>
+              </>
+            )}
+          </RowActionsMenu>
         );
       }
     }

@@ -4,6 +4,7 @@ import { Key, ExternalLink, CheckCircle, XCircle, Shield } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import FormField from '@components/ui/FormField';
+import { StepHeader } from '@components/initialization/StepHeader';
 import { storage } from '@utils/storage';
 import { useSteamApiKey } from '@hooks/useSteamApiKey';
 
@@ -38,18 +39,12 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-primary-subtle">
-          <Key className="w-7 h-7 icon-primary" />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">
-          {t('initialization.steamWebApiKey.title')}
-        </h3>
-        <p className="text-sm text-themed-secondary max-w-md">
-          {t('initialization.steamWebApiKey.subtitle')}
-        </p>
-      </div>
+      <StepHeader
+        icon={<Key className="w-7 h-7 icon-primary" />}
+        iconBackground="bg-themed-primary-subtle"
+        title={t('initialization.steamWebApiKey.title')}
+        description={t('initialization.steamWebApiKey.subtitle')}
+      />
 
       {/* Instructions */}
       <div className="p-4 rounded-lg bg-themed-tertiary">

@@ -7,7 +7,7 @@ import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { buildTrafficKey } from './liveDownloadPreviews';
-import { Tooltip } from '@components/ui/Tooltip';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { formatBytes, formatPercent, formatSpeedWithSeparatedUnit } from '@utils/formatters';
 import ApiService from '@services/api.service';
@@ -141,38 +141,39 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
 
         {/* Right: Tabs & Today Stat */}
         <div className="right-section">
-          <div className="tab-container">
-            {isHistoricalView ? (
-              <Tooltip content={t('downloads.header.activeTooltip')}>
-                <button className={`tab-button disabled`} onClick={(e) => e.preventDefault()}>
-                  <Zap />
-                  {t('downloads.header.activeTab')}
-                  <span className="tab-badge">-</span>
-                </button>
-              </Tooltip>
-            ) : (
-              <button
-                className={`tab-button ${activeTab === 'active' ? 'active' : ''}`}
-                onClick={() => onTabChange('active')}
-              >
-                <Zap />
-                {t('downloads.header.activeTab')}
-                <span
-                  className={`tab-badge ${activeGamesCount > 0 && activeTab !== 'active' ? 'has-active' : ''}`}
-                >
-                  {activeGamesCount}
-                </span>
-              </button>
-            )}
-            <button
-              className={`tab-button ${activeTab === 'recent' ? 'active' : ''}`}
-              onClick={() => onTabChange('recent')}
-            >
-              <Clock />
-              {t('downloads.header.recentTab')}
-              <span className="tab-badge">{latestDownloads.length}</span>
-            </button>
-          </div>
+          <SegmentedControl
+            value={activeTab}
+            onChange={(next) => onTabChange(next as 'active' | 'recent')}
+            showLabels
+            options={[
+              {
+                value: 'active',
+                icon: <Zap />,
+                label: (
+                  <>
+                    {t('downloads.header.activeTab')}
+                    <span
+                      className={`tab-badge ${!isHistoricalView && activeGamesCount > 0 && activeTab !== 'active' ? 'has-active' : ''}`}
+                    >
+                      {isHistoricalView ? '-' : activeGamesCount}
+                    </span>
+                  </>
+                ),
+                disabled: isHistoricalView,
+                tooltip: isHistoricalView ? t('downloads.header.activeTooltip') : undefined
+              },
+              {
+                value: 'recent',
+                icon: <Clock />,
+                label: (
+                  <>
+                    {t('downloads.header.recentTab')}
+                    <span className="tab-badge">{latestDownloads.length}</span>
+                  </>
+                )
+              }
+            ]}
+          />
 
           <div className="today-stats">
             <div

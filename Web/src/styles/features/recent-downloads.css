@@ -375,22 +375,28 @@
   flex-shrink: 0;
 }
 
-/* Semantic bands so cache performance is scannable across ten quiet rows:
-   good hit rates read green, degrade through neutral and amber to red. Kept as
-   tinted text (never a per-row pill) so the list stays calm. */
-.rdl-hit.high {
+/* Cache hit rate bands, shared by every view that colours a percentage: this list, the clients
+   table, the top clients table and the retro row. One rate is one colour wherever it appears, so
+   a number can be compared across two screens without re-reading its scale. Green degrades
+   through amber and orange to red; kept as tinted text, never a per-row pill, so lists stay
+   calm. Paired with `efficiencyTier` in `utils/efficiencyTier.ts`.
+
+   Each selector is doubled so one class out-ranks the base colour of whatever cell it lands in
+   (`.clients-cell` and `.dash-readout-value` both set one) without depending on which stylesheet
+   the bundler happens to emit first. [18] */
+.hit-tier-success.hit-tier-success {
   color: var(--theme-success-text);
 }
 
-.rdl-hit.medium {
-  color: var(--theme-text-secondary);
-}
-
-.rdl-hit.low {
+.hit-tier-warning.hit-tier-warning {
   color: var(--theme-warning-text);
 }
 
-.rdl-hit.critical {
+.hit-tier-error.hit-tier-error {
+  color: var(--theme-warning);
+}
+
+.hit-tier-critical.hit-tier-critical {
   color: var(--theme-error-text);
 }
 

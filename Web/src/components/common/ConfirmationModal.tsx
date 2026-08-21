@@ -13,6 +13,7 @@ interface ConfirmationModalProps {
   confirmLabel?: string;
   confirmColor?:
     | 'destructive'
+    | 'run'
     | 'blue'
     | 'green'
     | 'red'
@@ -75,7 +76,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             variant="default"
             onClick={onClose}
             disabled={loading}
-            className="w-full sm:w-auto"
+            className="w-full sm:w-auto min-h-[44px] sm:min-h-10"
           >
             {t('common.cancel')}
           </Button>
@@ -87,7 +88,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             stableWidth
             disabled={confirmDisabled}
             aria-busy={loading}
-            className="w-full sm:w-auto"
+            className="w-full sm:w-auto min-h-[44px] sm:min-h-10"
           >
             {confirmLabel || t('common.confirm')}
           </Button>

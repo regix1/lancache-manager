@@ -5,6 +5,7 @@ import { SearchInput } from '@components/ui/SearchInput';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import { EmptyState } from '@components/ui/ManagerCard';
 import Badge from '@components/ui/Badge';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -540,11 +541,7 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
   }
 
   if (items.length === 0) {
-    return (
-      <p className="py-4 text-center text-sm text-themed-muted">
-        {t('management.corruption.noDetailsAvailable')}
-      </p>
-    );
+    return <EmptyState variant="text" title={t('management.corruption.noDetailsAvailable')} />;
   }
 
   return (

@@ -9,6 +9,8 @@ import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
+import { GroupHeading } from '@components/ui/GroupHeading';
+import { TabPanel } from '@components/features/management/TabPanel';
 import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
@@ -322,23 +324,13 @@ const DataSection: React.FC<DataSectionProps> = ({
   );
 
   return (
-    <div
-      className="management-section animate-fade-in"
-      role="tabpanel"
-      id="panel-data"
-      aria-labelledby="tab-data"
-    >
+    <TabPanel tabId="data">
       {/* Subsection: Data Import */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-            <h3 className="management-group-label caps-label">
-              {t('management.sections.data.dataImport')}
-            </h3>
-          </div>
-          <AccordionGroupToggle />
-        </div>
+        <GroupHeading
+          label={t('management.sections.data.dataImport')}
+          actions={<AccordionGroupToggle />}
+        />
 
         <div className="space-y-4">
           <DataImporter
@@ -353,12 +345,7 @@ const DataSection: React.FC<DataSectionProps> = ({
 
       {/* Subsection: Database Management */}
       <div>
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-          <h3 className="management-group-label caps-label">
-            {t('management.sections.data.databaseManagement')}
-          </h3>
-        </div>
+        <GroupHeading label={t('management.sections.data.databaseManagement')} />
 
         <div className="space-y-4">
           <AccordionSection
@@ -389,11 +376,11 @@ const DataSection: React.FC<DataSectionProps> = ({
                   key={table.name}
                   className={`db-table-item p-3 rounded-lg cursor-pointer flex items-start gap-3 transition duration-150 bg-themed-tertiary${selectedTables.includes(table.name) ? ' db-table-item-selected' : ''}`}
                 >
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={selectedTables.includes(table.name)}
                     onChange={() => handleTableToggle(table.name)}
-                    className="rounded mt-1"
+                    variant="rounded"
+                    className="mt-1"
                   />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-themed-primary">{table.label}</div>
@@ -479,7 +466,7 @@ const DataSection: React.FC<DataSectionProps> = ({
           </p>
         </Alert>
       </ConfirmationModal>
-    </div>
+    </TabPanel>
   );
 };
 

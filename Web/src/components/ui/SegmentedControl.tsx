@@ -16,7 +16,8 @@ interface SegmentedControlProps {
   /** Fill for whichever segment is selected. One control, one accent. */
   activeColor?: 'primary' | 'warning' | 'neutral';
   size?: 'sm' | 'md';
-  showLabels?: boolean | 'responsive'; // true, false, or 'responsive' (hide on mobile)
+  // true, false or 'responsive' (labels from lg up)
+  showLabels?: boolean | 'responsive';
   fullWidth?: boolean;
   className?: string;
 }
@@ -63,7 +64,11 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
         : 'bg-[var(--theme-primary)] text-themed-button';
 
   return (
+    // radiogroup, not group: a couple of callers already wrap this control in their own
+    // role="group" for a label, and a mutually-exclusive picker is a radiogroup/radio pair
+    // regardless, so this never doubles up with a caller's wrapper. [40]
     <div
+      role="radiogroup"
       className={`inline-flex segmented-control-container ${sizes.container} ${fullWidth ? 'w-full' : ''} ${className} bg-themed-tertiary border border-themed-secondary`}
     >
       {options.map((option) => {
@@ -76,6 +81,13 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
             ? 'bg-themed-surface-active text-themed-muted'
             : activeClass
           : 'bg-transparent text-themed-muted';
+        // An icon-only segment renders no label span, so the button has no accessible name and a
+        // screen reader announces a bare radio. Name it from the text the option already carries,
+        // and only when no label is rendered - an aria-label over visible text would override it.
+        const rendersLabel = Boolean(option.label) && (showLabels !== false || !option.icon);
+        const segmentName = rendersLabel
+          ? undefined
+          : (option.tooltip ?? (typeof option.label === 'string' ? option.label : undefined));
 
         const buttonElement = (
           <button
@@ -83,6 +95,9 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
             // Without this the button defaults to type="submit", so picking a segment inside a
             // form submits it instead of just changing the selection.
             type="button"
+            role="radio"
+            aria-checked={isActive}
+            aria-label={segmentName}
             onClick={() => !isDisabled && onChange(option.value)}
             disabled={isDisabled}
             className={`segmented-control-button ${sizes.button} transition flex items-center justify-center gap-[0.5rem] font-semibold whitespace-nowrap text-xs ${
@@ -94,14 +109,18 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
                   size: sizes.icon
                 })
               : option.icon}
-            {showLabels === true && option.label && (
-              <span className={sizes.text}>{option.label}</span>
-            )}
-            {showLabels === false && !option.icon && option.label && (
-              <span className={sizes.text}>{option.label}</span>
-            )}
-            {showLabels === 'responsive' && option.label && (
-              <span className={`${sizes.text} hidden lg:inline`}>{option.label}</span>
+            {/* One span for all three modes - the three that used to sit here differed only in
+                when they rendered, and a class added to one of them never reached the others.
+                .segmented-control-label is what spaces a label from a count badge riding beside
+                it; a plain-string label has no second item for the gap to act on. */}
+            {rendersLabel && (
+              <span
+                className={`segmented-control-label ${sizes.text}${
+                  showLabels === 'responsive' ? ' hidden lg:inline-flex' : ''
+                }`}
+              >
+                {option.label}
+              </span>
             )}
           </button>
         );

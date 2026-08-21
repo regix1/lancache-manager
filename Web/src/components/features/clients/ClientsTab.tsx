@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { isSeparatedMemberRow } from '@utils/clientRows';
+import { efficiencyTier, HIT_TIER_CLASS } from '@utils/efficiencyTier';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { Card } from '@components/ui/Card';
 import Badge from '@components/ui/Badge';
@@ -31,7 +32,7 @@ const ClientListItem: React.FC<ClientListItemProps> = ({ client }) => {
   const displayLabel = client.displayName || client.clientIp;
   const hasGroupIps = !!(client.isGrouped && (client.groupMemberIps?.length ?? 0) > 0);
   const showGroupCount = !!(client.isGrouped && (client.groupMemberIps?.length ?? 0) > 1);
-  const hitRateTone = client.cacheHitPercent > 50 ? 'is-success' : 'is-warning';
+  const hitRateTone = HIT_TIER_CLASS[efficiencyTier(client.cacheHitPercent)];
   // Every member row of a separately-reported nickname shows the same label, so the
   // row's own address rides alongside it and the rows stay tellable apart without hovering.
   const showMemberIp = isSeparatedMemberRow(client);

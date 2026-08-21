@@ -9,6 +9,8 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { SettingSection } from '@components/ui/SettingSection';
 import { useNotifications } from '@contexts/notifications';
+import { useNotifySuccess } from '@hooks/useErrorHandler';
+import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import { API_BASE } from '@utils/constants';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
@@ -77,6 +79,8 @@ const SettingRow: React.FC<SettingRowProps> = ({ label, description, children })
 const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
   const { t } = useTranslation();
   const { addNotification } = useNotifications();
+  const { notifySuccess } = useNotifySuccess();
+  const scheduleClearTriggerResult = useTimeoutCallback(10000);
   const [loading, setLoading] = useState(true);
 
   const memoryThresholdOptions: DropdownOption[] = [
@@ -135,12 +139,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
             ? data.memoryThresholdMB
             : settings.memoryThresholdMB;
         setSettings({ enabled, memoryThresholdMB });
-        addNotification({
-          type: 'generic',
-          status: 'completed',
-          message: t('management.gc.saveSuccess'),
-          details: { notificationType: 'success' }
-        });
+        notifySuccess(t('management.gc.saveSuccess'));
         setHasChanges(false);
       } else {
         const errorData = await response.json();
@@ -184,7 +183,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
       if (response.ok) {
         const data: GcTriggerResult = await response.json();
         setTriggerResult(data);
-        setTimeout(() => setTriggerResult(null), 10000);
+        scheduleClearTriggerResult(() => setTriggerResult(null));
       } else {
         const errorData = await response.json();
         throw new Error(errorData.error || t('management.gc.triggerFailed'));

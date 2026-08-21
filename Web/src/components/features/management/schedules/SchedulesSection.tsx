@@ -25,6 +25,9 @@ import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useManagerLoading } from '@hooks/useManagerLoading';
 import { useOptimisticPending } from '@hooks/useOptimisticPending';
+import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
+import { useNotifySuccess } from '@/hooks/useErrorHandler';
+import { TabPanel } from '@components/features/management/TabPanel';
 import {
   isNotificationMode,
   isNotificationDisplayMode,
@@ -1198,6 +1201,8 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const [completedKeys, setCompletedKeys] = useState<Record<string, HighlightGlowVariant>>({});
   const { on, off, connectionState } = useSignalR();
   const { addNotification } = useNotifications();
+  const { notifySuccess } = useNotifySuccess();
+  const scheduleFlashClear = useTimeoutCallback(1400);
   const {
     progress: picsProgress,
     isLoading: picsLoading,
@@ -1531,8 +1536,8 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       schedules.map((schedule) => [schedule.key, 'subtle' as const])
     );
     setCompletedKeys(flashed);
-    setTimeout(() => setCompletedKeys({}), 1400);
-  }, [schedules]);
+    scheduleFlashClear(() => setCompletedKeys({}));
+  }, [schedules, scheduleFlashClear]);
 
   const handleResetDefaults = useCallback(async () => {
     setResetting(true);
@@ -1540,12 +1545,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       await ApiService.resetSchedules();
       await fetchSchedules();
 
-      addNotification({
-        type: 'generic',
-        status: 'completed',
-        message: t('management.schedules.resetComplete'),
-        details: { notificationType: 'success' }
-      });
+      notifySuccess(t('management.schedules.resetComplete'));
 
       flashAll();
     } catch {
@@ -1558,7 +1558,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     } finally {
       setResetting(false);
     }
-  }, [fetchSchedules, flashAll, addNotification, t]);
+  }, [fetchSchedules, flashAll, notifySuccess, addNotification, t]);
 
   const handleRunAll = useCallback(async () => {
     setRunningAll(true);
@@ -1570,18 +1570,14 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       // again when its current one ends. Report that second number instead of only the started
       // count, which on its own reads as if the rest were ignored.
       const queuedNext = alreadyRunningCount ?? 0;
-      addNotification({
-        type: 'generic',
-        status: 'completed',
-        message:
-          queuedNext > 0
-            ? t('management.schedules.runAllTriggeredWithQueued', {
-                count: triggeredCount,
-                queued: queuedNext
-              })
-            : t('management.schedules.runAllTriggered', { count: triggeredCount }),
-        details: { notificationType: 'success' }
-      });
+      notifySuccess(
+        queuedNext > 0
+          ? t('management.schedules.runAllTriggeredWithQueued', {
+              count: triggeredCount,
+              queued: queuedNext
+            })
+          : t('management.schedules.runAllTriggered', { count: triggeredCount })
+      );
 
       flashAll();
     } catch {
@@ -1594,14 +1590,17 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     } finally {
       setRunningAll(false);
     }
-  }, [fetchSchedules, flashAll, addNotification, t]);
+  }, [fetchSchedules, flashAll, notifySuccess, addNotification, t]);
 
   const handleRunNow = useCallback(
     async (key: string) => {
       const displayName = t(`management.schedules.services.${key}.displayName`);
       markStarting(key);
 
-      // Flash the row border immediately on click
+      // Flash the row border immediately on click. Each service key needs its own independent
+      // clear timer - a shared single-slot scheduler (useTimeoutCallback) would cancel service
+      // A's pending clear the moment the reader clicks Run Now on service B, leaving A's row
+      // flashing forever, so this one stays a plain setTimeout.
       setCompletedKeys((prev) => ({ ...prev, [key]: 'navigate' }));
       setTimeout(
         () =>
@@ -1650,23 +1649,27 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
 
   if (isLoading) {
     return (
-      <div className="management-section animate-fade-in schedules-loading">
+      <TabPanel tabId="schedules" className="schedules-loading">
         <div className="w-full">
           <LoadingState shape="schedule" rows={5} />
         </div>
-      </div>
+      </TabPanel>
     );
   }
 
   if (error) {
-    return <div className="management-section animate-fade-in schedules-error">{error}</div>;
+    return (
+      <TabPanel tabId="schedules" className="schedules-error">
+        {error}
+      </TabPanel>
+    );
   }
 
   const genericSchedules = schedules.filter((service) => service.key !== 'scheduledPrefill');
   const prefillSchedule = schedules.find((service) => service.key === 'scheduledPrefill');
 
   return (
-    <div className="management-section animate-fade-in schedules-section">
+    <TabPanel tabId="schedules" className="schedules-section">
       <div className="schedules-section-header">
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
@@ -1744,7 +1747,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           completedVariant={completedKeys[prefillSchedule.key] ?? 'navigate'}
         />
       )}
-    </div>
+    </TabPanel>
   );
 };
 

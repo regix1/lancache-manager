@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import {
@@ -14,7 +14,9 @@ import {
 } from 'lucide-react';
 import { useCalendarSettings } from '@contexts/useCalendarSettings';
 import { Tooltip } from '@components/ui/Tooltip';
-import { clampToViewport } from '@utils/viewportClamp';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
+import { useAnchoredPanel } from '@hooks/useAnchoredPanel';
+import { POPOVER_GUTTER_PX } from '@utils/viewportClamp';
 import type {
   WeekStartDay,
   EventOpacity,
@@ -24,37 +26,6 @@ import type {
 interface CalendarSettingsPopoverProps {
   position?: 'left' | 'right';
 }
-
-// Toggle button for selecting between options
-const ToggleButton: React.FC<{
-  options: { value: string; label: string }[];
-  value: string;
-  onChange: (value: string) => void;
-}> = ({ options, value, onChange }) => (
-  <div className="flex rounded-md p-0.5 bg-[var(--theme-bg-tertiary)]">
-    {options.map((option) => {
-      const isActive = value === option.value;
-      return (
-        <button
-          key={option.value}
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onChange(option.value);
-          }}
-          className="px-2.5 py-1 text-xs font-medium rounded cursor-pointer"
-          style={{
-            backgroundColor: isActive ? 'var(--theme-primary)' : 'transparent',
-            color: isActive ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
-          }}
-        >
-          {option.label}
-        </button>
-      );
-    })}
-  </div>
-);
 
 // Toggle switch for boolean options
 const CheckboxToggle: React.FC<{
@@ -84,15 +55,8 @@ const CheckboxToggle: React.FC<{
   </button>
 );
 
-const VIEWPORT_PADDING = 12;
-const POPOVER_WIDTH = 280;
-const POPOVER_MAX_HEIGHT = 520;
-
-interface PopoverPosition {
-  x: number;
-  y: number;
-  openUpward: boolean;
-}
+/** Gap between the trigger and the popover, whichever side it opens on. */
+const TRIGGER_GAP = 8;
 
 const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
   position = 'right'
@@ -102,17 +66,29 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const [popoverPos, setPopoverPos] = useState<PopoverPosition | null>(null);
 
-  // Reset position when closing
-  useEffect(() => {
-    if (!isOpen) {
-      setPopoverPos(null);
-    }
-  }, [isOpen]);
+  const closePopover = useCallback((): void => setIsOpen(false), []);
 
-  // Close on click outside
+  const {
+    present,
+    closing,
+    position: popoverPos
+  } = useAnchoredPanel({
+    open: isOpen,
+    anchorRef: triggerRef,
+    panelRef: popoverRef,
+    onClose: closePopover,
+    gutter: POPOVER_GUTTER_PX,
+    align: position === 'left' ? 'left' : 'right',
+    gap: TRIGGER_GAP
+  });
+
+  // Click-outside only. Escape belongs to the shared hook, and the close-on-scroll
+  // listener is gone: the popover is positioned on the page and carried by its
+  // trigger, so a scroll no longer mispositions it.
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       if (
@@ -125,105 +101,9 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
       }
     };
 
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+    document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
-
-  // Close on scroll (except scrolling inside popover)
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleScroll = (e: Event) => {
-      if (popoverRef.current?.contains(e.target as Node)) return;
-      setIsOpen(false);
-    };
-
-    window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
-    return () => window.removeEventListener('scroll', handleScroll, { capture: true });
-  }, [isOpen]);
-
-  // Close on escape key
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false);
-    };
-
-    document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
-  }, [isOpen]);
-
-  // Calculate position synchronously before paint (same pattern as EnhancedDropdown)
-  useLayoutEffect(() => {
-    if (!isOpen || !triggerRef.current) return;
-
-    const calculatePosition = (): PopoverPosition | null => {
-      if (!triggerRef.current) return null;
-
-      const triggerRect = triggerRef.current.getBoundingClientRect();
-      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      // Use actual popover dimensions if rendered, otherwise use defaults
-      const popoverWidth = popoverRef.current?.offsetWidth || POPOVER_WIDTH;
-      const popoverHeight = popoverRef.current?.offsetHeight || POPOVER_MAX_HEIGHT;
-
-      // Calculate horizontal position - align right edge with trigger right edge
-      const desiredX = position === 'left' ? triggerRect.left : triggerRect.right - popoverWidth;
-
-      // Clamp X within viewport
-      const x = clampToViewport(desiredX, popoverWidth, viewportWidth, VIEWPORT_PADDING);
-
-      // Calculate vertical position - prefer below trigger
-      const spaceBelow = viewportHeight - triggerRect.bottom - VIEWPORT_PADDING;
-      const spaceAbove = triggerRect.top - VIEWPORT_PADDING;
-      const openUpward = spaceBelow < popoverHeight && spaceAbove > spaceBelow;
-
-      const desiredY = openUpward ? triggerRect.top - popoverHeight - 8 : triggerRect.bottom + 8;
-
-      // Clamp Y within viewport
-      const y = clampToViewport(desiredY, popoverHeight, viewportHeight, VIEWPORT_PADDING);
-
-      return { x, y, openUpward };
-    };
-
-    const pos = calculatePosition();
-    if (pos) {
-      setPopoverPos(pos);
-    }
-  }, [isOpen, position]);
-
-  // Re-adjust position after popover renders (to use actual measured dimensions)
-  useLayoutEffect(() => {
-    if (!isOpen || !popoverPos || !triggerRef.current || !popoverRef.current) return;
-
-    const triggerRect = triggerRef.current.getBoundingClientRect();
-    const popoverRect = popoverRef.current.getBoundingClientRect();
-    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
-    const viewportHeight = window.innerHeight;
-
-    // Recalculate X with actual width
-    const desiredX = position === 'left' ? triggerRect.left : triggerRect.right - popoverRect.width;
-
-    const newX = clampToViewport(desiredX, popoverRect.width, viewportWidth, VIEWPORT_PADDING);
-
-    // Recalculate Y with actual height
-    const spaceBelow = viewportHeight - triggerRect.bottom - VIEWPORT_PADDING;
-    const spaceAbove = triggerRect.top - VIEWPORT_PADDING;
-    const openUpward = spaceBelow < popoverRect.height && spaceAbove > spaceBelow;
-
-    const desiredY = openUpward ? triggerRect.top - popoverRect.height - 8 : triggerRect.bottom + 8;
-
-    const newY = clampToViewport(desiredY, popoverRect.height, viewportHeight, VIEWPORT_PADDING);
-
-    // Only update if position changed significantly
-    if (Math.abs(newX - popoverPos.x) > 0.5 || Math.abs(newY - popoverPos.y) > 0.5) {
-      setPopoverPos({ x: newX, y: newY, openUpward });
-    }
-  }, [isOpen, popoverPos, position]);
 
   return (
     <>
@@ -238,19 +118,26 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
         </button>
       </Tooltip>
 
-      {isOpen &&
-        popoverPos &&
+      {/* Rendered while `present` (not just `isOpen`) so the exit animation plays.
+          While closing, the entrance class comes off so the exit keyframe is the only
+          animation on the element. */}
+      {present &&
         createPortal(
           <div
             ref={popoverRef}
-            className={`fixed rounded-lg border overflow-hidden z-[90] flex flex-col calendar-settings-popover ${
-              popoverPos.openUpward
-                ? 'calendar-settings-popover--upward'
-                : 'calendar-settings-popover--downward'
+            className={`absolute rounded-lg border overflow-hidden z-[90] flex flex-col calendar-settings-popover motion-reduce:animate-none ${
+              closing
+                ? popoverPos.openUpward
+                  ? 'animate-[dropdownSlideOutUp_0.14s_ease-in_forwards]'
+                  : 'animate-[dropdownSlideOutDown_0.14s_ease-in_forwards]'
+                : popoverPos.openUpward
+                  ? 'calendar-settings-popover--upward'
+                  : 'calendar-settings-popover--downward'
             }`}
             style={{
-              left: popoverPos.x,
-              top: popoverPos.y
+              left: popoverPos.left,
+              top: popoverPos.top,
+              pointerEvents: closing ? 'none' : undefined
             }}
           >
             {/* Header */}
@@ -293,7 +180,8 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                   </div>
                 </div>
                 <div className="flex-shrink-0">
-                  <ToggleButton
+                  <SegmentedControl
+                    size="sm"
                     options={[
                       {
                         value: 'transparent',
@@ -323,7 +211,8 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                   </div>
                 </div>
                 <div className="flex-shrink-0">
-                  <ToggleButton
+                  <SegmentedControl
+                    size="sm"
                     options={[
                       { value: 'spanning', label: t('events.calendar.settings.eventLayout.bars') },
                       { value: 'daily', label: t('events.calendar.settings.eventLayout.daily') }
@@ -347,7 +236,8 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                   </div>
                 </div>
                 <div className="flex-shrink-0">
-                  <ToggleButton
+                  <SegmentedControl
+                    size="sm"
                     options={[
                       { value: 'sunday', label: t('events.calendar.settings.weekStart.sunday') },
                       { value: 'monday', label: t('events.calendar.settings.weekStart.monday') }

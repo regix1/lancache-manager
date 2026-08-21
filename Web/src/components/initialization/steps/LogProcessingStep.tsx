@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
+import { ProgressBar } from '@components/ui/ProgressBar';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
@@ -472,19 +473,19 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       {/* Progress Display (when processing) */}
       {processing && progress && !complete && (
         <div className="space-y-4">
-          <div>
-            <div className="w-full rounded-full h-2.5 overflow-hidden bg-themed-tertiary">
-              <div
-                className="h-full transition-[width] duration-500 ease-out rounded-full bg-primary"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-            <p className="text-sm text-themed-secondary text-center mt-2">
-              {t('initialization.logProcessing.percentComplete', {
-                percent: progressPercent.toFixed(1)
-              })}
-            </p>
-          </div>
+          <ProgressBar
+            value={progressPercent}
+            height="lg"
+            duration={500}
+            label={t('aria.progressLabel')}
+            caption={
+              <p className="text-sm text-themed-secondary text-center mt-2">
+                {t('initialization.logProcessing.percentComplete', {
+                  percent: progressPercent.toFixed(1)
+                })}
+              </p>
+            }
+          />
 
           <div className="grid grid-cols-2 gap-3 p-4 rounded-lg bg-themed-tertiary">
             <div>

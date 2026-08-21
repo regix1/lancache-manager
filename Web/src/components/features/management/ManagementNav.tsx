@@ -131,6 +131,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
               return (
                 <button
                   key={tab.id}
+                  id={`tab-${tab.id}`}
                   role="tab"
                   aria-selected={isActive}
                   aria-controls={`panel-${tab.id}`}
@@ -193,6 +194,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
             return (
               <button
                 key={tab.id}
+                id={`tab-${tab.id}`}
                 role="tab"
                 aria-selected={isActive}
                 aria-controls={`panel-${tab.id}`}

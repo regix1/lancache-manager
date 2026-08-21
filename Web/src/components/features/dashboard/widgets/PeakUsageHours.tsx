@@ -17,6 +17,7 @@ import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { WidgetPanel } from '../WidgetPanel';
 import { hourlyMetricValue, type PeakUsageMetric } from './peakUsageMetric';
 
 interface PeakUsageHoursProps {
@@ -178,7 +179,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   // Loading state — skeleton only on initial load (no prior data); SWR refetch keeps existing chart
   if (loading && !displayData) {
     return (
-      <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
+      <WidgetPanel glass={glassmorphism}>
         <div className="flex items-center gap-2 mb-3">
           <h3 className="dash-panel-title">{t('widgets.peakUsageHours.title')}</h3>
         </div>
@@ -213,14 +214,14 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
           </div>
         </div>
         {badge ? <div className="dash-range-footer">{badge}</div> : null}
-      </div>
+      </WidgetPanel>
     );
   }
 
   // Error state — the whole fetch failed, or only this section's query did
   if (failed || (error && !displayData)) {
     return (
-      <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
+      <WidgetPanel glass={glassmorphism}>
         <div className="flex items-center gap-2 mb-3">
           <h3 className="dash-panel-title">{t('widgets.peakUsageHours.title')}</h3>
         </div>
@@ -235,14 +236,14 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
           }
         />
         {badge ? <div className="dash-range-footer">{badge}</div> : null}
-      </div>
+      </WidgetPanel>
     );
   }
 
   // Empty state — nothing recorded, and equally totals that arrived without their hourly buckets
   if (!displayData || !hasHourlyActivity) {
     return (
-      <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
+      <WidgetPanel glass={glassmorphism}>
         <div className="flex items-center gap-2 mb-3">
           <h3 className="dash-panel-title">{t('widgets.peakUsageHours.title')}</h3>
         </div>
@@ -255,7 +256,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
           />
         </div>
         {badge ? <div className="dash-range-footer">{badge}</div> : null}
-      </div>
+      </WidgetPanel>
     );
   }
 
@@ -270,7 +271,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   const peakTimeOfDay = getTimeOfDayLabel(peakHour);
 
   return (
-    <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
+    <WidgetPanel glass={glassmorphism}>
       {/* Header */}
       {/* The heading gets a row to itself; the period line and the metric picker share the row
           under it, so the title is never squeezed against a control. */}
@@ -505,7 +506,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
         </div>
       </div>
       {badge ? <div className="dash-range-footer dash-range-footer--seamless">{badge}</div> : null}
-    </div>
+    </WidgetPanel>
   );
 });
 

@@ -20,7 +20,7 @@ import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
 import BadgesRow from './BadgesRow';
 import DownloadBadges from './DownloadBadges';
-import { efficiencyTier, type EfficiencyTier } from './retroGrouping';
+import { efficiencyTier, type EfficiencyTier } from '@utils/efficiencyTier';
 import { cacheHitPercent } from './downloadGrouping';
 import { GAUGE_DIAL_SIZE } from './retroColumnSizing';
 
@@ -65,15 +65,17 @@ const GAUGE_CIRCUMFERENCE = 2 * Math.PI * GAUGE_RADIUS;
 // Class names must appear as literal strings (never template-built), or
 // Tailwind's content scanner purges the matching @layer components rules.
 const GAUGE_TIER_CLASS: Record<EfficiencyTier, string> = {
-  success: 'retro-gauge retro-gauge-success',
-  warning: 'retro-gauge retro-gauge-warning',
-  error: 'retro-gauge retro-gauge-error'
+  success: 'retro-gauge hit-tier-success',
+  warning: 'retro-gauge hit-tier-warning',
+  error: 'retro-gauge hit-tier-error',
+  critical: 'retro-gauge hit-tier-critical'
 };
 
 const ROW_ACCENT_CLASS: Record<EfficiencyTier, string> = {
   success: 'retro-row retro-row-accent-success',
   warning: 'retro-row retro-row-accent-warning',
-  error: 'retro-row retro-row-accent-error'
+  error: 'retro-row retro-row-accent-error',
+  critical: 'retro-row retro-row-accent-critical'
 };
 
 const EfficiencyGauge: React.FC<{ percent: number }> = ({ percent }) => {

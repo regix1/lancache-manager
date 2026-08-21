@@ -4,6 +4,7 @@ import { Key } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import { useCopyFeedback } from '@hooks/useCopyFeedback';
 import { copyText } from '@utils/clipboard';
 
 interface ApiKeyRotatedModalProps {
@@ -27,7 +28,7 @@ export const ApiKeyRotatedModal: React.FC<ApiKeyRotatedModalProps> = ({
   onClose
 }) => {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
+  const [copied, markCopied] = useCopyFeedback(false);
   const [copyFailed, setCopyFailed] = useState(false);
 
   const handleCopy = async () => {
@@ -35,10 +36,9 @@ export const ApiKeyRotatedModal: React.FC<ApiKeyRotatedModalProps> = ({
     // API is absent, which is every phone reaching this over plain http, reads as a dead control
     // and this is the one showing of the key.
     const ok = await copyText(apiKey);
-    setCopied(ok);
     setCopyFailed(!ok);
     if (ok) {
-      setTimeout(() => setCopied(false), 2000);
+      markCopied(true);
     }
   };
 

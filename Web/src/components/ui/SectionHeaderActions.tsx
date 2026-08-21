@@ -10,20 +10,13 @@ interface SectionHeaderActionsProps {
  * The row of status chips and action buttons a section header hands to
  * AccordionSection's `badge` slot.
  *
- * Gap lives on `.section-header-actions` in patterns.css (6px). Nested flex does
- * not inherit the header row's 12px column gap, and matching that 12px next to a
- * ~16px chip left a hole between the chip and the kebab/button.
- *
- * `.section-header-actions` carries the phone behaviour (patterns.css): the row is
- * full width there, so the trailing control moves to the right edge instead of the
- * whole cluster huddling in the left third.
+ * A thin passthrough - AccordionSection already wraps `badge` in its own
+ * `.section-header-actions` div (AccordionSection.tsx:224), so this component no longer
+ * renders a second one. A caller keeps writing `<SectionHeaderActions>{...}</SectionHeaderActions>`
+ * unchanged; it just resolves to a fragment now instead of a nested duplicate div. [45]
  */
 export function SectionHeaderActions({ children }: SectionHeaderActionsProps) {
-  return (
-    <div className="section-header-actions flex flex-wrap items-center w-full justify-start sm:w-auto sm:justify-end">
-      {children}
-    </div>
-  );
+  return <>{children}</>;
 }
 
 /**

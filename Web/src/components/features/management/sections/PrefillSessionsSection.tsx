@@ -5,7 +5,6 @@ import {
   Play,
   StopCircle,
   Ban,
-  MoreVertical,
   Shield,
   Clock,
   User,
@@ -19,12 +18,11 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
-import {
-  ActionMenu,
-  ActionMenuItem,
-  ActionMenuDangerItem,
-  ActionMenuDivider
-} from '@components/ui/ActionMenu';
+import { ErrorBlock } from '@components/ui/ErrorBlock';
+import { GroupHeading } from '@components/ui/GroupHeading';
+import { TabPanel } from '@components/features/management/TabPanel';
+import { RowActionsMenu } from '@components/ui/RowActionsMenu';
+import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -58,7 +56,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { cleanIpAddress } from '@components/features/user/types';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { LoadingState } from '@components/ui/ManagerCard';
+import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import StatusDot from '@components/common/StatusDot';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { usePersistentPrefillContainerSignalR } from '@components/features/management/schedules/scheduled-prefill/usePersistentPrefillContainerSignalR';
@@ -222,25 +220,6 @@ const StatCard: React.FC<{
     <div className="prefill-stat-content">
       <div className="prefill-stat-value">{value == null ? '—' : value}</div>
       <div className="prefill-stat-label">{label}</div>
-    </div>
-  </div>
-);
-
-// In-view error + retry block, shared by the Live Sessions / Session History / Banned Users views
-const PrefillErrorBlock: React.FC<{
-  title: string;
-  message: string;
-  retryLabel: string;
-  onRetry: () => void;
-}> = ({ title, message, retryLabel, onRetry }) => (
-  <div className="prefill-error-state">
-    <Alert color="red" title={title}>
-      <p className="text-sm">{message}</p>
-    </Alert>
-    <div className="prefill-error-retry">
-      <Button variant="filled" color="secondary" size="md" onClick={onRetry}>
-        {retryLabel}
-      </Button>
     </div>
   </div>
 );
@@ -479,48 +458,36 @@ const SessionCard: React.FC<{
             {/* Action buttons — destructive actions first, expand/collapse chevron last (far right) */}
             <div className="prefill-action-buttons">
               {isAdmin && isLive && (onBan || onTerminate) && (
-                <ActionMenu
-                  isOpen={menuOpen}
-                  onClose={() => setMenuOpen(false)}
-                  align="right"
-                  trigger={
-                    <Button
-                      variant="filled"
-                      color="secondary"
-                      size="sm"
-                      onClick={() => setMenuOpen((prev) => !prev)}
-                      aria-label={t('common.moreActions')}
-                      className="btn-icon-square btn-icon-square--sm pointer-target-44"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </Button>
-                  }
-                >
-                  {onBan && (
-                    <ActionMenuDangerItem
-                      onClick={() => {
-                        setMenuOpen(false);
-                        onBan();
-                      }}
-                      icon={<Ban className="w-4 h-4" />}
-                      disabled={isBanning}
-                    >
-                      {t('management.prefillSessions.tooltips.banUser')}
-                    </ActionMenuDangerItem>
+                <RowActionsMenu open={menuOpen} onOpenChange={setMenuOpen}>
+                  {(close) => (
+                    <>
+                      {onBan && (
+                        <ActionMenuDangerItem
+                          onClick={() => {
+                            close();
+                            onBan();
+                          }}
+                          icon={<Ban className="w-4 h-4" />}
+                          disabled={isBanning}
+                        >
+                          {t('management.prefillSessions.tooltips.banUser')}
+                        </ActionMenuDangerItem>
+                      )}
+                      {onTerminate && (
+                        <ActionMenuDangerItem
+                          onClick={() => {
+                            close();
+                            onTerminate();
+                          }}
+                          icon={<StopCircle className="w-4 h-4" />}
+                          disabled={isTerminating}
+                        >
+                          {t('management.prefillSessions.tooltips.terminateSession')}
+                        </ActionMenuDangerItem>
+                      )}
+                    </>
                   )}
-                  {onTerminate && (
-                    <ActionMenuDangerItem
-                      onClick={() => {
-                        setMenuOpen(false);
-                        onTerminate();
-                      }}
-                      icon={<StopCircle className="w-4 h-4" />}
-                      disabled={isTerminating}
-                    >
-                      {t('management.prefillSessions.tooltips.terminateSession')}
-                    </ActionMenuDangerItem>
-                  )}
-                </ActionMenu>
+                </RowActionsMenu>
               )}
 
               <Button
@@ -1228,23 +1195,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   );
 
   return (
-    <div
-      className="management-section prefill-sessions-section animate-fade-in"
-      role="tabpanel"
-      id="panel-prefill-sessions"
-      aria-labelledby="tab-prefill-sessions"
-    >
+    <TabPanel tabId="prefill-sessions" className="prefill-sessions-section">
       {/* ==================== SESSIONS ==================== */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-            <h3 className="management-group-label caps-label">
-              {t('management.sections.prefillSessions.groupSessions')}
-            </h3>
-          </div>
-          <AccordionGroupToggle />
-        </div>
+        <GroupHeading
+          label={t('management.sections.prefillSessions.groupSessions')}
+          actions={<AccordionGroupToggle />}
+        />
 
         <div className="prefill-stats-grid mb-4">
           <StatCard
@@ -1337,22 +1294,18 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 />
               </div>
             ) : sessionsError && guestActiveSessions.length === 0 ? (
-              <PrefillErrorBlock
+              <ErrorBlock
                 title={t('management.prefillSessions.errors.loadSessions')}
                 message={sessionsError}
                 retryLabel={t('common.retry')}
                 onRetry={loadSessions}
               />
             ) : guestActiveSessions.length === 0 ? (
-              <div className="prefill-empty-state">
-                <Container className="w-12 h-12 opacity-50" />
-                <p className="prefill-empty-title">
-                  {t('management.prefillSessions.noActiveSessions')}
-                </p>
-                <p className="prefill-empty-desc">
-                  {t('management.prefillSessions.noActiveSessionsDesc')}
-                </p>
-              </div>
+              <EmptyState
+                icon={Container}
+                title={t('management.prefillSessions.noActiveSessions')}
+                subtitle={t('management.prefillSessions.noActiveSessionsDesc')}
+              />
             ) : (
               <div className="prefill-sessions-list">
                 {guestActiveSessions.map((session) => (
@@ -1400,22 +1353,18 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 />
               </div>
             ) : persistentError && persistentContainers.length === 0 ? (
-              <PrefillErrorBlock
+              <ErrorBlock
                 title={t('management.prefillSessions.persistentSessions.errors.load')}
                 message={persistentError}
                 retryLabel={t('common.retry')}
                 onRetry={loadPersistentContainers}
               />
             ) : persistentContainers.length === 0 ? (
-              <div className="prefill-empty-state">
-                <Server className="w-12 h-12 opacity-50" />
-                <p className="prefill-empty-title">
-                  {t('management.prefillSessions.persistentSessions.noContainers')}
-                </p>
-                <p className="prefill-empty-desc">
-                  {t('management.prefillSessions.persistentSessions.noContainersDesc')}
-                </p>
-              </div>
+              <EmptyState
+                icon={Server}
+                title={t('management.prefillSessions.persistentSessions.noContainers')}
+                subtitle={t('management.prefillSessions.persistentSessions.noContainersDesc')}
+              />
             ) : (
               <div className="prefill-persistent-list">
                 {persistentContainers.map((container) => (
@@ -1429,12 +1378,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
       {/* ==================== HISTORY ==================== */}
       <div>
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-          <h3 className="management-group-label caps-label">
-            {t('management.sections.prefillSessions.groupHistory')}
-          </h3>
-        </div>
+        <GroupHeading label={t('management.sections.prefillSessions.groupHistory')} />
 
         <div className="space-y-4">
           <AccordionSection
@@ -1523,22 +1467,18 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 />
               </div>
             ) : sessionsError && sessions.length === 0 ? (
-              <PrefillErrorBlock
+              <ErrorBlock
                 title={t('management.prefillSessions.errors.loadHistory')}
                 message={sessionsError}
                 retryLabel={t('common.retry')}
                 onRetry={loadSessions}
               />
             ) : sessions.length === 0 ? (
-              <div className="prefill-empty-state">
-                <Clock className="w-12 h-12 opacity-50" />
-                <p className="prefill-empty-title">
-                  {t('management.prefillSessions.noSessionsFound')}
-                </p>
-                <p className="prefill-empty-desc">
-                  {t('management.prefillSessions.noSessionsFoundDesc')}
-                </p>
-              </div>
+              <EmptyState
+                icon={Clock}
+                title={t('management.prefillSessions.noSessionsFound')}
+                subtitle={t('management.prefillSessions.noSessionsFoundDesc')}
+              />
             ) : (
               <>
                 <div className="prefill-sessions-list">
@@ -1593,7 +1533,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             titleAccessory={bannedUsersHelpAccessory}
             count={activeBansCount}
             icon={Ban}
-            iconColor="--theme-icon-red"
             isExpanded={bansExpanded}
             onToggle={() => setBansExpanded(!bansExpanded)}
             badge={
@@ -1621,22 +1560,18 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 />
               </div>
             ) : bansError && !hasVisibleBans ? (
-              <PrefillErrorBlock
+              <ErrorBlock
                 title={t('management.prefillSessions.errors.loadBans')}
                 message={bansError}
                 retryLabel={t('common.retry')}
                 onRetry={loadBans}
               />
             ) : !loadingBans && !hasVisibleBans ? (
-              <div className="prefill-empty-state">
-                <Shield className="w-12 h-12 opacity-50" />
-                <p className="prefill-empty-title">
-                  {t('management.prefillSessions.bannedUsers.noBannedUsers')}
-                </p>
-                <p className="prefill-empty-desc">
-                  {t('management.prefillSessions.bannedUsers.noBannedUsersDesc')}
-                </p>
-              </div>
+              <EmptyState
+                icon={Shield}
+                title={t('management.prefillSessions.bannedUsers.noBannedUsers')}
+                subtitle={t('management.prefillSessions.bannedUsers.noBannedUsersDesc')}
+              />
             ) : (
               <div
                 className={`prefill-bans-list ${loadingBans ? 'opacity-60 pointer-events-none' : ''}`}
@@ -1741,7 +1676,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           </div>
         )}
       </ConfirmationModal>
-    </div>
+    </TabPanel>
   );
 };
 

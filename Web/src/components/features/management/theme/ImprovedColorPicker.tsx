@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { HexColorPicker, HexColorInput } from 'react-colorful';
 import { Percent, Copy, Check, RotateCcw, X } from 'lucide-react';
@@ -6,7 +6,15 @@ import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Slider } from '@components/ui/Slider';
 import Badge from '@components/ui/Badge';
-import { clampToViewport } from '@utils/viewportClamp';
+import { useAnchoredPanel, type PanelPlacement, type PanelSpace } from '@hooks/useAnchoredPanel';
+import { clampToViewport, MENU_GUTTER_PX } from '@utils/viewportClamp';
+
+/** Gap between the swatch and the picker on whichever side it opens. */
+const SWATCH_GAP_PX = 8;
+/** Pre-measurement guess, used only on the pass before the picker is in the DOM. */
+const PICKER_WIDTH_PX = 250;
+/** Extra room the right side must offer before the picker prefers it. */
+const RIGHT_SIDE_MARGIN_PX = 20;
 
 interface ImprovedColorPickerProps {
   value: string;
@@ -39,7 +47,6 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
 }) => {
   const { t } = useTranslation();
   const [showPicker, setShowPicker] = useState(false);
-  const [pickerPosition, setPickerPosition] = useState({ left: 0, top: 0 });
   const [hexValue, setHexValue] = useState('');
   const [alpha, setAlpha] = useState(1);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -64,8 +71,57 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
     }
   }, [value, showPicker]);
 
-  // Close picker when clicking outside
+  /** Closes the picker, recording the colour it opened on so the edit can be undone. */
+  const closePicker = useCallback((): void => {
+    if (onColorCommit && colorBeforeEdit.current && colorBeforeEdit.current !== value) {
+      onColorCommit(colorBeforeEdit.current);
+    }
+    colorBeforeEdit.current = null;
+    setShowPicker(false);
+  }, [onColorCommit, value]);
+
+  /**
+   * The picker sits BESIDE its swatch rather than under it, so the shared below/above
+   * placement does not apply. It prefers the right, falls back to the left, and clamps
+   * on both axes: a swatch low in a long theme form used to hang the picker off the
+   * bottom of the screen, because only the horizontal edge was ever pulled back.
+   */
+  const place = useCallback((space: PanelSpace): PanelPlacement => {
+    const { anchor, panelWidth, panelHeight, viewportWidth, viewportHeight, gutter } = space;
+    const pickerWidth = panelWidth || PICKER_WIDTH_PX;
+    const spaceOnRight = viewportWidth - anchor.right;
+
+    // Prefer the right of the swatch, fall back to its left. Neither side is
+    // guaranteed to fit on a narrow screen, where a swatch close to the left edge
+    // leaves less than the picker's width beside it, so the chosen edge is then
+    // pulled back onto the screen.
+    const desiredLeft =
+      spaceOnRight > pickerWidth + RIGHT_SIDE_MARGIN_PX
+        ? anchor.right + SWATCH_GAP_PX
+        : anchor.left - pickerWidth - SWATCH_GAP_PX;
+
+    return {
+      left: clampToViewport(desiredLeft, pickerWidth, viewportWidth, gutter),
+      top: clampToViewport(anchor.top, panelHeight, viewportHeight, gutter),
+      openUpward: false
+    };
+  }, []);
+
+  const { present, closing, position } = useAnchoredPanel({
+    open: showPicker,
+    anchorRef: buttonRef,
+    panelRef: popupRef,
+    onClose: closePicker,
+    gutter: MENU_GUTTER_PX,
+    place
+  });
+
+  // Click-outside only. Escape now closes the picker through the shared hook, which it
+  // never did before, and the close-on-scroll listener is gone: the picker is
+  // positioned on the page and carried by its swatch, so scrolling keeps them together.
   useEffect(() => {
+    if (!showPicker) return;
+
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       // Check if click is outside both the button and the popup
@@ -73,43 +129,13 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
       const isOutsidePopup = popupRef.current && !popupRef.current.contains(target);
 
       if (isOutsideButton && isOutsidePopup) {
-        // Commit history if color changed
-        if (onColorCommit && colorBeforeEdit.current && colorBeforeEdit.current !== value) {
-          onColorCommit(colorBeforeEdit.current);
-        }
-        colorBeforeEdit.current = null;
-        setShowPicker(false);
+        closePicker();
       }
     };
 
-    if (showPicker) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showPicker, value, onColorCommit]);
-
-  // Close picker when user scrolls
-  useEffect(() => {
-    const handleScroll = (e: Event) => {
-      // Ignore scroll events originating from inside the popup
-      if (popupRef.current && popupRef.current.contains(e.target as Node)) {
-        return;
-      }
-
-      // Commit history if color changed
-      if (onColorCommit && colorBeforeEdit.current && colorBeforeEdit.current !== value) {
-        onColorCommit(colorBeforeEdit.current);
-      }
-      colorBeforeEdit.current = null;
-      setShowPicker(false);
-    };
-
-    if (showPicker) {
-      // Listen for scroll on window and all parent elements
-      window.addEventListener('scroll', handleScroll, true);
-      return () => window.removeEventListener('scroll', handleScroll, true);
-    }
-  }, [showPicker, value, onColorCommit]);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showPicker, closePicker]);
 
   const hexToRgba = (hex: string, alpha: number): string => {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -132,44 +158,13 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
     onChange(colorValue);
   };
 
-  const getPickerPosition = () => {
-    if (!buttonRef.current) return { left: 0, top: 0 };
-
-    const rect = buttonRef.current.getBoundingClientRect();
-    const pickerWidth = 250; // Approximate width of the color picker
-    const viewportWidth = window.innerWidth;
-    const spaceOnRight = viewportWidth - rect.right;
-
-    // Prefer the right of the swatch, fall back to its left. Neither side is
-    // guaranteed to fit on a narrow screen, where a swatch close to the left edge
-    // leaves less than the picker's width beside it, so the chosen edge is then
-    // pulled back onto the screen.
-    const desiredLeft =
-      spaceOnRight > pickerWidth + 20
-        ? rect.right + 8 // 8px gap to the right
-        : rect.left - pickerWidth - 8; // 8px gap to the left
-
-    return {
-      left: clampToViewport(desiredLeft, pickerWidth, viewportWidth, 8),
-      top: rect.top // fixed positioning uses viewport coords, no scroll offset needed
-    };
-  };
-
   const handlePickerToggle = () => {
     if (!showPicker) {
-      // Opening picker - calculate position first to prevent jitter
       if (onStart) onStart();
-      const pos = getPickerPosition();
-      setPickerPosition(pos);
       colorBeforeEdit.current = value;
       setShowPicker(true);
     } else {
-      // Closing picker - commit history if color changed
-      if (onColorCommit && colorBeforeEdit.current && colorBeforeEdit.current !== value) {
-        onColorCommit(colorBeforeEdit.current);
-      }
-      colorBeforeEdit.current = null;
-      setShowPicker(false);
+      closePicker();
     }
   };
 
@@ -204,16 +199,21 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             />
           </Tooltip>
 
-          {/* Color picker popover - rendered via portal */}
-          {showPicker &&
+          {/* Color picker popover - rendered via portal.
+              Rendered while `present` (not just `showPicker`) so the exit animation plays. */}
+          {present &&
             createPortal(
               <div
                 ref={popupRef}
-                className="fixed p-3 rounded-lg shadow-2xl overflow-hidden bg-themed-primary border border-themed-primary isolate"
+                className={`absolute z-[100001] p-3 rounded-lg shadow-2xl overflow-hidden bg-themed-primary border border-themed-primary isolate motion-reduce:animate-none ${
+                  closing
+                    ? 'animate-[dropdownSlideOutDown_0.14s_ease-in_forwards]'
+                    : 'animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]'
+                }`}
                 style={{
-                  left: `${pickerPosition.left}px`,
-                  top: `${pickerPosition.top}px`,
-                  zIndex: 100001
+                  left: position.left,
+                  top: position.top,
+                  pointerEvents: closing ? 'none' : undefined
                 }}
               >
                 <div className="flex items-center justify-between mb-2">

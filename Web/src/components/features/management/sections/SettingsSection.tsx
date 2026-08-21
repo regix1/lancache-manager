@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Shield, Sparkles, Settings, Gauge } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
+import { GroupHeading } from '@components/ui/GroupHeading';
+import { TabPanel } from '@components/features/management/TabPanel';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -11,6 +13,7 @@ import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { useMockMode } from '@contexts/useMockMode';
 import { useAuth } from '@contexts/useAuth';
 import { useNotifications } from '@contexts/notifications';
+import { useNotifySuccess } from '@/hooks/useErrorHandler';
 import AuthenticationManager from '../steam/AuthenticationManager';
 import DisplayPreferences from './DisplayPreferences';
 import GcManager from '../gc/GcManager';
@@ -25,6 +28,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
   const { mockMode, setMockMode } = useMockMode();
   const { authenticationEnabled } = useAuth();
   const { addNotification } = useNotifications();
+  const { notifySuccess } = useNotifySuccess();
 
   const [apiAuthExpanded, setApiAuthExpanded] = useState(false);
   useAccordionGroupItem('settings-api-auth', apiAuthExpanded, () =>
@@ -57,14 +61,9 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
 
   const handleSuccess = useCallback(
     (message: string) => {
-      addNotification({
-        type: 'generic',
-        status: 'completed',
-        message,
-        details: { notificationType: 'success' }
-      });
+      notifySuccess(message);
     },
-    [addNotification]
+    [notifySuccess]
   );
 
   const apiAuthHelpAccessory = (
@@ -100,23 +99,13 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
   );
 
   return (
-    <div
-      className="management-section animate-fade-in"
-      role="tabpanel"
-      id="panel-settings"
-      aria-labelledby="tab-settings"
-    >
+    <TabPanel tabId="settings">
       {/* SYSTEM */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-            <h3 className="management-group-label caps-label">
-              {t('management.sections.settings.groupSystem')}
-            </h3>
-          </div>
-          <AccordionGroupToggle />
-        </div>
+        <GroupHeading
+          label={t('management.sections.settings.groupSystem')}
+          actions={<AccordionGroupToggle />}
+        />
 
         <div className="space-y-4">
           <AccordionSection
@@ -184,12 +173,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
 
       {/* PREFERENCES */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-          <h3 className="management-group-label caps-label">
-            {t('management.sections.settings.groupPreferences')}
-          </h3>
-        </div>
+        <GroupHeading label={t('management.sections.settings.groupPreferences')} />
 
         <div className="space-y-4">
           <AccordionSection
@@ -206,12 +190,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
 
       {/* PERFORMANCE */}
       <div>
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-          <h3 className="management-group-label caps-label">
-            {t('management.sections.settings.groupPerformance')}
-          </h3>
-        </div>
+        <GroupHeading label={t('management.sections.settings.groupPerformance')} />
 
         <div className="space-y-4">
           <AccordionSection
@@ -252,7 +231,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
           </AccordionSection>
         </div>
       </div>
-    </div>
+    </TabPanel>
   );
 };
 

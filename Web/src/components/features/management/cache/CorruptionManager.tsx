@@ -32,7 +32,7 @@ import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
-import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
 import { resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { resolveDatasources } from '@utils/datasources';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
@@ -51,6 +51,7 @@ import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionH
 import { ActionMenuDangerItem, ActionMenuDivider, ActionMenuItem } from '@components/ui/ActionMenu';
 import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
 import Badge from '@components/ui/Badge';
+import { rowToggleHandlers } from '@utils/rowToggle';
 import CorruptionChunkList from './CorruptionChunkList';
 import CorruptionRemovalWarning from './CorruptionRemovalWarning';
 import CorruptionScanHistory from './CorruptionScanHistory';
@@ -84,6 +85,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const { t } = useTranslation();
   const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
   const { notifyError } = useErrorHandler();
+  const { notifySuccess } = useNotifySuccess();
   const { on, off, isConnected } = useSignalR();
   const { config } = useConfig();
   const datasources = resolveDatasources(config);
@@ -429,12 +431,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                 details: { notificationType: 'info' }
               });
             } else if (showNotification) {
-              addNotification({
-                type: 'generic',
-                status: 'completed',
-                message: t('management.corruption.notifications.noCorruptedInPrevious'),
-                details: { notificationType: 'success' }
-              });
+              notifySuccess(t('management.corruption.notifications.noCorruptedInPrevious'));
             }
             sessionStorage.setItem(sessionKey, 'true');
           }
@@ -465,6 +462,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       markFailed,
       markLoaded,
       notifyError,
+      notifySuccess,
       t
     ]
   );
@@ -814,32 +812,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     }
     setExpandedService(service);
     if (!corruptionDetails[service]) void loadDetails(service);
-  };
-
-  const rowToggleHandlers = (service: string) => {
-    const fromNestedControl = (target: EventTarget | null, currentTarget: EventTarget) => {
-      if (!(target instanceof HTMLElement) || !(currentTarget instanceof HTMLElement)) return false;
-      const control = target.closest(
-        'button, input, a, label, [role="button"], [role="checkbox"], [role="listbox"], [role="combobox"]'
-      );
-      return control !== null && control !== currentTarget;
-    };
-    return {
-      role: 'button' as const,
-      tabIndex: 0,
-      onClick: (event: React.MouseEvent) => {
-        if (!fromNestedControl(event.target, event.currentTarget)) toggleDetails(service);
-      },
-      onKeyDown: (event: React.KeyboardEvent) => {
-        if (
-          (event.key === 'Enter' || event.key === ' ') &&
-          !fromNestedControl(event.target, event.currentTarget)
-        ) {
-          event.preventDefault();
-          toggleDetails(service);
-        }
-      }
-    };
   };
 
   const requestServiceRemoval = (service: string) => {
@@ -1256,7 +1228,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                     <div key={`corruption-${service}`}>
                       <div
                         className="mgmt-row mgmt-row--interactive focus-ring--inset flex-wrap cursor-pointer"
-                        {...rowToggleHandlers(service)}
+                        {...rowToggleHandlers(() => toggleDetails(service))}
                       >
                         <Checkbox
                           checked={selection.isSelected(service)}
@@ -1364,9 +1336,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                         ) : corruptionDetails[service]?.length > 0 ? (
                           <CorruptionChunkList chunks={corruptionDetails[service]} />
                         ) : (
-                          <p className="py-4 text-center text-sm text-themed-muted">
-                            {t('management.corruption.noDetailsAvailable')}
-                          </p>
+                          <EmptyState
+                            variant="text"
+                            title={t('management.corruption.noDetailsAvailable')}
+                          />
                         )}
                       </CollapsibleRegion>
                     </div>

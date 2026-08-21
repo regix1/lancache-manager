@@ -8,6 +8,8 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import FormField from '@components/ui/FormField';
+import { PostgresConnectionFields } from '@components/ui/PostgresConnectionFields';
+import type { PostgresConnectionField } from '@components/ui/PostgresConnectionFields.types';
 import ApiService from '@services/api.service';
 import { formatCount } from '@utils/formatters';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -71,6 +73,14 @@ export function DatabaseImportForm({
       off('DataImportProgress', handleProgress as (...args: unknown[]) => void);
     };
   }, [importing, on, off]);
+
+  const handlePostgresFieldChange = (field: PostgresConnectionField, value: string) => {
+    setPgConfig((prev) => ({
+      ...prev,
+      [field]: field === 'port' ? parseInt(value) || 5432 : value
+    }));
+    setValidationResult(null);
+  };
 
   const getEffectiveConnectionString = (): string => {
     if (showRawConnectionString) return rawConnectionString;
@@ -138,107 +148,25 @@ export function DatabaseImportForm({
       {/* LANCache Manager form */}
       <div className="database-import-form__postgres-fields">
         {!showRawConnectionString && (
-          <>
-            <div className="database-import-form__field-row">
-              <div className="database-import-form__field">
-                <FormField label={t('initialization.importHistorical.host')}>
-                  {(field) => (
-                    <input
-                      {...field}
-                      type="text"
-                      value={pgConfig.host}
-                      onChange={(e) => {
-                        setPgConfig((prev) => ({ ...prev, host: e.target.value }));
-                        setValidationResult(null);
-                      }}
-                      placeholder="localhost"
-                      className="w-full px-3 py-2.5 themed-input"
-                      disabled={isDisabled}
-                    />
-                  )}
-                </FormField>
-              </div>
-              <div className="database-import-form__field">
-                <FormField label={t('initialization.importHistorical.port')}>
-                  {(field) => (
-                    <input
-                      {...field}
-                      type="number"
-                      value={pgConfig.port}
-                      onChange={(e) => {
-                        setPgConfig((prev) => ({
-                          ...prev,
-                          port: parseInt(e.target.value) || 5432
-                        }));
-                        setValidationResult(null);
-                      }}
-                      placeholder="5432"
-                      className="w-full px-3 py-2.5 themed-input"
-                      disabled={isDisabled}
-                    />
-                  )}
-                </FormField>
-              </div>
-            </div>
-
-            <div className="database-import-form__field">
-              <FormField label={t('initialization.importHistorical.database')}>
-                {(field) => (
-                  <input
-                    {...field}
-                    type="text"
-                    value={pgConfig.database}
-                    onChange={(e) => {
-                      setPgConfig((prev) => ({ ...prev, database: e.target.value }));
-                      setValidationResult(null);
-                    }}
-                    placeholder="lancache"
-                    className="w-full px-3 py-2.5 themed-input"
-                    disabled={isDisabled}
-                  />
-                )}
-              </FormField>
-            </div>
-
-            <div className="database-import-form__field-row">
-              <div className="database-import-form__field">
-                <FormField label={t('initialization.importHistorical.username')}>
-                  {(field) => (
-                    <input
-                      {...field}
-                      type="text"
-                      value={pgConfig.username}
-                      onChange={(e) => {
-                        setPgConfig((prev) => ({ ...prev, username: e.target.value }));
-                        setValidationResult(null);
-                      }}
-                      placeholder="postgres"
-                      className="w-full px-3 py-2.5 themed-input"
-                      disabled={isDisabled}
-                    />
-                  )}
-                </FormField>
-              </div>
-              <div className="database-import-form__field">
-                <FormField label={t('initialization.importHistorical.password')}>
-                  {(field) => (
-                    <input
-                      {...field}
-                      type="password"
-                      value={pgConfig.password}
-                      onChange={(e) => {
-                        setPgConfig((prev) => ({ ...prev, password: e.target.value }));
-                        setValidationResult(null);
-                      }}
-                      placeholder="••••••••"
-                      className="w-full px-3 py-2.5 themed-input"
-                      disabled={isDisabled}
-                    />
-                  )}
-                </FormField>
-              </div>
-            </div>
-          </>
+          <PostgresConnectionFields
+            values={{
+              host: pgConfig.host,
+              port: String(pgConfig.port),
+              database: pgConfig.database,
+              username: pgConfig.username,
+              password: pgConfig.password
+            }}
+            labels={{
+              host: t('initialization.postgresFields.host'),
+              port: t('initialization.postgresFields.port'),
+              database: t('initialization.postgresFields.database'),
+              username: t('initialization.postgresFields.username'),
+              password: t('initialization.postgresFields.password')
+            }}
+            onFieldChange={handlePostgresFieldChange}
+            inputClassName="w-full px-3 py-2.5 themed-input"
+            disabled={isDisabled}
+          />
         )}
 
         {showRawConnectionString && (

@@ -4,8 +4,7 @@ import { ChevronDown, ChevronUp, CircleCheck, History } from 'lucide-react';
 import '../managementSectionContent.css';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
-import { useNotifications } from '@contexts/notifications';
-import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { formatCount } from '@utils/formatters';
@@ -170,8 +169,8 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
   onCurrentSnapshotDeleted
 }) => {
   const { t } = useTranslation();
-  const { addNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
+  const { notifySuccess } = useNotifySuccess();
 
   const [expanded, setExpanded] = useState(false);
   useAccordionGroupItem('storage-corruption-history', expanded, () =>
@@ -322,12 +321,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
         current ? current.filter((candidate) => candidate.scanId !== entry.scanId) : current
       );
       if (viewEntry?.scanId === entry.scanId) closeView();
-      addNotification({
-        type: 'generic',
-        status: 'completed',
-        message: t('management.corruption.history.deleteSuccess'),
-        details: { notificationType: 'success' }
-      });
+      notifySuccess(t('management.corruption.history.deleteSuccess'));
       if (entry.isCurrent) onCurrentSnapshotDeleted(entry.scanId, entry.detectionMethod);
     } catch (error: unknown) {
       // Keep the confirmation open with the row intact so the user can retry.
@@ -414,9 +408,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
             </div>
           </Alert>
         ) : entries !== null && entries.length === 0 ? (
-          <p className="py-4 text-center text-sm text-themed-muted">
-            {t('management.corruption.history.empty')}
-          </p>
+          <EmptyState variant="text" title={t('management.corruption.history.empty')} />
         ) : entries !== null ? (
           <div className="space-y-4">
             {renderGroup('management.corruption.methods.repeatedMiss.label', grouped.repeatedMiss)}
@@ -509,9 +501,10 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
                         ) : detailChunks[service]?.length > 0 ? (
                           <CorruptionChunkList chunks={detailChunks[service]} />
                         ) : (
-                          <p className="py-4 text-center text-sm text-themed-muted">
-                            {t('management.corruption.noDetailsAvailable')}
-                          </p>
+                          <EmptyState
+                            variant="text"
+                            title={t('management.corruption.noDetailsAvailable')}
+                          />
                         )}
                       </CollapsibleRegion>
                     </div>

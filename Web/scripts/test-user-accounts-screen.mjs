@@ -107,7 +107,8 @@ test('the account screen is built from the shared list components, not new ones 
   const required = {
     '@components/ui/DataTable': ['DataTable', 'DataTableColumn'],
     '@components/ui/Pagination': ['Pagination'],
-    '@components/ui/ActionMenu': ['ActionMenu', 'ActionMenuItem', 'ActionMenuDangerItem'],
+    '@components/ui/ActionMenu': ['ActionMenuItem', 'ActionMenuDangerItem'],
+    '@components/ui/RowActionsMenu': ['RowActionsMenu'],
     '@components/ui/ManagerCard': ['EmptyState', 'LoadingState'],
     '@components/common/ConfirmationModal': ['ConfirmationModal'],
     '@components/ui/Badge': ['Badge']
@@ -130,7 +131,7 @@ test('the account screen is built from the shared list components, not new ones 
 
   for (const name of declaredNames) {
     assert.ok(
-      !/^(DataTable|Pagination|ActionMenu|EmptyState|LoadingState|ConfirmationModal|Badge)/.test(
+      !/^(DataTable|Pagination|ActionMenu|RowActionsMenu|EmptyState|LoadingState|ConfirmationModal|Badge)/.test(
         name
       ),
       `UserAccounts.tsx declares its own ${name}`

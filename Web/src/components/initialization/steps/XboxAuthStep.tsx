@@ -4,6 +4,7 @@ import { CheckCircle, ExternalLink, KeyRound, Shield } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { XboxIcon } from '@components/ui/XboxIcon';
+import { StepHeader } from '@components/initialization/StepHeader';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useXboxMappingAuth } from '@hooks/useXboxMappingAuth';
 import ApiService from '@services/api.service';
@@ -109,17 +110,12 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
   if (succeeded) {
     return (
       <div className="space-y-5">
-        <div className="flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-success">
-            <CheckCircle className="w-7 h-7 icon-success" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">
-            {t('initialization.xboxAuth.success')}
-          </h3>
-          <p className="text-sm text-themed-secondary max-w-md">
-            {t('initialization.xboxAuth.successSubtitle')}
-          </p>
-        </div>
+        <StepHeader
+          icon={<CheckCircle className="w-7 h-7 icon-success" />}
+          iconBackground="bg-themed-success"
+          title={t('initialization.xboxAuth.success')}
+          description={t('initialization.xboxAuth.successSubtitle')}
+        />
         <div className="flex justify-center">
           <LoadingSpinner inline size="md" className="text-themed-secondary" />
         </div>
@@ -131,18 +127,12 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
   if (state.needsDeviceCode) {
     return (
       <div className="space-y-5">
-        {/* Header */}
-        <div className="flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
-            <KeyRound className="w-7 h-7 icon-info" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">
-            {t('initialization.xboxAuth.deviceCodeTitle')}
-          </h3>
-          <p className="text-sm text-themed-secondary max-w-md">
-            {t('initialization.xboxAuth.deviceCodeSubtitle')}
-          </p>
-        </div>
+        <StepHeader
+          icon={<KeyRound className="w-7 h-7 icon-info" />}
+          iconBackground="bg-themed-info"
+          title={t('initialization.xboxAuth.deviceCodeTitle')}
+          description={t('initialization.xboxAuth.deviceCodeSubtitle')}
+        />
 
         {/* Device Code */}
         <div className="text-center">
@@ -180,18 +170,12 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
   // State 1: Initial
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
-          <XboxIcon size={28} className="icon-info" />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">
-          {t('initialization.xboxAuth.title')}
-        </h3>
-        <p className="text-sm text-themed-secondary max-w-md">
-          {t('initialization.xboxAuth.subtitle')}
-        </p>
-      </div>
+      <StepHeader
+        icon={<XboxIcon size={28} className="icon-info" />}
+        iconBackground="bg-themed-info"
+        title={t('initialization.xboxAuth.title')}
+        description={t('initialization.xboxAuth.subtitle')}
+      />
 
       {/* Security Note */}
       <div className="p-3 rounded-lg bg-themed-tertiary">

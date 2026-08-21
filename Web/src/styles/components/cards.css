@@ -95,6 +95,22 @@
     border-radius: var(--theme-border-radius-lg);
     background: var(--theme-card-bg);
     border: 1px solid var(--theme-card-border);
+    /* Matches .themed-card above: stops the background bleeding over the border pixels at the
+       anti-aliased rounded corner, and gives the light-theme shadow below a tween instead of a
+       snap. Without these a .widget-card sat visibly flat next to a <Card> in the same dashboard
+       grid, which does compose .themed-card. [8] */
+    background-clip: padding-box;
+    transition: box-shadow 0.15s ease-out;
+  }
+
+  /* :not(.glass) so this never fights .widget-card.glass's own shadow above, which already
+     applies in both themes. */
+  [data-theme='light'] .widget-card:not(.glass) {
+    box-shadow: var(--shadow-card);
+  }
+
+  [data-theme='light'] .widget-card:not(.glass):hover {
+    box-shadow: var(--shadow-card-hover);
   }
 
   /* Background themed card */

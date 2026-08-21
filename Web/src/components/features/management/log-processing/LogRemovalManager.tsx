@@ -113,8 +113,11 @@ const ServiceRow: React.FC<{
     </Button>
   );
 
+  // No row-level click or keyboard action exists here - only the nested Checkbox and the
+  // clear Button are interactive - so the row carries no hover/focus affordance suggesting
+  // otherwise. [28]
   return (
-    <div className="mgmt-row mgmt-row--interactive focus-ring--inset">
+    <div className="mgmt-row">
       {selectable && (
         <Checkbox
           checked={selected}
@@ -685,7 +688,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         title={t('management.logRemoval.title')}
         titleAccessory={helpAccessory}
         icon={FileText}
-        iconColor="--theme-icon-red"
         isExpanded={sectionExpanded}
         onToggle={() => setSectionExpanded((prev) => !prev)}
         badge={headerBadge}

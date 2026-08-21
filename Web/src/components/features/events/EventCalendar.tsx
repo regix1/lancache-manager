@@ -13,8 +13,9 @@ import {
   type ColorTier,
   type ColorToken
 } from '@utils/eventColors';
-import { clampToViewport } from '@utils/viewportClamp';
-import { useAnchorFollow, readAnchorRect, type AnchorRect } from '@hooks/useAnchorFollow';
+import { clampToViewport, POPOVER_GUTTER_PX } from '@utils/viewportClamp';
+import { type AnchorRect } from '@hooks/useAnchorFollow';
+import { useAnchoredPanel, type PanelPlacement, type PanelSpace } from '@hooks/useAnchoredPanel';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
@@ -25,26 +26,14 @@ import type { Event } from '../../../types';
 // Gap between the anchor day column and the popover's near edge, preserved from
 // the original percentage-based offset.
 const EXPANDED_DAY_POPOVER_GAP_PX = 8;
-// Minimum distance from the viewport edge, matching the other popovers in this app.
-const EXPANDED_DAY_POPOVER_GUTTER_PX = 12;
 // Drop below the week row's top edge so the row's own date numbers stay readable.
 const EXPANDED_DAY_POPOVER_DROP_PX = 4;
 // Pre-measurement guess, matching the className's max-w-[260px] below; the real
 // width is measured off the rendered node once it exists.
 const EXPANDED_DAY_POPOVER_MAX_WIDTH_PX = 260;
-// Below this the two positions are the same place, so re-rendering would only churn.
-const EXPANDED_DAY_POPOVER_EPSILON_PX = 0.5;
-
-/** Where the body-portalled popover sits on the page. */
-interface ExpandedDayPopoverPosition {
-  left: number;
-  top: number;
-}
-
 // Anchors the expanded-day popover near its day column, then keeps it on screen on
-// both axes. `rowRect` and the viewport sizes are viewport-space measurements; the
-// result is returned in document coordinates, because the popover is absolutely
-// positioned in a body portal so that scrolling carries it and its row together.
+// both axes. Everything here is viewport-space, in and out; the shared hook converts
+// the result to the document coordinates the absolutely positioned portal needs.
 function computeExpandedDayPopoverPosition(
   isRightSide: boolean,
   adjustedIndex: number,
@@ -54,7 +43,7 @@ function computeExpandedDayPopoverPosition(
   popoverHeight: number,
   viewportWidth: number,
   viewportHeight: number
-): ExpandedDayPopoverPosition {
+): PanelPlacement {
   const maxIndex = totalCols - 1;
 
   const desiredLeft = isRightSide
@@ -64,12 +53,7 @@ function computeExpandedDayPopoverPosition(
       popoverWidth
     : rowRect.left + (adjustedIndex / totalCols) * rowRect.width + EXPANDED_DAY_POPOVER_GAP_PX;
 
-  const left = clampToViewport(
-    desiredLeft,
-    popoverWidth,
-    viewportWidth,
-    EXPANDED_DAY_POPOVER_GUTTER_PX
-  );
+  const left = clampToViewport(desiredLeft, popoverWidth, viewportWidth, POPOVER_GUTTER_PX);
 
   // A day in the last week row holds its popover below most of the viewport, so
   // clamping the top is what keeps a tall list of events fully on screen.
@@ -77,10 +61,10 @@ function computeExpandedDayPopoverPosition(
     rowRect.top + EXPANDED_DAY_POPOVER_DROP_PX,
     popoverHeight,
     viewportHeight,
-    EXPANDED_DAY_POPOVER_GUTTER_PX
+    POPOVER_GUTTER_PX
   );
 
-  return { left: left + window.scrollX, top: top + window.scrollY };
+  return { left, top, openUpward: false };
 }
 
 interface EventCalendarProps {
@@ -115,7 +99,6 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
   const [expandedDay, setExpandedDay] = useState<{ day: number; weekIndex: number } | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const weekRowRef = useRef<HTMLDivElement>(null);
-  const [popoverPos, setPopoverPos] = useState<ExpandedDayPopoverPosition | null>(null);
 
   // Check if an event has ended
   const hasEventEnded = (event: Event): boolean => {
@@ -393,62 +376,61 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
     useUtcTimezone
   ]);
 
-  // Reset the measured position when the popover closes, matching CalendarSettingsPopover.
-  useEffect(() => {
-    if (expandedDay === null) {
-      setPopoverPos(null);
-    }
-  }, [expandedDay]);
-
+  /**
+   * The popover hangs off the expanded WEEK ROW and its left edge comes from the day's
+   * column index, so the shared below/above placement does not apply. The row itself is
+   * the anchor the popover follows.
+   */
   const placeExpandedDayPopover = useCallback(
-    (rowRect: AnchorRect): void => {
-      if (!expandedDay) return;
-
-      const week = weekRows.find((w) => w.weekIndex === expandedDay.weekIndex);
-      if (!week) return;
+    (space: PanelSpace): PanelPlacement => {
+      const week = expandedDay
+        ? weekRows.find((w) => w.weekIndex === expandedDay.weekIndex)
+        : undefined;
+      if (!expandedDay || !week) return { left: 0, top: 0, openUpward: false };
 
       const dayIndex = week.days.indexOf(expandedDay.day);
       const isRightSide = dayIndex >= 4;
       const totalCols = settings.showWeekNumbers ? 8 : 7;
       const adjustedIndex = settings.showWeekNumbers ? dayIndex + 1 : dayIndex;
 
-      const next = computeExpandedDayPopoverPosition(
+      return computeExpandedDayPopoverPosition(
         isRightSide,
         adjustedIndex,
         totalCols,
-        rowRect,
-        popoverRef.current?.offsetWidth || EXPANDED_DAY_POPOVER_MAX_WIDTH_PX,
-        popoverRef.current?.offsetHeight ?? 0,
-        document.documentElement.clientWidth || window.innerWidth,
-        document.documentElement.clientHeight || window.innerHeight
-      );
-
-      setPopoverPos((prev) =>
-        prev !== null &&
-        Math.abs(prev.left - next.left) <= EXPANDED_DAY_POPOVER_EPSILON_PX &&
-        Math.abs(prev.top - next.top) <= EXPANDED_DAY_POPOVER_EPSILON_PX
-          ? prev
-          : next
+        space.anchor,
+        space.panelWidth || EXPANDED_DAY_POPOVER_MAX_WIDTH_PX,
+        space.panelHeight,
+        space.viewportWidth,
+        space.viewportHeight
       );
     },
     [expandedDay, weekRows, settings.showWeekNumbers]
   );
 
-  // Place the popover before paint. The first pass runs while the node is still
-  // unmounted and so uses the max-width guess with no height; keying on the mounted
-  // flag re-runs it in the same commit the node appears in, with real measurements.
-  const isPopoverMounted = popoverPos !== null;
-  useLayoutEffect(() => {
-    if (!expandedDay || !weekRowRef.current) return;
-    placeExpandedDayPopover(readAnchorRect(weekRowRef.current));
-  }, [expandedDay, isPopoverMounted, placeExpandedDayPopover]);
+  const closeExpandedDay = useCallback((): void => setExpandedDay(null), []);
 
-  useAnchorFollow({
-    enabled: isPopoverMounted,
+  /**
+   * The exit animation outlives `expandedDay`, so the closing frames render from the day
+   * that was last open. Rendering straight off `expandedDay` unmounted the popover the
+   * instant it cleared and the exit never played.
+   */
+  const lastExpandedDayRef = useRef<{ day: number; weekIndex: number } | null>(null);
+  useLayoutEffect(() => {
+    if (expandedDay !== null) lastExpandedDayRef.current = expandedDay;
+  }, [expandedDay]);
+  const renderedDay = expandedDay ?? lastExpandedDayRef.current;
+
+  const {
+    present: isPopoverPresent,
+    closing: isPopoverClosing,
+    position: popoverPos
+  } = useAnchoredPanel({
+    open: expandedDay !== null,
     anchorRef: weekRowRef,
-    onAnchorMove: placeExpandedDayPopover,
-    // Nothing left to anchor to once the week row is scrolled off screen.
-    onAnchorLost: () => setExpandedDay(null)
+    panelRef: popoverRef,
+    onClose: closeExpandedDay,
+    gutter: POPOVER_GUTTER_PX,
+    place: placeExpandedDayPopover
   });
 
   // Check if current view includes today
@@ -828,22 +810,30 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
       {/* Expanded day events popover. Portalled to the body so no ancestor of the week
           row can clip it, and positioned in document coordinates so an ordinary scroll
           carries it and the row together. */}
-      {expandedDay !== null &&
-        popoverPos !== null &&
+      {renderedDay !== null &&
+        isPopoverPresent &&
         (() => {
-          const dayEvents = getEventsForDay(expandedDay.day);
+          const dayEvents = getEventsForDay(renderedDay.day);
 
           return createPortal(
             <div
               ref={popoverRef}
-              className="calendar-day-popover absolute z-[85] min-w-[200px] max-w-[260px] overflow-hidden animate-fadeIn"
-              style={{ left: popoverPos.left, top: popoverPos.top }}
+              className={`calendar-day-popover absolute z-[85] min-w-[200px] max-w-[260px] overflow-hidden motion-reduce:animate-none ${
+                isPopoverClosing
+                  ? 'animate-[dropdownSlideOutDown_0.14s_ease-in_forwards]'
+                  : 'animate-fadeIn'
+              }`}
+              style={{
+                left: popoverPos.left,
+                top: popoverPos.top,
+                pointerEvents: isPopoverClosing ? 'none' : undefined
+              }}
             >
               {/* Header */}
               <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary)]">
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold bg-[var(--theme-primary)] text-[var(--theme-primary-text)]">
-                    {expandedDay.day}
+                    {renderedDay.day}
                   </div>
                   <span className="text-sm font-medium text-[var(--theme-text-primary)]">
                     {monthNames[currentMonth.getMonth()]}

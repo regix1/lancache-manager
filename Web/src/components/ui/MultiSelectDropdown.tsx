@@ -1,19 +1,16 @@
-import React, {
-  useState,
-  useLayoutEffect,
-  useEffect,
-  useRef,
-  useMemo,
-  useCallback,
-  memo
-} from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
 import { Tooltip } from './Tooltip';
 import { useTranslation } from 'react-i18next';
-import { useAnchorFollow, type AnchorMoveHandler } from '@hooks/useAnchorFollow';
-import { clampToViewport } from '@utils/viewportClamp';
+import { useAnchoredPanel, type PanelPlacement, type PanelSpace } from '@hooks/useAnchoredPanel';
+import { clampToViewport, MENU_GUTTER_PX } from '@utils/viewportClamp';
+
+const MENU_GAP_PX = 4;
+/** Pre-measurement guesses, used only on the pass before the menu is in the DOM. */
+const MENU_HEIGHT_GUESS_PX = 300;
+const MENU_WIDTH_GUESS_PX = 200;
 
 interface IconComponentProps {
   size?: number;
@@ -132,14 +129,6 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  // `top`/`left` are DOCUMENT coordinates: the menu is absolutely positioned in a
-  // body portal so that a scroll carries it and its trigger together natively
-  // rather than having JavaScript chase the trigger every frame (see useAnchorFollow).
-  const [dropdownStyle, setDropdownStyle] = useState<{
-    top: number;
-    left: number;
-    animation: string;
-  }>({ top: 0, left: 0, animation: '' });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -174,67 +163,73 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
     return defaultPlaceholder;
   }, [selectedCount, options, valuesSet, placeholder, t]);
 
-  const updatePosition = useCallback(() => {
-    if (!buttonRef.current) return;
+  /**
+   * A left-aligned menu that would overflow the right edge CENTRES on its trigger
+   * rather than sliding to the gutter, which the shared below/above placement does not
+   * do, so this menu supplies its own.
+   */
+  const place = useCallback(
+    (space: PanelSpace): PanelPlacement => {
+      const { anchor, viewportWidth, viewportHeight, gutter } = space;
+      // offsetWidth/offsetHeight, NOT getBoundingClientRect: the entrance keyframes
+      // scale the menu (`scale(0.97)`), so a bounding rect measured mid-animation
+      // reports that scaled size - and an upward menu, placed by subtracting its
+      // height from the trigger's top, would land on top of the button.
+      const dropdownHeight = space.panelHeight || MENU_HEIGHT_GUESS_PX;
+      const spaceBelow = viewportHeight - anchor.bottom;
+      const openUpward = spaceBelow < dropdownHeight && anchor.top > spaceBelow;
 
-    const rect = buttonRef.current.getBoundingClientRect();
-    // offsetWidth/offsetHeight, NOT getBoundingClientRect: the entrance keyframes
-    // scale the menu (`scale(0.97)`), so a bounding rect measured mid-animation
-    // reports that scaled size - and an upward menu, placed by subtracting its
-    // height from the trigger's top, would land on top of the button.
-    const menuEl = dropdownRef.current;
-    const dropdownHeight = menuEl?.offsetHeight || 300;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const openUpward = spaceBelow < dropdownHeight && rect.top > spaceBelow;
+      const dropdownWidthPx = space.panelWidth || MENU_WIDTH_GUESS_PX;
+      let left = anchor.left;
 
-    const dropdownWidthPx = menuEl?.offsetWidth || 200;
-    let left = rect.left;
+      if (alignRight) {
+        const pos = anchor.right - dropdownWidthPx;
+        if (pos >= gutter) left = pos;
+      } else if (anchor.left + dropdownWidthPx > viewportWidth - gutter) {
+        left =
+          anchor.right - dropdownWidthPx >= gutter
+            ? anchor.right - dropdownWidthPx
+            : anchor.left + (anchor.width - dropdownWidthPx) / 2;
+      }
 
-    if (alignRight) {
-      const pos = rect.right - dropdownWidthPx;
-      if (pos >= 8) left = pos;
-    } else if (rect.left + dropdownWidthPx > window.innerWidth - 8) {
-      left =
-        rect.right - dropdownWidthPx >= 8
-          ? rect.right - dropdownWidthPx
-          : rect.left + (rect.width - dropdownWidthPx) / 2;
-    }
+      // Both directions anchor by `top`: `bottom` would be measured from the bottom of
+      // the document once the menu is absolutely positioned, not the viewport.
+      const desiredTop = openUpward
+        ? anchor.top - MENU_GAP_PX - dropdownHeight
+        : anchor.bottom + MENU_GAP_PX;
+      // Flipping alone only buys the trigger's distance from the edge, so a menu taller
+      // than the room on the side it picked still hangs off the viewport.
+      const top = clampToViewport(desiredTop, dropdownHeight, viewportHeight, gutter);
 
-    // Both directions anchor by `top`: `bottom` would be measured from the bottom of
-    // the document once the menu is absolutely positioned, not the viewport.
-    const desiredTop = openUpward ? rect.top - 4 - dropdownHeight : rect.bottom + 4;
-    // Flipping alone only buys the trigger's distance from the edge, so a menu taller
-    // than the room on the side it picked still hangs off the viewport.
-    const top = clampToViewport(desiredTop, dropdownHeight, window.innerHeight, 8);
+      return { top, left, openUpward };
+    },
+    [alignRight]
+  );
 
-    setDropdownStyle({
-      top: top + window.scrollY,
-      left: left + window.scrollX,
-      animation: openUpward
-        ? 'msdFadeInUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards'
-        : 'msdFadeInDown 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards'
-    });
-  }, [alignRight]);
+  const closeDropdown = useCallback((): void => setIsOpen(false), []);
 
-  // Calculate position before paint and when opening. Filtering changes the menu's
-  // height, and a menu that opened upward is placed by subtracting that height from the
-  // trigger, so the row count has to re-place it or it drifts off the trigger as you type.
-  useLayoutEffect(() => {
-    if (!isOpen) return;
-    updatePosition();
-  }, [isOpen, updatePosition, filteredOptions.length]);
+  const { present, closing, position } = useAnchoredPanel({
+    open: isOpen,
+    anchorRef: buttonRef,
+    panelRef: dropdownRef,
+    onClose: closeDropdown,
+    gutter: MENU_GUTTER_PX,
+    place
+  });
 
   // A search only ever describes the menu that is open, and the input is at the end of the
   // document in a portal, so focusing it on open is the only way a keyboard reaches it.
+  // Keyed on `present`, the same flag the portal is gated on: the input is mounted one
+  // render after `isOpen` flips, so a focus call keyed on `isOpen` finds a null ref.
   useEffect(() => {
-    if (!isOpen) {
+    if (!present) {
       setSearchTerm('');
       return;
     }
     if (searchable) {
       searchInputRef.current?.focus();
     }
-  }, [isOpen, searchable]);
+  }, [present, searchable]);
 
   // Combined event listeners
   useEffect(() => {
@@ -253,36 +248,11 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
       }
     };
 
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false);
-    };
-
+    // No scroll listener: the menu is positioned on the page, so a scroll moves it and
+    // its trigger together with no JavaScript at all. Escape belongs to the shared hook.
     document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleEscape);
-    };
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, [isOpen]);
-
-  // No scroll listener: the menu is positioned on the page, so a scroll moves it and
-  // its trigger together with no JavaScript at all. Reflows (and window resizes) are
-  // what actually move the trigger, and useAnchorFollow reports those.
-  const handleAnchorMove: AnchorMoveHandler = useCallback((): void => {
-    updatePosition();
-  }, [updatePosition]);
-
-  /** Nothing left to anchor to once the trigger is scrolled off screen. */
-  const handleAnchorLost = useCallback((): void => {
-    setIsOpen(false);
-  }, []);
-
-  useAnchorFollow({
-    enabled: isOpen,
-    anchorRef: buttonRef,
-    onAnchorMove: handleAnchorMove,
-    onAnchorLost: handleAnchorLost
-  });
 
   const handleToggle = useCallback(
     (optionValue: string) => {
@@ -331,15 +301,24 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         </div>
       </button>
 
-      {isOpen &&
+      {/* Rendered while `present` (not just `isOpen`) so the exit animation plays. */}
+      {present &&
         createPortal(
           <div
             ref={dropdownRef}
-            className={`msd-dropdown absolute z-[250] ${dropdownWidth || ''} themed-border-radius-sm overflow-hidden bg-themed-secondary border border-themed-primary`}
+            className={`msd-dropdown absolute z-[250] ${dropdownWidth || ''} themed-border-radius-sm overflow-hidden bg-themed-secondary border border-themed-primary motion-reduce:animate-none ${
+              closing
+                ? position.openUpward
+                  ? 'animate-[dropdownSlideOutUp_0.14s_ease-in_forwards]'
+                  : 'animate-[dropdownSlideOutDown_0.14s_ease-in_forwards]'
+                : position.openUpward
+                  ? 'animate-[msdFadeInUp_0.18s_cubic-bezier(0.16,1,0.3,1)_forwards]'
+                  : 'animate-[msdFadeInDown_0.18s_cubic-bezier(0.16,1,0.3,1)_forwards]'
+            }`}
             style={{
-              top: dropdownStyle.top,
-              left: dropdownStyle.left,
-              animation: dropdownStyle.animation,
+              top: position.top,
+              left: position.left,
+              pointerEvents: closing ? 'none' : undefined,
               ...(!dropdownWidth ? { width: buttonRef.current?.getBoundingClientRect().width } : {})
             }}
             onPointerDown={(event) => event.stopPropagation()}

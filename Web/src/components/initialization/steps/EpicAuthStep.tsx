@@ -5,6 +5,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import FormField from '@components/ui/FormField';
+import { StepHeader } from '@components/initialization/StepHeader';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import ApiService from '@services/api.service';
@@ -94,17 +95,12 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
   if (succeeded) {
     return (
       <div className="space-y-5">
-        <div className="flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-success">
-            <CheckCircle className="w-7 h-7 icon-success" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">
-            {t('initialization.epicAuth.success')}
-          </h3>
-          <p className="text-sm text-themed-secondary max-w-md">
-            {t('initialization.epicAuth.successSubtitle')}
-          </p>
-        </div>
+        <StepHeader
+          icon={<CheckCircle className="w-7 h-7 icon-success" />}
+          iconBackground="bg-themed-success"
+          title={t('initialization.epicAuth.success')}
+          description={t('initialization.epicAuth.successSubtitle')}
+        />
         <div className="flex justify-center">
           <LoadingSpinner inline size="md" className="text-themed-secondary" />
         </div>
@@ -116,18 +112,12 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
   if (state.needsAuthorizationCode) {
     return (
       <div className="space-y-5">
-        {/* Header */}
-        <div className="flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
-            <KeyRound className="w-7 h-7 icon-info" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">
-            {t('initialization.epicAuth.enterCodeTitle')}
-          </h3>
-          <p className="text-sm text-themed-secondary max-w-md">
-            {t('initialization.epicAuth.enterCodeSubtitle')}
-          </p>
-        </div>
+        <StepHeader
+          icon={<KeyRound className="w-7 h-7 icon-info" />}
+          iconBackground="bg-themed-info"
+          title={t('initialization.epicAuth.enterCodeTitle')}
+          description={t('initialization.epicAuth.enterCodeSubtitle')}
+        />
 
         {/* Open Login Page */}
         <a
@@ -196,18 +186,12 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
   // State 1: Initial
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
-          <EpicIcon size={28} className="icon-info" />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">
-          {t('initialization.epicAuth.title')}
-        </h3>
-        <p className="text-sm text-themed-secondary max-w-md">
-          {t('initialization.epicAuth.subtitle')}
-        </p>
-      </div>
+      <StepHeader
+        icon={<EpicIcon size={28} className="icon-info" />}
+        iconBackground="bg-themed-info"
+        title={t('initialization.epicAuth.title')}
+        description={t('initialization.epicAuth.subtitle')}
+      />
 
       {/* Security Note */}
       <div className="p-3 rounded-lg bg-themed-tertiary">

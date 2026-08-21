@@ -7,6 +7,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { LoginSteps } from './LoginSteps';
 import { LoginAttemptStatus } from './LoginAttemptStatus';
 import { cancelAuthModalLogin } from './authModalCancel';
+import { useCopyFeedback } from '@hooks/useCopyFeedback';
 import { copyText } from '@utils/clipboard';
 import { useTranslation } from 'react-i18next';
 
@@ -71,7 +72,7 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
   const { handleAuthenticate, cancelPendingRequest } = actions;
 
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [copied, setCopied] = React.useState(false);
+  const [copied, markCopied] = useCopyFeedback(false);
   const [copyFailed, setCopyFailed] = React.useState(false);
 
   // The device-code challenge has not come back from the daemon yet.
@@ -128,10 +129,9 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
     // most people reach this app, and a button that reports nothing there reads as dead next to a
     // nine-character code the user would otherwise retype by hand.
     const ok = await copyText(deviceUserCode);
-    setCopied(ok);
     setCopyFailed(!ok);
     if (ok) {
-      setTimeout(() => setCopied(false), 2000);
+      markCopied(true);
     }
   };
 

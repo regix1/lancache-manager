@@ -3,6 +3,8 @@ import { Key, Eye, Shield, Database, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import CredentialFields from '@components/ui/CredentialFields';
 import type { CredentialField } from '@components/ui/CredentialFields.types';
+import { ProgressBar } from '@components/ui/ProgressBar';
+import { SetupGate } from '@components/modals/SetupGate';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import authService from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
@@ -10,6 +12,7 @@ import { useGuestConfig } from '@contexts/useGuestConfig';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTranslation } from 'react-i18next';
+import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import { formatPercent } from '@utils/formatters';
 import { getErrorMessage } from '@utils/error';
 
@@ -81,6 +84,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
     status: ''
   });
   const [resetJustCompleted, setResetJustCompleted] = useState(false);
+  const scheduleResetBannerHide = useTimeoutCallback(5000);
 
   // Note: Auth state is managed by the session system
   // No need to manually clear auth on mount
@@ -111,7 +115,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           status: 'completed'
         });
         setResetJustCompleted(true);
-        setTimeout(() => setResetJustCompleted(false), 5000);
+        scheduleResetBannerHide(() => setResetJustCompleted(false));
       } else if (isError) {
         setResetStatus({
           isResetting: false,
@@ -120,7 +124,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           status: 'failed'
         });
         setResetJustCompleted(true);
-        setTimeout(() => setResetJustCompleted(false), 5000);
+        scheduleResetBannerHide(() => setResetJustCompleted(false));
       } else {
         setResetStatus({
           isResetting: true,
@@ -247,204 +251,187 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-themed-primary">
-      {/* Stripe background pattern */}
-      <div
-        className="absolute inset-0 opacity-5"
-        style={{
-          backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 35px, var(--theme-text-primary) 35px, var(--theme-text-primary) 70px)`
-        }}
-      />
-
-      {/* Main Card */}
-      {/* dvh, not vh: on a phone vh includes the space the browser's own chrome occupies, so the
-          card is sized taller than what the person can actually see and the sign-in button sits
-          under the address bar. */}
-      <div className="relative z-10 w-full max-w-xl themed-border-radius border overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)] bg-themed-secondary border-themed-primary">
-        {/* Header */}
-        <div className="px-5 sm:px-8 py-4 sm:py-5 border-b flex items-center justify-between border-themed-secondary">
-          <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-primary" />
-            <span className="font-semibold text-themed-primary">
-              {title ?? t('modals.auth.defaultTitle')}
-            </span>
-          </div>
+    <SetupGate
+      maxWidth="xl"
+      header={
+        <div className="flex items-center gap-2">
+          <Shield className="w-5 h-5 text-primary" />
+          <span className="font-semibold text-themed-primary">
+            {title ?? t('modals.auth.defaultTitle')}
+          </span>
         </div>
-
-        {/* Content. min-h-0 is what lets this shrink inside the flex column: without it a flex item
-            refuses to go below its content height, the card overflows its own max-height, and the
-            sign-in button is clipped away with no way to scroll to it. */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-8">
-          {/* Database Reset Status Banner */}
-          {(resetStatus.isResetting || resetJustCompleted) && (
-            <div
-              className={`mb-6 p-4 rounded-lg border ${
-                resetJustCompleted ? 'bg-success border-success' : 'bg-warning border-warning'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                {resetJustCompleted ? (
-                  <CheckCircle className="w-5 h-5 flex-shrink-0 text-success" />
-                ) : (
-                  <Database className="w-5 h-5 flex-shrink-0 animate-pulse text-warning" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <p
-                    className={`font-medium text-sm ${
-                      resetJustCompleted ? 'text-success-text' : 'text-warning-text'
-                    }`}
-                  >
-                    {resetJustCompleted
-                      ? t('modals.auth.databaseReset.complete')
-                      : t('modals.auth.databaseReset.inProgress')}
-                  </p>
-                  <p
-                    className={`text-xs mt-1 opacity-90 ${
-                      resetJustCompleted ? 'text-success-text' : 'text-warning-text'
-                    }`}
-                  >
-                    {resetJustCompleted
-                      ? t('modals.auth.databaseReset.canLoginNow')
-                      : resetStatus.message || t('modals.auth.databaseReset.pleaseWait')}
-                  </p>
-                  {resetStatus.isResetting && resetStatus.percentComplete > 0 && (
-                    <div className="mt-2">
-                      <div className="h-1.5 rounded-full overflow-hidden bg-themed-tertiary">
-                        <div
-                          className="h-full rounded-full transition-[width] duration-300 bg-warning"
-                          style={{ width: `${resetStatus.percentComplete}%` }}
-                        />
-                      </div>
+      }
+    >
+      {/* Database Reset Status Banner */}
+      {(resetStatus.isResetting || resetJustCompleted) && (
+        <div
+          className={`mb-6 p-4 rounded-lg border ${
+            resetJustCompleted ? 'bg-success border-success' : 'bg-warning border-warning'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            {resetJustCompleted ? (
+              <CheckCircle className="w-5 h-5 flex-shrink-0 text-success" />
+            ) : (
+              <Database className="w-5 h-5 flex-shrink-0 animate-pulse text-warning" />
+            )}
+            <div className="flex-1 min-w-0">
+              <p
+                className={`font-medium text-sm ${
+                  resetJustCompleted ? 'text-success-text' : 'text-warning-text'
+                }`}
+              >
+                {resetJustCompleted
+                  ? t('modals.auth.databaseReset.complete')
+                  : t('modals.auth.databaseReset.inProgress')}
+              </p>
+              <p
+                className={`text-xs mt-1 opacity-90 ${
+                  resetJustCompleted ? 'text-success-text' : 'text-warning-text'
+                }`}
+              >
+                {resetJustCompleted
+                  ? t('modals.auth.databaseReset.canLoginNow')
+                  : resetStatus.message || t('modals.auth.databaseReset.pleaseWait')}
+              </p>
+              {resetStatus.isResetting && resetStatus.percentComplete > 0 && (
+                <div className="mt-2">
+                  <ProgressBar
+                    value={resetStatus.percentComplete}
+                    height="md"
+                    color="warning"
+                    label={t('aria.progressLabel')}
+                    caption={
                       <p className="text-xs mt-1 text-right text-warning-text opacity-80">
                         {formatPercent(resetStatus.percentComplete, 1)}
                       </p>
-                    </div>
-                  )}
+                    }
+                  />
                 </div>
-              </div>
-            </div>
-          )}
-
-          <p className="text-themed-secondary text-center mb-6">
-            {subtitle ?? t('modals.auth.defaultSubtitle')}
-            {offerGuest && (
-              <>
-                <br />
-                <span className={`text-sm ${guestModeLocked ? 'text-error' : 'text-themed-muted'}`}>
-                  {guestModeLocked
-                    ? t('modals.auth.guestMode.disabled')
-                    : t('modals.auth.guestMode.available', { count: guestDurationHours })}
-                </span>
-              </>
-            )}
-          </p>
-
-          {/* Credentials Form */}
-          <div className="space-y-4">
-            <CredentialFields
-              apiKey={apiKey}
-              username={username}
-              password={password}
-              onChange={handleCredentialChange}
-              onSubmit={handleAuthenticate}
-              disabled={authenticating || resetStatus.isResetting}
-              apiKeyPlaceholder={
-                resetStatus.isResetting
-                  ? t('modals.auth.placeholders.waitForReset')
-                  : t('modals.auth.placeholders.enterApiKey')
-              }
-              autoFocus={!resetStatus.isResetting}
-            />
-
-            <div className="flex flex-col gap-3">
-              <Button
-                variant="filled"
-                color="primary"
-                leftSection={
-                  authenticating ? <LoadingSpinner inline size="sm" /> : <Key className="w-4 h-4" />
-                }
-                onClick={handleAuthenticate}
-                disabled={authenticating || !credentialsFilled || resetStatus.isResetting}
-                fullWidth
-              >
-                {resetStatus.isResetting
-                  ? t('modals.auth.actions.pleaseWait')
-                  : authenticating
-                    ? t('modals.auth.actions.authenticating')
-                    : t('modals.auth.actions.authenticate')}
-              </Button>
-
-              {/* Show guest mode divider and button if allowed (disabled when locked) */}
-              {offerGuest && (
-                <>
-                  <div className="flex items-center gap-4">
-                    <div className="flex-1 h-px bg-themed-border-secondary" />
-                    <span className="text-xs text-themed-muted">{t('modals.auth.labels.or')}</span>
-                    <div className="flex-1 h-px bg-themed-border-secondary" />
-                  </div>
-
-                  <Button
-                    variant="default"
-                    leftSection={<Eye className="w-4 h-4" />}
-                    onClick={handleStartGuestMode}
-                    disabled={
-                      authenticating ||
-                      checkingDataAvailability ||
-                      dataAvailable === false ||
-                      resetStatus.isResetting ||
-                      guestModeLocked
-                    }
-                    fullWidth
-                    title={
-                      guestModeLocked
-                        ? t('modals.auth.guestMode.disabledTitle')
-                        : dataAvailable === false
-                          ? t('modals.auth.guestMode.noDataTitle')
-                          : t('modals.auth.guestMode.viewDataTitle', { count: guestDurationHours })
-                    }
-                  >
-                    {guestModeLocked
-                      ? t('modals.auth.guestMode.disabledButton')
-                      : dataAvailable === false
-                        ? t('modals.auth.guestMode.noDataButton')
-                        : t('modals.auth.guestMode.continueButton', { count: guestDurationHours })}
-                  </Button>
-                </>
               )}
             </div>
           </div>
+        </div>
+      )}
 
-          {/* API Key Help */}
-          <div className="mt-6 p-4 rounded-lg border bg-info border-info text-info-text">
-            <p className="text-sm">
-              <strong>{t('modals.auth.help.title')}</strong>
-              <br />
-              {t('modals.auth.help.description')}
-            </p>
-          </div>
+      <p className="text-themed-secondary text-center mb-6">
+        {subtitle ?? t('modals.auth.defaultSubtitle')}
+        {offerGuest && (
+          <>
+            <br />
+            <span className={`text-sm ${guestModeLocked ? 'text-error' : 'text-themed-muted'}`}>
+              {guestModeLocked
+                ? t('modals.auth.guestMode.disabled')
+                : t('modals.auth.guestMode.available', { count: guestDurationHours })}
+            </span>
+          </>
+        )}
+      </p>
 
-          {authError && (
-            <div className="mt-4 p-4 rounded-lg border bg-error border-error text-error-text">
-              <p className="text-sm">{authError}</p>
-            </div>
-          )}
+      {/* Credentials Form */}
+      <div className="space-y-4">
+        <CredentialFields
+          apiKey={apiKey}
+          username={username}
+          password={password}
+          onChange={handleCredentialChange}
+          onSubmit={handleAuthenticate}
+          disabled={authenticating || resetStatus.isResetting}
+          apiKeyPlaceholder={
+            resetStatus.isResetting
+              ? t('modals.auth.placeholders.waitForReset')
+              : t('modals.auth.placeholders.enterApiKey')
+          }
+          autoFocus={!resetStatus.isResetting}
+        />
 
-          {/* Rotating the API key ends every session at once, so after a rotation everyone arrives
-              here together and reads the refusal above as a wrong password. The server answers every
-              sign-in failure identically on purpose, so the key cannot be named as the cause - it is
-              named as the possibility, in copy of its own. */}
-          {signInRefused && (
-            <div className="mt-4 p-4 rounded-lg border bg-warning border-warning text-warning-text">
-              <p className="text-sm">
-                <strong>{t('modals.auth.keyRotated.title')}</strong>
-                <br />
-                {t('modals.auth.keyRotated.description')}
-              </p>
-            </div>
+        <div className="flex flex-col gap-3">
+          <Button
+            variant="filled"
+            color="primary"
+            leftSection={
+              authenticating ? <LoadingSpinner inline size="sm" /> : <Key className="w-4 h-4" />
+            }
+            onClick={handleAuthenticate}
+            disabled={authenticating || !credentialsFilled || resetStatus.isResetting}
+            fullWidth
+          >
+            {resetStatus.isResetting
+              ? t('modals.auth.actions.pleaseWait')
+              : authenticating
+                ? t('modals.auth.actions.authenticating')
+                : t('modals.auth.actions.authenticate')}
+          </Button>
+
+          {/* Show guest mode divider and button if allowed (disabled when locked) */}
+          {offerGuest && (
+            <>
+              <div className="flex items-center gap-4">
+                <div className="flex-1 h-px bg-themed-border-secondary" />
+                <span className="text-xs text-themed-muted">{t('modals.auth.labels.or')}</span>
+                <div className="flex-1 h-px bg-themed-border-secondary" />
+              </div>
+
+              <Button
+                variant="default"
+                leftSection={<Eye className="w-4 h-4" />}
+                onClick={handleStartGuestMode}
+                disabled={
+                  authenticating ||
+                  checkingDataAvailability ||
+                  dataAvailable === false ||
+                  resetStatus.isResetting ||
+                  guestModeLocked
+                }
+                fullWidth
+                title={
+                  guestModeLocked
+                    ? t('modals.auth.guestMode.disabledTitle')
+                    : dataAvailable === false
+                      ? t('modals.auth.guestMode.noDataTitle')
+                      : t('modals.auth.guestMode.viewDataTitle', { count: guestDurationHours })
+                }
+              >
+                {guestModeLocked
+                  ? t('modals.auth.guestMode.disabledButton')
+                  : dataAvailable === false
+                    ? t('modals.auth.guestMode.noDataButton')
+                    : t('modals.auth.guestMode.continueButton', { count: guestDurationHours })}
+              </Button>
+            </>
           )}
         </div>
       </div>
-    </div>
+
+      {/* API Key Help */}
+      <div className="mt-6 p-4 rounded-lg border bg-info border-info text-info-text">
+        <p className="text-sm">
+          <strong>{t('modals.auth.help.title')}</strong>
+          <br />
+          {t('modals.auth.help.description')}
+        </p>
+      </div>
+
+      {authError && (
+        <div className="mt-4 p-4 rounded-lg border bg-error border-error text-error-text">
+          <p className="text-sm">{authError}</p>
+        </div>
+      )}
+
+      {/* Rotating the API key ends every session at once, so after a rotation everyone arrives
+              here together and reads the refusal above as a wrong password. The server answers every
+              sign-in failure identically on purpose, so the key cannot be named as the cause - it is
+              named as the possibility, in copy of its own. */}
+      {signInRefused && (
+        <div className="mt-4 p-4 rounded-lg border bg-warning border-warning text-warning-text">
+          <p className="text-sm">
+            <strong>{t('modals.auth.keyRotated.title')}</strong>
+            <br />
+            {t('modals.auth.keyRotated.description')}
+          </p>
+        </div>
+      )}
+    </SetupGate>
   );
 };
 

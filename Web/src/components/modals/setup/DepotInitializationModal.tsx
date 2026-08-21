@@ -4,6 +4,8 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
+import { ProgressBar } from '@components/ui/ProgressBar';
+import { SetupGate } from '@components/modals/SetupGate';
 import { useTranslation } from 'react-i18next';
 import { useInitializationFlow, type InitStep } from '@hooks/useInitializationFlow';
 import {
@@ -174,22 +176,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-themed-primary">
-      {/* Stripe background pattern */}
-      <div
-        className="absolute inset-0 opacity-5"
-        style={{
-          backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 35px, var(--theme-text-primary) 35px, var(--theme-text-primary) 70px)`
-        }}
-      />
-
-      {/* Main Card */}
-      {/* dvh, not vh: on a phone vh includes the space the browser's own chrome occupies, so the
-          card is sized taller than what the person can actually see and the last control sits under
-          the address bar. */}
-      <div className="relative z-10 w-full max-w-4xl themed-border-radius border overflow-hidden flex flex-col bg-themed-secondary border-themed-primary max-h-[calc(100dvh-2rem)]">
-        {/* Header */}
-        <div className="px-5 sm:px-8 py-4 sm:py-5 border-b flex items-center justify-between border-themed-secondary">
+    <SetupGate
+      maxWidth="4xl"
+      header={
+        <>
           <div className="flex items-center gap-3">
             {currentStep !== 'database-setup' &&
               currentStep !== 'external-db-form' &&
@@ -229,29 +219,26 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
           >
             {stepInfo.number} / {stepInfo.total}
           </Badge>
-        </div>
-
-        {/* Progress Bar */}
-        <div className="h-1 bg-themed-tertiary">
-          <div
-            className="h-full transition-[width] duration-300 ease-out bg-primary"
-            style={{ width: `${(stepInfo.number / stepInfo.total) * 100}%` }}
-          />
-        </div>
-
-        {/* Content. min-h-0 is what lets this shrink inside the flex column: without it a flex item
-            refuses to go below its content height, the card overflows its own max-height, and the
-            step's last control is clipped away with no way to scroll to it. */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-8">
-          {syncError && (
-            <Alert color="error" className="mb-4">
-              {syncError}
-            </Alert>
-          )}
-          {renderStep(currentStep)}
-        </div>
-      </div>
-    </div>
+        </>
+      }
+      belowHeader={
+        <ProgressBar
+          value={stepInfo.number}
+          max={stepInfo.total}
+          height="sm"
+          rounded={false}
+          label={t('aria.progressLabel')}
+          valueText={`${stepInfo.number} / ${stepInfo.total}`}
+        />
+      }
+    >
+      {syncError && (
+        <Alert color="error" className="mb-4">
+          {syncError}
+        </Alert>
+      )}
+      {renderStep(currentStep)}
+    </SetupGate>
   );
 };
 

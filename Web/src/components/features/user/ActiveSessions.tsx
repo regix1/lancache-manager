@@ -31,11 +31,14 @@ import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import { GroupHeading } from '@components/ui/GroupHeading';
+import { Checkbox } from '@components/ui/Checkbox';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import StatusDot from '@components/common/StatusDot';
 import { ActionMenuItem, ActionMenuDivider, ActionMenuDangerItem } from '@components/ui/ActionMenu';
 import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
+import { rowToggleHandlers } from '@utils/rowToggle';
 import '../management/managementSectionContent.css';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
@@ -1012,16 +1015,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       <div key={session.id} className="session-item">
         <div
           className="mgmt-row mgmt-row--interactive focus-ring--inset session-row"
-          role="button"
-          tabIndex={0}
           aria-expanded={isExpanded}
-          onClick={() => toggleSessionExpanded(session.id)}
-          onKeyDown={(e: React.KeyboardEvent) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              toggleSessionExpanded(session.id);
-            }
-          }}
+          {...rowToggleHandlers(() => toggleSessionExpanded(session.id))}
         >
           <StatusDot state={sessionStatus} label={t(`activeSessions.status.${sessionStatus}`)} />
           <div className="mgmt-row__body">
@@ -1369,13 +1364,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   return (
     <div className="session-console">
       <div>
-        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-            <h3 className="caps-label management-group-label">{t('user.groups.sessions')}</h3>
-          </div>
-          <AccordionGroupToggle />
-        </div>
+        <GroupHeading label={t('user.groups.sessions')} actions={<AccordionGroupToggle />} />
 
         <div className="space-y-4">
           <AccordionSection
@@ -2063,39 +2052,27 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   {t('activeSessions.preferencesModal.uiTitle')}
                 </h4>
 
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editingPreferences.sharpCorners}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setEditingPreferences({
-                        ...editingPreferences,
-                        sharpCorners: e.target.checked
-                      })
-                    }
-                    className="w-4 h-4 rounded accent-themed"
-                  />
-                  <span className="text-sm text-themed-secondary">
-                    {t('user.guest.preferences.sharpCorners.label')}
-                  </span>
-                </label>
+                <Checkbox
+                  label={t('user.guest.preferences.sharpCorners.label')}
+                  checked={editingPreferences.sharpCorners}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setEditingPreferences({
+                      ...editingPreferences,
+                      sharpCorners: e.target.checked
+                    })
+                  }
+                />
 
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!editingPreferences.disableTooltips}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setEditingPreferences({
-                        ...editingPreferences,
-                        disableTooltips: !e.target.checked
-                      })
-                    }
-                    className="w-4 h-4 rounded accent-themed"
-                  />
-                  <span className="text-sm text-themed-secondary">
-                    {t('activeSessions.preferencesModal.tooltips')}
-                  </span>
-                </label>
+                <Checkbox
+                  label={t('activeSessions.preferencesModal.tooltips')}
+                  checked={!editingPreferences.disableTooltips}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setEditingPreferences({
+                      ...editingPreferences,
+                      disableTooltips: !e.target.checked
+                    })
+                  }
+                />
 
                 {editingSession && isAdminSession(editingSession) && (
                   <>
@@ -2109,7 +2086,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                             disableStickyNotifications: !e.target.checked
                           })
                         }
-                        className="w-4 h-4 rounded accent-themed"
                       />
                       <div className="flex flex-col">
                         <span className="text-sm text-themed-secondary">
@@ -2131,7 +2107,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                             picsAlwaysVisible: e.target.checked
                           })
                         }
-                        className="w-4 h-4 rounded accent-themed"
                       />
                       <div className="flex flex-col">
                         <span className="text-sm text-themed-secondary">
@@ -2155,7 +2130,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         showDatasourceLabels: e.target.checked
                       })
                     }
-                    className="w-4 h-4 rounded accent-themed"
                   />
                   <div className="flex flex-col">
                     <span className="text-sm text-themed-secondary">

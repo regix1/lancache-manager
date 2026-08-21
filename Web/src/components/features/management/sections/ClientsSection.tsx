@@ -3,8 +3,11 @@ import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
+import { GroupHeading } from '@components/ui/GroupHeading';
+import { TabPanel } from '@components/features/management/TabPanel';
+import { RowActionsMenu } from '@components/ui/RowActionsMenu';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
-import { ActionMenu, ActionMenuItem, ActionMenuDangerItem } from '@components/ui/ActionMenu';
+import { ActionMenuItem, ActionMenuDangerItem } from '@components/ui/ActionMenu';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
@@ -29,16 +32,7 @@ import { resolveClientLabel } from '@utils/clientLabel';
 import { getClientHostnameReasonKey } from '@utils/clientHostnameReason';
 import { isValidIpAddress, parseIpCandidates } from '@utils/ipAddress';
 import { useKnownClientIps } from '@/hooks/useKnownClientIps';
-import {
-  Users,
-  EyeOff,
-  Trash2,
-  Edit2,
-  ChevronDown,
-  ChevronUp,
-  MoreVertical,
-  Network
-} from 'lucide-react';
+import { Users, EyeOff, Trash2, Edit2, ChevronDown, ChevronUp, Network } from 'lucide-react';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -428,22 +422,12 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   );
 
   return (
-    <div
-      className="management-section animate-fade-in"
-      role="tabpanel"
-      id="panel-clients"
-      aria-labelledby="tab-clients"
-    >
+    <TabPanel tabId="clients">
       <div>
-        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-            <h3 className="management-group-label caps-label">
-              {t('management.sections.clients.groupManagement')}
-            </h3>
-          </div>
-          <AccordionGroupToggle />
-        </div>
+        <GroupHeading
+          label={t('management.sections.clients.groupManagement')}
+          actions={<AccordionGroupToggle />}
+        />
 
         <div className="space-y-4">
           <AccordionSection
@@ -529,49 +513,36 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                               and keyboard reach them without a hover first. */}
                           <div className="mgmt-row__actions">
                             {isAdmin && (
-                              <ActionMenu
-                                isOpen={openMenuGroupId === group.id}
-                                onClose={() => setOpenMenuGroupId(null)}
-                                align="right"
-                                trigger={
-                                  <Tooltip content={t('common.moreActions')}>
-                                    <Button
-                                      variant="filled"
-                                      color="secondary"
-                                      size="sm"
-                                      className="btn-icon-square btn-icon-square--sm pointer-target-44"
-                                      onClick={() =>
-                                        setOpenMenuGroupId((prev) =>
-                                          prev === group.id ? null : group.id
-                                        )
-                                      }
-                                      aria-label={t('common.moreActions')}
-                                    >
-                                      <MoreVertical className="w-4 h-4" />
-                                    </Button>
-                                  </Tooltip>
+                              <RowActionsMenu
+                                open={openMenuGroupId === group.id}
+                                onOpenChange={(isOpen) =>
+                                  setOpenMenuGroupId(isOpen ? group.id : null)
                                 }
                               >
-                                <ActionMenuItem
-                                  icon={<Edit2 className="w-4 h-4" />}
-                                  onClick={() => {
-                                    setOpenMenuGroupId(null);
-                                    handleEditGroup(group);
-                                  }}
-                                >
-                                  {t('common.edit')}
-                                </ActionMenuItem>
-                                <ActionMenuDangerItem
-                                  icon={<Trash2 className="w-4 h-4" />}
-                                  onClick={() => {
-                                    setOpenMenuGroupId(null);
-                                    handleDeleteGroup(group);
-                                  }}
-                                  disabled={deletingGroupId === group.id}
-                                >
-                                  {t('common.delete')}
-                                </ActionMenuDangerItem>
-                              </ActionMenu>
+                                {(close) => (
+                                  <>
+                                    <ActionMenuItem
+                                      icon={<Edit2 className="w-4 h-4" />}
+                                      onClick={() => {
+                                        close();
+                                        handleEditGroup(group);
+                                      }}
+                                    >
+                                      {t('common.edit')}
+                                    </ActionMenuItem>
+                                    <ActionMenuDangerItem
+                                      icon={<Trash2 className="w-4 h-4" />}
+                                      onClick={() => {
+                                        close();
+                                        handleDeleteGroup(group);
+                                      }}
+                                      disabled={deletingGroupId === group.id}
+                                    >
+                                      {t('common.delete')}
+                                    </ActionMenuDangerItem>
+                                  </>
+                                )}
+                              </RowActionsMenu>
                             )}
                             <Tooltip
                               content={
@@ -1016,7 +987,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
           <p className="text-sm">{t('management.sections.clients.deleteNicknameWarning')}</p>
         </Alert>
       </ConfirmationModal>
-    </div>
+    </TabPanel>
   );
 };
 

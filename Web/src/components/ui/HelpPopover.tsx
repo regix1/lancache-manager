@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { HelpCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
-import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
-import { clampToViewport } from '@utils/viewportClamp';
+import { useAnchoredPanel, type PanelPlacement, type PanelSpace } from '@hooks/useAnchoredPanel';
+import { clampToViewport, POPOVER_GUTTER_PX } from '@utils/viewportClamp';
 
 interface HelpPopoverProps {
   /** Rich content as children */
@@ -19,8 +19,6 @@ interface HelpPopoverProps {
 
 /** Gap between the trigger and the popover, whichever side it opens on. */
 const TRIGGER_GAP = 8;
-/** Smallest gap kept between the popover and the edge of the viewport. */
-const VIEWPORT_PADDING = 12;
 /**
  * The popover's only chrome outside its scroll viewport is a 1px border, top and
  * bottom. Measuring the content and adding this back is more reliable than
@@ -40,21 +38,13 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const [popoverPos, setPopoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [availableHeight, setAvailableHeight] = useState<number | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [effectiveWidth, setEffectiveWidth] = useState(width);
-  const [viewportSize, setViewportSize] = useState(() => ({
-    width: window.innerWidth,
-    height: window.innerHeight
-  }));
-  const { present, closing } = useExitPresence(isOpen, DROPDOWN_EXIT_MS);
 
   // Calculate effective width based on viewport
   useEffect(() => {
     const calculateWidth = () => {
       const viewportWidth = window.innerWidth;
-      setViewportSize({ width: viewportWidth, height: window.innerHeight });
       if (viewportWidth < 640) {
         setEffectiveWidth(Math.min(width, viewportWidth - 32));
       } else {
@@ -67,35 +57,113 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     return () => window.removeEventListener('resize', calculateWidth);
   }, [width]);
 
-  const horizontalPosition = useCallback(
-    (triggerRect: DOMRect) => {
-      const x = position === 'left' ? triggerRect.left : triggerRect.right - effectiveWidth;
-      return clampToViewport(x, effectiveWidth, viewportSize.width, VIEWPORT_PADDING);
+  /**
+   * The popover sizes itself into the room on the side it opens on, so it decides
+   * both at once and the shared below/above placement cannot be used. The side is
+   * chosen from the CONTENT's natural height rather than the popover's own, because
+   * the popover has already been clipped to whatever limit the previous open applied.
+   */
+  const place = useCallback(
+    (space: PanelSpace): PanelPlacement => {
+      const { anchor, viewportWidth, viewportHeight } = space;
+      const naturalHeight =
+        (contentRef.current?.getBoundingClientRect().height ?? 0) + POPOVER_BORDER;
+
+      // Space to the viewport edge decides whether a side fits. The viewport
+      // padding is only taken off once the popover has to be clamped, so help
+      // text that already fitted, even by a couple of pixels, stays where it was
+      // instead of flipping or growing a scrollbar it never needed.
+      // Shrinking the window while the popover is open can leave the trigger below
+      // the new bottom edge. Capping the space above at the viewport keeps those
+      // already-hidden rows out of the measurement.
+      const spaceBelow = viewportHeight - anchor.bottom - TRIGGER_GAP;
+      const spaceAbove = Math.min(anchor.top, viewportHeight) - TRIGGER_GAP;
+
+      let opensBelow = true;
+      let room = spaceBelow;
+      if (naturalHeight > spaceBelow) {
+        if (naturalHeight <= spaceAbove) {
+          opensBelow = false;
+          room = spaceAbove;
+        } else {
+          // Taller than either side, which is the normal case for long help text
+          // on a phone: take the roomier side and scroll the remainder, because
+          // flipping alone only buys the trigger's distance from the top.
+          opensBelow = spaceBelow >= spaceAbove;
+          room = (opensBelow ? spaceBelow : spaceAbove) - POPOVER_GUTTER_PX;
+        }
+      }
+
+      const renderedHeight = Math.min(naturalHeight, room);
+      // Opening upwards normally ends at the trigger, which is on screen. When the
+      // trigger itself has dropped past the bottom edge, sitting against it would
+      // hang the last lines of help text off the screen with nothing to scroll.
+      // The bottom edge has to clear the viewport padding, but the top edge is only
+      // floored at 0 below, so a popover that just fits above its trigger keeps the
+      // position it had. Clamping inside the padded region expresses both ends.
+      const y = opensBelow
+        ? anchor.bottom + TRIGGER_GAP
+        : clampToViewport(
+            anchor.top - renderedHeight - TRIGGER_GAP,
+            renderedHeight,
+            viewportHeight - POPOVER_GUTTER_PX,
+            0
+          );
+
+      const x = position === 'left' ? anchor.left : anchor.right - effectiveWidth;
+
+      return {
+        top: Math.max(0, y),
+        left: clampToViewport(x, effectiveWidth, viewportWidth, POPOVER_GUTTER_PX),
+        openUpward: !opensBelow,
+        // Settles after one pass: the content's natural height does not change when the
+        // scroll viewport around it shrinks, so the same room is measured again.
+        availableHeight: Math.max(0, Math.floor(room) - POPOVER_BORDER)
+      };
     },
-    [effectiveWidth, position, viewportSize.width]
+    [effectiveWidth, position]
   );
 
-  // Mount the popover next to its trigger so it measures at its real width. It
-  // stays invisible (isReady false) until the layout effect below has decided
-  // which side it opens on, so it never paints in one place and jumps.
-  const setInitialPopoverPosition = useCallback(() => {
-    if (!triggerRef.current) return;
+  const closePopover = useCallback((): void => setIsOpen(false), []);
 
-    const triggerRect = triggerRef.current.getBoundingClientRect();
-    setPopoverPos({ x: horizontalPosition(triggerRect), y: triggerRect.bottom + TRIGGER_GAP });
-  }, [horizontalPosition]);
+  // Escape sends focus back to the trigger it came from, so a keyboard reader does not
+  // land at the top of the document. This cannot be `onClose`'s job: the hook also closes
+  // the popover once the trigger has scrolled out of view, and focusing a trigger there
+  // would drag the page back to it.
+  const returnFocusToTrigger = useCallback((): void => {
+    triggerRef.current?.focus();
+  }, []);
 
-  // Reset visibility only once the popover has fully unmounted (after the exit
-  // animation), so the closing frame keeps its measured position instead of
+  const {
+    present,
+    closing,
+    position: popoverPos
+  } = useAnchoredPanel({
+    open: isOpen,
+    anchorRef: triggerRef,
+    panelRef: popoverRef,
+    onClose: closePopover,
+    onEscape: returnFocusToTrigger,
+    gutter: POPOVER_GUTTER_PX,
+    place
+  });
+
+  const { availableHeight } = popoverPos;
+
+  // The hook places the popover in a layout effect, so the commit that mounts it already
+  // carries a measured position and it can be shown before the browser paints. Hiding it
+  // again waits for the unmount, so the closing frame keeps that position instead of
   // snapping to opacity 0 mid-animation.
-  useEffect(() => {
-    if (!present) {
-      setIsReady(false);
-    }
+  useLayoutEffect(() => {
+    setIsReady(present);
   }, [present]);
 
-  // Close on click outside or Escape
+  // Click-outside only. Escape belongs to the shared hook, and there is no scroll
+  // handler: the popover is positioned on the page and carried by its trigger, so a
+  // scroll can no longer misposition it, and it dismisses once the trigger is gone.
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       if (
@@ -108,104 +176,13 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
       }
     };
 
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      setIsOpen(false);
-      // Send focus back to the trigger the popover came from, so keyboard users
-      // do not land back at the top of the document.
-      triggerRef.current?.focus();
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('keydown', handleEscape);
-      return () => {
-        document.removeEventListener('mousedown', handleClickOutside);
-        document.removeEventListener('keydown', handleEscape);
-      };
-    }
+    document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
-  // Close on background scroll (but not when scrolling inside the popover)
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleScroll = (e: Event) => {
-      if (popoverRef.current?.contains(e.target as Node)) {
-        return;
-      }
-      setIsOpen(false);
-    };
-
-    window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
-    return () => window.removeEventListener('scroll', handleScroll, { capture: true });
-  }, [isOpen]);
-
-  // Place the popover once it is mounted but before it is painted.
-  //
-  // `present` has to be in the dependency list: the click handler flips `isOpen`
-  // while the portal is still unmounted, so this effect's first pass finds
-  // `popoverRef` empty and bails. Nothing else in the list changes when the
-  // portal then mounts a render later, so without `present` this effect never
-  // ran a second time and the popover kept whatever position it was mounted at,
-  // hanging off the bottom of short viewports.
-  useLayoutEffect(() => {
-    if (!isOpen || !present) return;
-    if (!triggerRef.current || !popoverRef.current || !contentRef.current) return;
-
-    const triggerRect = triggerRef.current.getBoundingClientRect();
-    const naturalHeight = contentRef.current.getBoundingClientRect().height + POPOVER_BORDER;
-
-    // Space to the viewport edge decides whether a side fits. The viewport
-    // padding is only taken off once the popover has to be clamped, so help
-    // text that already fitted, even by a couple of pixels, stays where it was
-    // instead of flipping or growing a scrollbar it never needed.
-    // Shrinking the window while the popover is open can leave the trigger below
-    // the new bottom edge. Capping the space above at the viewport keeps those
-    // already-hidden rows out of the measurement.
-    const spaceBelow = viewportSize.height - triggerRect.bottom - TRIGGER_GAP;
-    const spaceAbove = Math.min(triggerRect.top, viewportSize.height) - TRIGGER_GAP;
-
-    let opensBelow = true;
-    let room = spaceBelow;
-    if (naturalHeight > spaceBelow) {
-      if (naturalHeight <= spaceAbove) {
-        opensBelow = false;
-        room = spaceAbove;
-      } else {
-        // Taller than either side, which is the normal case for long help text
-        // on a phone: take the roomier side and scroll the remainder, because
-        // flipping alone only buys the trigger's distance from the top.
-        opensBelow = spaceBelow >= spaceAbove;
-        room = (opensBelow ? spaceBelow : spaceAbove) - VIEWPORT_PADDING;
-      }
-    }
-
-    const renderedHeight = Math.min(naturalHeight, room);
-    // Opening upwards normally ends at the trigger, which is on screen. When the
-    // trigger itself has dropped past the bottom edge, sitting against it would
-    // hang the last lines of help text off the screen with nothing to scroll.
-    // The bottom edge has to clear the viewport padding, but the top edge is only
-    // floored at 0 below, so a popover that just fits above its trigger keeps the
-    // position it had. Clamping inside the padded region expresses both ends.
-    const y = opensBelow
-      ? triggerRect.bottom + TRIGGER_GAP
-      : clampToViewport(
-          triggerRect.top - renderedHeight - TRIGGER_GAP,
-          renderedHeight,
-          viewportSize.height - VIEWPORT_PADDING,
-          0
-        );
-
-    setPopoverPos({ x: horizontalPosition(triggerRect), y: Math.max(0, y) });
-    setAvailableHeight(Math.max(0, Math.floor(room) - POPOVER_BORDER));
-    setIsReady(true);
-  }, [isOpen, present, horizontalPosition, viewportSize.height]);
-
   // The measured room on the open side, narrowed further by a caller's own limit.
   const heightLimit =
-    availableHeight === null
+    availableHeight === undefined
       ? maxHeight
       : maxHeight
         ? `min(${maxHeight}, ${availableHeight}px)`
@@ -216,14 +193,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
       <button
         ref={triggerRef}
         aria-label={t('common.help')}
-        onClick={() => {
-          if (!isOpen) {
-            setInitialPopoverPosition();
-            setIsOpen(true);
-          } else {
-            setIsOpen(false);
-          }
-        }}
+        onClick={() => setIsOpen((open) => !open)}
         className={`help-popover-trigger p-1 rounded-md transition-colors ${
           isOpen
             ? 'text-[var(--theme-primary)] bg-[var(--theme-primary-subtle)]'
@@ -237,7 +207,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
         createPortal(
           <div
             ref={popoverRef}
-            className={`fixed themed-border-radius-sm border help-popover themed-card max-w-[calc(100vw-24px)] z-[90] ${
+            className={`absolute themed-border-radius-sm border help-popover themed-card max-w-[calc(100vw-24px)] z-[90] motion-reduce:animate-none ${
               closing
                 ? 'animate-[dropdownSlideOutDown_0.14s_ease-in_forwards]'
                 : isReady
@@ -245,13 +215,14 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
                   : ''
             }`}
             style={{
-              left: popoverPos.x,
-              top: popoverPos.y,
+              left: popoverPos.left,
+              top: popoverPos.top,
               width: effectiveWidth,
               // Before the first measurement this keeps a tall popover roughly
               // on screen; afterwards the scroll viewport owns the limit, and a
               // second cap out here would clip the border box two pixels short.
-              maxHeight: availableHeight === null ? maxHeight || `calc(100vh - 100px)` : undefined,
+              maxHeight:
+                availableHeight === undefined ? maxHeight || `calc(100vh - 100px)` : undefined,
               opacity: isReady ? 1 : 0,
               transition: 'none',
               pointerEvents: isReady && !closing ? 'auto' : 'none'

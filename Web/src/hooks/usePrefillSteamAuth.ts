@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { HubConnection } from '@microsoft/signalr';
 import { useNotifications } from '@contexts/notifications';
-import { useErrorHandler } from './useErrorHandler';
+import { useErrorHandler, useNotifySuccess } from './useErrorHandler';
 import { getErrorMessage } from '@utils/error';
 import { type SteamLoginFlowState, type SteamAuthActions } from './useSteamAuthentication';
 import { loginAttemptTimeoutMs, STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS } from './loginAttemptTimeout';
@@ -45,6 +45,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const { sessionId, hubConnection, onSuccess, onError, serviceId = 'steam' } = options;
   const { addNotification, removeNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
+  const { notifySuccess } = useNotifySuccess();
   const { t } = useTranslation();
 
   const [loading, setLoading] = useState(false);
@@ -516,12 +517,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           pendingChallenge,
           twoFactorCode
         );
-        addNotification({
-          type: 'generic',
-          status: 'completed',
-          message: t('prefill.auth.status.twoFactorSent'),
-          details: { notificationType: 'success' }
-        });
+        notifySuccess(t('prefill.auth.status.twoFactorSent'));
 
         // Wait for next challenge or success
         // AuthStateChanged will trigger onSuccess if login succeeds
@@ -577,12 +573,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           pendingChallenge,
           emailCode
         );
-        addNotification({
-          type: 'generic',
-          status: 'completed',
-          message: t('prefill.auth.status.emailCodeSent'),
-          details: { notificationType: 'success' }
-        });
+        notifySuccess(t('prefill.auth.status.emailCodeSent'));
 
         // Wait for next challenge or success
         const nextChallenge = await hubConnection.invoke<CredentialChallenge | null>(
@@ -635,12 +626,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           pendingChallenge,
           authorizationCode
         );
-        addNotification({
-          type: 'generic',
-          status: 'completed',
-          message: t('prefill.auth.status.authCodeSent'),
-          details: { notificationType: 'success' }
-        });
+        notifySuccess(t('prefill.auth.status.authCodeSent'));
 
         // Don't call WaitForChallenge here - rely on events instead.
         // The daemon will either:
@@ -842,12 +828,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           // Send password
           await hubConnection.invoke('ProvideCredentialAsync', sessionId, passChallenge, password);
 
-          addNotification({
-            type: 'generic',
-            status: 'completed',
-            message: t('prefill.auth.status.credentialsSent'),
-            details: { notificationType: 'success' }
-          });
+          notifySuccess(t('prefill.auth.status.credentialsSent'));
 
           // Wait for next challenge (2FA, steamguard, device-confirmation) or success
           const nextChallenge = await hubConnection.invoke<CredentialChallenge | null>(
@@ -933,6 +914,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     needsAuthorizationCode,
     pendingChallenge,
     addNotification,
+    notifySuccess,
     resetAuthForm,
     onSuccess,
     onError,

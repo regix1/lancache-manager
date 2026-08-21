@@ -8,6 +8,8 @@ import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import ErrorBoundary from '@components/common/ErrorBoundary';
 import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
+import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
+import { useNotifySuccess } from '@/hooks/useErrorHandler';
 
 // Import navigation and sections
 import ManagementNav, { type ManagementSection } from './ManagementNav';
@@ -28,8 +30,12 @@ const ManagementTab: React.FC = () => {
   const { t } = useTranslation();
   const { refreshStats } = useStats();
   const { addNotification } = useNotifications();
+  const { notifySuccess } = useNotifySuccess();
   const { mockMode } = useMockMode();
   const { isAdmin, authMode } = useAuth();
+  const scheduleSteamApiHighlightClear = useTimeoutCallback(2000);
+  const scheduleBattleNetHighlightClear = useTimeoutCallback(2000);
+  const scheduleEvictionHighlightClear = useTimeoutCallback(3000);
 
   // Active section state - persisted to localStorage
   const [activeSection, setActiveSection] = useState<ManagementSection>(() => {
@@ -66,14 +72,9 @@ const ManagementTab: React.FC = () => {
 
   const setSuccess = useCallback(
     (message: string) => {
-      addNotification({
-        type: 'generic',
-        status: 'completed',
-        message,
-        details: { notificationType: 'success' }
-      });
+      notifySuccess(message);
     },
-    [addNotification]
+    [notifySuccess]
   );
 
   // Persist active section to localStorage
@@ -105,10 +106,8 @@ const ManagementTab: React.FC = () => {
     setActiveSection('integrations');
     setHighlightSteamApi(true);
     // Reset so a later click can re-trigger; the glow itself runs to completion on its own
-    setTimeout(() => {
-      setHighlightSteamApi(false);
-    }, 2000);
-  }, []);
+    scheduleSteamApiHighlightClear(() => setHighlightSteamApi(false));
+  }, [scheduleSteamApiHighlightClear]);
 
   // Handle navigation to Battle.net daemon status in Integrations section.
   // Battle.net is anonymous (no login), so this only highlights the daemon card.
@@ -116,10 +115,8 @@ const ManagementTab: React.FC = () => {
     setActiveSection('integrations');
     setHighlightBattleNet(true);
     // Reset so a later click can re-trigger; the glow itself runs to completion on its own
-    setTimeout(() => {
-      setHighlightBattleNet(false);
-    }, 2000);
-  }, []);
+    scheduleBattleNetHighlightClear(() => setHighlightBattleNet(false));
+  }, [scheduleBattleNetHighlightClear]);
 
   // Jump from the Eviction Scan schedule card to the Eviction Detection and Removal card
   // in the Storage section and glow it into view.
@@ -127,10 +124,8 @@ const ManagementTab: React.FC = () => {
     setActiveSection('storage');
     setHighlightEviction(true);
     // Reset so a later click can re-trigger; the glow itself runs to completion on its own
-    setTimeout(() => {
-      setHighlightEviction(false);
-    }, 3000);
-  }, []);
+    scheduleEvictionHighlightClear(() => setHighlightEviction(false));
+  }, [scheduleEvictionHighlightClear]);
 
   // Defer the section used for rendering content. Switching to a heavy section
   // (e.g. Storage, which mounts the GameCacheDetector card list + several managers)

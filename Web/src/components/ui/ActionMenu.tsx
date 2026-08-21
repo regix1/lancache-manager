@@ -1,32 +1,7 @@
-import React, {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useLayoutEffect,
-  type ReactNode
-} from 'react';
+import React, { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
-import { useAnchorFollow, readAnchorRect, type AnchorRect } from '@hooks/useAnchorFollow';
-import { clampToViewport } from '@utils/viewportClamp';
-
-interface MenuPosition {
-  top: number;
-  left: number;
-}
-
-const MENU_GAP_PX = 4;
-const VIEWPORT_PADDING_PX = 8;
-/** Position deltas at or below this are rounding noise, not movement. */
-const POSITION_EPSILON_PX = 0.5;
-
-function isSamePosition(a: MenuPosition, b: MenuPosition): boolean {
-  return (
-    Math.abs(a.top - b.top) <= POSITION_EPSILON_PX &&
-    Math.abs(a.left - b.left) <= POSITION_EPSILON_PX
-  );
-}
+import { useAnchoredPanel } from '@hooks/useAnchoredPanel';
+import { MENU_GUTTER_PX } from '@utils/viewportClamp';
 
 interface ActionMenuProps {
   isOpen: boolean;
@@ -51,16 +26,6 @@ interface ActionMenuDangerItemProps {
   disabled?: boolean;
 }
 
-const TAILWIND_UNIT_PX = 4; // 0.25rem at 16px root
-
-// Derives the pixel width of a Tailwind `w-<n>` class so the off-screen clamp
-// agrees with whatever width the caller actually rendered (falls back to the
-// component's own default of w-40 = 160px if the class doesn't match).
-const parseMenuWidthPx = (widthClass: string): number => {
-  const match = /^w-(\d+(?:\.\d+)?)$/.exec(widthClass.trim());
-  return match ? Math.round(parseFloat(match[1]) * TAILWIND_UNIT_PX) : 160;
-};
-
 export const ActionMenu: React.FC<ActionMenuProps> = ({
   isOpen,
   onClose,
@@ -71,77 +36,21 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
 }) => {
   const triggerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<MenuPosition>({ top: 0, left: 0 });
-  const { present, closing } = useExitPresence(isOpen, DROPDOWN_EXIT_MS);
 
-  const calculatePosition = useCallback(
-    (anchor: AnchorRect): MenuPosition => {
-      const menuWidth = parseMenuWidthPx(width);
-
-      // Align the menu's matching edge with the trigger's, then keep it on screen.
-      const desiredLeft = align === 'right' ? anchor.right - menuWidth : anchor.left;
-      const viewportWidth = window.innerWidth;
-      const left = clampToViewport(desiredLeft, menuWidth, viewportWidth, VIEWPORT_PADDING_PX);
-
-      // Open upward when the menu would not fit between the trigger and the viewport
-      // bottom and there is more room above. Without this the body-portalled absolute
-      // box overflows past the document's end, which grows the page's scroll height
-      // and reads as the menu shoving the footer down instead of overlaying content.
-      const menuHeight = dropdownRef.current?.offsetHeight ?? 0;
-      const viewportHeight = window.innerHeight;
-      const spaceBelow = viewportHeight - anchor.bottom;
-      const fitsBelow = spaceBelow >= menuHeight + MENU_GAP_PX + VIEWPORT_PADDING_PX;
-      const opensUp = menuHeight > 0 && !fitsBelow && anchor.top > spaceBelow;
-      const desiredTop = opensUp
-        ? anchor.top - menuHeight - MENU_GAP_PX
-        : anchor.bottom + MENU_GAP_PX;
-      // Flipping alone only buys the trigger's distance from the edge, so a menu
-      // taller than the room on the side it picked still hangs off the viewport.
-      const top = clampToViewport(desiredTop, menuHeight, viewportHeight, VIEWPORT_PADDING_PX);
-
-      // Clamped against the viewport, returned in document coordinates: the menu is
-      // absolutely positioned in a body portal so that scrolling carries it and its
-      // trigger together (see useAnchorFollow).
-      return {
-        top: top + window.scrollY,
-        left: left + window.scrollX
-      };
-    },
-    [align, width]
-  );
-
-  /**
-   * Carries the menu with its trigger. The page reflows under the portalled menu
-   * whenever UniversalNotificationBar (an in-flow sticky bar) shows or finishes an
-   * operation; this used to close the menu on any trigger movement, which yanked the
-   * menu out from under the user mid-click.
-   */
-  const handleAnchorMove = useCallback(
-    (anchor: AnchorRect): void => {
-      const next = calculatePosition(anchor);
-      setPosition((prev) => (isSamePosition(prev, next) ? prev : next));
-    },
-    [calculatePosition]
-  );
-
-  // Also keyed on `present`: the dropdown mounts one tick after isOpen flips, and
-  // the open-upward decision needs its measured height, so re-place it in the same
-  // commit it appears in (before paint) rather than a frame later.
-  useLayoutEffect(() => {
-    if (!isOpen || !triggerRef.current) return;
-    handleAnchorMove(readAnchorRect(triggerRef.current));
-  }, [isOpen, present, handleAnchorMove]);
-
-  useAnchorFollow({
-    enabled: present,
+  const { present, closing, position } = useAnchoredPanel({
+    open: isOpen,
     anchorRef: triggerRef,
-    onAnchorMove: handleAnchorMove,
-    // Nothing left to anchor to once the trigger is scrolled off screen.
-    onAnchorLost: onClose
+    panelRef: dropdownRef,
+    onClose,
+    gutter: MENU_GUTTER_PX,
+    align
   });
 
-  // Handle click outside and escape key
+  // Click-outside stays here: which element counts as the trigger differs panel by
+  // panel, so the shared hook deliberately owns neither this nor the scroll story.
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
 
@@ -152,28 +61,13 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
       const isInsideDropdown = dropdownRef.current && dropdownRef.current.contains(target);
 
       // Close dropdown if click is outside both the button and dropdown
-      if (isOpen && !isTriggerButton && !isInsideDropdown) {
+      if (!isTriggerButton && !isInsideDropdown) {
         onClose();
       }
     };
 
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    // No scroll handler: the menu follows its trigger (see useAnchorFollow) and
-    // dismisses itself once the trigger leaves the viewport, so scrolling can no
-    // longer misposition it.
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('keydown', handleEscape);
-      return () => {
-        document.removeEventListener('mousedown', handleClickOutside);
-        document.removeEventListener('keydown', handleEscape);
-      };
-    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen, onClose]);
 
   return (

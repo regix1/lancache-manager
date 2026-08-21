@@ -28,19 +28,19 @@ import {
 import { useConfig } from '@contexts/useConfig';
 import { useAuth } from '@contexts/useAuth';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
+import { useMediaQuery } from '@hooks/useMediaQuery';
 import { useReaderClock } from '@hooks/useReaderClock';
 import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
 import { buildClientFilterOptions } from '@utils/clientFilterOptions';
 import { Alert } from '@components/ui/Alert';
-import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
+import { ActionMenuItem } from '@components/ui/ActionMenu';
 import { Pagination } from '@components/ui/Pagination';
 import { SearchInput } from '@components/ui/SearchInput';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
-import { Tooltip } from '@components/ui/Tooltip';
 import { ImageCacheContext } from '@components/common/ImageCacheContext';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { useErrorHandler } from '@hooks/useErrorHandler';
@@ -384,6 +384,10 @@ const DownloadsTab: React.FC = () => {
   const { authMode } = useAuth();
   const isGuest = authMode === 'guest';
   const { on, off } = useSignalR();
+  // The view labels are added and removed from the DOM rather than hidden with a class: a hidden
+  // label still counts as the trigger's text, and the shared Tooltip suppresses a box that repeats
+  // it, which would leave the icon-only segments with no hover explanation below this width.
+  const wideLabels = useMediaQuery('(min-width: 1536px)');
   // Read from context so an export started right after a clock change uses the clock the user is
   // looking at, rather than the one the module-level preference is still holding.
   const readerClock = useReaderClock();
@@ -487,7 +491,6 @@ const DownloadsTab: React.FC = () => {
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [settingsOpened, setSettingsOpened] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
-  const [showExportOptions, setShowExportOptions] = useState(false);
   const [imageCacheClearing, setImageCacheClearing] = useState(false);
   const [imageCacheVersion, setImageCacheVersion] = useState(0);
 
@@ -1432,7 +1435,6 @@ const DownloadsTab: React.FC = () => {
       notifyError(t('downloads.tab.errors.exportFailed'), error, { logLabel: 'Export failed' });
     } finally {
       setExportLoading(false);
-      setShowExportOptions(false);
     }
   };
 
@@ -1517,6 +1519,75 @@ const DownloadsTab: React.FC = () => {
     );
   }
 
+  // One toolbar menu for both layouts, so a phone gets the same actions a wide screen does.
+  const toolbarActions = (
+    <SectionActionsMenu label={t('common.moreActions')}>
+      {(close) => (
+        <>
+          <ActionMenuItem
+            icon={<DownloadIcon className="w-3.5 h-3.5" />}
+            disabled={exportLoading || itemsToDisplay.length === 0}
+            onClick={() => {
+              handleExport('json');
+              close();
+            }}
+          >
+            {t('downloads.tab.export.json')}
+          </ActionMenuItem>
+          <ActionMenuItem
+            icon={<DownloadIcon className="w-3.5 h-3.5" />}
+            disabled={exportLoading || itemsToDisplay.length === 0}
+            onClick={() => {
+              handleExport('csv');
+              close();
+            }}
+          >
+            {t('downloads.tab.export.csv')}
+          </ActionMenuItem>
+
+          {settings.viewMode === 'retro' && (
+            <ActionMenuItem
+              icon={<Maximize2 className="w-3.5 h-3.5" />}
+              onClick={() => {
+                retroViewRef.current?.resetWidths();
+                close();
+              }}
+            >
+              {t('downloads.tab.tooltips.fitColumns')}
+            </ActionMenuItem>
+          )}
+
+          {!isGuest && (
+            <ActionMenuItem
+              icon={
+                <RefreshCw className={`w-3.5 h-3.5${imageCacheClearing ? ' animate-spin' : ''}`} />
+              }
+              disabled={imageCacheClearing}
+              onClick={() => {
+                handleClearImageCache();
+                close();
+              }}
+            >
+              {t('downloads.tab.tooltips.refreshImages')}
+            </ActionMenuItem>
+          )}
+
+          <div data-settings-button="true">
+            <ActionMenuItem
+              icon={<Settings className="w-3.5 h-3.5" />}
+              onClick={() => {
+                setSettingsOpened(!settingsOpened);
+                close();
+              }}
+            >
+              {t('downloads.tab.tooltips.settings')}
+            </ActionMenuItem>
+          </div>
+        </>
+      )}
+    </SectionActionsMenu>
+  );
+
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Downloads Header with Speed Display and Tab Toggle */}
@@ -1535,9 +1606,9 @@ const DownloadsTab: React.FC = () => {
           {/* Controls */}
           <Card padding="sm" className="transition duration-300">
             <div className="flex flex-col gap-3">
-              {/* Search Input + Settings gear on mobile */}
+              {/* Search input + the toolbar actions menu on phones */}
               <div className="downloads-search-row">
-                <div className="search-input-wrapper sm:max-w-xs">
+                <div className="search-input-wrapper">
                   <SearchInput
                     value={settings.searchQuery}
                     onChange={(e) => setSettings({ ...settings, searchQuery: e.target.value })}
@@ -1545,20 +1616,12 @@ const DownloadsTab: React.FC = () => {
                     onClear={() => setSettings({ ...settings, searchQuery: '' })}
                   />
                 </div>
-                <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
-                  <Button
-                    variant="filled"
-                    color="secondary"
-                    size="sm"
-                    onClick={() => setSettingsOpened(!settingsOpened)}
-                    data-settings-button="true"
-                    aria-expanded={settingsOpened}
-                    aria-controls="downloads-settings-panel"
-                    className={`downloads-settings-trigger sm:hidden flex-shrink-0 !p-0 w-[38px] h-[38px] justify-center${settingsOpened ? ' is-active' : ''}`}
-                  >
-                    <Settings size={18} />
-                  </Button>
-                </Tooltip>
+                {/* Same menu the wide layout gets. A phone-only settings gear put a control
+                    here that exists nowhere else in the app, and hid Export and Refresh
+                    Images from phones entirely. */}
+                <div data-settings-button="true" className="inline-flex sm:hidden flex-shrink-0">
+                  {toolbarActions}
+                </div>
               </div>
 
               {/* Dropdowns and View Controls */}
@@ -1614,7 +1677,7 @@ const DownloadsTab: React.FC = () => {
                 </div>
 
                 {/* Mobile: Third row with view mode and hit/miss filter */}
-                <div className="flex sm:hidden gap-2 w-full items-center justify-between">
+                <div className="downloads-view-row sm:hidden">
                   <SegmentedControl
                     options={[
                       {
@@ -1637,7 +1700,6 @@ const DownloadsTab: React.FC = () => {
                     value={settings.viewMode}
                     onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
                     size="md"
-                    className="flex-shrink-0"
                   />
 
                   {/* Hit/Miss content filter */}
@@ -1664,7 +1726,6 @@ const DownloadsTab: React.FC = () => {
                       setSettings({ ...settings, hitMissFilter: value as HitMissFilter })
                     }
                     size="md"
-                    className="flex-shrink-0"
                   />
                 </div>
 
@@ -1717,24 +1778,42 @@ const DownloadsTab: React.FC = () => {
                   />
                 </div>
 
-                {/* Desktop view controls */}
-                <div className="hidden sm:flex sm:flex-wrap gap-2 justify-end w-auto flex-shrink-0">
+                {/* Desktop view controls. The auto left margin keeps this cluster on the right
+                    edge even at widths where it drops below the dropdowns: a wrapped flex line
+                    justifies on its own, so justify-between alone would park it on the left. */}
+                <div className="hidden sm:flex sm:flex-wrap gap-2 justify-end w-auto flex-shrink-0 ml-auto">
                   {/* View Mode Toggle */}
                   <SegmentedControl
                     options={[
-                      { value: 'compact', label: t('downloads.tab.view.compact'), icon: <List /> },
+                      {
+                        value: 'compact',
+                        label: t('downloads.tab.view.compact'),
+                        icon: <List />,
+                        tooltip: t('downloads.tab.view.compact')
+                      },
                       {
                         value: 'card',
                         label: t('downloads.tab.view.card'),
-                        icon: <LayoutGrid />
+                        icon: <LayoutGrid />,
+                        tooltip: t('downloads.tab.view.card')
                       },
-                      { value: 'normal', label: t('downloads.tab.view.normal'), icon: <Grid3x3 /> },
-                      { value: 'retro', label: t('downloads.tab.view.retro'), icon: <Table /> }
+                      {
+                        value: 'normal',
+                        label: t('downloads.tab.view.normal'),
+                        icon: <Grid3x3 />,
+                        tooltip: t('downloads.tab.view.normal')
+                      },
+                      {
+                        value: 'retro',
+                        label: t('downloads.tab.view.retro'),
+                        icon: <Table />,
+                        tooltip: t('downloads.tab.view.retro')
+                      }
                     ]}
                     value={settings.viewMode}
                     onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
                     size="md"
-                    showLabels="responsive"
+                    showLabels={wideLabels}
                   />
 
                   {/* Hit/Miss content filter */}
@@ -1763,90 +1842,13 @@ const DownloadsTab: React.FC = () => {
                     size="md"
                   />
 
-                  {/* Export Button */}
-                  <ActionMenu
-                    isOpen={showExportOptions}
-                    onClose={() => setShowExportOptions(false)}
-                    width="w-48"
-                    trigger={
-                      <Tooltip content={t('downloads.tab.tooltips.export')} position="bottom">
-                        <Button
-                          variant="filled"
-                          color="secondary"
-                          size="md"
-                          className="btn-icon-square"
-                          onClick={() => setShowExportOptions(!showExportOptions)}
-                          disabled={exportLoading || itemsToDisplay.length === 0}
-                          loading={exportLoading}
-                        >
-                          <DownloadIcon className="w-4 h-4" />
-                        </Button>
-                      </Tooltip>
-                    }
-                  >
-                    <ActionMenuItem
-                      onClick={() => {
-                        handleExport('json');
-                        setShowExportOptions(false);
-                      }}
-                    >
-                      {t('downloads.tab.export.json')}
-                    </ActionMenuItem>
-                    <ActionMenuItem
-                      onClick={() => {
-                        handleExport('csv');
-                        setShowExportOptions(false);
-                      }}
-                    >
-                      {t('downloads.tab.export.csv')}
-                    </ActionMenuItem>
-                  </ActionMenu>
-
-                  {settings.viewMode === 'retro' && (
-                    <Tooltip content={t('downloads.tab.tooltips.fitColumns')} position="bottom">
-                      <Button
-                        variant="filled"
-                        color="secondary"
-                        size="md"
-                        className="btn-icon-square"
-                        onClick={() => retroViewRef.current?.resetWidths()}
-                      >
-                        <Maximize2 className="w-4 h-4" />
-                      </Button>
-                    </Tooltip>
-                  )}
-
-                  {!isGuest && (
-                    <Tooltip content={t('downloads.tab.tooltips.refreshImages')} position="bottom">
-                      <Button
-                        variant="filled"
-                        color="secondary"
-                        size="md"
-                        className="btn-icon-square"
-                        onClick={handleClearImageCache}
-                        disabled={imageCacheClearing}
-                      >
-                        <RefreshCw
-                          className={`w-4 h-4${imageCacheClearing ? ' animate-spin' : ''}`}
-                        />
-                      </Button>
-                    </Tooltip>
-                  )}
-
-                  <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
-                    <Button
-                      variant="filled"
-                      color="secondary"
-                      size="md"
-                      className={`downloads-settings-trigger btn-icon-square${settingsOpened ? ' is-active' : ''}`}
-                      onClick={() => setSettingsOpened(!settingsOpened)}
-                      data-settings-button="true"
-                      aria-expanded={settingsOpened}
-                      aria-controls="downloads-settings-panel"
-                    >
-                      <Settings className="w-4 h-4" />
-                    </Button>
-                  </Tooltip>
+                  {/* Toolbar actions. The settings marker sits on the trigger as well as on the
+                      settings item: the panel's outside-click handler matches that selector, so
+                      without it on the trigger, opening this menu would shut the panel and the
+                      item could never toggle it back off. */}
+                  <div data-settings-button="true" className="inline-flex">
+                    {toolbarActions}
+                  </div>
                 </div>
               </div>
             </div>

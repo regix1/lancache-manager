@@ -23,6 +23,7 @@ import { useAuth } from '@contexts/useAuth';
 import { useNotifications } from '@contexts/notifications';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import { copyText } from '@utils/clipboard';
 import type { MetricsSecurityResponse } from './GrafanaEndpoints.types';
@@ -109,7 +110,7 @@ const GrafanaEndpoints: React.FC = () => {
       icon: ListOrdered
     })
   );
-  const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
+  const [copiedEndpoint, markCopied] = useCopyFeedback<string | null>(null);
   const [metricsSecurity, setMetricsSecurity] = useState<MetricsSecurityResponse | null>(null);
   const [dataRefreshRate, setDataRefreshRate] = useState<string>('15');
   const [scrapeInterval, setScrapeInterval] = useState<string>('15');
@@ -295,8 +296,7 @@ const GrafanaEndpoints: React.FC = () => {
 
   const copyToClipboard = async (text: string, endpoint: string) => {
     if (await copyText(text)) {
-      setCopiedEndpoint(endpoint);
-      setTimeout(() => setCopiedEndpoint(null), 2000);
+      markCopied(endpoint);
       return;
     }
 

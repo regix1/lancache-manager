@@ -1,3 +1,17 @@
+/* Setup gate (sign-in card, depot init wizard) */
+
+/* The 45-degree stripe behind the setup gate card. Was an inline `repeating-linear-gradient`
+   style object on both call sites; the project bans inline styles. */
+.setup-gate-stripe {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 35px,
+    var(--theme-text-primary) 35px,
+    var(--theme-text-primary) 70px
+  );
+}
+
 /* Guest upgrade / authenticate page */
 
 .auth-upgrade {

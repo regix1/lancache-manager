@@ -455,64 +455,6 @@
     gap: 0.5rem;
   }
 
-  .downloads-header .tab-container {
-    display: flex;
-    padding: 4px;
-    /* Control corner outside, one step down inside, the same pair as .view-toggle. On the
-       container step this cluster read rounder than the stat boxes sitting beside it. */
-    border-radius: var(--theme-border-radius);
-    background: var(--theme-bg-tertiary);
-    border: 1px solid var(--theme-border-secondary);
-  }
-
-  .downloads-header .tab-button {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    font-size: var(--font-size-base);
-    font-weight: 600;
-    color: var(--theme-text-muted);
-    background: transparent;
-    border: none;
-    border-radius: var(--theme-border-radius-sm);
-    cursor: pointer;
-    transition:
-      color 0.2s ease,
-      background-color 0.2s ease,
-      box-shadow 0.2s ease;
-  }
-
-  .downloads-header .tab-button:hover:not(.active) {
-    color: var(--theme-text-secondary);
-    background: var(--theme-bg-surface-hover);
-  }
-
-  /* Filled with --theme-button-bg, not --theme-primary. The accent is the ink in far more rules
-     than it is a fill, so it has to stay light enough to read as text on a card, which leaves it
-     too light to carry a white label. The button fill is the token that exists to be a ground. */
-  .downloads-header .tab-button.active {
-    color: var(--theme-button-text);
-    background: var(--theme-button-bg);
-    box-shadow: 0 2px 8px var(--theme-primary-strong);
-  }
-
-  .downloads-header .tab-button.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .downloads-header .tab-button.disabled:hover {
-    color: var(--theme-text-muted);
-    background: transparent;
-  }
-
-  .downloads-header .tab-button svg {
-    width: 14px;
-    height: 14px;
-  }
-
   .downloads-header .tab-badge {
     display: inline-flex;
     align-items: center;
@@ -530,13 +472,13 @@
     color: inherit;
   }
 
-  .downloads-header .tab-button.active .tab-badge {
+  .downloads-header .segmented-control-button[aria-checked='true'] .tab-badge {
     background: var(--theme-badge-white-subtle);
     /* On the active (accent) tab a grey edge muddies the fill, use a white one. */
     border-color: var(--theme-badge-white-subtle);
   }
 
-  .downloads-header .tab-button:not(.active) .tab-badge.has-active {
+  .downloads-header .segmented-control-button[aria-checked='false'] .tab-badge.has-active {
     /* --theme-action-process-bg, not --theme-success: success is the green INK everywhere else
        and white cannot be read on it. */
     background: var(--theme-action-process-bg);
@@ -623,16 +565,13 @@
       gap: 0.5rem;
     }
 
-    .downloads-header .tab-container {
+    /* The tab pair spans the row on narrow screens, so both segments stay thumb-sized. */
+    .downloads-header .segmented-control-container {
       width: 100%;
-      justify-content: center;
     }
 
-    .downloads-header .tab-button {
-      padding: 0.4rem 0.75rem;
-      font-size: var(--font-size-sm);
+    .downloads-header .segmented-control-button {
       flex: 1;
-      justify-content: center;
     }
 
     .downloads-header .today-stats {
@@ -868,50 +807,6 @@
     padding: 0 0.25rem;
   }
 
-  .active-downloads-view .view-toggle {
-    display: flex;
-    padding: 3px;
-    /* Control corner outside, one step down inside: the inner button keeps the concentric
-       relationship (inner = outer - padding) this pair was already built on. */
-    border-radius: var(--theme-border-radius);
-    background: var(--theme-bg-tertiary);
-    border: 1px solid var(--theme-border-secondary);
-  }
-
-  .active-downloads-view .view-toggle-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.4rem 0.75rem;
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    color: var(--theme-text-muted);
-    background: transparent;
-    border: none;
-    border-radius: var(--theme-border-radius-sm);
-    cursor: pointer;
-    transition:
-      color 0.2s ease,
-      background-color 0.2s ease,
-      box-shadow 0.2s ease;
-  }
-
-  .active-downloads-view .view-toggle-btn:hover:not(.active) {
-    color: var(--theme-text-secondary);
-    background: var(--theme-bg-surface-hover);
-  }
-
-  .active-downloads-view .view-toggle-btn.active {
-    color: var(--theme-button-text);
-    background: var(--theme-button-bg);
-    box-shadow: 0 2px 4px var(--theme-primary-muted);
-  }
-
-  .active-downloads-view .view-toggle-btn svg {
-    width: 14px;
-    height: 14px;
-  }
-
   .active-downloads-view .refresh-btn {
     display: flex;
     align-items: center;
@@ -1059,17 +954,9 @@
     color: var(--theme-border-secondary);
   }
 
+  /* Weight only. The colour is the shared hit-rate band, which this rule used to out-rank. */
   .active-downloads-view .cache-hit {
-    color: var(--theme-success);
     font-weight: 500;
-  }
-
-  .active-downloads-view .cache-hit.medium {
-    color: var(--theme-warning);
-  }
-
-  .active-downloads-view .cache-hit.low {
-    color: var(--theme-text-muted);
   }
 
   .active-downloads-view .download-speed {
@@ -1172,6 +1059,47 @@
   .downloads-search-row .search-input-wrapper {
     flex: 1;
     min-width: 0;
+  }
+
+  /* Phone: the actions trigger stands beside the 44px search box. .btn-icon-square pins itself
+     to 40px in both axes and buttons.css leaves it out of the touch-height bump on purpose, so
+     raising one axis there would make it oblong - both are raised here instead. */
+  @media (max-width: 639.98px) {
+    .downloads-search-row .btn-icon-square {
+      width: 44px;
+      height: 44px;
+    }
+  }
+
+  /* View mode and hit filter row on mobile. The two controls share the row and grow to
+     fill it; a row that can no longer hold both (longer translated segment labels on a
+     360px screen) puts the second control on its own line instead of letting it hang
+     outside the panel. */
+  .downloads-view-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .downloads-view-row .segmented-control-container {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* The tooltip wrapper is the container's flex item, so the split lands on it and the
+     button fills it. Narrower side padding than the default segment keeps both controls
+     on one line down to 360px. */
+  .downloads-view-row .segmented-control-slot {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .downloads-view-row .segmented-control-button {
+    width: 100%;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
   }
 
   /* Sort dropdown trigger (desktop toolbar): wide enough for the longest label,
@@ -1501,16 +1429,22 @@
     pointer-events: none;
   }
 
+  /* The stripe reads the same four band inks as the gauge beside it, so one hit rate is one
+     colour everywhere it appears. [18] */
   .retro-row-accent-success::before {
-    background: var(--theme-success);
+    background: var(--theme-success-text);
   }
 
   .retro-row-accent-warning::before {
-    background: var(--theme-warning);
+    background: var(--theme-warning-text);
   }
 
   .retro-row-accent-error::before {
-    background: var(--theme-error);
+    background: var(--theme-warning);
+  }
+
+  .retro-row-accent-critical::before {
+    background: var(--theme-error-text);
   }
 
   .retro-row-alt {
@@ -1648,18 +1582,6 @@
     flex-direction: column;
     align-items: center;
     gap: 0.125rem;
-  }
-
-  .retro-gauge-success {
-    color: var(--theme-success);
-  }
-
-  .retro-gauge-warning {
-    color: var(--theme-warning);
-  }
-
-  .retro-gauge-error {
-    color: var(--theme-error);
   }
 
   .retro-gauge-dial {
@@ -1823,29 +1745,10 @@
   }
 
   /* Gear trigger reflects the open state: primary fill + rotated icon */
-  .downloads-settings-trigger svg {
-    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
-  .downloads-settings-trigger.is-active svg {
-    transform: rotate(90deg);
-  }
-
-  .downloads-settings-trigger.is-active,
-  .downloads-settings-trigger.is-active:hover {
-    background-color: var(--theme-primary);
-    color: var(--theme-button-text);
-  }
-
-  .downloads-settings-trigger.is-active:hover {
-    background-color: var(--theme-primary-hover);
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .downloads-settings-panel,
     .downloads-settings-panel-inner,
     .downloads-settings-panel-content,
-    .downloads-settings-trigger svg,
     .card-grid-item,
     .dl-card,
     .dl-card-chevron,
@@ -1870,7 +1773,7 @@
     /* Still the continuous header/live-download motion for reduced-motion users. */
     .downloads-header .speed-indicator.active .speed-ring,
     .downloads-header .speed-indicator.active .speed-icon,
-    .downloads-header .tab-button:not(.active) .tab-badge.has-active,
+    .downloads-header .segmented-control-button[aria-checked='false'] .tab-badge.has-active,
     .active-empty-state .empty-icon-ring,
     .active-downloads-view .active-indicator {
       animation: none;

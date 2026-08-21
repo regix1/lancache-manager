@@ -3,9 +3,8 @@ import { Info, Save } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
-import { Checkbox } from '../../ui/Checkbox';
-import FormField from '../../ui/FormField';
 import ThemeEditorForm from '../../features/management/theme/ThemeEditorForm';
+import { ThemeFields } from './ThemeFields';
 import { useColorHistory } from '@hooks/useColorHistory';
 import { type Theme, type EditableTheme } from '../../features/management/theme/types';
 
@@ -59,69 +58,21 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
         )}
 
         {/* Theme Metadata */}
-        <div className="space-y-4">
-          <h4 className="text-sm font-semibold flex items-center gap-2 text-themed-primary">
-            <Info className="w-4 h-4" />
-            {t('modals.theme.form.themeInfo')}
-          </h4>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <FormField label={t('modals.theme.form.themeName')}>
-                {(field) => (
-                  <input
-                    {...field}
-                    type="text"
-                    value={editedTheme.name || ''}
-                    onChange={(e) => setEditedTheme({ ...editedTheme, name: e.target.value })}
-                    placeholder={t('modals.theme.placeholders.themeName')}
-                    className="w-full px-3 py-2 focus:outline-none themed-input"
-                  />
-                )}
-              </FormField>
-            </div>
-            <div>
-              <FormField label={t('modals.theme.form.author')}>
-                {(field) => (
-                  <input
-                    {...field}
-                    type="text"
-                    value={editedTheme.author || ''}
-                    onChange={(e) => setEditedTheme({ ...editedTheme, author: e.target.value })}
-                    placeholder={t('modals.theme.placeholders.author')}
-                    className="w-full px-3 py-2 focus:outline-none themed-input"
-                  />
-                )}
-              </FormField>
-            </div>
-          </div>
-          <div>
-            <FormField label={t('modals.theme.form.description')}>
-              {(field) => (
-                <input
-                  {...field}
-                  type="text"
-                  value={editedTheme.description || ''}
-                  onChange={(e) => setEditedTheme({ ...editedTheme, description: e.target.value })}
-                  placeholder={t('modals.theme.placeholders.description')}
-                  className="w-full px-3 py-2 rounded focus:outline-none themed-input"
-                />
-              )}
-            </FormField>
-          </div>
-          <div className="space-y-3">
-            <div className="flex items-center gap-4">
-              <Checkbox
-                checked={editedTheme.isDark || false}
-                onChange={(e) => setEditedTheme({ ...editedTheme, isDark: e.target.checked })}
-                variant="rounded"
-                label={t('modals.theme.form.darkTheme')}
-              />
-              <span className="text-xs text-themed-muted">
-                {t('modals.theme.form.themeId', { id: editingTheme?.meta.id })}
-              </span>
-            </div>
-          </div>
-        </div>
+        <ThemeFields
+          name={editedTheme.name || ''}
+          author={editedTheme.author || ''}
+          description={editedTheme.description || ''}
+          isDark={editedTheme.isDark || false}
+          onNameChange={(value) => setEditedTheme({ ...editedTheme, name: value })}
+          onAuthorChange={(value) => setEditedTheme({ ...editedTheme, author: value })}
+          onDescriptionChange={(value) => setEditedTheme({ ...editedTheme, description: value })}
+          onDarkChange={(checked) => setEditedTheme({ ...editedTheme, isDark: checked })}
+          trailingContent={
+            <span className="text-xs text-themed-muted">
+              {t('modals.theme.form.themeId', { id: editingTheme?.meta.id })}
+            </span>
+          }
+        />
 
         {/* Color Editor */}
         <ThemeEditorForm

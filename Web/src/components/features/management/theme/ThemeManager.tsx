@@ -18,9 +18,10 @@ import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import ApiService from '@services/api.service';
 import { assertOk } from '@services/apiError';
 import { getErrorMessage } from '@utils/error';
-import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import { GroupHeading } from '@components/ui/GroupHeading';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
@@ -65,6 +66,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   const { t } = useTranslation();
   const { addNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
+  const { notifySuccess } = useNotifySuccess();
 
   // State Management
   const [themes, setThemes] = useState<Theme[]>([]);
@@ -513,12 +515,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
 
       await assertOk(response);
 
-      addNotification({
-        type: 'generic',
-        status: 'completed',
-        message: t('management.themes.notifications.uploadSuccess'),
-        details: { notificationType: 'success' }
-      });
+      notifySuccess(t('management.themes.notifications.uploadSuccess'));
       await loadThemes();
     } catch (error: unknown) {
       addNotification({
@@ -689,15 +686,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   return (
     <>
       <div>
-        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
-            <h3 className="management-group-label caps-label">
-              {t('management.sections.theme.groupAppearance')}
-            </h3>
-          </div>
-          <AccordionGroupToggle />
-        </div>
+        <GroupHeading
+          label={t('management.sections.theme.groupAppearance')}
+          actions={<AccordionGroupToggle />}
+        />
 
         <div className="space-y-4">
           <AccordionSection

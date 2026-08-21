@@ -26,6 +26,7 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
+import { EmptyState } from '@components/ui/ManagerCard';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes, formatCount, formatRelativeTime } from '@utils/formatters';
 import { getErrorMessage } from '@utils/error';
@@ -402,9 +403,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   </div>
                 </div>
               ) : (
-                <p className="py-6 text-sm text-themed-muted text-center">
-                  {t('management.cache.clickScanToCalculate')}
-                </p>
+                <EmptyState variant="text" title={t('management.cache.clickScanToCalculate')} />
               )}
             </div>
 

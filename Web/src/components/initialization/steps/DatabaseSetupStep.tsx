@@ -1,14 +1,16 @@
 import React, { useState, useCallback } from 'react';
-import { Database, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { Database, CheckCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import FormField from '@components/ui/FormField';
+import { PasswordField } from '@components/ui/PasswordField';
+import { PasswordStrengthMeter } from '@components/ui/PasswordStrengthMeter';
+import { StepHeader } from '@components/initialization/StepHeader';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
 import { getErrorMessage } from '@utils/error';
-import { getPasswordStrength } from './passwordStrength';
 
 interface DatabaseSetupStepProps {
   onSetupComplete: () => void;
@@ -49,13 +51,9 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
     confirmPassword: null,
     apiKey: null
   });
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [setupSuccess, setSetupSuccess] = useState(false);
-
-  const passwordStrength = form.password ? getPasswordStrength(form.password) : null;
 
   const validateForm = useCallback((): boolean => {
     const newErrors: FormErrors = {
@@ -163,18 +161,12 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
   if (setupSuccess) {
     return (
       <div className="space-y-5">
-        {/* Header */}
-        <div className="flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-success">
-            <CheckCircle className="w-7 h-7 icon-success" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">
-            {t('initialization.databaseSetup.savedHeading')}
-          </h3>
-          <p className="text-sm text-themed-secondary max-w-md">
-            {t('initialization.databaseSetup.savedDescription')}
-          </p>
-        </div>
+        <StepHeader
+          icon={<CheckCircle className="w-7 h-7 icon-success" />}
+          iconBackground="bg-themed-success"
+          title={t('initialization.databaseSetup.savedHeading')}
+          description={t('initialization.databaseSetup.savedDescription')}
+        />
       </div>
     );
   }
@@ -187,18 +179,12 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
         void handleSubmit();
       }}
     >
-      {/* Header */}
-      <div className="flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
-          <Database className="w-7 h-7 icon-info" />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">
-          {t('initialization.databaseSetup.heading')}
-        </h3>
-        <p className="text-sm text-themed-secondary max-w-md">
-          {t('initialization.databaseSetup.description')}
-        </p>
-      </div>
+      <StepHeader
+        icon={<Database className="w-7 h-7 icon-info" />}
+        iconBackground="bg-themed-info"
+        title={t('initialization.databaseSetup.heading')}
+        description={t('initialization.databaseSetup.description')}
+      />
 
       {/* Username Input */}
       <div>
@@ -220,91 +206,40 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
 
       {/* Password Input */}
       <div>
-        <FormField label={t('initialization.databaseSetup.passwordLabel')} error={errors.password}>
-          {(field) => (
-            <div className="relative">
-              <input
-                {...field}
-                type={showPassword ? 'text' : 'password'}
-                value={form.password}
-                onChange={handleInputChange('password')}
-                placeholder={t('initialization.databaseSetup.passwordPlaceholder')}
-                className="w-full px-3 py-2.5 pr-10 themed-input"
-                autoComplete="new-password"
-                disabled={isSubmitting}
-              />
-              <button
-                type="button"
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-themed-muted"
-                onClick={() => setShowPassword((prev: boolean) => !prev)}
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          )}
-        </FormField>
-        {passwordStrength && (
-          <div className="flex items-center gap-2 mt-1">
-            <div className="flex-1 h-1.5 rounded-full bg-themed-tertiary overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-[width] duration-150 ${
-                  passwordStrength === 'weak'
-                    ? 'w-1/3 bg-[var(--theme-error-text)]'
-                    : passwordStrength === 'medium'
-                      ? 'w-2/3 bg-[var(--theme-warning-text)]'
-                      : 'w-full bg-[var(--theme-success-text)]'
-                }`}
-              />
-            </div>
-            <span
-              className={`text-xs ${
-                passwordStrength === 'weak'
-                  ? 'text-themed-error'
-                  : passwordStrength === 'medium'
-                    ? 'text-themed-warning'
-                    : 'text-themed-success'
-              }`}
-            >
-              {passwordStrength === 'weak'
-                ? t('initialization.adminAccount.strengthWeak')
-                : passwordStrength === 'medium'
-                  ? t('initialization.adminAccount.strengthMedium')
-                  : t('initialization.adminAccount.strengthStrong')}
-            </span>
-          </div>
-        )}
+        <PasswordField
+          label={t('initialization.databaseSetup.passwordLabel')}
+          value={form.password}
+          onChange={handleInputChange('password')}
+          error={errors.password}
+          placeholder={t('initialization.databaseSetup.passwordPlaceholder')}
+          autoComplete="new-password"
+          disabled={isSubmitting}
+          inputClassName="w-full px-3 py-2.5 themed-input"
+          showPasswordLabel={t('aria.showPassword')}
+          hidePasswordLabel={t('aria.hidePassword')}
+        />
+        <PasswordStrengthMeter
+          password={form.password}
+          weakLabel={t('passwordStrength.weak')}
+          mediumLabel={t('passwordStrength.medium')}
+          strongLabel={t('passwordStrength.strong')}
+        />
       </div>
 
       {/* Confirm Password Input */}
       <div>
-        <FormField
+        <PasswordField
           label={t('initialization.databaseSetup.confirmPasswordLabel')}
+          value={form.confirmPassword}
+          onChange={handleInputChange('confirmPassword')}
           error={errors.confirmPassword}
-        >
-          {(field) => (
-            <div className="relative">
-              <input
-                {...field}
-                type={showConfirmPassword ? 'text' : 'password'}
-                value={form.confirmPassword}
-                onChange={handleInputChange('confirmPassword')}
-                placeholder={t('initialization.databaseSetup.confirmPasswordPlaceholder')}
-                className="w-full px-3 py-2.5 pr-10 themed-input"
-                autoComplete="new-password"
-                disabled={isSubmitting}
-              />
-              <button
-                type="button"
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-themed-muted"
-                onClick={() => setShowConfirmPassword((prev: boolean) => !prev)}
-                tabIndex={-1}
-              >
-                {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          )}
-        </FormField>
+          placeholder={t('initialization.databaseSetup.confirmPasswordPlaceholder')}
+          autoComplete="new-password"
+          disabled={isSubmitting}
+          inputClassName="w-full px-3 py-2.5 themed-input"
+          showPasswordLabel={t('aria.showPassword')}
+          hidePasswordLabel={t('aria.hidePassword')}
+        />
       </div>
 
       {authenticationEnabled === false && (

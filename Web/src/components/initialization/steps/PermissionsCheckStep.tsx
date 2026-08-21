@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import { StepHeader } from '@components/initialization/StepHeader';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
@@ -184,18 +185,12 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
-          <Shield className="w-7 h-7 icon-info" />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">
-          {t('initialization.permissionsCheck.title')}
-        </h3>
-        <p className="text-sm text-themed-secondary max-w-md">
-          {t('initialization.permissionsCheck.subtitle')}
-        </p>
-      </div>
+      <StepHeader
+        icon={<Shield className="w-7 h-7 icon-info" />}
+        iconBackground="bg-themed-info"
+        title={t('initialization.permissionsCheck.title')}
+        description={t('initialization.permissionsCheck.subtitle')}
+      />
 
       {/* Permission Checks Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

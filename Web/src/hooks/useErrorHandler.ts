@@ -25,6 +25,15 @@ interface ErrorHandler {
   notifyError: (userMessage: string, error?: unknown, opts?: NotifyErrorOptions) => void;
 }
 
+/** Strongly-typed success sink returned by {@link useNotifySuccess}. */
+interface SuccessNotifier {
+  /**
+   * Surface a completed action to the user.
+   * @param message Already-translated confirmation text that is what actually renders.
+   */
+  notifySuccess: (message: string) => void;
+}
+
 /**
  * The one shared error-surfacing hook. It COMPOSES the existing pieces - `getErrorMessage` +
  * `useNotifications().addNotification` - and adds NO new channel; every failure it surfaces is the
@@ -66,4 +75,27 @@ export function useErrorHandler(): ErrorHandler {
   );
 
   return { notifyError };
+}
+
+/**
+ * Sibling to {@link useErrorHandler} for the success half of the same notification family.
+ * COMPOSES the existing `addNotification` channel and adds no new one - every success it
+ * surfaces is the same generic/completed notification the unified registry already renders.
+ */
+export function useNotifySuccess(): SuccessNotifier {
+  const { addNotification } = useNotifications();
+
+  const notifySuccess = useCallback(
+    (message: string): void => {
+      addNotification({
+        type: 'generic',
+        status: 'completed',
+        message,
+        details: { notificationType: 'success' }
+      });
+    },
+    [addNotification]
+  );
+
+  return { notifySuccess };
 }

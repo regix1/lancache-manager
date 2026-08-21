@@ -8,15 +8,14 @@ import CredentialFields from '@components/ui/CredentialFields';
 import type { CredentialField } from '@components/ui/CredentialFields.types';
 import authService from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
-import { useNotifications } from '@contexts/notifications';
-import { useErrorHandler } from '@hooks/useErrorHandler';
+import { useErrorHandler, useNotifySuccess } from '@hooks/useErrorHandler';
 import { getErrorMessage } from '@utils/error';
 
 const AuthenticateTab: React.FC = () => {
   const { t } = useTranslation();
   const { refreshAuth } = useAuth();
-  const { addNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
+  const { notifySuccess } = useNotifySuccess();
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -25,15 +24,6 @@ const AuthenticateTab: React.FC = () => {
   // gone before it is read and on this screen never appeared at all, so a wrong password looked
   // like a button that did nothing.
   const [authError, setAuthError] = useState<string | null>(null);
-
-  const notifySuccess = (message: string) => {
-    addNotification({
-      type: 'generic',
-      status: 'completed',
-      message,
-      details: { notificationType: 'success' }
-    });
-  };
 
   const handleAuthenticate = async () => {
     if (!apiKey.trim()) {

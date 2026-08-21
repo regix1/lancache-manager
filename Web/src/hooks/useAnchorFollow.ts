@@ -16,7 +16,7 @@ export interface AnchorRect {
 }
 
 /** Called when the anchor's position in the *document* changes, with its fresh viewport rect. */
-export type AnchorMoveHandler = (rect: AnchorRect) => void;
+type AnchorMoveHandler = (rect: AnchorRect) => void;
 
 /** Called once the anchor leaves the viewport or the document. */
 type AnchorLostHandler = () => void;
@@ -126,8 +126,10 @@ function isAnchorOffscreen(rect: AnchorRect): boolean {
  * The loop runs only while the overlay is on screen, so keep `enabled` tied to
  * mounted-ness (including any exit animation) rather than to the open flag.
  *
- * Known limit: visibility is judged against the viewport, so an anchor clipped by an
- * inner `overflow` container while still inside the viewport does not count as lost.
+ * Two signals decide the anchor is gone: its own rect against the viewport, and an
+ * `IntersectionObserver`, whose intersection rect is clipped by every ancestor. The
+ * second is what catches an anchor scrolled out of an inner `overflow` container while
+ * the page itself has not moved.
  */
 export function useAnchorFollow(options: AnchorFollowOptions): void {
   const { enabled, anchorRef, onAnchorMove, onAnchorLost } = options;
@@ -184,10 +186,26 @@ export function useAnchorFollow(options: AnchorFollowOptions): void {
       reposition();
     };
 
+    // The rect test above only sees the viewport edges, so an anchor scrolled out of an
+    // inner `overflow` box stays "visible" to it. An intersection is computed against
+    // every ancestor's clip, which is exactly the case the rect test cannot reach.
+    const clipObserver = new IntersectionObserver((entries) => {
+      const entry = entries[entries.length - 1];
+      if (lost || entry === undefined || entry.isIntersecting) return;
+      lost = true;
+      lostRef.current?.();
+    });
+
+    const observedAnchor = anchorRef.current;
+    if (observedAnchor !== null) {
+      clipObserver.observe(observedAnchor);
+    }
+
     frameId = requestAnimationFrame(tick);
     window.addEventListener('resize', handleResize);
     return () => {
       cancelAnimationFrame(frameId);
+      clipObserver.disconnect();
       window.removeEventListener('resize', handleResize);
     };
   }, [enabled, anchorRef]);

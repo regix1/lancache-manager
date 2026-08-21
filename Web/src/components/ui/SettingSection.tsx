@@ -14,10 +14,10 @@ interface SettingSectionProps {
 export const SettingSection: React.FC<SettingSectionProps> = ({ icon: Icon, title, children }) => (
   <div className="p-4 rounded-lg bg-themed-tertiary">
     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-themed-secondary">
-      <div className="w-6 h-6 rounded flex items-center justify-center bg-themed-accent-subtle">
-        <Icon className="w-3.5 h-3.5 text-themed-accent" />
+      <div className="icon-box icon-box--sm bg-themed-accent-subtle">
+        <Icon className="w-4 h-4 text-themed-accent" />
       </div>
-      <h4 className="text-sm font-semibold text-themed-secondary">{title}</h4>
+      <h4 className="mgmt-subhead caps-label">{title}</h4>
     </div>
     <div className="space-y-3">{children}</div>
   </div>
