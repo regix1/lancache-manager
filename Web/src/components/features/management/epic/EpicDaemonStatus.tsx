@@ -87,7 +87,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
     onSuccess: () => {
       setShowAuthModal(false);
       loadStatus();
-      onSuccess?.('Epic Games authentication successful.');
+      onSuccess?.(t('management.sections.integrations.epicDaemonStatus.authSuccess'));
     },
     onError: (message: string) => {
       console.error('Epic mapping login error:', message);
@@ -105,10 +105,10 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
     try {
       await ApiService.logoutEpicMapping();
       await loadStatus();
-      onSuccess?.('Logged out of Epic Games.');
+      onSuccess?.(t('management.sections.integrations.epicDaemonStatus.logoutSuccess'));
     } catch (err) {
       console.error('Logout failed:', err);
-      onError?.('Failed to logout from Epic Games.');
+      onError?.(t('management.sections.integrations.epicDaemonStatus.logoutError'));
     } finally {
       setLoggingOut(false);
     }
@@ -128,7 +128,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
         title={t('management.sections.integrations.epicDaemonStatus.title')}
         description={t('management.sections.integrations.epicDaemonStatus.summary')}
         icon={EpicIcon}
-        iconColor="var(--theme-epic)"
+        iconColor="--theme-epic"
         help={{
           title: t('management.sections.integrations.epicDaemonStatus.help.authentication.title'),
           definitions: [
@@ -161,7 +161,9 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
         headline={
           isAuthenticated
             ? t('management.sections.integrations.epicDaemonStatus.connectedAs', {
-                name: authStatus?.displayName || 'Epic User'
+                name:
+                  authStatus?.displayName ||
+                  t('management.sections.integrations.epicDaemonStatus.defaultUserName')
               })
             : t('management.sections.integrations.epicDaemonStatus.notConnected')
         }

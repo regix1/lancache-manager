@@ -4,7 +4,7 @@ import { SIGNALR_BASE, STORAGE_KEYS } from '@utils/constants';
 import { formatDurationFromSeconds, formatTimeRemaining, type PrefillSessionDto } from '../types';
 import type { DaemonAuthState } from '@/types/operations';
 import type { LogEntryType } from '../ActivityLog.utils';
-import i18n from '../../../../i18n';
+import i18n from '@/i18n';
 import { getErrorMessage } from '@utils/error';
 import { usePrefillAnimation } from './usePrefillAnimation';
 import { prefillServiceConfig } from './prefillServiceConfig';

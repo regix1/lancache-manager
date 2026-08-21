@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import ApiService from '@services/api.service';
 import type { UnifiedNotification } from '@contexts/notifications/types';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
@@ -39,17 +40,17 @@ export const buildLoadedResultsSummary = (snapshot: CachedDetectionSnapshot): st
 
   if (snapshot.totalGamesDetected > 0) {
     parts.push(
-      `${snapshot.totalGamesDetected} game${snapshot.totalGamesDetected !== 1 ? 's' : ''}`
+      i18n.t('management.gameDetection.summary.games', { count: snapshot.totalGamesDetected })
     );
   }
 
   if (snapshot.totalServicesDetected > 0) {
     parts.push(
-      `${snapshot.totalServicesDetected} service${snapshot.totalServicesDetected !== 1 ? 's' : ''}`
+      i18n.t('management.gameDetection.summary.services', { count: snapshot.totalServicesDetected })
     );
   }
 
-  return parts.length > 0 ? parts.join(' and ') : null;
+  return parts.length > 0 ? parts.join(i18n.t('management.gameDetection.summary.join')) : null;
 };
 
 export const pruneGamesByCompletedRemovalNotifications = (

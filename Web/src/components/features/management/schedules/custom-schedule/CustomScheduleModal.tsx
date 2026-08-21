@@ -1037,7 +1037,7 @@ function CustomScheduleModal({
           </Button>
           <Button
             variant="filled"
-            color="green"
+            color="primary"
             size="sm"
             onClick={handleApply}
             loading={isSaving}

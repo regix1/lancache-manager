@@ -952,7 +952,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         shortTitle={t('management.gameDetection.titleShort')}
         titleAccessory={helpAccessory}
         icon={HardDrive}
-        iconColor="var(--theme-icon-blue)"
         isExpanded={sectionExpanded}
         onToggle={() => setSectionExpanded((prev) => !prev)}
         badge={headerActions}
@@ -1039,7 +1038,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     </span>
                     <Button
                       variant="filled"
-                      color="gray"
+                      color="secondary"
                       size="xs"
                       onClick={() => setSelectedDatasource(null)}
                     >
@@ -1055,7 +1054,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   title={t('management.gameDetection.servicesSection')}
                   count={filteredServices.length}
                   icon={Server}
-                  iconColor="var(--theme-icon-cyan)"
                   isExpanded={servicesExpanded}
                   onToggle={() => setServicesExpanded(!servicesExpanded)}
                   surface="well"
@@ -1077,7 +1075,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   title={t('management.gameDetection.gamesSection')}
                   count={filteredGames.length}
                   icon={Database}
-                  iconColor="var(--theme-icon-emerald)"
                   isExpanded={gamesExpanded}
                   onToggle={() => setGamesExpanded(!gamesExpanded)}
                   surface="well"
@@ -1112,7 +1109,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     selectedDatasource ? (
                       <Button
                         variant="filled"
-                        color="gray"
+                        color="secondary"
                         size="sm"
                         onClick={() => setSelectedDatasource(null)}
                       >

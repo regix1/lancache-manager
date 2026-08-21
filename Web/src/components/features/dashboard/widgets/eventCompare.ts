@@ -1,8 +1,32 @@
 import type { TFunction } from 'i18next';
+import { clampEventColorIndex } from '@utils/eventColors';
 import { formatMinutes } from '@utils/timeFormatters';
-import type { Event, EventCompareResponse } from '@/types';
+import type { Event, EventCompareResponse, EventCompareSeries } from '@/types';
 
 export const MAX_COMPARE_EVENTS = 8;
+
+/**
+ * Series positions whose color repeats one already used by an earlier series. colorIndex is a
+ * property the user picks per event and nothing stops two events from sharing one, so a
+ * comparison can draw two lines and two legend dots in one color. The calendar and the event
+ * list color the same event from the same index, so the chart keeps the color and marks the
+ * repeat with a dash instead.
+ */
+export function repeatedColorPositions(series: EventCompareSeries[]): ReadonlySet<number> {
+  const used = new Set<number>();
+  const repeated = new Set<number>();
+
+  series.forEach((entry, position) => {
+    const colorIndex = clampEventColorIndex(entry.colorIndex);
+    if (used.has(colorIndex)) {
+      repeated.add(position);
+    } else {
+      used.add(colorIndex);
+    }
+  });
+
+  return repeated;
+}
 
 export function elapsedLabel(minutes: number, t: TFunction): string {
   return formatMinutes(minutes, t);

@@ -289,7 +289,7 @@ const UserAccounts: React.FC = () => {
               <Tooltip content={t('common.moreActions')}>
                 <Button
                   variant="filled"
-                  color="gray"
+                  color="secondary"
                   size="sm"
                   className="btn-icon-square btn-icon-square--sm pointer-target-44"
                   onClick={() =>
@@ -360,7 +360,6 @@ const UserAccounts: React.FC = () => {
       <AccordionSection
         title={t('user.accounts.title')}
         icon={UserCog}
-        iconColor="var(--theme-icon-blue)"
         count={!loading && accounts.length > 0 ? accounts.length : undefined}
         isExpanded={expanded}
         onToggle={() => setExpanded((prev: boolean) => !prev)}
@@ -368,7 +367,7 @@ const UserAccounts: React.FC = () => {
           <SectionHeaderActions>
             <Button
               variant="filled"
-              color="blue"
+              color="primary"
               size="sm"
               onClick={() => {
                 setFormError(null);
@@ -506,7 +505,7 @@ const UserAccounts: React.FC = () => {
               </Button>
               <Button
                 variant="filled"
-                color="blue"
+                color="primary"
                 loading={saving}
                 disabled={
                   editor.username.trim().length === 0 ||

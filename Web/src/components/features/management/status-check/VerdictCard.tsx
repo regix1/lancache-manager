@@ -133,7 +133,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
           </div>
           <h3 className="font-medium text-themed-primary">{t(`${keys}.emptyTitle`)}</h3>
           <p className="text-sm text-themed-secondary max-w-xl">{t(`${keys}.emptyBody`)}</p>
-          <Button variant="filled" color="blue" size="md" onClick={onRun}>
+          <Button variant="filled" color="run" size="md" onClick={onRun}>
             {t(`${keys}.runCheck`)}
           </Button>
           {runError && (
@@ -398,7 +398,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
           </div>
         </div>
         <div className="status-check-verdict-actions">
-          <Button variant="filled" color="blue" size="md" loading={isRunning} onClick={onRun}>
+          <Button variant="filled" color="run" size="md" loading={isRunning} onClick={onRun}>
             {t(`${keys}.runCheck`)}
           </Button>
           {/* No tooltip: the timestamp wraps instead of being clipped, so there is nothing

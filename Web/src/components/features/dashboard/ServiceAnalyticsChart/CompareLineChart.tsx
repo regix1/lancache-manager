@@ -52,6 +52,12 @@ interface TooltipRow {
   text: string;
 }
 
+/** Per-row swatch colors handed to CSS; the canvas is the only source for them. */
+interface SwatchStyle extends React.CSSProperties {
+  '--swatch-fill'?: string;
+  '--swatch-border'?: string;
+}
+
 interface TooltipContent {
   title: string;
   rows: TooltipRow[];
@@ -72,7 +78,8 @@ interface TooltipAnchor {
 interface DivergingBarTheme {
   rowHighlight: string;
   labelColor: string;
-  zeroLineColor: string;
+  /** For the hovered row only, whose labels sit on the highlight instead of the card. */
+  labelHoverColor: string;
 }
 
 const TOOLTIP_GAP = 12;
@@ -139,6 +146,10 @@ function createRowHighlightPlugin(getTheme: () => DivergingBarTheme): Plugin<'ba
  * are right-anchored to the right of their bar end; misses left-anchored to the
  * left of theirs. Numbers reuse formatBytes; the canvas font is fixed-digit so
  * values align (the tabular-figure intent for canvas text).
+ *
+ * The hovered row's labels are painted a step brighter: the row highlight is drawn
+ * under the bars, so on that one row the resting label color would sit on the
+ * highlight rather than on the card and drop below 3:1 on both dark themes.
  */
 function createValueLabelPlugin(getTheme: () => DivergingBarTheme): Plugin<'bar'> {
   return {
@@ -148,10 +159,11 @@ function createValueLabelPlugin(getTheme: () => DivergingBarTheme): Plugin<'bar'
       if (!xScale) return;
       const zeroX = xScale.getPixelForValue(0);
       const { ctx, chartArea } = chart;
+      const theme = getTheme();
+      const hoveredRow = chart.getActiveElements()[0]?.index ?? -1;
 
       ctx.save();
       ctx.font = VALUE_LABEL_FONT;
-      ctx.fillStyle = getTheme().labelColor;
       ctx.textBaseline = 'middle';
 
       chart.data.datasets.forEach((_dataset, datasetIndex) => {
@@ -166,6 +178,7 @@ function createValueLabelPlugin(getTheme: () => DivergingBarTheme): Plugin<'bar'
 
           const text = formatBytes(Math.abs(raw));
           const isPositive = raw >= 0;
+          ctx.fillStyle = dataIndex === hoveredRow ? theme.labelHoverColor : theme.labelColor;
           ctx.textAlign = isPositive ? 'left' : 'right';
           const textX = isPositive ? bar.x + INLINE_LABEL_GAP : bar.x - INLINE_LABEL_GAP;
           const textWidth = ctx.measureText(text).width;
@@ -264,14 +277,14 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
   const themeRef = useRef<DivergingBarTheme>({
     rowHighlight: '',
     labelColor: '',
-    zeroLineColor: ''
+    labelHoverColor: ''
   });
   themeRef.current = useMemo(() => {
     void themeRevision;
     return {
       rowHighlight: getThemeColor('--theme-bg-hover'),
       labelColor: getThemeColor('--theme-chart-text'),
-      zeroLineColor: getThemeColor('--theme-border-primary')
+      labelHoverColor: getThemeColor('--theme-text-primary')
     };
   }, [themeRevision]);
 
@@ -297,7 +310,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
   const chartData: ChartData<'bar'> = useMemo(() => {
     void themeRevision;
     // Diverging color pair = the dedicated cache-hit / cache-miss theme colors.
-    // Solid fills (no pattern fills); hover darkens to the same hue.
+    // Solid fills, unchanged on hover; the full-row highlight is the hover feedback.
     const hitColor = getCacheHitColor() || getThemeColor('--theme-chart-cache-hit');
     const missColor = getCacheMissColor() || getThemeColor('--theme-chart-cache-miss');
     const borderColor = getBorderColor() || getThemeColor('--theme-chart-border');
@@ -312,7 +325,6 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             service.totalCacheHitBytes > 0 ? service.totalCacheHitBytes : null
           ),
           backgroundColor: hitColor,
-          hoverBackgroundColor: hitColor,
           borderColor,
           borderWidth: 1,
           borderRadius: barRadius,
@@ -327,7 +339,6 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             service.totalCacheMissBytes > 0 ? -service.totalCacheMissBytes : null
           ),
           backgroundColor: missColor,
-          hoverBackgroundColor: missColor,
           borderColor,
           borderWidth: 1,
           borderRadius: barRadius,
@@ -342,8 +353,10 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
 
   const options: ChartOptions<'bar'> = useMemo(() => {
     void themeRevision;
+    // One token for every piece of canvas text on this chart: legend, both axes and
+    // the inline value labels. --theme-chart-text is the field the theme editor
+    // exposes for chart chrome, so it is the one an author expects to move all of it.
     const textColor = getThemeColor('--theme-chart-text');
-    const mutedColor = getThemeColor('--theme-text-muted');
     const zeroLineColor = getThemeColor('--theme-chart-grid');
     const maxMagnitude = services.reduce(
       (max, service) => Math.max(max, service.totalCacheHitBytes, service.totalCacheMissBytes),
@@ -396,7 +409,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             display: false
           },
           ticks: {
-            color: mutedColor,
+            color: textColor,
             maxTicksLimit: 5,
             callback: (value) => formatBytes(Math.abs(Number(value)))
           }
@@ -410,7 +423,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             display: false
           },
           ticks: {
-            color: mutedColor,
+            color: textColor,
             autoSkip: false,
             callback: (_value, index) => {
               const label = labels[index] ?? '';
@@ -522,15 +535,18 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
           {tooltipContent.title && (
             <div className="compare-chart-tooltip__title">{tooltipContent.title}</div>
           )}
-          {tooltipContent.rows.map((row, i) => (
-            <div key={i} className="compare-chart-tooltip__row">
-              <span
-                className="compare-chart-tooltip__swatch"
-                style={{ backgroundColor: row.background, borderColor: row.border }}
-              />
-              <span className="compare-chart-tooltip__text">{row.text}</span>
-            </div>
-          ))}
+          {tooltipContent.rows.map((row, i) => {
+            const swatchStyle: SwatchStyle = {
+              '--swatch-fill': row.background,
+              '--swatch-border': row.border
+            };
+            return (
+              <div key={i} className="compare-chart-tooltip__row">
+                <span className="compare-chart-tooltip__swatch" style={swatchStyle} />
+                <span className="compare-chart-tooltip__text">{row.text}</span>
+              </div>
+            );
+          })}
         </div>,
         document.body
       )}

@@ -358,9 +358,9 @@ const RetroView = memo(
               appName: data.gameName || getServiceDisplayName(data.service),
               serviceBadge: getServiceDisplayName(data.service).toUpperCase(),
               evictionLabel: data.isPartiallyEvicted
-                ? 'Partially Evicted'
+                ? t('common.partiallyEvicted')
                 : data.isEvicted
-                  ? 'Evicted'
+                  ? t('common.evicted')
                   : '',
               onDiskLabel: onDiskSizeBytes
                 ? t('dashboard.downloadsPanel.onDisk', { size: formatBytes(onDiskSizeBytes) })
@@ -847,7 +847,7 @@ const RetroView = memo(
                   totalItems={totalItems}
                   itemsPerPage={itemsPerPage}
                   onPageChange={onPageChange}
-                  itemLabel="depot groups"
+                  itemLabel={t('downloads.tab.retro.depotGroupsLabel')}
                   showCard={false}
                   compact={!isDesktop}
                 />

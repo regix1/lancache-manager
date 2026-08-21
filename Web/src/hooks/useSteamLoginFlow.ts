@@ -208,7 +208,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: 'Please enter both username and password',
+        message: t('modals.steamAuth.errors.credentialsRequired'),
         details: { notificationType: 'error' }
       });
       return false;
@@ -218,7 +218,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: 'Please enter your email verification code',
+        message: t('modals.steamAuth.errors.emailCodeRequired'),
         details: { notificationType: 'error' }
       });
       return false;
@@ -228,7 +228,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: 'Please enter your 2FA code',
+        message: t('modals.steamAuth.errors.twoFactorRequired'),
         details: { notificationType: 'error' }
       });
       return false;
@@ -306,7 +306,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
           addNotification({
             type: 'generic',
             status: 'failed',
-            message: 'Mobile confirmation timed out. Please enter your 2FA code instead.',
+            message: t('modals.steamAuth.errors.mobileConfirmationTimedOut'),
             details: { notificationType: 'warning' }
           });
           return false;
@@ -329,7 +329,9 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         if (result.success) {
           // Settled BEFORE resetAuthForm below, which treats a still-live card as a cancel.
           settleLoginCard('completed', t('signalr.steamLogin.signedIn', { username }), 'success');
-          onSuccess?.(result.message || `Successfully authenticated as ${username}`);
+          onSuccess?.(
+            result.message || t('modals.steamAuth.success.authenticatedAs', { username })
+          );
           resetAuthForm();
           return true;
         }

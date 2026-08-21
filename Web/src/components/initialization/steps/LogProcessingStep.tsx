@@ -546,7 +546,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           {/* Process All button */}
           <Button
             variant="filled"
-            color="green"
+            color="run"
             leftSection={<PlayCircle className="w-4 h-4" />}
             onClick={handleProcessAll}
             disabled={actionLoading !== null || processing}
@@ -655,7 +655,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                     <div className="pt-2">
                       <Button
                         variant="filled"
-                        color="green"
+                        color="run"
                         size="sm"
                         leftSection={<PlayCircle className="w-3.5 h-3.5" />}
                         onClick={(e) => {
@@ -718,14 +718,14 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         )}
 
         {complete && (
-          <Button variant="filled" color="green" onClick={onComplete} fullWidth>
+          <Button variant="filled" color="secondary" onClick={onComplete} fullWidth>
             {t('initialization.logProcessing.continue')}
           </Button>
         )}
         {processing && !complete && (
           <Button
             variant="filled"
-            color="red"
+            color="stop"
             onClick={handleCancelProcessing}
             disabled={isCancelling}
             fullWidth

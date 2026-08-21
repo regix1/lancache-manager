@@ -27,8 +27,8 @@ interface AuthenticationModalProps {
 
 const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   onAuthComplete,
-  title = 'Authentication Required',
-  subtitle = 'Please sign in with your API key, username and password',
+  title,
+  subtitle,
   allowGuestMode = true
 }) => {
   const { t } = useTranslation();
@@ -259,7 +259,9 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         <div className="px-5 sm:px-8 py-4 sm:py-5 border-b flex items-center justify-between border-themed-secondary">
           <div className="flex items-center gap-2">
             <Shield className="w-5 h-5 text-primary" />
-            <span className="font-semibold text-themed-primary">{title}</span>
+            <span className="font-semibold text-themed-primary">
+              {title ?? t('modals.auth.defaultTitle')}
+            </span>
           </div>
         </div>
 
@@ -318,7 +320,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           )}
 
           <p className="text-themed-secondary text-center mb-6">
-            {subtitle}
+            {subtitle ?? t('modals.auth.defaultSubtitle')}
             {offerGuest && (
               <>
                 <br />
@@ -383,7 +385,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
             <div className="flex flex-col gap-3">
               <Button
                 variant="filled"
-                color="blue"
+                color="primary"
                 leftSection={
                   authenticating ? <LoadingSpinner inline size="sm" /> : <Key className="w-4 h-4" />
                 }

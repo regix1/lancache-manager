@@ -613,7 +613,7 @@ export function ScheduledPrefillScheduleDetail({
             <Button
               type="button"
               variant="filled"
-              color="green"
+              color="run"
               size="sm"
               className="control-h-md"
               onClick={onRunNow}
@@ -626,7 +626,7 @@ export function ScheduledPrefillScheduleDetail({
             <Button
               type="button"
               variant="filled"
-              color="blue"
+              color="secondary"
               size="sm"
               className="control-h-md"
               onClick={() => setModalOpened(true)}

@@ -586,7 +586,9 @@ export function ScheduledPrefillConfigModal({
       return editSessionRef.current;
     }
     if (!config || persistentContainers === null) {
-      throw new Error('Scheduled-prefill edit session data is still loading.');
+      throw new Error(
+        t('management.schedules.services.scheduledPrefill.config.errors.editSessionLoading')
+      );
     }
 
     const selectedAppIdsByService = {} as Record<ScheduledPrefillEditSessionServiceId, string[]>;
@@ -604,7 +606,7 @@ export function ScheduledPrefillConfigModal({
     );
     editSessionRef.current = editSession;
     return editSession;
-  }, [config, persistentContainers, persistentContainerByService]);
+  }, [config, persistentContainers, persistentContainerByService, t]);
 
   const recordEditAction = useCallback(
     (
@@ -1017,39 +1019,39 @@ export function ScheduledPrefillConfigModal({
     }).map((serviceId) => t(`${baseKey}.services.${serviceId}`));
   }, [config, containersByServiceKey, persistentContainers, persistentError, baseKey, t]);
 
-  // Single most-severe banner: errors win over the (yellow) validation hint; success is silent.
-  const banner = useMemo<{ color: 'red' | 'yellow' | 'green'; message: string } | null>(() => {
+  // Single most-severe banner: errors win over the warning validation hint; success is silent.
+  const banner = useMemo<{ color: 'error' | 'warning' | 'success'; message: string } | null>(() => {
     if (loadError) {
-      return { color: 'red', message: t(`${baseKey}.loadError`, { error: loadError }) };
+      return { color: 'error', message: t(`${baseKey}.loadError`, { error: loadError }) };
     }
     if (globalSettingsError) {
       return {
-        color: 'red',
+        color: 'error',
         message: t(`${baseKey}.settings.error`, { error: globalSettingsError })
       };
     }
     if (saveError) {
-      return { color: 'red', message: t(`${baseKey}.saveError`, { error: saveError }) };
+      return { color: 'error', message: t(`${baseKey}.saveError`, { error: saveError }) };
     }
     if (persistentError) {
       return {
-        color: 'red',
+        color: 'error',
         message: t(`${baseKey}.persistentContainer.error`, { error: persistentError })
       };
     }
     if (gameSelectionError) {
       return {
-        color: 'red',
+        color: 'error',
         message: t(`${baseKey}.selectedGames.error`, { error: gameSelectionError })
       };
     }
     if (validationError) {
-      return { color: 'yellow', message: validationError };
+      return { color: 'warning', message: validationError };
     }
     // Success notices win over nothing (every error case above already returned), so these are
     // safe to check last - one shared horizontal banner instead of a message beside each button.
     if (clearLoginsSuccessNote) {
-      return { color: 'green', message: clearLoginsSuccessNote };
+      return { color: 'success', message: clearLoginsSuccessNote };
     }
     return null;
   }, [
@@ -1895,7 +1897,7 @@ export function ScheduledPrefillConfigModal({
             <Button
               type="button"
               variant="filled"
-              color="green"
+              color="primary"
               size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={handleSave}
               disabled={!config || editSessionActionsDisabled || loadingConfig}

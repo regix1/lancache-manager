@@ -127,6 +127,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
           </Button>
           <Button
             variant="filled"
+            color="primary"
             leftSection={<Save className="w-4 h-4" />}
             onClick={onSave}
             disabled={!newTheme.name || !isAdmin || loading}

@@ -125,6 +125,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
           </Button>
           <Button
             variant="filled"
+            color="primary"
             leftSection={<Save className="w-4 h-4" />}
             onClick={onSave}
             disabled={!editedTheme.name || !isAdmin || loading}

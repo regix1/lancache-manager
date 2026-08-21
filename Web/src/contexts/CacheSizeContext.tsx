@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
+import i18n from '@/i18n';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import type { CacheSizeInfo } from '@/types';
@@ -94,7 +95,9 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
 
       console.error('[CacheSize] Failed to fetch cache size:', err);
       setHasFetched(true);
-      setError(err instanceof Error ? err.message : 'Failed to calculate cache size');
+      setError(
+        err instanceof Error ? err.message : i18n.t('management.cache.errors.calculateSizeFailed')
+      );
     } finally {
       // Only clear the ref if this fetch still owns it - a newer request may have already
       // replaced the controller. The superseded request must not mark that newer fetch idle.

@@ -1245,6 +1245,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           <Button
             type="submit"
             variant="filled"
+            color="primary"
             loading={saving}
             disabled={saving || !nickname.trim() || pendingMemberIps.length === 0}
             className="min-h-[44px] sm:min-h-10"

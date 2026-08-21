@@ -105,7 +105,7 @@ const ServiceRow: React.FC<{
       awaitPermissions
       disabled={isDisabled}
       variant="filled"
-      color="red"
+      color="destructive"
       size="sm"
       loading={isRemoving}
     >
@@ -685,7 +685,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         title={t('management.logRemoval.title')}
         titleAccessory={helpAccessory}
         icon={FileText}
-        iconColor="var(--theme-icon-red)"
+        iconColor="--theme-icon-red"
         isExpanded={sectionExpanded}
         onToggle={() => setSectionExpanded((prev) => !prev)}
         badge={headerBadge}
@@ -753,7 +753,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                       isExpanded={isExpanded}
                       onToggle={() => toggleDatasourceExpanded(ds.datasource)}
                       enabled={ds.enabled && ds.logsWritable}
-                      statusBadge={`${formatCount(totalEntries)} entries`}
+                      statusBadge={`${formatCount(totalEntries)} ${t('management.logRemoval.labels.entries')}`}
                       statusIcons={
                         layoutLabel ? (
                           <span
@@ -828,7 +828,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                             <div>
                               <Button
                                 variant="filled"
-                                color="gray"
+                                color="secondary"
                                 size="sm"
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -864,7 +864,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                               <Button
                                 variant="filled"
                                 size="sm"
-                                color="red"
+                                color="destructive"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setPendingLogFileDeletion(ds.datasource);

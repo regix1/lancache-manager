@@ -31,6 +31,12 @@ const LiveDownloadRows: React.FC<LiveDownloadRowsProps> = ({ previews, variant }
       'downloading',
       preview.status === 'in-progress'
     );
+  // displayName carries the backend's own game name, which is never translated; only the
+  // placeholder labels this app supplies for unidentified traffic have a key to render.
+  const displayLabel = (preview: LiveDownloadPreview): string =>
+    preview.displayNameKey
+      ? t(preview.displayNameKey, { depotId: preview.depotId })
+      : preview.displayName;
 
   if (previews.length === 0) {
     return null;
@@ -50,7 +56,7 @@ const LiveDownloadRows: React.FC<LiveDownloadRowsProps> = ({ previews, variant }
               )}
               <div className="rdl-row-info">
                 <div className="rdl-row-name">
-                  <span className="rdl-name-text">{preview.displayName}</span>
+                  <span className="rdl-name-text">{displayLabel(preview)}</span>
                   <Badge variant="neutral">{t('dashboard.downloadsPanel.inProgress')}</Badge>
                 </div>
                 <div className="rdl-row-meta">
@@ -101,7 +107,7 @@ const LiveDownloadRows: React.FC<LiveDownloadRowsProps> = ({ previews, variant }
           <div className="dl-live-info">
             <div className="dl-live-name">
               <BadgesRow service={preview.service} showDatasource={false} />
-              <span className="dl-live-name-text">{preview.displayName}</span>
+              <span className="dl-live-name-text">{displayLabel(preview)}</span>
               <Badge variant="neutral">{t('downloads.provisional.inProgress')}</Badge>
             </div>
             {preview.clientIp && (

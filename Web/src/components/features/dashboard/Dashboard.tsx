@@ -464,6 +464,9 @@ const Dashboard: React.FC = () => {
     gameDetectionData?.identified_cache_bytes
   ]);
 
+  // Every card carries the same accent. `color` drives the icon chip and the sparkline, and a tile's
+  // identity is not a status, so varying it by card made bytes read as three different kinds of number.
+  // Colour on this page is reserved for something that changed: `tone: 'warning'` and the stale badge.
   const allStatCards = useMemo<AllStatCards>(
     () => ({
       totalCache: {
@@ -524,7 +527,7 @@ const Dashboard: React.FC = () => {
         subtitle: failedSections.dashboard ? t('common.failedToLoad') : undefined,
         badge: periodBadge,
         icon: TrendingUp,
-        color: 'green' as const,
+        color: 'blue' as const,
         visible: cardVisibility.bandwidthSaved,
         tooltip: statTooltips.bandwidthSaved
       },
@@ -535,7 +538,7 @@ const Dashboard: React.FC = () => {
         subtitle: failedSections.dashboard ? t('common.failedToLoad') : undefined,
         badge: periodBadge,
         icon: Zap,
-        color: 'teal' as const,
+        color: 'blue' as const,
         visible: cardVisibility.addedToCache,
         tooltip: statTooltips.addedToCache
       },
@@ -546,7 +549,7 @@ const Dashboard: React.FC = () => {
         subtitle: failedSections.dashboard ? t('common.failedToLoad') : undefined,
         badge: periodBadge,
         icon: Server,
-        color: 'teal' as const,
+        color: 'blue' as const,
         visible: cardVisibility.totalServed,
         tooltip: statTooltips.totalServed
       },
@@ -561,7 +564,7 @@ const Dashboard: React.FC = () => {
             : undefined,
         badge: liveBadge,
         icon: Download,
-        color: 'orange' as const,
+        color: 'blue' as const,
         visible: cardVisibility.activeDownloads,
         tooltip: statTooltips.activeDownloads
       },
@@ -576,7 +579,7 @@ const Dashboard: React.FC = () => {
             : undefined,
         badge: liveBadge,
         icon: Users,
-        color: 'orange' as const,
+        color: 'blue' as const,
         visible: cardVisibility.activeClients,
         tooltip: statTooltips.activeClients
       },
@@ -587,7 +590,7 @@ const Dashboard: React.FC = () => {
         subtitle: failedSections.dashboard ? t('common.failedToLoad') : undefined,
         badge: periodBadge,
         icon: Activity,
-        color: 'green' as const,
+        color: 'blue' as const,
         visible: cardVisibility.cacheHitRatio,
         tooltip: statTooltips.cacheHitRatio
       },
@@ -614,7 +617,7 @@ const Dashboard: React.FC = () => {
           ) : undefined,
         tone: hasCacheScan && cacheInfo?.scanStale ? 'warning' : undefined,
         icon: Files,
-        color: 'teal' as const,
+        color: 'blue' as const,
         visible: cardVisibility.cacheFiles,
         tooltip: statTooltips.cacheFiles
       },
@@ -705,7 +708,7 @@ const Dashboard: React.FC = () => {
             {isEditMode ? (
               <Button
                 variant="filled"
-                color="green"
+                color="primary"
                 size="md"
                 onClick={exitEditMode}
                 leftSection={<Check className="w-4 h-4" />}
@@ -716,7 +719,7 @@ const Dashboard: React.FC = () => {
               <Tooltip content={t('tooltips.rearrangeCards')} strategy="overlay">
                 <Button
                   variant="filled"
-                  color="gray"
+                  color="secondary"
                   size="md"
                   onClick={toggleEditMode}
                   leftSection={<Move className="w-4 h-4" />}
@@ -731,9 +734,9 @@ const Dashboard: React.FC = () => {
           <div className="hidden md:block">
             <SegmentedControl
               options={[
-                { value: 'balanced', label: 'Balanced' },
-                { value: '4-column', label: '4 Column' },
-                { value: '3-column', label: '3 Column' }
+                { value: 'balanced', label: t('dashboard.cardLayout.balanced') },
+                { value: '4-column', label: t('dashboard.cardLayout.fourColumn') },
+                { value: '3-column', label: t('dashboard.cardLayout.threeColumn') }
               ]}
               value={cardLayout}
               onChange={handleCardLayoutChange}
@@ -754,7 +757,7 @@ const Dashboard: React.FC = () => {
                     ~32px. */}
                 <Button
                   variant="filled"
-                  color="gray"
+                  color="secondary"
                   size="md"
                   onClick={() => setDropdownOpen(!dropdownOpen)}
                   aria-label={t('dashboard.hidden')}
@@ -857,7 +860,7 @@ const Dashboard: React.FC = () => {
                 shorter than the Edit/Done button next to it which always shows text. */}
             <Button
               variant="filled"
-              color="gray"
+              color="secondary"
               size="md"
               onClick={resetCardOrder}
               leftSection={<LayoutGrid className="w-4 h-4" />}

@@ -114,7 +114,6 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
       shortTitle={t('user.guest.sections.appearanceDisplayShort')}
       titleAccessory={helpAccessory}
       icon={Palette}
-      iconColor="var(--theme-icon-purple)"
       isExpanded={expanded}
       onToggle={() => setExpanded((prev) => !prev)}
       badge={
@@ -236,7 +235,6 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
         <AccordionSection
           title={t('user.guest.sections.display')}
           icon={Monitor}
-          iconColor="var(--theme-icon-blue)"
           surface="well"
           isExpanded={displayTogglesExpanded}
           onToggle={handleDisplayTogglesToggle}

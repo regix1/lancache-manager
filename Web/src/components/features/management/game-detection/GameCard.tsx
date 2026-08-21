@@ -124,7 +124,11 @@ const GameCard: React.FC<GameCardProps> = ({
         {isEpic && <EpicIcon size={10} className="game-card-epic-icon" />}
         {serviceBadgeLabel}
       </span>
-      {isSteam && <Badge variant="neutral">AppID: {game.game_app_id}</Badge>}
+      {isSteam && (
+        <Badge variant="neutral">
+          {t('management.gameDetection.appIdLabel')} {game.game_app_id}
+        </Badge>
+      )}
       {isEvicted && <EvictedBadge />}
       {!isEvicted && variant === 'active' && (game.evicted_downloads_count ?? 0) > 0 && (
         <Badge variant="warning">

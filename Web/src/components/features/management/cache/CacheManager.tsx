@@ -27,28 +27,10 @@ import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { formatBytes, formatCount } from '@utils/formatters';
+import { formatBytes, formatCount, formatRelativeTime } from '@utils/formatters';
 import { getErrorMessage } from '@utils/error';
 import { resolveDatasources } from '@utils/datasources';
 import type { CacheClearCompleteEvent } from '@contexts/SignalRContext/types';
-
-const formatScanTime = (timestamp: string): string => {
-  try {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return `${diffDays}d ago`;
-  } catch {
-    return '';
-  }
-};
 
 interface CacheManagerProps {
   isAdmin: boolean;
@@ -360,7 +342,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         shortTitle={t('management.cache.titleShort')}
         titleAccessory={helpAccessory}
         icon={Server}
-        iconColor="var(--theme-icon-green)"
         isExpanded={sectionExpanded}
         onToggle={() => setSectionExpanded((prev) => !prev)}
         badge={headerActions}
@@ -417,7 +398,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                         ? t('management.cache.cachedScan')
                         : t('management.cache.freshScan')}
                     </p>
-                    <p className="mgmt-stat__value">{formatScanTime(cacheSize.timestamp)}</p>
+                    <p className="mgmt-stat__value">{formatRelativeTime(cacheSize.timestamp)}</p>
                   </div>
                 </div>
               ) : (
@@ -450,7 +431,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     size="sm"
                     className="w-full"
                     variant={deleteMode === 'preserve' ? 'filled' : 'default'}
-                    color={deleteMode === 'preserve' ? 'blue' : undefined}
+                    color={deleteMode === 'preserve' ? 'primary' : undefined}
                     onClick={() => handleDeleteModeChange('preserve')}
                     awaitPermissions
                     loading={deleteModeLoading}
@@ -473,7 +454,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     size="sm"
                     className="w-full"
                     variant={deleteMode === 'full' ? 'filled' : 'default'}
-                    color={deleteMode === 'full' ? 'green' : undefined}
+                    color={deleteMode === 'full' ? 'primary' : undefined}
                     onClick={() => handleDeleteModeChange('full')}
                     awaitPermissions
                     loading={deleteModeLoading}
@@ -499,7 +480,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       size="sm"
                       className="w-full"
                       variant={deleteMode === 'rsync' ? 'filled' : 'default'}
-                      color={deleteMode === 'rsync' ? 'purple' : undefined}
+                      color={deleteMode === 'rsync' ? 'primary' : undefined}
                       onClick={() => handleDeleteModeChange('rsync')}
                       awaitPermissions
                       loading={deleteModeLoading}
@@ -544,7 +525,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     >
                       <Button
                         variant="filled"
-                        color="red"
+                        color="destructive"
                         size="sm"
                         onClick={(e) => {
                           e.stopPropagation();

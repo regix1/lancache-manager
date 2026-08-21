@@ -496,7 +496,6 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       title={t('management.themes.community.title')}
       titleAccessory={helpAccessory}
       icon={Globe}
-      iconColor="var(--theme-icon-blue)"
       count={communityThemes.length > 0 ? communityThemes.length : undefined}
       isExpanded={sectionExpanded}
       onToggle={() => setSectionExpanded((prev) => !prev)}
@@ -572,7 +571,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                       {theme.meta?.isDark ? (
                         <Moon className="w-3 h-3 text-themed-muted flex-shrink-0" />
                       ) : (
-                        <Sun className="w-3 h-3 icon-yellow flex-shrink-0" />
+                        <Sun className="w-3 h-3 text-themed-muted flex-shrink-0" />
                       )}
                     </div>
                     {theme.meta?.description && (
@@ -581,7 +580,11 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                       </p>
                     )}
                     <div className="flex items-center gap-2 text-xs text-themed-muted">
-                      {theme.meta?.author && <span>by {theme.meta.author}</span>}
+                      {theme.meta?.author && (
+                        <span>
+                          {t('management.themes.by')} {theme.meta.author}
+                        </span>
+                      )}
                       {theme.meta?.version && (
                         <Badge variant="neutral">v{theme.meta.version}</Badge>
                       )}
@@ -620,7 +623,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                 {/* Import Button */}
                 <Button
                   variant={isImported || isInstalled ? 'default' : 'filled'}
-                  color={isImported || isInstalled ? 'default' : 'purple'}
+                  color={isImported || isInstalled ? 'secondary' : 'run'}
                   size="xs"
                   fullWidth
                   onClick={() => handleImportTheme(theme)}

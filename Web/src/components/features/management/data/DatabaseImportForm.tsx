@@ -406,7 +406,7 @@ export function DatabaseImportForm({
 
           <Button
             variant="filled"
-            color="green"
+            color="run"
             onClick={handleImport}
             loading={importing}
             disabled={!validationResult?.valid || importing}

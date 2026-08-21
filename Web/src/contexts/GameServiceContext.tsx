@@ -1,4 +1,5 @@
 import React, { useState, useCallback, type ReactNode } from 'react';
+import i18n from '@/i18n';
 import { GAME_SERVICES, type GameServiceConfig, type GameServiceId } from '@/types/gameService';
 import type { ShowToastEvent } from '@contexts/SignalRContext/types';
 import { GameServiceContext } from './GameServiceContext.types';
@@ -47,7 +48,7 @@ export const GameServiceProvider: React.FC<GameServiceProviderProps> = ({ childr
         new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
           detail: {
             type: 'error',
-            message: 'Could not save your service selection for next time.',
+            message: i18n.t('prefill.errors.saveServiceSelectionFailed'),
             duration: 4000
           }
         })

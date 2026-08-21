@@ -9,6 +9,7 @@ import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
+import type { ColorToken } from '@utils/eventColors';
 
 type PrefillServiceIcon = React.ComponentType<{
   size?: number;
@@ -19,7 +20,7 @@ type PrefillServiceIcon = React.ComponentType<{
 interface PrefillServicePanelProps {
   serviceName: string;
   serviceIcon: PrefillServiceIcon;
-  iconColor: string;
+  iconColor: ColorToken;
   config: {
     enabledByDefault: boolean;
     durationHours: number;

@@ -250,7 +250,7 @@ function createSimpleRecoveryFunction<TData>(
                 ...n,
                 id: notificationId,
                 status: 'completed' as NotificationStatus,
-                message: config.staleMessage,
+                message: i18n.t(config.staleMessageKey),
                 progress: FULL_PROGRESS_PERCENT
               };
             }
@@ -374,7 +374,7 @@ function createCacheRemovalsRecoveryFunction(
           };
         },
         () => NOTIFICATION_IDS.GAME_REMOVAL,
-        'Game removal completed',
+        i18n.t('signalr.gameRemove.stale'),
         setNotifications,
         scheduleAutoDismiss
       );
@@ -397,7 +397,7 @@ function createCacheRemovalsRecoveryFunction(
           }
         }),
         () => NOTIFICATION_IDS.SERVICE_REMOVAL,
-        'Service removal completed',
+        i18n.t('signalr.serviceRemove.stale'),
         setNotifications,
         scheduleAutoDismiss
       );
@@ -422,7 +422,7 @@ function createCacheRemovalsRecoveryFunction(
           }
         }),
         () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
-        'Corruption removal completed',
+        i18n.t('signalr.corruptionRemove.stale'),
         setNotifications,
         scheduleAutoDismiss
       );

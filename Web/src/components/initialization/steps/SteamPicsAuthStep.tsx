@@ -155,7 +155,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
         {selectedMode === 'anonymous' && (
           <Button
             variant="filled"
-            color="blue"
+            color="primary"
             onClick={handleContinueAnonymous}
             loading={saving}
             disabled={saving}

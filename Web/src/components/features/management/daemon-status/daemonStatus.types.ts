@@ -1,5 +1,6 @@
 import type { ComponentProps } from 'react';
 import type { AccordionSection } from '@components/ui/AccordionSection';
+import type { ColorToken } from '@utils/eventColors';
 import type { DaemonStatusDto } from '../../../../types';
 
 /**
@@ -32,8 +33,8 @@ export interface AnonymousDaemonService {
   /** Accordion group member id, e.g. `integrations-battlenet`. */
   accordionId: string;
   icon: DaemonStatusIcon;
-  /** Theme custom property carrying the brand accent, e.g. `var(--theme-blizzard)`. */
-  iconColor: string;
+  /** Theme custom property carrying the brand accent, e.g. `--theme-blizzard`. */
+  iconColor: ColorToken;
   /** Reads the daemon status document for this service. */
   loadStatus: () => Promise<DaemonStatusDto>;
   /** Hub events that mean this daemon's status changed. */

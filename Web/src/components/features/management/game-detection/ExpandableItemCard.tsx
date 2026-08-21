@@ -119,7 +119,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             <Button
               onClick={() => onToggleDetails(id)}
               variant="filled"
-              color="gray"
+              color="secondary"
               size="sm"
               className="flex-shrink-0 min-h-[44px] sm:min-h-0"
             >
@@ -189,7 +189,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
               !diskObjectsAvailable
             }
             variant="filled"
-            color="red"
+            color="destructive"
             size="sm"
             className="flex-shrink-0 min-h-[44px] sm:min-h-0"
           >

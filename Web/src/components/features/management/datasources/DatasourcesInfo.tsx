@@ -401,7 +401,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         title={t('management.datasources.title')}
         titleAccessory={helpContent}
         icon={Logs}
-        iconColor="var(--theme-icon-purple)"
         isExpanded={isExpanded}
         onToggle={() => setIsExpanded((prev) => !prev)}
         badge={headerActions}
@@ -534,7 +533,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                           />
                           <Button
                             variant="filled"
-                            color="gray"
+                            color="primary"
                             size="sm"
                             className="datasource-row-btn"
                             onClick={(e) => {
@@ -555,7 +554,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                           {ds.cacheSizeSource === 'manual' && (
                             <Button
                               variant="filled"
-                              color="gray"
+                              color="secondary"
                               size="sm"
                               className="datasource-row-btn"
                               onClick={(e) => {
@@ -594,7 +593,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                       <div className="mgmt-row__actions">
                         <Button
                           variant="filled"
-                          color="gray"
+                          color="run"
                           size="sm"
                           className="datasource-row-btn"
                           onClick={(e) => {
@@ -614,7 +613,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                         </Button>
                         <Button
                           variant="filled"
-                          color="green"
+                          color="run"
                           size="sm"
                           className="datasource-row-btn"
                           onClick={(e) => {
@@ -701,7 +700,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
           <div className="flex flex-col gap-3">
             <Button
               variant="filled"
-              color="blue"
+              color="run"
               onClick={() => handleResetPosition(resetModal?.datasource || null, 'top')}
               awaitPermissions
               loading={actionLoading?.startsWith('reset-')}
@@ -720,7 +719,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
             </Button>
             <Button
               variant="filled"
-              color="gray"
+              color="secondary"
               onClick={() => setResetModal(null)}
               disabled={actionLoading !== null}
               fullWidth

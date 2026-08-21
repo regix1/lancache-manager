@@ -15,7 +15,7 @@ const BATTLENET_DAEMON: AnonymousDaemonService = {
   integrationKey: 'battlenet',
   accordionId: 'integrations-battlenet',
   icon: BlizzardIcon,
-  iconColor: 'var(--theme-blizzard)',
+  iconColor: '--theme-blizzard',
   loadStatus: () => ApiService.getBattleNetDaemonStatus(),
   refreshEvents: [
     'BattleNetStatusChanged',

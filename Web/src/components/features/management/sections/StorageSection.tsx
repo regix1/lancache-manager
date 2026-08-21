@@ -773,7 +773,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
           <div className="flex flex-wrap items-center justify-end gap-3">
             <Button
               variant="filled"
-              color="gray"
+              color="secondary"
               size="md"
               onClick={handleRecheckPermissions}
               disabled={isRechecking}
@@ -791,8 +791,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       <div className="mb-6 sm:mb-8">
         <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+            <h3 className="management-group-label caps-label">
               {t('management.sections.storage.logOperations')}
             </h3>
           </div>
@@ -817,8 +817,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       {/* ==================== CACHE OPERATIONS ==================== */}
       <div>
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+          <h3 className="management-group-label caps-label">
             {t('management.sections.storage.cacheOperations')}
           </h3>
         </div>
@@ -857,7 +857,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
               shortTitle={t('management.sections.data.evictedCacheDataShort')}
               titleAccessory={helpAccessory}
               icon={Archive}
-              iconColor="var(--theme-icon-orange)"
               isExpanded={evictedDataExpanded}
               onToggle={() => setEvictedDataExpanded((prev) => !prev)}
               badge={
@@ -1007,7 +1006,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                 <AccordionSection
                   title={t('management.sections.data.evictionSettingsHeading')}
                   icon={Sliders}
-                  iconColor="var(--theme-icon-blue)"
                   isExpanded={evictionSettingsExpanded}
                   onToggle={() => setEvictionSettingsExpanded((prev) => !prev)}
                   surface="well"
@@ -1070,6 +1068,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                       <div className="flex justify-end pt-3 border-t border-themed-primary">
                         <Button
                           onClick={handleSaveEviction}
+                          variant="filled"
+                          color="primary"
                           disabled={!isEvictionDirty || evictionSaving}
                           loading={evictionSaving}
                           className="w-full sm:w-40"
@@ -1091,7 +1091,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   }
                   surface="well"
                   icon={Database}
-                  iconColor="var(--theme-icon-emerald)"
                   isExpanded={evictedItemsExpanded}
                   onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
                 >

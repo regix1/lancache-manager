@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Database, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
@@ -32,6 +33,7 @@ interface CredentialsResponse {
 }
 
 export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupComplete }) => {
+  const { t } = useTranslation();
   const { authenticationEnabled } = useAuth();
   const [form, setForm] = useState<FormState>({
     username: 'lancache',
@@ -62,13 +64,13 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
     };
 
     if (!form.username.trim()) {
-      newErrors.username = 'Username is required';
+      newErrors.username = t('initialization.databaseSetup.errors.usernameRequired');
     }
 
     if (!form.password) {
-      newErrors.password = 'Password is required';
+      newErrors.password = t('initialization.databaseSetup.errors.passwordRequired');
     } else if (form.password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters';
+      newErrors.password = t('initialization.databaseSetup.errors.passwordTooShort');
     } else {
       const blockedPasswords = [
         'lancache',
@@ -80,28 +82,28 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
         'lancache123'
       ];
       if (blockedPasswords.includes(form.password.toLowerCase())) {
-        newErrors.password = 'This password is too common. Please choose a more secure password.';
+        newErrors.password = t('initialization.databaseSetup.errors.passwordTooCommon');
       }
 
       const username = form.username?.trim() || 'lancache';
       if (form.password.toLowerCase() === username.toLowerCase()) {
-        newErrors.password = 'Password cannot be the same as the username';
+        newErrors.password = t('initialization.databaseSetup.errors.passwordSameAsUsername');
       }
     }
 
     if (!form.confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password';
+      newErrors.confirmPassword = t('initialization.databaseSetup.errors.confirmPasswordRequired');
     } else if (form.password !== form.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
+      newErrors.confirmPassword = t('initialization.databaseSetup.errors.passwordsDoNotMatch');
     }
 
     if (authenticationEnabled === false && !form.apiKey.trim()) {
-      newErrors.apiKey = 'API key is required';
+      newErrors.apiKey = t('initialization.apiKey.errors.required');
     }
 
     setErrors(newErrors);
     return Object.values(newErrors).every((error) => error === null);
-  }, [authenticationEnabled, form]);
+  }, [authenticationEnabled, form, t]);
 
   const handleInputChange = useCallback(
     (field: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -146,15 +148,15 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
         }, 1500);
       } else {
         setSubmitError(
-          data.error || data.message || 'Failed to save credentials. Please try again.'
+          data.error || data.message || t('initialization.databaseSetup.errors.saveFailed')
         );
       }
     } catch (error: unknown) {
-      setSubmitError(getErrorMessage(error) || 'Network error. Please check your connection.');
+      setSubmitError(getErrorMessage(error) || t('initialization.databaseSetup.errors.network'));
     } finally {
       setIsSubmitting(false);
     }
-  }, [authenticationEnabled, form, validateForm, onSetupComplete]);
+  }, [authenticationEnabled, form, validateForm, onSetupComplete, t]);
 
   if (setupSuccess) {
     return (
@@ -164,9 +166,11 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
           <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-success">
             <CheckCircle className="w-7 h-7 icon-success" />
           </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">Setup Complete</h3>
+          <h3 className="text-lg font-semibold text-themed-primary mb-1">
+            {t('initialization.databaseSetup.savedHeading')}
+          </h3>
           <p className="text-sm text-themed-secondary max-w-md">
-            Database credentials saved successfully. Redirecting...
+            {t('initialization.databaseSetup.savedDescription')}
           </p>
         </div>
       </div>
@@ -186,20 +190,24 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
         <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
           <Database className="w-7 h-7 icon-info" />
         </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">Database Configuration</h3>
+        <h3 className="text-lg font-semibold text-themed-primary mb-1">
+          {t('initialization.databaseSetup.heading')}
+        </h3>
         <p className="text-sm text-themed-secondary max-w-md">
-          Configure PostgreSQL credentials for your lancache-manager database
+          {t('initialization.databaseSetup.description')}
         </p>
       </div>
 
       {/* Username Input */}
       <div>
-        <label className="form-field-label">Username</label>
+        <label className="form-field-label">
+          {t('initialization.databaseSetup.usernameLabel')}
+        </label>
         <input
           type="text"
           value={form.username}
           onChange={handleInputChange('username')}
-          placeholder="Database username"
+          placeholder={t('initialization.databaseSetup.usernamePlaceholder')}
           className="w-full px-3 py-2.5 themed-input"
           autoComplete="username"
           disabled={isSubmitting}
@@ -209,13 +217,15 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
 
       {/* Password Input */}
       <div>
-        <label className="form-field-label">Password</label>
+        <label className="form-field-label">
+          {t('initialization.databaseSetup.passwordLabel')}
+        </label>
         <div className="relative">
           <input
             type={showPassword ? 'text' : 'password'}
             value={form.password}
             onChange={handleInputChange('password')}
-            placeholder="Enter a strong password"
+            placeholder={t('initialization.databaseSetup.passwordPlaceholder')}
             className="w-full px-3 py-2.5 pr-10 themed-input"
             autoComplete="new-password"
             disabled={isSubmitting}
@@ -236,10 +246,10 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
               <div
                 className={`h-full rounded-full transition-[width] duration-150 ${
                   passwordStrength === 'weak'
-                    ? 'w-1/3 bg-red-500'
+                    ? 'w-1/3 bg-[var(--theme-error-text)]'
                     : passwordStrength === 'medium'
-                      ? 'w-2/3 bg-yellow-500'
-                      : 'w-full bg-green-500'
+                      ? 'w-2/3 bg-[var(--theme-warning-text)]'
+                      : 'w-full bg-[var(--theme-success-text)]'
                 }`}
               />
             </div>
@@ -253,10 +263,10 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
               }`}
             >
               {passwordStrength === 'weak'
-                ? 'Weak'
+                ? t('initialization.adminAccount.strengthWeak')
                 : passwordStrength === 'medium'
-                  ? 'Medium'
-                  : 'Strong'}
+                  ? t('initialization.adminAccount.strengthMedium')
+                  : t('initialization.adminAccount.strengthStrong')}
             </span>
           </div>
         )}
@@ -264,13 +274,15 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
 
       {/* Confirm Password Input */}
       <div>
-        <label className="form-field-label">Confirm Password</label>
+        <label className="form-field-label">
+          {t('initialization.databaseSetup.confirmPasswordLabel')}
+        </label>
         <div className="relative">
           <input
             type={showConfirmPassword ? 'text' : 'password'}
             value={form.confirmPassword}
             onChange={handleInputChange('confirmPassword')}
-            placeholder="Confirm your password"
+            placeholder={t('initialization.databaseSetup.confirmPasswordPlaceholder')}
             className="w-full px-3 py-2.5 pr-10 themed-input"
             autoComplete="new-password"
             disabled={isSubmitting}
@@ -291,20 +303,21 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
 
       {authenticationEnabled === false && (
         <div>
-          <label className="form-field-label">API key</label>
+          <label className="form-field-label">
+            {t('initialization.databaseSetup.apiKeyLabel')}
+          </label>
           <input
             type="password"
             value={form.apiKey}
             onChange={handleInputChange('apiKey')}
-            placeholder="Enter the API key"
+            placeholder={t('initialization.databaseSetup.apiKeyPlaceholder')}
             className="w-full px-3 py-2.5 themed-input"
             autoComplete="off"
             disabled={isSubmitting}
           />
           {errors.apiKey && <p className="text-xs text-themed-error mt-1">{errors.apiKey}</p>}
           <p className="text-xs text-themed-muted mt-1">
-            Authentication is disabled, so database setup still requires the key printed in the
-            container log or stored at /data/security/api_key.txt.
+            {t('initialization.databaseSetup.apiKeyHint')}
           </p>
         </div>
       )}
@@ -313,22 +326,25 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
       <div className="space-y-3">
         <Button
           variant="filled"
-          color="blue"
+          color="primary"
           type="submit"
           loading={isSubmitting}
           disabled={isSubmitting}
           fullWidth
         >
-          {isSubmitting ? 'Saving credentials...' : 'Configure Database'}
+          {isSubmitting
+            ? t('initialization.databaseSetup.submitting')
+            : t('initialization.databaseSetup.submit')}
         </Button>
       </div>
 
       {/* Info Box */}
       <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
         <p className="text-themed-secondary">
-          <strong className="text-themed-primary">First-time setup:</strong> These credentials will
-          be used to connect to the PostgreSQL database. The username is pre-filled with the default
-          value. Choose a strong password with at least 8 characters.
+          <strong className="text-themed-primary">
+            {t('initialization.databaseSetup.infoTitle')}
+          </strong>{' '}
+          {t('initialization.databaseSetup.infoBody')}
         </p>
       </div>
 

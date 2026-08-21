@@ -988,102 +988,109 @@ const DownloadsTab: React.FC = () => {
 
   // Removed serviceFilteredDownloads - now using latestDownloads.length directly for total count
 
-  // Grouping logic for different view modes
-  const createGroups = (
-    downloads: Download[],
-    groupUnknown = false
-  ): { groups: DownloadGroup[]; individuals: Download[] } => {
-    const groups: Record<string, DownloadGroup> = {};
-    const individuals: Download[] = [];
+  // Grouping logic for different view modes. Memoized on t so the group names regroup when the
+  // language changes, without rebuilding the whole grouping on every render.
+  const createGroups = useCallback(
+    (
+      downloads: Download[],
+      groupUnknown = false
+    ): { groups: DownloadGroup[]; individuals: Download[] } => {
+      const groups: Record<string, DownloadGroup> = {};
+      const individuals: Download[] = [];
 
-    downloads.forEach((download) => {
-      let groupKey: string;
-      let groupName: string;
-      let groupType: 'game' | 'metadata' | 'content';
+      downloads.forEach((download) => {
+        let groupKey: string;
+        let groupName: string;
+        let groupType: 'game' | 'metadata' | 'content';
 
-      // Check if this is an unknown game (platform-agnostic)
-      // Catches: null/undefined gameName (Rust processor), empty string, or gameName === service name (backend fallback)
-      const isUnknownGame =
-        !download.gameName ||
-        download.gameName.trim() === '' ||
-        download.gameName.toLowerCase() === download.service.toLowerCase();
+        // Check if this is an unknown game (platform-agnostic)
+        // Catches: null/undefined gameName (Rust processor), empty string, or gameName === service name (backend fallback)
+        const isUnknownGame =
+          !download.gameName ||
+          download.gameName.trim() === '' ||
+          download.gameName.toLowerCase() === download.service.toLowerCase();
 
-      // Check if we have a valid game (either by appId or by name)
-      const hasValidGameAppId = !!download.gameAppId;
-      const hasValidGameName = !isUnknownGame && !!download.gameName;
+        // Check if we have a valid game (either by appId or by name)
+        const hasValidGameAppId = !!download.gameAppId;
+        const hasValidGameName = !isUnknownGame && !!download.gameName;
 
-      if (hasValidGameAppId || hasValidGameName) {
-        // Use gameAppId for grouping when available (prevents duplicates from name variations)
-        // Fall back to gameName only if no appId exists
-        groupKey = hasValidGameAppId
-          ? `game-appid-${download.gameAppId}`
-          : `game-${download.gameName}`;
-        groupName = download.gameName || `Steam App ${download.gameAppId}`;
-        groupType = 'game';
-      } else if (groupUnknown && isUnmappedSteam(download)) {
-        // Group unmapped Steam content together when the setting is enabled.
-        // Only Steam is treated as "unknown" here - other services (WSUS, Riot,
-        // Epic, Xbox, Blizzard, etc.) are known sources and keep their own service
-        // group, so they are never folded into this bucket.
-        groupKey = 'unknown-other';
-        groupName = 'Unknown/Other';
-        groupType = 'content';
-      } else if ((download.service ?? '').toLowerCase() !== 'steam') {
-        const svcLower = (download.service ?? '').toLowerCase();
-        groupKey = `service-${svcLower}`;
-        const displayService = getServiceDisplayName(download.service ?? '');
-        groupName =
-          svcLower === 'epicgames'
-            ? 'Epic Games'
-            : `${displayService.charAt(0).toUpperCase() + displayService.slice(1)} Downloads`;
-        groupType = download.totalBytes === 0 ? 'metadata' : 'content';
-      } else {
-        // Unmapped Steam downloads - group at service level like other services
-        groupKey = 'service-steam';
-        groupName = 'Steam Downloads';
-        groupType = 'content';
-      }
+        if (hasValidGameAppId || hasValidGameName) {
+          // Use gameAppId for grouping when available (prevents duplicates from name variations)
+          // Fall back to gameName only if no appId exists
+          groupKey = hasValidGameAppId
+            ? `game-appid-${download.gameAppId}`
+            : `game-${download.gameName}`;
+          groupName =
+            download.gameName || t('downloads.tab.groups.steamApp', { appId: download.gameAppId });
+          groupType = 'game';
+        } else if (groupUnknown && isUnmappedSteam(download)) {
+          // Group unmapped Steam content together when the setting is enabled.
+          // Only Steam is treated as "unknown" here - other services (WSUS, Riot,
+          // Epic, Xbox, Blizzard, etc.) are known sources and keep their own service
+          // group, so they are never folded into this bucket.
+          groupKey = 'unknown-other';
+          groupName = t('downloads.tab.groups.unknownOther');
+          groupType = 'content';
+        } else if ((download.service ?? '').toLowerCase() !== 'steam') {
+          const svcLower = (download.service ?? '').toLowerCase();
+          groupKey = `service-${svcLower}`;
+          const displayService = getServiceDisplayName(download.service ?? '');
+          groupName =
+            svcLower === 'epicgames'
+              ? 'Epic Games'
+              : t('downloads.tab.groups.serviceDownloads', {
+                  service: displayService.charAt(0).toUpperCase() + displayService.slice(1)
+                });
+          groupType = download.totalBytes === 0 ? 'metadata' : 'content';
+        } else {
+          // Unmapped Steam downloads - group at service level like other services
+          groupKey = 'service-steam';
+          groupName = t('downloads.tab.groups.serviceDownloads', { service: 'Steam' });
+          groupType = 'content';
+        }
 
-      if (!groups[groupKey]) {
-        groups[groupKey] = {
-          id: groupKey,
-          name: groupName,
-          type: groupType,
-          // The Unknown/Other bucket spans downloads that each carry their own
-          // service (e.g. Steam). Use a neutral sentinel so the row renders the
-          // Unknown icon and "Unknown/Other" name instead of borrowing a real
-          // service's badge, icon, or on-disk size.
-          service: groupKey === 'unknown-other' ? 'unknown' : download.service,
-          downloads: [],
-          totalBytes: 0,
-          totalDownloaded: 0,
-          cacheHitBytes: 0,
-          cacheMissBytes: 0,
-          clientsSet: new Set<string>(),
-          firstSeen: download.startTimeUtc,
-          lastSeen: download.startTimeUtc,
-          count: 0
-        };
-      }
+        if (!groups[groupKey]) {
+          groups[groupKey] = {
+            id: groupKey,
+            name: groupName,
+            type: groupType,
+            // The Unknown/Other bucket spans downloads that each carry their own
+            // service (e.g. Steam). Use a neutral sentinel so the row renders the
+            // Unknown icon and "Unknown/Other" name instead of borrowing a real
+            // service's badge, icon, or on-disk size.
+            service: groupKey === 'unknown-other' ? 'unknown' : download.service,
+            downloads: [],
+            totalBytes: 0,
+            totalDownloaded: 0,
+            cacheHitBytes: 0,
+            cacheMissBytes: 0,
+            clientsSet: new Set<string>(),
+            firstSeen: download.startTimeUtc,
+            lastSeen: download.startTimeUtc,
+            count: 0
+          };
+        }
 
-      groups[groupKey].downloads.push(download);
-      groups[groupKey].totalBytes += download.totalBytes;
-      groups[groupKey].totalDownloaded += download.totalBytes;
-      groups[groupKey].cacheHitBytes += download.cacheHitBytes;
-      groups[groupKey].cacheMissBytes += download.cacheMissBytes;
-      groups[groupKey].clientsSet.add(download.clientIp);
-      groups[groupKey].count++;
+        groups[groupKey].downloads.push(download);
+        groups[groupKey].totalBytes += download.totalBytes;
+        groups[groupKey].totalDownloaded += download.totalBytes;
+        groups[groupKey].cacheHitBytes += download.cacheHitBytes;
+        groups[groupKey].cacheMissBytes += download.cacheMissBytes;
+        groups[groupKey].clientsSet.add(download.clientIp);
+        groups[groupKey].count++;
 
-      if (download.startTimeUtc < groups[groupKey].firstSeen) {
-        groups[groupKey].firstSeen = download.startTimeUtc;
-      }
-      if (download.startTimeUtc > groups[groupKey].lastSeen) {
-        groups[groupKey].lastSeen = download.startTimeUtc;
-      }
-    });
+        if (download.startTimeUtc < groups[groupKey].firstSeen) {
+          groups[groupKey].firstSeen = download.startTimeUtc;
+        }
+        if (download.startTimeUtc > groups[groupKey].lastSeen) {
+          groups[groupKey].lastSeen = download.startTimeUtc;
+        }
+      });
 
-    return { groups: Object.values(groups), individuals };
-  };
+      return { groups: Object.values(groups), individuals };
+    },
+    [t]
+  );
 
   const normalViewItems = useMemo((): (Download | DownloadGroup)[] => {
     const { groups, individuals } = createGroups(filteredDownloads, settings.groupUnknownGames);
@@ -1121,7 +1128,7 @@ const DownloadsTab: React.FC = () => {
           : new Date(b.startTimeUtc).getTime();
       return bTime - aTime;
     });
-  }, [filteredDownloads, settings.groupByFrequency, settings.groupUnknownGames]);
+  }, [createGroups, filteredDownloads, settings.groupByFrequency, settings.groupUnknownGames]);
 
   // Compact and Normal share the same grouping logic, so reuse normalViewItems
   const compactViewItems = normalViewItems;
@@ -1546,7 +1553,7 @@ const DownloadsTab: React.FC = () => {
                   {settings.searchQuery && (
                     <Button
                       variant="filled"
-                      color="gray"
+                      color="secondary"
                       size="xs"
                       onClick={() => setSettings({ ...settings, searchQuery: '' })}
                       className="absolute right-2 top-1/2 -translate-y-1/2 !p-1"
@@ -1558,7 +1565,7 @@ const DownloadsTab: React.FC = () => {
                 <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
                   <Button
                     variant="filled"
-                    color="gray"
+                    color="secondary"
                     size="sm"
                     onClick={() => setSettingsOpened(!settingsOpened)}
                     data-settings-button="true"
@@ -1782,7 +1789,7 @@ const DownloadsTab: React.FC = () => {
                       <Tooltip content={t('downloads.tab.tooltips.export')} position="bottom">
                         <Button
                           variant="filled"
-                          color="gray"
+                          color="secondary"
                           size="md"
                           className="btn-icon-square"
                           onClick={() => setShowExportOptions(!showExportOptions)}
@@ -1816,7 +1823,7 @@ const DownloadsTab: React.FC = () => {
                     <Tooltip content={t('downloads.tab.tooltips.fitColumns')} position="bottom">
                       <Button
                         variant="filled"
-                        color="gray"
+                        color="secondary"
                         size="md"
                         className="btn-icon-square"
                         onClick={() => retroViewRef.current?.resetWidths()}
@@ -1830,7 +1837,7 @@ const DownloadsTab: React.FC = () => {
                     <Tooltip content={t('downloads.tab.tooltips.refreshImages')} position="bottom">
                       <Button
                         variant="filled"
-                        color="gray"
+                        color="secondary"
                         size="md"
                         className="btn-icon-square"
                         onClick={handleClearImageCache}
@@ -1846,7 +1853,7 @@ const DownloadsTab: React.FC = () => {
                   <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
                     <Button
                       variant="filled"
-                      color="gray"
+                      color="secondary"
                       size="md"
                       className={`downloads-settings-trigger btn-icon-square${settingsOpened ? ' is-active' : ''}`}
                       onClick={() => setSettingsOpened(!settingsOpened)}
@@ -2014,13 +2021,22 @@ const DownloadsTab: React.FC = () => {
                       {settings.viewMode === 'card' && (
                         <div className="flex items-center gap-2 py-1">
                           <span className="text-sm text-[var(--theme-text-secondary)]">
-                            Card size
+                            {t('downloads.tab.display.cardSize')}
                           </span>
                           <SegmentedControl
                             options={[
-                              { value: 'small', label: 'S' },
-                              { value: 'medium', label: 'M' },
-                              { value: 'large', label: 'L' }
+                              {
+                                value: 'small',
+                                label: t('downloads.tab.display.cardSizeOptions.small')
+                              },
+                              {
+                                value: 'medium',
+                                label: t('downloads.tab.display.cardSizeOptions.medium')
+                              },
+                              {
+                                value: 'large',
+                                label: t('downloads.tab.display.cardSizeOptions.large')
+                              }
                             ]}
                             value={settings.cardSize}
                             onChange={(value) =>
@@ -2039,7 +2055,7 @@ const DownloadsTab: React.FC = () => {
                           onChange={(e) =>
                             setSettings({ ...settings, bannerOnly: e.target.checked })
                           }
-                          label="Banner only"
+                          label={t('downloads.tab.display.bannerOnly')}
                         />
                       )}
                     </div>
@@ -2066,7 +2082,7 @@ const DownloadsTab: React.FC = () => {
                             onChange={(e) =>
                               setSettings({ ...settings, showCacheHitBar: e.target.checked })
                             }
-                            label="Show cache hit bar"
+                            label={t('downloads.tab.behavior.showCacheHitBar')}
                           />
                         )}
                         {(settings.viewMode === 'normal' ||
@@ -2076,7 +2092,7 @@ const DownloadsTab: React.FC = () => {
                             onChange={(e) =>
                               setSettings({ ...settings, showEventBadges: e.target.checked })
                             }
-                            label="Show event badges"
+                            label={t('downloads.tab.behavior.showEventBadges')}
                           />
                         )}
                         {settings.viewMode === 'retro' && (
@@ -2085,7 +2101,7 @@ const DownloadsTab: React.FC = () => {
                             onChange={(e) =>
                               setSettings({ ...settings, showTimestamps: e.target.checked })
                             }
-                            label="Show timestamps"
+                            label={t('downloads.tab.behavior.showTimestamps')}
                           />
                         )}
                         {settings.viewMode === 'retro' && (
@@ -2094,7 +2110,7 @@ const DownloadsTab: React.FC = () => {
                             onChange={(e) =>
                               setSettings({ ...settings, showBannerColumn: e.target.checked })
                             }
-                            label="Show banner column"
+                            label={t('downloads.tab.behavior.showBannerColumn')}
                           />
                         )}
                       </div>
@@ -2131,7 +2147,7 @@ const DownloadsTab: React.FC = () => {
                       typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20
                     }
                     onPageChange={handlePageChange}
-                    itemLabel="items"
+                    itemLabel={t('ui.pagination.items')}
                     showCard={false}
                     totalDownloads={filteredDownloads.length}
                   />
@@ -2271,8 +2287,7 @@ const DownloadsTab: React.FC = () => {
           {/* Performance warning */}
           {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
             <Alert color="yellow">
-              Loading {itemsToDisplay.length} items. Consider using pagination for better
-              performance.
+              {t('downloads.tab.warnings.paginationSuggestion', { items: itemsToDisplay.length })}
             </Alert>
           )}
         </>

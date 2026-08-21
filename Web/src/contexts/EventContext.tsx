@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import i18n from '@/i18n';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
@@ -137,7 +138,7 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children, mockMode
         const message =
           activeResult.reason instanceof Error
             ? activeResult.reason.message
-            : 'Failed to fetch active events';
+            : i18n.t('events.errors.fetchActiveFailed');
         setError(message);
         console.error('Failed to fetch active events:', activeResult.reason);
       }
@@ -161,7 +162,7 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children, mockMode
           const message =
             allEventsResult.reason instanceof Error
               ? allEventsResult.reason.message
-              : 'Failed to fetch events';
+              : i18n.t('events.errors.fetchFailed');
           setError((prev) => prev ?? message);
           console.error('Failed to fetch events:', allEventsResult.reason);
         }

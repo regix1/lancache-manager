@@ -157,7 +157,7 @@ export function createSpecialCaseHandlers(
         id: NOTIFICATION_IDS.EPIC_GAME_MAPPING_UPDATE,
         type: 'epic_game_mapping',
         status: 'completed',
-        message: 'Epic Games Updated',
+        message: i18n.t('notifications.epicGameMappingsUpdated.title'),
         detailMessage,
         startedAt: new Date(),
         progress: FULL_PROGRESS_PERCENT,
@@ -188,7 +188,7 @@ export function createSpecialCaseHandlers(
         id: NOTIFICATION_IDS.XBOX_GAME_MAPPING_UPDATE,
         type: 'xbox_game_mapping',
         status: 'completed',
-        message: 'Xbox Games Updated',
+        message: i18n.t('notifications.xboxGameMappingsUpdated.title'),
         detailMessage,
         startedAt: new Date(),
         progress: FULL_PROGRESS_PERCENT,
@@ -245,7 +245,9 @@ export function createSpecialCaseHandlers(
         message: getSteamErrorTitle(event.errorType),
         detailMessage: event.stageKey
           ? i18n.t(event.stageKey, event.context ?? {})
-          : i18n.t('signalr.steamSession.disconnected', { result: event.result ?? 'Unknown' }),
+          : i18n.t('signalr.steamSession.disconnected', {
+              result: event.result ?? i18n.t('common.unknown')
+            }),
         details: {
           notificationType: 'error'
         },

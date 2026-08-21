@@ -7,6 +7,7 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { LoadingState } from '@components/ui/ManagerCard';
+import { SettingSection } from '@components/ui/SettingSection';
 import { useNotifications } from '@contexts/notifications';
 import { API_BASE } from '@utils/constants';
 import ApiService from '@services/api.service';
@@ -56,32 +57,6 @@ const fetchGcSettings = async (): Promise<GcSettings> => {
     return fallback;
   }
 };
-
-interface SettingSectionProps {
-  icon: React.ElementType;
-  title: string;
-  iconBgClass: string;
-  iconColorClass: string;
-  children: React.ReactNode;
-}
-
-const SettingSection: React.FC<SettingSectionProps> = ({
-  icon: Icon,
-  title,
-  iconBgClass,
-  iconColorClass,
-  children
-}) => (
-  <div className="p-4 rounded-lg bg-themed-tertiary">
-    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-themed-secondary">
-      <div className={`w-6 h-6 rounded flex items-center justify-center ${iconBgClass}`}>
-        <Icon className={`w-3.5 h-3.5 ${iconColorClass}`} />
-      </div>
-      <h4 className="text-sm font-semibold text-themed-secondary">{title}</h4>
-    </div>
-    <div className="space-y-3">{children}</div>
-  </div>
-);
 
 interface SettingRowProps {
   label: string;
@@ -262,12 +237,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Status - Enable toggle */}
-        <SettingSection
-          icon={Power}
-          title={t('management.gc.statusSection')}
-          iconBgClass="icon-bg-green"
-          iconColorClass="icon-green"
-        >
+        <SettingSection icon={Power} title={t('management.gc.statusSection')}>
           <label
             htmlFor="gc-enabled"
             className={`flex items-start gap-3 ${
@@ -291,12 +261,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
         </SettingSection>
 
         {/* Memory Settings */}
-        <SettingSection
-          icon={HardDrive}
-          title={t('management.gc.memorySettings')}
-          iconBgClass="icon-bg-blue"
-          iconColorClass="icon-blue"
-        >
+        <SettingSection icon={HardDrive} title={t('management.gc.memorySettings')}>
           <SettingRow
             label={t('management.gc.thresholdLabel')}
             description={t('management.gc.thresholdDesc')}
@@ -314,21 +279,13 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
       </div>
 
       {/* Actions */}
-      <div className="p-4 rounded-lg bg-themed-tertiary">
-        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-themed-secondary">
-          <div className="w-6 h-6 rounded flex items-center justify-center icon-bg-orange">
-            <Cpu className="w-3.5 h-3.5 icon-orange" />
-          </div>
-          <h4 className="text-sm font-semibold text-themed-secondary">
-            {t('management.gc.actions')}
-          </h4>
-        </div>
+      <SettingSection icon={Cpu} title={t('management.gc.actions')}>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <Button
             onClick={saveSettings}
             disabled={!isAdmin || saving || !hasChanges}
             variant="filled"
-            color="blue"
+            color="primary"
             size="sm"
             leftSection={
               saving ? <LoadingSpinner inline size="sm" /> : <Save className="w-4 h-4" />
@@ -352,7 +309,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
           </Button>
         </div>
         <p className="text-xs mt-3 text-themed-muted">{t('management.gc.noRestartRequired')}</p>
-      </div>
+      </SettingSection>
     </div>
   );
 };

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Brush, Bell, Database } from 'lucide-react';
 import { Checkbox } from '@components/ui/Checkbox';
+import { SettingSection } from '@components/ui/SettingSection';
 import preferencesService from '@services/preferences.service';
 import themeService from '@services/theme.service';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
@@ -34,35 +35,6 @@ const PreferenceRow: React.FC<PreferenceRowProps> = ({
       <p className="text-sm font-medium text-themed-primary">{label}</p>
       <p className="text-xs mt-0.5 text-themed-muted">{description}</p>
     </div>
-  </div>
-);
-
-interface PreferenceSectionProps {
-  icon: React.ElementType;
-  title: string;
-  iconBgVar: string;
-  iconColorVar: string;
-  children: React.ReactNode;
-}
-
-const PreferenceSection: React.FC<PreferenceSectionProps> = ({
-  icon: Icon,
-  title,
-  iconBgVar,
-  iconColorVar,
-  children
-}) => (
-  <div className="p-4 rounded-lg bg-themed-tertiary">
-    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-themed-secondary">
-      <div
-        className="w-6 h-6 rounded flex items-center justify-center"
-        style={{ backgroundColor: `var(${iconBgVar}-subtle)` }}
-      >
-        <Icon className="w-3.5 h-3.5" style={{ color: `var(${iconColorVar})` }} />
-      </div>
-      <h4 className="text-sm font-semibold text-themed-secondary">{title}</h4>
-    </div>
-    <div className="space-y-1">{children}</div>
   </div>
 );
 
@@ -149,12 +121,7 @@ const DisplayPreferences: React.FC = () => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {/* Visual Settings */}
-      <PreferenceSection
-        icon={Brush}
-        title={t('management.sections.displayPreferences.visual')}
-        iconBgVar="--theme-icon-purple"
-        iconColorVar="--theme-icon-purple"
-      >
+      <SettingSection icon={Brush} title={t('management.sections.displayPreferences.visual')}>
         <PreferenceRow
           label={t('management.sections.displayPreferences.sharpCorners')}
           description={t('management.sections.displayPreferences.sharpCornersDesc')}
@@ -167,15 +134,10 @@ const DisplayPreferences: React.FC = () => {
           checked={disableTooltips}
           onChange={handleTooltipsChange}
         />
-      </PreferenceSection>
+      </SettingSection>
 
       {/* Notification Settings */}
-      <PreferenceSection
-        icon={Bell}
-        title={t('management.sections.displayPreferences.notifications')}
-        iconBgVar="--theme-icon-orange"
-        iconColorVar="--theme-icon-orange"
-      >
+      <SettingSection icon={Bell} title={t('management.sections.displayPreferences.notifications')}>
         <PreferenceRow
           label={t('management.sections.displayPreferences.disableStickyNotifications')}
           description={t('management.sections.displayPreferences.disableStickyNotificationsDesc')}
@@ -188,22 +150,17 @@ const DisplayPreferences: React.FC = () => {
           checked={picsAlwaysVisible}
           onChange={handlePicsVisibleChange}
         />
-      </PreferenceSection>
+      </SettingSection>
 
       {/* Downloads Settings */}
-      <PreferenceSection
-        icon={Database}
-        title={t('management.sections.displayPreferences.downloads')}
-        iconBgVar="--theme-icon-blue"
-        iconColorVar="--theme-icon-blue"
-      >
+      <SettingSection icon={Database} title={t('management.sections.displayPreferences.downloads')}>
         <PreferenceRow
           label={t('management.sections.displayPreferences.showDatasourceLabels')}
           description={t('management.sections.displayPreferences.showDatasourceLabelsDesc')}
           checked={showDatasourceLabels}
           onChange={handleDatasourceLabelsChange}
         />
-      </PreferenceSection>
+      </SettingSection>
     </div>
   );
 };

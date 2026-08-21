@@ -80,7 +80,6 @@ const ContentPathRow: React.FC<ContentPathRowProps> = ({ path }) => {
           <Button
             type="button"
             variant="subtle"
-            color="gray"
             size="sm"
             className="status-check-content-edge-toggle"
             aria-expanded={edgesOpen}

@@ -489,7 +489,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: 'No active session',
+        message: t('prefill.auth.errors.noActiveSession'),
         details: { notificationType: 'error' }
       });
       return false;
@@ -501,7 +501,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         addNotification({
           type: 'generic',
           status: 'failed',
-          message: 'Please enter your 2FA code',
+          message: t('prefill.auth.errors.twoFactorRequired'),
           details: { notificationType: 'error' }
         });
         return false;
@@ -519,7 +519,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         addNotification({
           type: 'generic',
           status: 'completed',
-          message: '2FA code sent',
+          message: t('prefill.auth.status.twoFactorSent'),
           details: { notificationType: 'success' }
         });
 
@@ -562,7 +562,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         addNotification({
           type: 'generic',
           status: 'failed',
-          message: 'Please enter your email verification code',
+          message: t('prefill.auth.errors.emailCodeRequired'),
           details: { notificationType: 'error' }
         });
         return false;
@@ -580,7 +580,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         addNotification({
           type: 'generic',
           status: 'completed',
-          message: 'Email code sent',
+          message: t('prefill.auth.status.emailCodeSent'),
           details: { notificationType: 'success' }
         });
 
@@ -620,7 +620,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         addNotification({
           type: 'generic',
           status: 'failed',
-          message: 'Please enter the authorization code from Epic Games',
+          message: t('prefill.auth.errors.epicAuthCodeRequired'),
           details: { notificationType: 'error' }
         });
         return false;
@@ -638,7 +638,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         addNotification({
           type: 'generic',
           status: 'completed',
-          message: 'Authorization code sent, authenticating...',
+          message: t('prefill.auth.status.authCodeSent'),
           details: { notificationType: 'success' }
         });
 
@@ -801,7 +801,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: 'Please enter both username and password',
+        message: t('prefill.auth.errors.credentialsRequired'),
         details: { notificationType: 'error' }
       });
       return false;
@@ -818,7 +818,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       );
 
       if (!challenge) {
-        throw new Error('No challenge received from daemon');
+        throw new Error(t('prefill.auth.errors.noChallenge'));
       }
 
       showLoginCard(challenge.operationId);
@@ -835,7 +835,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           30
         );
         if (!passChallenge) {
-          throw new Error('No password challenge received');
+          throw new Error(t('prefill.auth.errors.noPasswordChallenge'));
         }
 
         if (passChallenge.credentialType === 'password') {
@@ -845,7 +845,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           addNotification({
             type: 'generic',
             status: 'completed',
-            message: 'Credentials sent, authenticating...',
+            message: t('prefill.auth.status.credentialsSent'),
             details: { notificationType: 'success' }
           });
 

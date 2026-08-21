@@ -358,7 +358,6 @@ const GrafanaEndpoints: React.FC = () => {
       shortTitle={t('management.grafana.titleShort')}
       titleAccessory={helpAccessory}
       icon={Link}
-      iconColor="var(--theme-icon-indigo)"
       isExpanded={expanded}
       onToggle={() => setExpanded((prev) => !prev)}
       badge={accessBadge}
@@ -412,7 +411,7 @@ const GrafanaEndpoints: React.FC = () => {
               {isAdmin && (
                 <Button
                   variant="filled"
-                  color="gray"
+                  color="secondary"
                   size="sm"
                   disabled={metricsSecurity.source !== 'ui' || isToggling}
                   onClick={handleResetToDefault}

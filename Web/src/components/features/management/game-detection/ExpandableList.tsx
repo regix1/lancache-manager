@@ -45,7 +45,7 @@ const ExpandableList: React.FC<ExpandableListProps> = ({
         {visibleCount > maxInitial && (
           <Button
             variant="filled"
-            color="gray"
+            color="secondary"
             size="xs"
             onClick={handleShowLess}
             className="text-xs"
@@ -71,7 +71,7 @@ const ExpandableList: React.FC<ExpandableListProps> = ({
           </p>
           <Button
             variant="filled"
-            color="gray"
+            color="secondary"
             size="xs"
             onClick={handleLoadMore}
             className="text-xs"

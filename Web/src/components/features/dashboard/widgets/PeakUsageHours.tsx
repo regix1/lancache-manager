@@ -150,11 +150,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   // Get intensity color based on activity level (heatmap style)
   // The scale classes are declared after the ring classes in dashboard.css, so a cell carrying both
   // keeps the fill chosen here and takes only the ring from the marker class.
-  const getIntensityColor = (
-    value: number,
-    isCurrentHour: boolean,
-    isPeakHour: boolean
-  ): string => {
+  const getIntensityColor = (value: number, isPeakHour: boolean): string => {
     if (value === 0) {
       // Cells sit on the tertiary well surface, so idle needs its own step
       return 'peak-scale-swatch--0';
@@ -165,11 +161,6 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     // Peak hour gets special color
     if (isPeakHour && value > 0) {
       return 'peak-legend-swatch--peak';
-    }
-
-    // Current hour gets primary color (only if today is in range)
-    if (isCurrentHour && isTodayInRange) {
-      return 'peak-legend-swatch--now';
     }
 
     // Use intensity-based coloring
@@ -379,8 +370,10 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
             const isCurrentHour = marksCurrentHour && hourData.hour === currentHour;
             const isPeakHour = hasBusiestHour && hourData.hour === peakHour;
             const cellValue = hourlyMetricValue(hourData, metric);
-            // An idle current hour keeps its idle fill, so the ring comes from a class of its own.
-            const markerClass = cellValue === 0 && isCurrentHour ? 'peak-legend-swatch--now' : '';
+            // The current hour keeps whatever fill its activity earned and is marked by the ring
+            // alone. Filling it would paint the same blue the busiest intensity step uses, so the
+            // legend would teach one colour for "now" and the grid would spend it on "most active".
+            const markerClass = isCurrentHour ? 'peak-legend-swatch--now' : '';
 
             return (
               <Tooltip
@@ -431,7 +424,6 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
                 <div
                   className={`w-full h-6 rounded cursor-pointer transition-colors duration-200 hover:brightness-110 ${getIntensityColor(
                     cellValue,
-                    isCurrentHour,
                     isPeakHour
                   )} ${markerClass}`}
                 />

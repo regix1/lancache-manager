@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import i18n from '@/i18n';
 import { APP_EVENTS, REFRESH_RATES, type RefreshRate } from '@utils/constants';
 import ApiService from '@services/api.service';
 import { assertOk } from '@services/apiError';
@@ -22,7 +23,7 @@ const notifyRefreshRateSaveFailed = (): void => {
     new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
       detail: {
         type: 'error',
-        message: 'Failed to save your refresh rate setting.',
+        message: i18n.t('common.refreshRate.errors.saveFailed'),
         duration: 4000
       }
     })

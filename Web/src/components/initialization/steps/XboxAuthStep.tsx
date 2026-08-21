@@ -212,7 +212,7 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
       {/* Connect Button */}
       <Button
         variant="filled"
-        color="blue"
+        color="primary"
         onClick={handleStartLogin}
         loading={state.loading}
         disabled={state.loading}

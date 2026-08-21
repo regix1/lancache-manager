@@ -385,7 +385,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         if (!isAbortError(err) || timedOut) {
           setConnectionStatus('disconnected');
           if (!hasData.current) {
-            setError('Failed to fetch dashboard data from API');
+            // Read for truthiness only and never rendered as text, so this is a flag rather
+            // than a message. Consumers switch on `error || failed` and show their own copy.
+            setError('Failed to fetch dashboard data from API'); // i18n-exempt
           }
           // Figures for the range already displayed are kept, so a blip does not blank a working
           // dashboard; figures for a range the fetch never reached are cleared on rangeKey.

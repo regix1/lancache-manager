@@ -508,7 +508,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
           {!isCurrentMonth && (
             <Button
               variant="filled"
-              color="gray"
+              color="secondary"
               size="md"
               className="max-sm:min-h-11"
               onClick={goToToday}

@@ -110,8 +110,8 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
       <div className="mb-6 sm:mb-8">
         <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+            <h3 className="management-group-label caps-label">
               {t('management.sections.settings.groupSystem')}
             </h3>
           </div>
@@ -123,7 +123,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
             title={t('management.sections.settings.apiAuth')}
             titleAccessory={apiAuthHelpAccessory}
             icon={Shield}
-            iconColor="var(--theme-icon-green)"
             isExpanded={apiAuthExpanded}
             onToggle={() => setApiAuthExpanded((prev) => !prev)}
             badge={
@@ -141,7 +140,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
             title={t('management.sections.settings.demoMode')}
             titleAccessory={demoModeHelpAccessory}
             icon={Sparkles}
-            iconColor="var(--theme-icon-purple)"
             isExpanded={demoModeExpanded}
             onToggle={() => setDemoModeExpanded((prev) => !prev)}
             badge={
@@ -162,7 +160,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
                 <Button
                   onClick={() => setMockMode(!mockMode)}
                   variant="filled"
-                  color={mockMode ? 'blue' : 'gray'}
+                  color={mockMode ? 'primary' : 'secondary'}
                   className="w-full sm:w-36"
                 >
                   {mockMode
@@ -187,8 +185,8 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
       {/* PREFERENCES */}
       <div className="mb-6 sm:mb-8">
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-purple)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+          <h3 className="management-group-label caps-label">
             {t('management.sections.settings.groupPreferences')}
           </h3>
         </div>
@@ -198,7 +196,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
             title={t('management.sections.settings.displayPreferences')}
             titleAccessory={displayPreferencesHelpAccessory}
             icon={Settings}
-            iconColor="var(--theme-icon-blue)"
             isExpanded={displayPrefsExpanded}
             onToggle={() => setDisplayPrefsExpanded((prev) => !prev)}
           >
@@ -210,8 +207,8 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
       {/* PERFORMANCE */}
       <div>
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-orange)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+          <h3 className="management-group-label caps-label">
             {t('management.sections.settings.groupPerformance')}
           </h3>
         </div>
@@ -222,7 +219,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
             shortTitle={t('management.sections.settings.performanceOptimizationsShort')}
             titleAccessory={performanceOptimizationsHelpAccessory}
             icon={Gauge}
-            iconColor="var(--theme-icon-orange)"
             isExpanded={performanceExpanded}
             onToggle={() => setPerformanceExpanded((prev) => !prev)}
           >

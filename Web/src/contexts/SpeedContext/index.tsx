@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import i18n from '@/i18n';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useRefreshRate } from '@contexts/useRefreshRate';
 import { useAuth } from '@contexts/useAuth';
@@ -154,7 +155,11 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
       // bridge instead (mirrors NotificationsContext.tsx:332-356).
       window.dispatchEvent(
         new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
-          detail: { type: 'error', message: 'Failed to refresh download speeds.', duration: 4000 }
+          detail: {
+            type: 'error',
+            message: i18n.t('dashboard.errors.refreshSpeedsFailed'),
+            duration: 4000
+          }
         })
       );
     }

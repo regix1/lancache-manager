@@ -79,7 +79,9 @@ const ActiveDownloadItem: React.FC<{
   const displayName = isResolvedGameName(game.gameName, game.service)
     ? game.gameName!
     : game.gameName ||
-      (game.depotId ? `Depot ${game.depotId}` : getServiceDisplayName(game.service));
+      (game.depotId
+        ? t('downloads.active.depotLabel', { depotId: game.depotId })
+        : getServiceDisplayName(game.service));
   return (
     <div className="rdl-row rdl-row-active">
       <div className="rdl-row-main">
@@ -152,7 +154,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
           item.totalDownloaded > 0 ? (item.cacheHitBytes / item.totalDownloaded) * 100 : 0,
         cacheHitBytes: item.cacheHitBytes,
         startTime: item.lastSeen,
-        clientInfo: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
+        clientInfo: t('downloads.tab.normal.counts.clients', { count: item.clientsSet.size }),
         clientIp: null as string | null, // Multiple clients, no single IP
         count: item.count,
         hasGameName: item.downloads.some((d: Download) =>
@@ -169,7 +171,9 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
         name: isResolvedGameName(item.gameName, item.service)
           ? item.gameName!
           : item.gameName ||
-            (item.depotId ? `Depot ${item.depotId}` : getServiceDisplayName(item.service)),
+            (item.depotId
+              ? t('downloads.active.depotLabel', { depotId: item.depotId })
+              : getServiceDisplayName(item.service)),
         totalBytes: item.totalBytes,
         cacheHitPercent: item.cacheHitPercent,
         cacheHitBytes: item.cacheHitBytes,
@@ -645,7 +649,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             >
               <Button
                 variant="filled"
-                color={showDetails ? 'blue' : 'gray'}
+                color={showDetails ? 'primary' : 'secondary'}
                 size="md"
                 onClick={toggleDetails}
                 aria-label={t('dashboard.downloadsPanel.showDetails')}

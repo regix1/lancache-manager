@@ -368,7 +368,7 @@ export function usePersistentPrefillAuth(
   const submit = useCallback(
     async (credential: string): Promise<boolean> => {
       if (!stored.pendingChallenge) {
-        fail('No pending credential challenge');
+        fail(t('prefill.persistent.errors.noPendingChallenge'));
         return false;
       }
 
@@ -388,7 +388,7 @@ export function usePersistentPrefillAuth(
         return false;
       }
     },
-    [fail, stored.pendingChallenge, submitChallenge]
+    [fail, stored.pendingChallenge, submitChallenge, t]
   );
 
   const poll = useCallback(async (): Promise<PollResult> => {
@@ -516,9 +516,7 @@ export function usePersistentPrefillAuth(
         // login could go invisible forever - nothing else ever re-fetches this attempt's result
         // (diagnostic §3.2, wedge W1). Surface it as a real error instead so the card's existing
         // error alert shows it.
-        fail(
-          'Persistent login did not return a challenge or authentication result. Please try again.'
-        );
+        fail(t('prefill.persistent.errors.noResult'));
         return null;
       } catch (err) {
         if (getPersistentLoginEpoch(service) !== startEpoch) {
@@ -603,7 +601,7 @@ export function usePersistentPrefillAuth(
 
     if (flags.needsTwoFactor) {
       if (!twoFactorCode.trim()) {
-        fail('Please enter your 2FA code');
+        fail(t('prefill.auth.errors.twoFactorRequired'));
         return false;
       }
       return submit(twoFactorCode);
@@ -611,7 +609,7 @@ export function usePersistentPrefillAuth(
 
     if (flags.needsEmailCode) {
       if (!emailCode.trim()) {
-        fail('Please enter your email verification code');
+        fail(t('prefill.auth.errors.emailCodeRequired'));
         return false;
       }
       return submit(emailCode);
@@ -619,14 +617,14 @@ export function usePersistentPrefillAuth(
 
     if (flags.needsAuthorizationCode) {
       if (!authorizationCode.trim()) {
-        fail('Please enter the authorization code');
+        fail(t('prefill.auth.errors.authCodeRequired'));
         return false;
       }
       return submit(authorizationCode);
     }
 
     if (!username.trim() || !password.trim()) {
-      fail('Please enter both username and password');
+      fail(t('prefill.auth.errors.credentialsRequired'));
       return false;
     }
 
@@ -684,6 +682,7 @@ export function usePersistentPrefillAuth(
     stored.pendingChallenge,
     submit,
     submitChallenge,
+    t,
     twoFactorCode,
     username
   ]);

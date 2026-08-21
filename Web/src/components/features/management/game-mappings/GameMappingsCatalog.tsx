@@ -10,6 +10,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { SignalREventName } from '@contexts/SignalRContext/types';
 import { FormattedDateCell } from '@components/common/FormattedDateTime';
 import { getErrorMessage } from '@utils/error';
+import { themeColorVar, type ColorToken } from '@utils/eventColors';
 
 /**
  * The fields every service's mapping row carries under the same name. The fields that differ
@@ -59,7 +60,7 @@ interface GameMappingCatalogLabels {
 
 interface GameMappingsCatalogProps<TMapping extends GameMappingRow> {
   accordionId: string;
-  accentColor: string;
+  accentColor: ColorToken;
   /**
    * localStorage bucket for the resizable column widths. Changing it discards every user's saved
    * layout for this catalog.
@@ -313,7 +314,7 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
                 data={mappings}
                 keyExtractor={identifierColumn.value}
                 maxHeight="400px"
-                accentColor={() => accentColor}
+                accentColor={() => themeColorVar(accentColor)}
                 resizable
                 striped
                 storageKey={columnWidthStorageKey}

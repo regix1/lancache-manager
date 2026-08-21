@@ -140,11 +140,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
             <div className="dash-readout-item">
               <div
                 className={`dash-readout-value${
-                  recordedChange > 0
-                    ? ' is-warning'
-                    : recordedChange < 0
-                      ? ' is-info'
-                      : ' is-primary'
+                  recordedChange > 0 ? ' is-warning' : recordedChange < 0 ? ' is-info' : ''
                 }`}
               >
                 {recordedChangeText}

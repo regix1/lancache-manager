@@ -481,16 +481,6 @@
   color: var(--theme-text-primary);
 }
 
-/* Ban status stays the one deliberately loud pill on the page (bans are the highest-stakes
-   state) but now goes through <Badge variant="error"/"neutral"> + this override instead of a
-   bespoke badge family — same visual weight, implemented via the shared component. The
-   "lifted" (neutral) state uses Badge's default subtle styling as-is, no override needed. */
-.prefill-ban-badge.status-badge-error {
-  background-color: var(--theme-icon-red);
-  color: var(--theme-button-text);
-  border: none;
-}
-
 .prefill-ban-meta {
   display: flex;
   flex-wrap: wrap;

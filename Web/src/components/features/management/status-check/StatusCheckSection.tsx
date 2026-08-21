@@ -344,7 +344,7 @@ const StatusCheckSection: React.FC = () => {
         <p className="text-sm text-themed-secondary">
           {t(`${keys}.loadFailed`, { error: statusError })}
         </p>
-        <Button variant="filled" color="blue" size="sm" onClick={() => void loadAll()}>
+        <Button variant="filled" color="secondary" size="sm" onClick={() => void loadAll()}>
           {t(`${keys}.retry`)}
         </Button>
       </div>
@@ -395,9 +395,10 @@ const StatusCheckSection: React.FC = () => {
 
         {(lastResult || isRunning) && (
           <section>
-            <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-              <div>
-                <h3 className="integrations-group-label caps-label">{t(`${keys}.serverLane`)}</h3>
+            <div className="flex items-center justify-between gap-3 flex-wrap mb-3 sm:mb-4">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+                <h3 className="management-group-label caps-label">{t(`${keys}.serverLane`)}</h3>
               </div>
               <div className="flex items-center gap-2">
                 {lastResult && (
@@ -428,7 +429,10 @@ const StatusCheckSection: React.FC = () => {
         )}
 
         <section>
-          <h3 className="integrations-group-label caps-label mb-3">{t(`${keys}.deviceLane`)}</h3>
+          <div className="flex items-center gap-2 mb-3 sm:mb-4">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+            <h3 className="management-group-label caps-label">{t(`${keys}.deviceLane`)}</h3>
+          </div>
           <ClientProbeCard
             state={probeState}
             onRetry={retryProbe}
@@ -437,7 +441,10 @@ const StatusCheckSection: React.FC = () => {
         </section>
 
         <section>
-          <h3 className="integrations-group-label caps-label mb-3">{t(`${keys}.testLane`)}</h3>
+          <div className="flex items-center gap-2 mb-3 sm:mb-4">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+            <h3 className="management-group-label caps-label">{t(`${keys}.testLane`)}</h3>
+          </div>
           <TestDomainCard groups={domainGroups} />
         </section>
 

@@ -72,11 +72,14 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
         isActive ? 'border-primary' : isPreviewing ? 'border-warning' : 'border-themed-secondary'
       }`}
     >
-      {/* Status Badge - Top Right */}
+      {/* Status Badge - Top Right. Each state takes the fill and the ink of one status pair rather
+          than putting a fixed white on a themed fill: white on the accent was 3.68:1 on the dark
+          theme and 2.77:1 on graphite, and on the light theme's amber-100 preview ground it was
+          1.11:1 - white on near-white. Both pairs below clear 4.5:1 in all three themes. */}
       {(isActive || isPreviewing) && (
         <div
-          className={`absolute -top-2 -right-2 px-2 py-0.5 text-xs font-medium rounded-full text-white ${
-            isActive ? 'bg-primary' : 'bg-warning'
+          className={`absolute -top-2 -right-2 px-2 py-0.5 text-xs font-medium rounded-full ${
+            isActive ? 'bg-info text-info' : 'bg-warning text-warning'
           }`}
         >
           {isActive ? t('management.themes.activeBadge') : t('management.themes.previewBadge')}
@@ -95,7 +98,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
             {theme.meta.isDark ? (
               <Moon className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
             ) : (
-              <Sun className="w-3.5 h-3.5 icon-yellow flex-shrink-0" />
+              <Sun className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
             )}
             {isSystem && <Lock className="w-3 h-3 text-themed-muted flex-shrink-0" />}
           </div>

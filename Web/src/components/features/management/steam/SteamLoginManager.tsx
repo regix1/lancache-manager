@@ -188,7 +188,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                     onClick={handleSwitchToAnonymous}
                     loading={loading}
                     variant="filled"
-                    color="red"
+                    color="secondary"
                     size="sm"
                     stableWidth
                   >
@@ -198,7 +198,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                   <Button
                     onClick={() => setShowAuthModal(true)}
                     variant="filled"
-                    color="blue"
+                    color="primary"
                     size="sm"
                     disabled={loading}
                   >

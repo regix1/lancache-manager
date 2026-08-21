@@ -367,7 +367,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
               <Button
                 size="xs"
                 variant="filled"
-                color="gray"
+                color="secondary"
                 onClick={onBackToSteamAuth}
                 className="mt-2"
               >
@@ -458,7 +458,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
           </p>
           <Button
             variant="filled"
-            color="blue"
+            color="run"
             size="sm"
             onClick={handleDownload}
             loading={initializing && selectedMethod === 'cloud'}
@@ -492,7 +492,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
           </p>
           <Button
             variant="filled"
-            color="green"
+            color="run"
             size="sm"
             onClick={handleGenerate}
             loading={initializing && selectedMethod === 'generate'}
@@ -525,7 +525,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             </p>
             <Button
               variant="filled"
-              color="orange"
+              color="run"
               size="sm"
               onClick={handleContinueUpdate}
               loading={initializing && selectedMethod === 'continue'}

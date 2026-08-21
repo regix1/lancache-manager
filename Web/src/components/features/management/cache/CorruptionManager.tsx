@@ -1165,7 +1165,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         shortTitle={t('management.corruption.titleShort')}
         titleAccessory={helpAccessory}
         icon={AlertTriangle}
-        iconColor="var(--theme-icon-yellow)"
         isExpanded={sectionExpanded}
         onToggle={() => setSectionExpanded((expanded) => !expanded)}
         badge={headerActions}
@@ -1301,7 +1300,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                   !diskObjectsAvailable
                                 }
                                 variant="filled"
-                                color="red"
+                                color="destructive"
                                 size="xs"
                                 stableWidth
                               >
@@ -1320,7 +1319,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                               together. */}
                           <Button
                             variant="filled"
-                            color="gray"
+                            color="secondary"
                             size="xs"
                             className="mgmt-row__toggle"
                             onClick={() => toggleDetails(service)}

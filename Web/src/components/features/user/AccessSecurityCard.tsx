@@ -136,7 +136,6 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
       title={t('user.guest.sections.accessSecurity')}
       titleAccessory={helpAccessory}
       icon={Shield}
-      iconColor="var(--theme-icon-green)"
       isExpanded={expanded}
       onToggle={() => setExpanded((prev) => !prev)}
       badge={
@@ -184,7 +183,7 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
                 {isAdmin && (
                   <Button
                     variant="filled"
-                    color="gray"
+                    color="secondary"
                     size="md"
                     /* Matches the duration dropdown beside it: same w-40, and the same height at
                        both tiers. The phone touch floor is carried by the shared button and

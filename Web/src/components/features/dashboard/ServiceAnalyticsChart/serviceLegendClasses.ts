@@ -20,8 +20,10 @@ export function getLegendColorClass(label: string, index: number, activeTab: Tab
     return index === 0 ? 'legend-color-cache-hit' : 'legend-color-cache-miss';
   }
 
-  const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9.]/g, '');
-  return getServiceLegendClass(normalizedLabel);
+  // The label goes in as it came, so this row and the slice beside it look the brand up with the
+  // same key. Stripping here only on the legend side could give a row a brand dot beside a grey
+  // slice, since the canvas passes the raw service name.
+  return getServiceLegendClass(label);
 }
 
 /**

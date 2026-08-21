@@ -92,7 +92,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
             <Button
               onClick={onDownloadFromGitHub}
               variant="filled"
-              color="blue"
+              color="run"
               fullWidth
               loading={isDownloading}
               aria-busy={isDownloading}
@@ -114,7 +114,13 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
                 <span>{t('modals.fullScan.or')}</span>
               </div>
             )}
-            <Button onClick={onConfirm} variant="default" fullWidth disabled={isDownloading}>
+            <Button
+              onClick={onConfirm}
+              variant="filled"
+              color="run"
+              fullWidth
+              disabled={isDownloading}
+            >
               {t('modals.fullScan.fullScanButton')}
             </Button>
           </>

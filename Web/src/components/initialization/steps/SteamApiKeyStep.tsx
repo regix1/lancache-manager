@@ -136,7 +136,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
 
         <Button
           variant="filled"
-          color="green"
+          color="primary"
           onClick={() =>
             handleSave(
               t('initialization.steamWebApiKey.pleaseEnter'),

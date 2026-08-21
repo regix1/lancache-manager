@@ -14,6 +14,11 @@ export interface LiveDownloadPreview {
   service: string;
   /** Resolved game title, or the truthful service label for service-only traffic. */
   displayName: string;
+  /**
+   * Translation key for displayName when the label is this app's own text (depot placeholder
+   * or generic service fallback), null when displayName is the backend's own game name.
+   */
+  displayNameKey: string | null;
   /** False when displayName is only a service label, never an identified game. */
   hasResolvedGame: boolean;
   gameAppId: number | null;
@@ -81,6 +86,17 @@ const SERVICE_FALLBACK_LABELS: Record<string, string> = {
   localhost: 'Localhost',
   'ip-address': 'Direct IP',
   unknown: 'Unknown Service'
+};
+
+// Display text for the two labels above that are this app's own words rather than a product
+// name. Kept OUT of SERVICE_FALLBACK_LABELS because that map is compared character for
+// character against the backend's gameName in isResolvedGameName, so translating a value
+// there would silently stop service-only traffic from being recognized. Rendered through the
+// preview's displayNameKey; this module stays free of translated strings so it also stays
+// loadable outside the bundler.
+const SERVICE_LABEL_KEYS: Record<string, string> = {
+  'ip-address': 'downloads.services.directIp',
+  unknown: 'downloads.services.unknown'
 };
 
 // Xbox content reaches the cache tagged wsus and is later canonicalized to the xbox
@@ -153,14 +169,22 @@ export const buildTrafficKey = (game: GameSpeedInfo): string => {
 // Display mirrors the Active tab naming: resolved title first, then the raw reported name,
 // then a depot placeholder, then the service label. No game title is ever invented for
 // service-only traffic.
-const previewDisplayName = (game: GameSpeedInfo, resolved: boolean): string => {
+const previewDisplayName = (
+  game: GameSpeedInfo,
+  resolved: boolean
+): { displayName: string; displayNameKey: string | null } => {
   const name = (game.gameName ?? '').trim();
-  if (resolved) return name;
-  if (name) return name;
+  if (resolved) return { displayName: name, displayNameKey: null };
+  if (name) return { displayName: name, displayNameKey: null };
   const depotId = previewDepotId(game);
-  if (depotId !== null) return `Depot ${depotId}`;
+  if (depotId !== null) {
+    return { displayName: `Depot ${depotId}`, displayNameKey: 'downloads.active.depotLabel' };
+  }
   const raw = normalizeService(game.service);
-  return SERVICE_FALLBACK_LABELS[raw] ?? (game.service ?? '').trim();
+  return {
+    displayName: SERVICE_FALLBACK_LABELS[raw] ?? (game.service ?? '').trim(),
+    displayNameKey: SERVICE_LABEL_KEYS[raw] ?? null
+  };
 };
 
 const parseTimeMs = (value: string | null | undefined): number => {
@@ -274,13 +298,15 @@ export const reconcileLivePreviews = (
     }
 
     const resolved = isResolvedGameName(game.gameName, game.service);
+    const display = previewDisplayName(game, resolved);
     liveByKey.set(key, {
       cacheHitBytes: game.cacheHitBytes,
       preview: {
         key,
         clientIp: (game.clientIp ?? '').trim(),
         service: normalizeService(game.service),
-        displayName: previewDisplayName(game, resolved),
+        displayName: display.displayName,
+        displayNameKey: display.displayNameKey,
         hasResolvedGame: resolved,
         gameAppId: previewGameAppId(game),
         depotId: previewDepotId(game),

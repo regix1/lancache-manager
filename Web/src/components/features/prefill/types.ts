@@ -10,7 +10,7 @@ import {
   Database,
   type LucideIcon
 } from 'lucide-react';
-import i18n from '../../../i18n';
+import i18n from '@/i18n';
 import type { DropdownOption } from '@components/ui/EnhancedDropdown';
 import type { MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 import type { NetworkDiagnostics } from '@services/api.service';

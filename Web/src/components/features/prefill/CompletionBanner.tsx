@@ -29,7 +29,7 @@ export function CompletionBanner({ completion, onDismiss }: CompletionBannerProp
         </div>
         <Button
           variant="filled"
-          color="gray"
+          color="secondary"
           size="sm"
           onClick={onDismiss}
           className="flex-shrink-0 min-h-[44px] sm:min-h-8 w-full sm:w-auto"

@@ -332,8 +332,8 @@ const DataSection: React.FC<DataSectionProps> = ({
       <div className="mb-6 sm:mb-8">
         <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+            <h3 className="management-group-label caps-label">
               {t('management.sections.data.dataImport')}
             </h3>
           </div>
@@ -354,8 +354,8 @@ const DataSection: React.FC<DataSectionProps> = ({
       {/* Subsection: Database Management */}
       <div>
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-cyan)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+          <h3 className="management-group-label caps-label">
             {t('management.sections.data.databaseManagement')}
           </h3>
         </div>
@@ -365,7 +365,6 @@ const DataSection: React.FC<DataSectionProps> = ({
             title={t('management.sections.data.databaseManagement')}
             titleAccessory={databaseHelp}
             icon={Database}
-            iconColor="var(--theme-icon-cyan)"
             isExpanded={databaseManagementExpanded}
             onToggle={() => setDatabaseManagementExpanded((prev) => !prev)}
           >
@@ -424,7 +423,7 @@ const DataSection: React.FC<DataSectionProps> = ({
                 }
                 loading={loading}
                 variant="filled"
-                color="red"
+                color="destructive"
                 className="w-full sm:w-auto"
               >
                 <span className="hidden sm:inline">

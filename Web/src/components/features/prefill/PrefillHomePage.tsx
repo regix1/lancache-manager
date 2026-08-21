@@ -154,7 +154,12 @@ export function PrefillHomePage({
                   <Shield size={14} />
                   {t(service.homeLoginNoteKey)}
                 </span>
-                <Button variant="filled" size="md" onClick={() => onServiceStart(service.id)}>
+                <Button
+                  variant="filled"
+                  color="run"
+                  size="md"
+                  onClick={() => onServiceStart(service.id)}
+                >
                   {t('prefill.home.startSession')}
                 </Button>
               </div>

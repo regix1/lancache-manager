@@ -261,7 +261,7 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
           </span>
           <Button
             variant="filled"
-            color="green"
+            color="secondary"
             size="sm"
             onClick={handleApply}
             disabled={isDisabled || customMinutesValue === null}

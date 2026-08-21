@@ -114,12 +114,12 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     if (wasLoggedOut) {
       setShowAuthModal(true);
       hasShownRevocationModal.current = true; // Mark as shown
-      onError?.('Your session has expired or been revoked. Please authenticate again.');
+      onError?.(t('management.auth.notifications.sessionRevoked'));
     }
 
     // Update ref for next check
     prevAuthMode.current = authMode;
-  }, [authMode, authChecking, onError, rotatedKey]);
+  }, [authMode, authChecking, onError, rotatedKey, t]);
 
   const checkAuth = async () => {
     setAuthChecking(true);
@@ -154,7 +154,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
 
   const handleAuthenticate = async () => {
     if (!apiKey.trim()) {
-      setAuthError('Please enter an API key');
+      setAuthError(t('auth.errors.missingKey'));
       return;
     }
 
@@ -171,7 +171,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
         // Close modal and clear
         setShowAuthModal(false);
         clearCredentials();
-        onSuccess?.('Authentication successful! You can now use management features.');
+        onSuccess?.(t('management.auth.notifications.authenticated'));
       } else {
         setAuthError(result.message || t('modals.steamAuth.errors.authenticationFailed'));
       }
@@ -204,9 +204,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     setShowAuthModal(false);
     clearCredentials();
     setAuthError('');
-    onSuccess?.(
-      `Guest mode activated! You have ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''} to view data before re-authentication is required.`
-    );
+    onSuccess?.(t('management.auth.notifications.guestModeStarted', { count: guestDurationHours }));
   };
 
   const handleRegenerate = async () => {
@@ -277,10 +275,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
       // Refresh Steam contexts to ensure UI is updated
       await refreshSteamAuth();
       refreshSteamWebApiStatus();
-      onSuccess?.('Logged out successfully. This device slot is now available for another user.');
+      onSuccess?.(t('management.auth.notifications.loggedOut'));
     } catch (error: unknown) {
       console.error('Error logging out:', error);
-      onError?.('Failed to logout: ' + getErrorMessage(error));
+      onError?.(t('management.auth.errors.logoutFailed', { message: getErrorMessage(error) }));
     } finally {
       setAuthLoading(false);
     }
@@ -311,11 +309,11 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   const getAlertColor = () => {
     switch (authMode) {
       case 'authenticated':
-        return 'green';
+        return 'success';
       case 'guest':
-        return 'blue';
+        return 'info';
       default:
-        return 'yellow';
+        return 'warning';
     }
   };
 
@@ -383,7 +381,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                 {isMainAdmin && (
                   <Button
                     variant="filled"
-                    color="red"
+                    color="destructive"
                     size="sm"
                     onClick={() => {
                       setRegenerateError('');
@@ -397,7 +395,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                 )}
                 <Button
                   variant="filled"
-                  color="gray"
+                  color="secondary"
                   size="sm"
                   onClick={handleLogout}
                   loading={authLoading}
@@ -414,7 +412,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                 {isGuestModeAvailable && (
                   <Button
                     variant="filled"
-                    color="blue"
+                    color="secondary"
                     onClick={handleStartGuestMode}
                     disabled={authLoading}
                     size="sm"
@@ -426,7 +424,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                 )}
                 <Button
                   variant="filled"
-                  color="yellow"
+                  color="primary"
                   onClick={() => setShowAuthModal(true)}
                   size="sm"
                   className="flex-1 sm:flex-none"
@@ -440,7 +438,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
             {authMode === 'guest' && (
               <Button
                 variant="filled"
-                color="yellow"
+                color="primary"
                 size="sm"
                 onClick={() => setShowAuthModal(true)}
                 className="w-full sm:w-auto"
@@ -557,7 +555,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
               {authMode === 'unauthenticated' && isGuestModeAvailable && (
                 <Button
                   variant="filled"
-                  color="blue"
+                  color="secondary"
                   onClick={handleStartGuestMode}
                   disabled={authLoading}
                 >
@@ -568,7 +566,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
 
             <Button
               variant="filled"
-              color="green"
+              color="primary"
               onClick={handleAuthenticate}
               loading={authLoading}
               disabled={!credentialsFilled}

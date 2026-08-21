@@ -336,7 +336,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
           {!waitingForMobileConfirmation && !awaitingChallenge && (
             <Button
               variant="filled"
-              color="green"
+              color="primary"
               onClick={handleSubmit}
               disabled={
                 loading ||

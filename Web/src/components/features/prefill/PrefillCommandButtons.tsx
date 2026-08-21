@@ -141,9 +141,9 @@ export function PrefillCommandButtons({
   };
 
   const getIconColorClass = (cmd: CommandButton): string => {
-    if (cmd.color === 'green') return 'icon-green';
-    if (cmd.color === 'red') return 'icon-red';
-    if (cmd.color === 'blue') return 'icon-blue';
+    if (cmd.color === 'green') return 'icon-success';
+    if (cmd.color === 'red') return 'icon-error';
+    if (cmd.color === 'blue') return 'icon-primary';
     return 'text-themed-secondary';
   };
 

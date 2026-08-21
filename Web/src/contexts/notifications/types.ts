@@ -407,7 +407,11 @@ export interface SimpleRecoveryConfig<TData = unknown> {
   createNotification: (
     data: TData
   ) => Omit<UnifiedNotification, 'id' | 'type' | 'status' | 'startedAt'>;
-  staleMessage: string;
+  /**
+   * Key rather than text: the registry is a module-level literal, so a translated string here
+   * would freeze at import time and survive a language change.
+   */
+  staleMessageKey: string;
 }
 
 /**

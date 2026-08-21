@@ -15,7 +15,7 @@ const RIOT_DAEMON: AnonymousDaemonService = {
   integrationKey: 'riot',
   accordionId: 'integrations-riot',
   icon: RiotIcon,
-  iconColor: 'var(--theme-riot)',
+  iconColor: '--theme-riot',
   loadStatus: () => ApiService.getRiotDaemonStatus(),
   refreshEvents: ['RiotStatusChanged', 'RiotDaemonSessionCreated', 'RiotDaemonSessionTerminated']
 };

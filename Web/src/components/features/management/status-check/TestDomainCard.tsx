@@ -101,7 +101,7 @@ const TestDomainCard: React.FC<TestDomainCardProps> = ({ groups }) => {
         />
         <Button
           variant="filled"
-          color="blue"
+          color="secondary"
           size="md"
           className="min-h-10 flex-shrink-0"
           loading={testing}

@@ -3,7 +3,7 @@ import { formatBytes } from '@utils/formatters';
 import { formatDurationFromSeconds, type PrefillSessionDto } from '../types';
 import type { DaemonAuthState } from '@/types/operations';
 import type { LogEntryType } from '../ActivityLog.utils';
-import i18n from '../../../../i18n';
+import i18n from '@/i18n';
 import { COMPLETION_NOTIFICATION_WINDOW_MS, getEventName } from './prefillConstants';
 import type { PrefillProgress, BackgroundCompletion, CachedAnimationItem } from './prefillTypes';
 import { STORAGE_KEYS } from '@utils/constants';
@@ -240,9 +240,10 @@ export function registerPrefillEventHandlers(
         currentAnimationAppIdRef.current = '';
 
         // Log game completion with download size
-        const gameName = progress.currentAppName || `App ${progress.currentAppId}`;
+        const gameName =
+          progress.currentAppName || t('prefill.log.unnamedApp', { appId: progress.currentAppId });
         const sizeDownloaded = formatBytes(progress.bytesDownloaded || progress.totalBytes || 0);
-        addLog('success', `${gameName} - Downloaded ${sizeDownloaded}`);
+        addLog('success', t('prefill.log.gameDownloaded', { gameName, size: sizeDownloaded }));
 
         // Track for summary
         downloadedGamesCountRef.current++;
@@ -264,8 +265,9 @@ export function registerPrefillEventHandlers(
         );
       } else if (progress.state === 'already_cached') {
         // Log cached game
-        const gameName = progress.currentAppName || `App ${progress.currentAppId}`;
-        addLog('info', `${gameName} - Already up to date`);
+        const gameName =
+          progress.currentAppName || t('prefill.log.unnamedApp', { appId: progress.currentAppId });
+        addLog('info', t('prefill.log.gameAlreadyUpToDate', { gameName }));
 
         // Track for summary
         cachedGamesCountRef.current++;
@@ -372,13 +374,16 @@ export function registerPrefillEventHandlers(
           const parts: string[] = [];
           if (downloaded > 0) {
             parts.push(
-              `${downloaded} game${downloaded === 1 ? '' : 's'} downloaded (${formatBytes(totalBytes)})`
+              t('prefill.log.summaryDownloaded', {
+                count: downloaded,
+                size: formatBytes(totalBytes)
+              })
             );
           }
           if (cached > 0) {
-            parts.push(`${cached} game${cached === 1 ? '' : 's'} already up to date`);
+            parts.push(t('prefill.log.summaryAlreadyUpToDate', { count: cached }));
           }
-          addLog('info', `Summary: ${parts.join(', ')}`);
+          addLog('info', t('prefill.log.summary', { parts: parts.join(', ') }));
         }
 
         isCancelling.current = false;

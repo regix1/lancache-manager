@@ -437,8 +437,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
       <div>
         <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+            <h3 className="management-group-label caps-label">
               {t('management.sections.clients.groupManagement')}
             </h3>
           </div>
@@ -450,7 +450,6 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
             title={t('management.sections.clients.title')}
             titleAccessory={nicknamesHelpAccessory}
             icon={Users}
-            iconColor="var(--theme-icon-blue)"
             count={clientGroups.length}
             isExpanded={nicknamesExpanded}
             onToggle={() => setNicknamesExpanded((prev) => !prev)}
@@ -459,7 +458,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                 <SectionHeaderActions>
                   {/* The section's only primary action, so it stays outside a menu. A second
                       section action brings the kebab back and this button stays beside it. */}
-                  <Button variant="filled" color="blue" size="md" onClick={handleCreateGroup}>
+                  <Button variant="filled" color="primary" size="md" onClick={handleCreateGroup}>
                     {t('management.sections.clients.addNickname')}
                   </Button>
                 </SectionHeaderActions>
@@ -538,7 +537,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                                   <Tooltip content={t('common.moreActions')}>
                                     <Button
                                       variant="filled"
-                                      color="gray"
+                                      color="secondary"
                                       size="sm"
                                       className="btn-icon-square btn-icon-square--sm pointer-target-44"
                                       onClick={() =>
@@ -587,7 +586,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                             >
                               <Button
                                 variant="filled"
-                                color="gray"
+                                color="secondary"
                                 size="sm"
                                 className="btn-icon-square btn-icon-square--sm pointer-target-44"
                                 onClick={() => toggleGroupExpanded(group.id)}
@@ -696,7 +695,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                           </span>
                           <Button
                             variant="filled"
-                            color="blue"
+                            color="primary"
                             size="md"
                             onClick={handleNameSelected}
                             disabled={selectedUnnamedIps.length === 0}
@@ -759,7 +758,6 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
             title={t('management.sections.clients.excludeFromStats')}
             titleAccessory={exclusionsHelpAccessory}
             icon={EyeOff}
-            iconColor="var(--theme-icon-red)"
             count={excludedRules.length}
             isExpanded={exclusionsExpanded}
             onToggle={() => setExclusionsExpanded((prev) => !prev)}
@@ -797,6 +795,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                     />
                     <Button
                       onClick={handleAddKnownIps}
+                      variant="filled"
+                      color="secondary"
                       className="sm:w-40"
                       disabled={selectedKnownIps.length === 0 || loadingExcluded || savingExcluded}
                     >
@@ -820,6 +820,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                     />
                     <Button
                       onClick={handleAddExcluded}
+                      variant="filled"
+                      color="secondary"
                       className="sm:w-40"
                       disabled={
                         loadingExcluded ||
@@ -891,7 +893,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                           <Tooltip content={t('management.sections.clients.removeIp')}>
                             <Button
                               variant="filled"
-                              color="gray"
+                              color="secondary"
                               size="sm"
                               className="btn-icon-square btn-icon-square--sm delete-hover pointer-target-44"
                               onClick={() => handleRemoveExcluded(rule.ip)}
@@ -915,7 +917,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   <Button
                     onClick={handleSaveExcluded}
                     variant="filled"
-                    color="blue"
+                    color="primary"
                     disabled={!hasExcludedChanges || savingExcluded || loadingExcluded}
                     loading={savingExcluded}
                     className="sm:w-40"
@@ -931,7 +933,6 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
             title={t('management.sections.clients.hostnames.title')}
             titleAccessory={hostnamesHelpAccessory}
             icon={Network}
-            iconColor="var(--theme-icon-teal)"
             isExpanded={hostnamesExpanded}
             onToggle={() => setHostnamesExpanded((prev) => !prev)}
             badge={

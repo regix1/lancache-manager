@@ -145,7 +145,6 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
       return chartData.labels.map((label, index) => ({
         label,
         value: originalData[index],
-        color: dataset.backgroundColor[index],
         percentage: chartData.total > 0 ? (originalData[index] / chartData.total) * 100 : 0,
         valueLabel: formatBytes(originalData[index]),
         colorClassName: getLegendColorClass(label, index, activeTab)
@@ -292,7 +291,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                 <Tooltip content={toggleAriaLabel}>
                   <Button
                     variant="filled"
-                    color="gray"
+                    color="secondary"
                     size="md"
                     onClick={handleToggleList}
                     aria-pressed={!showList}
@@ -421,7 +420,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
               action={
                 <Button
                   variant="filled"
-                  color="gray"
+                  color="secondary"
                   size="sm"
                   onClick={() =>
                     window.dispatchEvent(

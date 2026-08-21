@@ -1,19 +1,15 @@
 import type { StatusCheckResult } from '@services/api.service';
-import { getServiceBadgeStyles, getServiceColorClass } from '@utils/serviceColors';
-
-const UNKNOWN_SERVICE_COLOR_CLASS = getServiceColorClass('');
+import { UNKNOWN_COLOR_VAR, getServiceColorVar } from '@utils/serviceColors';
+import type { ColorToken } from '@utils/eventColors';
 
 /**
- * Accent color string for AccordionSection's iconColor prop. Cache-domains lists
- * many services outside the app's known color map (nvidia, uplay, apple, ...);
- * for those the derived `--theme-<x>-subtle` variable would not exist, so fall
- * back to the theme accent instead of an invalid CSS variable.
+ * Colour token for AccordionSection's iconColor prop. Cache-domains lists many services
+ * outside the app's known colour map (nvidia, apple, ...); those fall back to the muted
+ * text property, which is not a brand accent, so use the theme accent for them instead.
  */
-export function getServiceAccentColor(service: string): string {
-  if (getServiceColorClass(service) === UNKNOWN_SERVICE_COLOR_CLASS) {
-    return 'var(--theme-accent)';
-  }
-  return getServiceBadgeStyles(service).color;
+export function getServiceAccentColor(service: string): ColorToken {
+  const colorVar = getServiceColorVar(service);
+  return colorVar === UNKNOWN_COLOR_VAR ? '--theme-accent' : colorVar;
 }
 
 /**

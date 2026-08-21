@@ -47,7 +47,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
         <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-1 h-5 rounded-full bg-[var(--theme-steam)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            <h3 className="management-group-label caps-label">
               {t('management.sections.integrations.steamIntegration')}
             </h3>
           </div>
@@ -67,7 +67,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
       <div className="mb-6 sm:mb-8">
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-epic)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+          <h3 className="management-group-label caps-label">
             {t('management.sections.integrations.epicIntegration')}
           </h3>
         </div>
@@ -85,7 +85,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
       <div className="mb-6 sm:mb-8">
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-blizzard)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+          <h3 className="management-group-label caps-label">
             {t('management.sections.integrations.battlenetIntegration')}
           </h3>
         </div>
@@ -98,7 +98,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
       <div className="mb-6 sm:mb-8">
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-riot)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+          <h3 className="management-group-label caps-label">
             {t('management.sections.integrations.riotIntegration')}
           </h3>
         </div>
@@ -109,7 +109,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
       <div className="mb-6 sm:mb-8">
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-xbox)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+          <h3 className="management-group-label caps-label">
             {t('management.sections.integrations.xboxIntegration')}
           </h3>
         </div>
@@ -126,8 +126,8 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
       {/* Monitoring - Grafana endpoints (last group: no bottom margin) */}
       <div>
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+          <h3 className="management-group-label caps-label">
             {t('management.sections.integrations.monitoringMetrics')}
           </h3>
         </div>

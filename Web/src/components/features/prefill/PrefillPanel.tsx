@@ -1148,7 +1148,7 @@ function ServicePrefillPanel({
           </div>
           <Button
             variant="filled"
-            color="blue"
+            color="run"
             onClick={handleStartNewSession}
             className="flex-shrink-0"
           >
@@ -1215,7 +1215,7 @@ function ServicePrefillPanel({
               const endSessionButton = (
                 <Button
                   variant="filled"
-                  color="red"
+                  color="stop"
                   size="md"
                   onClick={handleEndSession}
                   className="flex-shrink-0 min-h-[44px] min-w-[44px] sm:min-h-10"
@@ -1293,6 +1293,7 @@ function ServicePrefillPanel({
                   {!signalR.isLoggedIn && !isSessionExpired && (
                     <Button
                       variant="filled"
+                      color="primary"
                       size="md"
                       onClick={handleOpenAuthModal}
                       className="flex-shrink-0 w-full sm:w-auto min-h-[44px] sm:min-h-10"

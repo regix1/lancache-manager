@@ -960,9 +960,22 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // Render Helpers: Session Row (one responsive item — desktop + mobile)
   // ============================================================
 
+  // parseUserAgent keeps returning plain English: its strings are also the search haystack in
+  // sessionMatchesSearch, which matches against the raw user agent, and 'Unknown' is the
+  // sentinel the OS check reads. Only the text that reaches the screen is translated, here.
+  const deviceTitle = (userAgent: string | null): string => {
+    if (!userAgent) return t('activeSessions.device.unknownDevice');
+    const parsed = parseUserAgent(userAgent);
+    const browser =
+      parsed.browser === 'Unknown' ? t('activeSessions.device.unknownBrowser') : parsed.browser;
+    return parsed.os !== 'Unknown'
+      ? t('activeSessions.device.browserOnOs', { browser, os: parsed.os })
+      : browser;
+  };
+
   const renderSessionItem = (session: Session) => {
     const sessionStatus = getSessionStatus(session);
-    const parsedUA = parseUserAgent(session.userAgent);
+    const deviceLabel = deviceTitle(session.userAgent);
     const isExpanded = expandedSessions.has(session.id);
     const admin = isAdminSession(session);
     const guest = isGuestSession(session);
@@ -1013,8 +1026,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           <StatusDot state={sessionStatus} label={t(`activeSessions.status.${sessionStatus}`)} />
           <div className="mgmt-row__body">
             <div className="session-row__titleline">
-              <Tooltip content={parsedUA.title} position="top" className="block min-w-0">
-                <span className="mgmt-row__title block truncate">{parsedUA.title}</span>
+              <Tooltip content={deviceLabel} position="top" className="block min-w-0">
+                <span className="mgmt-row__title block truncate">{deviceLabel}</span>
               </Tooltip>
               <span
                 className={`themed-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
@@ -1055,7 +1068,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 purpose: as `!important` it would outrank that rule and cost the touch target. */}
             <Button
               variant="default"
-              color="blue"
               size="xs"
               className="w-20 sm:!min-h-7 max-sm:!text-sm"
               onClick={() => handleEditSession(session)}
@@ -1065,7 +1077,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             {session.isCurrentSession && (
               <Button
                 variant="default"
-                color="orange"
                 size="xs"
                 className="w-20 sm:!min-h-7 max-sm:!text-sm"
                 onClick={handleLogout}
@@ -1077,8 +1088,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             )}
             {canRevoke && (
               <Button
-                variant="default"
-                color="orange"
+                variant="filled"
+                color="destructive"
                 size="xs"
                 className="w-20 sm:!min-h-7 max-sm:!text-sm"
                 onClick={() => handleRevokeSession(session)}
@@ -1092,7 +1103,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             {!session.isCurrentSession && (
               <Button
                 variant="filled"
-                color="red"
+                color="destructive"
                 size="xs"
                 className="w-20 sm:!min-h-7 max-sm:!text-sm"
                 onClick={() => handleDeleteSession(session)}
@@ -1298,15 +1309,15 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // ============================================================
 
   const renderHistoryCard = (session: Session) => {
-    const parsedUA = parseUserAgent(session.userAgent);
+    const deviceLabel = deviceTitle(session.userAgent);
     const admin = isAdminSession(session);
 
     return (
       <div key={session.id} className="mgmt-row">
         <div className="mgmt-row__body">
           <div className="session-row__titleline">
-            <Tooltip content={parsedUA.title} position="top" className="block min-w-0">
-              <span className="mgmt-row__title block truncate">{parsedUA.title}</span>
+            <Tooltip content={deviceLabel} position="top" className="block min-w-0">
+              <span className="mgmt-row__title block truncate">{deviceLabel}</span>
             </Tooltip>
             <span
               className={`themed-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
@@ -1337,7 +1348,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         <div className="mgmt-row__actions">
           <Button
             variant="filled"
-            color="red"
+            color="destructive"
             size="sm"
             leftSection={<Trash2 className="w-4 h-4" />}
             onClick={() => handleDeleteSession(session)}
@@ -1360,10 +1371,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       <div>
         <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              {t('user.groups.sessions')}
-            </h3>
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+            <h3 className="caps-label management-group-label">{t('user.groups.sessions')}</h3>
           </div>
           <AccordionGroupToggle />
         </div>
@@ -1409,7 +1418,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               </HelpPopover>
             }
             icon={Users}
-            iconColor="var(--theme-icon-blue)"
             count={
               !loading && activeSessions.length > 0 ? filteredActiveSessions.length : undefined
             }
@@ -1461,7 +1469,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         <Button
                           key={filter}
                           variant={isActive ? 'filled' : 'default'}
-                          color={isActive ? 'blue' : 'gray'}
+                          color={isActive ? 'primary' : 'secondary'}
                           size="sm"
                           aria-pressed={isActive}
                           onClick={() => setActiveFilter(filter)}
@@ -1594,7 +1602,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 </HelpPopover>
               }
               icon={History}
-              iconColor="var(--theme-icon-purple)"
               count={historySessions.length}
               isExpanded={historyExpanded}
               onToggle={() => setHistoryExpanded((prev: boolean) => !prev)}
@@ -1631,7 +1638,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         {pendingRevokeSession && (
           <div className="mgmt-panel">
             <p className="text-sm text-themed-primary font-medium">
-              {parseUserAgent(pendingRevokeSession.userAgent).title}
+              {deviceTitle(pendingRevokeSession.userAgent)}
             </p>
             <p className="text-xs text-themed-muted font-mono">
               {t('activeSessions.labels.sessionIdWithValue', { id: pendingRevokeSession.id })}
@@ -1667,7 +1674,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         {pendingDeleteSession && (
           <div className="mgmt-panel">
             <p className="text-sm text-themed-primary font-medium">
-              {parseUserAgent(pendingDeleteSession.userAgent).title}
+              {deviceTitle(pendingDeleteSession.userAgent)}
             </p>
             <p className="text-xs text-themed-muted font-mono">
               {t('activeSessions.labels.sessionIdWithValue', { id: pendingDeleteSession.id })}
@@ -1739,7 +1746,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           {editingSession && (
             <div className="mgmt-panel">
               <p className="text-sm text-themed-primary font-medium">
-                {parseUserAgent(editingSession.userAgent).title}
+                {deviceTitle(editingSession.userAgent)}
               </p>
               <p className="text-xs text-themed-muted">
                 {isAdminSession(editingSession)
@@ -1890,7 +1897,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                               refreshRateLocked: null
                             })
                           }
-                          className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-secondary hover:bg-themed-hover"
+                          className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
                         >
                           {t('actions.useDefault')}
                         </button>
@@ -1956,8 +1963,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                                   : t('activeSessions.prefill.status.disabled')}
                               </Badge>
                               <Button
-                                variant="default"
-                                color={effective ? 'orange' : 'green'}
+                                variant={effective ? 'filled' : 'default'}
+                                color={effective ? 'destructive' : 'secondary'}
                                 size="sm"
                                 onClick={() =>
                                   setPendingPrefillChanges((previous: PendingPrefillChanges) => ({
@@ -2263,7 +2270,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             </Button>
             <Button
               variant="filled"
-              color="blue"
+              color="primary"
               onClick={handleSavePreferences}
               loading={savingPreferences}
               disabled={loadingPreferences}

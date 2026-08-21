@@ -38,13 +38,18 @@ import {
   elapsedLabel,
   MAX_COMPARE_EVENTS,
   clipCompareToHours,
-  readCompareEventIds
+  readCompareEventIds,
+  repeatedColorPositions
 } from './eventCompare';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
 // The names match the fields on EventCompareSeries, so the picked metric indexes the series.
 type CompareMetric = 'served' | 'saved' | 'missed';
+
+// On/off run for a series whose color repeats an earlier one. Long enough to read as a dash at
+// this chart's line width, short enough that a brief event still shows more than one segment.
+const EVENT_REPEAT_DASH = [6, 4];
 
 const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tabControl }) => {
   const { t } = useTranslation();
@@ -146,6 +151,11 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
 
   useEffect(() => hideLineChartTooltip, [hasSeries]);
 
+  const repeatedColors = useMemo(
+    () => repeatedColorPositions(visibleCompare?.series ?? []),
+    [visibleCompare]
+  );
+
   const chartData: ChartData<'line'> = useMemo(() => {
     void themeRevision;
     const labels = (visibleCompare?.elapsedMinutes ?? []).map((minutes) =>
@@ -161,6 +171,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
           data: values,
           borderColor: color,
           backgroundColor: color,
+          borderDash: repeatedColors.has(index) ? EVENT_REPEAT_DASH : undefined,
           fill: false,
           tension: 0.25,
           hidden: hiddenSeries.has(index),
@@ -172,7 +183,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
         };
       })
     };
-  }, [visibleCompare, hiddenSeries, metric, t, themeRevision]);
+  }, [visibleCompare, hiddenSeries, metric, repeatedColors, t, themeRevision]);
 
   const chartOptions: ChartOptions<'line'> = useMemo(() => {
     void themeRevision;
@@ -191,7 +202,8 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
         tooltip: lineChartTooltip({
           swatchClass: (datasetIndex) => {
             const colorIndex = visibleCompare?.series[datasetIndex]?.colorIndex ?? 1;
-            return `line-trend-swatch-event-${clampEventColorIndex(colorIndex)}`;
+            const base = `line-trend-swatch-event-${clampEventColorIndex(colorIndex)}`;
+            return repeatedColors.has(datasetIndex) ? `${base} is-dashed` : base;
           },
           title: (items) => {
             const minutes = visibleCompare?.elapsedMinutes[items[0]?.dataIndex ?? 0] ?? 0;
@@ -201,16 +213,19 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
       },
       scales: lineChartScales()
     };
-  }, [visibleCompare, t, themeRevision]);
+  }, [visibleCompare, repeatedColors, t, themeRevision]);
 
   const legendItems = useMemo(
     () =>
-      (visibleCompare?.series ?? []).map((series, index) => ({
-        label: series.name,
-        colorClass: `line-trend-swatch-event-${clampEventColorIndex(series.colorIndex)}`,
-        hidden: hiddenSeries.has(index)
-      })),
-    [hiddenSeries, visibleCompare]
+      (visibleCompare?.series ?? []).map((series, index) => {
+        const colorClass = `line-trend-swatch-event-${clampEventColorIndex(series.colorIndex)}`;
+        return {
+          label: series.name,
+          colorClass: repeatedColors.has(index) ? `${colorClass} is-dashed` : colorClass,
+          hidden: hiddenSeries.has(index)
+        };
+      }),
+    [hiddenSeries, repeatedColors, visibleCompare]
   );
 
   return (

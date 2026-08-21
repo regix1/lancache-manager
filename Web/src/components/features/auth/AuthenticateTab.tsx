@@ -139,7 +139,7 @@ const AuthenticateTab: React.FC = () => {
 
             <Button
               variant="filled"
-              color="blue"
+              color="primary"
               size="md"
               onClick={handleAuthenticate}
               loading={loading}

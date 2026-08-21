@@ -224,7 +224,7 @@ export function GameSelectionModal({
               {onRescan && (
                 <Button
                   variant="filled"
-                  color="gray"
+                  color="run"
                   size="sm"
                   onClick={onRescan}
                   disabled={isLoading}
@@ -238,7 +238,7 @@ export function GameSelectionModal({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <Button
               variant="filled"
-              color={showImport ? 'blue' : 'gray'}
+              color={showImport ? 'primary' : 'secondary'}
               size="sm"
               onClick={() => setShowImport(!showImport)}
               fullWidth
@@ -250,7 +250,7 @@ export function GameSelectionModal({
             {cachedCount > 0 && (
               <Button
                 variant="filled"
-                color={hideCached ? 'blue' : 'gray'}
+                color={hideCached ? 'primary' : 'secondary'}
                 size="sm"
                 onClick={() => setHideCached(!hideCached)}
                 fullWidth
@@ -264,7 +264,7 @@ export function GameSelectionModal({
             )}
             <Button
               variant="filled"
-              color="gray"
+              color="secondary"
               size="sm"
               onClick={selectAll}
               fullWidth
@@ -274,7 +274,7 @@ export function GameSelectionModal({
             </Button>
             <Button
               variant="filled"
-              color="gray"
+              color="secondary"
               size="sm"
               onClick={selectNone}
               fullWidth
@@ -303,6 +303,7 @@ export function GameSelectionModal({
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-2">
               <Button
                 variant="filled"
+                color="run"
                 size="sm"
                 onClick={handleImport}
                 disabled={!importText.trim()}
@@ -312,7 +313,7 @@ export function GameSelectionModal({
               </Button>
               <Button
                 variant="filled"
-                color="gray"
+                color="secondary"
                 size="sm"
                 onClick={() => {
                   setShowImport(false);
@@ -543,7 +544,7 @@ export function GameSelectionModal({
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-4 pt-4 border-t border-[var(--theme-border-secondary)]">
           <Button
             variant="filled"
-            color="gray"
+            color="secondary"
             onClick={onClose}
             className="w-full sm:w-auto min-h-[44px] sm:min-h-10"
           >
@@ -551,6 +552,7 @@ export function GameSelectionModal({
           </Button>
           <Button
             variant="filled"
+            color="primary"
             onClick={handleSave}
             disabled={isSaving}
             className="w-full sm:w-auto min-h-[44px] sm:min-h-10"

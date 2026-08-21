@@ -64,7 +64,12 @@ export const ApiKeyRotatedModal: React.FC<ApiKeyRotatedModalProps> = ({
           <Button variant="default" onClick={onClose} className="w-full sm:w-auto">
             {t('common.close')}
           </Button>
-          <Button variant="filled" color="green" onClick={handleCopy} className="w-full sm:w-auto">
+          <Button
+            variant="filled"
+            color="secondary"
+            onClick={handleCopy}
+            className="w-full sm:w-auto"
+          >
             {copied ? t('management.auth.rotatedModal.copied') : t('common.copy')}
           </Button>
         </div>

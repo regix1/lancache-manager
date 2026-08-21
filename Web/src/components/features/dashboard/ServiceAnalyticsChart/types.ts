@@ -25,7 +25,6 @@ export interface ChartData {
 export interface LegendItem {
   label: string;
   value: number;
-  color: string;
   percentage: number;
   valueLabel?: string;
   colorClassName?: string;

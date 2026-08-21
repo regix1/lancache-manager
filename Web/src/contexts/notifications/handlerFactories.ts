@@ -123,6 +123,7 @@ function mergeEventDetails(
 import {
   CANCELLED_NOTIFICATION_DELAY_MS,
   FULL_PROGRESS_PERCENT,
+  GENERIC_CANCELLED_I18N_KEY,
   GENERIC_COMPLETION_I18N_KEY,
   GENERIC_FAILURE_I18N_KEY,
   LIVE_ONLY_CANCEL_DETAIL_KEYS
@@ -377,7 +378,7 @@ export function createCompletionHandler<
           config.getCancelledMessage?.(event, existing) ??
           event.message ??
           (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-          'Operation cancelled'
+          i18n.t(GENERIC_CANCELLED_I18N_KEY)
         );
       }
 
@@ -727,7 +728,7 @@ export function createStatusAwareProgressHandler<T>(
               id: notificationId,
               type: config.type,
               status: 'completed' as const,
-              message: config.getCompletedMessage?.(event) ?? 'Operation completed',
+              message: config.getCompletedMessage?.(event) ?? i18n.t(GENERIC_COMPLETION_I18N_KEY),
               progress: FULL_PROGRESS_PERCENT,
               startedAt: new Date(),
               details: config.getDetails?.(event)
@@ -755,7 +756,7 @@ export function createStatusAwareProgressHandler<T>(
             return {
               ...n,
               status: 'completed' as const,
-              message: config.getCompletedMessage?.(event) ?? 'Operation completed',
+              message: config.getCompletedMessage?.(event) ?? i18n.t(GENERIC_COMPLETION_I18N_KEY),
               progress: FULL_PROGRESS_PERCENT,
               details: { ...n.details, ...config.getDetails?.(event) }
             };
@@ -764,7 +765,7 @@ export function createStatusAwareProgressHandler<T>(
         });
       });
     } else if (status?.toLowerCase() === 'failed') {
-      const errorMessage = config.getErrorMessage?.(event) ?? 'Operation failed';
+      const errorMessage = config.getErrorMessage?.(event) ?? i18n.t(GENERIC_FAILURE_I18N_KEY);
 
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);

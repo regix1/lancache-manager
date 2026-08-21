@@ -346,7 +346,7 @@ export function ScheduledPrefillPersistentCard({
                 <Button
                   type="button"
                   variant="filled"
-                  color="red"
+                  color="stop"
                   size={SCHEDULED_PREFILL_BUTTON_SIZE}
                   onClick={onStop}
                   disabled={disabled || action === 'start'}
@@ -358,7 +358,7 @@ export function ScheduledPrefillPersistentCard({
                 <Button
                   type="button"
                   variant="filled"
-                  color="blue"
+                  color="run"
                   size={SCHEDULED_PREFILL_BUTTON_SIZE}
                   onClick={onStart}
                   disabled={disabled || action === 'stop'}
@@ -374,7 +374,7 @@ export function ScheduledPrefillPersistentCard({
                 <Button
                   type="button"
                   variant="filled"
-                  color="blue"
+                  color="primary"
                   size={SCHEDULED_PREFILL_BUTTON_SIZE}
                   onClick={onLogin}
                   disabled={disabled || isAuthInProgress}
@@ -386,7 +386,7 @@ export function ScheduledPrefillPersistentCard({
                 <Button
                   type="button"
                   variant="filled"
-                  color="gray"
+                  color="secondary"
                   size={SCHEDULED_PREFILL_BUTTON_SIZE}
                   onClick={onLogout}
                   disabled={disabled || isPrefilling || action === 'start' || action === 'stop'}
@@ -403,7 +403,7 @@ export function ScheduledPrefillPersistentCard({
                   <Button
                     type="button"
                     variant="filled"
-                    color="gray"
+                    color="secondary"
                     size={SCHEDULED_PREFILL_BUTTON_SIZE}
                     onClick={onSelectGames}
                     disabled={disabled || !isRunning || isGameSelectionBlocked}
@@ -426,7 +426,7 @@ export function ScheduledPrefillPersistentCard({
               <Button
                 type="button"
                 variant="filled"
-                color="gray"
+                color="destructive"
                 size={SCHEDULED_PREFILL_BUTTON_SIZE}
                 onClick={onClearGames}
                 disabled={disabled || selectedGamesCount === 0 || isPrefilling}
@@ -441,7 +441,7 @@ export function ScheduledPrefillPersistentCard({
                   <Button
                     type="button"
                     variant="filled"
-                    color="red"
+                    color="stop"
                     size={SCHEDULED_PREFILL_BUTTON_SIZE}
                     onClick={onCancelDownload}
                     disabled={disabled || action === 'download'}
@@ -453,7 +453,7 @@ export function ScheduledPrefillPersistentCard({
                   <Button
                     type="button"
                     variant="filled"
-                    color="green"
+                    color="run"
                     size={SCHEDULED_PREFILL_BUTTON_SIZE}
                     onClick={onDownload}
                     disabled={disabled || selectedGamesCount === 0 || action === 'cancel'}

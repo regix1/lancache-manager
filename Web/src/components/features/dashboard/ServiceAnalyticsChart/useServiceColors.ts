@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { APP_EVENTS } from '@utils/constants';
-import { SERVICE_COLOR_VARS, getServiceColorVar } from '@utils/serviceColors';
-
-const UNKNOWN_SERVICE_VAR = '--theme-text-secondary';
+import { SERVICE_COLOR_VARS, UNKNOWN_COLOR_VAR, getServiceColorVar } from '@utils/serviceColors';
 
 interface ServiceColors {
   getColor: (serviceName: string) => string;
   getCacheHitColor: () => string;
   getCacheMissColor: () => string;
   getBorderColor: () => string;
-  isReady: boolean;
 }
 
 export function useServiceColors(): ServiceColors {
@@ -24,7 +21,6 @@ export function useServiceColors(): ServiceColors {
     cacheMiss: '',
     border: ''
   });
-  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
     const resolveColors = () => {
@@ -33,7 +29,7 @@ export function useServiceColors(): ServiceColors {
 
       // Resolve every brand color once per theme change, plus the muted text color a
       // service without a brand color of its own falls back to.
-      [...SERVICE_COLOR_VARS, UNKNOWN_SERVICE_VAR].forEach((cssVar) => {
+      [...SERVICE_COLOR_VARS, UNKNOWN_COLOR_VAR].forEach((cssVar) => {
         newColorByVar.set(cssVar, computed.getPropertyValue(cssVar).trim());
       });
 
@@ -48,7 +44,6 @@ export function useServiceColors(): ServiceColors {
         cacheMiss,
         border
       });
-      setIsReady(true);
     };
 
     // Initial resolution
@@ -81,7 +76,6 @@ export function useServiceColors(): ServiceColors {
     getColor,
     getCacheHitColor,
     getCacheMissColor,
-    getBorderColor,
-    isReady
+    getBorderColor
   };
 }

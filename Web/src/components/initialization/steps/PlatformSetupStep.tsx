@@ -286,12 +286,12 @@ export const PlatformSetupStep: React.FC<PlatformSetupStepProps> = ({
 
       {/* Actions */}
       <div className="flex gap-3 pt-2">
-        <Button variant="filled" color="gray" onClick={onSkip}>
+        <Button variant="filled" color="secondary" onClick={onSkip}>
           {t('initialization.platformSetup.skip.label')}
         </Button>
         <Button
           variant="filled"
-          color="blue"
+          color="secondary"
           onClick={handlePrimaryAction}
           disabled={isPrimaryDisabled}
           className="flex-1"

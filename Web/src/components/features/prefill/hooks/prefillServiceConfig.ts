@@ -10,6 +10,7 @@ import type {
   XboxGuestPrefillConfigChangedEvent
 } from '@contexts/SignalRContext/types';
 import type { GameServiceId } from '@/types/gameService';
+import type { ColorToken } from '@utils/eventColors';
 import type { CommandType } from '../types';
 
 /**
@@ -94,9 +95,7 @@ interface PrefillServiceBase {
   /** Branded icon component for this service. */
   icon: typeof SteamIcon;
   /** CSS custom property holding this service's accent colour. */
-  colorVar: string;
-  /** Theme "subtle" tint custom property for this service. */
-  subtleColorVar: string;
+  colorVar: ColorToken;
   /**
    * Literal Tailwind background class for the service header badge. Kept as a literal (not
    * built dynamically) because Tailwind's JIT can't see runtime-concatenated class names.
@@ -172,8 +171,7 @@ const STEAM_CONFIG: PrefillServiceConfig = {
   serviceBasePath: 'steam-daemon',
   serviceNameKey: 'prefill.persistent.services.steam',
   icon: SteamIcon,
-  colorVar: 'var(--theme-steam)',
-  subtleColorVar: 'var(--theme-steam-subtle)',
+  colorVar: '--theme-steam',
   iconBgClass: 'bg-[var(--theme-steam)]',
   prefillCommands: [
     'prefill',
@@ -208,8 +206,7 @@ const EPIC_CONFIG: PrefillServiceConfig = {
   serviceBasePath: 'epic-daemon',
   serviceNameKey: 'prefill.persistent.services.epic',
   icon: EpicIcon,
-  colorVar: 'var(--theme-epic)',
-  subtleColorVar: 'var(--theme-epic-subtle)',
+  colorVar: '--theme-epic',
   iconBgClass: 'bg-[var(--theme-epic)]',
   prefillCommands: ['prefill', 'prefill-all', 'prefill-top'],
   supportedOperatingSystems: [],
@@ -238,8 +235,7 @@ const BATTLENET_CONFIG: PrefillServiceConfig = {
   serviceBasePath: 'battlenet-daemon',
   serviceNameKey: 'prefill.persistent.services.battleNet',
   icon: BlizzardIcon,
-  colorVar: 'var(--theme-blizzard)',
-  subtleColorVar: 'var(--theme-blizzard-subtle)',
+  colorVar: '--theme-blizzard',
   iconBgClass: 'bg-[var(--theme-blizzard)]',
   prefillCommands: ['prefill', 'prefill-all'],
   supportedOperatingSystems: [],
@@ -267,8 +263,7 @@ const RIOT_CONFIG: PrefillServiceConfig = {
   serviceBasePath: 'riot-daemon',
   serviceNameKey: 'prefill.persistent.services.riot',
   icon: RiotIcon,
-  colorVar: 'var(--theme-riot)',
-  subtleColorVar: 'var(--theme-riot-subtle)',
+  colorVar: '--theme-riot',
   iconBgClass: 'bg-[var(--theme-riot)]',
   prefillCommands: ['prefill', 'prefill-all'],
   supportedOperatingSystems: [],
@@ -296,8 +291,7 @@ const XBOX_CONFIG: PrefillServiceConfig = {
   serviceBasePath: 'xbox-daemon',
   serviceNameKey: 'prefill.persistent.services.xbox',
   icon: XboxIcon,
-  colorVar: 'var(--theme-xbox)',
-  subtleColorVar: 'var(--theme-xbox-subtle)',
+  colorVar: '--theme-xbox',
   iconBgClass: 'bg-[var(--theme-xbox)]',
   prefillCommands: ['prefill', 'prefill-all', 'prefill-recent', 'prefill-top'],
   supportedOperatingSystems: [],

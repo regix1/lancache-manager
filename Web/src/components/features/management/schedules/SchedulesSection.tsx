@@ -1669,14 +1669,13 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     <div className="management-section animate-fade-in schedules-section">
       <div className="schedules-section-header">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.schedules.title')}
-          </h3>
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+          <h3 className="management-group-label caps-label">{t('management.schedules.title')}</h3>
         </div>
         <div className="schedules-section-actions">
           <Button
             variant="filled"
+            color="run"
             size="md"
             onClick={handleRunAll}
             disabled={!isAdmin || runningAll || resetting}

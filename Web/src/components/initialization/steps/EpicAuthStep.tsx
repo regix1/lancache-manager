@@ -176,7 +176,7 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
           </Button>
           <Button
             variant="filled"
-            color="blue"
+            color="primary"
             onClick={handleAuthenticate}
             loading={state.loading}
             disabled={!state.authorizationCode.trim() || state.loading}
@@ -227,7 +227,7 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
       {/* Connect Button */}
       <Button
         variant="filled"
-        color="blue"
+        color="primary"
         onClick={handleStartLogin}
         loading={state.loading}
         disabled={state.loading}

@@ -90,7 +90,7 @@ const EpicGameMappings: React.FC = () => {
   return (
     <GameMappingsCatalog<EpicGameMappingDto>
       accordionId="integrations-epic-game-mappings"
-      accentColor="var(--theme-epic)"
+      accentColor="--theme-epic"
       columnWidthStorageKey="epic-game-mappings-column-widths-v2"
       updateEvent="EpicGameMappingsUpdated"
       labels={CATALOG_LABELS}
@@ -101,7 +101,7 @@ const EpicGameMappings: React.FC = () => {
       loadMappings={loadEpicMappings}
       loadStats={loadEpicStats}
       searchMappings={searchEpicMappings}
-      loadErrorMessage="Failed to load Epic game mappings"
+      loadErrorMessage={t('management.sections.integrations.epicGameMappings.loadError')}
     />
   );
 };

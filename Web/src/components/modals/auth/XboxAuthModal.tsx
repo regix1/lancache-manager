@@ -196,7 +196,12 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
 
                 {/* Open Microsoft verification page */}
                 {deviceVerificationUri && (
-                  <Button variant="filled" onClick={handleOpenVerificationUrl} className="w-full">
+                  <Button
+                    variant="filled"
+                    color="secondary"
+                    onClick={handleOpenVerificationUrl}
+                    className="w-full"
+                  >
                     <ExternalLink className="w-4 h-4" />
                     {t('modals.xboxAuth.openVerification')}
                   </Button>
@@ -235,6 +240,7 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
           {!needsDeviceCode && (
             <Button
               variant="filled"
+              color="primary"
               onClick={handleSubmit}
               disabled={loading || isSubmitting}
               className="flex-1"

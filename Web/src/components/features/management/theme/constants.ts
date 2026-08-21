@@ -854,6 +854,8 @@ export const colorGroups: ColorGroup[] = [
       { key: 'actionResetHover', supportsAlpha: true, pages: ['management'] },
       { key: 'actionProcessBg', supportsAlpha: true, pages: ['management'] },
       { key: 'actionProcessHover', supportsAlpha: true, pages: ['management'] },
+      { key: 'actionStopBg', supportsAlpha: true, pages: ['management'] },
+      { key: 'actionStopHover', supportsAlpha: true, pages: ['management'] },
       { key: 'actionDeleteBg', supportsAlpha: true, pages: ['management'] },
       { key: 'actionDeleteHover', supportsAlpha: true, pages: ['management'] }
     ]

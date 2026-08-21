@@ -476,10 +476,8 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     <div>
       <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-purple)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('user.groups.guestDefaults')}
-          </h3>
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+          <h3 className="caps-label management-group-label">{t('user.groups.guestDefaults')}</h3>
         </div>
         <AccordionGroupToggle />
       </div>
@@ -496,7 +494,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
           title={t('user.guest.prefill.sectionTitle')}
           titleAccessory={helpAccessory}
           icon={Download}
-          iconColor="var(--theme-icon-blue)"
           isExpanded={prefillSectionExpanded}
           onToggle={() => setPrefillSectionExpanded((prev) => !prev)}
           count={enabledPrefillCount}

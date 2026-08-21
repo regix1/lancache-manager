@@ -180,7 +180,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
               )
             }
             variant="filled"
-            color="blue"
+            color="primary"
             disabled={!apiKey.trim() || testing || saving || !!(testResult && !testResult.valid)}
             loading={saving}
             className="flex-1"

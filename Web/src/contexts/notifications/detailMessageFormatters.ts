@@ -753,7 +753,11 @@ export const formatCacheClearProgressMessage = (event: CacheClearProgressEvent):
     : (event.statusMessage ?? i18n.t('signalr.cacheClear.starting'));
 
   if (event.directoriesProcessed !== undefined && event.totalDirectories) {
-    return `${base} (${event.directoriesProcessed}/${event.totalDirectories} directories)`;
+    return i18n.t('signalr.cacheClear.progressDirectories', {
+      base,
+      processed: event.directoriesProcessed,
+      total: event.totalDirectories
+    });
   }
 
   return base;
@@ -885,13 +889,20 @@ export const formatEpicGameMappingsUpdatedMessage = (
 ): string => {
   const parts: string[] = [];
   if (event.newGames > 0) {
-    parts.push(`${event.newGames} new game${event.newGames !== 1 ? 's' : ''} discovered`);
+    parts.push(i18n.t('notifications.epicGameMappingsUpdated.newGames', { count: event.newGames }));
   }
   if (event.updatedGames > 0) {
-    parts.push(`${event.updatedGames} game${event.updatedGames !== 1 ? 's' : ''} updated`);
+    parts.push(
+      i18n.t('notifications.epicGameMappingsUpdated.updatedGames', { count: event.updatedGames })
+    );
   }
   const detail = parts.join(', ');
-  return detail ? `${detail}, ${event.totalGames} total` : `${event.totalGames} total`;
+  return detail
+    ? i18n.t('notifications.epicGameMappingsUpdated.totalWithDetail', {
+        detail,
+        count: event.totalGames
+      })
+    : i18n.t('notifications.epicGameMappingsUpdated.total', { count: event.totalGames });
 };
 
 /**
@@ -905,10 +916,14 @@ export const formatXboxGameMappingsUpdatedMessage = (
 ): string => {
   const parts: string[] = [];
   if (event.newMappings > 0) {
-    parts.push(`${event.newMappings} new game${event.newMappings !== 1 ? 's' : ''} discovered`);
+    parts.push(
+      i18n.t('notifications.xboxGameMappingsUpdated.newGames', { count: event.newMappings })
+    );
   }
   if (event.newPatterns > 0) {
-    parts.push(`${event.newPatterns} new CDN pattern${event.newPatterns !== 1 ? 's' : ''}`);
+    parts.push(
+      i18n.t('notifications.xboxGameMappingsUpdated.newPatterns', { count: event.newPatterns })
+    );
   }
   return parts.join(', ');
 };

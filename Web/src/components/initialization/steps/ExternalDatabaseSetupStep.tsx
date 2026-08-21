@@ -71,14 +71,16 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
       apiKey: null
     };
 
-    if (!form.host.trim()) next.host = 'Host is required';
+    if (!form.host.trim()) next.host = t('initialization.externalDb.errors.hostRequired');
     const portNum = Number.parseInt(form.port, 10);
     if (!Number.isFinite(portNum) || portNum <= 0 || portNum > 65535) {
-      next.port = 'Port must be between 1 and 65535';
+      next.port = t('initialization.externalDb.errors.portRange');
     }
-    if (!form.database.trim()) next.database = 'Database name is required';
-    if (!form.username.trim()) next.username = 'Username is required';
-    if (!form.password) next.password = 'Password is required';
+    if (!form.database.trim())
+      next.database = t('initialization.externalDb.errors.databaseRequired');
+    if (!form.username.trim())
+      next.username = t('initialization.externalDb.errors.usernameRequired');
+    if (!form.password) next.password = t('initialization.externalDb.errors.passwordRequired');
     if (!form.apiKey.trim()) next.apiKey = t('initialization.apiKey.errors.required');
 
     setErrors(next);
@@ -106,14 +108,16 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
         setSetupSuccess(true);
         onSetupComplete();
       } else {
-        setSubmitError(result.error || result.message || 'Failed to save credentials.');
+        setSubmitError(
+          result.error || result.message || t('initialization.externalDb.errors.saveFailed')
+        );
       }
     } catch (err) {
-      setSubmitError(getErrorMessage(err) || 'Network error. Please check your connection.');
+      setSubmitError(getErrorMessage(err) || t('initialization.externalDb.errors.network'));
     } finally {
       setIsSubmitting(false);
     }
-  }, [form, validateForm, onSetupComplete]);
+  }, [form, validateForm, onSetupComplete, t]);
 
   if (setupSuccess) {
     return (

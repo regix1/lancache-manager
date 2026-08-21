@@ -122,7 +122,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
     onSuccess: () => {
       setShowAuthModal(false);
       loadStatus();
-      onSuccess?.('Xbox authentication successful.');
+      onSuccess?.(t('management.sections.integrations.xboxDaemonStatus.loginSuccess'));
     },
     onError: (message: string) => {
       console.error('Xbox mapping login error:', message);
@@ -144,10 +144,10 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
     try {
       await ApiService.logoutXboxMapping();
       await loadStatus();
-      onSuccess?.('Logged out of Xbox.');
+      onSuccess?.(t('management.sections.integrations.xboxDaemonStatus.logoutSuccess'));
     } catch (err) {
       console.error('Logout failed:', err);
-      onError?.('Failed to logout from Xbox.');
+      onError?.(t('management.sections.integrations.xboxDaemonStatus.logoutFailed'));
     } finally {
       setLoggingOut(false);
     }
@@ -175,7 +175,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
         title={t('management.sections.integrations.xboxDaemonStatus.title')}
         description={t('management.sections.integrations.xboxDaemonStatus.summary')}
         icon={XboxIcon}
-        iconColor="var(--theme-xbox)"
+        iconColor="--theme-xbox"
         help={{
           title: t('management.sections.integrations.xboxDaemonStatus.help.authentication.title'),
           definitions: [

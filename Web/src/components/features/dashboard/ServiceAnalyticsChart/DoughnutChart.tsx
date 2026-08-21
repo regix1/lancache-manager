@@ -21,19 +21,18 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
   ({ labels, datasets, total, centerLabel, gameSliceExtras, ariaLabel }) => {
     const { t } = useTranslation();
     const themeRevision = useThemeRevision();
-    // Prepare chart data with stable reference. The slice border color is read
-    // from the new flat `.chart-wrapper` background (var(--theme-bg-secondary))
-    // so the donut visually sits in its disc with no halo gradient bleed.
+    // Prepare chart data with stable reference. The slice border keeps the color the
+    // dataset already carries (--theme-chart-border), which every theme pins to its own
+    // card background, so the separators disappear into the card the donut sits on.
     const chartData: ChartData<'doughnut'> = useMemo(() => {
       void themeRevision;
-      const wrapperBg = getThemeColor('--theme-bg-secondary');
       const sliceRadius = getThemeRadius('--theme-border-radius-sm');
       return {
         labels,
         datasets: datasets.map((ds) => ({
           data: ds.data,
           backgroundColor: ds.backgroundColor,
-          borderColor: wrapperBg,
+          borderColor: ds.borderColor,
           borderWidth: 2,
           borderRadius: sliceRadius,
           spacing: ds.spacing ?? 2,
@@ -49,7 +48,9 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
       const tooltipBg = getThemeColor('--theme-card-bg');
       const tooltipTitle = getThemeColor('--theme-text-primary');
       const tooltipBody = getThemeColor('--theme-text-muted');
-      const tooltipBorder = getThemeColor('--theme-border-secondary');
+      // Same edge token the compare tab's DOM tooltip takes through `.tooltip-edge`,
+      // so both tooltips in this panel keep one border color on every theme.
+      const tooltipBorder = getThemeColor('--theme-card-border');
       const swatchRadius = getThemeRadius('--theme-border-radius-sm');
 
       return {

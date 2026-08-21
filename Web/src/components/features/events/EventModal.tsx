@@ -292,7 +292,12 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
           {/* Actions */}
           <div className="event-modal-actions flex flex-row items-center justify-between gap-3 pt-4 border-t border-[var(--theme-border-primary)]">
             {event ? (
-              <Button type="button" color="red" variant="filled" onClick={handleDeleteClick}>
+              <Button
+                type="button"
+                color="destructive"
+                variant="filled"
+                onClick={handleDeleteClick}
+              >
                 {t('events.modal.actions.delete')}
               </Button>
             ) : (
@@ -308,7 +313,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
               >
                 {t('actions.cancel')}
               </Button>
-              <Button type="submit" variant="filled" color="blue" loading={saving}>
+              <Button type="submit" variant="filled" color="primary" loading={saving}>
                 {event ? t('events.modal.actions.saveChanges') : t('events.modal.actions.create')}
               </Button>
             </div>

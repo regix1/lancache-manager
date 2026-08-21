@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import GameMappingsCatalog from '../game-mappings/GameMappingsCatalog';
 import type { XboxGameMappingDto, XboxMappingStats } from '../../../../types';
@@ -42,21 +43,25 @@ const PRODUCT_ID_COLUMN = {
  * user prefill logins. Unlike Epic there is no per-mapping discovery source - the resolution path
  * is the Rust ingest pass, so the table shows ProductId + title + discovery timestamps only.
  */
-const XboxGameMappings: React.FC = () => (
-  <GameMappingsCatalog<XboxGameMappingDto>
-    accordionId="integrations-xbox-game-mappings"
-    accentColor="var(--theme-xbox)"
-    columnWidthStorageKey="xbox-game-mappings-column-widths-v1"
-    updateEvent="XboxGameMappingsUpdated"
-    labels={CATALOG_LABELS}
-    nameColumn={TITLE_COLUMN}
-    identifierColumn={PRODUCT_ID_COLUMN}
-    dateColumnWidth={150}
-    loadMappings={loadXboxMappings}
-    loadStats={loadXboxStats}
-    searchMappings={searchXboxMappings}
-    loadErrorMessage="Failed to load Xbox game mappings"
-  />
-);
+const XboxGameMappings: React.FC = () => {
+  const { t } = useTranslation();
+
+  return (
+    <GameMappingsCatalog<XboxGameMappingDto>
+      accordionId="integrations-xbox-game-mappings"
+      accentColor="--theme-xbox"
+      columnWidthStorageKey="xbox-game-mappings-column-widths-v1"
+      updateEvent="XboxGameMappingsUpdated"
+      labels={CATALOG_LABELS}
+      nameColumn={TITLE_COLUMN}
+      identifierColumn={PRODUCT_ID_COLUMN}
+      dateColumnWidth={150}
+      loadMappings={loadXboxMappings}
+      loadStats={loadXboxStats}
+      searchMappings={searchXboxMappings}
+      loadErrorMessage={t('management.sections.integrations.xboxGameMappings.loadError')}
+    />
+  );
+};
 
 export default XboxGameMappings;

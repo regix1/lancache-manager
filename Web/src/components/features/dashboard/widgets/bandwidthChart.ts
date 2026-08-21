@@ -38,24 +38,31 @@ export function useHiddenSeries(): HiddenSeries {
 }
 
 export function lineChartScales(): ChartOptions<'line'>['scales'] {
+  // Chart chrome reads the chart token family, the one the theme editor exposes for
+  // charts, so an author retuning it moves every canvas. `border` is off on both
+  // scales because chart.js otherwise draws an axis rule in its own library default,
+  // which no theme can reach.
+  const textColor = getThemeColor('--theme-chart-text');
   return {
     x: {
       ticks: {
-        color: getThemeColor('--theme-text-muted'),
+        color: textColor,
         maxRotation: 0,
         autoSkip: true,
         maxTicksLimit: 8
       },
-      grid: { display: false }
+      grid: { display: false },
+      border: { display: false }
     },
     y: {
       beginAtZero: true,
       grace: '10%',
       ticks: {
-        color: getThemeColor('--theme-text-muted'),
+        color: textColor,
         callback: (value) => formatBytes(typeof value === 'number' ? value : Number(value))
       },
-      grid: { color: getThemeColor('--theme-border-secondary') }
+      grid: { color: getThemeColor('--theme-chart-grid') },
+      border: { display: false }
     }
   };
 }

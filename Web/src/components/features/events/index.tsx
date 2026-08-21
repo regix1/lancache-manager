@@ -59,12 +59,12 @@ const EventsTab: React.FC = () => {
             options={[
               {
                 value: 'calendar',
-                label: 'Calendar',
+                label: t('events.view.calendar'),
                 icon: <LayoutGrid className="w-4 h-4" />
               },
               {
                 value: 'list',
-                label: 'List',
+                label: t('events.view.list'),
                 icon: <List className="w-4 h-4" />
               }
             ]}
@@ -78,12 +78,12 @@ const EventsTab: React.FC = () => {
           {/* Create Event Button */}
           <Button
             onClick={handleCreateEvent}
-            color="blue"
+            color="primary"
             variant="filled"
             leftSection={<Plus className="w-4 h-4" />}
           >
-            <span className="hidden sm:inline">New Event</span>
-            <span className="sm:hidden">New</span>
+            <span className="hidden sm:inline">{t('events.newEvent')}</span>
+            <span className="sm:hidden">{t('events.newEventShort')}</span>
           </Button>
         </div>
       </div>

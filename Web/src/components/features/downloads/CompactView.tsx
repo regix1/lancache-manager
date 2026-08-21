@@ -733,7 +733,7 @@ const CompactView = React.memo(function CompactView({
     return (
       <div className="space-y-1">
         <div className="px-3 py-2 text-sm font-semibold text-themed-primary">
-          Downloads Overview
+          {t('downloads.tab.compact.sections.overview')}
         </div>
         <div ref={virtualParentRef} className="virtual-list-parent virtual-list-parent-compact">
           <div
@@ -765,7 +765,9 @@ const CompactView = React.memo(function CompactView({
 
   return (
     <div className="space-y-1">
-      <div className="px-3 py-2 text-sm font-semibold text-themed-primary">Downloads Overview</div>
+      <div className="px-3 py-2 text-sm font-semibold text-themed-primary">
+        {t('downloads.tab.compact.sections.overview')}
+      </div>
       <div>
         {flatRows.map((row) => (
           <React.Fragment key={row.id}>

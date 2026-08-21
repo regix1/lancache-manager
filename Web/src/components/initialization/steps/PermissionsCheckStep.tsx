@@ -298,14 +298,14 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
       {/* Action Buttons */}
       <div className="flex flex-col sm:flex-row gap-2">
         {!isChecking && (
-          <Button variant="filled" color="gray" onClick={reload} className="sm:w-auto">
+          <Button variant="filled" color="secondary" onClick={reload} className="sm:w-auto">
             {t('initialization.permissionsCheck.recheck')}
           </Button>
         )}
 
         <Button
           variant="filled"
-          color="green"
+          color="secondary"
           onClick={onComplete}
           disabled={isChecking && !showForceContinue}
           className="flex-1"

@@ -181,13 +181,13 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
       {/* Action Buttons */}
       <div className="pt-2">
         {isComplete ? (
-          <Button variant="filled" color="green" onClick={onComplete} fullWidth>
+          <Button variant="filled" color="secondary" onClick={onComplete} fullWidth>
             {t('initialization.picsProgress.continue')}
           </Button>
         ) : onCancel ? (
           <Button
             variant="filled"
-            color="red"
+            color="stop"
             onClick={handleCancel}
             disabled={cancelInFlight}
             fullWidth

@@ -287,10 +287,10 @@ export const AdminAccountStep: React.FC = () => {
               <div
                 className={`h-full rounded-full transition-[width] duration-150 ${
                   passwordStrength === 'weak'
-                    ? 'w-1/3 bg-red-500'
+                    ? 'w-1/3 bg-[var(--theme-error-text)]'
                     : passwordStrength === 'medium'
-                      ? 'w-2/3 bg-yellow-500'
-                      : 'w-full bg-green-500'
+                      ? 'w-2/3 bg-[var(--theme-warning-text)]'
+                      : 'w-full bg-[var(--theme-success-text)]'
                 }`}
               />
             </div>
@@ -364,7 +364,7 @@ export const AdminAccountStep: React.FC = () => {
       <div className="space-y-3">
         <Button
           variant="filled"
-          color="blue"
+          color="primary"
           type="submit"
           loading={isSubmitting}
           disabled={isSubmitting}

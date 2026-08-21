@@ -39,6 +39,8 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import Badge from '@components/ui/Badge';
+import type { BadgeVariant } from '@components/ui/Badge.types';
+import { VARIANT_BY_STATUS } from '@utils/statusVariant';
 import ApiService, {
   type PrefillSessionDto,
   type DaemonSessionDto,
@@ -91,22 +93,6 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
 
   const effectiveStatus = getEffectiveStatus();
 
-  const getStatusVariant = (): 'success' | 'info' | 'error' | 'warning' | 'neutral' => {
-    switch (effectiveStatus) {
-      case 'completed':
-        return 'success';
-      case 'inprogress':
-        return 'info';
-      case 'failed':
-      case 'error':
-        return 'error';
-      case 'cancelled':
-        return 'warning';
-      default:
-        return 'neutral';
-    }
-  };
-
   const getDisplayStatus = () => {
     switch (effectiveStatus) {
       case 'completed':
@@ -127,7 +113,10 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
   };
 
   return (
-    <Badge variant={getStatusVariant()} className="prefill-status-badge">
+    <Badge
+      variant={VARIANT_BY_STATUS[effectiveStatus] ?? 'neutral'}
+      className="prefill-status-badge"
+    >
       {getDisplayStatus()}
     </Badge>
   );
@@ -176,7 +165,9 @@ const STATUS_BADGE_KEY: Record<string, string> = {
   error: 'error'
 };
 
-const STATUS_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'error' | 'neutral'> = {
+// Only the words this feature owns. `cancelled` and `error` belong to the run vocabulary,
+// so they come from VARIANT_BY_STATUS instead of being restated here.
+const STATUS_BADGE_VARIANT: Record<string, BadgeVariant> = {
   active: 'success',
   authenticated: 'success',
   pendingauth: 'warning',
@@ -184,9 +175,7 @@ const STATUS_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'error' | 'ne
   terminated: 'error',
   expired: 'error',
   orphaned: 'neutral',
-  cleaned: 'neutral',
-  cancelled: 'neutral',
-  error: 'error'
+  cleaned: 'neutral'
 };
 
 // Locator source values are opaque backend strings; unknown values fall back to the "unknown"
@@ -200,8 +189,10 @@ const CACHE_ROUTE_SOURCE_KEY: Record<string, string> = {
   detected: 'detected'
 };
 
-const getStatusBadgeVariant = (status: string): 'success' | 'warning' | 'error' | 'neutral' =>
-  STATUS_BADGE_VARIANT[status.toLowerCase()] ?? 'neutral';
+const getStatusBadgeVariant = (status: string): BadgeVariant => {
+  const normalizedStatus = status.toLowerCase();
+  return STATUS_BADGE_VARIANT[normalizedStatus] ?? VARIANT_BY_STATUS[normalizedStatus] ?? 'neutral';
+};
 
 const getStatusBadgeLabelKey = (status: string): string | null =>
   STATUS_BADGE_KEY[status.toLowerCase()] ?? null;
@@ -247,7 +238,7 @@ const PrefillErrorBlock: React.FC<{
       <p className="text-sm">{message}</p>
     </Alert>
     <div className="prefill-error-retry">
-      <Button variant="filled" color="gray" size="md" onClick={onRetry}>
+      <Button variant="filled" color="secondary" size="md" onClick={onRetry}>
         {retryLabel}
       </Button>
     </div>
@@ -495,7 +486,7 @@ const SessionCard: React.FC<{
                   trigger={
                     <Button
                       variant="filled"
-                      color="gray"
+                      color="secondary"
                       size="sm"
                       onClick={() => setMenuOpen((prev) => !prev)}
                       aria-label={t('common.moreActions')}
@@ -534,7 +525,7 @@ const SessionCard: React.FC<{
 
               <Button
                 variant="filled"
-                color="gray"
+                color="secondary"
                 size="sm"
                 onClick={onToggleHistory}
                 className="prefill-expand-btn btn-icon-square btn-icon-square--sm pointer-target-44"
@@ -596,7 +587,7 @@ const SessionCard: React.FC<{
                       <div className="prefill-history-entry-content">
                         <div className="prefill-history-entry-header">
                           <span className="prefill-history-entry-name">
-                            {entry.appName || `App ${entry.appId}`}
+                            {entry.appName || t('prefill.log.unnamedApp', { appId: entry.appId })}
                           </span>
                           <HistoryStatusBadge
                             status={entry.status}
@@ -605,11 +596,13 @@ const SessionCard: React.FC<{
                         </div>
                         <div className="prefill-history-entry-meta">
                           <span>
-                            Started: <FormattedTimestamp timestamp={entry.startedAtUtc} />
+                            {t('management.prefillSessions.historyStarted')}{' '}
+                            <FormattedTimestamp timestamp={entry.startedAtUtc} />
                           </span>
                           {entry.completedAtUtc && (
                             <span>
-                              Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} />
+                              {t('management.prefillSessions.historyCompleted')}{' '}
+                              <FormattedTimestamp timestamp={entry.completedAtUtc} />
                             </span>
                           )}
                           {(entry.bytesDownloaded > 0 || entry.totalBytes > 0) && (
@@ -711,7 +704,7 @@ const BannedUserCard: React.FC<{
         <Tooltip content={t('management.prefillSessions.tooltips.liftBan')}>
           <Button
             variant="filled"
-            color="gray"
+            color="secondary"
             size="md"
             onClick={onLiftBan}
             disabled={isLifting}
@@ -1245,8 +1238,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       <div className="mb-6 sm:mb-8">
         <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+            <h3 className="management-group-label caps-label">
               {t('management.sections.prefillSessions.groupSessions')}
             </h3>
           </div>
@@ -1255,7 +1248,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
         <div className="prefill-stats-grid mb-4">
           <StatCard
-            icon={<Play className="w-5 h-5 icon-green" />}
+            icon={<Play className="w-5 h-5 icon-success" />}
             value={guestActiveSessions.length}
             label={t('management.prefillSessions.activeSessions')}
             iconBgClass="icon-bg-green"
@@ -1267,7 +1260,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             iconBgClass="icon-bg-blue"
           />
           <StatCard
-            icon={<Ban className="w-5 h-5 icon-red" />}
+            icon={<Ban className="w-5 h-5 icon-error" />}
             value={activeBansCount}
             label={t('management.prefillSessions.activeBans')}
             iconBgClass="icon-bg-red"
@@ -1295,7 +1288,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             titleAccessory={liveSessionsHelpAccessory}
             count={guestActiveSessions.length}
             icon={Play}
-            iconColor="var(--theme-icon-green)"
             isExpanded={liveSessionsExpanded}
             onToggle={() => setLiveSessionsExpanded(!liveSessionsExpanded)}
             badge={
@@ -1396,7 +1388,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             titleAccessory={persistentSessionsHelpAccessory}
             count={persistentContainers.length}
             icon={Server}
-            iconColor="var(--theme-icon-blue)"
             isExpanded={persistentExpanded}
             onToggle={() => setPersistentExpanded(!persistentExpanded)}
           >
@@ -1439,8 +1430,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       {/* ==================== HISTORY ==================== */}
       <div>
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+          <h3 className="management-group-label caps-label">
             {t('management.sections.prefillSessions.groupHistory')}
           </h3>
         </div>
@@ -1451,7 +1442,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             titleAccessory={historyHelpAccessory}
             count={totalCount}
             icon={Clock}
-            iconColor="var(--theme-icon-blue)"
             isExpanded={historyExpanded}
             onToggle={() => setHistoryExpanded(!historyExpanded)}
           >
@@ -1603,7 +1593,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             titleAccessory={bannedUsersHelpAccessory}
             count={activeBansCount}
             icon={Ban}
-            iconColor="var(--theme-icon-red)"
+            iconColor="--theme-icon-red"
             isExpanded={bansExpanded}
             onToggle={() => setBansExpanded(!bansExpanded)}
             badge={

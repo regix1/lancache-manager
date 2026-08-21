@@ -147,7 +147,12 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
               <div className="login-task">
                 {/* Open Epic Login Button */}
                 {authorizationUrl && (
-                  <Button variant="filled" onClick={handleOpenAuthUrl} className="w-full">
+                  <Button
+                    variant="filled"
+                    color="secondary"
+                    onClick={handleOpenAuthUrl}
+                    className="w-full"
+                  >
                     <ExternalLink className="w-4 h-4" />
                     {t('modals.epicAuth.openEpicLogin')}
                   </Button>
@@ -207,6 +212,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
           {needsAuthorizationCode ? (
             <Button
               variant="filled"
+              color="primary"
               onClick={handleSubmit}
               disabled={loading || isSubmitting || !authorizationCode.trim()}
               className="flex-1"
@@ -218,6 +224,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
           ) : (
             <Button
               variant="filled"
+              color="primary"
               onClick={handleSubmit}
               disabled={loading || isSubmitting}
               className="flex-1"

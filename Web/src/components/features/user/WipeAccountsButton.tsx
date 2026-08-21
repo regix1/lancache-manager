@@ -49,7 +49,7 @@ const WipeAccountsButton: React.FC = () => {
     <>
       <Button
         variant="filled"
-        color="red"
+        color="destructive"
         size="sm"
         disabled={wiping}
         onClick={() => setOpened(true)}

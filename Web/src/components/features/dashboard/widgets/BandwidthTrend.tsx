@@ -67,14 +67,27 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
     const labels = starts
       .slice(0, pointCount)
       .map((start) => bandwidthTickLabel(start, bucketMinutes, clock));
+    // Saved and missed are the cache-hit and cache-miss series, so they read the chart's own
+    // hit/miss colours rather than the status green and amber. That is the vocabulary the rest
+    // of the charts already use for these two words - the compare chart's hit/miss lines and
+    // legend swatches read the same two tokens - and it leaves success and warning to mean a
+    // status. Served has no cache meaning, so it stays on the series colour.
+    // All three area washes take the -subtle tier, the one tier that is 0.15 alpha on
+    // every family: -muted is 0.25 on primary and 0.20 on success and warning, which
+    // read as a depth order the data does not have. pointBackgroundColor repeats each
+    // series' stroke so the hover dot is solid rather than filled with its own wash.
+    const servedColor = getThemeColor('--theme-primary');
+    const savedColor = getThemeColor('--theme-chart-cache-hit');
+    const missedColor = getThemeColor('--theme-chart-cache-miss');
     return {
       labels,
       datasets: [
         {
           label: t('widgets.bandwidthTrend.served'),
           data: served.slice(0, pointCount),
-          borderColor: getThemeColor('--theme-primary'),
+          borderColor: servedColor,
           backgroundColor: getThemeColor('--theme-primary-subtle'),
+          pointBackgroundColor: servedColor,
           fill: true,
           tension: 0.25,
           hidden: hiddenSeries.has(0),
@@ -84,8 +97,9 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
         {
           label: t('widgets.bandwidthTrend.saved'),
           data: saved.slice(0, pointCount),
-          borderColor: getThemeColor('--theme-success'),
-          backgroundColor: getThemeColor('--theme-success-muted'),
+          borderColor: savedColor,
+          backgroundColor: getThemeColor('--theme-chart-cache-hit-subtle'),
+          pointBackgroundColor: savedColor,
           fill: true,
           tension: 0.25,
           hidden: hiddenSeries.has(1),
@@ -95,8 +109,9 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
         {
           label: t('widgets.bandwidthTrend.missed'),
           data: missed.slice(0, pointCount),
-          borderColor: getThemeColor('--theme-warning'),
-          backgroundColor: getThemeColor('--theme-warning-muted'),
+          borderColor: missedColor,
+          backgroundColor: getThemeColor('--theme-chart-cache-miss-subtle'),
+          pointBackgroundColor: missedColor,
           fill: true,
           tension: 0.25,
           hidden: hiddenSeries.has(2),

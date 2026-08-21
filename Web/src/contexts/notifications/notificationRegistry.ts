@@ -494,7 +494,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           entriesProcessed: data.entriesProcessed
         }
       }),
-      staleMessage: 'Log processing completed'
+      staleMessageKey: 'signalr.logProcessing.stale'
     } satisfies SimpleRecoveryConfig<LogProcessingStatusResponse>,
     started: {
       defaultMessage: 'Starting log processing...',
@@ -584,7 +584,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           linesRemoved: data.linesRemoved
         }
       }),
-      staleMessage: 'Log entry removal completed'
+      staleMessageKey: 'signalr.logRemoval.stale'
     } satisfies SimpleRecoveryConfig<LogRemovalStatusResponse>,
     started: {
       defaultMessage: 'Starting log removal...',
@@ -831,7 +831,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           }
         };
       },
-      staleMessage: 'Game detection completed'
+      staleMessageKey: 'signalr.gameDetect.stale'
     } satisfies SimpleRecoveryConfig<GameDetectionStatusResponse>,
     started: {
       defaultMessage: 'Detecting games and services...',
@@ -908,7 +908,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           details: corruptionNotificationDetails(data)
         };
       },
-      staleMessage: 'Corruption detection completed'
+      staleMessageKey: 'signalr.corruptionDetect.stale'
     } satisfies SimpleRecoveryConfig<CorruptionDetectionStatusResponse>,
     started: {
       defaultMessage: 'Scanning for corrupted cache chunks...',
@@ -990,7 +990,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           }
         };
       },
-      staleMessage: 'Cache clearing completed'
+      staleMessageKey: 'signalr.cacheClear.stale'
     } satisfies SimpleRecoveryConfig<CacheOperationsResponse>,
     started: {
       defaultMessage: 'Starting cache clearing...',
@@ -1062,7 +1062,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           operationId: data.operationId ?? undefined
         }
       }),
-      staleMessage: 'Data import completed'
+      staleMessageKey: 'signalr.dataImport.stale'
     } satisfies SimpleRecoveryConfig<DataImportStatusResponse>,
     started: {
       defaultMessage: 'Starting data import...',
@@ -1141,7 +1141,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           operationId: data.operationId ?? undefined
         }
       }),
-      staleMessage: 'Eviction scan completed'
+      staleMessageKey: 'signalr.evictionScan.stale'
     } satisfies SimpleRecoveryConfig<EvictionScanStatusResponse>,
     started: {
       defaultMessage: 'Starting eviction scan...',
@@ -1210,7 +1210,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           operationId: data.operationId ?? undefined
         }
       }),
-      staleMessage: 'Cache file scan completed'
+      staleMessageKey: 'signalr.cacheSizeScan.stale'
     } satisfies SimpleRecoveryConfig<CacheSizeScanStatusResponse>,
     started: {
       defaultMessage: 'Starting cache file scan...',
@@ -1259,7 +1259,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         message: i18n.t('management.schedules.services.scheduledPrefill.events.started'),
         details: { operationId: data.operationId ?? undefined }
       }),
-      staleMessage: 'Scheduled prefill completed'
+      staleMessageKey: 'signalr.scheduledPrefill.stale'
     } satisfies SimpleRecoveryConfig<ScheduledPrefillRunStatusResponse>,
     started: {
       defaultMessage: 'Scheduled prefill started',
@@ -1433,7 +1433,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     i18nBase: 'signalr.scheduledRun.logRotation',
     countable: false,
     defaultMessage: 'Starting log rotation...',
-    staleMessage: 'Log rotation complete'
+    staleMessageKey: 'signalr.scheduledRun.logRotation.complete'
   }),
   buildScheduledRunEntry({
     type: 'game_image_fetch',
@@ -1444,7 +1444,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     i18nBase: 'signalr.scheduledRun.gameImageFetch',
     countable: true,
     defaultMessage: 'Starting game image fetch...',
-    staleMessage: 'Game images updated'
+    staleMessageKey: 'signalr.scheduledRun.gameImageFetch.complete'
   }),
   buildScheduledRunEntry({
     type: 'cache_snapshot',
@@ -1455,7 +1455,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     i18nBase: 'signalr.scheduledRun.cacheSnapshot',
     countable: false,
     defaultMessage: 'Starting cache snapshot...',
-    staleMessage: 'Cache snapshot complete'
+    staleMessageKey: 'signalr.scheduledRun.cacheSnapshot.complete'
   }),
   buildScheduledRunEntry({
     type: 'operation_history_cleanup',
@@ -1466,7 +1466,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     i18nBase: 'signalr.scheduledRun.operationHistoryCleanup',
     countable: true,
     defaultMessage: 'Starting operation history cleanup...',
-    staleMessage: 'Operation history cleaned up'
+    staleMessageKey: 'signalr.scheduledRun.operationHistoryCleanup.complete'
   }),
   buildScheduledRunEntry({
     type: 'performance_optimization',
@@ -1477,7 +1477,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     i18nBase: 'signalr.scheduledRun.performanceOptimization',
     countable: false,
     defaultMessage: 'Starting performance optimization...',
-    staleMessage: 'Performance optimization complete'
+    staleMessageKey: 'signalr.scheduledRun.performanceOptimization.complete'
   }),
   buildScheduledRunEntry({
     type: 'dashboard_cache_warmer',
@@ -1488,7 +1488,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     i18nBase: 'signalr.scheduledRun.dashboardCacheWarmer',
     countable: true,
     defaultMessage: 'Warming dashboard cache...',
-    staleMessage: 'Dashboard cache warmed'
+    staleMessageKey: 'signalr.scheduledRun.dashboardCacheWarmer.complete'
   }),
 
   // ==========================================================================
@@ -1507,7 +1507,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     i18nBase: 'signalr.depotMapping',
     cancelTooltipKey: CANCEL_TOOLTIP.depotMapping,
     defaultMessage: 'Starting depot mapping...',
-    staleMessage: 'Depot mapping completed',
+    staleMessageKey: 'signalr.depotMapping.stale',
     recoveryCases: [
       { stageKey: 'signalr.depotMapping.starting', context: {} },
       {
@@ -1539,7 +1539,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     i18nBase: 'signalr.epicMapping',
     cancelTooltipKey: CANCEL_TOOLTIP.epicGameMapping,
     defaultMessage: 'Starting Epic game mapping...',
-    staleMessage: 'Epic game mapping completed',
+    staleMessageKey: 'signalr.epicMapping.stale',
     recoveryCases: [
       { stageKey: 'signalr.epicMapping.starting', context: {} },
       { stageKey: 'signalr.epicMapping.fetchingGames', context: {} },
@@ -1565,7 +1565,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     i18nBase: 'signalr.xboxMapping',
     cancelTooltipKey: CANCEL_TOOLTIP.xboxGameMapping,
     defaultMessage: 'Starting Xbox game mapping...',
-    staleMessage: 'Xbox game mapping completed',
+    staleMessageKey: 'signalr.xboxMapping.stale',
     recoveryCases: [
       { stageKey: 'signalr.xboxMapping.starting', context: {} },
       { stageKey: 'signalr.xboxMapping.collecting', context: {} },
@@ -1590,7 +1590,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     i18nBase: 'signalr.battleNetMapping',
     cancelTooltipKey: CANCEL_TOOLTIP.battleNetGameMapping,
     defaultMessage: 'Starting Battle.net game mapping...',
-    staleMessage: 'Battle.net game mapping completed',
+    staleMessageKey: 'signalr.battleNetMapping.completed',
     recoveryCases: [
       { stageKey: 'signalr.battleNetMapping.starting', context: {} },
       { stageKey: 'signalr.battleNetMapping.resolving', context: {} },
@@ -1614,7 +1614,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     i18nBase: 'signalr.riotMapping',
     cancelTooltipKey: CANCEL_TOOLTIP.riotGameMapping,
     defaultMessage: 'Starting Riot game mapping...',
-    staleMessage: 'Riot game mapping completed',
+    staleMessageKey: 'signalr.riotMapping.completed',
     recoveryCases: [
       { stageKey: 'signalr.riotMapping.starting', context: {} },
       { stageKey: 'signalr.riotMapping.resolving', context: {} },
@@ -1694,7 +1694,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         // `?? undefined` normalises null→undefined (backend field is `string?`).
         details: { operationId: data.operationId ?? undefined }
       }),
-      staleMessage: 'Database reset completed'
+      staleMessageKey: 'signalr.dbReset.stale'
     } satisfies SimpleRecoveryConfig<DatabaseResetStatusResponse>
   },
 

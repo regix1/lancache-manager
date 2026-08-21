@@ -136,7 +136,7 @@ export function PrefillConfirmModal({
           </Button>
           <Button
             variant="filled"
-            color="blue"
+            color="run"
             onClick={onConfirm}
             disabled={pendingCommand === 'prefill' && estimatedSize.loading}
             className="w-full sm:w-auto min-h-[44px] sm:min-h-10"

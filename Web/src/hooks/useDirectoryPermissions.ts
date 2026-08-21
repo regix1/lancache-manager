@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import ApiService from '@services/api.service';
+import i18n from '@/i18n';
 import { assertOk } from '@services/apiError';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
@@ -53,10 +54,10 @@ export const useDirectoryPermissions = (): DirectoryPermissions => {
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         setTimedOut(true);
-        setError('Permissions check timed out');
+        setError(i18n.t('initialization.permissionsCheck.timedOut'));
       } else {
         console.error('Failed to check directory permissions:', err);
-        setError('Failed to check permissions');
+        setError(i18n.t('initialization.permissionsCheck.failedToCheck'));
       }
       // Fallback values on error
       setLogsReadOnly(false);

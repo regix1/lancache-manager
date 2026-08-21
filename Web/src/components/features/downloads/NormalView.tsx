@@ -444,7 +444,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
               >
                 {/* Efficiency & Savings */}
                 <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-                  <h5 className="caps-label mb-3">Efficiency</h5>
+                  <h5 className="caps-label mb-3">{t('downloads.tab.normal.stats.efficiency')}</h5>
                   <div className="flex flex-col gap-4">
                     <div className="flex items-baseline justify-between">
                       <span className="text-sm text-[var(--theme-text-secondary)]">
@@ -535,7 +535,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
                 {/* Activity Summary */}
                 <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-                  <h5 className="caps-label mb-3">Activity</h5>
+                  <h5 className="caps-label mb-3">{t('downloads.tab.normal.stats.activity')}</h5>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[var(--theme-text-secondary)]">
@@ -642,19 +642,21 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                   className="font-mono text-xs font-bold text-[var(--theme-text-primary)]"
                                 />
                                 <Badge variant="neutral" className="uppercase tracking-wide">
-                                  {clientDownloads.length} sessions
+                                  {t('downloads.tab.normal.sessions.count', {
+                                    count: clientDownloads.length
+                                  })}
                                 </Badge>
                               </div>
                               <div className="flex items-center gap-3 text-xs">
                                 <span className="font-medium text-[var(--theme-text-secondary)]">
-                                  Total:{' '}
+                                  {t('downloads.tab.normal.labels.total')}{' '}
                                   <span className="text-[var(--theme-text-primary)] font-bold">
                                     {formatBytes(clientTotal)}
                                   </span>
                                 </span>
                                 {clientCacheHit > 0 && (
                                   <span className="font-medium text-[var(--theme-success-text)]">
-                                    Saved:{' '}
+                                    {t('downloads.tab.normal.labels.saved')}{' '}
                                     <span className="font-bold">{formatBytes(clientCacheHit)}</span>
                                   </span>
                                 )}
@@ -714,7 +716,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                         </div>
                                         <div className="mt-2 flex items-center justify-between pl-[22px] text-sm">
                                           <span className="font-medium text-[var(--theme-text-primary)]">
-                                            <span className="sr-only">Size: </span>
+                                            <span className="sr-only">
+                                              {t('downloads.tab.normal.size')}:{' '}
+                                            </span>
                                             {formatBytes(totalBytes)}
                                           </span>
                                           <span
@@ -724,7 +728,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                                 : 'text-[var(--theme-text-muted)]'
                                             }
                                           >
-                                            <span className="sr-only">Cache: </span>
+                                            <span className="sr-only">
+                                              {t('downloads.tab.normal.cache')}:{' '}
+                                            </span>
                                             {download.cacheHitBytes > 0
                                               ? formatPercent(cachePercent)
                                               : '—'}
@@ -786,7 +792,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                         <div className="flex items-center gap-6 text-sm">
                                           <div className="flex flex-col items-end">
                                             <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
-                                              Size
+                                              {t('downloads.tab.normal.size')}
                                             </span>
                                             <span className="font-medium text-[var(--theme-text-primary)]">
                                               {formatBytes(totalBytes)}
@@ -794,7 +800,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                           </div>
                                           <div className="flex flex-col items-end w-20">
                                             <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
-                                              Cache
+                                              {t('downloads.tab.normal.cache')}
                                             </span>
                                             {download.cacheHitBytes > 0 ? (
                                               <div className="flex items-center gap-1.5">
@@ -881,6 +887,7 @@ const GridCard: React.FC<GridCardProps> = ({
   hasMultipleDatasources,
   availableImages
 }) => {
+  const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const cardRef = React.useRef<HTMLDivElement>(null);
   const hitPercent = cacheHitPercent(group.cacheHitBytes, group.totalBytes);
@@ -1016,7 +1023,9 @@ const GridCard: React.FC<GridCardProps> = ({
               <span className="text-[var(--theme-text-muted)]">0%</span>
             )}
             {group.count > 1 && (
-              <span className="text-[var(--theme-text-muted)]">{group.count} req</span>
+              <span className="text-[var(--theme-text-muted)]">
+                {group.count} {t('dashboard.downloadsPanel.req')}
+              </span>
             )}
           </div>
           <DownloadTimestamp
@@ -1234,7 +1243,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
         <div className="flex flex-col gap-3">
           {/* Efficiency */}
           <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-            <h5 className="caps-label mb-3">Efficiency</h5>
+            <h5 className="caps-label mb-3">{t('downloads.tab.normal.stats.efficiency')}</h5>
             <div className="flex flex-col gap-4">
               <div className="flex items-baseline justify-between">
                 <span className="text-sm text-[var(--theme-text-secondary)]">
@@ -1323,7 +1332,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
 
           {/* Activity */}
           <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-            <h5 className="caps-label mb-3">Activity</h5>
+            <h5 className="caps-label mb-3">{t('downloads.tab.normal.stats.activity')}</h5>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-[var(--theme-text-secondary)]">
@@ -1415,19 +1424,22 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                         className="font-mono text-xs font-bold text-[var(--theme-text-primary)]"
                       />
                       <Badge variant="neutral" className="uppercase tracking-wide">
-                        {clientDownloads.length} sessions
+                        {t('downloads.tab.normal.sessions.count', {
+                          count: clientDownloads.length
+                        })}
                       </Badge>
                     </div>
                     <div className="flex items-center gap-3 text-xs">
                       <span className="font-medium text-[var(--theme-text-secondary)]">
-                        Total:{' '}
+                        {t('downloads.tab.normal.labels.total')}{' '}
                         <span className="text-[var(--theme-text-primary)] font-bold">
                           {formatBytes(clientTotal)}
                         </span>
                       </span>
                       {clientCacheHit > 0 && (
                         <span className="font-medium text-[var(--theme-success-text)]">
-                          Saved: <span className="font-bold">{formatBytes(clientCacheHit)}</span>
+                          {t('downloads.tab.normal.labels.saved')}{' '}
+                          <span className="font-bold">{formatBytes(clientCacheHit)}</span>
                         </span>
                       )}
                     </div>
@@ -1479,7 +1491,9 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                               </div>
                               <div className="mt-2 flex items-center justify-between pl-[22px] text-sm">
                                 <span className="font-medium text-[var(--theme-text-primary)]">
-                                  <span className="sr-only">Size: </span>
+                                  <span className="sr-only">
+                                    {t('downloads.tab.normal.size')}:{' '}
+                                  </span>
                                   {formatBytes(totalBytes)}
                                 </span>
                                 <span
@@ -1489,7 +1503,9 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                                       : 'text-[var(--theme-text-muted)]'
                                   }
                                 >
-                                  <span className="sr-only">Cache: </span>
+                                  <span className="sr-only">
+                                    {t('downloads.tab.normal.cache')}:{' '}
+                                  </span>
                                   {download.cacheHitBytes > 0 ? formatPercent(cachePercent) : '—'}
                                 </span>
                               </div>
@@ -1545,7 +1561,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                               <div className="flex items-center gap-4 sm:gap-6 text-sm">
                                 <div className="flex flex-col items-end">
                                   <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
-                                    Size
+                                    {t('downloads.tab.normal.size')}
                                   </span>
                                   <span className="font-medium text-[var(--theme-text-primary)]">
                                     {formatBytes(totalBytes)}
@@ -1553,7 +1569,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                                 </div>
                                 <div className="flex flex-col items-end w-20">
                                   <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
-                                    Cache
+                                    {t('downloads.tab.normal.cache')}
                                   </span>
                                   {download.cacheHitBytes > 0 ? (
                                     <div className="flex items-center gap-1.5">
@@ -1737,7 +1753,7 @@ const NormalView: React.FC<NormalViewProps> = ({
             <div className="section-divider-content">
               <h2 className="section-divider-title">{labels.multipleDownloads}</h2>
               <p className="section-divider-description">
-                Games that have been downloaded multiple times
+                {t('downloads.tab.normal.sections.multipleDownloadsDescription')}
               </p>
             </div>
           </div>
@@ -1752,7 +1768,7 @@ const NormalView: React.FC<NormalViewProps> = ({
             <div className="section-divider-content">
               <h2 className="section-divider-title">{labels.singleDownloads}</h2>
               <p className="section-divider-description">
-                Games downloaded once in a single session
+                {t('downloads.tab.normal.sections.singleDownloadsDescription')}
               </p>
             </div>
           </div>

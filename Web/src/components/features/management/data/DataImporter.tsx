@@ -50,7 +50,6 @@ const DataImporter: React.FC<DataImporterProps> = ({
       title={t('management.dataImporter.title')}
       titleAccessory={helpAccessory}
       icon={Upload}
-      iconColor="var(--theme-icon-blue)"
       isExpanded={isExpanded}
       onToggle={() => setIsExpanded((prev) => !prev)}
     >

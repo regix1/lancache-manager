@@ -86,7 +86,7 @@ const SteamIntegrationCard: React.FC<SteamIntegrationCardProps> = ({
       title={t('management.sections.integrations.steamCard.title')}
       titleAccessory={helpAccessory}
       icon={SteamIcon}
-      iconColor="var(--theme-steam)"
+      iconColor="--theme-steam"
       isExpanded={expanded}
       onToggle={() => setExpanded((prev) => !prev)}
       badge={

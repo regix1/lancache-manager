@@ -262,7 +262,7 @@ interface MappingOperationEntryOptions {
   i18nBase: string;
   cancelTooltipKey: string;
   defaultMessage: string;
-  staleMessage: string;
+  staleMessageKey: string;
   recoveryCases: readonly { stageKey: string; context: StageContext }[];
 }
 
@@ -285,7 +285,7 @@ export function buildMappingOperationEntry<
     i18nBase,
     cancelTooltipKey,
     defaultMessage,
-    staleMessage,
+    staleMessageKey,
     recoveryCases
   } = options;
 
@@ -312,7 +312,7 @@ export function buildMappingOperationEntry<
         progress: Math.min(ACTIVE_PROGRESS_PERCENT_CAP, data.percentComplete),
         details: { operationId: data.operationId ?? undefined }
       }),
-      staleMessage
+      staleMessageKey
     } satisfies SimpleRecoveryConfig<MappingRunStatusResponse>,
     started: {
       defaultMessage,
@@ -376,8 +376,8 @@ interface ScheduledRunEntryOptions {
   countable: boolean;
   /** Plain fallback shown before the first stage-keyed message arrives. */
   defaultMessage: string;
-  /** Plain terminal fallback for a run whose card outlived its terminal event. */
-  staleMessage: string;
+  /** Key for the terminal fallback shown when a run card outlived its terminal event. */
+  staleMessageKey: string;
 }
 
 export function buildScheduledRunEntry(
@@ -392,7 +392,7 @@ export function buildScheduledRunEntry(
     i18nBase,
     countable,
     defaultMessage,
-    staleMessage
+    staleMessageKey
   } = options;
   return {
     type,
@@ -429,7 +429,7 @@ export function buildScheduledRunEntry(
         progress: data.percentComplete,
         details: { operationId: data.operationId ?? undefined }
       }),
-      staleMessage
+      staleMessageKey
     } satisfies SimpleRecoveryConfig<ScheduledRunStatusResponse>,
     events: {
       started: `${eventPrefix}Started`,

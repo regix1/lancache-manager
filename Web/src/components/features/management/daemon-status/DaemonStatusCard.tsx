@@ -6,6 +6,7 @@ import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
+import type { ColorToken } from '@utils/eventColors';
 import type { DaemonStatusHelpContent, DaemonStatusIcon } from './daemonStatus.types';
 
 /**
@@ -35,7 +36,7 @@ interface DaemonStatusCardProps {
   /** Opening block of the header help popover, above the per-service definitions. */
   description: string;
   icon: DaemonStatusIcon;
-  iconColor: string;
+  iconColor: ColorToken;
   help: DaemonStatusHelpContent;
   loading: boolean;
   loadingMessage: string;
@@ -147,7 +148,7 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
                       onClick={auth.onLogout}
                       loading={auth.loggingOut}
                       variant="filled"
-                      color="red"
+                      color="secondary"
                       size="sm"
                     >
                       {auth.logoutLabel}
@@ -158,7 +159,7 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
                       loading={auth.loginPending}
                       disabled={auth.loginDisabled}
                       variant="filled"
-                      color="blue"
+                      color="primary"
                       size="sm"
                     >
                       {auth.loginLabel}

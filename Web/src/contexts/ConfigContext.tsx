@@ -182,7 +182,15 @@ const PostgresPasswordRecovery: React.FC<PostgresPasswordRecoveryProps> = ({ onS
           </p>
         )}
 
-        <Button type="submit" disabled={!canSubmit} loading={isSaving} stableWidth fullWidth>
+        <Button
+          type="submit"
+          variant="filled"
+          color="primary"
+          disabled={!canSubmit}
+          loading={isSaving}
+          stableWidth
+          fullWidth
+        >
           {t('app.configError.recovery.submit')}
         </Button>
       </form>
@@ -289,7 +297,7 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
   }
 
   if (!config) {
-    return <LoadingSpinner fullScreen message="Loading configuration..." />;
+    return <LoadingSpinner fullScreen message={t('app.loading.configuration')} />;
   }
 
   return (

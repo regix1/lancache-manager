@@ -1,4 +1,5 @@
 import React, { useEffect, useState, type ReactNode } from 'react';
+import i18n from '@/i18n';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import { assertOk } from '@services/apiError';
@@ -37,7 +38,7 @@ const announceStatusFetchFailure = () => {
     new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
       detail: {
         type: 'error',
-        message: 'Failed to check setup status. Please refresh the page.',
+        message: i18n.t('initialization.errors.statusCheckFailed'),
         duration: 5000
       }
     })
@@ -196,9 +197,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
             error,
             updates
           );
-          setSyncError(
-            'Failed to sync setup progress to the server. Your current step may not be saved.'
-          );
+          setSyncError(i18n.t('initialization.errors.syncProgressFailed'));
           return false;
         }
 

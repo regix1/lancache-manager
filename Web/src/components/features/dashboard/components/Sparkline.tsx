@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useMemo, memo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Chart, type ChartConfiguration, registerables } from 'chart.js';
 import { APP_EVENTS } from '@utils/constants';
+import { readColorChannels } from '@services/themeSchema';
 
 // Register Chart.js components
 Chart.register(...registerables);
@@ -36,6 +38,7 @@ const Sparkline: React.FC<SparklineProps> = memo(
     className = '',
     ariaLabel
   }) => {
+    const { t } = useTranslation();
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const chartRef = useRef<Chart | null>(null);
     const [themeVersion, setThemeVersion] = useState(0);
@@ -71,38 +74,25 @@ const Sparkline: React.FC<SparklineProps> = memo(
     }, [color, themeVersion]);
 
     // Parse a color string to RGB components
-    const parseColorToRgb = (colorStr: string): { r: number; g: number; b: number } | null => {
-      if (colorStr.startsWith('rgba') || colorStr.startsWith('rgb')) {
-        const match = colorStr.match(/[\d.]+/g);
-        if (match && match.length >= 3) {
-          return { r: parseInt(match[0]), g: parseInt(match[1]), b: parseInt(match[2]) };
-        }
-      }
-      if (colorStr.startsWith('#')) {
-        const hex = colorStr.slice(1);
-        return {
-          r: parseInt(hex.slice(0, 2), 16),
-          g: parseInt(hex.slice(2, 4), 16),
-          b: parseInt(hex.slice(4, 6), 16)
-        };
-      }
-      return null;
-    };
-
-    // Create gradient color object from resolved color
+    // Create gradient color object from resolved color. The channels come from the theme
+    // schema's own reader so a three-digit hex, which a theme is free to store, is understood
+    // here exactly as it is everywhere else rather than dropping the wash.
     const gradientColor = useMemo(() => {
-      const rgb = parseColorToRgb(resolvedColor);
+      const rgb = readColorChannels(resolvedColor);
       if (rgb) {
+        const [r, g, b] = rgb;
         return {
-          solid: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 1)`,
-          transparent: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`,
-          fill: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.2)`
+          solid: `rgba(${r}, ${g}, ${b}, 1)`,
+          transparent: `rgba(${r}, ${g}, ${b}, 0)`,
+          fill: `rgba(${r}, ${g}, ${b}, 0.2)`
         };
       }
+      // The line still draws in whatever CSS color the theme gave; only the area wash is dropped.
+      // Painting the unparsed color there would fill it solid where a parsed one sits at 0.2.
       return {
         solid: resolvedColor,
         transparent: 'transparent',
-        fill: resolvedColor
+        fill: 'transparent'
       };
     }, [resolvedColor]);
 
@@ -272,7 +262,7 @@ const Sparkline: React.FC<SparklineProps> = memo(
       <div
         className={`sparkline-container ${className}`}
         role="img"
-        aria-label={ariaLabel || `Sparkline chart showing ${data.length} data points`}
+        aria-label={ariaLabel || t('dashboard.sparkline.ariaLabel', { count: data.length })}
       >
         <canvas ref={canvasRef} />
       </div>

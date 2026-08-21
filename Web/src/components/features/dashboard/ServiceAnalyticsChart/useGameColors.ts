@@ -7,13 +7,11 @@ const GAME_OTHER_VAR = '--theme-game-other';
 interface GameColors {
   getGameColors: (count: number) => string[];
   getOtherColor: () => string;
-  isReady: boolean;
 }
 
 export function useGameColors(): GameColors {
   const [colors, setColors] = useState<string[]>([]);
   const [otherColor, setOtherColor] = useState('');
-  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
     const resolveColors = () => {
@@ -26,7 +24,6 @@ export function useGameColors(): GameColors {
 
       setColors(resolved);
       setOtherColor(other);
-      setIsReady(true);
     };
 
     resolveColors();
@@ -44,5 +41,5 @@ export function useGameColors(): GameColors {
 
   const getOtherColor = useCallback(() => otherColor, [otherColor]);
 
-  return { getGameColors, getOtherColor, isReady };
+  return { getGameColors, getOtherColor };
 }

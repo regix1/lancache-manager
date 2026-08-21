@@ -193,6 +193,9 @@ export function useChartData(
         const originalData = [totalHits, totalMisses];
         const data = applyMinimumSlice(originalData, MIN_SLICE_DEGREES / 360);
 
+        // This tab renders CompareLineChart, not a doughnut, so the dataset below exists for its
+        // totals and its empty check. The hit and miss colors that reach the screen are resolved
+        // in CompareLineChart; the ones here paint nothing.
         return {
           labels: [
             t('dashboard.serviceAnalytics.compare.cacheHits'),

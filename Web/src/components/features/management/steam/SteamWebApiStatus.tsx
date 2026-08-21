@@ -237,7 +237,7 @@ const SteamWebApiStatus: React.FC = () => {
               )}
               <Button
                 variant="filled"
-                color="gray"
+                color="secondary"
                 size="sm"
                 stableWidth
                 onClick={async () => {
@@ -269,7 +269,7 @@ const SteamWebApiStatus: React.FC = () => {
               <div className="mgmt-row__actions">
                 <Button
                   variant="filled"
-                  color="blue"
+                  color="secondary"
                   size="sm"
                   onClick={() => setShowConfigModal(true)}
                   disabled={removing}
@@ -281,7 +281,7 @@ const SteamWebApiStatus: React.FC = () => {
                 {status?.hasApiKey && (
                   <Button
                     variant="filled"
-                    color="red"
+                    color="destructive"
                     size="sm"
                     onClick={() => setShowRemoveModal(true)}
                     disabled={removing || loading}

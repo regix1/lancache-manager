@@ -691,8 +691,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       <div>
         <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-purple)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-accent)]" />
+            <h3 className="management-group-label caps-label">
               {t('management.sections.theme.groupAppearance')}
             </h3>
           </div>
@@ -704,7 +704,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
             title={t('management.themes.title')}
             titleAccessory={helpContent}
             icon={Palette}
-            iconColor="var(--theme-icon-purple)"
             count={themes.length > 0 ? themes.length : undefined}
             isExpanded={themeManagementExpanded}
             onToggle={() => setThemeManagementExpanded((prev) => !prev)}
@@ -744,7 +743,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                       {currentThemeData.meta.isDark ? (
                         <Moon className="w-4 h-4 text-themed-muted" />
                       ) : (
-                        <Sun className="w-4 h-4 icon-yellow" />
+                        <Sun className="w-4 h-4 text-themed-muted" />
                       )}
                       <div className="flex gap-0.5">
                         {[
@@ -857,7 +856,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                     </h4>
                     <Button
                       variant="filled"
-                      color="gray"
+                      color="secondary"
                       size="xs"
                       onClick={downloadSampleTheme}
                       className="self-start sm:self-auto"
@@ -868,7 +867,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                   <div
                     className={`rounded-lg p-6 text-center transition border-2 border-dashed ${
                       dragActive
-                        ? 'border-themed-accent bg-themed-secondary'
+                        ? 'border-themed-focus bg-themed-secondary'
                         : 'border-themed-secondary'
                     }`}
                     onDragEnter={handleDrag}
@@ -894,7 +893,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                     />
                     <Button
                       variant="filled"
-                      color="purple"
+                      color="primary"
                       size="sm"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={isLoading}
@@ -921,7 +920,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
             title={t('management.themes.tabs.customize')}
             titleAccessory={customizeHelpContent}
             icon={Brush}
-            iconColor="var(--theme-icon-orange)"
             isExpanded={customizeExpanded}
             onToggle={() => setCustomizeExpanded((prev) => !prev)}
           >
@@ -1061,7 +1059,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         <p className="text-themed-secondary">
           <Trans
             i18nKey="modals.theme.delete.message"
-            values={{ name: 'all custom themes' }}
+            values={{ name: t('modals.theme.delete.allCustomThemes') }}
             components={{ strong: <strong /> }}
           />
         </p>
