@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "tsc && vite build && npm run validate:notifications -- --dist",
     "preview": "vite preview",
-    "lint": "eslint . --max-warnings 0 && npm run validate:notifications && node scripts/validate-badges.mjs && npm run validate:i18n-keys && node scripts/validate-lancache-spelling.mjs",
+    "lint": "eslint . --max-warnings 0 && npm run validate:notifications && node scripts/validate-badges.mjs && npm run validate:i18n-keys && npm run validate:i18n-strings && node scripts/validate-lancache-spelling.mjs",
     "lint:fix": "eslint . --fix",
     "test": "node --test \"scripts/test-*.mjs\"",
     "test:nginx-reopen": "node --test scripts/test-nginx-reopen-availability.mjs",
@@ -48,6 +48,7 @@
     "prepare": "node --input-type=module -e \"import { existsSync } from 'node:fs'; if (existsSync('scripts/setup-git-hooks.mjs')) { await import('./scripts/setup-git-hooks.mjs'); }\"",
     "validate:stage-keys": "node scripts/validate-stage-keys.mjs",
     "validate:i18n-keys": "node scripts/validate-i18n-keys.mjs",
+    "validate:i18n-strings": "node scripts/validate-i18n-strings.mjs",
     "validate:notifications": "node scripts/validate-stage-keys.mjs"
   },
   "dependencies": {

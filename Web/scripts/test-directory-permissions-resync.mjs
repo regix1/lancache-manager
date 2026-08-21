@@ -101,6 +101,7 @@ const apiStubUrl = toUrl(`
 export default { getFetchOptions: (options) => options ?? {} };
 `);
 const apiErrorStubUrl = toUrl(`export const assertOk = async () => {};`);
+const i18nStubUrl = toUrl(`export default { t: (key) => key };`);
 
 const reconnectUrl = await compileToUrl('../src/hooks/useReconnectRefetch.ts', {
   react: reactStubUrl
@@ -112,7 +113,8 @@ const { useDirectoryPermissions } = await import(
     '@services/api.service': apiStubUrl,
     '@services/apiError': apiErrorStubUrl,
     '@contexts/SignalRContext/useSignalR': signalRStubUrl,
-    '@hooks/useReconnectRefetch': reconnectUrl
+    '@hooks/useReconnectRefetch': reconnectUrl,
+    '@/i18n': i18nStubUrl
   })
 );
 

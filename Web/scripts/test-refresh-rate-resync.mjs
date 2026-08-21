@@ -198,6 +198,7 @@ const compileProvider = () => {
   }).outputText;
   const aliasUrls = {
     react: reactStubUrl,
+    '@/i18n': toUrl(`export default { t: (k) => k };`),
     '@utils/constants': constantsUrl,
     '@services/api.service': apiStubUrl,
     '@services/apiError': apiErrorStubUrl,
