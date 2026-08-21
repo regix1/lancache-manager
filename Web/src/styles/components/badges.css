@@ -144,10 +144,13 @@
     color: var(--theme-warning-text);
   }
 
-  /* Live status pill — shared success-muted fill so DateRangePicker and TimeFilter
-   * do not each hand-roll the same static inline style for the active-event badge. */
+  /* Live status pill — shared green fill so DateRangePicker and TimeFilter
+   * do not each hand-roll the same static inline style for the active-event badge.
+   * Takes the solid .status-badge-success pair rather than a translucent wash of its own text
+   * colour: a wash can only ever eat into the contrast the green already has on the card, and in
+   * the dark themes no alpha reaches 4.5:1 (even 0% is 4.83). */
   .live-badge {
-    background-color: var(--theme-success-muted);
-    color: var(--theme-success);
+    background-color: var(--theme-success-bg);
+    color: var(--theme-success-text);
   }
 }

@@ -6,7 +6,7 @@ import './CondensedNotificationStrip.css';
 
 /**
  * Solid status colours map to their theme glow tone, which carries one shared alpha across
- * every status so no segment outshines its neighbour.
+ * the status tokens so no segment outshines its neighbour.
  *
  * Anything unmapped casts no light rather than falling back to the line colour. The glow is
  * painted as a gradient from this value, so a fully opaque colour would start the band at full
@@ -21,7 +21,11 @@ const GLOW_COLOR_BY_STATUS_COLOR: Record<string, string> = {
   'var(--theme-error)': 'var(--theme-error-glow)',
   'var(--theme-warning)': 'var(--theme-warning-glow)',
   'var(--theme-info)': 'var(--theme-info-glow)',
-  'var(--theme-waiting)': 'var(--theme-waiting-glow)'
+  'var(--theme-waiting)': 'var(--theme-waiting-glow)',
+  // The grey a stopped run is drawn in has no -glow sibling, so it borrows the muted tier of
+  // the same colour. That tier is fainter than the shared glow alpha, which suits the one
+  // status that is deliberately quiet.
+  'var(--theme-text-secondary)': 'var(--theme-text-secondary-muted)'
 };
 
 /**

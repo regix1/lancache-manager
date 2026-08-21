@@ -1,4 +1,5 @@
 import React, { useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 
 /** Share of the panel's own width a swipe has to clear to dismiss it; below that it springs back. */
@@ -35,6 +36,7 @@ const Drawer: React.FC<DrawerProps> = ({
   children,
   classNames
 }) => {
+  const { t } = useTranslation();
   const panelRef = useRef<HTMLDivElement | null>(null);
   const swipeStart = useRef<SwipeStart | null>(null);
   const swipeTravel = useRef<number>(0);
@@ -149,7 +151,7 @@ const Drawer: React.FC<DrawerProps> = ({
           <button
             className="btn-icon-square btn-icon-square--sm custom-drawer-close"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('common.close')}
             type="button"
           >
             <svg

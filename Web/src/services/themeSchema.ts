@@ -54,13 +54,21 @@ const themeColorDefaults: Record<string, string> = {
 
   // ── Status colors ────────────────────────────────────────────────────
   success: '#10b981',
-  successBg: '#064e3b',
+  // A hair below the old #064e3b so the green above it clears 4.5:1 sitting on it: the status
+  // glyph paints itself in `success` on this ground rather than in successText, and at the old
+  // depth that pairing read 3.83:1.
+  successBg: '#053f30',
   successText: '#34d399',
   warning: '#fb923c',
   warningBg: '#44403c',
   warningText: '#fcd34d',
-  error: '#ef4444',
-  errorBg: '#7f1d1d',
+  // Lifted off red-500, which reads 3.26:1 against this palette's card and 2.66:1 on its own badge
+  // ground. This colour is the error INK far more often than it is an error fill - roughly 26 text
+  // rules against one filled button - so it steps toward the page's text rather than away.
+  error: '#f47d7d',
+  // Deepened to match: the ink above needs a ground this far down to clear 4.5:1, and the badge
+  // text that already sat here gains with it.
+  errorBg: '#661616',
   errorText: '#fca5a5',
   // info keeps a default even though it matches the primary: six of the eight shipped themes
   // deliberately give it a hue of their own, so it is a status colour, not the accent.
@@ -75,18 +83,25 @@ const themeColorDefaults: Record<string, string> = {
   waitingText: '#d8b4fe',
 
   // ── Service / platform colors ────────────────────────────────────────
-  steamColor: '#10b981',
-  epicColor: '#8b5cf6',
-  originColor: '#fb923c',
+  // Each service carries its own brand hue rather than borrowing one of the semantic colors.
+  // Borrowing costs the most in the one card where it shows: Service Analytics puts the services
+  // on one tab and cache hits on the next, so a service painted in the success green means
+  // "Steam" on one tab and "cache hit" on the other, at the same size and in the same place.
+  steamColor: '#66c0f4', // Valve's accent blue; Steam's palette holds no green
+  epicColor: '#8b5cf6', // Epic's brand is black and white only, so this is a stand-in hue
+  originColor: '#ff4747', // EA's wordmark red; the orange belonged to the retired Origin launcher
   // No blizzardFaint / blizzardOnBorder / blizzardStrong here, and none for steam or epic:
   // normalizeThemeColors below fills those tints from each theme's own service color, but only
   // when the key is missing. A default here would win for every theme and freeze the tints on
   // this palette's blue, whatever blizzardColor the theme actually sets.
-  blizzardColor: '#3b82f6',
-  wsusColor: '#06b6d4',
+  blizzardColor: '#5d6bdc', // Battle.net's royal blue turned toward indigo, clear of the accent
+  // Off the accent, which it used to match exactly: a WSUS chip painted in the accent stops saying
+  // WSUS. A paler ice cyan sits 20.3 dE from the accent and 16.7 from its nearest service neighbour,
+  // where the old value was 0.0 and 10.5, and it reads 7.31:1 on the card instead of 5.05:1.
+  wsusColor: '#8ad4dc',
   riotColor: '#d13639',
   xboxColor: '#107C10',
-  ubisoftColor: '#ec4899',
+  ubisoftColor: '#c6bdff', // Ubisoft's blue pushed along the violet axis; their palette holds no pink
   gogColor: '#A05FB4',
   rockstarColor: '#FCAF17',
   arenanetColor: '#5C7A4A',
@@ -151,26 +166,40 @@ const themeColorDefaults: Record<string, string> = {
   hitRateWarningText: '#fcd34d',
 
   // ── Action buttons ───────────────────────────────────────────────────
-  actionResetBg: '#f59e0b',
-  actionResetHover: '#d97706',
-  actionProcessBg: '#10b981',
-  actionProcessHover: '#059669',
-  actionDeleteBg: '#ef4444',
-  actionDeleteHover: '#dc2626',
+  // Every filled button in the app takes one shared label colour, buttonText below, so each fill
+  // has to carry white on its own. The 500 steps these were cut from cannot: white reads 2.15:1 on
+  // amber-500 and 2.54:1 on emerald-500, and no white-on-mid-tone fill can be fixed from the label
+  // end while the label is shared. Amber and emerald are the two brightest hues here and take two
+  // steps down the same ramp; red takes one. Each hover is the next step below its own rest state,
+  // so the pair still darkens on hover the way the rest of the palette does.
+  actionResetBg: '#b45309',
+  actionResetHover: '#92400e',
+  actionProcessBg: '#047857',
+  actionProcessHover: '#065f46',
+  // Red goes two steps rather than the one white needs, because reset and delete sit side by side
+  // and a red-green deficiency reads both of them by lightness alone. At amber-700 against red-600
+  // those lightnesses match, and the two buttons became the same colour under simulated
+  // deuteranopia (CIE76 dE 3.1). Red-800 reopens that to 19.7 and holds 29.9 under protanopia.
+  actionDeleteBg: '#991b1b',
+  actionDeleteHover: '#7f1d1d',
 
   // ── Icon backgrounds ─────────────────────────────────────────────────
   // iconBgBlue keeps a default even though it matches the primary: half the shipped themes give
   // it a hue of their own, and the name promises a blue rather than whatever the accent is.
-  iconBgBlue: '#3b82f6',
+  // These feed the .icon-* text classes, so each one is read as a glyph against the card rather
+  // than seen as a swatch. Blue, purple, indigo, orange and red were cut from the 500/600 steps and
+  // land between 2.74:1 and 4.37:1 on this palette's card; each moves up its own ramp until it
+  // clears 4.5:1 with room to spare. Green, emerald, yellow, cyan and teal already did and stay put.
+  iconBgBlue: '#60a5fa',
   iconBgGreen: '#10b981',
   iconBgEmerald: '#10b981',
-  iconBgPurple: '#8b5cf6',
-  iconBgIndigo: '#6366f1',
-  iconBgOrange: '#f97316',
+  iconBgPurple: '#b18cf7',
+  iconBgIndigo: '#9ba5fa',
+  iconBgOrange: '#fb923c',
   iconBgYellow: '#eab308',
   iconBgCyan: '#06b6d4',
   iconBgTeal: '#14b8a6',
-  iconBgRed: '#ef4444',
+  iconBgRed: '#f47d7d',
 
   // ── Chart colors ─────────────────────────────────────────────────────
   // chartColor1 is left out on purpose so it follows primaryColor: every shipped theme sets the
@@ -208,7 +237,10 @@ const themeColorDefaults: Record<string, string> = {
   gameColor20: '#c084fc',
   gameColorOther: '#6b7280',
 
-  chartBorderColor: '#1f2937',
+  // Holds the same value as cardBg above: the doughnut's slice ring is meant to be the card
+  // showing through, so any gap between the two draws a faint outline nothing asked for. Every
+  // theme that moves cardBg restates this key to match.
+  chartBorderColor: '#1e2938',
   chartGridColor: '#374151',
   chartTextColor: '#9ca3af',
   chartCacheHitColor: '#10b981',
@@ -265,10 +297,12 @@ const themeColorDefaults: Record<string, string> = {
 // Read the red/green/blue channels out of a theme colour, or null when the value
 // is not a colour this file can take apart. Handles #rrggbb, the #rgb shorthand,
 // and the rgb()/rgba() forms the colour editor writes whenever a swatch is given
-// an alpha. The alpha is read past and discarded; every caller here decides the
-// opacity of what it is building.
+// an alpha. The alpha is read past and discarded; every caller decides the opacity
+// of what it is building. Exported because a canvas that wants to build its own
+// gradient stops from a resolved theme colour needs the same three numbers, and a
+// second parser beside this one is how the shorthand form gets missed in one of them.
 // ---------------------------------------------------------------------------
-function readColorChannels(color: string): [number, number, number] | null {
+export function readColorChannels(color: string): [number, number, number] | null {
   const value = color.trim();
 
   const sixDigit = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(value);
@@ -460,6 +494,12 @@ function normalizeThemeColors(colors: Record<string, string>): Record<string, st
   // A button's hover is a step down from the button itself, so it comes off buttonBg rather
   // than the primary and stays in step with a theme that recolours only the button
   if (!result.buttonHover) result.buttonHover = darken(result.buttonBg, 0.84);
+
+  // Stop borrows the destructive red rather than carrying a red of its own, so a theme that
+  // retunes only its delete colour keeps its stop buttons in step. Stopping a run is its own
+  // job though, so the pair is separately settable for a theme that wants to part them [1]
+  if (!result.actionStopBg) result.actionStopBg = result.actionDeleteBg;
+  if (!result.actionStopHover) result.actionStopHover = result.actionDeleteHover;
 
   // The checkbox hover ring: a fixed 3px of the checkbox's own accent at 10%. Only the
   // geometry is fixed, so the colour still follows the theme

@@ -5,6 +5,7 @@ import * as TOML from 'toml';
 import { storage } from '@utils/storage';
 import { parseThemeColors, hexToRgba as schemaHexToRgba } from './themeSchema';
 import { assertOk } from './apiError';
+import i18n from '@/i18n';
 import { APP_EVENTS } from '@utils/constants';
 
 interface ThemeMeta {
@@ -168,8 +169,8 @@ class ThemeService {
         // Show notification with different message for guest vs authenticated users
         const isGuest = authService.authMode === 'guest';
         const message = isGuest
-          ? 'Your preferences have been reset to defaults by an administrator'
-          : 'Preferences reset to defaults';
+          ? i18n.t('management.themes.notifications.preferencesResetGuest')
+          : i18n.t('management.themes.notifications.preferencesReset');
 
         window.dispatchEvent(
           new CustomEvent(APP_EVENTS.SHOW_TOAST, {
@@ -258,9 +259,15 @@ class ThemeService {
   }
 
   private _builtInThemesCache: Theme[] | null = null;
+  private _builtInThemesLanguage: string | null = null;
 
   getBuiltInThemes(): Theme[] {
-    if (this._builtInThemesCache) return this._builtInThemesCache;
+    // The names and descriptions come from the active language, so a language change has to rebuild
+    // the cache or every theme picker keeps showing the previous language.
+    if (this._builtInThemesCache && this._builtInThemesLanguage === i18n.language) {
+      return this._builtInThemesCache;
+    }
+    this._builtInThemesLanguage = i18n.language;
 
     // Run colors through schema to ensure all keys are present (including derived colors)
     const complete = (
@@ -272,9 +279,9 @@ class ThemeService {
       {
         meta: {
           id: 'dark-default',
-          name: 'Dark Default',
-          description: 'Default dark theme with blue accents',
-          author: 'System',
+          name: i18n.t('management.themes.builtIn.darkDefault.name'),
+          description: i18n.t('management.themes.builtIn.darkDefault.description'),
+          author: i18n.t('management.themes.builtIn.systemAuthor'),
           version: '1.0.3',
           isDark: true,
           sharpCorners: false,
@@ -282,16 +289,22 @@ class ThemeService {
           disableTooltips: false
         },
         colors: complete({
-          // The derived hover comes off buttonBg and lands more saturated than the blue this
-          // theme has always shipped, so it states its own pair.
-          buttonHover: '#2563eb',
+          // The button parts company with primaryColor here rather than following it: white on the
+          // accent itself is 3.68:1, and the accent has to stay where it is because it is also the
+          // nav tab, the focus ring and the first chart series. A step down the same blue carries
+          // the label at 5.17:1, and the hover takes the step below that.
+          buttonBg: '#2563eb',
+          buttonHover: '#1d4ed8',
           // These four are shades the schema can now grow from a theme's own colours, and the
           // shades it grows land a little off the Tailwind steps this palette was cut from: the
           // ramp turns toward cyan as it lightens, and this theme's badge ground is brighter than
           // most. Stating them keeps the shipped blues exactly where they have always been while
           // the derivation serves themes that set an accent and nothing else.
           textAccent: '#60a5fa',
-          infoBg: '#1e3a8a',
+          // The status glyph paints itself in `info` on this ground, and blue-500 on blue-900 was
+          // 2.82:1. The pair opens up from both ends: the blue climbs a step, the ground drops one.
+          info: '#60a5fa',
+          infoBg: '#1c3468',
           infoText: '#93c5fd',
           fireworkGlowColor: '#60a5fa'
         })
@@ -303,9 +316,9 @@ class ThemeService {
       {
         meta: {
           id: 'light-default',
-          name: 'Light Default',
-          description: 'Clean modern light theme with subtle depth',
-          author: 'System',
+          name: i18n.t('management.themes.builtIn.lightDefault.name'),
+          description: i18n.t('management.themes.builtIn.lightDefault.description'),
+          author: i18n.t('management.themes.builtIn.systemAuthor'),
           version: '5.0.2',
           isDark: false,
           sharpCorners: false,
@@ -372,37 +385,48 @@ class ThemeService {
 
           // Status colors - Vibrant and accessible
           // Badge backgrounds use -100 shades; -50 shades disappear on grey cards
-          success: '#059669', // emerald-600
+          // Each of these four is the ink for its own -100 badge ground as well as for icons on a
+          // white card, and the 600 steps could not carry both: amber-600 read 2.86:1 on amber-100
+          // and 3.19:1 on white, emerald-600 3.32:1 and 3.77:1. Every one drops far enough down its
+          // own ramp to clear 4.5:1 on the tinted ground, which leaves it well clear on white too.
+          // Green goes a step further than the other three: the live pill draws its label in this
+          // colour on a 20% wash of the same colour, so the wash eats into whatever margin the
+          // green has on the card and 4.5:1 there needs 6.5:1 on white.
+          success: '#046b4b', // 5.77:1 on successBg, 6.54:1 on a white card, 4.81:1 on the live pill
           successBg: '#d1fae5', // emerald-100
           successText: '#047857', // emerald-700
-          warning: '#d97706', // amber-600
+          warning: '#a35905', // 4.73:1 on warningBg, 5.27:1 on a white card
           warningBg: '#fef3c7', // amber-100
-          warningText: '#b45309', // amber-700
-          error: '#dc2626', // red-600
+          warningText: '#92400e', // amber-800; amber-700 sat at 4.52:1 on the ground above
+          // Two steps rather than one: at red-600 this sat 2.5 dE from the amber above under
+          // simulated deuteranopia, so warning text and error text were the same colour. Red-800
+          // holds 17.2 there and 31.6 under protanopia, and reads better on both grounds as well.
+          error: '#991b1b', // 6.80:1 on errorBg, 8.31:1 on a white card
           errorBg: '#fee2e2', // red-100
           errorText: '#b91c1c', // red-700
-          info: '#2563eb', // blue-600
+          info: '#1658ea', // 4.76:1 on infoBg, 5.80:1 on a white card
           infoBg: '#dbeafe', // blue-100
           infoText: '#1d4ed8', // blue-700
           waiting: '#9333ea', // purple-600
           waitingBg: '#f3e8ff', // purple-100
           waitingText: '#7e22ce', // purple-700
 
-          // Service colors - Vibrant
-          steamColor: '#059669',
-          steamFaint: 'rgba(5, 150, 105, 0.1)',
-          steamOnBorder: 'rgba(5, 150, 105, 0.5)',
-          steamStrong: 'rgba(5, 150, 105, 0.3)',
+          // Service colors - the same brand hues the schema defaults carry, darkened where the
+          // brand's own value is too pale to read against a white card
+          steamColor: '#417a9b', // Valve's accent blue a step down; the light one reads 2.02:1 here
+          steamFaint: 'rgba(65, 122, 155, 0.1)',
+          steamOnBorder: 'rgba(65, 122, 155, 0.5)',
+          steamStrong: 'rgba(65, 122, 155, 0.3)',
           epicColor: '#7c3aed',
           epicFaint: 'rgba(124, 58, 237, 0.1)',
           epicOnBorder: 'rgba(124, 58, 237, 0.5)',
           epicStrong: 'rgba(124, 58, 237, 0.3)',
-          originColor: '#ea580c',
-          blizzardColor: '#2563eb',
-          wsusColor: '#0891b2',
+          originColor: '#ff4747',
+          blizzardColor: '#5d6bdc',
+          wsusColor: '#1b6fb5', // Off the accent, which it used to match exactly; 29.7 dE from it and 23.0 from Steam
           riotColor: '#d13639',
           xboxColor: '#107C10', // Xbox Green
-          ubisoftColor: '#db2777', // Pink
+          ubisoftColor: '#4338ca', // Same violet-blue as the default, darkened for white-card legibility
           gogColor: '#8B3FA0', // Darkened for white-card legibility
           rockstarColor: '#B07D07', // Darkened for white-card legibility
           arenanetColor: '#5C7A4A',
@@ -456,24 +480,28 @@ class ThemeService {
           hitRateWarningBg: '#fee2e2',
           hitRateWarningText: '#b91c1c',
 
-          // Action buttons
-          actionResetBg: '#d97706',
-          actionResetHover: '#b45309',
-          actionProcessBg: '#059669',
-          actionProcessHover: '#047857',
-          actionDeleteBg: '#dc2626',
-          actionDeleteHover: '#b91c1c',
+          // Action buttons - the same two steps down the amber and emerald ramps the shared
+          // defaults take, for the same reason: white on amber-600 is 3.19:1 and on emerald-600
+          // 3.77:1. Red and blue already carried the label at this depth and stay where they were.
+          actionResetBg: '#b45309',
+          actionResetHover: '#92400e',
+          actionProcessBg: '#047857',
+          actionProcessHover: '#065f46',
+          actionDeleteBg: '#991b1b',
+          actionDeleteHover: '#7f1d1d',
 
-          // Icon backgrounds
+          // Icon backgrounds - the five hues that could not be read as glyphs on a white card
+          // (2.94:1 for yellow, 3.56:1 orange, 3.68:1 cyan, 3.74:1 teal, 3.77:1 green) step down
+          // their own ramps. Blue, purple, indigo and red already cleared and stay put.
           iconBgBlue: '#2563eb',
-          iconBgGreen: '#059669',
-          iconBgEmerald: '#059669',
+          iconBgGreen: '#04845c',
+          iconBgEmerald: '#04845c',
           iconBgPurple: '#7c3aed',
           iconBgIndigo: '#4f46e5',
-          iconBgOrange: '#ea580c',
-          iconBgYellow: '#ca8a04',
-          iconBgCyan: '#0891b2',
-          iconBgTeal: '#0d9488',
+          iconBgOrange: '#c74b0a',
+          iconBgYellow: '#9a6903',
+          iconBgCyan: '#077e9b',
+          iconBgTeal: '#0b8176',
           iconBgRed: '#dc2626',
 
           // Chart colors
@@ -567,8 +595,8 @@ class ThemeService {
         meta: {
           id: 'graphite',
           name: 'Graphite',
-          description: 'Neutral charcoal dark theme with a soft blue accent',
-          author: 'System',
+          description: i18n.t('management.themes.builtIn.graphite.description'),
+          author: i18n.t('management.themes.builtIn.systemAuthor'),
           version: '1.0.0',
           isDark: true,
           sharpCorners: false,
@@ -601,7 +629,7 @@ class ThemeService {
           // Text - Warm off-white; pure white glares against charcoal
           textPrimary: '#eaeae4',
           textSecondary: '#acaca6',
-          textMuted: '#94948e', // Also feeds --theme-icon-gray; 4.98:1 on cardBg, the lightest ground it sits on
+          textMuted: '#9e9e98', // Also feeds --theme-icon-gray; bgSecondary is the lightest ground it sits on and the old #94948e read 4.22:1 there
           textAccent: '#7db3f7', // Links - one step lighter than the accent so they read as links
           textPlaceholder: '#74746e',
 
@@ -628,8 +656,8 @@ class ThemeService {
           // Components - Cards a step above the page, controls a step above the cards
           cardBg: '#262623',
           cardBorder: '#4a4a47',
-          buttonBg: '#3576e0', // Deeper than primaryColor - white button text is only 2.77:1 on the accent itself
-          buttonHover: '#2f6ed6',
+          buttonBg: '#246bdd', // Deeper than primaryColor - white button text is only 2.77:1 on the accent itself, and 4.36:1 one step down
+          buttonHover: '#1f5cc4',
           inputBg: '#3c3c39',
           inputBorder: '#4a4a47',
           checkboxAccent: '#5b9df5',
@@ -646,18 +674,28 @@ class ThemeService {
           iconBgGreen: '#4ade80',
           iconBgEmerald: '#34d399',
           iconBgPurple: '#b18cf7',
-          iconBgIndigo: '#818cf8',
+          iconBgIndigo: '#8c96f9',
           iconBgOrange: '#ff9d57',
           iconBgYellow: '#e8c14d',
           iconBgCyan: '#4dd0e1',
           iconBgTeal: '#2dd4bf',
-          iconBgRed: '#f4636a',
+          iconBgRed: '#f5767c',
+
+          // Status green and red - held at the icon values above so one green and one red run
+          // through icons, badges and text alike. The shared defaults are the slate theme's,
+          // which read 5.98:1 (green) and 4.03:1 (red) on this theme's card.
+          // Both are measured against bgSecondary, the lighter of this theme's two card grounds and
+          // the one the management panels actually sit on; cardBg is a step darker and easier.
+          success: '#4ade80', // 7.38:1 on bgSecondary
+          error: '#f5767c', // 4.76:1 on bgSecondary; the old #f4636a was 4.19:1 there
 
           // Status and series blues - the shared defaults for these keys are the deep blue
           // slate theme's accent, so without an override the page would show two blues at once
           info: '#5b9df5',
-          infoBg: '#1a3f70', // Deep ground, same step down from the card as the slate theme's badge
-          infoText: '#a9cdf9', // 6.43:1 on that ground
+          // Deeper than the card by more than a step: the status glyph paints itself in `info` on
+          // this ground rather than in infoText, and at the old #1a3f70 that pairing was 3.81:1.
+          infoBg: '#143157',
+          infoText: '#a9cdf9', // 7.32:1 on that ground
           hitRateMediumBg: '#1a3f70',
           hitRateMediumText: '#a9cdf9',
 
@@ -688,15 +726,12 @@ class ThemeService {
 
           // Service colors - the real brand hue for each service, lightened where the
           // brand's own value cannot be read against charcoal, or where two services
-          // share a hue and need a visible step between them.
-          steamColor: '#66c0f4', // Valve's accent blue; the green it replaces is not in Steam's palette
-          epicColor: '#8b5cf6', // Epic's brand is black and white only, so this is a stand-in hue
-          originColor: '#ff4747', // EA's wordmark red; the orange belonged to the retired Origin launcher
-          blizzardColor: '#5d6bdc', // Royal blue rotated toward indigo; at Sony's hue it was only 7 L* away
+          // share a hue and need a visible step between them. Steam, Epic, EA, Battle.net and
+          // Ubisoft are not restated here: the schema defaults now carry those brand hues and
+          // this theme wants the same values.
           wsusColor: '#09a2be', // Same cyan a step down, so Steam's blue and Warframe's teal both clear it on lightness
           riotColor: '#d13639',
           xboxColor: '#1a8c1a', // Xbox's #107c10 lifted six points of lightness at the same hue; the brand value itself reads 2.83:1 here
-          ubisoftColor: '#c6bdff', // Blue Ribbon pushed along the violet axis, then lifted clear of the grey placeholder
           gogColor: '#a05fb4', // GOG's true violet is far too dark to read on charcoal
           rockstarColor: '#fcaf17',
           arenanetColor: '#6fa754', // Same green lifted 14 L*, then one more step so Xbox's green clears it
@@ -814,6 +849,7 @@ class ThemeService {
     const iconGray = colors.textMuted!;
     const chartColor1 = colors.chartColor1!;
     const chartCacheHit = colors.chartCacheHitColor!;
+    const chartCacheMiss = colors.chartCacheMissColor!;
     // Event colors - guaranteed present by schema
     const ev = [
       colors.eventColor1!,
@@ -1057,6 +1093,11 @@ class ThemeService {
       --theme-danger-border: ${v('dangerBorder', 'rgba(255, 107, 107, 0.30)')};
       --theme-chart-hit-highlight: ${v('chartHitHighlight', rgba(chartCacheHit, 0.8))};
       --theme-chart-miss-deep: ${v('chartMissDeep', rgba(error, 0.8))};
+      /* The area wash under a cache-hit or cache-miss line. Both are declared together at the
+         same 0.15 alpha every other -subtle tier uses, so a line that moves onto one of these
+         colours cannot end up with a fill from a different family. */
+      --theme-chart-cache-hit-subtle: ${v('chartCacheHitSubtle', rgba(chartCacheHit, 0.15))};
+      --theme-chart-cache-miss-subtle: ${v('chartCacheMissSubtle', rgba(chartCacheMiss, 0.15))};
       --theme-chart-1-muted: ${v('chartColor1Muted', rgba(chartColor1, 0.3))};
       --theme-chart-1-strong: ${v('chartColor1Strong', rgba(chartColor1, 0.5))};
       --theme-chart-1-emphasis: ${v('chartColor1Emphasis', rgba(chartColor1, 0.75))};
@@ -1294,6 +1335,8 @@ class ThemeService {
       --theme-action-process-hover: ${colors.actionProcessHover};
       --theme-action-delete-bg: ${colors.actionDeleteBg};
       --theme-action-delete-hover: ${colors.actionDeleteHover};
+      --theme-action-stop-bg: ${colors.actionStopBg};
+      --theme-action-stop-hover: ${colors.actionStopHover};
       
       /* Floating Icon */
       --theme-floating-icon: ${colors.floatingIconColor};

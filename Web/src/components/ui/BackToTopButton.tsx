@@ -1,4 +1,5 @@
 import { useEffect, useState, type RefObject } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronUp } from 'lucide-react';
 import './BackToTopButton.css';
 
@@ -13,6 +14,7 @@ export function BackToTopButton({
   threshold = 300,
   className
 }: BackToTopButtonProps): React.ReactElement {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState<boolean>(false);
 
   useEffect(() => {
@@ -37,7 +39,7 @@ export function BackToTopButton({
   return (
     <button
       type="button"
-      aria-label="Back to top"
+      aria-label={t('ui.backToTop.label')}
       className={classes}
       onClick={handleClick}
       tabIndex={visible ? 0 : -1}

@@ -130,24 +130,27 @@
   margin-top: 0.25rem;
 }
 
+/* 16px bold on the card, so these need 4.5:1. The solid status colors reach only
+   3.9:1 on the dark default's card; the tuned text tiers clear it on every theme,
+   and they are the same tiers the labels beside these numbers already use. */
 .dash-readout-value.is-success {
-  color: var(--theme-success);
+  color: var(--theme-success-text);
 }
 
 .dash-readout-value.is-warning {
-  color: var(--theme-warning);
+  color: var(--theme-warning-text);
 }
 
 .dash-readout-value.is-error {
-  color: var(--theme-error);
+  color: var(--theme-error-text);
 }
 
 .dash-readout-value.is-info {
-  color: var(--theme-info);
+  color: var(--theme-info-text);
 }
 
 .dash-readout-value.is-primary {
-  color: var(--theme-primary);
+  color: var(--theme-text-accent);
 }
 
 /* 2-up strip on phones: divider only between the columns */
@@ -219,19 +222,23 @@
   height: 0.75rem;
   border-radius: var(--theme-border-radius-sm);
   flex-shrink: 0;
+  /* The legend row sits directly on the card. The heatmap cells take the two marker
+     classes below without this one, and they sit inside the well, so the ring's inner
+     separator falls back to the well surface instead. */
+  --peak-swatch-ground: var(--theme-card-bg);
 }
 
 .peak-legend-swatch--now {
   background-color: var(--theme-primary);
   box-shadow:
-    0 0 0 1px var(--theme-card-bg),
+    0 0 0 1px var(--peak-swatch-ground, var(--theme-bg-tertiary)),
     0 0 0 2px var(--theme-primary);
 }
 
 .peak-legend-swatch--peak {
   background-color: var(--theme-warning);
   box-shadow:
-    0 0 0 1px var(--theme-card-bg),
+    0 0 0 1px var(--peak-swatch-ground, var(--theme-bg-tertiary)),
     0 0 0 2px var(--theme-warning);
 }
 
@@ -748,6 +755,17 @@
   line-height: 0;
 }
 
+/* Two events can be created on the same color, and the color is theirs everywhere else
+   in the app, so the compare chart separates them with a dash instead of recoloring one.
+   The swatch carries the same break so the legend still teaches which line is which. */
+.line-trend-legend-swatch.is-dashed {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--legend-color) 0 0.25rem,
+    transparent 0.25rem 0.4375rem
+  );
+}
+
 /* Series names come from user data. Compared events are named things like
    route-access-16a7f4b0397d4091b005578d1721bd43, and eight of those at full length wrapped
    into two rows that outweighed the chart they label. The cap keeps one legend row per
@@ -782,12 +800,14 @@
   --legend-color: var(--theme-primary);
 }
 
+/* The saved and missed series on the bandwidth trend. Both read the chart's hit/miss colours so
+   the swatch matches the line it names; only that chart uses these two classes. */
 .line-trend-swatch-success {
-  --legend-color: var(--theme-success);
+  --legend-color: var(--theme-chart-cache-hit);
 }
 
 .line-trend-swatch-warning {
-  --legend-color: var(--theme-warning);
+  --legend-color: var(--theme-chart-cache-miss);
 }
 
 .line-trend-swatch-event-1 {

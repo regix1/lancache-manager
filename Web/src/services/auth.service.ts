@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import { assertOk, type ApiErrorData } from './apiError';
 import { isAbortError } from '@utils/error';
 import { antiforgeryHeaders } from '@utils/antiforgery';
@@ -186,7 +187,10 @@ class AuthService {
         const data: ApiErrorData = await response.json().catch(() => ({}) as ApiErrorData);
         return {
           success: false,
-          message: data.error || data.message || `Login failed: ${response.status}`
+          message:
+            data.error ||
+            data.message ||
+            i18n.t('auth.errors.loginFailedStatus', { status: response.status })
         };
       }
 
@@ -201,7 +205,7 @@ class AuthService {
       return { success: data.success, message: data.error };
     } catch (error: unknown) {
       console.error('[AuthService] login error:', error);
-      return { success: false, message: 'Network error during login' };
+      return { success: false, message: i18n.t('auth.errors.networkDuringLogin') };
     }
   }
 
@@ -222,7 +226,7 @@ class AuthService {
         const data: ApiErrorData = await response.json().catch(() => ({}) as ApiErrorData);
         return {
           success: false,
-          message: data.error || data.message || 'Failed to start guest session'
+          message: data.error || data.message || i18n.t('auth.errors.guestSessionFailed')
         };
       }
 
@@ -236,7 +240,7 @@ class AuthService {
       return { success: data.success, message: data.error };
     } catch (error: unknown) {
       console.error('[AuthService] startGuestSession error:', error);
-      return { success: false, message: 'Network error' };
+      return { success: false, message: i18n.t('auth.errors.network') };
     }
   }
 

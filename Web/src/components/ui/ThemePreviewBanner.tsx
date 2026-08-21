@@ -53,7 +53,7 @@ export default function ThemePreviewBanner({ iconOnly = false }: ThemePreviewBan
     <Tooltip content={t('management.themes.previewingBanner', { name: previewName || previewId })}>
       <Button
         variant="filled"
-        color="blue"
+        color="stop"
         size={iconOnly ? 'sm' : 'md'}
         onClick={exitPreview}
         disabled={exiting}

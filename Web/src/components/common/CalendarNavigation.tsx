@@ -59,7 +59,7 @@ function CalendarNavigation({
             two is current. */}
         <Button
           variant="filled"
-          color="gray"
+          color="secondary"
           size="md"
           className="btn-icon-square max-sm:w-11 max-sm:h-11"
           onClick={() => changeMonth(-1)}
@@ -96,7 +96,7 @@ function CalendarNavigation({
 
         <Button
           variant="filled"
-          color="gray"
+          color="secondary"
           size="md"
           className="btn-icon-square max-sm:w-11 max-sm:h-11"
           onClick={() => changeMonth(1)}

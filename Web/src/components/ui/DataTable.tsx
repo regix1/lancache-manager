@@ -7,6 +7,7 @@ import React, {
   forwardRef,
   useImperativeHandle
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 
 // --- Constants ---
@@ -210,7 +211,7 @@ function DataTableInner<T>(
     columns,
     data,
     keyExtractor,
-    emptyMessage = 'No data available',
+    emptyMessage,
     emptyState,
     maxHeight,
     accentColor,
@@ -224,6 +225,7 @@ function DataTableInner<T>(
   }: DataTableProps<T>,
   ref: React.ForwardedRef<DataTableHandle>
 ) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
 
   // --- Column width state (resizable mode only) ---
@@ -424,7 +426,7 @@ function DataTableInner<T>(
       if (emptyState) return emptyState;
       return (
         <div className="data-table-empty" role="row">
-          <span role="cell">{emptyMessage}</span>
+          <span role="cell">{emptyMessage ?? t('ui.dataTable.noData')}</span>
         </div>
       );
     }

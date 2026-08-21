@@ -72,8 +72,12 @@
   .error-boundary-button {
     width: 100%;
     padding: 0.75rem 1.5rem;
-    background-color: var(--theme-error);
-    color: var(--theme-text-primary);
+    /* Fills with the delete-button pair, not --theme-error: that token is the error INK in the
+       text rules and is too light to carry a label. --theme-button-text rather than
+       --theme-text-primary because the light theme's primary text is near-black, which reads at
+       3.70:1 on this red. */
+    background-color: var(--theme-action-delete-bg);
+    color: var(--theme-button-text);
     font-size: var(--font-size-lg);
     font-weight: 500;
     border: none;
@@ -84,6 +88,6 @@
 
   .error-boundary-button:hover,
   .error-boundary-button:focus-visible {
-    background-color: var(--theme-error-strong);
+    background-color: var(--theme-action-delete-hover);
   }
 }

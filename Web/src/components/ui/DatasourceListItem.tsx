@@ -58,7 +58,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
             >
               <FolderOpen
                 className={`w-3.5 h-3.5 transition-colors duration-300 ${
-                  isExpanded ? 'icon-blue' : 'text-themed-muted'
+                  isExpanded ? 'icon-primary' : 'text-themed-muted'
                 }`}
               />
             </div>

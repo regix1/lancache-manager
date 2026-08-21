@@ -21,7 +21,7 @@ interface ServiceBrand {
   legendClass: string;
 }
 
-const SERVICE_BRANDS: Record<string, ServiceBrand> = {
+const SERVICE_BRANDS = {
   steam: {
     colorVar: '--theme-steam',
     colorClass: 'service-steam',
@@ -157,7 +157,16 @@ const SERVICE_BRANDS: Record<string, ServiceBrand> = {
     colorClass: 'service-wargaming',
     legendClass: 'legend-color-wargaming'
   }
-};
+} satisfies Record<string, ServiceBrand>;
+
+type ServiceId = keyof typeof SERVICE_BRANDS;
+
+/**
+ * The brand colour property of a known service, as a closed union. `satisfies` above keeps the
+ * literal spelling of every `colorVar`, so components that compose a tier onto the name get a
+ * compile error for a service the theme declares no colour for.
+ */
+export type ServiceColorToken = (typeof SERVICE_BRANDS)[ServiceId]['colorVar'];
 
 /** Alternate names the same service arrives under, folded onto its canonical id. */
 const SERVICE_ID_BY_ALIAS: Record<string, string> = {
@@ -172,14 +181,14 @@ const SERVICE_ID_BY_ALIAS: Record<string, string> = {
 };
 
 /** Text color for a service with no brand color of its own. */
-const UNKNOWN_COLOR_VAR = '--theme-text-secondary';
+export const UNKNOWN_COLOR_VAR = '--theme-text-secondary';
 const UNKNOWN_COLOR_CLASS = 'text-[var(--theme-text-secondary)]';
 const UNKNOWN_LEGEND_CLASS = 'legend-color-default';
 
 function findBrand(service: string): ServiceBrand | null {
   const normalized = service.toLowerCase();
   const id = SERVICE_ID_BY_ALIAS[normalized] ?? normalized;
-  return SERVICE_BRANDS[id] ?? null;
+  return SERVICE_BRANDS[id as ServiceId] ?? null;
 }
 
 /**
@@ -195,7 +204,7 @@ export const SERVICE_COLOR_VARS: readonly string[] = Object.values(SERVICE_BRAND
  * for a service with none. Cache-domains lists far more services than the app has brand
  * colors for, so an unknown name is expected, not an error.
  */
-export function getServiceColorVar(service: string): string {
+export function getServiceColorVar(service: string): ServiceColorToken | typeof UNKNOWN_COLOR_VAR {
   return findBrand(service)?.colorVar ?? UNKNOWN_COLOR_VAR;
 }
 

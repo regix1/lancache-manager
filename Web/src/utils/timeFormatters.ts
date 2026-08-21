@@ -1,5 +1,5 @@
 import type { TFunction } from 'i18next';
-import i18n from '../i18n';
+import i18n from '@/i18n';
 import { parseUtcDate } from './timezone';
 
 export function formatMinutes(minutes: number, t: TFunction): string {

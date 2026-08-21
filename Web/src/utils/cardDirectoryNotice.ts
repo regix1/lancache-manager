@@ -28,7 +28,7 @@ export function isCardDiskActionBlocked(
   return false;
 }
 
-export type CardNoticeColor = 'red' | 'orange';
+export type CardNoticeColor = 'error' | 'warning';
 
 export type CardNoticeBody =
   | { kind: 'ro'; prefixKey: string; suffixKey: string }
@@ -53,7 +53,7 @@ export function resolveCardNotice(
 
   if (needCachePresent && !live.cacheExist) {
     return {
-      color: 'red',
+      color: 'error',
       titleKey: 'management.directoryNotice.cacheMissingTitle',
       body: { kind: 'text', key: 'management.directoryNotice.missingDescription' }
     };
@@ -61,7 +61,7 @@ export function resolveCardNotice(
 
   if (conditions.logsWrite && !live.logsExist) {
     return {
-      color: 'red',
+      color: 'error',
       titleKey: 'management.directoryNotice.logsMissingTitle',
       body: { kind: 'text', key: 'management.directoryNotice.missingDescription' }
     };
@@ -69,7 +69,7 @@ export function resolveCardNotice(
 
   if (conditions.cacheWrite && live.cacheReadOnly) {
     return {
-      color: 'orange',
+      color: 'warning',
       titleKey: 'management.directoryNotice.cacheReadOnlyTitle',
       body: {
         kind: 'ro',
@@ -81,7 +81,7 @@ export function resolveCardNotice(
 
   if (conditions.logsWrite && live.logsReadOnly) {
     return {
-      color: 'orange',
+      color: 'warning',
       titleKey: 'management.directoryNotice.logsReadOnlyTitle',
       body: {
         kind: 'ro',
@@ -93,7 +93,7 @@ export function resolveCardNotice(
 
   if (conditions.nginx && !live.nginxReopenGate.available && live.nginxReopenGate.messageKey) {
     return {
-      color: 'orange',
+      color: 'warning',
       titleKey: 'management.nginxReopen.alertTitle',
       body: { kind: 'raw', messageKey: live.nginxReopenGate.messageKey }
     };

@@ -148,12 +148,14 @@
   cursor: help;
 }
 
-/* Group label above each integrations group (Steam / Epic / Monitoring).
-   Base type from .caps-label; compound overrides size + tracking that differ. */
-.caps-label.integrations-group-label {
-  font-size: var(--font-size-sm);
+/* Label on every top-level group heading across the Management tabs. Base type comes from
+   .caps-label; the compound overrides the three declarations that differ at this rank, the
+   secondary text colour among them, so a group heading reads the same on every tab.
+   Spacing below stays on the heading row, which also carries the accent stripe. */
+.caps-label.management-group-label {
+  font-size: var(--font-size-md);
   letter-spacing: 0.08em;
-  margin-bottom: 0.75rem;
+  color: var(--theme-text-secondary);
 }
 
 /* Divided subsection inside a merged integration card (e.g. Web API inside the Steam card) */

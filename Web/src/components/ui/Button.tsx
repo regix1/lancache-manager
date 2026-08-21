@@ -3,8 +3,27 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useOptionalDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'filled' | 'subtle' | 'outline' | 'default';
-  color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange' | 'default';
+  variant?: 'filled' | 'subtle' | 'default';
+  /**
+   * The job the button does. `run`, `stop`, `destructive`, `primary` and `secondary` say what the
+   * button is for and let the theme decide its colour; the palette names below say the colour
+   * outright and are being migrated away from, one directory at a time. Each job name resolves to
+   * the class its palette name already produced, so the two spellings render identically.
+   */
+  color?:
+    | 'run'
+    | 'stop'
+    | 'destructive'
+    | 'primary'
+    | 'secondary'
+    | 'blue'
+    | 'green'
+    | 'red'
+    | 'yellow'
+    | 'purple'
+    | 'gray'
+    | 'orange'
+    | 'default';
   size?: 'xs' | 'sm' | 'md' | 'lg';
   loading?: boolean;
   /** Explicit permission-check state (overrides awaitPermissions). */
@@ -43,6 +62,11 @@ export const Button: React.FC<ButtonProps> = ({
   const getVariantClasses = () => {
     if (variant === 'filled') {
       const colors = {
+        run: 'action-process',
+        stop: 'action-stop',
+        destructive: 'action-delete',
+        primary: 'themed-button-primary',
+        secondary: 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary',
         blue: 'themed-button-primary',
         green: 'action-process',
         red: 'action-delete',
@@ -57,23 +81,6 @@ export const Button: React.FC<ButtonProps> = ({
     if (variant === 'subtle') {
       // Borderless muted solid (no transparent/ghost look) — same neutral fill for every color.
       return 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary';
-    }
-    if (variant === 'outline') {
-      // Outline variants render as solid fills (aliases of the filled buttons), so no
-      // literal border — it would add ~2px height vs the filled buttons in a cluster.
-      // Focus is still indicated via the global button:focus-visible rule.
-      const base = '';
-      const colors = {
-        blue: `${base} outline-primary`,
-        green: `${base} outline-process`,
-        red: `${base} outline-delete`,
-        yellow: `${base} outline-reset`,
-        orange: `${base} outline-reset`,
-        purple: `${base} outline-primary`,
-        gray: 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary',
-        default: 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary'
-      };
-      return colors[color];
     }
     return 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary';
   };

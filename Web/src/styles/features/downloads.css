@@ -489,9 +489,12 @@
     background: var(--theme-bg-surface-hover);
   }
 
+  /* Filled with --theme-button-bg, not --theme-primary. The accent is the ink in far more rules
+     than it is a fill, so it has to stay light enough to read as text on a card, which leaves it
+     too light to carry a white label. The button fill is the token that exists to be a ground. */
   .downloads-header .tab-button.active {
     color: var(--theme-button-text);
-    background: var(--theme-primary);
+    background: var(--theme-button-bg);
     box-shadow: 0 2px 8px var(--theme-primary-strong);
   }
 
@@ -534,7 +537,9 @@
   }
 
   .downloads-header .tab-button:not(.active) .tab-badge.has-active {
-    background: var(--theme-success);
+    /* --theme-action-process-bg, not --theme-success: success is the green INK everywhere else
+       and white cannot be read on it. */
+    background: var(--theme-action-process-bg);
     color: var(--theme-button-text);
     animation: header-badge-pulse 2s ease-in-out infinite;
   }
@@ -898,7 +903,7 @@
 
   .active-downloads-view .view-toggle-btn.active {
     color: var(--theme-button-text);
-    background: var(--theme-primary);
+    background: var(--theme-button-bg);
     box-shadow: 0 2px 4px var(--theme-primary-muted);
   }
 

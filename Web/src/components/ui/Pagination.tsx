@@ -90,7 +90,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
     totalItems = 0,
     itemsPerPage = 0,
     onPageChange,
-    itemLabel = 'items',
+    itemLabel,
     className = '',
     showCard = true,
     size,
@@ -338,7 +338,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
                 start: startItem,
                 end: endItem,
                 total: totalItems,
-                label: itemLabel
+                label: itemLabel ?? t('ui.pagination.items')
               })}
             </span>
           )}
@@ -414,7 +414,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
                   start: startItem,
                   end: endItem,
                   total: totalItems,
-                  label: itemLabel
+                  label: itemLabel ?? t('ui.pagination.items')
                 })
               : t('ui.pagination.pageInfo', { current: currentPage, total: totalPages })}
           </span>

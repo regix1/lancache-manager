@@ -21,6 +21,7 @@ import {
 } from '@contexts/notifications';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { formatCount, formatBytes } from '@utils/formatters';
+import { VARIANT_BY_STATUS } from '@utils/statusVariant';
 import themeService from '@services/theme.service';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
@@ -192,14 +193,26 @@ const handleCancel = async (
 // ============================================================================
 
 /**
- * Gets the status color for a notification based on its current state.
- * Blue (info) = Running/Processing
- * Green (success) = Completed
- * Red (error) = Failed/Cancelled
+ * The badge variant a status resolves to, drawn as a solid line colour. `neutral` has no
+ * status token of its own and borrows the grey the neutral badge fill is built from
+ * (`badges.css:93`), so grey means the same thing on a card as it does on a pill.
+ */
+const STATUS_COLOR_BY_VARIANT: Record<string, string> = {
+  success: 'var(--theme-success)',
+  error: 'var(--theme-error)',
+  warning: 'var(--theme-warning)',
+  info: 'var(--theme-info)',
+  waiting: 'var(--theme-waiting)',
+  neutral: 'var(--theme-text-secondary)'
+};
+
+/**
+ * Gets the status color for a notification based on its current state, via the shared
+ * status vocabulary so a card and a badge never disagree about the same word.
  */
 const getNotificationColor = (notification: UnifiedNotification): string => {
   if (notification.details?.cancelled) {
-    return 'var(--theme-error)';
+    return STATUS_COLOR_BY_VARIANT[VARIANT_BY_STATUS['cancelled']];
   }
 
   // Toast-style notifications carry their real semantic in details.notificationType
@@ -219,22 +232,11 @@ const getNotificationColor = (notification: UnifiedNotification): string => {
     }
   }
 
-  switch (notification.status) {
-    case 'completed':
-      return 'var(--theme-success)';
-    case 'failed':
-    case 'cancelled':
-      return 'var(--theme-error)';
-    case 'waiting':
-      return 'var(--theme-waiting)';
-    case 'skipped':
-      // The run did nothing, so it is neither the green of a finished run nor the red of a
-      // broken one. Warning is reused because it already has a glow tone in the condensed strip.
-      return 'var(--theme-warning)';
-    case 'running':
-    default:
-      return 'var(--theme-info)';
-  }
+  // `skipped` is amber because the run did nothing, so it is neither the green of a finished
+  // run nor the red of a broken one, and warning already has a glow tone in the condensed strip.
+  // `pending` and `cancelling` carry no row of their own: both are still in flight, so they
+  // read the way a running run does.
+  return STATUS_COLOR_BY_VARIANT[VARIANT_BY_STATUS[notification.status] ?? 'info'];
 };
 
 /**
@@ -274,7 +276,8 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
   }
 
   if (notification.status === 'completed') {
-    // Show XCircle (error icon) for cancelled operations
+    // A cancelled run did not finish its work, so the cross says so where the tick would lie.
+    // Its colour rides the status colour, which is grey rather than the red of a failure.
     if (notification.details?.cancelled) {
       return <XCircle className="w-4 h-4 flex-shrink-0" style={{ color }} />;
     }

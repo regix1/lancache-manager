@@ -1,3 +1,4 @@
+import i18n from '../i18n/index.ts';
 import {
   getServerTimezone,
   isUnresolvableTimezone,
@@ -93,12 +94,12 @@ export function formatTimestamp(
   value: string | Date | null | undefined,
   settings: TimestampSettings
 ): string {
-  if (!value) return 'N/A';
+  if (!value) return i18n.t('common.notAvailable');
 
   try {
     const date = typeof value === 'string' ? new Date(value) : value;
 
-    if (isNaN(date.getTime())) return 'Invalid Date';
+    if (isNaN(date.getTime())) return i18n.t('common.time.invalidDate');
 
     // undefined lets Intl pick the browser's own timezone. A named zone wins outright - the
     // caller has one in hand and is not asking about anybody's preference. UTC comes next
@@ -135,6 +136,6 @@ export function formatTimestamp(
       });
     }
   } catch (_error) {
-    return 'Invalid Date';
+    return i18n.t('common.time.invalidDate');
   }
 }

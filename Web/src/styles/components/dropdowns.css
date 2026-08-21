@@ -531,7 +531,7 @@
   /* Installable - green icon on hover */
   .github-repo-item.installable:hover .github-repo-icon,
   .github-repo-item.installable.hovered .github-repo-icon {
-    background-color: var(--theme-icon-green);
+    background-color: var(--theme-action-process-bg);
     color: var(--theme-button-text);
   }
 
@@ -630,9 +630,9 @@
 
   .github-repo-item:hover .github-fork-pill,
   .github-repo-item.hovered .github-fork-pill {
-    background-color: var(--theme-primary);
+    background-color: var(--theme-button-bg);
     color: var(--theme-button-text);
-    border-color: var(--theme-primary);
+    border-color: var(--theme-button-bg);
   }
 
   /* Divider */

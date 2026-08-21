@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
@@ -73,6 +74,7 @@ export const Modal: React.FC<ModalProps> = ({
   stackPriority = 'normal',
   bodyFlexLayout = false
 }) => {
+  const { t } = useTranslation();
   const [isVisible, setIsVisible] = React.useState(false);
   const [isAnimating, setIsAnimating] = React.useState(false);
   const [zIndex, setZIndex] = React.useState(80);
@@ -294,7 +296,7 @@ export const Modal: React.FC<ModalProps> = ({
               </div>
               <button
                 onClick={onClose}
-                aria-label="Close"
+                aria-label={t('common.close')}
                 className="p-1 hover:bg-themed-hover themed-border-radius-sm smooth-transition"
               >
                 <X className="w-5 h-5 text-themed-muted" />

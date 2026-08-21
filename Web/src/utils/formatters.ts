@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import { FILE_SIZE_UNITS } from './constants';
 import { formatTimestamp, type ReaderClock } from './dateTimeFormat';
 
@@ -23,7 +24,7 @@ export function isFromDifferentYear(dateString: string | Date | null | undefined
  */
 export function formatBytes(bytes: number, decimals = 2, zeroLabel = '0 B'): string {
   if (bytes === 0) return zeroLabel;
-  if (!bytes || bytes < 0) return 'N/A';
+  if (!bytes || bytes < 0) return i18n.t('common.notAvailable');
 
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
@@ -39,7 +40,7 @@ export function formatBytes(bytes: number, decimals = 2, zeroLabel = '0 B'): str
  * Network speeds are traditionally measured in bits (Mb/s), not bytes (MB/s)
  */
 export function formatSpeed(bytesPerSecond: number | undefined | null, decimals = 1): string {
-  if (!bytesPerSecond || bytesPerSecond <= 0) return 'N/A';
+  if (!bytesPerSecond || bytesPerSecond <= 0) return i18n.t('common.notAvailable');
 
   // Convert bytes to bits
   const bitsPerSecond = bytesPerSecond * 8;
@@ -110,7 +111,7 @@ export function formatCount(value: number | null | undefined): string {
  * Format relative time (e.g., "2 hours ago")
  */
 export function formatRelativeTime(dateString: string | Date | null | undefined): string {
-  if (!dateString) return 'N/A';
+  if (!dateString) return i18n.t('common.notAvailable');
 
   try {
     const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
@@ -121,11 +122,11 @@ export function formatRelativeTime(dateString: string | Date | null | undefined)
     const diffHours = Math.floor(diffMins / 60);
     const diffDays = Math.floor(diffHours / 24);
 
-    if (diffDays > 0) return `${diffDays}d ago`;
-    if (diffHours > 0) return `${diffHours}h ago`;
-    if (diffMins > 0) return `${diffMins}m ago`;
-    return 'Just now';
+    if (diffDays > 0) return i18n.t('common.time.daysAgo', { count: diffDays });
+    if (diffHours > 0) return i18n.t('common.time.hoursAgo', { count: diffHours });
+    if (diffMins > 0) return i18n.t('common.time.minutesAgo', { count: diffMins });
+    return i18n.t('common.time.justNow');
   } catch (_error) {
-    return 'Invalid Date';
+    return i18n.t('common.time.invalidDate');
   }
 }

@@ -349,7 +349,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
         <div className="flex gap-2 mt-4">
           <Button
             variant="filled"
-            color="gray"
+            color="secondary"
             size="md"
             className="max-sm:min-h-11"
             onClick={() => {
@@ -368,7 +368,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
           </Button>
           <Button
             variant="filled"
-            color="blue"
+            color="primary"
             size="md"
             className="max-sm:min-h-11"
             onClick={handleApply}

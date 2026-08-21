@@ -1,22 +1,14 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { formatCount } from '@utils/formatters';
+import { themeColorVar, type ColorToken } from '@utils/eventColors';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 
 /** Lucide icons or brand SVG components (SteamIcon, EpicIcon, …) that accept size/className/style. */
 type AccordionIcon =
   | LucideIcon
   | React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
-
-/**
- * `iconColor` arrives as a finished `var(--name)` value from dozens of call sites across the
- * app, so the tier suffix has to be spliced into that string rather than composed from a
- * colour token. Colours the theme declares no tier for, the per-service brand colours among
- * them, resolve to nothing and leave the icon box untinted.
- */
-function iconColorTier(colorValue: string, tier: 'subtle' | 'muted'): string {
-  return colorValue.replace(')', `-${tier})`);
-}
 
 interface AccordionSectionProps {
   title: string;
@@ -30,7 +22,12 @@ interface AccordionSectionProps {
   titleAccessory?: React.ReactNode;
   count?: number;
   icon?: AccordionIcon;
-  iconColor?: string;
+  /**
+   * Colour token for the icon and its box. The header tints the box with the token's `-subtle`
+   * and `-muted` tiers, so the token has to be one the theme emits those tiers for - the closed
+   * `ColorToken` union is what guarantees that.
+   */
+  iconColor?: ColorToken;
   children: React.ReactNode;
   isExpanded: boolean;
   onToggle: () => void;
@@ -49,13 +46,15 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
   titleAccessory,
   count,
   icon: Icon,
-  iconColor = 'var(--theme-accent)',
+  iconColor = '--theme-accent',
   children,
   isExpanded,
   onToggle,
   badge,
   surface = 'card'
 }) => {
+  const { t } = useTranslation();
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     const target = e.target as HTMLElement;
     if (
@@ -109,7 +108,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
       } themed-button-radius transition duration-300 flex-shrink-0 ${
         isExpanded ? 'bg-[var(--theme-accent-subtle)]' : 'bg-transparent hover:bg-themed-tertiary'
       }`}
-      aria-label={isExpanded ? 'Collapse section' : 'Expand section'}
+      aria-label={isExpanded ? t('ui.accordion.collapseSection') : t('ui.accordion.expandSection')}
     >
       <ChevronDown
         className={`${surface === 'well' ? 'w-4 h-4' : 'w-5 h-5'} transition duration-300 ease-out ${
@@ -146,15 +145,15 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
                 isExpanded ? 'scale-105' : 'scale-100'
               }`}
               style={{
-                backgroundColor: iconColorTier(iconColor, 'subtle'),
-                boxShadow: isExpanded ? `0 2px 8px ${iconColorTier(iconColor, 'muted')}` : 'none'
+                backgroundColor: themeColorVar(iconColor, 'subtle'),
+                boxShadow: isExpanded ? `0 2px 8px ${themeColorVar(iconColor, 'muted')}` : 'none'
               }}
             >
               <Icon
                 className={`w-4 h-4 flex-shrink-0 transition-transform duration-300 ${
                   isExpanded ? 'scale-110' : 'scale-100'
                 }`}
-                style={{ color: iconColor }}
+                style={{ color: themeColorVar(iconColor) }}
               />
             </div>
           )}
@@ -194,8 +193,8 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
                   style={
                     isExpanded
                       ? {
-                          backgroundColor: iconColorTier(iconColor, 'muted'),
-                          color: iconColor
+                          backgroundColor: themeColorVar(iconColor, 'muted'),
+                          color: themeColorVar(iconColor)
                         }
                       : undefined
                   }

@@ -32,9 +32,14 @@
   }
 
   /* Light mode card shadow for visual separation (Linear/Stripe style) */
+  /* Width and style only. The `border` shorthand used to be here, and because this selector
+     outranks a single class it repainted the colour over any border-* utility the card carried,
+     so in the light theme a card marked active or warning drew the same edge as every other card.
+     The colour stays on .themed-card above, where a utility can still win it. [52] */
   [data-theme='light'] .themed-card {
     box-shadow: var(--shadow-card);
-    border: 1px solid var(--theme-card-border);
+    border-width: 1px;
+    border-style: solid;
   }
 
   [data-theme='light'] .themed-card:hover {

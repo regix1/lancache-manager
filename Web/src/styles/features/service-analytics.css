@@ -407,7 +407,9 @@
   width: 0.625rem;
   height: 0.625rem;
   border-radius: var(--theme-border-radius-sm);
-  border: 1px solid;
+  /* Both colors arrive per row from the hovered bar, which only the canvas knows. */
+  background-color: var(--swatch-fill, transparent);
+  border: 1px solid var(--swatch-border, transparent);
   flex-shrink: 0;
   margin-top: 0.3125rem;
 }

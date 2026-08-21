@@ -1,4 +1,5 @@
 import { useCallback, useId, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
 interface NumberInputProps {
@@ -27,6 +28,7 @@ export function NumberInput({
   'aria-label': ariaLabel,
   onChange
 }: NumberInputProps) {
+  const { t } = useTranslation();
   const generatedId = useId();
   const inputId = id ?? generatedId;
   // What the box shows while it is being typed into, or null when it just shows `value`. An empty
@@ -96,7 +98,7 @@ export function NumberInput({
           disabled={disabled || value >= max}
           onClick={() => handleStep(1)}
           tabIndex={-1}
-          aria-label="Increase value"
+          aria-label={t('ui.numberInput.increase')}
         >
           <ChevronUp />
         </button>
@@ -106,7 +108,7 @@ export function NumberInput({
           disabled={disabled || value <= min}
           onClick={() => handleStep(-1)}
           tabIndex={-1}
-          aria-label="Decrease value"
+          aria-label={t('ui.numberInput.decrease')}
         >
           <ChevronDown />
         </button>

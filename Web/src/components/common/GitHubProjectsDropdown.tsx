@@ -173,12 +173,12 @@ const FirecrackerSVG: React.FC = () => (
     {/* Top wing - light */}
     <path
       d="m417.895 119.476-44.759-44.759v53.562h-143.33l-83.987 83.986h220.661l51.415-51.415c11.425-11.425 11.425-29.949 0-41.374z"
-      fill="#e7effa"
+      fill="var(--theme-button-text)"
     />
-    {/* Bottom highlight - white */}
+    {/* Bottom highlight */}
     <path
       d="m151.167 294.07 46.067 46.067c11.425 11.425 29.949 11.425 41.374 0l46.067-46.067z"
-      fill="#fff"
+      fill="var(--theme-button-text)"
     />
     {/* Body shadow - primary darker */}
     <path
@@ -223,10 +223,10 @@ const FirecrackerSVG: React.FC = () => (
       d="m121.068 456.914c5.746-6.999 4.729-17.331-2.27-23.076s-17.331-4.729-23.076 2.27c-5.746 6.999-20.334 36.341-13.334 42.087 6.998 5.745 32.934-14.281 38.68-21.281z"
       fill="#ffa585"
     />
-    {/* Window highlight - white */}
+    {/* Window highlight */}
     <path
       d="m330.16 59.204c-4.97 0-9.277-3.701-9.91-8.761-.685-5.48 3.202-10.478 8.683-11.163l45.311-5.664c5.48-.69 10.477 3.203 11.163 8.683.685 5.48-3.202 10.478-8.683 11.163l-45.311 5.663c-.42.053-.839.079-1.253.079z"
-      fill="#fff"
+      fill="var(--theme-button-text)"
     />
   </svg>
 );

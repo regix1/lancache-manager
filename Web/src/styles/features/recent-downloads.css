@@ -97,7 +97,7 @@
   font-weight: 700;
   border-radius: var(--theme-border-radius-sm);
   border: 1px solid var(--theme-badge-white-subtle);
-  background: var(--theme-success);
+  background: var(--theme-action-process-bg);
   color: var(--theme-button-text);
   animation: rdl-badge-glow 2s ease-in-out infinite;
 }

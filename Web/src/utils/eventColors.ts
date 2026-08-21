@@ -7,6 +7,8 @@
  * This ensures colors adapt when themes change.
  */
 
+import type { ServiceColorToken } from '@utils/serviceColors';
+
 /** The colour indexes the theme defines event variables for. */
 type EventColorIndex = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
@@ -22,8 +24,11 @@ export function clampEventColorIndex(colorIndex: number): EventColorIndex {
  */
 export type ColorToken =
   | `--theme-event-${EventColorIndex}`
+  | ServiceColorToken
   | '--theme-primary'
+  | '--theme-accent'
   | '--theme-success'
+  | '--theme-icon-red'
   | '--theme-text-muted';
 
 /**

@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import { antiforgeryHeaders } from '../utils/antiforgery';
 import { API_BASE } from '../utils/constants';
 import { isAbortError } from '../utils/error';
@@ -303,7 +304,7 @@ class ApiService {
         status: response.status,
         kind: 'parse',
         body: null,
-        message: 'Invalid JSON response from server'
+        message: i18n.t('common.errors.invalidJsonResponse')
       });
     }
   }

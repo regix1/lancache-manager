@@ -142,10 +142,6 @@
     color: var(--theme-icon-yellow);
   }
 
-  .icon-cyan {
-    color: var(--theme-icon-cyan);
-  }
-
   .icon-red {
     color: var(--theme-icon-red);
   }
@@ -327,6 +323,11 @@
     border-color: var(--theme-border-focus);
   }
 
+  /* Dashed tooltip underlines: keep the hint fainter than the label it sits under [51] */
+  .border-themed-muted {
+    border-color: var(--theme-text-muted);
+  }
+
   /* Shorthand semantic border classes */
   .border-info {
     border-color: var(--theme-info);
@@ -342,6 +343,11 @@
 
   .border-success {
     border-color: var(--theme-success);
+  }
+
+  /* Completes the shorthand family so the active theme card's outline paints [52] */
+  .border-primary {
+    border-color: var(--theme-primary);
   }
 
   .border-themed {
@@ -370,8 +376,10 @@
     color: var(--theme-error);
   }
 
+  /* --theme-text-accent, not --theme-primary: the accent has to stay dark enough to carry a white
+     label on the filled tabs and buttons, which leaves it short of 4.5:1 as ink on a card. */
   .icon-primary {
-    color: var(--theme-primary);
+    color: var(--theme-text-accent);
   }
 
   /* Shorthand semantic icon/text colors */
@@ -410,5 +418,10 @@
 
   .text-warning-text {
     color: var(--theme-warning-text);
+  }
+
+  /* Without this the success branch of each status ternary inherits body text [51] */
+  .text-success-text {
+    color: var(--theme-success-text);
   }
 }

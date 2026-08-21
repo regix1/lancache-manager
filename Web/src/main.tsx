@@ -2,7 +2,7 @@ import ReactDOM from 'react-dom/client';
 import { NuqsAdapter } from 'nuqs/adapters/react';
 import App from './App';
 import './index.css';
-import './i18n';
+import '@/i18n';
 import themeService from './services/theme.service';
 import { initializeFavicon } from './utils/favicon';
 

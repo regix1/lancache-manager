@@ -11,7 +11,16 @@ interface ConfirmationModalProps {
   title: string;
   children: React.ReactNode;
   confirmLabel?: string;
-  confirmColor?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange' | 'default';
+  confirmColor?:
+    | 'destructive'
+    | 'blue'
+    | 'green'
+    | 'red'
+    | 'yellow'
+    | 'purple'
+    | 'gray'
+    | 'orange'
+    | 'default';
   loading?: boolean;
   confirmDisabled?: boolean;
   /**
@@ -31,7 +40,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   title,
   children,
   confirmLabel,
-  confirmColor = 'red',
+  confirmColor = 'destructive',
   loading = false,
   confirmDisabled = false,
   icon,
