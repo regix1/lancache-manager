@@ -28,7 +28,7 @@ import {
 import { useConfig } from '@contexts/useConfig';
 import { useAuth } from '@contexts/useAuth';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
-import { useMediaQuery } from '@hooks/useMediaQuery';
+import { useMediaQuery, useIsDesktop } from '@hooks/useMediaQuery';
 import { useReaderClock } from '@hooks/useReaderClock';
 import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
 import { buildClientFilterOptions } from '@utils/clientFilterOptions';
@@ -388,6 +388,8 @@ const DownloadsTab: React.FC = () => {
   // label still counts as the trigger's text, and the shared Tooltip suppresses a box that repeats
   // it, which would leave the icon-only segments with no hover explanation below this width.
   const wideLabels = useMediaQuery('(min-width: 1536px)');
+  // Same breakpoint RetroView uses to decide whether to draw the resizable header at all.
+  const isDesktop = useIsDesktop();
   // Read from context so an export started right after a clock change uses the clock the user is
   // looking at, rather than the one the module-level preference is still holding.
   const readerClock = useReaderClock();
@@ -1545,7 +1547,7 @@ const DownloadsTab: React.FC = () => {
             {t('downloads.tab.export.csv')}
           </ActionMenuItem>
 
-          {settings.viewMode === 'retro' && (
+          {settings.viewMode === 'retro' && isDesktop && (
             <ActionMenuItem
               icon={<Maximize2 className="w-3.5 h-3.5" />}
               onClick={() => {

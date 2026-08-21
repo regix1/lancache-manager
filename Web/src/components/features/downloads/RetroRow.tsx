@@ -361,21 +361,22 @@ const RetroRow: React.FC<RetroRowProps> = memo(
             <div className="retro-body-row space-y-2 w-full max-w-full overflow-hidden">
               {/* App image and name */}
               <div className="flex items-center gap-3 w-full min-w-0">
-                {hasGameImage && (data.gameAppId || data.epicAppId || nameKeyedSlug) ? (
-                  <GameImage
-                    gameAppId={nameKeyedSlug ? undefined : data.epicAppId || data.gameAppId!}
-                    epicAppId={data.epicAppId || undefined}
-                    nameKeyedService={nameKeyedService || undefined}
-                    nameKeyedSlug={nameKeyedSlug || undefined}
-                    alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                    className="retro-banner-img flex-shrink-0"
-                    onError={onImageError}
-                  />
-                ) : (
-                  <div className="retro-banner-placeholder flex-shrink-0">
-                    {getServiceIcon(data.service, 28)}
-                  </div>
-                )}
+                {showBannerColumn &&
+                  (hasGameImage && (data.gameAppId || data.epicAppId || nameKeyedSlug) ? (
+                    <GameImage
+                      gameAppId={nameKeyedSlug ? undefined : data.epicAppId || data.gameAppId!}
+                      epicAppId={data.epicAppId || undefined}
+                      nameKeyedService={nameKeyedService || undefined}
+                      nameKeyedSlug={nameKeyedSlug || undefined}
+                      alt={data.gameName || t('downloads.tab.retro.gameFallback')}
+                      className="retro-banner-img flex-shrink-0"
+                      onError={onImageError}
+                    />
+                  ) : (
+                    <div className="retro-banner-placeholder flex-shrink-0">
+                      {getServiceIcon(data.service, 28)}
+                    </div>
+                  ))}
                 <div className="flex-1 min-w-0 overflow-hidden">
                   <div className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
                     {data.gameName || getServiceDisplayName(data.service)}
@@ -440,12 +441,15 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                 </div>
               </div>
 
-              {/* Timestamp and Speed */}
-              <div className="flex items-center justify-between text-xs min-w-0">
-                <span className="retro-mono-value text-[var(--theme-text-secondary)] truncate">
-                  {timeRangeTitle}
-                </span>
-                <span className="retro-mono-value font-medium text-[var(--theme-text-primary)] flex-shrink-0">
+              {/* Timestamp and Speed. The speed holds the right edge with `ml-auto` rather than
+                  justify-between, which parks a lone child on the LEFT once the timestamp is off. */}
+              <div className="flex items-center text-xs min-w-0">
+                {showTimestamps && (
+                  <span className="retro-mono-value text-[var(--theme-text-secondary)] truncate">
+                    {timeRangeTitle}
+                  </span>
+                )}
+                <span className="retro-mono-value font-medium text-[var(--theme-text-primary)] flex-shrink-0 ml-auto">
                   {formatSpeed(data.averageBytesPerSecond)}
                 </span>
               </div>
