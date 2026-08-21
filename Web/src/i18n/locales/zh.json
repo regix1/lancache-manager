@@ -4,7 +4,8 @@
     "subtitle": "高性能缓存监控与管理",
     "loading": {
       "checkingSetup": "检查设置状态...",
-      "checkingDepot": "检查仓库状态..."
+      "checkingDepot": "检查仓库状态...",
+      "configuration": "正在加载配置..."
     },
     "configError": {
       "failedTitle": "加载配置失败",
@@ -290,7 +291,10 @@
         }
       },
       "placeholder": "选择刷新率",
-      "title": "刷新率"
+      "title": "刷新率",
+      "errors": {
+        "saveFailed": "保存刷新频率设置失败。"
+      }
     },
     "statCard": {
       "noDataInRange": "此范围内无数据",
@@ -391,6 +395,18 @@
         }
       },
       "pm": "下午"
+    },
+    "notAvailable": "N/A",
+    "unknown": "未知",
+    "errors": {
+      "invalidJsonResponse": "服务器返回的 JSON 响应无效"
+    },
+    "time": {
+      "justNow": "刚刚",
+      "minutesAgo": "{{count}} 分钟前",
+      "hoursAgo": "{{count}} 小时前",
+      "daysAgo": "{{count}} 天前",
+      "invalidDate": "无效日期"
     }
   },
   "tooltips": {
@@ -710,6 +726,18 @@
         "description": "服务统计将显示在此处",
         "action": "查看日志"
       }
+    },
+    "errors": {
+      "refreshSpeedsFailed": "刷新下载速度失败。"
+    },
+    "sparkline": {
+      "ariaLabel_one": "显示 {{count}} 个数据点的迷你图",
+      "ariaLabel_other": "显示 {{count}} 个数据点的迷你图"
+    },
+    "cardLayout": {
+      "balanced": "均衡",
+      "fourColumn": "4 列",
+      "threeColumn": "3 列"
     }
   },
   "widgets": {
@@ -854,7 +882,11 @@
     "success": "认证成功！正在升级到完全访问...",
     "errors": {
       "missingKey": "请输入 API 密钥",
-      "failed": "认证失败"
+      "failed": "认证失败",
+      "loginFailedStatus": "登录失败：{{status}}",
+      "networkDuringLogin": "登录时发生网络错误",
+      "guestSessionFailed": "无法启动访客会话",
+      "network": "网络错误"
     }
   },
   "clients": {
@@ -1180,6 +1212,11 @@
     "title": "活跃会话",
     "loading": "加载会话中...",
     "paginationLabel": "个会话",
+    "device": {
+      "unknownDevice": "未知设备",
+      "unknownBrowser": "未知",
+      "browserOnOs": "{{os}} 上的 {{browser}}"
+    },
     "status": {
       "active": "活跃",
       "away": "离开",
@@ -1420,6 +1457,10 @@
         "requestsWindowLabel": "请求/{{seconds}}秒"
       }
     },
+    "services": {
+      "directIp": "直连 IP",
+      "unknown": "未知服务"
+    },
     "tab": {
       "title": "下载",
       "emptyRecorded": "暂无下载记录。当客户端请求内容时，下载将显示在此处。",
@@ -1527,15 +1568,34 @@
         "minimalMode": "简约模式",
         "fullHeightBanners": "大横幅",
         "groupByGameRetro": "按游戏分组",
+        "cardSize": "卡片大小",
+        "cardSizeOptions": {
+          "small": "小",
+          "medium": "中",
+          "large": "大"
+        },
+        "bannerOnly": "仅横幅",
         "groupByServiceRetro": "按服务分组"
       },
       "behavior": {
         "groupUnknown": "分组未知游戏",
         "groupByFrequency": "按频率分组",
+        "showCacheHitBar": "显示缓存命中条",
+        "showEventBadges": "显示事件徽章",
+        "showTimestamps": "显示时间戳",
+        "showBannerColumn": "显示横幅列",
         "scrollOnExpand": "展开时滚动"
       },
       "pagination": {
         "downloadCount": "（{{count}} 个下载）"
+      },
+      "groups": {
+        "steamApp": "Steam 应用 {{appId}}",
+        "unknownOther": "未知/其他",
+        "serviceDownloads": "{{service}} 下载"
+      },
+      "warnings": {
+        "paginationSuggestion": "正在加载 {{items}} 个项目。建议使用分页以获得更好的性能。"
       },
       "emptyRange": {
         "title": "所选时间范围内未找到下载",
@@ -1547,6 +1607,7 @@
           "singleDownloads": "单会话下载",
           "individual": "未分类下载",
           "banner": "游戏横幅",
+          "overview": "下载概览",
           "downloadList": "下载会话"
         },
         "counts": {
@@ -1572,7 +1633,9 @@
       "normal": {
         "sections": {
           "multipleDownloads": "频繁下载的游戏（2+会话）",
+          "multipleDownloadsDescription": "已被多次下载的游戏",
           "singleDownloads": "单会话下载",
+          "singleDownloadsDescription": "在单个会话中仅下载过一次的游戏",
           "individual": "未分类下载",
           "individualDescription": "无法按游戏名称分组的下载"
         },
@@ -1589,6 +1652,7 @@
           "onDisk": "磁盘占用",
           "cacheSaved": "缓存节省",
           "efficiency": "效率",
+          "activity": "活动",
           "downloads": "下载",
           "cacheHit": "缓存命中",
           "cacheMiss": "缓存未命中",
@@ -1610,12 +1674,17 @@
         "sessions": {
           "title": "下载会话",
           "count": "{{count}} 个会话",
+          "count_other": "{{count}} 个会话",
           "excluded": "{{count}} 个已排除",
           "page": "第 {{current}}/{{total}} 页"
         },
         "pagination": {
           "previous": "上一页（长按跳过多个）",
           "next": "下一页（长按跳过多个）"
+        },
+        "labels": {
+          "total": "总计：",
+          "saved": "已节省："
         },
         "timeline": {
           "title": "时间线",
@@ -1647,6 +1716,7 @@
         "requestCount_other": "{{count}} 个请求",
         "depotCount": "{{count}} 个仓库",
         "depotCount_other": "{{count}} 个仓库",
+        "depotGroupsLabel": "仓库分组",
         "datasourceTooltip": "数据源：{{datasource}}",
         "loadError": "无法从服务器加载下载数据，下方列表可能已过期。",
         "gauge": {
@@ -2297,7 +2367,11 @@
             },
             "note": "加密的 OAuth 刷新令牌存储在本地以允许自动重新连接。它仅用于游戏库发现。"
           },
-          "summary": "用于登录并识别 Epic 下载的 Epic 守护进程。"
+          "summary": "用于登录并识别 Epic 下载的 Epic 守护进程。",
+          "authSuccess": "Epic Games 认证成功。",
+          "logoutSuccess": "已登出 Epic Games。",
+          "logoutError": "从 Epic Games 登出失败。",
+          "defaultUserName": "Epic 用户"
         },
         "battlenetDaemonStatus": {
           "title": "Battle.net",
@@ -2400,7 +2474,10 @@
             },
             "note": "加密的令牌存储在本地以允许自动重新连接。它仅用于游戏库发现。"
           },
-          "summary": "用于预填会话和游戏识别的 Xbox 守护进程。"
+          "summary": "用于预填会话和游戏识别的 Xbox 守护进程。",
+          "loginSuccess": "Xbox 认证成功。",
+          "logoutSuccess": "已登出 Xbox。",
+          "logoutFailed": "从 Xbox 登出失败。"
         },
         "epicGameMappings": {
           "title": "游戏库",
@@ -2427,7 +2504,8 @@
             "free-games": "从 Epic Games 商店免费游戏目录发现",
             "manual": "手动添加的映射条目",
             "unknown": "未知的发现方法"
-          }
+          },
+          "loadError": "加载 Epic 游戏映射失败"
         },
         "xboxGameMappings": {
           "title": "游戏库",
@@ -2440,7 +2518,8 @@
           "lastSeen": "最后出现",
           "gamesInLibrary_one": "库中有 {{count}} 个游戏，收集自已连接的账户和用户预填充会话",
           "gamesInLibrary_other": "库中有 {{count}} 个游戏，收集自已连接的账户和用户预填充会话",
-          "noResults": "没有游戏匹配您的搜索"
+          "noResults": "没有游戏匹配您的搜索",
+          "loadError": "加载 Xbox 游戏映射失败"
         }
       },
       "clients": {
@@ -2577,7 +2656,8 @@
       },
       "errors": {
         "updateDeleteMode": "更新删除模式失败",
-        "startCacheClearing": "启动缓存清除失败：{{error}}"
+        "startCacheClearing": "启动缓存清除失败：{{error}}",
+        "calculateSizeFailed": "计算缓存大小失败"
       }
     },
     "batchSelect": {
@@ -2902,6 +2982,14 @@
         "allDatasources": "所有数据源",
         "searchGames": "按游戏名称、AppID 或服务搜索...",
         "searchServices": "搜索服务..."
+      },
+      "appIdLabel": "AppID：",
+      "summary": {
+        "games_one": "{{count}} 个游戏",
+        "games_other": "{{count}} 个游戏",
+        "services_one": "{{count}} 个服务",
+        "services_other": "{{count}} 个服务",
+        "join": "和"
       }
     },
     "capability": {
@@ -3270,6 +3358,20 @@
         "label": "内置主题",
         "hint": "滑动即可从最深的内置主题切换到最浅的。"
       },
+      "builtIn": {
+        "systemAuthor": "系统",
+        "darkDefault": {
+          "name": "默认深色",
+          "description": "默认深色主题，搭配蓝色强调色"
+        },
+        "lightDefault": {
+          "name": "默认浅色",
+          "description": "简洁现代的浅色主题，带有细腻层次"
+        },
+        "graphite": {
+          "description": "中性炭灰深色主题，搭配柔和蓝色强调色"
+        }
+      },
       "dropzone": {
         "title": "将主题文件拖放到此处，或点击浏览",
         "format": "TOML 格式，最大 1MB"
@@ -3373,7 +3475,9 @@
         "updateFailed": "更新主题失败",
         "createFailed": "创建主题失败",
         "cleanupFailed": "清理主题失败",
-        "deleteFailed": "删除主题失败"
+        "deleteFailed": "删除主题失败",
+        "preferencesReset": "偏好设置已重置为默认值",
+        "preferencesResetGuest": "管理员已将您的偏好设置重置为默认值"
       },
       "summary": "选择激活主题并管理已安装的主题。",
       "customizeSummary": "调整当前主题的颜色和样式。"
@@ -3926,6 +4030,9 @@
               "authPathsBattleNet": "Battle.net 不使用计划认证。运行为匿名。请在 Battle.net 计划设置中配置预设。",
               "authPathsRiot": "Riot 不使用计划认证。运行为匿名。请在 Riot 计划设置中配置预设。",
               "authPathsPersistent": "持久容器用于所有平台的游戏库浏览和游戏选择。启动容器并在其中登录，是计划预填充唯一需要的登录。"
+            },
+            "errors": {
+              "editSessionLoading": "计划预填充的编辑会话数据仍在加载中。"
             }
           },
           "events": {
@@ -4072,6 +4179,16 @@
         "message": "应用只显示这一次此密钥（它还会在服务器日志中打印一次）。请立即复制，因为所有人都已被登出，重新登录需要它。",
         "copied": "已复制！",
         "copyFailed": "此浏览器不允许页面代为复制。请在关闭前手动选中上方的密钥并复制。"
+      },
+      "notifications": {
+        "sessionRevoked": "您的会话已过期或被撤销。请重新认证。",
+        "authenticated": "认证成功！现在您可以使用管理功能。",
+        "guestModeStarted_one": "访客模式已启用！您有 {{count}} 小时可以查看数据，之后需要重新认证。",
+        "guestModeStarted_other": "访客模式已启用！您有 {{count}} 小时可以查看数据，之后需要重新认证。",
+        "loggedOut": "已成功登出。此设备名额现在可供其他用户使用。"
+      },
+      "errors": {
+        "logoutFailed": "登出失败：{{message}}"
       }
     },
     "sessions": {},
@@ -4244,7 +4361,9 @@
         "liftBan": "封禁已成功解除"
       },
       "liveSessionsSummary": "当前正在进行的预填会话。",
-      "historySummary": "过去的预填运行及其结果。"
+      "historySummary": "过去的预填运行及其结果。",
+      "historyStarted": "开始时间：",
+      "historyCompleted": "完成时间："
     },
     "clients": {
       "selectClients": "选择客户端"
@@ -4377,6 +4496,12 @@
     "ended": "（已结束）",
     "activeCount": "{{count}} 个进行中的活跃事件",
     "activeCount_other": "{{count}} 个进行中的活跃事件",
+    "view": {
+      "calendar": "日历",
+      "list": "列表"
+    },
+    "newEvent": "新建事件",
+    "newEventShort": "新建",
     "list": {
       "unknownGame": "未知",
       "actionsMenuLabel": "事件操作",
@@ -4415,6 +4540,10 @@
         "upcoming": "即将开始的事件",
         "past": "过去的事件"
       }
+    },
+    "errors": {
+      "fetchActiveFailed": "获取进行中的活动失败",
+      "fetchFailed": "获取活动失败"
     }
   },
   "eventFrame": {
@@ -4479,7 +4608,10 @@
         "started": "持久预填充容器已启动。",
         "logoutFallbackNotice": "已通过重启容器退出登录，但容器仍使用同一个已保存的账号。请更新守护进程镜像，以便无需重启即可忘记该账号。"
       },
-      "errors": {}
+      "errors": {
+        "noPendingChallenge": "没有待处理的凭据验证请求",
+        "noResult": "持久登录未返回验证请求或认证结果。请重试。"
+      }
     },
     "home": {
       "title": "游戏预填充",
@@ -4533,7 +4665,23 @@
       "approvalTimedOut": "等待您批准登录超时。",
       "signInRefused": "登录未通过，请检查您的信息后重试。",
       "deviceCodeExpired": "该登录代码在获得批准前已失效。",
-      "authorizationCodeRejected": "该授权码无效或已过期。请获取新的授权码并粘贴。"
+      "authorizationCodeRejected": "该授权码无效或已过期。请获取新的授权码并粘贴。",
+      "errors": {
+        "noActiveSession": "没有活动的会话",
+        "twoFactorRequired": "请输入您的两步验证码",
+        "emailCodeRequired": "请输入您的邮箱验证码",
+        "epicAuthCodeRequired": "请输入来自 Epic Games 的授权码",
+        "authCodeRequired": "请输入授权码",
+        "credentialsRequired": "请输入用户名和密码",
+        "noChallenge": "未收到来自守护进程的验证请求",
+        "noPasswordChallenge": "未收到密码验证请求"
+      },
+      "status": {
+        "twoFactorSent": "两步验证码已发送",
+        "emailCodeSent": "邮箱验证码已发送",
+        "authCodeSent": "授权码已发送，正在验证...",
+        "credentialsSent": "凭据已发送，正在验证..."
+      }
     },
     "activityLog": {
       "title": "活动日志",
@@ -4765,7 +4913,8 @@
       "httpStatus": "HTTP {{status}}",
       "sessionExpired": "会话已过期",
       "unableEstimateSize": "无法估算大小",
-      "saveSelectionFailed": "保存游戏选择失败"
+      "saveSelectionFailed": "保存游戏选择失败",
+      "saveServiceSelectionFailed": "无法保存您的服务选择以供下次使用。"
     },
     "sessionExpired": {
       "title": "会话已过期",
@@ -4784,6 +4933,14 @@
       "foundGames_other": "找到 {{count}} 个拥有的游戏",
       "gamesCached": "{{count}} 个游戏已在 lancache 中缓存",
       "gamesCached_other": "{{count}} 个游戏已在 lancache 中缓存",
+      "unnamedApp": "应用 {{appId}}",
+      "gameDownloaded": "{{gameName}} - 已下载 {{size}}",
+      "gameAlreadyUpToDate": "{{gameName}} - 已是最新",
+      "summaryDownloaded_one": "已下载 {{count}} 个游戏（{{size}}）",
+      "summaryDownloaded_other": "已下载 {{count}} 个游戏（{{size}}）",
+      "summaryAlreadyUpToDate_one": "{{count}} 个游戏已是最新",
+      "summaryAlreadyUpToDate_other": "{{count}} 个游戏已是最新",
+      "summary": "摘要：{{parts}}",
       "failedLoadLibrary": "加载游戏库失败",
       "noGamesSelected": "未选择游戏。请先使用\"选择应用\"选择要预填充的游戏。",
       "startingPrefillSelected": "正在开始预填充 {{count}} 个选定应用...",
@@ -4932,6 +5089,8 @@
       }
     },
     "auth": {
+      "defaultTitle": "需要认证",
+      "defaultSubtitle": "请使用您的 API 密钥、用户名和密码登录",
       "labels": {
         "apiKey": "API 密钥",
         "or": "或",
@@ -5032,7 +5191,14 @@
         "attemptTimedOut": "登录尝试超时。",
         "failedToSwitchToAnonymous": "切换到匿名模式失败",
         "failedToRemoveApiKey": "移除 API 密钥失败",
-        "networkError": "网络错误 - 移除 API 密钥失败"
+        "networkError": "网络错误 - 移除 API 密钥失败",
+        "credentialsRequired": "请输入用户名和密码",
+        "emailCodeRequired": "请输入您的邮箱验证码",
+        "twoFactorRequired": "请输入您的两步验证码",
+        "mobileConfirmationTimedOut": "手机确认已超时。请改为输入两步验证码。"
+      },
+      "success": {
+        "authenticatedAs": "已成功以 {{username}} 身份登录"
       }
     },
     "epicAuth": {
@@ -5156,7 +5322,8 @@
         "title": "删除主题",
         "message": "删除主题 <strong>{{name}}</strong>？这将从服务器永久删除主题文件。",
         "warning": "此操作无法撤销。",
-        "confirmButton": "删除主题"
+        "confirmButton": "删除主题",
+        "allCustomThemes": "所有自定义主题"
       },
       "form": {
         "themeInfo": "主题信息",
@@ -5285,7 +5452,7 @@
         },
         "actions": {
           "title": "操作",
-          "description": "重置、处理和删除按钮 - 管理页面中的特殊操作按钮"
+          "description": "运行、停止和危险操作按钮 - 应用中带颜色的操作按钮"
         },
         "utilities": {
           "title": "工具",
@@ -6039,24 +6206,34 @@
           "affects": ["重置按钮悬停"]
         },
         "actionProcessBg": {
-          "label": "处理按钮背景",
-          "description": "处理操作按钮背景",
-          "affects": ["处理按钮", "启动操作"]
+          "label": "运行按钮背景",
+          "description": "运行操作按钮背景",
+          "affects": ["运行按钮", "启动操作", "扫描操作"]
         },
         "actionProcessHover": {
-          "label": "处理按钮悬停",
-          "description": "处理按钮悬停状态",
-          "affects": ["处理按钮悬停"]
+          "label": "运行按钮悬停",
+          "description": "运行按钮悬停状态",
+          "affects": ["运行按钮悬停"]
+        },
+        "actionStopBg": {
+          "label": "停止按钮背景",
+          "description": "停止和取消操作按钮背景",
+          "affects": ["停止按钮", "取消下载"]
+        },
+        "actionStopHover": {
+          "label": "停止按钮悬停",
+          "description": "停止按钮悬停状态",
+          "affects": ["停止按钮悬停"]
         },
         "actionDeleteBg": {
-          "label": "删除按钮背景",
-          "description": "删除操作按钮背景",
-          "affects": ["删除按钮", "移除操作"]
+          "label": "危险操作按钮背景",
+          "description": "危险操作按钮背景",
+          "affects": ["删除按钮", "移除操作", "清除操作"]
         },
         "actionDeleteHover": {
-          "label": "删除按钮悬停",
-          "description": "删除按钮悬停状态",
-          "affects": ["删除按钮悬停"]
+          "label": "危险操作按钮悬停",
+          "description": "危险操作按钮悬停状态",
+          "affects": ["危险操作按钮悬停"]
         },
         "scrollbarTrack": {
           "label": "滚动条轨道",
@@ -6206,7 +6383,16 @@
       "successTitle": "凭据已保存",
       "successBody": "外部 PostgreSQL 连接已保存。请重启容器以使其生效。",
       "restartHint": "运行 \"docker compose restart lancache-manager\"（或以您启动容器的方式重启它）。容器重新启动后，向导将从下一步继续。",
-      "apiKeyHelp": "数据库尚无法连接，因此没有会话可用于授权此操作。请粘贴启动时打印在容器日志中的 API 密钥，或从 /data/security/api_key.txt 中读取。"
+      "apiKeyHelp": "数据库尚无法连接，因此没有会话可用于授权此操作。请粘贴启动时打印在容器日志中的 API 密钥，或从 /data/security/api_key.txt 中读取。",
+      "errors": {
+        "hostRequired": "主机是必需的",
+        "portRange": "端口必须在 1 到 65535 之间",
+        "databaseRequired": "数据库名称是必需的",
+        "usernameRequired": "用户名是必需的",
+        "passwordRequired": "密码是必需的",
+        "saveFailed": "保存凭据失败。",
+        "network": "网络错误。请检查您的网络连接。"
+      }
     },
     "dbInfo": {
       "externalTitle": "外部 PostgreSQL 已连接",
@@ -6247,6 +6433,7 @@
       "checkingFailed": "检查失败",
       "continueAnyway": "仍然继续",
       "timeoutMessage": "权限检查超时。您可以继续，稍后再修复权限。",
+      "timedOut": "权限检查超时",
       "recheck": "重新检查",
       "continue": "继续"
     },
@@ -6301,7 +6488,14 @@
       "timeEstimate": "通常需要 1-5 分钟，具体取决于您的网络连接。",
       "continue": "继续",
       "cancelling": "取消中...",
-      "cancelUseGithub": "取消并改用 GitHub"
+      "cancelUseGithub": "取消并改用 GitHub",
+      "status": {
+        "idle": "空闲",
+        "running": "运行中",
+        "cancelled": "已取消",
+        "completed": "已完成",
+        "failed": "失败"
+      }
     },
     "depotInit": {
       "title": "初始化仓库数据",
@@ -6528,6 +6722,36 @@
         "network": "网络错误。请检查您的网络连接。"
       }
     },
+    "databaseSetup": {
+      "heading": "数据库配置",
+      "description": "为您的 LANCache Manager 数据库配置 PostgreSQL 凭据",
+      "usernameLabel": "用户名",
+      "usernamePlaceholder": "数据库用户名",
+      "passwordLabel": "密码",
+      "passwordPlaceholder": "请输入一个强密码",
+      "confirmPasswordLabel": "确认密码",
+      "confirmPasswordPlaceholder": "请再次输入密码",
+      "apiKeyLabel": "API 密钥",
+      "apiKeyPlaceholder": "输入 API 密钥",
+      "apiKeyHint": "身份验证已禁用，因此数据库设置仍需要打印在容器日志中或保存在 /data/security/api_key.txt 的密钥。",
+      "submit": "配置数据库",
+      "submitting": "正在保存凭据...",
+      "savedHeading": "设置完成",
+      "savedDescription": "数据库凭据已成功保存。正在跳转...",
+      "infoTitle": "首次设置：",
+      "infoBody": "这些凭据将用于连接 PostgreSQL 数据库。用户名已预填为默认值。请选择至少 8 个字符的强密码。",
+      "errors": {
+        "usernameRequired": "用户名是必需的",
+        "passwordRequired": "密码是必需的",
+        "passwordTooShort": "密码至少需要 8 个字符",
+        "passwordTooCommon": "此密码过于常见。请选择更安全的密码。",
+        "passwordSameAsUsername": "密码不能与用户名相同",
+        "confirmPasswordRequired": "请确认您的密码",
+        "passwordsDoNotMatch": "两次输入的密码不一致",
+        "saveFailed": "保存凭据失败。请重试。",
+        "network": "网络错误。请检查您的网络连接。"
+      }
+    },
     "modal": {
       "setupWizard": "设置向导",
       "goBack": "返回",
@@ -6553,6 +6777,10 @@
         "markCompletedFailed": "无法完成设置。请重试。",
         "setupStatusCheckFailed": "无法加载已保存的设置进度。将从头开始。"
       }
+    },
+    "errors": {
+      "statusCheckFailed": "检查设置状态失败。请刷新页面。",
+      "syncProgressFailed": "向服务器同步设置进度失败。当前步骤可能未保存。"
     }
   },
   "memory": {
@@ -6596,7 +6824,20 @@
       "failed": "Epic 游戏映射失败"
     },
     "epicGameMappingsUpdated": {
-      "title": "Epic Games 已更新"
+      "title": "Epic Games 已更新",
+      "newGames_one": "发现 {{count}} 个新游戏",
+      "newGames_other": "发现 {{count}} 个新游戏",
+      "updatedGames_one": "{{count}} 个游戏已更新",
+      "updatedGames_other": "{{count}} 个游戏已更新",
+      "total": "共 {{count}} 个",
+      "totalWithDetail": "{{detail}}，共 {{count}} 个"
+    },
+    "xboxGameMappingsUpdated": {
+      "title": "Xbox 游戏已更新",
+      "newGames_one": "发现 {{count}} 个新游戏",
+      "newGames_other": "发现 {{count}} 个新游戏",
+      "newPatterns_one": "发现 {{count}} 个新 CDN 模式",
+      "newPatterns_other": "发现 {{count}} 个新 CDN 模式"
     }
   },
   "pagination": {
@@ -6648,13 +6889,28 @@
     },
     "clientIp": {
       "ipLabel": "IP：{{ip}}"
+    },
+    "accordion": {
+      "collapseSection": "折叠此部分",
+      "expandSection": "展开此部分"
+    },
+    "backToTop": {
+      "label": "返回顶部"
+    },
+    "dataTable": {
+      "noData": "无可用数据"
+    },
+    "numberInput": {
+      "increase": "增加数值",
+      "decrease": "减少数值"
     }
   },
   "signalr": {
     "generic": {
       "unknown": "操作进行中...",
       "failed": "操作失败",
-      "complete": "操作完成"
+      "complete": "操作完成",
+      "cancelled": "操作已取消"
     },
     "cacheClear": {
       "initializing": "正在初始化缓存清理...",
@@ -6664,7 +6920,9 @@
       "error": {
         "dirNotFound": "缓存目录不存在: {{cachePath}}",
         "fatal": "缓存清理失败: {{errorDetail}}"
-      }
+      },
+      "progressDirectories": "{{base}}（{{processed}}/{{total}} 个目录）",
+      "stale": "缓存清理完成"
     },
     "corruptionDetect": {
       "starting": "正在开始损坏扫描…",
@@ -6709,7 +6967,8 @@
       "completeStructuralIncremental": "增量结构扫描完成：发现 {{count}} 个无效缓存文件。",
       "completeStructuralBaseline": "初始增量基线已完成：发现 {{count}} 个无效缓存文件。",
       "cancelled": "损坏扫描已取消",
-      "failed": "损坏扫描失败：{{errorDetail}}"
+      "failed": "损坏扫描失败：{{errorDetail}}",
+      "stale": "损坏扫描完成"
     },
     "corruptionRemove": {
       "starting": "开始移除 {{service}} 的可疑缓存文件",
@@ -6739,7 +6998,8 @@
       },
       "failed": {
         "generic": "操作失败。请查看服务器日志了解详情。"
-      }
+      },
+      "stale": "损坏文件移除完成"
     },
     "dbReset": {
       "starting": "开始数据库重置...",
@@ -6767,13 +7027,15 @@
       "cleanup": "正在清理文件...",
       "error": {
         "fatal": "数据库重置失败: {{errorDetail}}"
-      }
+      },
+      "stale": "数据库重置完成"
     },
     "dataImport": {
       "starting": "正在开始数据导入…",
       "progress": "正在导入: {{processed}}/{{total}} 条记录",
       "completedDetail": "已导入 {{imported}} 条，跳过 {{skipped}} 条，错误 {{errors}} 条",
-      "cancelled": "数据导入已取消"
+      "cancelled": "数据导入已取消",
+      "stale": "数据导入完成"
     },
     "depotMapping": {
       "starting": "正在开始仓库映射...",
@@ -6795,7 +7057,8 @@
       "skippedSteamUnreachable": "仓库映射已跳过 - 无法连接到 Steam",
       "scan": {
         "skippedFullRequired": "计划扫描已跳过 - 需要全面扫描"
-      }
+      },
+      "stale": "仓库映射完成"
     },
     "epicMapping": {
       "starting": "正在刷新 Epic 游戏目录...",
@@ -6811,7 +7074,8 @@
       "waitingSignIn": "正在等待 Epic 登录...",
       "signingIn": "正在登录 Epic Games...",
       "signInCancelled": "Epic 登录已取消",
-      "signInFailed": "Epic 登录失败: {{errorDetail}}"
+      "signInFailed": "Epic 登录失败: {{errorDetail}}",
+      "stale": "Epic 游戏映射完成"
     },
     "steamLogin": {
       "waitingSignIn": "正在等待 Steam 登录...",
@@ -6841,7 +7105,8 @@
       "completed": "Xbox 游戏目录解析完成",
       "skippedNotSignedIn": "Xbox 游戏目录解析已跳过 - 未登录 Microsoft 账户",
       "cancelled": "Xbox 游戏目录解析已取消",
-      "failed": "Xbox 目录解析失败: {{errorDetail}}"
+      "failed": "Xbox 目录解析失败: {{errorDetail}}",
+      "stale": "Xbox 游戏映射完成"
     },
     "battleNetMapping": {
       "starting": "正在开始 Battle.net 游戏映射...",
@@ -6928,7 +7193,8 @@
       "cancelled": "淘汰扫描已取消",
       "error": {
         "fatal": "淘汰扫描失败: {{errorDetail}}"
-      }
+      },
+      "stale": "淘汰扫描完成"
     },
     "cacheSizeScan": {
       "starting": "正在启动缓存文件扫描...",
@@ -6940,7 +7206,8 @@
       "cancelled": "缓存文件扫描已取消",
       "error": {
         "fatal": "缓存大小扫描失败: {{errorDetail}}"
-      }
+      },
+      "stale": "缓存文件扫描完成"
     },
     "scheduledRun": {
       "logRotation": {
@@ -7020,7 +7287,8 @@
       },
       "error": {
         "fatal": "游戏缓存检测失败: {{errorDetail}}"
-      }
+      },
+      "stale": "游戏检测完成"
     },
     "gameRemove": {
       "starting": "开始移除游戏 '{{gameName}}'（AppID {{gameAppId}}）",
@@ -7049,7 +7317,8 @@
       "logs": {
         "removing": "正在移除日志条目",
         "fileProgress": "正在移除日志条目（第 {{n}}/{{total}} 个文件）"
-      }
+      },
+      "stale": "游戏移除完成"
     },
     "logProcessing": {
       "starting": "开始日志处理...",
@@ -7057,7 +7326,8 @@
       "complete": "处理完成",
       "completedEntries": "成功处理了 {{entriesProcessed}} 条条目",
       "completedDetail": "在 {{elapsed}} 分钟内从 {{linesProcessed}} 行中成功处理了 {{entriesProcessed}} 条条目。",
-      "recoveryDetail": "已处理 {{entriesProcessed}} 条条目"
+      "recoveryDetail": "已处理 {{entriesProcessed}} 条条目",
+      "stale": "日志处理完成"
     },
     "logProcessor": {
       "starting": "开始日志处理...",
@@ -7091,7 +7361,8 @@
       "cleaningDatabase": "正在清理 {{service}} 的数据库记录...",
       "error": {
         "fatal": "日志移除失败: {{errorDetail}}"
-      }
+      },
+      "stale": "日志条目移除完成"
     },
     "logService": {
       "count": {
@@ -7138,7 +7409,8 @@
       },
       "logs": {
         "removing": "正在移除日志条目"
-      }
+      },
+      "stale": "服务移除完成"
     },
     "steamSession": {
       "errorTitle": {
@@ -7153,6 +7425,9 @@
       "loginFailed": "无法登录 Steam: {{result}}。请重试或重新认证。",
       "serverBusy": "Steam 服务器当前繁忙。这是暂时的，请稍候片刻再试。",
       "disconnected": "已断开 Steam 连接: {{result}}"
+    },
+    "scheduledPrefill": {
+      "stale": "计划预填充完成"
     }
   },
   "errors": {

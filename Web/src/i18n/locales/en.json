@@ -4,7 +4,8 @@
     "subtitle": "High-performance cache monitoring & management",
     "loading": {
       "checkingSetup": "Checking setup status...",
-      "checkingDepot": "Checking depot status..."
+      "checkingDepot": "Checking depot status...",
+      "configuration": "Loading configuration..."
     },
     "configError": {
       "failedTitle": "Failed to Load Configuration",
@@ -290,7 +291,10 @@
         }
       },
       "placeholder": "Select refresh rate",
-      "title": "Refresh Rate"
+      "title": "Refresh Rate",
+      "errors": {
+        "saveFailed": "Failed to save your refresh rate setting."
+      }
     },
     "statCard": {
       "noDataInRange": "No data in this range",
@@ -391,6 +395,18 @@
         }
       },
       "pm": "PM"
+    },
+    "notAvailable": "N/A",
+    "unknown": "Unknown",
+    "errors": {
+      "invalidJsonResponse": "Invalid JSON response from server"
+    },
+    "time": {
+      "justNow": "Just now",
+      "minutesAgo": "{{count}}m ago",
+      "hoursAgo": "{{count}}h ago",
+      "daysAgo": "{{count}}d ago",
+      "invalidDate": "Invalid Date"
     }
   },
   "tooltips": {
@@ -710,6 +726,18 @@
         "description": "Service statistics will appear here",
         "action": "View Logs"
       }
+    },
+    "errors": {
+      "refreshSpeedsFailed": "Failed to refresh download speeds."
+    },
+    "sparkline": {
+      "ariaLabel_one": "Sparkline chart showing {{count}} data point",
+      "ariaLabel_other": "Sparkline chart showing {{count}} data points"
+    },
+    "cardLayout": {
+      "balanced": "Balanced",
+      "fourColumn": "4 Column",
+      "threeColumn": "3 Column"
     }
   },
   "widgets": {
@@ -854,7 +882,11 @@
     "success": "Authentication successful! Upgrading to full access...",
     "errors": {
       "missingKey": "Please enter an API key",
-      "failed": "Authentication failed"
+      "failed": "Authentication failed",
+      "loginFailedStatus": "Login failed: {{status}}",
+      "networkDuringLogin": "Network error during login",
+      "guestSessionFailed": "Failed to start guest session",
+      "network": "Network error"
     }
   },
   "clients": {
@@ -1180,6 +1212,11 @@
     "title": "Active Sessions",
     "loading": "Loading sessions...",
     "paginationLabel": "sessions",
+    "device": {
+      "unknownDevice": "Unknown Device",
+      "unknownBrowser": "Unknown",
+      "browserOnOs": "{{browser}} on {{os}}"
+    },
     "status": {
       "active": "Active",
       "away": "Away",
@@ -1420,6 +1457,10 @@
         "requestsWindowLabel": "requests/{{seconds}}s"
       }
     },
+    "services": {
+      "directIp": "Direct IP",
+      "unknown": "Unknown Service"
+    },
     "tab": {
       "title": "Downloads",
       "emptyRecorded": "No downloads recorded yet. Downloads will appear here as clients request content.",
@@ -1527,15 +1568,34 @@
         "minimalMode": "Minimal mode",
         "fullHeightBanners": "Large banners",
         "groupByGameRetro": "Group by game",
+        "cardSize": "Card size",
+        "cardSizeOptions": {
+          "small": "S",
+          "medium": "M",
+          "large": "L"
+        },
+        "bannerOnly": "Banner only",
         "groupByServiceRetro": "Group by service"
       },
       "behavior": {
         "groupUnknown": "Group unknown games",
         "groupByFrequency": "Group by frequency",
+        "showCacheHitBar": "Show cache hit bar",
+        "showEventBadges": "Show event badges",
+        "showTimestamps": "Show timestamps",
+        "showBannerColumn": "Show banner column",
         "scrollOnExpand": "Scroll on expand"
       },
       "pagination": {
         "downloadCount": "({{count}} download)"
+      },
+      "groups": {
+        "steamApp": "Steam App {{appId}}",
+        "unknownOther": "Unknown/Other",
+        "serviceDownloads": "{{service}} Downloads"
+      },
+      "warnings": {
+        "paginationSuggestion": "Loading {{items}} items. Consider using pagination for better performance."
       },
       "emptyRange": {
         "title": "No downloads found in selected time range",
@@ -1547,6 +1607,7 @@
           "singleDownloads": "Single Session Downloads",
           "individual": "Uncategorized Downloads",
           "banner": "Game Banner",
+          "overview": "Downloads Overview",
           "downloadList": "Download Sessions"
         },
         "counts": {
@@ -1572,7 +1633,9 @@
       "normal": {
         "sections": {
           "multipleDownloads": "Frequently Downloaded Games (2+ sessions)",
+          "multipleDownloadsDescription": "Games that have been downloaded multiple times",
           "singleDownloads": "Single Session Downloads",
+          "singleDownloadsDescription": "Games downloaded once in a single session",
           "individual": "Uncategorized Downloads",
           "individualDescription": "Downloads that couldn't be grouped by game name"
         },
@@ -1589,6 +1652,7 @@
           "onDisk": "On disk",
           "cacheSaved": "Cache Saved",
           "efficiency": "Efficiency",
+          "activity": "Activity",
           "downloads": "Downloads",
           "cacheHit": "Cache Hit",
           "cacheMiss": "Cache Miss",
@@ -1610,12 +1674,17 @@
         "sessions": {
           "title": "Download Sessions",
           "count": "{{count}} session",
+          "count_other": "{{count}} sessions",
           "excluded": "{{count}} excluded",
           "page": "Page {{current}}/{{total}}"
         },
         "pagination": {
           "previous": "Previous page (hold to skip multiple)",
           "next": "Next page (hold to skip multiple)"
+        },
+        "labels": {
+          "total": "Total:",
+          "saved": "Saved:"
         },
         "timeline": {
           "title": "Timeline",
@@ -1647,6 +1716,7 @@
         "requestCount_other": "{{count}} requests",
         "depotCount": "{{count}} depot",
         "depotCount_other": "{{count}} depots",
+        "depotGroupsLabel": "depot groups",
         "datasourceTooltip": "Datasource: {{datasource}}",
         "loadError": "Failed to load downloads from the server. The list below may be out of date.",
         "gauge": {
@@ -2297,7 +2367,11 @@
             },
             "note": "An encrypted OAuth refresh token is stored locally to allow automatic reconnection. It is used only for game library discovery."
           },
-          "summary": "Epic daemon that signs in and identifies Epic downloads."
+          "summary": "Epic daemon that signs in and identifies Epic downloads.",
+          "authSuccess": "Epic Games authentication successful.",
+          "logoutSuccess": "Logged out of Epic Games.",
+          "logoutError": "Failed to logout from Epic Games.",
+          "defaultUserName": "Epic User"
         },
         "battlenetDaemonStatus": {
           "title": "Battle.net",
@@ -2400,7 +2474,10 @@
             },
             "note": "An encrypted token is stored locally to allow automatic reconnection. It is used only for game library discovery."
           },
-          "summary": "Xbox daemon for prefill sessions and game naming."
+          "summary": "Xbox daemon for prefill sessions and game naming.",
+          "loginSuccess": "Xbox authentication successful.",
+          "logoutSuccess": "Logged out of Xbox.",
+          "logoutFailed": "Failed to logout from Xbox."
         },
         "epicGameMappings": {
           "title": "Game Library",
@@ -2427,7 +2504,8 @@
             "free-games": "Discovered from the Epic Games Store free games catalog",
             "manual": "Manually added mapping entry",
             "unknown": "Unknown discovery method"
-          }
+          },
+          "loadError": "Failed to load Epic game mappings"
         },
         "xboxGameMappings": {
           "title": "Game Library",
@@ -2440,7 +2518,8 @@
           "lastSeen": "Last Seen",
           "gamesInLibrary_one": "{{count}} game in library, collected from connected accounts and user prefill sessions",
           "gamesInLibrary_other": "{{count}} games in library, collected from connected accounts and user prefill sessions",
-          "noResults": "No games match your search"
+          "noResults": "No games match your search",
+          "loadError": "Failed to load Xbox game mappings"
         }
       },
       "clients": {
@@ -2577,7 +2656,8 @@
       },
       "errors": {
         "updateDeleteMode": "Failed to update delete mode",
-        "startCacheClearing": "Failed to start cache clearing: {{error}}"
+        "startCacheClearing": "Failed to start cache clearing: {{error}}",
+        "calculateSizeFailed": "Failed to calculate cache size"
       }
     },
     "batchSelect": {
@@ -2902,6 +2982,14 @@
         "allDatasources": "All datasources",
         "searchGames": "Search by game name, AppID, or service...",
         "searchServices": "Search services..."
+      },
+      "appIdLabel": "AppID:",
+      "summary": {
+        "games_one": "{{count}} game",
+        "games_other": "{{count}} games",
+        "services_one": "{{count}} service",
+        "services_other": "{{count}} services",
+        "join": " and "
       }
     },
     "capability": {
@@ -3270,6 +3358,20 @@
         "label": "Built-in theme",
         "hint": "Slide from the darkest built-in theme to the lightest."
       },
+      "builtIn": {
+        "systemAuthor": "System",
+        "darkDefault": {
+          "name": "Dark Default",
+          "description": "Default dark theme with blue accents"
+        },
+        "lightDefault": {
+          "name": "Light Default",
+          "description": "Clean modern light theme with subtle depth"
+        },
+        "graphite": {
+          "description": "Neutral charcoal dark theme with a soft blue accent"
+        }
+      },
       "dropzone": {
         "title": "Drop a theme file here, or click to browse",
         "format": "TOML format, max 1MB"
@@ -3373,7 +3475,9 @@
         "updateFailed": "Failed to update theme",
         "createFailed": "Failed to create theme",
         "cleanupFailed": "Failed to clean up themes",
-        "deleteFailed": "Failed to delete theme"
+        "deleteFailed": "Failed to delete theme",
+        "preferencesReset": "Preferences reset to defaults",
+        "preferencesResetGuest": "Your preferences have been reset to defaults by an administrator"
       },
       "summary": "Pick the active theme and manage installed ones.",
       "customizeSummary": "Tweak the active theme's colors and style."
@@ -3926,6 +4030,9 @@
               "authPathsBattleNet": "Battle.net does not use scheduled authentication. Runs are anonymous. Configure presets in the Battle.net schedule section.",
               "authPathsRiot": "Riot does not use scheduled authentication. Runs are anonymous. Configure presets in the Riot schedule section.",
               "authPathsPersistent": "Persistent containers are used for library browse and game selection on every platform. Starting the container and logging in there is the only login scheduled prefill needs."
+            },
+            "errors": {
+              "editSessionLoading": "Scheduled-prefill edit session data is still loading."
             }
           },
           "events": {
@@ -4072,6 +4179,16 @@
         "message": "This is the only time the app shows this key (it is also printed once to the server logs). Copy it now, because everyone has been signed out and signing back in needs it.",
         "copied": "Copied!",
         "copyFailed": "This browser would not let the page copy for you. Select the key above and copy it by hand before closing."
+      },
+      "notifications": {
+        "sessionRevoked": "Your session has expired or been revoked. Please authenticate again.",
+        "authenticated": "Authentication successful! You can now use management features.",
+        "guestModeStarted_one": "Guest mode activated! You have {{count}} hour to view data before re-authentication is required.",
+        "guestModeStarted_other": "Guest mode activated! You have {{count}} hours to view data before re-authentication is required.",
+        "loggedOut": "Logged out successfully. This device slot is now available for another user."
+      },
+      "errors": {
+        "logoutFailed": "Failed to logout: {{message}}"
       }
     },
     "sessions": {},
@@ -4244,7 +4361,9 @@
         "liftBan": "Ban lifted successfully"
       },
       "liveSessionsSummary": "Prefill runs happening right now.",
-      "historySummary": "Past prefill runs and how they ended."
+      "historySummary": "Past prefill runs and how they ended.",
+      "historyStarted": "Started:",
+      "historyCompleted": "Completed:"
     },
     "clients": {
       "selectClients": "Select clients"
@@ -4377,6 +4496,12 @@
     "ended": "(Ended)",
     "activeCount": "{{count}} active event in progress",
     "activeCount_other": "{{count}} active events in progress",
+    "view": {
+      "calendar": "Calendar",
+      "list": "List"
+    },
+    "newEvent": "New Event",
+    "newEventShort": "New",
     "list": {
       "unknownGame": "Unknown",
       "actionsMenuLabel": "Event actions",
@@ -4415,6 +4540,10 @@
         "upcoming": "Upcoming Events",
         "past": "Past Events"
       }
+    },
+    "errors": {
+      "fetchActiveFailed": "Failed to fetch active events",
+      "fetchFailed": "Failed to fetch events"
     }
   },
   "eventFrame": {
@@ -4479,7 +4608,10 @@
         "started": "Persistent prefill container started.",
         "logoutFallbackNotice": "Logged out by restarting the container, but it kept using the same stored account. Update the daemon image to forget the account without a restart."
       },
-      "errors": {}
+      "errors": {
+        "noPendingChallenge": "No pending credential challenge",
+        "noResult": "Persistent login did not return a challenge or authentication result. Please try again."
+      }
     },
     "home": {
       "title": "Game Prefill",
@@ -4533,7 +4665,23 @@
       "approvalTimedOut": "The sign-in ran out of time waiting for your approval.",
       "signInRefused": "That sign-in did not go through. Check your details and try again.",
       "deviceCodeExpired": "That sign-in code ran out before it was approved.",
-      "authorizationCodeRejected": "That authorization code was wrong or too old. Get a new one and paste it in."
+      "authorizationCodeRejected": "That authorization code was wrong or too old. Get a new one and paste it in.",
+      "errors": {
+        "noActiveSession": "No active session",
+        "twoFactorRequired": "Please enter your 2FA code",
+        "emailCodeRequired": "Please enter your email verification code",
+        "epicAuthCodeRequired": "Please enter the authorization code from Epic Games",
+        "authCodeRequired": "Please enter the authorization code",
+        "credentialsRequired": "Please enter both username and password",
+        "noChallenge": "No challenge received from daemon",
+        "noPasswordChallenge": "No password challenge received"
+      },
+      "status": {
+        "twoFactorSent": "2FA code sent",
+        "emailCodeSent": "Email code sent",
+        "authCodeSent": "Authorization code sent, authenticating...",
+        "credentialsSent": "Credentials sent, authenticating..."
+      }
     },
     "activityLog": {
       "title": "Activity Log",
@@ -4765,7 +4913,8 @@
       "httpStatus": "HTTP {{status}}",
       "sessionExpired": "Session expired",
       "unableEstimateSize": "Unable to estimate size",
-      "saveSelectionFailed": "Failed to save game selection"
+      "saveSelectionFailed": "Failed to save game selection",
+      "saveServiceSelectionFailed": "Could not save your service selection for next time."
     },
     "sessionExpired": {
       "title": "Session expired",
@@ -4784,6 +4933,14 @@
       "foundGames_other": "Found {{count}} owned games",
       "gamesCached": "{{count}} game already cached in lancache",
       "gamesCached_other": "{{count}} games already cached in lancache",
+      "unnamedApp": "App {{appId}}",
+      "gameDownloaded": "{{gameName}} - Downloaded {{size}}",
+      "gameAlreadyUpToDate": "{{gameName}} - Already up to date",
+      "summaryDownloaded_one": "{{count}} game downloaded ({{size}})",
+      "summaryDownloaded_other": "{{count}} games downloaded ({{size}})",
+      "summaryAlreadyUpToDate_one": "{{count}} game already up to date",
+      "summaryAlreadyUpToDate_other": "{{count}} games already up to date",
+      "summary": "Summary: {{parts}}",
       "failedLoadLibrary": "Failed to load game library",
       "noGamesSelected": "No games selected. Use \"Select Apps\" to choose games for prefill first.",
       "startingPrefillSelected": "Starting prefill of {{count}} selected app...",
@@ -4932,6 +5089,8 @@
       }
     },
     "auth": {
+      "defaultTitle": "Authentication Required",
+      "defaultSubtitle": "Please sign in with your API key, username and password",
       "labels": {
         "apiKey": "API Key",
         "or": "OR",
@@ -5032,7 +5191,14 @@
         "attemptTimedOut": "The sign-in attempt ran out of time.",
         "failedToSwitchToAnonymous": "Failed to switch to anonymous mode",
         "failedToRemoveApiKey": "Failed to remove API key",
-        "networkError": "Network error - failed to remove API key"
+        "networkError": "Network error - failed to remove API key",
+        "credentialsRequired": "Please enter both username and password",
+        "emailCodeRequired": "Please enter your email verification code",
+        "twoFactorRequired": "Please enter your 2FA code",
+        "mobileConfirmationTimedOut": "Mobile confirmation timed out. Please enter your 2FA code instead."
+      },
+      "success": {
+        "authenticatedAs": "Successfully authenticated as {{username}}"
       }
     },
     "epicAuth": {
@@ -5156,7 +5322,8 @@
         "title": "Delete Theme",
         "message": "Delete theme <strong>{{name}}</strong>? This will permanently remove the theme files from the server.",
         "warning": "This action cannot be undone.",
-        "confirmButton": "Delete Theme"
+        "confirmButton": "Delete Theme",
+        "allCustomThemes": "all custom themes"
       },
       "form": {
         "themeInfo": "Theme Information",
@@ -5285,7 +5452,7 @@
         },
         "actions": {
           "title": "Actions",
-          "description": "Reset, Process, and Delete buttons - Special action buttons in the management page"
+          "description": "Run, Stop, and Destructive buttons - Colored action buttons in the app"
         },
         "utilities": {
           "title": "Utilities",
@@ -6073,24 +6240,34 @@
           "affects": ["Reset button hover"]
         },
         "actionProcessBg": {
-          "label": "Process Button Background",
-          "description": "Process action button background",
-          "affects": ["Process buttons", "Start actions"]
+          "label": "Run Button Background",
+          "description": "Run action button background",
+          "affects": ["Run buttons", "Start actions", "Scan actions"]
         },
         "actionProcessHover": {
-          "label": "Process Button Hover",
-          "description": "Process button hover state",
-          "affects": ["Process button hover"]
+          "label": "Run Button Hover",
+          "description": "Run button hover state",
+          "affects": ["Run button hover"]
+        },
+        "actionStopBg": {
+          "label": "Stop Button Background",
+          "description": "Stop and cancel action button background",
+          "affects": ["Stop buttons", "Cancel downloads"]
+        },
+        "actionStopHover": {
+          "label": "Stop Button Hover",
+          "description": "Stop button hover state",
+          "affects": ["Stop button hover"]
         },
         "actionDeleteBg": {
-          "label": "Delete Button Background",
-          "description": "Delete action button background",
-          "affects": ["Delete buttons", "Remove actions"]
+          "label": "Destructive Button Background",
+          "description": "Destructive action button background",
+          "affects": ["Delete buttons", "Remove actions", "Clear actions"]
         },
         "actionDeleteHover": {
-          "label": "Delete Button Hover",
-          "description": "Delete button hover state",
-          "affects": ["Delete button hover"]
+          "label": "Destructive Button Hover",
+          "description": "Destructive button hover state",
+          "affects": ["Destructive button hover"]
         },
         "scrollbarTrack": {
           "label": "Scrollbar Track",
@@ -6240,7 +6417,16 @@
       "successTitle": "Credentials Saved",
       "successBody": "The external PostgreSQL connection has been saved. Restart the container to apply.",
       "restartHint": "Run \"docker compose restart lancache-manager\" (or restart the container however you started it). After it comes back up, the wizard will resume from the next step.",
-      "apiKeyHelp": "The database is not reachable yet, so there is no session to authorize this. Paste the API key printed in the container log at startup, or read it from /data/security/api_key.txt."
+      "apiKeyHelp": "The database is not reachable yet, so there is no session to authorize this. Paste the API key printed in the container log at startup, or read it from /data/security/api_key.txt.",
+      "errors": {
+        "hostRequired": "Host is required",
+        "portRange": "Port must be between 1 and 65535",
+        "databaseRequired": "Database name is required",
+        "usernameRequired": "Username is required",
+        "passwordRequired": "Password is required",
+        "saveFailed": "Failed to save credentials.",
+        "network": "Network error. Please check your connection."
+      }
     },
     "dbInfo": {
       "externalTitle": "External PostgreSQL Connected",
@@ -6281,6 +6467,7 @@
       "checkingFailed": "Check failed",
       "continueAnyway": "Continue anyway",
       "timeoutMessage": "Permission checks timed out. You can continue and fix permissions later.",
+      "timedOut": "Permissions check timed out",
       "recheck": "Recheck",
       "continue": "Continue"
     },
@@ -6335,7 +6522,14 @@
       "timeEstimate": "This typically takes 1-5 minutes depending on your connection.",
       "continue": "Continue",
       "cancelling": "Cancelling...",
-      "cancelUseGithub": "Cancel and Use GitHub Instead"
+      "cancelUseGithub": "Cancel and Use GitHub Instead",
+      "status": {
+        "idle": "Idle",
+        "running": "Running",
+        "cancelled": "Cancelled",
+        "completed": "Completed",
+        "failed": "Failed"
+      }
     },
     "depotInit": {
       "title": "Initialize Depot Data",
@@ -6562,6 +6756,36 @@
         "network": "Network error. Please check your connection."
       }
     },
+    "databaseSetup": {
+      "heading": "Database Configuration",
+      "description": "Configure PostgreSQL credentials for your LANCache Manager database",
+      "usernameLabel": "Username",
+      "usernamePlaceholder": "Database username",
+      "passwordLabel": "Password",
+      "passwordPlaceholder": "Enter a strong password",
+      "confirmPasswordLabel": "Confirm Password",
+      "confirmPasswordPlaceholder": "Confirm your password",
+      "apiKeyLabel": "API key",
+      "apiKeyPlaceholder": "Enter the API key",
+      "apiKeyHint": "Authentication is disabled, so database setup still requires the key printed in the container log or stored at /data/security/api_key.txt.",
+      "submit": "Configure Database",
+      "submitting": "Saving credentials...",
+      "savedHeading": "Setup Complete",
+      "savedDescription": "Database credentials saved successfully. Redirecting...",
+      "infoTitle": "First-time setup:",
+      "infoBody": "These credentials will be used to connect to the PostgreSQL database. The username is pre-filled with the default value. Choose a strong password with at least 8 characters.",
+      "errors": {
+        "usernameRequired": "Username is required",
+        "passwordRequired": "Password is required",
+        "passwordTooShort": "Password must be at least 8 characters",
+        "passwordTooCommon": "This password is too common. Please choose a more secure password.",
+        "passwordSameAsUsername": "Password cannot be the same as the username",
+        "confirmPasswordRequired": "Please confirm your password",
+        "passwordsDoNotMatch": "Passwords do not match",
+        "saveFailed": "Failed to save credentials. Please try again.",
+        "network": "Network error. Please check your connection."
+      }
+    },
     "modal": {
       "setupWizard": "Setup Wizard",
       "goBack": "Go back",
@@ -6587,6 +6811,10 @@
         "markCompletedFailed": "Couldn't finish setup. Please try again.",
         "setupStatusCheckFailed": "Couldn't load your saved setup progress. Starting from the beginning."
       }
+    },
+    "errors": {
+      "statusCheckFailed": "Failed to check setup status. Please refresh the page.",
+      "syncProgressFailed": "Failed to sync setup progress to the server. Your current step may not be saved."
     }
   },
   "memory": {
@@ -6630,7 +6858,20 @@
       "failed": "Epic games mapping failed"
     },
     "epicGameMappingsUpdated": {
-      "title": "Epic Games Updated"
+      "title": "Epic Games Updated",
+      "newGames_one": "{{count}} new game discovered",
+      "newGames_other": "{{count}} new games discovered",
+      "updatedGames_one": "{{count}} game updated",
+      "updatedGames_other": "{{count}} games updated",
+      "total": "{{count}} total",
+      "totalWithDetail": "{{detail}}, {{count}} total"
+    },
+    "xboxGameMappingsUpdated": {
+      "title": "Xbox Games Updated",
+      "newGames_one": "{{count}} new game discovered",
+      "newGames_other": "{{count}} new games discovered",
+      "newPatterns_one": "{{count}} new CDN pattern",
+      "newPatterns_other": "{{count}} new CDN patterns"
     }
   },
   "pagination": {
@@ -6682,13 +6923,28 @@
     },
     "clientIp": {
       "ipLabel": "IP: {{ip}}"
+    },
+    "accordion": {
+      "collapseSection": "Collapse section",
+      "expandSection": "Expand section"
+    },
+    "backToTop": {
+      "label": "Back to top"
+    },
+    "dataTable": {
+      "noData": "No data available"
+    },
+    "numberInput": {
+      "increase": "Increase value",
+      "decrease": "Decrease value"
     }
   },
   "signalr": {
     "generic": {
       "unknown": "Operation in progress...",
       "failed": "Operation failed",
-      "complete": "Operation complete"
+      "complete": "Operation complete",
+      "cancelled": "Operation cancelled"
     },
     "cacheClear": {
       "initializing": "Initializing cache clear...",
@@ -6698,7 +6954,9 @@
       "error": {
         "dirNotFound": "Cache directory does not exist: {{cachePath}}",
         "fatal": "Cache clear failed: {{errorDetail}}"
-      }
+      },
+      "progressDirectories": "{{base}} ({{processed}}/{{total}} directories)",
+      "stale": "Cache clearing completed"
     },
     "corruptionDetect": {
       "starting": "Starting corruption scan…",
@@ -6743,7 +7001,8 @@
       "completeStructuralIncremental": "Incremental structural scan complete: {{count}} invalid cache files found.",
       "completeStructuralBaseline": "Initial incremental baseline complete: {{count}} invalid cache files found.",
       "cancelled": "Corruption scan cancelled",
-      "failed": "Corruption scan failed: {{errorDetail}}"
+      "failed": "Corruption scan failed: {{errorDetail}}",
+      "stale": "Corruption detection completed"
     },
     "corruptionRemove": {
       "starting": "Starting suspect cache file removal for {{service}}",
@@ -6773,7 +7032,8 @@
       },
       "failed": {
         "generic": "Operation failed. Check server logs for details."
-      }
+      },
+      "stale": "Corruption removal completed"
     },
     "dbReset": {
       "starting": "Starting database reset...",
@@ -6801,13 +7061,15 @@
       "cleanup": "Cleaning up files...",
       "error": {
         "fatal": "Database reset failed: {{errorDetail}}"
-      }
+      },
+      "stale": "Database reset completed"
     },
     "dataImport": {
       "starting": "Starting data import…",
       "progress": "Importing: {{processed}} of {{total}} records",
       "completedDetail": "{{imported}} imported, {{skipped}} skipped, {{errors}} errors",
-      "cancelled": "Data import cancelled"
+      "cancelled": "Data import cancelled",
+      "stale": "Data import completed"
     },
     "depotMapping": {
       "starting": "Starting depot mapping...",
@@ -6829,7 +7091,8 @@
       "skippedSteamUnreachable": "Depot mapping skipped - could not reach Steam",
       "scan": {
         "skippedFullRequired": "Scheduled scan skipped - full scan required"
-      }
+      },
+      "stale": "Depot mapping completed"
     },
     "epicMapping": {
       "starting": "Starting Epic catalog refresh...",
@@ -6845,7 +7108,8 @@
       "waitingSignIn": "Waiting for Epic sign-in...",
       "signingIn": "Signing in to Epic Games...",
       "signInCancelled": "Epic sign-in cancelled",
-      "signInFailed": "Epic sign-in failed: {{errorDetail}}"
+      "signInFailed": "Epic sign-in failed: {{errorDetail}}",
+      "stale": "Epic game mapping completed"
     },
     "steamLogin": {
       "waitingSignIn": "Waiting for Steam sign-in...",
@@ -6875,7 +7139,8 @@
       "completed": "Xbox catalog resolve completed",
       "skippedNotSignedIn": "Xbox catalog resolve skipped - not signed in to Xbox",
       "cancelled": "Xbox catalog resolve cancelled",
-      "failed": "Xbox catalog resolve failed: {{errorDetail}}"
+      "failed": "Xbox catalog resolve failed: {{errorDetail}}",
+      "stale": "Xbox game mapping completed"
     },
     "battleNetMapping": {
       "starting": "Starting Battle.net game mapping...",
@@ -6962,7 +7227,8 @@
       "cancelled": "Eviction scan cancelled",
       "error": {
         "fatal": "Eviction scan failed: {{errorDetail}}"
-      }
+      },
+      "stale": "Eviction scan completed"
     },
     "cacheSizeScan": {
       "starting": "Starting cache file scan...",
@@ -6974,7 +7240,8 @@
       "cancelled": "Cache file scan cancelled",
       "error": {
         "fatal": "Cache size scan failed: {{errorDetail}}"
-      }
+      },
+      "stale": "Cache file scan completed"
     },
     "scheduledRun": {
       "logRotation": {
@@ -7054,7 +7321,8 @@
       },
       "error": {
         "fatal": "Game cache detection failed: {{errorDetail}}"
-      }
+      },
+      "stale": "Game detection completed"
     },
     "gameRemove": {
       "starting": "Starting removal for game '{{gameName}}' (AppID {{gameAppId}})",
@@ -7083,7 +7351,8 @@
       "logs": {
         "removing": "Removing log entries",
         "fileProgress": "Removing log entries, file {{n}} of {{total}}"
-      }
+      },
+      "stale": "Game removal completed"
     },
     "logProcessing": {
       "starting": "Starting log processing...",
@@ -7091,7 +7360,8 @@
       "complete": "Processing complete",
       "completedEntries": "Successfully processed {{entriesProcessed}} entries",
       "completedDetail": "Successfully processed {{entriesProcessed}} entries from {{linesProcessed}} lines in {{elapsed}} minutes.",
-      "recoveryDetail": "{{entriesProcessed}} entries processed"
+      "recoveryDetail": "{{entriesProcessed}} entries processed",
+      "stale": "Log processing completed"
     },
     "logProcessor": {
       "starting": "Starting log processing...",
@@ -7125,7 +7395,8 @@
       "cleaningDatabase": "Cleaning up database records for {{service}}...",
       "error": {
         "fatal": "Log removal failed: {{errorDetail}}"
-      }
+      },
+      "stale": "Log entry removal completed"
     },
     "logService": {
       "count": {
@@ -7172,7 +7443,8 @@
       },
       "logs": {
         "removing": "Removing log entries"
-      }
+      },
+      "stale": "Service removal completed"
     },
     "steamSession": {
       "errorTitle": {
@@ -7187,6 +7459,9 @@
       "loginFailed": "Unable to log into Steam: {{result}}. Please try again or re-authenticate.",
       "serverBusy": "Steam's servers are busy right now. This is temporary, please wait a moment and try again.",
       "disconnected": "Disconnected from Steam: {{result}}"
+    },
+    "scheduledPrefill": {
+      "stale": "Scheduled prefill completed"
     }
   },
   "errors": {

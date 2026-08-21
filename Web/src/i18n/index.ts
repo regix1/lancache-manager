@@ -1,7 +1,7 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import en from './locales/en.json';
-import zh from './locales/zh.json';
+import en from './locales/en.json' with { type: 'json' };
+import zh from './locales/zh.json' with { type: 'json' };
 
 const STORAGE_KEY = 'lancache_language';
 const storedLanguage =
