@@ -21,10 +21,13 @@
   }
 }
 
+/* 12rem, because the fixed width has to hold the longest label rather than the current one:
+   "Sort: Total Downloads" measures 136px, and 11rem left the label box 134px, so that one option
+   clipped to an ellipsis while every other option fit. */
 @media (min-width: 640px) {
   .clients-sort-field {
     flex: 0 0 auto;
-    width: 11rem;
+    width: 12rem;
   }
 }
 
