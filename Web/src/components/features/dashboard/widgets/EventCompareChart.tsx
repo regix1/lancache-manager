@@ -218,18 +218,6 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
       <div className="line-trend-controls">
         {tabControl}
         <div className="line-trend-actions">
-          <MultiSelectDropdown
-            options={options}
-            values={selectedIds.map(String)}
-            onChange={handleSelection}
-            placeholder={t('widgets.eventCompare.pickEvents')}
-            title={t('widgets.eventCompare.pickEvents')}
-            maxSelections={MAX_COMPARE_EVENTS}
-            searchable={events.length > 8}
-            compactMode
-            dropdownWidth="w-72"
-            alignRight
-          />
           <SegmentedControl
             size="md"
             showLabels
@@ -242,6 +230,18 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
               { value: 'saved', label: t('widgets.eventCompare.metrics.saved') },
               { value: 'missed', label: t('widgets.eventCompare.metrics.missed') }
             ]}
+          />
+          <MultiSelectDropdown
+            options={options}
+            values={selectedIds.map(String)}
+            onChange={handleSelection}
+            placeholder={t('widgets.eventCompare.pickEvents')}
+            title={t('widgets.eventCompare.pickEvents')}
+            maxSelections={MAX_COMPARE_EVENTS}
+            searchable={events.length > 8}
+            compactMode
+            dropdownWidth="w-72"
+            alignRight
           />
         </div>
       </div>
