@@ -4,6 +4,8 @@ import { Key } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Alert } from '@components/ui/Alert';
+import CredentialFields from '@components/ui/CredentialFields';
+import type { CredentialField } from '@components/ui/CredentialFields.types';
 import authService from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
 import { useNotifications } from '@contexts/notifications';
@@ -72,9 +74,13 @@ const AuthenticateTab: React.FC = () => {
 
   const credentialsFilled = apiKey.trim() !== '' && username.trim() !== '' && password !== '';
 
-  const handleCredentialKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && credentialsFilled && !loading) {
-      handleAuthenticate();
+  const handleCredentialChange = (field: CredentialField, value: string) => {
+    if (field === 'apiKey') {
+      setApiKey(value);
+    } else if (field === 'username') {
+      setUsername(value);
+    } else {
+      setPassword(value);
     }
   };
 
@@ -93,47 +99,15 @@ const AuthenticateTab: React.FC = () => {
           </div>
 
           <div className="auth-upgrade-form">
-            <div>
-              <label className="form-field-label">{t('auth.form.label')}</label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                onKeyDown={handleCredentialKeyDown}
-                placeholder={t('auth.form.placeholder')}
-                className="w-full p-3 text-sm themed-input"
-                autoComplete="off"
-                disabled={loading}
-              />
-            </div>
-
-            <div>
-              <label className="form-field-label">{t('modals.auth.labels.username')}</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                onKeyDown={handleCredentialKeyDown}
-                placeholder={t('modals.auth.placeholders.enterUsername')}
-                className="w-full p-3 text-sm themed-input"
-                autoComplete="username"
-                disabled={loading}
-              />
-            </div>
-
-            <div>
-              <label className="form-field-label">{t('modals.auth.labels.password')}</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={handleCredentialKeyDown}
-                placeholder={t('modals.auth.placeholders.enterPassword')}
-                className="w-full p-3 text-sm themed-input"
-                autoComplete="current-password"
-                disabled={loading}
-              />
-            </div>
+            <CredentialFields
+              apiKey={apiKey}
+              username={username}
+              password={password}
+              onChange={handleCredentialChange}
+              onSubmit={handleAuthenticate}
+              disabled={loading}
+              apiKeyPlaceholder={t('auth.form.placeholder')}
+            />
 
             {authError && <Alert color="red">{authError}</Alert>}
 

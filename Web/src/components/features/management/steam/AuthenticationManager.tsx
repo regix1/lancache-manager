@@ -6,6 +6,8 @@ import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
+import CredentialFields from '@components/ui/CredentialFields';
+import type { CredentialField } from '@components/ui/CredentialFields.types';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { ApiKeyRotatedModal } from '@components/modals/auth/ApiKeyRotatedModal';
 import { LoadingState } from '@components/ui/ManagerCard';
@@ -186,9 +188,13 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   const credentialsFilled =
     apiKey.trim() !== '' && accountUsername.trim() !== '' && password !== '';
 
-  const handleCredentialKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && credentialsFilled && !authLoading) {
-      handleAuthenticate();
+  const handleCredentialChange = (field: CredentialField, value: string) => {
+    if (field === 'apiKey') {
+      setApiKey(value);
+    } else if (field === 'username') {
+      setAccountUsername(value);
+    } else {
+      setPassword(value);
     }
   };
 
@@ -478,47 +484,15 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                 : t('management.auth.modal.apiKeyOnlyMessage')}
           </p>
 
-          <div>
-            <label className="form-field-label">{t('management.auth.modal.apiKeyLabel')}</label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              onKeyDown={handleCredentialKeyDown}
-              placeholder="lm_xxxxxxxxxxxxxxxxxxxxx"
-              className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted"
-              autoComplete="off"
-              disabled={authLoading}
-            />
-          </div>
-
-          <div>
-            <label className="form-field-label">{t('modals.auth.labels.username')}</label>
-            <input
-              type="text"
-              value={accountUsername}
-              onChange={(e) => setAccountUsername(e.target.value)}
-              onKeyDown={handleCredentialKeyDown}
-              placeholder={t('modals.auth.placeholders.enterUsername')}
-              className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted"
-              autoComplete="username"
-              disabled={authLoading}
-            />
-          </div>
-
-          <div>
-            <label className="form-field-label">{t('modals.auth.labels.password')}</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={handleCredentialKeyDown}
-              placeholder={t('modals.auth.placeholders.enterPassword')}
-              className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted"
-              autoComplete="current-password"
-              disabled={authLoading}
-            />
-          </div>
+          <CredentialFields
+            apiKey={apiKey}
+            username={accountUsername}
+            password={password}
+            onChange={handleCredentialChange}
+            onSubmit={handleAuthenticate}
+            disabled={authLoading}
+            apiKeyPlaceholder={t('auth.form.placeholder')}
+          />
 
           {authError && <Alert color="red">{authError}</Alert>}
 

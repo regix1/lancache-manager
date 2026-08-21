@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Eye, Shield, Database, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import CredentialFields from '@components/ui/CredentialFields';
+import type { CredentialField } from '@components/ui/CredentialFields.types';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import authService from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
@@ -204,9 +206,13 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
   const credentialsFilled = apiKey.trim() !== '' && username.trim() !== '' && password !== '';
 
-  const handleCredentialKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && credentialsFilled && !resetStatus.isResetting) {
-      handleAuthenticate();
+  const handleCredentialChange = (field: CredentialField, value: string) => {
+    if (field === 'apiKey') {
+      setApiKey(value);
+    } else if (field === 'username') {
+      setUsername(value);
+    } else {
+      setPassword(value);
     }
   };
 
@@ -335,52 +341,20 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
           {/* Credentials Form */}
           <div className="space-y-4">
-            <div>
-              <label className="form-field-label">{t('modals.auth.labels.apiKey')}</label>
-              <input
-                type="text"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                onKeyDown={handleCredentialKeyDown}
-                placeholder={
-                  resetStatus.isResetting
-                    ? t('modals.auth.placeholders.waitForReset')
-                    : t('modals.auth.placeholders.enterApiKey')
-                }
-                className="w-full p-3 text-sm themed-input"
-                autoComplete="off"
-                disabled={authenticating || resetStatus.isResetting}
-                autoFocus={!resetStatus.isResetting}
-              />
-            </div>
-
-            <div>
-              <label className="form-field-label">{t('modals.auth.labels.username')}</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                onKeyDown={handleCredentialKeyDown}
-                placeholder={t('modals.auth.placeholders.enterUsername')}
-                className="w-full p-3 text-sm themed-input"
-                autoComplete="username"
-                disabled={authenticating || resetStatus.isResetting}
-              />
-            </div>
-
-            <div>
-              <label className="form-field-label">{t('modals.auth.labels.password')}</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={handleCredentialKeyDown}
-                placeholder={t('modals.auth.placeholders.enterPassword')}
-                className="w-full p-3 text-sm themed-input"
-                autoComplete="current-password"
-                disabled={authenticating || resetStatus.isResetting}
-              />
-            </div>
+            <CredentialFields
+              apiKey={apiKey}
+              username={username}
+              password={password}
+              onChange={handleCredentialChange}
+              onSubmit={handleAuthenticate}
+              disabled={authenticating || resetStatus.isResetting}
+              apiKeyPlaceholder={
+                resetStatus.isResetting
+                  ? t('modals.auth.placeholders.waitForReset')
+                  : t('modals.auth.placeholders.enterApiKey')
+              }
+              autoFocus={!resetStatus.isResetting}
+            />
 
             <div className="flex flex-col gap-3">
               <Button

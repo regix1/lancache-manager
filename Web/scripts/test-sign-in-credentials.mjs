@@ -23,9 +23,11 @@ const parse = (fileName, source) =>
 
 const modalSource = readWebSource('src/components/modals/auth/AuthenticationModal.tsx');
 const accountStepSource = readWebSource('src/components/initialization/steps/AdminAccountStep.tsx');
+const credentialFieldsSource = readWebSource('src/components/ui/CredentialFields.tsx');
 
 const modalFile = parse('AuthenticationModal.tsx', modalSource);
 const accountStepFile = parse('AdminAccountStep.tsx', accountStepSource);
+const credentialFieldsFile = parse('CredentialFields.tsx', credentialFieldsSource);
 
 const collect = (sourceFile, matches) => {
   const found = [];
@@ -69,17 +71,29 @@ const loginCalls = collect(
   (node) => ts.isCallExpression(node) && node.expression.getText(modalFile) === 'authLogin'
 );
 
-const inputValues = collect(
-  modalFile,
-  (node) =>
-    (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
-    node.tagName.getText(modalFile) === 'input'
-).map((node) => {
-  const value = node.attributes.properties.find(
-    (attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(modalFile) === 'value'
+/** Every JSX element with the given tag, as a map of attribute name to source text. */
+const attributesOf = (sourceFile, tagName) =>
+  collect(
+    sourceFile,
+    (node) =>
+      (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+      node.tagName.getText(sourceFile) === tagName
+  ).map((node) =>
+    Object.fromEntries(
+      node.attributes.properties
+        .filter((attribute) => ts.isJsxAttribute(attribute))
+        .map((attribute) => [
+          attribute.name.getText(sourceFile),
+          attribute.initializer?.getText(sourceFile) ?? null
+        ])
+    )
   );
-  return value?.initializer?.getText(modalFile) ?? null;
-});
+
+// The three fields are drawn once, in CredentialFields, and the modal renders that. They used to be
+// written out here, and the copies drifted: this screen rendered the installation's API key as plain
+// text while the two settings screens masked it.
+const credentialInputs = attributesOf(credentialFieldsFile, 'input');
+const renderedBlocks = attributesOf(modalFile, 'CredentialFields');
 
 const guestHandler = initializerOf(modalFile, 'handleStartGuestMode');
 const signInHandler = initializerOf(modalFile, 'handleAuthenticate');
@@ -93,10 +107,29 @@ test('signing in sends the API key, a username and a password', () => {
 });
 
 test('the API key field is still on the form beside the two new ones', () => {
-  assert.deepEqual(inputValues, ['{apiKey}', '{username}', '{password}']);
+  assert.equal(
+    renderedBlocks.length,
+    1,
+    'expected exactly one credential block on the sign-in form'
+  );
+  assert.deepEqual(
+    [renderedBlocks[0].apiKey, renderedBlocks[0].username, renderedBlocks[0].password],
+    ['{apiKey}', '{username}', '{password}']
+  );
+  assert.deepEqual(
+    credentialInputs.map((input) => input.value),
+    ['{apiKey}', '{username}', '{password}']
+  );
   assert.ok(
-    modalSource.includes("t('modals.auth.labels.apiKey')"),
+    credentialFieldsSource.includes("t('modals.auth.labels.apiKey')"),
     'the API key field lost its label'
+  );
+});
+
+test('the API key is masked like the password it is', () => {
+  assert.deepEqual(
+    credentialInputs.map((input) => input.type),
+    ['"password"', '"text"', '"password"']
   );
 });
 
