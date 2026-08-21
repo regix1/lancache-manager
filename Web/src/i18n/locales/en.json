@@ -1717,7 +1717,6 @@
         "depotCount": "{{count}} depot",
         "depotCount_other": "{{count}} depots",
         "depotGroupsLabel": "depot groups",
-        "datasourceTooltip": "Datasource: {{datasource}}",
         "loadError": "Failed to load downloads from the server. The list below may be out of date.",
         "gauge": {
           "excellent": "Excellent",

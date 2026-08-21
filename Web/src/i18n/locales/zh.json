@@ -1717,7 +1717,6 @@
         "depotCount": "{{count}} 个仓库",
         "depotCount_other": "{{count}} 个仓库",
         "depotGroupsLabel": "仓库分组",
-        "datasourceTooltip": "数据源：{{datasource}}",
         "loadError": "无法从服务器加载下载数据，下方列表可能已过期。",
         "gauge": {
           "excellent": "优秀",
