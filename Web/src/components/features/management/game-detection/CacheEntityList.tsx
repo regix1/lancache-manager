@@ -5,6 +5,7 @@ import '../managementSectionContent.css';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Pagination } from '@components/ui/Pagination';
+import { SearchInput } from '@components/ui/SearchInput';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 import type { SelectionAdapter } from '@hooks/useSelectionSet';
@@ -88,24 +89,12 @@ function CacheEntityList<TItem>({
   return (
     <div>
       <div className="mb-3">
-        <div className="relative">
-          <Search className="input-icon absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
-          <input
-            type="text"
-            placeholder={searchPlaceholder}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="themed-input w-full pl-10 pr-12 py-2 text-sm"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-themed-muted hover:text-themed-primary text-xs"
-            >
-              {t('common.clear')}
-            </button>
-          )}
-        </div>
+        <SearchInput
+          placeholder={searchPlaceholder}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onClear={() => setSearchQuery('')}
+        />
       </div>
 
       {canSelectAll && filteredAndSortedItems.length > 0 && (

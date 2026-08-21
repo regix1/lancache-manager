@@ -1,7 +1,7 @@
 import React, { useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search } from 'lucide-react';
 import { Pagination } from '@components/ui/Pagination';
+import { SearchInput } from '@components/ui/SearchInput';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -554,27 +554,13 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
           <label htmlFor={searchInputId} className="block text-xs text-themed-secondary">
             {t('management.corruption.searchLabel')}
           </label>
-          <div className="relative">
-            <Search className="input-icon absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
-            <input
-              id={searchInputId}
-              type="text"
-              placeholder={t('management.corruption.searchPlaceholder')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="themed-input min-h-11 w-full pl-10 pr-14 py-2 text-sm"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                aria-label={t('management.corruption.clearSearch')}
-                className="mgmt-search-clear absolute right-0 top-1/2 flex h-11 min-h-11 w-11 min-w-11 -translate-y-1/2 items-center justify-center rounded-lg text-xs text-themed-muted transition-[color] duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)]"
-              >
-                {t('common.clear')}
-              </button>
-            )}
-          </div>
+          <SearchInput
+            id={searchInputId}
+            placeholder={t('management.corruption.searchPlaceholder')}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onClear={() => setSearchQuery('')}
+          />
           <p className="text-xs text-themed-muted tabular-nums">
             {t('management.corruption.searchResultCount', {
               count: filteredChunks.length,

@@ -1,7 +1,9 @@
 import React, { useState, useCallback } from 'react';
-import { Layers, Layout, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { Layers, Layout, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import FormField from '@components/ui/FormField';
+import { SearchInput } from '@components/ui/SearchInput';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ImprovedColorPicker } from './ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from './constants';
@@ -190,23 +192,13 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
       </CollapsibleRegion>
 
       {/* Search Bar */}
-      <div className="relative mt-4">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
-        <input
-          type="text"
+      <div className="mt-4">
+        <SearchInput
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t('modals.theme.placeholders.searchColors')}
-          className="w-full pl-10 pr-10 py-2 themed-input"
+          onClear={() => setSearchQuery('')}
         />
-        {searchQuery && (
-          <button
-            onClick={() => setSearchQuery('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-themed-muted hover:text-themed-primary"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
       </div>
 
       {/* Color Groups */}
@@ -276,14 +268,18 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
 
       {/* Custom CSS */}
       <div>
-        <label className="form-field-label">{t('modals.theme.form.customCss')}</label>
-        <textarea
-          value={(themeData.customCSS as string) || ''}
-          onChange={(e) => onMetaChange('customCSS', e.target.value)}
-          placeholder={t('modals.theme.placeholders.customCss')}
-          rows={4}
-          className="w-full px-3 py-2 rounded font-mono text-xs focus:outline-none themed-input"
-        />
+        <FormField label={t('modals.theme.form.customCss')}>
+          {(field) => (
+            <textarea
+              {...field}
+              value={(themeData.customCSS as string) || ''}
+              onChange={(e) => onMetaChange('customCSS', e.target.value)}
+              placeholder={t('modals.theme.placeholders.customCss')}
+              rows={4}
+              className="w-full px-3 py-2 rounded font-mono text-xs focus:outline-none themed-input"
+            />
+          )}
+        </FormField>
       </div>
     </>
   );

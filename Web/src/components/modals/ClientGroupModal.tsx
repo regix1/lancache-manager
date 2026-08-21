@@ -5,6 +5,7 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
 import { Checkbox } from '@components/ui/Checkbox';
+import FormField from '@components/ui/FormField';
 import { IpChip } from '@components/ui/IpChip';
 import { Tooltip } from '@components/ui/Tooltip';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
@@ -1032,19 +1033,20 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
         {/* Nickname */}
         <div>
-          <label htmlFor="nickname" className="form-field-label">
-            {t('modals.clientGroup.labels.nickname')} <span className="text-themed-error">*</span>
-          </label>
-          <input
-            id="nickname"
-            type="text"
-            value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
-            className="w-full px-3 py-2 border text-themed-primary text-sm themed-input control-h-md"
-            placeholder={t('modals.clientGroup.placeholders.name')}
-            required
-            autoFocus
-          />
+          <FormField label={t('modals.clientGroup.labels.nickname')} required>
+            {(field) => (
+              <input
+                {...field}
+                type="text"
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                className="w-full px-3 py-2 border text-themed-primary text-sm themed-input control-h-md"
+                placeholder={t('modals.clientGroup.placeholders.name')}
+                required
+                autoFocus
+              />
+            )}
+          </FormField>
         </div>
 
         {/* Description */}

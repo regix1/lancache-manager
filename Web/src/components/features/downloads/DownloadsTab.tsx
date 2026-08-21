@@ -10,8 +10,6 @@ import {
   LayoutGrid,
   Grid3x3,
   Table,
-  Search,
-  X,
   Maximize2,
   RefreshCw
 } from 'lucide-react';
@@ -40,6 +38,7 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import { Pagination } from '@components/ui/Pagination';
+import { SearchInput } from '@components/ui/SearchInput';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ImageCacheContext } from '@components/common/ImageCacheContext';
@@ -1538,29 +1537,13 @@ const DownloadsTab: React.FC = () => {
             <div className="flex flex-col gap-3">
               {/* Search Input + Settings gear on mobile */}
               <div className="downloads-search-row">
-                <div className="search-input-wrapper relative sm:max-w-xs">
-                  <Search
-                    size={16}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--theme-text-muted)]"
-                  />
-                  <input
-                    type="text"
+                <div className="search-input-wrapper sm:max-w-xs">
+                  <SearchInput
                     value={settings.searchQuery}
                     onChange={(e) => setSettings({ ...settings, searchQuery: e.target.value })}
                     placeholder={t('downloads.tab.searchPlaceholder')}
-                    className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-[var(--theme-border-primary)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] placeholder:text-[var(--theme-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary)]/50 focus:border-[var(--theme-primary)] transition"
+                    onClear={() => setSettings({ ...settings, searchQuery: '' })}
                   />
-                  {settings.searchQuery && (
-                    <Button
-                      variant="filled"
-                      color="secondary"
-                      size="xs"
-                      onClick={() => setSettings({ ...settings, searchQuery: '' })}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 !p-1"
-                    >
-                      <X size={14} />
-                    </Button>
-                  )}
                 </div>
                 <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
                   <Button

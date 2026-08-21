@@ -11,8 +11,7 @@ import {
   Download,
   History,
   RotateCcw,
-  Eraser,
-  Search
+  Eraser
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
@@ -23,6 +22,7 @@ import { HelpPopover, HelpSection, HelpDefinition } from '@components/ui/HelpPop
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { Pagination } from '@components/ui/Pagination';
+import { SearchInput } from '@components/ui/SearchInput';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
@@ -1486,25 +1486,15 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       );
                     })}
 
-                    <div className="session-filter-search relative">
-                      <Search className="input-icon absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
-                      <input
-                        type="text"
+                    <div className="session-filter-search">
+                      <SearchInput
+                        size="sm"
                         value={searchQuery}
                         onChange={handleSearchChange}
                         placeholder={t('activeSessions.searchPlaceholder')}
                         aria-label={t('activeSessions.searchPlaceholder')}
-                        className="themed-input input-search-sm w-full pl-10 pr-12"
+                        onClear={handleClearSearch}
                       />
-                      {searchQuery ? (
-                        <button
-                          type="button"
-                          onClick={handleClearSearch}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-themed-muted hover:text-themed-primary text-xs"
-                        >
-                          {t('common.clear')}
-                        </button>
-                      ) : null}
                     </div>
 
                     <EnhancedDropdown

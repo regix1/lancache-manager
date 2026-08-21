@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Gamepad2, Search } from 'lucide-react';
+import { Gamepad2 } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { SearchInput } from '@components/ui/SearchInput';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -289,19 +290,12 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
         {(mappings.length > 0 || searchQuery) && (
           <>
             {/* Search */}
-            <div className="relative">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-themed-muted pointer-events-none"
-              />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearch(e.target.value)}
-                placeholder={t(labels.search)}
-                className="w-full py-2 pl-8 pr-3 border border-[var(--theme-border)] rounded-lg bg-themed-secondary text-themed-primary text-xs outline-none focus:border-[var(--theme-primary)]"
-              />
-            </div>
+            <SearchInput
+              value={searchQuery}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearch(e.target.value)}
+              placeholder={t(labels.search)}
+              onClear={() => handleSearch('')}
+            />
 
             {/* DataTable */}
             {mappings.length === 0 ? (

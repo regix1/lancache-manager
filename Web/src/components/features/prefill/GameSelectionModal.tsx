@@ -6,7 +6,8 @@ import { Tooltip } from '../../ui/Tooltip';
 import Badge from '../../ui/Badge';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
-import { Search, Check, Gamepad2, Import, Database, EyeOff, Eye } from 'lucide-react';
+import { SearchInput } from '../../ui/SearchInput';
+import { Check, Gamepad2, Import, Database, EyeOff, Eye } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 
@@ -205,16 +206,12 @@ export function GameSelectionModal({
       <div className="flex flex-col h-[min(70vh,calc(100dvh-8rem))] sm:h-[60vh]">
         {/* Search and actions */}
         <div className="flex flex-col gap-3 mb-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--theme-text-muted)]" />
-            <input
-              type="text"
-              placeholder={t('prefill.placeholders.searchGames')}
-              value={search}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 min-h-[44px] sm:min-h-0 text-sm rounded-lg transition-[border-color,background-color] duration-150 ease-out bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)]"
-            />
-          </div>
+          <SearchInput
+            placeholder={t('prefill.placeholders.searchGames')}
+            value={search}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
+          />
           {isUsingCache && (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2 rounded-lg text-xs bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
               <div className="flex items-center gap-2 text-[var(--theme-text-muted)]">
