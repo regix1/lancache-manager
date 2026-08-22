@@ -90,6 +90,8 @@ If you still get an answer, even though `172.16.99.99` isn't a real server, your
 
 ## If you don't see a name for anything
 
-If **nothing** on your network shows a name, not just the one address you were trying to fix, the usual cause is that your DNS server has never been told to ask your router for reverse lookups at all. Routers that run dnsmasq already name every device they hand an address to over DHCP. Once your DNS server is set up to ask the router for reverse records, those names usually appear across your whole network at once, not just for the one address you were troubleshooting.
+The app asks more than one DNS server for each address: the nameservers configured on this host (whatever DHCP advertised — AdGuard, lancache-dns, unbound), then the lancache DNS it already found, then the router addresses on the same subnet as the client. A forward chain such as AdGuard → lancache-dns → unbound usually still has no reverse records, because those live on the DHCP server, which is not in that chain. If the router redirects every port-53 query to one resolver, every hop is that resolver and the DHCP names still have to be published there.
+
+If **nothing** on your network shows a name after that walk, the usual cause is that none of those servers has a reverse record. Routers that run dnsmasq already name every device they hand an address to over DHCP. Confirm the router itself answers a reverse lookup (see above); if it does, the names should appear across the whole network at once.
 
 Some devices don't answer a name query by any method at all. If a machine has no reverse record and also doesn't respond to a direct name query, there's no way for anything to discover its name automatically, and giving it a manual nickname is the only option.

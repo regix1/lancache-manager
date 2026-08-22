@@ -295,6 +295,62 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
         }
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> DetectLanResolverIpsAsync(CancellationToken cancellationToken)
+    {
+        if (_dockerClient == null)
+        {
+            return Array.Empty<string>();
+        }
+
+        try
+        {
+            var containers = await _dockerClient.Containers.ListContainersAsync(
+                new ContainersListParameters { All = false }, cancellationToken);
+
+            return SelectLanResolverIps(containers.Select(container => (
+                Names: (IEnumerable<string>)(container.Names ?? new List<string>()),
+                Image: container.Image ?? string.Empty,
+                Ips: (IEnumerable<string?>)(container.NetworkSettings?.Networks?.Values.Select(network => network.IPAddress)
+                    ?? Enumerable.Empty<string?>()))));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not look for other LAN DNS servers for reverse lookups");
+            return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>
+    /// Private IPs of AdGuard/unbound/Pi-hole-style containers, excluding lancache-dns (that hop
+    /// is detected separately). Pure so the name and SSRF gates can be tested without Docker.
+    /// </summary>
+    internal static List<string> SelectLanResolverIps(
+        IEnumerable<(IEnumerable<string> Names, string Image, IEnumerable<string?> Ips)> containers)
+    {
+        var ordered = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (names, image, ips) in containers)
+        {
+            if (DockerContainerMatching.IsDnsContainer(names) ||
+                !DockerContainerMatching.IsLanResolverContainer(names, image))
+            {
+                continue;
+            }
+
+            foreach (var ip in ips)
+            {
+                if (!string.IsNullOrWhiteSpace(ip) && IsProbeableCandidateIp(ip) && seen.Add(ip))
+                {
+                    ordered.Add(ip);
+                }
+            }
+        }
+
+        return ordered;
+    }
+
     /// <summary>Pure decision for a lancache-dns container's bridge IP: <c>null</c> when the container
     /// is host-networked (no bridge IP - the caller's "switch to host mode" signal, H2), otherwise the
     /// first non-empty network IP. Static/pure so the host-networked null semantics are unit-testable

@@ -60,6 +60,14 @@ public interface ILancacheServerLocator
     /// <c>HostConfig.DNS</c>.</summary>
     Task<string?> DetectDnsContainerBridgeIpAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Private IPs of other LAN resolvers (AdGuard, unbound, Pi-hole, and similar) found next to
+    /// the manager, so a reverse lookup can ask them after lancache-dns. lancache-dns is omitted
+    /// here; that address comes from <see cref="DetectDnsServerIpAsync"/>. Empty when Docker is
+    /// unavailable or nothing matches. Never a public IP.
+    /// </summary>
+    Task<IReadOnlyList<string>> DetectLanResolverIpsAsync(CancellationToken cancellationToken);
+
     /// <summary>Probes <c>GET http://{ip}/lancache-heartbeat</c> and reports whether the
     /// <c>X-LanCache-Processed-By</c> header was present (and its value).</summary>
     Task<HeartbeatResult> ProbeHeartbeatAsync(string ip, CancellationToken cancellationToken);

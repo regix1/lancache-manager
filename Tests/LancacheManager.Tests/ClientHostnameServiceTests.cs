@@ -5,6 +5,7 @@ using DnsClient;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.StatusCheck;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
@@ -394,7 +395,9 @@ public sealed class ClientHostnameServiceTests
         // silence is a different reason from one the network's own server gave.
         var service = CreateService(enabled: true, (_, _) => Task.FromResult<string?>(null));
 
-        var outcome = await service.ResolveAsync(new[] { "10.0.0.9" }, CancellationToken.None);
+        // Both conventional router addresses are themselves the candidates, so the chain does
+        // not invent a hop and the system resolver is the only server left to ask.
+        var outcome = await service.ResolveAsync(new[] { "10.0.0.1", "10.0.0.254" }, CancellationToken.None);
 
         Assert.Empty(outcome.Hostnames);
         Assert.Equal(ClientHostnamesReason.NoResolver, outcome.Reason);
@@ -749,8 +752,9 @@ public sealed class ClientHostnameServiceTests
                 return "gaming-pc.lan.";
             });
 
-        var outcome = await service.ResolveAsync(
-            new[] { "10.0.0.1", "10.0.0.2" }, CancellationToken.None);
+        // Both conventional router addresses are in the batch, so no extra hop is invented and
+        // the name has to come from the system resolver the locator fell back to.
+        var outcome = await service.ResolveAsync(new[] { "10.0.0.1", "10.0.0.254" }, CancellationToken.None);
 
         Assert.Equal("gaming-pc.lan", Assert.Single(outcome.Hostnames).Value);
         Assert.Equal("system", resolverTheNameCameFrom);
@@ -794,6 +798,133 @@ public sealed class ClientHostnameServiceTests
     }
 
     [Fact]
+    public void CollectHostnameResolverIps_AsksNearbyNameserversBeforeTheDetectedCacheDns()
+    {
+        // The host's configured DNS is whatever DHCP advertised (AdGuard, lancache-dns,
+        // unbound). That hop is nearby if it shares a /16 with the clients, so a DNS box on
+        // 172.16.2.x still sees clients on 172.16.1.x. A WSL stub on 10.255.x is not nearby.
+        var ips = ClientHostnameService.CollectHostnameResolverIps(
+            detectedLancacheDnsIp: "10.0.0.53",
+            lanResolverIps: new[] { "172.16.1.222" },
+            clientIps: new[] { "172.16.1.146", "172.16.1.228" },
+            localGateways: new[] { "172.17.0.1" },
+            localNameservers: new[] { "172.16.2.98", "10.255.255.254" });
+
+        Assert.Equal(new[] { "172.16.2.98", "10.0.0.53", "172.16.1.1", "172.16.1.254", "172.16.1.222" }, ips);
+    }
+
+    [Fact]
+    public void CollectHostnameResolverIps_KeepsAGatewayOnlyWhenItSharesTheClientSubnet()
+    {
+        var ips = ClientHostnameService.CollectHostnameResolverIps(
+            detectedLancacheDnsIp: null,
+            lanResolverIps: Array.Empty<string>(),
+            clientIps: new[] { "172.16.1.146" },
+            localGateways: new[] { "172.16.1.254", "172.17.0.1" },
+            localNameservers: null);
+
+        Assert.Equal(new[] { "172.16.1.1", "172.16.1.254" }, ips);
+    }
+
+    [Fact]
+    public void CollectHostnameResolverIps_DropsPublicAddressesAndDedupes()
+    {
+        var ips = ClientHostnameService.CollectHostnameResolverIps(
+            detectedLancacheDnsIp: "8.8.8.8",
+            lanResolverIps: new[] { "172.16.1.1", "172.16.1.1" },
+            clientIps: new[] { "172.16.1.146" },
+            localGateways: null,
+            localNameservers: new[] { "1.1.1.1" });
+
+        Assert.Equal(new[] { "172.16.1.1", "172.16.1.254" }, ips);
+    }
+
+    [Fact]
+    public void CollectHostnameResolverIps_CapsTheChain()
+    {
+        var lan = Enumerable.Range(2, 8).Select(index => $"10.0.0.{index}").ToArray();
+        var ips = ClientHostnameService.CollectHostnameResolverIps(
+            detectedLancacheDnsIp: "10.0.0.1",
+            lanResolverIps: lan,
+            clientIps: new[] { "192.168.1.50" },
+            localGateways: null,
+            localNameservers: null);
+
+        Assert.Equal(6, ips.Count);
+        Assert.Equal("10.0.0.1", ips[0]);
+        Assert.Equal("192.168.1.1", ips[1]);
+        Assert.Equal("192.168.1.254", ips[2]);
+    }
+
+    [Fact]
+    public void SanitizeReverseName_DropsDockerDesktopPlaceholders()
+    {
+        Assert.Equal("adguard.lan", ClientHostnameService.SanitizeReverseName("adguard.lan."));
+        Assert.Null(ClientHostnameService.SanitizeReverseName("host.docker.internal."));
+        Assert.Null(ClientHostnameService.SanitizeReverseName("gateway.docker.internal"));
+        Assert.Null(ClientHostnameService.SanitizeReverseName("   "));
+    }
+
+    [Fact]
+    public async Task GetLookupClientsAsync_IncludesTheClientSubnetRouterAndAdGuardAsync()
+    {
+        var locator = CreateProxy<ILancacheServerLocator>((method, _) => method.Name switch
+        {
+            nameof(ILancacheServerLocator.DetectDnsServerIpAsync) => Task.FromResult<string?>("10.0.0.53"),
+            nameof(ILancacheServerLocator.DetectLanResolverIpsAsync) =>
+                Task.FromResult<IReadOnlyList<string>>(new[] { "172.16.1.222" }),
+            _ => DefaultReturn(method.ReturnType)
+        });
+
+        var service = CreateService(
+            enabled: true,
+            (_, _) => Task.FromResult<string?>(null),
+            locator);
+
+        await service.ResolveAsync(new[] { "172.16.1.146" }, CancellationToken.None);
+
+        var addresses = (await service.GetLookupClientsAsync(CancellationToken.None))
+            .Select(resolver => resolver.Address)
+            .ToList();
+
+        Assert.Contains("10.0.0.53", addresses);
+        Assert.Contains("172.16.1.1", addresses);
+        Assert.Contains("172.16.1.222", addresses);
+    }
+
+    [Fact]
+    public async Task LiveResolverFromEnvironmentIsAskedAsync()
+    {
+        var configured = Environment.GetEnvironmentVariable("LANCACHE_HOSTNAME_LIVE_DNS");
+        if (string.IsNullOrWhiteSpace(configured) ||
+            !IPAddress.TryParse(configured, out var liveAddress) ||
+            !LancacheServerLocator.IsProbeableCandidateIp(configured))
+        {
+            return;
+        }
+
+        var locator = CreateDetectedResolverLocator(configured);
+        var service = CreateLiveService(locator);
+        var outcome = await service.ResolveAsync(new[] { configured }, CancellationToken.None);
+
+        Assert.True(
+            outcome.Hostnames.TryGetValue(configured, out var name),
+            $"the live resolver {configured} answered {outcome.Reason} with no name");
+        Assert.False(string.IsNullOrWhiteSpace(name));
+        Assert.DoesNotContain("docker.internal", name, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ReverseLookupAsksEachResolverUntilOneNamesTheAddress()
+    {
+        var source = ReadSource("Core", "Services", "Clients", "ClientHostnameService.cs");
+
+        Assert.Contains("foreach (var resolver in resolvers)", source, StringComparison.Ordinal);
+        Assert.Contains("await GetLookupClientsAsync(cancellationToken);", source, StringComparison.Ordinal);
+        Assert.Contains("ClientSubnetRouters", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FindingTheResolverDoesNotSpendTheQueryBudget()
     {
         // Detection inspects Docker and probes several candidate addresses, so it runs far slower
@@ -807,7 +938,7 @@ public sealed class ClientHostnameServiceTests
         Assert.Contains("detection.CancelAfter(_resolverDetectionTimeout);", source, StringComparison.Ordinal);
 
         var resolverReady = source.IndexOf(
-            "await GetLookupClientAsync(cancellationToken);", StringComparison.Ordinal);
+            "await GetLookupClientsAsync(cancellationToken);", StringComparison.Ordinal);
         var queryClockStarts = source.IndexOf(
             "queryTimeout.CancelAfter(_queryTimeout);", StringComparison.Ordinal);
 
@@ -826,6 +957,24 @@ public sealed class ClientHostnameServiceTests
         => Enumerable.Range(0, count)
             .Select(index => $"10.1.{index / 256}.{index % 256}")
             .ToArray();
+
+    private static ClientHostnameService CreateLiveService(ILancacheServerLocator locator)
+    {
+        var toggle = new LookupToggle { Enabled = true };
+        var stateService = CreateProxy<IStateService>((method, args) => method.Name switch
+        {
+            nameof(IStateService.GetClientHostnameLookup) => toggle.Enabled,
+            nameof(IStateService.SetClientHostnameLookup) => toggle.Set((bool)args![0]!),
+            nameof(IStateService.GetStatusCheckResolverMode) => "auto",
+            _ => DefaultReturn(method.ReturnType)
+        });
+
+        return new ClientHostnameService(
+            NullLogger<ClientHostnameService>.Instance,
+            stateService,
+            locator,
+            CreateDefaultProxy<ISignalRNotificationService>());
+    }
 
     private static ClientHostnameService CreateService(bool enabled, Func<IPAddress, string?> reverseLookup)
         => CreateService(enabled, (address, _) => Task.FromResult(reverseLookup(address)));

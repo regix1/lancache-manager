@@ -23,6 +23,9 @@ internal sealed class TestLancacheServerLocator : ILancacheServerLocator
     public Task<string?> DetectDnsContainerBridgeIpAsync(CancellationToken cancellationToken)
         => Task.FromResult<string?>(null);
 
+    public Task<IReadOnlyList<string>> DetectLanResolverIpsAsync(CancellationToken cancellationToken)
+        => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+
     public Task<HeartbeatResult> ProbeHeartbeatAsync(string ip, CancellationToken cancellationToken)
         => Task.FromResult(new HeartbeatResult { Reachable = false, CacheIp = ip, Error = "test locator" });
 }
