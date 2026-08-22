@@ -20,6 +20,9 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A partial result is actionable but can remain true for devices that intentionally have no PTR.
+  // Keep dismissal only for this mounted app lifetime; a reload starts a fresh app and shows it again.
+  const [someUnnamedDismissed, setSomeUnnamedDismissed] = useState(false);
   // A hostname fetch waits on DNS, so it can take seconds and two of them can overlap and finish
   // out of order. Only the newest attempt may write, otherwise an older answer reinstates names the
   // toggle has just cleared and they stay on screen until something else refreshes.
@@ -91,6 +94,7 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
     },
     [hostnameLookup]
   );
+  const dismissSomeUnnamed = useCallback(() => setSomeUnnamedDismissed(true), []);
 
   // The handler outlives each render, and authMode changes while it is subscribed, so it reads the
   // mode from a ref rather than closing over the value it was created with.
@@ -126,11 +130,13 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
       value={{
         enabled: hostnameLookup.enabled,
         reason: hostnameLookup.reason,
+        someUnnamedDismissed,
         loading,
         error,
         getHostnameForIp,
         refreshHostnames,
-        setEnabled
+        setEnabled,
+        dismissSomeUnnamed
       }}
     >
       {children}

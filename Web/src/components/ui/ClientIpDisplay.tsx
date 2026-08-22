@@ -38,7 +38,10 @@ export const ClientIpDisplay: React.FC<ClientIpDisplayProps> = ({
   }
 
   return (
-    <Tooltip content={t('ui.clientIp.ipLabel', { ip: clientIp })}>
+    <Tooltip
+      content={t('ui.clientIp.ipLabel', { ip: clientIp })}
+      className="inline-flex self-start max-w-full min-w-0"
+    >
       <span className={`cursor-help border-b border-dashed border-themed-muted ${className}`}>
         {displayName}
       </span>

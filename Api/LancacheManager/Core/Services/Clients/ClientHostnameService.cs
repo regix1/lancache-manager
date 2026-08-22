@@ -18,9 +18,10 @@ namespace LancacheManager.Core.Services;
 /// rather than a fault: only private addresses are looked up at all, each query gets two seconds
 /// and no retry, a whole batch gets a wall-clock budget, concurrent queries are capped, and misses
 /// are cached exactly like answers so a dashboard refresh never re-asks a question the network has
-/// already declined. Private reverse zones are not delegated on the public internet, so the query
-/// goes to the lancache DNS server the LAN actually uses, and falls back to the system resolver
-/// when none is detected. A reverse name is a cosmetic label, never an identity or access fact.
+/// already declined. Candidates come only from the host's configured IPv4 resolvers and Docker
+/// containers that expose DNS port 53. Public, guessed-router, and subnet-scan destinations are
+/// never added. NXDOMAIN continues to the next candidate; a resolver that returns a usable name
+/// is asked first afterwards. A reverse name is a cosmetic label, never an identity or access fact.
 /// </summary>
 public sealed class ClientHostnameService : IClientHostnameService
 {
@@ -46,61 +47,30 @@ public sealed class ClientHostnameService : IClientHostnameService
     /// <summary>How long a detected resolver is reused before detection runs again.</summary>
     private static readonly TimeSpan _resolverTtl = TimeSpan.FromMinutes(10);
 
-    /// <summary>
-    /// Bound on finding the LAN's DNS server. Detection inspects Docker and probes several candidate
-    /// addresses, so it is far slower than the query it prepares for and gets a budget of its own.
-    /// </summary>
-    private static readonly TimeSpan _resolverDetectionTimeout = TimeSpan.FromSeconds(5);
-
     private const int MaxConcurrency = 8;
     private const int MaxLookupsPerRequest = 256;
-
-    /// <summary>
-    /// Bound on how many DNS servers one reverse lookup will ask. The first that returns a name
-    /// wins; the rest are left alone so a chain of AdGuard → lancache-dns → unbound cannot turn
-    /// one client row into a flood.
-    /// </summary>
-    internal const int MaxHostnameResolvers = 6;
-
-    /// <summary>
-    /// Stands in for the resolver address when no lancache DNS server was detected and the lookup
-    /// fell back to the container's own system resolver. It decides which reason an unnamed batch is
-    /// given: silence from a fallback the network never chose is
-    /// <see cref="ClientHostnamesReason.NoResolver"/>, not a statement about the addresses.
-    /// </summary>
-    private const string SystemResolverAddress = "system";
+    internal const int MaxHostnameResolvers = 8;
+    private const int MaxHostnameLength = 253;
 
     private readonly ILogger<ClientHostnameService> _logger;
     private readonly IStateService _stateService;
-    private readonly ILancacheServerLocator _serverLocator;
     private readonly ISignalRNotificationService _notifications;
+    private readonly ILancacheServerLocator? _locator;
     private readonly Func<IPAddress, CancellationToken, Task<string?>> _reverseLookup;
+    private readonly Func<string, IPAddress, CancellationToken, Task<string?>>? _queryOnResolver;
+    private readonly Func<IReadOnlyList<string>> _nameservers;
     private readonly ClientHostnameCache _cache;
 
     private readonly SemaphoreSlim _resolverLock = new(1, 1);
-    private LookupClient? _lookupClient;
-    private IReadOnlyList<HostnameResolver>? _lookupClients;
-    private DateTime _lookupClientCreatedAtUtc;
-
-    /// <summary>
-    /// Client addresses from the in-flight batch, so the resolver chain can include the router
-    /// on each client's subnet (where DHCP reverse records actually live).
-    /// </summary>
-    private IReadOnlyList<string>? _resolverHintIps;
-
-    /// <summary>
-    /// Paired with <see cref="_lookupClient"/> and refreshed at the same time: the detected lancache
-    /// DNS IP, or <see cref="SystemResolverAddress"/> when detection fell through. Read together with
-    /// <see cref="_lookupClient"/>, so a non-null client always has an address to go with it.
-    /// </summary>
-    private string? _lookupClientResolverAddress;
+    private CachedResolver? _cachedResolver;
+    private string? _promotedResolverIp;
 
     public ClientHostnameService(
         ILogger<ClientHostnameService> logger,
         IStateService stateService,
-        ILancacheServerLocator serverLocator,
-        ISignalRNotificationService notifications)
-        : this(logger, stateService, serverLocator, notifications, reverseLookup: null)
+        ISignalRNotificationService notifications,
+        ILancacheServerLocator locator)
+        : this(logger, stateService, notifications, reverseLookup: null, nameservers: null, locator)
     {
     }
 
@@ -112,15 +82,19 @@ public sealed class ClientHostnameService : IClientHostnameService
     internal ClientHostnameService(
         ILogger<ClientHostnameService> logger,
         IStateService stateService,
-        ILancacheServerLocator serverLocator,
         ISignalRNotificationService notifications,
-        Func<IPAddress, CancellationToken, Task<string?>>? reverseLookup)
+        Func<IPAddress, CancellationToken, Task<string?>>? reverseLookup,
+        Func<IReadOnlyList<string>>? nameservers,
+        ILancacheServerLocator? locator = null,
+        Func<string, IPAddress, CancellationToken, Task<string?>>? queryOnResolver = null)
     {
         _logger = logger;
         _stateService = stateService;
-        _serverLocator = serverLocator;
         _notifications = notifications;
+        _locator = locator;
+        _queryOnResolver = queryOnResolver;
         _reverseLookup = reverseLookup ?? QueryReverseAsync;
+        _nameservers = nameservers ?? ReadLocalNameservers;
         _cache = new ClientHostnameCache(LookupAsync, _hostnameTtl, _failedResultsCacheDuration, MaxConcurrency);
     }
 
@@ -137,8 +111,8 @@ public sealed class ClientHostnameService : IClientHostnameService
         // records and flips it sees names straight away instead of waiting out answers that were
         // remembered from before the network was fixed.
         _cache.Clear();
-        _lookupClients = null;
-        Volatile.Write(ref _lookupClient, null);
+        Volatile.Write(ref _cachedResolver, null);
+        Volatile.Write(ref _promotedResolverIp, null);
     }
 
     public async Task<ClientHostnameLookupOutcome> ResolveAsync(
@@ -172,39 +146,13 @@ public sealed class ClientHostnameService : IClientHostnameService
             return new ClientHostnameLookupOutcome(resolved, ClientHostnamesReason.NoClients);
         }
 
-        // The subnet-router hop is built from these addresses, so it must be visible before the
-        // first resolver is constructed. Otherwise a cold cache would ask only lancache-dns.
-        Volatile.Write(ref _resolverHintIps, candidates);
-
-        // Detached from the batch budget below on purpose, the same way a per-address query already
-        // reaches the resolver (see QueryReverseAsync): detection is one-time setup that can run
-        // longer than the whole batch is given, and working out which server would answer must not
-        // itself be cut short by that budget. Any failure here is not an answer about an address, so
-        // it degrades to the system resolver rather than failing the whole request.
-        string? resolverAddress = null;
-        var detection = GetLookupClientAsync(CancellationToken.None);
-        try
+        // Select the trusted resolver chain before starting any address work. An empty chain is
+        // an expected, explainable outcome; failures while reading the host's network configuration
+        // are not swallowed here and flow to the application's global exception handler.
+        var resolver = await GetLookupClientAsync(cancellationToken);
+        if (resolver == null)
         {
-            (_, resolverAddress) = await detection.WaitAsync(cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            // Only this wait is abandoned. Detection was started with no token of ours, so it runs
-            // on for whoever else is queued behind it rather than being cancelled by one caller
-            // hanging up. Nothing awaits it once this wait is gone, so its failure is reported from
-            // the task itself: a resolver that broke for a real reason must still say so at the
-            // moment someone is working out why names are missing.
-            _ = detection.ContinueWith(
-                finished => _logger.LogWarning(
-                    finished.Exception, "Could not determine which DNS server to use for reverse lookups"),
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not determine which DNS server to use for reverse lookups");
+            return new ClientHostnameLookupOutcome(resolved, ClientHostnamesReason.NoResolver);
         }
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -250,15 +198,6 @@ public sealed class ClientHostnameService : IClientHostnameService
         // so it gets a cancellation rather than a short map that reads like a complete answer.
         cancellationToken.ThrowIfCancellationRequested();
 
-        // A setup attempt that failed above does not settle which server was asked: every address
-        // query prepares the resolver the same way, so once the batch is done the address the
-        // service is holding is the one the queries actually went to. Without this, one unlucky
-        // first attempt would pick the reason belonging to the fallback for a batch that reached
-        // the real DNS server.
-        resolverAddress ??= Volatile.Read(ref _lookupClient) != null
-            ? _lookupClientResolverAddress!
-            : SystemResolverAddress;
-
         if (budgetElapsed)
         {
             _logger.LogDebug(
@@ -293,13 +232,6 @@ public sealed class ClientHostnameService : IClientHostnameService
             // a reverse zone that was filled in by hand. Saying nothing would leave the addresses
             // that stayed bare sitting beside named ones with no explanation.
             return new ClientHostnameLookupOutcome(resolved, ClientHostnamesReason.SomeUnnamed);
-        }
-
-        if (resolverAddress == SystemResolverAddress)
-        {
-            // No lancache DNS server was detected, so the system resolver answered instead - and
-            // its silence carries no weight the way the network's own DNS server's would.
-            return new ClientHostnameLookupOutcome(resolved, ClientHostnamesReason.NoResolver);
         }
 
         var reason = timedOutCount == candidates.Count
@@ -360,52 +292,22 @@ public sealed class ClientHostnameService : IClientHostnameService
             return new ClientAddressLookupOutcome(Array.Empty<string>(), ClientAddressLookupReason.NoRecords);
         }
 
-        IReadOnlyList<HostnameResolver> resolvers;
-        try
+        var resolver = await GetLookupClientAsync(cancellationToken);
+        if (resolver == null)
         {
-            // Prepared before the query clock starts, for the same reason the reverse path does it:
-            // detection runs orders of magnitude slower than the query it sets up, and charging it
-            // to the query timeout would fail every lookup on a cold start.
-            resolvers = await GetLookupClientsAsync(cancellationToken);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogDebug("Finding a resolver to look up {Hostname} took too long", name);
-            return new ClientAddressLookupOutcome(Array.Empty<string>(), ClientAddressLookupReason.ResolverTimeout);
+            return new ClientAddressLookupOutcome(Array.Empty<string>(), ClientAddressLookupReason.NoResolver);
         }
 
-        IReadOnlyList<string> addresses = Array.Empty<string>();
-        var anyAnswered = false;
-        var resolverAddress = resolvers[0].Address;
+        var queries = await Task.WhenAll(
+            QueryAddressesAsync(resolver.Client, name, QueryType.A, cancellationToken),
+            QueryAddressesAsync(resolver.Client, name, QueryType.AAAA, cancellationToken));
 
-        foreach (var resolver in resolvers)
-        {
-            var queries = await Task.WhenAll(
-                QueryAddressesAsync(resolver.Client, name, QueryType.A, cancellationToken),
-                QueryAddressesAsync(resolver.Client, name, QueryType.AAAA, cancellationToken));
-
-            if (queries.Any(query => query.Answered))
-            {
-                anyAnswered = true;
-                resolverAddress = resolver.Address;
-            }
-
-            // De-duplicated across the two families, in the order the resolver gave them, so a
-            // machine that answers on both stacks is not offered the same address twice. The first
-            // hop that returns an address wins; later hops are the same daisy-chain as reverse.
-            var hop = queries
-                .SelectMany(query => query.Addresses)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (hop.Count > 0)
-            {
-                addresses = hop;
-                resolverAddress = resolver.Address;
-                break;
-            }
-        }
-
+        // De-duplicated across the two families, in the order the resolver gave them, so a machine
+        // that answers on both stacks is not offered the same address twice.
+        var addresses = queries
+            .SelectMany(query => query.Addresses)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         if (addresses.Count > 0)
         {
             return new ClientAddressLookupOutcome(addresses, ClientAddressLookupReason.None);
@@ -414,16 +316,14 @@ public sealed class ClientHostnameService : IClientHostnameService
         // Which of the three silences this was decides whether the person typing should fix their
         // DNS, their spelling, or simply try again, so an empty list is never left to speak for
         // itself.
-        if (!anyAnswered)
+        if (!queries.Any(query => query.Answered))
         {
             return new ClientAddressLookupOutcome(Array.Empty<string>(), ClientAddressLookupReason.ResolverTimeout);
         }
 
         return new ClientAddressLookupOutcome(
             Array.Empty<string>(),
-            resolverAddress == SystemResolverAddress
-                ? ClientAddressLookupReason.NoResolver
-                : ClientAddressLookupReason.NoRecords);
+            ClientAddressLookupReason.NoRecords);
     }
 
     /// <summary>
@@ -473,11 +373,6 @@ public sealed class ClientHostnameService : IClientHostnameService
             _logger.LogDebug(ex, "The {QueryType} lookup for {Hostname} failed", queryType, hostname);
             return (Array.Empty<string>(), false);
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "The {QueryType} lookup for {Hostname} failed unexpectedly", queryType, hostname);
-            return (Array.Empty<string>(), false);
-        }
     }
 
     /// <summary>
@@ -523,38 +418,41 @@ public sealed class ClientHostnameService : IClientHostnameService
             _logger.LogDebug(ex, "Reverse DNS lookup for {ClientIp} failed", clientIp);
             return new HostnameLookupResult(null, Answered: false);
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Reverse DNS lookup for {ClientIp} failed unexpectedly", clientIp);
-            return new HostnameLookupResult(null, Answered: false);
-        }
     }
 
     private async Task<string?> QueryReverseAsync(IPAddress address, CancellationToken cancellationToken)
     {
-        // The resolver list is prepared before the query clock starts. Detection is one-time setup
-        // that runs orders of magnitude slower than a PTR query, and charging it to the query
-        // timeout would time out every lookup on a cold start and cache the whole client list as
-        // unnamed.
         var resolvers = await GetLookupClientsAsync(cancellationToken);
+        if (resolvers.Count == 0)
+        {
+            throw new InvalidOperationException("No LAN DNS resolver is configured for reverse lookups.");
+        }
 
         Exception? lastFailure = null;
-        var answered = false;
+        var anyAnswered = false;
 
         foreach (var resolver in resolvers)
         {
             try
             {
-                var name = await QueryReverseOnAsync(resolver.Client, address, cancellationToken);
-                answered = true;
+                var raw = _queryOnResolver != null
+                    ? await _queryOnResolver(resolver.Address, address, cancellationToken)
+                    : await QueryReverseOnAsync(resolver.Client, address, cancellationToken);
+                anyAnswered = true;
+                var name = SanitizeReverseName(raw);
                 if (!string.IsNullOrWhiteSpace(name))
                 {
+                    Promote(resolver.Address);
                     return name;
                 }
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                lastFailure = new OperationCanceledException();
+                throw;
+            }
+            catch (OperationCanceledException ex)
+            {
+                lastFailure = ex;
             }
             catch (DnsResponseException ex)
             {
@@ -562,11 +460,13 @@ public sealed class ClientHostnameService : IClientHostnameService
             }
         }
 
-        // NXDOMAIN from one hop is not the end of the chain: lancache-dns often has no reverse
-        // zone at all. Only when every hop either timed out or refused is the question unanswered.
-        if (!answered && lastFailure != null)
+        // One resolver saying the name does not exist settles nothing while others are still to be
+        // asked, so silence only counts as unanswered when every resolver failed. Every failing hop
+        // records why, and that is raised so the address lands on the short failure window instead
+        // of being remembered as a machine the network has no name for.
+        if (!anyAnswered)
         {
-            throw lastFailure;
+            throw lastFailure!;
         }
 
         return null;
@@ -606,57 +506,67 @@ public sealed class ClientHostnameService : IClientHostnameService
     }
 
     /// <summary>
-    /// The first resolver in the chain, detected once per <see cref="_resolverTtl"/> window.
-    /// Internal so the queueing behaviour of a batch that all arrives while one detection is
-    /// running can be exercised without a resolver on the network.
+    /// The first resolver in the trusted chain, after any promotion. Used as the "is anyone there"
+    /// gate and for forward lookups.
     /// </summary>
-    internal async Task<(LookupClient Client, string ResolverAddress)> GetLookupClientAsync(CancellationToken cancellationToken)
+    internal async Task<HostnameResolver?> GetLookupClientAsync(CancellationToken cancellationToken)
     {
         var resolvers = await GetLookupClientsAsync(cancellationToken);
-        var primary = resolvers[0];
-        return (primary.Client, primary.Address);
+        return resolvers.Count == 0 ? null : resolvers[0];
     }
 
     /// <summary>
-    /// Every resolver one reverse lookup will ask, in order: lancache-dns, the client-subnet
-    /// router (DHCP PTR records), other LAN resolvers (AdGuard, unbound, …), then the system
-    /// resolver only when nothing else was found.
+    /// The host-configured IPv4 resolvers plus Docker containers that expose port 53, cached
+    /// briefly because network configuration can change while the app is running. Public and
+    /// non-IPv4 addresses are dropped rather than queried.
     /// </summary>
     internal async Task<IReadOnlyList<HostnameResolver>> GetLookupClientsAsync(CancellationToken cancellationToken)
     {
-        var cached = Volatile.Read(ref _lookupClients);
-        if (cached != null &&
-            DateTime.UtcNow - _lookupClientCreatedAtUtc < _resolverTtl &&
-            !HasUnseenRouter(cached))
+        var cached = Volatile.Read(ref _cachedResolver);
+        if (cached != null && DateTime.UtcNow - cached.CreatedAtUtc < _resolverTtl)
         {
-            return cached;
+            return OrderResolvers(cached.Resolvers);
         }
 
-        // The wait carries no deadline of its own. A whole batch arrives here within microseconds
-        // of each other, and charging each waiter a detection budget it is not spending would fail
-        // everyone who lost the race the moment detection took as long as the budget sized for it.
-        // Failing to set up a resolver is not an answer about the address. Whoever holds the lock
-        // is already bounded below, so the wait is bounded too.
         await _resolverLock.WaitAsync(cancellationToken);
         try
         {
-            cached = _lookupClients;
-            if (cached != null &&
-                DateTime.UtcNow - _lookupClientCreatedAtUtc < _resolverTtl &&
-                !HasUnseenRouter(cached))
+            cached = _cachedResolver;
+            if (cached != null && DateTime.UtcNow - cached.CreatedAtUtc < _resolverTtl)
             {
-                return cached;
+                return OrderResolvers(cached.Resolvers);
             }
 
-            using var detection = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            detection.CancelAfter(_resolverDetectionTimeout);
+            IReadOnlyList<string> detected = Array.Empty<string>();
+            if (_locator != null)
+            {
+                detected = await _locator.DetectLanResolverIpsAsync(cancellationToken);
+            }
 
-            var resolvers = await BuildLookupClientsAsync(detection.Token);
-            _lookupClientCreatedAtUtc = DateTime.UtcNow;
-            _lookupClientResolverAddress = resolvers[0].Address;
-            _lookupClients = resolvers;
-            Volatile.Write(ref _lookupClient, resolvers[0].Client);
-            return resolvers;
+            var resolverIps = CollectHostnameResolverIps(_nameservers(), detected);
+            var resolvers = new List<HostnameResolver>(resolverIps.Count);
+            foreach (var resolverIp in resolverIps)
+            {
+                if (IPAddress.TryParse(resolverIp, out var address))
+                {
+                    resolvers.Add(new HostnameResolver(
+                        new LookupClient(BoundedOptions(new LookupClientOptions(address))), resolverIp));
+                }
+            }
+
+            if (resolvers.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Reverse DNS lookups will ask {ResolverIps}",
+                    string.Join(", ", resolvers.Select(resolver => resolver.Address)));
+            }
+            else
+            {
+                _logger.LogInformation("No safe IPv4 DNS server is configured for reverse lookups");
+            }
+
+            Volatile.Write(ref _cachedResolver, new CachedResolver(resolvers, DateTime.UtcNow));
+            return OrderResolvers(resolvers);
         }
         finally
         {
@@ -664,245 +574,100 @@ public sealed class ClientHostnameService : IClientHostnameService
         }
     }
 
-    private bool HasUnseenRouter(IReadOnlyList<HostnameResolver> current)
-    {
-        var hints = Volatile.Read(ref _resolverHintIps);
-        if (hints == null || hints.Count == 0 || current.Count >= MaxHostnameResolvers)
-        {
-            return false;
-        }
-
-        var have = new HashSet<string>(current.Select(resolver => resolver.Address), StringComparer.OrdinalIgnoreCase);
-        foreach (var router in ClientSubnetRouters(hints))
-        {
-            if (LancacheServerLocator.IsProbeableCandidateIp(router) && !have.Contains(router))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private async Task<IReadOnlyList<HostnameResolver>> BuildLookupClientsAsync(CancellationToken cancellationToken)
-    {
-        var mode = StatusCheckResolverModes.Normalize(_stateService.GetStatusCheckResolverMode());
-
-        string? resolverIp;
-        try
-        {
-            resolverIp = await _serverLocator.DetectDnsServerIpAsync(mode, knownCacheIps: null, cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            // Outlasting the detection budget is the same outcome as finding nothing, and the
-            // fallback below still resolves names. Failing here instead would leave every address
-            // unnamed for the whole name TTL because a Docker inspect was slow once.
-            _logger.LogInformation("Detecting the lancache DNS server took too long; falling through to the rest of the chain");
-            resolverIp = null;
-        }
-
-        IReadOnlyList<string> lanResolverIps = Array.Empty<string>();
-        try
-        {
-            lanResolverIps = await _serverLocator.DetectLanResolverIpsAsync(cancellationToken)
-                ?? (IReadOnlyList<string>)Array.Empty<string>();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Could not look for other LAN DNS servers for reverse lookups");
-        }
-
-        var detectedIp = resolverIp != null && LancacheServerLocator.IsProbeableCandidateIp(resolverIp)
-            ? resolverIp
-            : null;
-        var ips = CollectHostnameResolverIps(
-            detectedIp,
-            lanResolverIps,
-            Volatile.Read(ref _resolverHintIps),
-            ReadLocalGatewayIps(),
-            ReadLocalNameservers());
-
-        var resolvers = new List<HostnameResolver>(Math.Max(ips.Count, 1));
-        foreach (var ip in ips)
-        {
-            if (!IPAddress.TryParse(ip, out var address))
-            {
-                continue;
-            }
-
-            resolvers.Add(new HostnameResolver(
-                new LookupClient(BoundedOptions(new LookupClientOptions(address))), ip));
-        }
-
-        if (resolvers.Count == 0)
-        {
-            // No LAN DNS server was detected. The system-configured resolver is the next best
-            // source of a reverse name, and unlike the cache-bypass probes a name carries no trust.
-            _logger.LogInformation("No LAN DNS server detected; reverse DNS lookups will use the system resolver");
-            resolvers.Add(new HostnameResolver(
-                new LookupClient(BoundedOptions(new LookupClientOptions())), SystemResolverAddress));
-        }
-        else
-        {
-            _logger.LogInformation(
-                "Reverse DNS lookups will try {ResolverIps}",
-                string.Join(", ", resolvers.Select(resolver => resolver.Address)));
-        }
-
-        return resolvers;
-    }
-
     /// <summary>
-    /// Ordered, deduped, SSRF-gated hop list. Nearby NIC nameservers first (whatever DHCP
-    /// advertised to this host — AdGuard, lancache-dns, unbound), then the detected cache DNS,
-    /// then the .1/.254 of each client /24, then gateways on those subnets, then other LAN
-    /// resolvers found in Docker. No address is hardcoded; nearby means the same /16 as a client
-    /// so a DNS box on 172.16.2.x still sees clients on 172.16.1.x. Pure so the chain can be
-    /// tested without opening a socket.
+    /// Host-configured IPv4 resolvers first, then Docker-discovered ones. Public, link-local,
+    /// multicast, malformed, and duplicate addresses are dropped. The list is capped so discovery
+    /// cannot become a scan.
     /// </summary>
     internal static List<string> CollectHostnameResolverIps(
-        string? detectedLancacheDnsIp,
-        IReadOnlyList<string>? lanResolverIps,
-        IReadOnlyCollection<string>? clientIps,
-        IReadOnlyList<string>? localGateways,
-        IReadOnlyList<string>? localNameservers)
+        IReadOnlyList<string>? nameservers,
+        IReadOnlyList<string>? detectedResolverIps)
     {
         var ordered = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var nearby = clientIps != null ? ClientNearbyPrefixes(clientIps) : new HashSet<string>();
-        var prefixes = clientIps != null ? ClientSubnetPrefixes(clientIps) : new HashSet<string>();
 
-        void Add(string? ip)
+        void Add(IReadOnlyList<string>? ips)
         {
-            if (ordered.Count >= MaxHostnameResolvers)
+            if (ips == null || ordered.Count == MaxHostnameResolvers)
             {
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(ip) &&
-                LancacheServerLocator.IsProbeableCandidateIp(ip) &&
-                seen.Add(ip))
+            foreach (var ip in ips)
             {
+                if (!LancacheServerLocator.IsSafeLanResolverIp(ip) || !seen.Add(ip))
+                {
+                    continue;
+                }
+
                 ordered.Add(ip);
-            }
-        }
-
-        bool Nearby(string? ip)
-        {
-            var prefix = NearbyPrefix(ip ?? string.Empty);
-            return prefix != null && nearby.Contains(prefix);
-        }
-
-        if (localNameservers != null)
-        {
-            foreach (var ip in localNameservers)
-            {
-                if (clientIps == null || clientIps.Count == 0 || Nearby(ip))
+                if (ordered.Count == MaxHostnameResolvers)
                 {
-                    Add(ip);
+                    return;
                 }
             }
         }
 
-        Add(detectedLancacheDnsIp);
+        Add(nameservers);
+        Add(detectedResolverIps);
+        return ordered;
+    }
 
-        if (clientIps != null)
+    private static List<string> ReadLocalNameservers()
+        => NetworkInterface.GetAllNetworkInterfaces()
+            .Where(network => network.OperationalStatus == OperationalStatus.Up)
+            .Where(network => network.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+            .SelectMany(network => network.GetIPProperties().DnsAddresses)
+            .Where(address => address.AddressFamily == AddressFamily.InterNetwork)
+            .Select(address => address.ToString())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private IReadOnlyList<HostnameResolver> OrderResolvers(IReadOnlyList<HostnameResolver> resolvers)
+    {
+        var promoted = Volatile.Read(ref _promotedResolverIp);
+        if (string.IsNullOrEmpty(promoted) || resolvers.Count < 2)
         {
-            foreach (var router in ClientSubnetRouters(clientIps))
-            {
-                Add(router);
-            }
+            return resolvers;
+        }
 
-            if (localGateways != null)
+        var promotedIndex = -1;
+        for (var index = 0; index < resolvers.Count; index++)
+        {
+            if (string.Equals(resolvers[index].Address, promoted, StringComparison.OrdinalIgnoreCase))
             {
-                foreach (var gateway in localGateways)
-                {
-                    var prefix = SubnetPrefix(gateway);
-                    if (prefix != null && prefixes.Contains(prefix))
-                    {
-                        Add(gateway);
-                    }
-                }
+                promotedIndex = index;
+                break;
             }
         }
 
-        if (lanResolverIps != null)
+        if (promotedIndex <= 0)
         {
-            foreach (var ip in lanResolverIps)
+            return resolvers;
+        }
+
+        var ordered = new List<HostnameResolver>(resolvers.Count) { resolvers[promotedIndex] };
+        for (var index = 0; index < resolvers.Count; index++)
+        {
+            if (index != promotedIndex)
             {
-                Add(ip);
+                ordered.Add(resolvers[index]);
             }
         }
 
         return ordered;
     }
 
-    /// <summary>
-    /// Typical home-router addresses on the client's /24. Not a specific LAN: every private IPv4
-    /// uses the same two last-octet conventions.
-    /// </summary>
-    internal static IEnumerable<string> ClientSubnetRouters(IReadOnlyCollection<string> clientIps)
+    private void Promote(string resolverIp)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var clients = new HashSet<string>(clientIps, StringComparer.OrdinalIgnoreCase);
-        foreach (var clientIp in clientIps)
-        {
-            if (!TryPrivateIPv4Bytes(clientIp, out var bytes))
-            {
-                continue;
-            }
-
-            foreach (var lastOctet in new byte[] { 1, 254 })
-            {
-                bytes[3] = lastOctet;
-                var router = new IPAddress(bytes).ToString();
-                if (!clients.Contains(router) && seen.Add(router))
-                {
-                    yield return router;
-                }
-            }
-        }
-    }
-
-    internal static List<string> ReadLocalGatewayIps()
-        => ReadLocalInterfaceAddresses(properties =>
-            (properties.GatewayAddresses ?? Enumerable.Empty<GatewayIPAddressInformation>())
-                .Select(gateway => gateway?.Address));
-
-    /// <summary>
-    /// IPv4 nameservers configured on local interfaces — the DNS this host was told to use,
-    /// which is how AdGuard / unbound / lancache-dns are found without hardcoding them.
-    /// </summary>
-    internal static List<string> ReadLocalNameservers()
-        => ReadLocalInterfaceAddresses(properties => properties.DnsAddresses);
-
-    private static List<string> ReadLocalInterfaceAddresses(Func<IPInterfaceProperties, IEnumerable<IPAddress?>> select)
-    {
-        try
-        {
-            return NetworkInterface.GetAllNetworkInterfaces()
-                .Where(n => n.OperationalStatus == OperationalStatus.Up)
-                .Where(n => n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-                .SelectMany(n =>
-                {
-                    var properties = n.GetIPProperties();
-                    return properties == null ? Enumerable.Empty<IPAddress?>() : select(properties);
-                })
-                .Where(address => address != null && address.AddressFamily == AddressFamily.InterNetwork)
-                .Select(address => address!.ToString())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-        catch
-        {
-            return new List<string>();
-        }
+        Volatile.Write(ref _promotedResolverIp, resolverIp);
     }
 
     /// <summary>
     /// Drops reverse names that are not a machine's LAN hostname. Docker Desktop answers PTR for
     /// RFC1918 addresses with host.docker.internal, which would otherwise label every client.
+    /// Oversized names and control characters are rejected so a resolver cannot push a label into
+    /// the UI that is not a DNS name.
     /// </summary>
     internal static string? SanitizeReverseName(string? hostname)
     {
@@ -912,7 +677,7 @@ public sealed class ClientHostnameService : IClientHostnameService
         }
 
         var name = hostname.Trim().TrimEnd('.');
-        if (name.Length == 0)
+        if (name.Length == 0 || name.Length > MaxHostnameLength)
         {
             return null;
         }
@@ -922,57 +687,12 @@ public sealed class ClientHostnameService : IClientHostnameService
             return null;
         }
 
+        if (name.Any(char.IsControl) || Uri.CheckHostName(name) != UriHostNameType.Dns)
+        {
+            return null;
+        }
+
         return name;
-    }
-
-    private static HashSet<string> ClientSubnetPrefixes(IReadOnlyCollection<string> clientIps)
-    {
-        var prefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var clientIp in clientIps)
-        {
-            var prefix = SubnetPrefix(clientIp);
-            if (prefix != null)
-            {
-                prefixes.Add(prefix);
-            }
-        }
-
-        return prefixes;
-    }
-
-    private static string? SubnetPrefix(string ip)
-        => TryPrivateIPv4Bytes(ip, out var bytes) ? $"{bytes[0]}.{bytes[1]}.{bytes[2]}" : null;
-
-    private static string? NearbyPrefix(string ip)
-        => TryPrivateIPv4Bytes(ip, out var bytes) ? $"{bytes[0]}.{bytes[1]}" : null;
-
-    private static HashSet<string> ClientNearbyPrefixes(IReadOnlyCollection<string> clientIps)
-    {
-        var prefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var clientIp in clientIps)
-        {
-            var prefix = NearbyPrefix(clientIp);
-            if (prefix != null)
-            {
-                prefixes.Add(prefix);
-            }
-        }
-
-        return prefixes;
-    }
-
-    private static bool TryPrivateIPv4Bytes(string ip, out byte[] bytes)
-    {
-        bytes = Array.Empty<byte>();
-        if (!IPAddress.TryParse(ip, out var address) ||
-            address.AddressFamily != AddressFamily.InterNetwork ||
-            !LancacheServerLocator.IsPrivateIp(ip))
-        {
-            return false;
-        }
-
-        bytes = address.GetAddressBytes();
-        return true;
     }
 
     private static LookupClientOptions BoundedOptions(LookupClientOptions options)
@@ -989,10 +709,11 @@ public sealed class ClientHostnameService : IClientHostnameService
 }
 
 /// <summary>
-/// One hop in the reverse-lookup chain: the client pointed at that server, and the address that
-/// decides which reason an unnamed batch is given.
+/// One DNS server in the trusted reverse-lookup chain.
 /// </summary>
-internal readonly record struct HostnameResolver(LookupClient Client, string Address);
+internal sealed record HostnameResolver(LookupClient Client, string Address);
+
+internal sealed record CachedResolver(IReadOnlyList<HostnameResolver> Resolvers, DateTime CreatedAtUtc);
 
 /// <summary>
 /// What one reverse lookup established: the name the network published, if any, and whether the
@@ -1054,7 +775,17 @@ internal sealed class ClientHostnameCache
                 continue;
             }
 
-            return await entry.Lookup.Value.WaitAsync(cancellationToken);
+            try
+            {
+                return await entry.Lookup.Value.WaitAsync(cancellationToken);
+            }
+            catch when (entry.Lookup.Value.IsFaulted)
+            {
+                // Unexpected failures flow to the global handler and must not poison this address
+                // for the normal hostname TTL. The next request gets a fresh attempt.
+                _entries.TryRemove(new KeyValuePair<string, CacheEntry>(clientIp, entry));
+                throw;
+            }
         }
     }
 

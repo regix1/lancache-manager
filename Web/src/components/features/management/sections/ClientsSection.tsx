@@ -60,9 +60,13 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     error: hostnamesError,
     setEnabled: setHostnamesEnabled,
     getHostnameForIp,
-    reason: hostnamesReason
+    reason: hostnamesReason,
+    someUnnamedDismissed,
+    dismissSomeUnnamed
   } = useClientHostnames();
   const hostnamesReasonKey = getClientHostnameReasonKey(hostnamesReason);
+  const visibleHostnamesReasonKey =
+    hostnamesReason === 'someUnnamed' && someUnnamedDismissed ? null : hostnamesReasonKey;
   const { refreshStats } = useStats();
   const { refreshDownloads } = useDownloads();
 
@@ -926,8 +930,15 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
               <div className="space-y-3">
                 {hostnamesError ? (
                   <Alert color="red">{hostnamesError}</Alert>
-                ) : hostnamesReasonKey ? (
-                  <Alert color="yellow">{t(hostnamesReasonKey)}</Alert>
+                ) : visibleHostnamesReasonKey ? (
+                  <Alert
+                    color="yellow"
+                    withCloseButton={hostnamesReason === 'someUnnamed'}
+                    onClose={hostnamesReason === 'someUnnamed' ? dismissSomeUnnamed : undefined}
+                    closeButtonLabel={t('common.dismiss')}
+                  >
+                    {t(visibleHostnamesReasonKey)}
+                  </Alert>
                 ) : null}
                 <div className="flex items-start gap-3 py-2">
                   <div className="pt-0.5">

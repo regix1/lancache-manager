@@ -25,29 +25,6 @@ internal static class DockerContainerMatching
             (n.Contains("dns", StringComparison.OrdinalIgnoreCase) && n.Contains("lancache", StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>
-    /// Other LAN resolvers that may hold reverse records lancache-dns does not: AdGuard, unbound,
-    /// Pi-hole, blocky, Technitium. Distinct from <see cref="IsDnsContainer"/> so Status Check and
-    /// prefill never treat one of these as the cache DNS.
-    /// </summary>
-    internal static bool IsLanResolverContainer(IEnumerable<string> names, string image)
-    {
-        foreach (var value in names.Append(image ?? string.Empty))
-        {
-            if (value.Contains("adguard", StringComparison.OrdinalIgnoreCase) ||
-                value.Contains("unbound", StringComparison.OrdinalIgnoreCase) ||
-                value.Contains("pihole", StringComparison.OrdinalIgnoreCase) ||
-                value.Contains("pi-hole", StringComparison.OrdinalIgnoreCase) ||
-                value.Contains("blocky", StringComparison.OrdinalIgnoreCase) ||
-                value.Contains("technitium", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
     /// Image-only half of the cache-container test. Split out so callers that apply their own
     /// name filtering (for example excluding the DNS and sniproxy containers) can still share the
     /// image rules instead of restating them.

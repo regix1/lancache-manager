@@ -9,6 +9,7 @@ interface AlertProps {
   icon?: React.ReactNode;
   withCloseButton?: boolean;
   onClose?: () => void;
+  closeButtonLabel?: string;
   title?: string;
   className?: string;
 }
@@ -43,6 +44,7 @@ export const Alert: React.FC<AlertProps> = ({
   icon,
   withCloseButton,
   onClose,
+  closeButtonLabel,
   title,
   className
 }) => {
@@ -56,7 +58,12 @@ export const Alert: React.FC<AlertProps> = ({
         <div>{children}</div>
       </div>
       {withCloseButton && onClose && (
-        <button onClick={onClose} className="alert-close">
+        <button
+          type="button"
+          onClick={onClose}
+          className="alert-close"
+          aria-label={closeButtonLabel}
+        >
           <X className="w-4 h-4" />
         </button>
       )}

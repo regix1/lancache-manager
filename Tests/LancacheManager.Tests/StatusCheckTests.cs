@@ -813,6 +813,44 @@ public class StatusCheckTests
     }
 
     [Fact]
+    public void SelectLanResolverIps_KeepsOnlyContainersThatExposePort53()
+    {
+        var result = LancacheServerLocator.SelectLanResolverIps(
+        [
+            (new ushort[] { 80 }, new[] { "172.18.0.3" }),
+            (new ushort[] { 53 }, new[] { "172.16.1.222" }),
+            (new ushort[] { 443, 53 }, new[] { "172.18.0.5" }),
+        ]);
+
+        Assert.Equal(new[] { "172.16.1.222", "172.18.0.5" }, result);
+    }
+
+    [Fact]
+    public void SelectLanResolverIps_DropsPublicLinkLocalMalformedAndDuplicates()
+    {
+        var result = LancacheServerLocator.SelectLanResolverIps(
+        [
+            (new ushort[] { 53 }, new[] { "1.1.1.1", "169.254.169.254", "not-an-ip", "0.0.0.0", "172.16.1.222" }),
+            (new ushort[] { 53 }, new[] { "172.16.1.222", "172.18.0.5" }),
+        ]);
+
+        Assert.Equal(new[] { "172.16.1.222", "172.18.0.5" }, result);
+    }
+
+    [Fact]
+    public void SelectLanResolverIps_CapsTheReturnedList()
+    {
+        var ips = Enumerable.Range(1, 12).Select(index => $"10.9.0.{index}").ToArray();
+
+        var result = LancacheServerLocator.SelectLanResolverIps(
+            [(new ushort[] { 53 }, ips)]);
+
+        Assert.Equal(LancacheServerLocator.MaxLanResolverIps, result.Count);
+        Assert.Equal("10.9.0.1", result[0]);
+        Assert.Equal("10.9.0.8", result[^1]);
+    }
+
+    [Fact]
     public void BuildDnsServerCandidates_OrdersBridgeGatewayCacheHostInternalThenLoopback()
     {
         var result = LancacheServerLocator.BuildDnsServerCandidates(
@@ -1067,41 +1105,6 @@ public class StatusCheckTests
     {
         Assert.Null(LancacheServerLocator.SelectDnsBridgeIp(isHostNetworked: false, new[] { "", (string?)null }));
         Assert.Null(LancacheServerLocator.SelectDnsBridgeIp(isHostNetworked: false, Array.Empty<string?>()));
-    }
-
-    [Fact]
-    public void SelectLanResolverIps_KeepsAdGuardAndUnboundAndSkipsLancacheDns()
-    {
-        var result = LancacheServerLocator.SelectLanResolverIps(
-        [
-            (new[] { "/lancache-dns" }, "lancachenet/lancache-dns", new[] { "172.18.0.2" }),
-            (new[] { "/adguardhome" }, "adguard/adguardhome", new[] { "172.16.1.222" }),
-            (new[] { "/unbound" }, "mvance/unbound", new[] { "172.18.0.5" }),
-            (new[] { "/monolithic" }, "lancachenet/monolithic", new[] { "172.18.0.3" })
-        ]);
-
-        Assert.Equal(new[] { "172.16.1.222", "172.18.0.5" }, result);
-    }
-
-    [Fact]
-    public void SelectLanResolverIps_DropsPublicIps()
-    {
-        var result = LancacheServerLocator.SelectLanResolverIps(
-        [
-            (new[] { "/adguard" }, string.Empty, new[] { "1.1.1.1", "10.0.0.9" })
-        ]);
-
-        Assert.Equal(new[] { "10.0.0.9" }, result);
-    }
-
-    [Fact]
-    public void IsLanResolverContainer_MatchesKnownResolvers()
-    {
-        Assert.True(DockerContainerMatching.IsLanResolverContainer(new[] { "/adguardhome" }, string.Empty));
-        Assert.True(DockerContainerMatching.IsLanResolverContainer(Array.Empty<string>(), "mvance/unbound:latest"));
-        Assert.True(DockerContainerMatching.IsLanResolverContainer(new[] { "/pihole" }, string.Empty));
-        Assert.False(DockerContainerMatching.IsLanResolverContainer(new[] { "/lancache-dns" }, "lancachenet/lancache-dns"));
-        Assert.False(DockerContainerMatching.IsLanResolverContainer(new[] { "/monolithic" }, "lancachenet/monolithic"));
     }
 
     // ===== DNS-answer selection (the "dns" locate tier / DNS-candidate verification) =====

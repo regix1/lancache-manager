@@ -90,8 +90,8 @@ If you still get an answer, even though `172.16.99.99` isn't a real server, your
 
 ## If you don't see a name for anything
 
-The app asks more than one DNS server for each address: the nameservers configured on this host (whatever DHCP advertised — AdGuard, lancache-dns, unbound), then the lancache DNS it already found, then the router addresses on the same subnet as the client. A forward chain such as AdGuard → lancache-dns → unbound usually still has no reverse records, because those live on the DHCP server, which is not in that chain. If the router redirects every port-53 query to one resolver, every hop is that resolver and the DHCP names still have to be published there.
+The app builds a short list of DNS servers from two trusted sources: the IPv4 resolvers configured on its host, and running Docker containers that expose DNS port 53. It asks those servers in order and keeps going after a "name does not exist" answer, so a cache-only DNS server that has no reverse records does not hide the server that does. A server that returns a real name is asked first next time. The app does not guess router addresses, scan the client subnet, or send these lookups to public DNS.
 
-If **nothing** on your network shows a name after that walk, the usual cause is that none of those servers has a reverse record. Routers that run dnsmasq already name every device they hand an address to over DHCP. Confirm the router itself answers a reverse lookup (see above); if it does, the names should appear across the whole network at once.
+If **nothing** shows a name, the usual cause is that none of those trusted servers have reverse records. Routers that run dnsmasq already name every device they hand an address to over DHCP, but those records still need to be reachable through one of the servers the app is allowed to ask.
 
 Some devices don't answer a name query by any method at all. If a machine has no reverse record and also doesn't respond to a direct name query, there's no way for anything to discover its name automatically, and giving it a manual nickname is the only option.

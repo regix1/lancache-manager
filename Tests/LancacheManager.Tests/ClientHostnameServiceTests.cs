@@ -157,41 +157,6 @@ public sealed class ClientHostnameServiceTests
     }
 
     [Fact]
-    public async Task AnAddressThatWaitsOutASlowResolverSetupStillGetsTheResolverAsync()
-    {
-        // Finding the resolver happens once for a whole batch: one lookup detects the LAN's DNS
-        // server while the rest queue behind it. The queue must not carry a deadline of its own,
-        // because the moment detection takes as long as the budget sized for it, every queued
-        // address fails at SETTING UP a resolver, and that is not an answer about the address. The
-        // hold below outlasts that budget on purpose, since that is the case that used to leave a
-        // whole batch unnamed after every resolver rebuild.
-        var detections = 0;
-        var locator = CreateProxy<ILancacheServerLocator>((method, _) =>
-        {
-            if (method.Name != nameof(ILancacheServerLocator.DetectDnsServerIpAsync))
-            {
-                return DefaultReturn(method.ReturnType);
-            }
-
-            Interlocked.Increment(ref detections);
-            return DetectAfterAsync(TimeSpan.FromSeconds(5.2), "10.0.0.53");
-        });
-
-        var service = CreateService(
-            enabled: true, (_, _) => Task.FromResult<string?>(null), locator);
-
-        var winner = service.GetLookupClientAsync(CancellationToken.None);
-        var waiter = service.GetLookupClientAsync(CancellationToken.None);
-
-        var winnerClient = await winner;
-        var waiterClient = await waiter;
-
-        Assert.NotNull(waiterClient.Client);
-        Assert.Same(winnerClient.Client, waiterClient.Client);
-        Assert.Equal(1, Volatile.Read(ref detections));
-    }
-
-    [Fact]
     public async Task HiddenAndExcludedClientsAreNeverReverseResolvedAsync()
     {
         // A client an admin hid or left out of stats appears on no screen, so a name for it is a
@@ -272,27 +237,6 @@ public sealed class ClientHostnameServiceTests
     }
 
     [Fact]
-    public void AResolverErrorIsNotTakenAsAnAnswerAboutTheAddress()
-    {
-        // Response codes come back as a response rather than an exception, so a refusal or a server
-        // failure otherwise takes the same branch as an empty answer section and reads as "the
-        // network has no name for this machine" — blanking the client for as long as a real answer
-        // stands. Only the resolver answering, or stating the name does not exist, settles anything
-        // about the address. Reaching the branch needs a resolver on the network, so it is pinned
-        // to the source here instead.
-        var source = ReadSource("Core", "Services", "Clients", "ClientHostnameService.cs");
-
-        Assert.Contains(
-            "var responseCode = response.Header.ResponseCode;", source, StringComparison.Ordinal);
-        Assert.Contains(
-            "responseCode != DnsHeaderResponseCode.NoError", source, StringComparison.Ordinal);
-        Assert.Contains(
-            "responseCode != DnsHeaderResponseCode.NotExistentDomain", source, StringComparison.Ordinal);
-        Assert.Contains(
-            "throw new DnsResponseException((DnsResponseCode)responseCode);", source, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task ARefusedQueryIsRetriedAfterTheFailureWindowAsync()
     {
         // A resolver whose query ACLs do not cover this container refuses these lookups, which says
@@ -347,13 +291,12 @@ public sealed class ClientHostnameServiceTests
     }
 
     [Fact]
-    public async Task AnUnexpectedFailureLeavesTheAddressUnnamedInsteadOfThrowingAsync()
+    public async Task AnUnexpectedFailureReachesTheGlobalErrorHandlerAsync()
     {
         var service = CreateService(enabled: true, _ => throw new InvalidOperationException("no resolver"));
 
-        var outcome = await service.ResolveAsync(new[] { "10.0.0.9" }, CancellationToken.None);
-
-        Assert.Empty(outcome.Hostnames);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ResolveAsync(new[] { "10.0.0.9" }, CancellationToken.None));
     }
 
     [Fact]
@@ -377,8 +320,8 @@ public sealed class ClientHostnameServiceTests
         // tell this apart from the lookup being off or never having asked anyone, so this is the
         // reproducing test for that gap - it cannot even be expressed before ResolveAsync returns a
         // reason.
-        var locator = CreateDetectedResolverLocator("10.0.0.53");
-        var service = CreateService(enabled: true, (_, _) => Task.FromResult<string?>(null), locator);
+        var nameservers = ConfiguredNameservers("10.0.0.53");
+        var service = CreateService(enabled: true, (_, _) => Task.FromResult<string?>(null), nameservers);
 
         var outcome = await service.ResolveAsync(
             new[] { "10.0.0.1", "10.0.0.2" }, CancellationToken.None);
@@ -388,19 +331,23 @@ public sealed class ClientHostnameServiceTests
     }
 
     [Fact]
-    public async Task NoLancacheDnsServerDetectedFallsBackAndReportsNoResolverAsync()
+    public async Task NoLanResolverDiscoveredReportsNoResolverWithoutAskingAsync()
     {
-        // Detection found nothing (the default locator stub reports no candidate), so the lookup
-        // fell back to the container's own system resolver - not the network's DNS server, so its
-        // silence is a different reason from one the network's own server gave.
-        var service = CreateService(enabled: true, (_, _) => Task.FromResult<string?>(null));
+        var queries = 0;
+        var service = CreateService(
+            enabled: true,
+            (_, _) =>
+            {
+                queries++;
+                return Task.FromResult<string?>("gaming-pc.lan.");
+            },
+            nameservers: () => Array.Empty<string>());
 
-        // Both conventional router addresses are themselves the candidates, so the chain does
-        // not invent a hop and the system resolver is the only server left to ask.
         var outcome = await service.ResolveAsync(new[] { "10.0.0.1", "10.0.0.254" }, CancellationToken.None);
 
         Assert.Empty(outcome.Hostnames);
         Assert.Equal(ClientHostnamesReason.NoResolver, outcome.Reason);
+        Assert.Equal(0, queries);
     }
 
     [Fact]
@@ -408,11 +355,11 @@ public sealed class ClientHostnameServiceTests
     {
         // A lancache DNS server was found, but every query it was asked timed out - a different
         // reason from the same server actually answering with nothing.
-        var locator = CreateDetectedResolverLocator("10.0.0.53");
+        var nameservers = ConfiguredNameservers("10.0.0.53");
         var service = CreateService(
             enabled: true,
             (_, _) => throw new OperationCanceledException(),
-            locator);
+            nameservers);
 
         var outcome = await service.ResolveAsync(
             new[] { "10.0.0.1", "10.0.0.2" }, CancellationToken.None);
@@ -428,12 +375,12 @@ public sealed class ClientHostnameServiceTests
         // a batch where one address comes back named and another does not is the ordinary result.
         // Saying nothing because a name was found leaves the bare address sitting beside a named
         // one with no explanation at all.
-        var locator = CreateDetectedResolverLocator("10.0.0.53");
+        var nameservers = ConfiguredNameservers("10.0.0.53");
         var service = CreateService(
             enabled: true,
             (address, _) => Task.FromResult<string?>(
                 address.ToString() == "10.0.0.1" ? "gaming-pc.lan." : null),
-            locator);
+            nameservers);
 
         var outcome = await service.ResolveAsync(
             new[] { "10.0.0.1", "10.0.0.2" }, CancellationToken.None);
@@ -448,11 +395,11 @@ public sealed class ClientHostnameServiceTests
         // A network with more clients than one lookup will ask about. Every address that was asked
         // about came back named, so from inside the batch nothing looks wrong at all, while the
         // addresses past the cap still render as bare numbers with nothing to account for them.
-        var locator = CreateDetectedResolverLocator("10.0.0.53");
+        var nameservers = ConfiguredNameservers("10.0.0.53");
         var service = CreateService(
             enabled: true,
             (address, _) => Task.FromResult<string?>($"client-{address}.lan."),
-            locator);
+            nameservers);
 
         var outcome = await service.ResolveAsync(
             PrivateAddresses(LookupCap + 44), CancellationToken.None);
@@ -467,12 +414,12 @@ public sealed class ClientHostnameServiceTests
         // Both are true at once: the list was cut, and some of the addresses that were asked about
         // have no reverse record. The cut is the one worth saying, because adding reverse records
         // would not bring back the addresses that were never asked about.
-        var locator = CreateDetectedResolverLocator("10.0.0.53");
+        var nameservers = ConfiguredNameservers("10.0.0.53");
         var service = CreateService(
             enabled: true,
             (address, _) => Task.FromResult<string?>(
                 address.GetAddressBytes()[3] % 2 == 0 ? $"client-{address}.lan." : null),
-            locator);
+            nameservers);
 
         var outcome = await service.ResolveAsync(
             PrivateAddresses(LookupCap + 44), CancellationToken.None);
@@ -487,11 +434,11 @@ public sealed class ClientHostnameServiceTests
     {
         // Sitting exactly on the cap, nothing was dropped and there is nothing to warn about, which
         // holds the boundary at more-than rather than at-least.
-        var locator = CreateDetectedResolverLocator("10.0.0.53");
+        var nameservers = ConfiguredNameservers("10.0.0.53");
         var service = CreateService(
             enabled: true,
             (address, _) => Task.FromResult<string?>($"client-{address}.lan."),
-            locator);
+            nameservers);
 
         var outcome = await service.ResolveAsync(PrivateAddresses(LookupCap), CancellationToken.None);
 
@@ -566,19 +513,6 @@ public sealed class ClientHostnameServiceTests
             .Select(a => a.Policy)
             .ToList();
         Assert.Equal(new[] { "AccountHolder" }, togglePolicies);
-    }
-
-    [Fact]
-    public void TheResolverIsBoundedToTwoSecondsWithoutRetries()
-    {
-        // The bound is what keeps a network that never answers from holding a page open, so it is
-        // locked here rather than left to a reviewer's eye.
-        var source = ReadSource("Core", "Services", "Clients", "ClientHostnameService.cs");
-
-        Assert.Contains("_queryTimeout = TimeSpan.FromSeconds(2)", source, StringComparison.Ordinal);
-        Assert.Contains("options.Timeout = _queryTimeout;", source, StringComparison.Ordinal);
-        Assert.Contains("options.Retries = 0;", source, StringComparison.Ordinal);
-        Assert.Contains("options.CacheFailedResults = true;", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -670,7 +604,7 @@ public sealed class ClientHostnameServiceTests
                 await released.Task;
                 return null;
             },
-            CreateDetectedResolverLocator("10.0.0.53"),
+            ConfiguredNameservers("10.0.0.53"),
             CreateRecordingNotifications(announced));
 
         var whileTheQueriesRan = await service.ResolveAsync(
@@ -711,13 +645,13 @@ public sealed class ClientHostnameServiceTests
         // A server that answered even one query is reachable, so the missing reverse record is the
         // useful thing to say. Reporting a timeout instead would send an admin looking at the
         // network when the record is what is absent.
-        var locator = CreateDetectedResolverLocator("10.0.0.53");
+        var nameservers = ConfiguredNameservers("10.0.0.53");
         var service = CreateService(
             enabled: true,
             (address, _) => address.ToString() == "10.0.0.1"
                 ? Task.FromResult<string?>(null)
                 : throw new OperationCanceledException(),
-            locator);
+            nameservers);
 
         var outcome = await service.ResolveAsync(
             new[] { "10.0.0.1", "10.0.0.2" }, CancellationToken.None);
@@ -727,169 +661,138 @@ public sealed class ClientHostnameServiceTests
     }
 
     [Fact]
-    public async Task ANameFoundThroughTheSystemResolverIsNotReportedAsHavingNoResolverAsync()
+    public void CollectHostnameResolverIps_KeepsEveryPrivateHostResolverThenDocker()
     {
-        // Detection found no lancache DNS server, but the container's own resolver did name an
-        // address. A name coming back settles that there was a server to ask, so the batch must
-        // never be explained as having found none.
-        ClientHostnameService? service = null;
-        string? resolverTheNameCameFrom = null;
-        service = CreateService(
-            enabled: true,
-            async (address, token) =>
-            {
-                // A real query asks for the resolver first and then talks to it, so the stand-in
-                // does the same and keeps whichever one it was handed. Reading it here is what
-                // proves the name arrived through the system fallback rather than a detected
-                // lancache DNS server.
-                var (_, resolver) = await service!.GetLookupClientAsync(token);
-                if (address.ToString() != "10.0.0.1")
-                {
-                    return null;
-                }
+        var selected = ClientHostnameService.CollectHostnameResolverIps(
+            new[] { "172.16.2.98", "10.0.0.53", "172.16.1.1" },
+            new[] { "172.18.0.5" });
 
-                resolverTheNameCameFrom = resolver;
-                return "gaming-pc.lan.";
-            });
-
-        // Both conventional router addresses are in the batch, so no extra hop is invented and
-        // the name has to come from the system resolver the locator fell back to.
-        var outcome = await service.ResolveAsync(new[] { "10.0.0.1", "10.0.0.254" }, CancellationToken.None);
-
-        Assert.Equal("gaming-pc.lan", Assert.Single(outcome.Hostnames).Value);
-        Assert.Equal("system", resolverTheNameCameFrom);
-        Assert.NotEqual(ClientHostnamesReason.NoResolver, outcome.Reason);
+        Assert.Equal(new[] { "172.16.2.98", "10.0.0.53", "172.16.1.1", "172.18.0.5" }, selected);
     }
 
     [Fact]
-    public async Task ADetectionThatFailedOnceStillReportsTheServerTheQueriesReachedAsync()
+    public void CollectHostnameResolverIps_SkipsPublicAndLinkLocalAndKeepsLaterPrivate()
     {
-        // The first attempt to find the DNS server threw, and the attempt each query makes for
-        // itself found the server. One unlucky first attempt must not stop the batch reaching the
-        // real server, nor leave the names it found needing an explanation.
-        var detections = 0;
-        var locator = CreateProxy<ILancacheServerLocator>((method, _) =>
-        {
-            if (method.Name != nameof(ILancacheServerLocator.DetectDnsServerIpAsync))
-            {
-                return DefaultReturn(method.ReturnType);
-            }
+        var selected = ClientHostnameService.CollectHostnameResolverIps(
+            new[] { "1.1.1.1", "169.254.169.254", "10.0.0.53" },
+            new[] { "8.8.8.8", "172.16.1.222" });
 
-            return Interlocked.Increment(ref detections) == 1
-                ? Task.FromException<string?>(
-                    new InvalidOperationException("the container's resolver configuration could not be read"))
-                : Task.FromResult<string?>("10.0.0.53");
-        });
-
-        ClientHostnameService? service = null;
-        service = CreateService(
-            enabled: true,
-            async (address, token) =>
-            {
-                await service!.GetLookupClientAsync(token);
-                return address.ToString() == "10.0.0.1" ? "gaming-pc.lan." : null;
-            },
-            locator);
-
-        var outcome = await service.ResolveAsync(new[] { "10.0.0.1" }, CancellationToken.None);
-
-        Assert.Equal("gaming-pc.lan", Assert.Single(outcome.Hostnames).Value);
-        Assert.Equal(ClientHostnamesReason.None, outcome.Reason);
+        Assert.Equal(new[] { "10.0.0.53", "172.16.1.222" }, selected);
     }
 
     [Fact]
-    public void CollectHostnameResolverIps_AsksNearbyNameserversBeforeTheDetectedCacheDns()
+    public void CollectHostnameResolverIps_AcceptsLoopbackAndDedupesAndCaps()
     {
-        // The host's configured DNS is whatever DHCP advertised (AdGuard, lancache-dns,
-        // unbound). That hop is nearby if it shares a /16 with the clients, so a DNS box on
-        // 172.16.2.x still sees clients on 172.16.1.x. A WSL stub on 10.255.x is not nearby.
-        var ips = ClientHostnameService.CollectHostnameResolverIps(
-            detectedLancacheDnsIp: "10.0.0.53",
-            lanResolverIps: new[] { "172.16.1.222" },
-            clientIps: new[] { "172.16.1.146", "172.16.1.228" },
-            localGateways: new[] { "172.17.0.1" },
-            localNameservers: new[] { "172.16.2.98", "10.255.255.254" });
+        var host = Enumerable.Range(1, 6).Select(index => $"10.0.0.{index}").ToArray();
+        host[0] = "127.0.0.11";
+        var docker = new[] { "10.0.0.2", "10.8.0.1", "10.8.0.2", "10.8.0.3" };
 
-        Assert.Equal(new[] { "172.16.2.98", "10.0.0.53", "172.16.1.1", "172.16.1.254", "172.16.1.222" }, ips);
+        var selected = ClientHostnameService.CollectHostnameResolverIps(host, docker);
+
+        Assert.Equal(ClientHostnameService.MaxHostnameResolvers, selected.Count);
+        Assert.Equal("127.0.0.11", selected[0]);
+        Assert.Equal(1, selected.Count(ip => ip == "10.0.0.2"));
+        Assert.Equal(new[] { "10.8.0.1", "10.8.0.2" }, selected.Skip(6));
     }
 
     [Fact]
-    public void CollectHostnameResolverIps_KeepsAGatewayOnlyWhenItSharesTheClientSubnet()
-    {
-        var ips = ClientHostnameService.CollectHostnameResolverIps(
-            detectedLancacheDnsIp: null,
-            lanResolverIps: Array.Empty<string>(),
-            clientIps: new[] { "172.16.1.146" },
-            localGateways: new[] { "172.16.1.254", "172.17.0.1" },
-            localNameservers: null);
-
-        Assert.Equal(new[] { "172.16.1.1", "172.16.1.254" }, ips);
-    }
-
-    [Fact]
-    public void CollectHostnameResolverIps_DropsPublicAddressesAndDedupes()
-    {
-        var ips = ClientHostnameService.CollectHostnameResolverIps(
-            detectedLancacheDnsIp: "8.8.8.8",
-            lanResolverIps: new[] { "172.16.1.1", "172.16.1.1" },
-            clientIps: new[] { "172.16.1.146" },
-            localGateways: null,
-            localNameservers: new[] { "1.1.1.1" });
-
-        Assert.Equal(new[] { "172.16.1.1", "172.16.1.254" }, ips);
-    }
-
-    [Fact]
-    public void CollectHostnameResolverIps_CapsTheChain()
-    {
-        var lan = Enumerable.Range(2, 8).Select(index => $"10.0.0.{index}").ToArray();
-        var ips = ClientHostnameService.CollectHostnameResolverIps(
-            detectedLancacheDnsIp: "10.0.0.1",
-            lanResolverIps: lan,
-            clientIps: new[] { "192.168.1.50" },
-            localGateways: null,
-            localNameservers: null);
-
-        Assert.Equal(6, ips.Count);
-        Assert.Equal("10.0.0.1", ips[0]);
-        Assert.Equal("192.168.1.1", ips[1]);
-        Assert.Equal("192.168.1.254", ips[2]);
-    }
-
-    [Fact]
-    public void SanitizeReverseName_DropsDockerDesktopPlaceholders()
+    public void SanitizeReverseName_DropsDockerDesktopPlaceholdersAndInvalidNames()
     {
         Assert.Equal("adguard.lan", ClientHostnameService.SanitizeReverseName("adguard.lan."));
         Assert.Null(ClientHostnameService.SanitizeReverseName("host.docker.internal."));
         Assert.Null(ClientHostnameService.SanitizeReverseName("gateway.docker.internal"));
         Assert.Null(ClientHostnameService.SanitizeReverseName("   "));
+        Assert.Null(ClientHostnameService.SanitizeReverseName("bad\nname.lan"));
+        Assert.Null(ClientHostnameService.SanitizeReverseName(new string('a', 254)));
     }
 
     [Fact]
-    public async Task GetLookupClientsAsync_IncludesTheClientSubnetRouterAndAdGuardAsync()
+    public async Task GetLookupClientAsync_CachesTheConfiguredResolverChainAsync()
     {
-        var locator = CreateProxy<ILancacheServerLocator>((method, _) => method.Name switch
-        {
-            nameof(ILancacheServerLocator.DetectDnsServerIpAsync) => Task.FromResult<string?>("10.0.0.53"),
-            nameof(ILancacheServerLocator.DetectLanResolverIpsAsync) =>
-                Task.FromResult<IReadOnlyList<string>>(new[] { "172.16.1.222" }),
-            _ => DefaultReturn(method.ReturnType)
-        });
-
+        var reads = 0;
         var service = CreateService(
             enabled: true,
             (_, _) => Task.FromResult<string?>(null),
-            locator);
+            nameservers: () =>
+            {
+                reads++;
+                return new[] { "172.16.2.98", "10.0.0.53" };
+            });
 
-        await service.ResolveAsync(new[] { "172.16.1.146" }, CancellationToken.None);
+        var first = await service.GetLookupClientsAsync(CancellationToken.None);
+        var second = await service.GetLookupClientsAsync(CancellationToken.None);
 
-        var addresses = (await service.GetLookupClientsAsync(CancellationToken.None))
-            .Select(resolver => resolver.Address)
-            .ToList();
+        Assert.Equal(new[] { "172.16.2.98", "10.0.0.53" }, first.Select(resolver => resolver.Address));
+        Assert.Same(first[0].Client, second[0].Client);
+        Assert.Equal(1, reads);
+    }
 
-        Assert.Contains("10.0.0.53", addresses);
-        Assert.Contains("172.16.1.1", addresses);
-        Assert.Contains("172.16.1.222", addresses);
+    [Fact]
+    public async Task GetLookupClientsAsync_IncludesDockerResolversFromTheLocatorAsync()
+    {
+        var service = CreateService(
+            enabled: true,
+            (_, _) => Task.FromResult<string?>(null),
+            nameservers: () => new[] { "172.16.2.98" },
+            locator: new TestLancacheServerLocator(new[] { "172.16.1.222", "1.1.1.1" }));
+
+        var resolvers = await service.GetLookupClientsAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { "172.16.2.98", "172.16.1.222" }, resolvers.Select(resolver => resolver.Address));
+    }
+
+    [Fact]
+    public async Task NxDomainOnTheFirstResolverContinuesToTheNextAsync()
+    {
+        var asked = new List<string>();
+        var service = CreateQueryService(
+            enabled: true,
+            nameservers: () => new[] { "10.0.0.53", "172.16.1.222" },
+            queryOnResolver: (resolverIp, _, _) =>
+            {
+                asked.Add(resolverIp);
+                return Task.FromResult<string?>(resolverIp == "172.16.1.222" ? "gaming-pc.lan." : null);
+            });
+
+        var outcome = await service.ResolveAsync(new[] { "10.0.0.9" }, CancellationToken.None);
+
+        Assert.Equal("gaming-pc.lan", Assert.Single(outcome.Hostnames).Value);
+        Assert.Equal(new[] { "10.0.0.53", "172.16.1.222" }, asked);
+        Assert.Equal(ClientHostnamesReason.None, outcome.Reason);
+    }
+
+    [Fact]
+    public async Task AResolverThatReturnsANameIsAskedFirstAfterwardsAsync()
+    {
+        var asked = new List<string>();
+        var service = CreateQueryService(
+            enabled: true,
+            nameservers: () => new[] { "10.0.0.53", "172.16.1.222" },
+            queryOnResolver: (resolverIp, _, _) =>
+            {
+                asked.Add(resolverIp);
+                return Task.FromResult<string?>(resolverIp == "172.16.1.222" ? "gaming-pc.lan." : null);
+            });
+
+        await service.ResolveAsync(new[] { "10.0.0.9" }, CancellationToken.None);
+        asked.Clear();
+        await service.ResolveAsync(new[] { "10.0.0.10" }, CancellationToken.None);
+
+        Assert.Equal(new[] { "172.16.1.222" }, asked);
+    }
+
+    [Fact]
+    public async Task AnInvalidNameOnTheFirstResolverContinuesToTheNextAsync()
+    {
+        var service = CreateQueryService(
+            enabled: true,
+            nameservers: () => new[] { "10.0.0.53", "172.16.1.222" },
+            queryOnResolver: (resolverIp, _, _) => Task.FromResult<string?>(
+                resolverIp == "10.0.0.53" ? "host.docker.internal." : "gaming-pc.lan."));
+
+        var outcome = await service.ResolveAsync(new[] { "10.0.0.9" }, CancellationToken.None);
+
+        Assert.Equal("gaming-pc.lan", Assert.Single(outcome.Hostnames).Value);
     }
 
     [Fact]
@@ -903,8 +806,7 @@ public sealed class ClientHostnameServiceTests
             return;
         }
 
-        var locator = CreateDetectedResolverLocator(configured);
-        var service = CreateLiveService(locator);
+        var service = CreateLiveService(ConfiguredNameservers(configured));
         var outcome = await service.ResolveAsync(new[] { configured }, CancellationToken.None);
 
         Assert.True(
@@ -912,38 +814,6 @@ public sealed class ClientHostnameServiceTests
             $"the live resolver {configured} answered {outcome.Reason} with no name");
         Assert.False(string.IsNullOrWhiteSpace(name));
         Assert.DoesNotContain("docker.internal", name, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void ReverseLookupAsksEachResolverUntilOneNamesTheAddress()
-    {
-        var source = ReadSource("Core", "Services", "Clients", "ClientHostnameService.cs");
-
-        Assert.Contains("foreach (var resolver in resolvers)", source, StringComparison.Ordinal);
-        Assert.Contains("await GetLookupClientsAsync(cancellationToken);", source, StringComparison.Ordinal);
-        Assert.Contains("ClientSubnetRouters", source, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void FindingTheResolverDoesNotSpendTheQueryBudget()
-    {
-        // Detection inspects Docker and probes several candidate addresses, so it runs far slower
-        // than the query it prepares for. Charging it to the two-second query timeout would time
-        // every lookup out on a cold start and cache the whole client list as unnamed for the full
-        // name TTL, which is the one failure this feature can never recover from on its own.
-        var source = ReadSource("Core", "Services", "Clients", "ClientHostnameService.cs");
-
-        Assert.Contains(
-            "_resolverDetectionTimeout = TimeSpan.FromSeconds(5)", source, StringComparison.Ordinal);
-        Assert.Contains("detection.CancelAfter(_resolverDetectionTimeout);", source, StringComparison.Ordinal);
-
-        var resolverReady = source.IndexOf(
-            "await GetLookupClientsAsync(cancellationToken);", StringComparison.Ordinal);
-        var queryClockStarts = source.IndexOf(
-            "queryTimeout.CancelAfter(_queryTimeout);", StringComparison.Ordinal);
-
-        Assert.True(resolverReady > 0, "the resolver is obtained before the query runs");
-        Assert.True(queryClockStarts > resolverReady, "the query clock starts only once the resolver is ready");
     }
 
     /// <summary>
@@ -958,22 +828,22 @@ public sealed class ClientHostnameServiceTests
             .Select(index => $"10.1.{index / 256}.{index % 256}")
             .ToArray();
 
-    private static ClientHostnameService CreateLiveService(ILancacheServerLocator locator)
+    private static ClientHostnameService CreateLiveService(Func<IReadOnlyList<string>> nameservers)
     {
         var toggle = new LookupToggle { Enabled = true };
         var stateService = CreateProxy<IStateService>((method, args) => method.Name switch
         {
             nameof(IStateService.GetClientHostnameLookup) => toggle.Enabled,
             nameof(IStateService.SetClientHostnameLookup) => toggle.Set((bool)args![0]!),
-            nameof(IStateService.GetStatusCheckResolverMode) => "auto",
             _ => DefaultReturn(method.ReturnType)
         });
 
         return new ClientHostnameService(
             NullLogger<ClientHostnameService>.Instance,
             stateService,
-            locator,
-            CreateDefaultProxy<ISignalRNotificationService>());
+            CreateDefaultProxy<ISignalRNotificationService>(),
+            reverseLookup: null,
+            nameservers);
     }
 
     private static ClientHostnameService CreateService(bool enabled, Func<IPAddress, string?> reverseLookup)
@@ -997,44 +867,54 @@ public sealed class ClientHostnameServiceTests
             return Task.CompletedTask;
         });
 
-    /// <summary>Answers with a resolver address only after the given hold, standing in for the
-    /// Docker inspection and candidate probing that finding the LAN's DNS server really does.</summary>
-    private static async Task<string?> DetectAfterAsync(TimeSpan hold, string resolverIp)
-    {
-        await Task.Delay(hold);
-        return resolverIp;
-    }
-
-    /// <summary>Locator stub that reports the given address as the detected lancache DNS server, so
-    /// a test can tell "that server answered with nothing" apart from "no server was found".</summary>
-    private static ILancacheServerLocator CreateDetectedResolverLocator(string resolverIp)
-        => CreateProxy<ILancacheServerLocator>((method, _) => method.Name switch
-        {
-            nameof(ILancacheServerLocator.DetectDnsServerIpAsync) => Task.FromResult<string?>(resolverIp),
-            _ => DefaultReturn(method.ReturnType)
-        });
+    private static Func<IReadOnlyList<string>> ConfiguredNameservers(string resolverIp)
+        => () => new[] { resolverIp };
 
     private static ClientHostnameService CreateService(
         bool enabled,
         Func<IPAddress, CancellationToken, Task<string?>> reverseLookup,
-        ILancacheServerLocator? serverLocator = null,
-        ISignalRNotificationService? notifications = null)
+        Func<IReadOnlyList<string>>? nameservers = null,
+        ISignalRNotificationService? notifications = null,
+        ILancacheServerLocator? locator = null)
     {
         var toggle = new LookupToggle { Enabled = enabled };
         var stateService = CreateProxy<IStateService>((method, args) => method.Name switch
         {
             nameof(IStateService.GetClientHostnameLookup) => toggle.Enabled,
             nameof(IStateService.SetClientHostnameLookup) => toggle.Set((bool)args![0]!),
-            nameof(IStateService.GetStatusCheckResolverMode) => "auto",
             _ => DefaultReturn(method.ReturnType)
         });
 
         return new ClientHostnameService(
             NullLogger<ClientHostnameService>.Instance,
             stateService,
-            serverLocator ?? CreateDefaultProxy<ILancacheServerLocator>(),
             notifications ?? CreateDefaultProxy<ISignalRNotificationService>(),
-            reverseLookup);
+            reverseLookup,
+            nameservers ?? ConfiguredNameservers("10.0.0.53"),
+            locator);
+    }
+
+    private static ClientHostnameService CreateQueryService(
+        bool enabled,
+        Func<IReadOnlyList<string>> nameservers,
+        Func<string, IPAddress, CancellationToken, Task<string?>> queryOnResolver)
+    {
+        var toggle = new LookupToggle { Enabled = enabled };
+        var stateService = CreateProxy<IStateService>((method, args) => method.Name switch
+        {
+            nameof(IStateService.GetClientHostnameLookup) => toggle.Enabled,
+            nameof(IStateService.SetClientHostnameLookup) => toggle.Set((bool)args![0]!),
+            _ => DefaultReturn(method.ReturnType)
+        });
+
+        return new ClientHostnameService(
+            NullLogger<ClientHostnameService>.Instance,
+            stateService,
+            CreateDefaultProxy<ISignalRNotificationService>(),
+            reverseLookup: null,
+            nameservers,
+            locator: null,
+            queryOnResolver);
     }
 
     /// <summary>Stands in for the persisted global toggle so a test can read what a set wrote.</summary>
@@ -1085,18 +965,6 @@ public sealed class ClientHostnameServiceTests
 
     private static object? DefaultValue(Type type)
         => type.IsValueType ? Activator.CreateInstance(type) : null;
-
-    private static string ReadSource(params string[] pathSegments)
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "lancache-manager.sln")))
-        {
-            directory = directory.Parent;
-        }
-
-        var root = directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found");
-        return File.ReadAllText(Path.Combine([root, "Api", "LancacheManager", .. pathSegments]));
-    }
 
     private class ProxyDispatch<T> : DispatchProxy where T : class
     {

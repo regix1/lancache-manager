@@ -11,6 +11,13 @@ namespace LancacheManager.Tests;
 /// </summary>
 internal sealed class TestLancacheServerLocator : ILancacheServerLocator
 {
+    private readonly IReadOnlyList<string> _lanResolverIps;
+
+    public TestLancacheServerLocator(IReadOnlyList<string>? lanResolverIps = null)
+    {
+        _lanResolverIps = lanResolverIps ?? Array.Empty<string>();
+    }
+
     public Task<LancacheServerLocation> LocateAsync(CancellationToken cancellationToken)
         => Task.FromResult(new LancacheServerLocation());
 
@@ -24,7 +31,7 @@ internal sealed class TestLancacheServerLocator : ILancacheServerLocator
         => Task.FromResult<string?>(null);
 
     public Task<IReadOnlyList<string>> DetectLanResolverIpsAsync(CancellationToken cancellationToken)
-        => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        => Task.FromResult(_lanResolverIps);
 
     public Task<HeartbeatResult> ProbeHeartbeatAsync(string ip, CancellationToken cancellationToken)
         => Task.FromResult(new HeartbeatResult { Reachable = false, CacheIp = ip, Error = "test locator" });

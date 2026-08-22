@@ -254,6 +254,110 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
         return await TryDetectDnsBridgeIpAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> DetectLanResolverIpsAsync(CancellationToken cancellationToken)
+    {
+        if (_dockerClient == null)
+        {
+            return Array.Empty<string>();
+        }
+
+        try
+        {
+            var containers = await _dockerClient.Containers.ListContainersAsync(
+                new ContainersListParameters { All = false }, cancellationToken);
+
+            return SelectLanResolverIps(containers.Select(container => (
+                Ports: DnsPorts(container.Ports),
+                Ips: ResolverIps(container))));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Status Check: failed to list containers exposing DNS");
+            return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>
+    /// Private IPv4 addresses of containers that expose DNS port 53, in list order, capped so a
+    /// busy Docker host cannot turn hostname lookup into an unbounded probe. Public, link-local,
+    /// multicast, loopback-only-via-non-IPv4, malformed, and duplicate addresses are dropped. Pure
+    /// so the filter is testable without a daemon.
+    /// </summary>
+    internal static List<string> SelectLanResolverIps(
+        IEnumerable<(IEnumerable<ushort> Ports, IEnumerable<string?> Ips)> containers)
+    {
+        var ordered = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (ports, ips) in containers)
+        {
+            if (!ports.Contains((ushort)53))
+            {
+                continue;
+            }
+
+            foreach (var ip in ips)
+            {
+                if (!IsSafeLanResolverIp(ip) || !seen.Add(ip!))
+                {
+                    continue;
+                }
+
+                ordered.Add(ip!);
+                if (ordered.Count == MaxLanResolverIps)
+                {
+                    return ordered;
+                }
+            }
+        }
+
+        return ordered;
+    }
+
+    internal const int MaxLanResolverIps = 8;
+
+    /// <summary>
+    /// Whether an address may be asked a DNS question: a parseable IPv4 literal inside the private
+    /// or loopback ranges. Shared with the client hostname lookup so both halves of the resolver
+    /// chain are gated the same way.
+    /// </summary>
+    internal static bool IsSafeLanResolverIp(string? ip)
+    {
+        return !string.IsNullOrWhiteSpace(ip)
+            && IPAddress.TryParse(ip, out var address)
+            && address.AddressFamily == AddressFamily.InterNetwork
+            && IsProbeableCandidateIp(ip);
+    }
+
+    private static IEnumerable<ushort> DnsPorts(IList<Port>? ports)
+    {
+        if (ports == null)
+        {
+            yield break;
+        }
+
+        foreach (var port in ports)
+        {
+            yield return port.PrivatePort;
+            yield return port.PublicPort;
+        }
+    }
+
+    private static IEnumerable<string?> ResolverIps(ContainerListResponse container)
+    {
+        var networkIps = container.NetworkSettings?.Networks?.Values.Select(network => network.IPAddress)
+                         ?? Enumerable.Empty<string?>();
+        // A port's IP is the host-side address a publish is bound to, so it says where DNS answers
+        // only when 53 is the published port. An exposed-but-unpublished 53 carries no address at
+        // all, and a publish that maps host 53 onto some other container port answers there, not on
+        // the container's own address.
+        var publishedIps = (container.Ports ?? new List<Port>())
+            .Where(port => port.PublicPort == 53)
+            .Select(port => port.IP);
+        return networkIps.Concat(publishedIps);
+    }
+
     /// <summary>Docker-inspect path for a bridge-mode lancache-dns container: returns its bridge IP,
     /// or <c>null</c> when there is no dns container, it uses host networking (no bridge IP), or the
     /// inspect fails. Host-networked dns is intentionally handled by the candidate probe instead.</summary>
@@ -293,62 +397,6 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
             _logger.LogDebug(ex, "Status Check: failed to inspect lancache-dns container for its bridge IP");
             return null;
         }
-    }
-
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<string>> DetectLanResolverIpsAsync(CancellationToken cancellationToken)
-    {
-        if (_dockerClient == null)
-        {
-            return Array.Empty<string>();
-        }
-
-        try
-        {
-            var containers = await _dockerClient.Containers.ListContainersAsync(
-                new ContainersListParameters { All = false }, cancellationToken);
-
-            return SelectLanResolverIps(containers.Select(container => (
-                Names: (IEnumerable<string>)(container.Names ?? new List<string>()),
-                Image: container.Image ?? string.Empty,
-                Ips: (IEnumerable<string?>)(container.NetworkSettings?.Networks?.Values.Select(network => network.IPAddress)
-                    ?? Enumerable.Empty<string?>()))));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Could not look for other LAN DNS servers for reverse lookups");
-            return Array.Empty<string>();
-        }
-    }
-
-    /// <summary>
-    /// Private IPs of AdGuard/unbound/Pi-hole-style containers, excluding lancache-dns (that hop
-    /// is detected separately). Pure so the name and SSRF gates can be tested without Docker.
-    /// </summary>
-    internal static List<string> SelectLanResolverIps(
-        IEnumerable<(IEnumerable<string> Names, string Image, IEnumerable<string?> Ips)> containers)
-    {
-        var ordered = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var (names, image, ips) in containers)
-        {
-            if (DockerContainerMatching.IsDnsContainer(names) ||
-                !DockerContainerMatching.IsLanResolverContainer(names, image))
-            {
-                continue;
-            }
-
-            foreach (var ip in ips)
-            {
-                if (!string.IsNullOrWhiteSpace(ip) && IsProbeableCandidateIp(ip) && seen.Add(ip))
-                {
-                    ordered.Add(ip);
-                }
-            }
-        }
-
-        return ordered;
     }
 
     /// <summary>Pure decision for a lancache-dns container's bridge IP: <c>null</c> when the container

@@ -897,8 +897,8 @@ builder.Services.AddSingleton<LancacheManager.Core.Interfaces.ILancacheServerLoc
 builder.Services.AddSingleton<LancacheManager.Core.Interfaces.IContentPathCheckService, LancacheManager.Core.Services.StatusCheck.ContentPathCheckService>();
 builder.Services.AddSingleton<LancacheManager.Core.Interfaces.IStatusCheckService, LancacheManager.Core.Services.StatusCheck.StatusCheckService>();
 
-// Reverse-DNS names for client addresses. Singleton so its per-address cache and detected resolver
-// are shared by every request instead of being rebuilt per call.
+// Reverse-DNS names for client addresses. Singleton so its per-address cache and selected primary
+// resolver are shared by every request instead of being rebuilt per call.
 builder.Services.AddSingleton<LancacheManager.Core.Interfaces.IClientHostnameService, LancacheManager.Core.Services.ClientHostnameService>();
 
 // Configure OpenTelemetry Metrics for Prometheus + Grafana
