@@ -620,11 +620,17 @@
   padding: 0.75rem;
 }
 
+/* `flex: 1` in a card that sizes to its content leaves the plot area unbounded: Chart.js runs
+   with maintainAspectRatio off and reads the container, the container reads the canvas, and the
+   pair settles wherever the window is tall enough to allow - measured 586px in a 900px window and
+   631px in a 1500px one, against a 256px floor. The cap ends that, and covers the Compare Events
+   tab too since both tabs of this card draw into the same class. */
 .dash-line-chart {
   position: relative;
   flex: 1;
   width: 100%;
   min-height: 16rem;
+  max-height: 22rem;
 }
 
 .dash-line-chart > canvas,
