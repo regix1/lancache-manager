@@ -396,7 +396,7 @@ const StatusCheckSection: React.FC = () => {
                 <div className="flex items-center gap-2">
                   {lastResult && (
                     <TogglePill
-                      size="sm"
+                      size="md"
                       active={problemsOnly}
                       onClick={() => setProblemsOnly((previous) => !previous)}
                     >

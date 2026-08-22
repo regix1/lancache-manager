@@ -34,12 +34,14 @@
   line-height: 1.4;
 }
 
-/* Size: md - for main toolbars. NOTE: this pill is ~27px tall, NOT the ~40px
-   EnhancedDropdown `.ed-trigger`. Do not co-locate with ed-triggers expecting an
-   equal height; bump the padding here first if they must share a control row. */
+/* Size: md - the app's 32px control tier, so a pill can stand beside a plain 32px button
+   (`min-h-8 px-3 py-1.5 text-sm`) without reading as a smaller, weaker control. Height is
+   pinned rather than composed so padding and line-height cannot round it off the tier.
+   NOT the ~40px EnhancedDropdown `.ed-trigger`; do not co-locate with one of those. */
 .toggle-pill--md {
+  min-height: 2rem;
   padding: 0.375rem 0.75rem;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-md);
   line-height: 1.25;
 }
 
@@ -47,10 +49,5 @@
   .toggle-pill--sm {
     font-size: var(--font-size-2xs);
     padding: 0.15rem 0.4rem;
-  }
-
-  .toggle-pill--md {
-    padding: 0.25rem 0.5rem;
-    font-size: var(--font-size-sm);
   }
 }

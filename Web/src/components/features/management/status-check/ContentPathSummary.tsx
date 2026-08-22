@@ -2,6 +2,7 @@ import React from 'react';
 import '../managementSectionContent.css';
 import { useTranslation } from 'react-i18next';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { HelpNote, HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import type { StatusCheckContentReport } from '@services/api.service';
@@ -24,6 +25,23 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
   const { t } = useTranslation();
   const checkedAtTime = useFormattedDateTime(report?.checkedAtUtc);
   const keys = 'management.sections.statusCheck.content';
+
+  // What the scan covered, for the heading's popover. The two facts are separate lines rather
+  // than one run of prose: neither ends in a full stop, so joining them ran the timestamp
+  // straight into the sample count. The truncation caveat is a note, not a third fact.
+  const hasScanScope =
+    !!report && report.availability === 'available' && (report.paths ?? []).length > 0;
+  const scanFacts = hasScanScope
+    ? [
+        report.checkedAtUtc
+          ? t(`${keys}.checkedAt`, { time: checkedAtTime })
+          : t(`${keys}.checkedAtUnknown`),
+        t(`${keys}.scanScope`, {
+          count: report.paths.length,
+          bytes: formatBytes(report.scannedBytes, 1)
+        })
+      ]
+    : [];
 
   let body: React.ReactNode;
 
@@ -55,7 +73,7 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
     );
   } else {
     const counts = summarizeContentReport(report);
-    const stats: ContentStatTile[] = [
+    const allStats: ContentStatTile[] = [
       {
         id: 'cache',
         value: counts.cacheObserved,
@@ -81,6 +99,9 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
         tone: null
       }
     ];
+    // Every path lands in exactly one protocol bucket, so at least one tile always survives.
+    // Dropping the zeros leaves the row carrying only what actually happened.
+    const stats = allStats.filter((stat) => stat.value > 0);
 
     body = (
       <>
@@ -102,20 +123,6 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
             </div>
           ))}
         </div>
-        <div className="status-check-content-scope">
-          <span>
-            {report.checkedAtUtc
-              ? t(`${keys}.checkedAt`, { time: checkedAtTime })
-              : t(`${keys}.checkedAtUnknown`)}
-          </span>
-          <span>
-            {t(`${keys}.scanScope`, {
-              count: report.paths.length,
-              bytes: formatBytes(report.scannedBytes, 1)
-            })}
-          </span>
-          {report.scanTruncated && <span>{t(`${keys}.scanTruncated`)}</span>}
-        </div>
       </>
     );
   }
@@ -129,6 +136,21 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
     >
       <div className="status-check-content-summary-head">
         <h4 id="status-check-content-summary-title">{t(`${keys}.title`)}</h4>
+        {/* What the scan covered used to be three sentences below the tiles, which gave the card
+            a second footer and stacked three lines four pixels apart on a phone. The card already
+            prints the run time above, so the scan's own scope belongs behind the heading. */}
+        {scanFacts.length > 0 && (
+          <HelpPopover position="left" width={320}>
+            <HelpSection title={t(`${keys}.title`)} variant="subtle">
+              <div className="status-check-scan-facts">
+                {scanFacts.map((fact) => (
+                  <p key={fact}>{fact}</p>
+                ))}
+              </div>
+            </HelpSection>
+            {report?.scanTruncated && <HelpNote type="info">{t(`${keys}.scanTruncated`)}</HelpNote>}
+          </HelpPopover>
+        )}
       </div>
       {body}
     </section>

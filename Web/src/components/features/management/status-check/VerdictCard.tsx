@@ -209,29 +209,35 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   // latency) become tiles here instead of loose paragraphs.
   const statTiles: VerdictStatTile[] = [];
   if (!isRunning && summary) {
-    statTiles.push(
-      {
-        id: 'resolved',
-        value: String(summary.resolvedServices),
-        label: t(`${keys}.statLabel.resolved`),
-        tone: 'success',
-        isZero: summary.resolvedServices === 0
-      },
-      {
-        id: 'partial',
-        value: String(summary.partialServices),
-        label: t(`${keys}.statLabel.partial`),
-        tone: 'warning',
-        isZero: summary.partialServices === 0
-      },
-      {
-        id: 'unresolved',
-        value: String(summary.unresolvedServices),
-        label: t(`${keys}.statLabel.unresolved`),
-        tone: 'error',
-        isZero: summary.unresolvedServices === 0
-      }
-    );
+    // The verdict line above already reads "all N services" when nothing is failing, so the
+    // three-way tally is three boxes restating one sentence, two of them zeros. It earns its
+    // tiles only when there is a split to show, and then all three appear so the breakdown
+    // adds up.
+    if (summary.partialServices > 0 || summary.unresolvedServices > 0) {
+      statTiles.push(
+        {
+          id: 'resolved',
+          value: String(summary.resolvedServices),
+          label: t(`${keys}.statLabel.resolved`),
+          tone: 'success',
+          isZero: summary.resolvedServices === 0
+        },
+        {
+          id: 'partial',
+          value: String(summary.partialServices),
+          label: t(`${keys}.statLabel.partial`),
+          tone: 'warning',
+          isZero: summary.partialServices === 0
+        },
+        {
+          id: 'unresolved',
+          value: String(summary.unresolvedServices),
+          label: t(`${keys}.statLabel.unresolved`),
+          tone: 'error',
+          isZero: summary.unresolvedServices === 0
+        }
+      );
+    }
     if (summary.unverifiedServices > 0) {
       statTiles.push({
         id: 'unverified',
@@ -469,6 +475,17 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         />
       )}
 
+      {showMeta && heartbeat && !heartbeat.reachable && cacheNodes.length === 0 && (
+        <p className="text-xs text-[var(--theme-warning)] mt-2">
+          {t(`${keys}.heartbeatFailed`, { error: heartbeat.error ?? t(`${keys}.unknownError`) })}
+        </p>
+      )}
+
+      <ContentPathSummary report={lastResult?.contentReport} isRunning={isRunning} />
+
+      {/* How the check was run, as the card's ONE closing strip. It sat above the content
+          section before, which left the card ending twice: this band and then the content
+          scan's own footer of sentences. */}
       {metaSlots.length > 0 && (
         <div className="status-check-meta">
           {metaSlots.map((slot) =>
@@ -490,13 +507,6 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
           )}
         </div>
       )}
-      {showMeta && heartbeat && !heartbeat.reachable && cacheNodes.length === 0 && (
-        <p className="text-xs text-[var(--theme-warning)] mt-2">
-          {t(`${keys}.heartbeatFailed`, { error: heartbeat.error ?? t(`${keys}.unknownError`) })}
-        </p>
-      )}
-
-      <ContentPathSummary report={lastResult?.contentReport} isRunning={isRunning} />
 
       {runError && (
         <Alert color="red" className="mt-3">
