@@ -155,6 +155,7 @@ public sealed class EndpointAuthorizationContractTests
         "ClientHostnamesController.GetHostnames",
         "ClientHostnamesController.ResolveAddresses",
         "ClientHostnamesController.SetEnabled",
+        "ClientHostnamesController.SetSettings",
         "DatasourceConfigurationController.SetCacheSize",
         "DepotsController.GetDepotStatus",
         "DepotsController.StartDepotRebuild",

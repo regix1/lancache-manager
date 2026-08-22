@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { ClientHostnamesReason } from '@services/api.service';
+import type { ClientHostnamesReason, ClientHostnameSettings } from '@services/api.service';
 
 interface ClientHostnameContextType {
   // Whether the server is looking hostnames up at all (global setting, off by default)
@@ -9,6 +9,9 @@ interface ClientHostnameContextType {
   // 'none' when there is nothing to explain (every address got a name, or the toggle is off).
   reason: ClientHostnamesReason;
   someUnnamedDismissed: boolean;
+
+  // Which servers the lookup may ask, and whether guests are shown the answers.
+  settings: ClientHostnameSettings;
 
   // Loading/error states
   loading: boolean;
@@ -20,6 +23,8 @@ interface ClientHostnameContextType {
   // Operations
   refreshHostnames: () => Promise<void>;
   setEnabled: (enabled: boolean) => Promise<void>;
+  // Rejects an address outside the private ranges rather than storing it, so the caller can say so.
+  setSettings: (settings: ClientHostnameSettings) => Promise<void>;
   dismissSomeUnnamed: () => void;
 }
 

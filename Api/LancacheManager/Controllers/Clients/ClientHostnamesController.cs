@@ -60,7 +60,13 @@ public class ClientHostnamesController : ControllerBase
     {
         if (!_hostnameService.IsEnabled())
         {
-            return Ok(new ClientHostnamesResponse { Enabled = false });
+            // The settings travel with the off state too, so the panel can show what is configured
+            // without the lookup having to be turned on to read it back.
+            return Ok(new ClientHostnamesResponse
+            {
+                Enabled = false,
+                Settings = _hostnameService.GetSettings()
+            });
         }
 
         // Clients an admin hid or excluded from stats appear on no screen, so a name for one is a
@@ -98,7 +104,8 @@ public class ClientHostnamesController : ControllerBase
         {
             Enabled = true,
             Hostnames = new Dictionary<string, string>(outcome.Hostnames, StringComparer.OrdinalIgnoreCase),
-            Reason = outcome.Reason
+            Reason = outcome.Reason,
+            Settings = _hostnameService.GetSettings()
         });
     }
 
@@ -158,5 +165,34 @@ public class ClientHostnamesController : ControllerBase
         await _notifications.NotifyAllAsync(SignalREvents.ClientHostnamesChanged);
 
         return Ok(new SetClientHostnameLookupResponse { Enabled = request.Enabled });
+    }
+
+    /// <summary>
+    /// Names the DNS server that hostname lookups ask first, or clears it.
+    /// </summary>
+    /// <remarks>
+    /// For the networks where discovery cannot reach the server holding the reverse records: a
+    /// container that only sees Docker's own resolver, or a router whose records sit behind a
+    /// different DNS server than the one this host was handed. Only a private or loopback IPv4
+    /// address is accepted, so this cannot be used to send the network's own machine names to a
+    /// server on the internet. Clearing it hands the choice back to discovery.
+    /// </remarks>
+    [HttpPost("settings")]
+    [Authorize(Policy = "AccountHolder")]
+    [ProducesResponseType(typeof(ClientHostnameSettings), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ClientHostnameSettings>> SetSettingsAsync(
+        [FromBody] ClientHostnameSettings request)
+    {
+        if (!_hostnameService.SetSettings(request))
+        {
+            return BadRequest(ApiResponse.Invalid(
+                "resolver must be a private or loopback IPv4 address, or empty to discover one."));
+        }
+
+        // Changing which server is asked changes the names on every row, exactly as the toggle
+        // does, so every open view is told to ask again rather than keep what the old server said.
+        await _notifications.NotifyAllAsync(SignalREvents.ClientHostnamesChanged);
+
+        return Ok(_hostnameService.GetSettings());
     }
 }

@@ -82,7 +82,7 @@ public class DashboardCacheWarmerService : ScheduledBackgroundService
         // no browser ever asks for. This is the same id /api/system/config reports, which is what a
         // reader on the default server clock sends back. [70]
         var serverZone = ServerTimeZone.IanaId(_configuration);
-        var response = await _batchService.GetBatchAsync(null, null, null, serverZone, reporter.Token);
+        var response = await _batchService.GetBatchAsync(null, null, null, serverZone, includeClientHostnames: true, reporter.Token);
         if (DashboardBatchService.HasFailedSection(response))
         {
             // A response with failed sections is never cached, so this warm left the first
@@ -90,7 +90,7 @@ public class DashboardCacheWarmerService : ScheduledBackgroundService
             // clear and warm again.
             _logger.LogWarning("Dashboard batch warm produced failed sections; retrying once");
             await Task.Delay(TimeSpan.FromSeconds(5), reporter.Token);
-            response = await _batchService.GetBatchAsync(null, null, null, serverZone, reporter.Token);
+            response = await _batchService.GetBatchAsync(null, null, null, serverZone, includeClientHostnames: true, reporter.Token);
         }
         var elapsed = DateTime.UtcNow - started;
 

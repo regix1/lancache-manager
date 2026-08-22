@@ -184,6 +184,13 @@ public class StateService : IStateService
         // Whether client addresses are looked up on the network's DNS server and shown by name
         public bool ClientHostnameLookup { get; set; } = false;
 
+        // The DNS server an admin named for those lookups, asked before any that were discovered.
+        // Null means discover one from the host's network configuration and Docker.
+        public string? ClientHostnameResolver { get; set; }
+        public bool ClientHostnameGuestAccess { get; set; } = false;
+        public bool ClientHostnameRouterLookup { get; set; } = true;
+        public bool ClientHostnameDockerLookup { get; set; } = true;
+
         // Setup wizard state
         public string? CurrentSetupStep { get; set; }
         public string? DataSourceChoice { get; set; }
@@ -1886,6 +1893,10 @@ public class StateService : IStateService
             PruneOrphanedDownloads = persisted.PruneOrphanedDownloads,
             // Client hostname lookup
             ClientHostnameLookup = persisted.ClientHostnameLookup,
+            ClientHostnameResolver = persisted.ClientHostnameResolver,
+            ClientHostnameGuestAccess = persisted.ClientHostnameGuestAccess,
+            ClientHostnameRouterLookup = persisted.ClientHostnameRouterLookup,
+            ClientHostnameDockerLookup = persisted.ClientHostnameDockerLookup,
             // Setup wizard state
             CurrentSetupStep = SetupStepExtensions.TryParseWire(persisted.CurrentSetupStep),
             DataSourceChoice = DataSourceChoiceExtensions.TryParseWire(persisted.DataSourceChoice),
@@ -2007,6 +2018,10 @@ public class StateService : IStateService
             PruneOrphanedDownloads = state.PruneOrphanedDownloads,
             // Client hostname lookup
             ClientHostnameLookup = state.ClientHostnameLookup,
+            ClientHostnameResolver = state.ClientHostnameResolver,
+            ClientHostnameGuestAccess = state.ClientHostnameGuestAccess,
+            ClientHostnameRouterLookup = state.ClientHostnameRouterLookup,
+            ClientHostnameDockerLookup = state.ClientHostnameDockerLookup,
             // Setup wizard state
             CurrentSetupStep = state.CurrentSetupStep?.ToWireString(),
             DataSourceChoice = state.DataSourceChoice?.ToWireString(),
@@ -2321,6 +2336,46 @@ public class StateService : IStateService
     public void SetClientHostnameLookup(bool enabled)
     {
         UpdateState(state => state.ClientHostnameLookup = enabled);
+    }
+
+    public string? GetClientHostnameResolver()
+    {
+        return GetState().ClientHostnameResolver;
+    }
+
+    public void SetClientHostnameResolver(string? resolverIp)
+    {
+        UpdateState(state => state.ClientHostnameResolver = resolverIp);
+    }
+
+    public bool GetClientHostnameGuestAccess()
+    {
+        return GetState().ClientHostnameGuestAccess;
+    }
+
+    public void SetClientHostnameGuestAccess(bool allowed)
+    {
+        UpdateState(state => state.ClientHostnameGuestAccess = allowed);
+    }
+
+    public bool GetClientHostnameRouterLookup()
+    {
+        return GetState().ClientHostnameRouterLookup;
+    }
+
+    public void SetClientHostnameRouterLookup(bool enabled)
+    {
+        UpdateState(state => state.ClientHostnameRouterLookup = enabled);
+    }
+
+    public bool GetClientHostnameDockerLookup()
+    {
+        return GetState().ClientHostnameDockerLookup;
+    }
+
+    public void SetClientHostnameDockerLookup(bool enabled)
+    {
+        UpdateState(state => state.ClientHostnameDockerLookup = enabled);
     }
 
     private static List<ClientExclusionRule> ResolveExcludedClientRules(PersistedState persisted)

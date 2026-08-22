@@ -13,9 +13,13 @@ internal sealed class TestLancacheServerLocator : ILancacheServerLocator
 {
     private readonly IReadOnlyList<string> _lanResolverIps;
 
-    public TestLancacheServerLocator(IReadOnlyList<string>? lanResolverIps = null)
+    /// <summary>Counts the Docker-backed lookups, so a test can prove one was never made.</summary>
+    private readonly Action? _onDetect;
+
+    public TestLancacheServerLocator(IReadOnlyList<string>? lanResolverIps = null, Action? onDetect = null)
     {
         _lanResolverIps = lanResolverIps ?? Array.Empty<string>();
+        _onDetect = onDetect;
     }
 
     public Task<LancacheServerLocation> LocateAsync(CancellationToken cancellationToken)
@@ -31,7 +35,16 @@ internal sealed class TestLancacheServerLocator : ILancacheServerLocator
         => Task.FromResult<string?>(null);
 
     public Task<IReadOnlyList<string>> DetectLanResolverIpsAsync(CancellationToken cancellationToken)
-        => Task.FromResult(_lanResolverIps);
+    {
+        _onDetect?.Invoke();
+        return Task.FromResult(_lanResolverIps);
+    }
+
+    public Task<IReadOnlyList<string>> DetectHostDockerInternalIpsAsync(CancellationToken cancellationToken)
+    {
+        _onDetect?.Invoke();
+        return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+    }
 
     public Task<HeartbeatResult> ProbeHeartbeatAsync(string ip, CancellationToken cancellationToken)
         => Task.FromResult(new HeartbeatResult { Reachable = false, CacheIp = ip, Error = "test locator" });

@@ -68,6 +68,14 @@ public interface ILancacheServerLocator
     /// </summary>
     Task<IReadOnlyList<string>> DetectLanResolverIpsAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Private IPv4 addresses of the Docker host, from <c>host.docker.internal</c>. This is how a
+    /// bridge-networked manager reaches a resolver running on the machine beside it, where the
+    /// routing table only ever shows the Docker bridge. Empty when the name does not resolve
+    /// (stock compose) or resolves to a public address.
+    /// </summary>
+    Task<IReadOnlyList<string>> DetectHostDockerInternalIpsAsync(CancellationToken cancellationToken);
+
     /// <summary>Probes <c>GET http://{ip}/lancache-heartbeat</c> and reports whether the
     /// <c>X-LanCache-Processed-By</c> header was present (and its value).</summary>
     Task<HeartbeatResult> ProbeHeartbeatAsync(string ip, CancellationToken cancellationToken);

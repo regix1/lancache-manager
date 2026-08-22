@@ -72,6 +72,9 @@ public class ClientHostnamesResponse
     public bool Enabled { get; set; }
     public Dictionary<string, string> Hostnames { get; set; } = new();
     public ClientHostnamesReason Reason { get; set; }
+
+    /// <summary>Which servers the lookup may ask, and whether guests are shown the answers.</summary>
+    public ClientHostnameSettings Settings { get; set; } = new();
 }
 
 /// <summary>Request for POST api/clients/hostnames/enabled.</summary>
@@ -84,6 +87,38 @@ public class SetClientHostnameLookupRequest
 public class SetClientHostnameLookupResponse
 {
     public bool Enabled { get; set; }
+}
+
+/// <summary>
+/// Which DNS servers client hostname lookups may ask, and who is shown the answers. Sent back with
+/// every hostname response and written by POST api/clients/hostnames/settings.
+/// </summary>
+public class ClientHostnameSettings
+{
+    /// <summary>
+    /// The DNS server to ask first. Empty or absent hands the choice back to discovery. Only a
+    /// private or loopback IPv4 address is accepted.
+    /// </summary>
+    public string? Resolver { get; set; }
+
+    /// <summary>
+    /// Whether guest sessions are shown client machine names. Off by default: a guest is given a
+    /// view of the cache, not an inventory of who is on the network.
+    /// </summary>
+    public bool GuestAccess { get; set; }
+
+    /// <summary>
+    /// Whether the lookup may ask the router addresses of each client's own subnet. On by default,
+    /// because that is where a home router publishes the names it hands out over DHCP. These are
+    /// the only addresses the app infers rather than reads from its own configuration.
+    /// </summary>
+    public bool RouterLookup { get; set; } = true;
+
+    /// <summary>
+    /// Whether the lookup may ask Docker which containers publish DNS, and the Docker host itself.
+    /// On by default. Off keeps the lookup away from the Docker socket entirely.
+    /// </summary>
+    public bool DockerLookup { get; set; } = true;
 }
 
 /// <summary>

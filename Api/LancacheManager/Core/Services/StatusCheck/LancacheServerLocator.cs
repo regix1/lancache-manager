@@ -593,6 +593,10 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
         return ordered;
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> DetectHostDockerInternalIpsAsync(CancellationToken cancellationToken)
+        => await ResolveHostDockerInternalIpsAsync(cancellationToken);
+
     /// <summary>Resolves <c>host.docker.internal</c> to its private IPv4 address(es), or an empty list
     /// when it doesn't resolve (stock compose) or resolves to a public IP.</summary>
     private static async Task<List<string>> ResolveHostDockerInternalIpsAsync(CancellationToken cancellationToken)

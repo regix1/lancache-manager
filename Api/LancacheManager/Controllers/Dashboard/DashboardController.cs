@@ -1,5 +1,6 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Extensions;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -18,11 +19,16 @@ public class DashboardController : ControllerBase
 {
     private readonly IDashboardBatchService _dashboardBatchService;
     private readonly IEventsService _eventsService;
+    private readonly IClientHostnameService _hostnameService;
 
-    public DashboardController(IDashboardBatchService dashboardBatchService, IEventsService eventsService)
+    public DashboardController(
+        IDashboardBatchService dashboardBatchService,
+        IEventsService eventsService,
+        IClientHostnameService hostnameService)
     {
         _dashboardBatchService = dashboardBatchService;
         _eventsService = eventsService;
+        _hostnameService = hostnameService;
     }
 
     /// <summary>
@@ -60,7 +66,17 @@ public class DashboardController : ControllerBase
         }
 
         Response.Headers["Cache-Control"] = "no-store, private";
-        var response = await _dashboardBatchService.GetBatchAsync(startTime, endTime, eventId, timeZoneId, ct);
+
+        // A guest is given a view of the cache, not an inventory of the machines on the network,
+        // so client names reach one only when an admin has said they may. Decided here, where the
+        // session is, and passed down rather than filtered out of the answer: a name and a nickname
+        // arrive in the same field, so the body a guest gets has to be one that never carried names.
+        var includeClientHostnames =
+            HttpContext.GetUserSession()?.SessionType.IsAccountHolder() == true
+            || _hostnameService.IsVisibleToGuests();
+
+        var response = await _dashboardBatchService.GetBatchAsync(
+            startTime, endTime, eventId, timeZoneId, includeClientHostnames, ct);
         return Ok(response);
     }
 

@@ -182,6 +182,22 @@ public interface IStateService
     bool GetClientHostnameLookup();
     void SetClientHostnameLookup(bool enabled);
 
+    /// <summary>The DNS server an admin named for client hostname lookups, or null to discover one.</summary>
+    string? GetClientHostnameResolver();
+    void SetClientHostnameResolver(string? resolverIp);
+
+    /// <summary>Whether guest sessions are shown client machine names. Off by default.</summary>
+    bool GetClientHostnameGuestAccess();
+    void SetClientHostnameGuestAccess(bool allowed);
+
+    /// <summary>Whether the lookup may ask the router addresses of each client's own subnet.</summary>
+    bool GetClientHostnameRouterLookup();
+    void SetClientHostnameRouterLookup(bool enabled);
+
+    /// <summary>Whether the lookup may ask Docker for resolvers and the Docker host.</summary>
+    bool GetClientHostnameDockerLookup();
+    void SetClientHostnameDockerLookup(bool enabled);
+
     // Stats Exclusion Methods
     List<string> GetExcludedClientIps();
     void SetExcludedClientIps(List<string> ips);

@@ -331,23 +331,37 @@ public sealed class ClientHostnameServiceTests
     }
 
     [Fact]
-    public async Task NoLanResolverDiscoveredReportsNoResolverWithoutAskingAsync()
+    public async Task AHostWithNoConfiguredResolverStillAsksTheClientsOwnSubnetRoutersAsync()
     {
-        var queries = 0;
+        // The case this covers is a container that can see nothing but Docker's own resolver. The
+        // routers of the subnet the clients are sitting in are the last thing left to ask, and they
+        // are where a home network's DHCP names actually live.
         var service = CreateService(
             enabled: true,
-            (_, _) =>
-            {
-                queries++;
-                return Task.FromResult<string?>("gaming-pc.lan.");
-            },
+            (_, _) => Task.FromResult<string?>("gaming-pc.lan."),
             nameservers: () => Array.Empty<string>());
 
-        var outcome = await service.ResolveAsync(new[] { "10.0.0.1", "10.0.0.254" }, CancellationToken.None);
+        var outcome = await service.ResolveAsync(new[] { "10.0.0.9" }, CancellationToken.None);
+        var resolvers = await service.GetLookupClientsAsync("10.0.0.9", CancellationToken.None);
 
-        Assert.Empty(outcome.Hostnames);
-        Assert.Equal(ClientHostnamesReason.NoResolver, outcome.Reason);
-        Assert.Equal(0, queries);
+        Assert.Equal("gaming-pc.lan", Assert.Single(outcome.Hostnames).Value);
+        Assert.Equal(new[] { "10.0.0.1", "10.0.0.254" }, resolvers.Select(resolver => resolver.Address));
+    }
+
+    [Fact]
+    public async Task AForwardLookupWithNothingToAskReportsNoResolverAsync()
+    {
+        // A name typed into the nickname editor belongs to no subnet, so there are no routers to
+        // fall back on and an empty chain is still a real outcome on this path.
+        var service = CreateService(
+            enabled: true,
+            (_, _) => Task.FromResult<string?>(null),
+            nameservers: () => Array.Empty<string>());
+
+        var outcome = await service.ResolveAddressesAsync("gaming-pc.lan", CancellationToken.None);
+
+        Assert.Empty(outcome.Addresses);
+        Assert.Equal(ClientAddressLookupReason.NoResolver, outcome.Reason);
     }
 
     [Fact]
@@ -663,9 +677,9 @@ public sealed class ClientHostnameServiceTests
     [Fact]
     public void CollectHostnameResolverIps_KeepsEveryPrivateHostResolverThenDocker()
     {
-        var selected = ClientHostnameService.CollectHostnameResolverIps(
-            new[] { "172.16.2.98", "10.0.0.53", "172.16.1.1" },
-            new[] { "172.18.0.5" });
+        var selected = Collect(
+            nameservers: new[] { "172.16.2.98", "10.0.0.53", "172.16.1.1" },
+            dockerResolvers: new[] { "172.18.0.5" });
 
         Assert.Equal(new[] { "172.16.2.98", "10.0.0.53", "172.16.1.1", "172.18.0.5" }, selected);
     }
@@ -673,9 +687,9 @@ public sealed class ClientHostnameServiceTests
     [Fact]
     public void CollectHostnameResolverIps_SkipsPublicAndLinkLocalAndKeepsLaterPrivate()
     {
-        var selected = ClientHostnameService.CollectHostnameResolverIps(
-            new[] { "1.1.1.1", "169.254.169.254", "10.0.0.53" },
-            new[] { "8.8.8.8", "172.16.1.222" });
+        var selected = Collect(
+            nameservers: new[] { "1.1.1.1", "169.254.169.254", "10.0.0.53" },
+            dockerResolvers: new[] { "8.8.8.8", "172.16.1.222" });
 
         Assert.Equal(new[] { "10.0.0.53", "172.16.1.222" }, selected);
     }
@@ -687,13 +701,70 @@ public sealed class ClientHostnameServiceTests
         host[0] = "127.0.0.11";
         var docker = new[] { "10.0.0.2", "10.8.0.1", "10.8.0.2", "10.8.0.3" };
 
-        var selected = ClientHostnameService.CollectHostnameResolverIps(host, docker);
+        var selected = Collect(nameservers: host, dockerResolvers: docker);
 
         Assert.Equal(ClientHostnameService.MaxHostnameResolvers, selected.Count);
         Assert.Equal("127.0.0.11", selected[0]);
         Assert.Equal(1, selected.Count(ip => ip == "10.0.0.2"));
         Assert.Equal(new[] { "10.8.0.1", "10.8.0.2" }, selected.Skip(6));
     }
+
+    [Fact]
+    public void CollectHostnameResolverIps_AsksTheAddressAnAdminNamedFirst()
+    {
+        var selected = Collect(
+            adminResolverIp: "172.16.1.222",
+            nameservers: new[] { "10.0.0.53" },
+            dockerResolvers: new[] { "172.18.0.5" });
+
+        Assert.Equal(new[] { "172.16.1.222", "10.0.0.53", "172.18.0.5" }, selected);
+    }
+
+    [Fact]
+    public void CollectHostnameResolverIps_OrdersDiscoveredSourcesAheadOfDerivedRouters()
+    {
+        var selected = Collect(
+            nameservers: new[] { "127.0.0.11" },
+            gateways: new[] { "172.17.0.1" },
+            hostDockerInternalIps: new[] { "192.168.65.2" },
+            dockerResolvers: new[] { "172.18.0.5" },
+            subnetRouters: new[] { "172.16.1.1", "172.16.1.254" });
+
+        Assert.Equal(
+            new[] { "127.0.0.11", "172.17.0.1", "192.168.65.2", "172.18.0.5", "172.16.1.1", "172.16.1.254" },
+            selected);
+    }
+
+    [Fact]
+    public void SubnetRouters_DerivesBothConventionsFromEverySubnetSeen()
+    {
+        Assert.Equal(
+            new[] { "172.16.1.1", "172.16.1.254", "10.8.0.1", "10.8.0.254" },
+            ClientHostnameService.SubnetRouters(new[] { "172.16.1", "10.8.0" }));
+    }
+
+    [Theory]
+    [InlineData("172.16.1.146", "172.16.1")]
+    [InlineData("10.8.0.9", "10.8.0")]
+    [InlineData("127.0.0.11", null)]
+    [InlineData("1.1.1.1", null)]
+    [InlineData("not-an-ip", null)]
+    [InlineData(null, null)]
+    public void SubnetPrefix_OnlyDerivesFromPrivateIPv4(string? ip, string? expected)
+    {
+        Assert.Equal(expected, ClientHostnameService.SubnetPrefix(ip));
+    }
+
+    /// <summary>Names the chain's sources so a test only spells out the ones it is about.</summary>
+    private static List<string> Collect(
+        string? adminResolverIp = null,
+        IReadOnlyList<string>? nameservers = null,
+        IReadOnlyList<string>? gateways = null,
+        IReadOnlyList<string>? hostDockerInternalIps = null,
+        IReadOnlyList<string>? dockerResolvers = null,
+        IReadOnlyList<string>? subnetRouters = null)
+        => ClientHostnameService.CollectHostnameResolverIps(
+            adminResolverIp, nameservers, gateways, hostDockerInternalIps, dockerResolvers, subnetRouters);
 
     [Fact]
     public void SanitizeReverseName_DropsDockerDesktopPlaceholdersAndInvalidNames()
@@ -719,8 +790,8 @@ public sealed class ClientHostnameServiceTests
                 return new[] { "172.16.2.98", "10.0.0.53" };
             });
 
-        var first = await service.GetLookupClientsAsync(CancellationToken.None);
-        var second = await service.GetLookupClientsAsync(CancellationToken.None);
+        var first = await service.GetLookupClientsAsync(null, CancellationToken.None);
+        var second = await service.GetLookupClientsAsync(null, CancellationToken.None);
 
         Assert.Equal(new[] { "172.16.2.98", "10.0.0.53" }, first.Select(resolver => resolver.Address));
         Assert.Same(first[0].Client, second[0].Client);
@@ -736,9 +807,169 @@ public sealed class ClientHostnameServiceTests
             nameservers: () => new[] { "172.16.2.98" },
             locator: new TestLancacheServerLocator(new[] { "172.16.1.222", "1.1.1.1" }));
 
-        var resolvers = await service.GetLookupClientsAsync(CancellationToken.None);
+        var resolvers = await service.GetLookupClientsAsync(null, CancellationToken.None);
 
         Assert.Equal(new[] { "172.16.2.98", "172.16.1.222" }, resolvers.Select(resolver => resolver.Address));
+    }
+
+    [Fact]
+    public void GuestsAreNotShownClientNamesUntilAnAdminSaysSo()
+    {
+        var service = CreateService(enabled: true, (_, _) => Task.FromResult<string?>(null));
+
+        // The default has to be the closed one: a guest is given a view of the cache, not a list
+        // of the machines on the network.
+        Assert.False(service.IsVisibleToGuests());
+        Assert.False(service.GetSettings().GuestAccess);
+
+        Assert.True(service.SetSettings(new ClientHostnameSettings { GuestAccess = true }));
+        Assert.True(service.IsVisibleToGuests());
+    }
+
+    [Fact]
+    public async Task SwitchingOffTheRouterLookupLeavesOnlyConfiguredServersAsync()
+    {
+        var service = CreateService(
+            enabled: true,
+            (_, _) => Task.FromResult<string?>(null),
+            nameservers: () => new[] { "127.0.0.11" });
+
+        Assert.True(service.SetSettings(new ClientHostnameSettings { RouterLookup = false }));
+
+        var resolvers = await service.GetLookupClientsAsync("172.16.1.146", CancellationToken.None);
+
+        // The derived addresses are the only ones the app works out for itself, so switching them
+        // off has to leave nothing behind that was not read from the host's own configuration.
+        Assert.Equal(new[] { "127.0.0.11" }, resolvers.Select(resolver => resolver.Address));
+    }
+
+    [Fact]
+    public async Task SwitchingOffTheDockerLookupAsksDockerNothingAsync()
+    {
+        var asked = 0;
+        var locator = new TestLancacheServerLocator(
+            new[] { "172.16.1.222" }, onDetect: () => asked++);
+        var service = CreateService(
+            enabled: true,
+            (_, _) => Task.FromResult<string?>(null),
+            nameservers: () => new[] { "127.0.0.11" },
+            locator: locator);
+
+        Assert.True(service.SetSettings(new ClientHostnameSettings { DockerLookup = false, RouterLookup = false }));
+
+        var resolvers = await service.GetLookupClientsAsync(null, CancellationToken.None);
+
+        Assert.Equal(new[] { "127.0.0.11" }, resolvers.Select(resolver => resolver.Address));
+        // Off means the socket is never touched, not that its answer is discarded afterwards.
+        Assert.Equal(0, asked);
+    }
+
+    [Fact]
+    public void ARefusedResolverLeavesEverySettingAsItWas()
+    {
+        var service = CreateService(enabled: true, (_, _) => Task.FromResult<string?>(null));
+
+        Assert.True(service.SetSettings(new ClientHostnameSettings
+        {
+            Resolver = "172.16.1.222",
+            GuestAccess = true,
+            RouterLookup = false,
+            DockerLookup = false
+        }));
+
+        Assert.False(service.SetSettings(new ClientHostnameSettings { Resolver = "8.8.8.8" }));
+
+        // A refused address must not write the switches that travelled with it, or one mistyped
+        // address quietly turns discovery back on and re-opens names to guests.
+        var settings = service.GetSettings();
+        Assert.Equal("172.16.1.222", settings.Resolver);
+        Assert.True(settings.GuestAccess);
+        Assert.False(settings.RouterLookup);
+        Assert.False(settings.DockerLookup);
+    }
+
+    [Fact]
+    public async Task AnAddressAnAdminNamedIsAskedAheadOfTheHostsOwnResolverAsync()
+    {
+        var service = CreateService(
+            enabled: true,
+            (_, _) => Task.FromResult<string?>(null),
+            nameservers: () => new[] { "127.0.0.11" });
+
+        Assert.True(service.SetSettings(new ClientHostnameSettings { Resolver = "172.16.1.222" }));
+
+        var resolvers = await service.GetLookupClientsAsync(null, CancellationToken.None);
+
+        Assert.Equal(new[] { "172.16.1.222", "127.0.0.11" }, resolvers.Select(resolver => resolver.Address));
+        Assert.Equal("172.16.1.222", service.GetSettings().Resolver);
+    }
+
+    [Fact]
+    public async Task AnAddressOutsideThePrivateRangesIsRefusedAndChangesNothingAsync()
+    {
+        var service = CreateService(
+            enabled: true,
+            (_, _) => Task.FromResult<string?>(null),
+            nameservers: () => new[] { "127.0.0.11" });
+
+        Assert.True(service.SetSettings(new ClientHostnameSettings { Resolver = "172.16.1.222" }));
+        Assert.False(service.SetSettings(new ClientHostnameSettings { Resolver = "8.8.8.8" }));
+        Assert.False(service.SetSettings(new ClientHostnameSettings { Resolver = "gateway.lan" }));
+
+        // A refused address must not quietly unset the one that was working, or an admin who
+        // mistypes loses the setting that was naming their clients.
+        Assert.Equal("172.16.1.222", service.GetSettings().Resolver);
+        var resolvers = await service.GetLookupClientsAsync(null, CancellationToken.None);
+        Assert.Equal("172.16.1.222", resolvers[0].Address);
+    }
+
+    [Fact]
+    public async Task ClearingTheNamedAddressHandsTheChoiceBackToDiscoveryAsync()
+    {
+        var service = CreateService(
+            enabled: true,
+            (_, _) => Task.FromResult<string?>(null),
+            nameservers: () => new[] { "127.0.0.11" });
+
+        Assert.True(service.SetSettings(new ClientHostnameSettings { Resolver = "172.16.1.222" }));
+        Assert.True(service.SetSettings(new ClientHostnameSettings { Resolver = string.Empty }));
+
+        Assert.Null(service.GetSettings().Resolver);
+        var resolvers = await service.GetLookupClientsAsync(null, CancellationToken.None);
+        Assert.Equal(new[] { "127.0.0.11" }, resolvers.Select(resolver => resolver.Address));
+    }
+
+    [Fact]
+    public async Task TheRoutersOfAClientsOwnSubnetAreAskedAfterEverythingDiscoveredAsync()
+    {
+        var service = CreateService(
+            enabled: true,
+            (_, _) => Task.FromResult<string?>(null),
+            nameservers: () => new[] { "127.0.0.11" });
+
+        var resolvers = await service.GetLookupClientsAsync("172.16.1.146", CancellationToken.None);
+
+        Assert.Equal(
+            new[] { "127.0.0.11", "172.16.1.1", "172.16.1.254" },
+            resolvers.Select(resolver => resolver.Address));
+    }
+
+    [Fact]
+    public async Task AClientOnANewSubnetRebuildsTheChainWithoutLosingTheOldSubnetAsync()
+    {
+        var service = CreateService(
+            enabled: true,
+            (_, _) => Task.FromResult<string?>(null),
+            nameservers: () => new[] { "127.0.0.11" });
+
+        await service.GetLookupClientsAsync("172.16.1.146", CancellationToken.None);
+        var resolvers = await service.GetLookupClientsAsync("10.8.0.9", CancellationToken.None);
+
+        // Both subnets' routers stand: a client list that arrives one address at a time would
+        // otherwise drop the routers found for the address before it.
+        Assert.Equal(
+            new[] { "127.0.0.11", "172.16.1.1", "172.16.1.254", "10.8.0.1", "10.8.0.254" },
+            resolvers.Select(resolver => resolver.Address));
     }
 
     [Fact]
@@ -843,8 +1074,16 @@ public sealed class ClientHostnameServiceTests
             stateService,
             CreateDefaultProxy<ISignalRNotificationService>(),
             reverseLookup: null,
-            nameservers);
+            nameservers,
+            NoGateways);
     }
+
+    /// <summary>
+    /// Stands in for the host's routing table. The real one differs from machine to machine, so a
+    /// test that did not supply this would assert against whatever gateway the build agent happens
+    /// to route through.
+    /// </summary>
+    private static readonly Func<IReadOnlyList<string>> NoGateways = Array.Empty<string>;
 
     private static ClientHostnameService CreateService(bool enabled, Func<IPAddress, string?> reverseLookup)
         => CreateService(enabled, (address, _) => Task.FromResult(reverseLookup(address)));
@@ -878,10 +1117,22 @@ public sealed class ClientHostnameServiceTests
         ILancacheServerLocator? locator = null)
     {
         var toggle = new LookupToggle { Enabled = enabled };
+        string? namedResolver = null;
+        var guestAccess = false;
+        var routerLookup = true;
+        var dockerLookup = true;
         var stateService = CreateProxy<IStateService>((method, args) => method.Name switch
         {
             nameof(IStateService.GetClientHostnameLookup) => toggle.Enabled,
             nameof(IStateService.SetClientHostnameLookup) => toggle.Set((bool)args![0]!),
+            nameof(IStateService.GetClientHostnameResolver) => namedResolver,
+            nameof(IStateService.SetClientHostnameResolver) => namedResolver = (string?)args![0],
+            nameof(IStateService.GetClientHostnameGuestAccess) => guestAccess,
+            nameof(IStateService.SetClientHostnameGuestAccess) => guestAccess = (bool)args![0]!,
+            nameof(IStateService.GetClientHostnameRouterLookup) => routerLookup,
+            nameof(IStateService.SetClientHostnameRouterLookup) => routerLookup = (bool)args![0]!,
+            nameof(IStateService.GetClientHostnameDockerLookup) => dockerLookup,
+            nameof(IStateService.SetClientHostnameDockerLookup) => dockerLookup = (bool)args![0]!,
             _ => DefaultReturn(method.ReturnType)
         });
 
@@ -891,6 +1142,7 @@ public sealed class ClientHostnameServiceTests
             notifications ?? CreateDefaultProxy<ISignalRNotificationService>(),
             reverseLookup,
             nameservers ?? ConfiguredNameservers("10.0.0.53"),
+            NoGateways,
             locator);
     }
 
@@ -900,10 +1152,22 @@ public sealed class ClientHostnameServiceTests
         Func<string, IPAddress, CancellationToken, Task<string?>> queryOnResolver)
     {
         var toggle = new LookupToggle { Enabled = enabled };
+        string? namedResolver = null;
+        var guestAccess = false;
+        var routerLookup = true;
+        var dockerLookup = true;
         var stateService = CreateProxy<IStateService>((method, args) => method.Name switch
         {
             nameof(IStateService.GetClientHostnameLookup) => toggle.Enabled,
             nameof(IStateService.SetClientHostnameLookup) => toggle.Set((bool)args![0]!),
+            nameof(IStateService.GetClientHostnameResolver) => namedResolver,
+            nameof(IStateService.SetClientHostnameResolver) => namedResolver = (string?)args![0],
+            nameof(IStateService.GetClientHostnameGuestAccess) => guestAccess,
+            nameof(IStateService.SetClientHostnameGuestAccess) => guestAccess = (bool)args![0]!,
+            nameof(IStateService.GetClientHostnameRouterLookup) => routerLookup,
+            nameof(IStateService.SetClientHostnameRouterLookup) => routerLookup = (bool)args![0]!,
+            nameof(IStateService.GetClientHostnameDockerLookup) => dockerLookup,
+            nameof(IStateService.SetClientHostnameDockerLookup) => dockerLookup = (bool)args![0]!,
             _ => DefaultReturn(method.ReturnType)
         });
 
@@ -913,8 +1177,9 @@ public sealed class ClientHostnameServiceTests
             CreateDefaultProxy<ISignalRNotificationService>(),
             reverseLookup: null,
             nameservers,
+            NoGateways,
             locator: null,
-            queryOnResolver);
+            queryOnResolver: queryOnResolver);
     }
 
     /// <summary>Stands in for the persisted global toggle so a test can read what a set wrote.</summary>

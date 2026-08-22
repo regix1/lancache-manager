@@ -17,11 +17,18 @@ public interface IDashboardBatchService
     /// the database resolves it at each row's own instant. Null or unknown falls back to the zone
     /// the server reports as its own.
     /// </param>
+    /// <param name="includeClientHostnames">
+    /// Whether this reader may be shown the reverse-DNS name of each client instead of its address.
+    /// Part of the cache key rather than a filter on the way out: one cached body is handed to
+    /// every reader, and a name arrives in the same field as a nickname, so a reader who may not
+    /// see names has to be served a body that never carried any.
+    /// </param>
     Task<DashboardBatchResponse> GetBatchAsync(
         long? startTime,
         long? endTime,
         long? eventId,
         string? timeZoneId,
+        bool includeClientHostnames,
         CancellationToken ct);
 
     Task<EventCompareResponse> GetEventCompareAsync(

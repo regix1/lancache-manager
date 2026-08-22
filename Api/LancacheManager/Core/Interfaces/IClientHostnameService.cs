@@ -15,6 +15,22 @@ public interface IClientHostnameService
     /// <summary>Persists the global hostname lookup toggle.</summary>
     void SetEnabled(bool enabled);
 
+    /// <summary>Which DNS servers these lookups may ask, and who is shown the answers.</summary>
+    ClientHostnameSettings GetSettings();
+
+    /// <summary>
+    /// Records which DNS servers may be asked. Returns false without storing anything when the
+    /// named address is neither empty nor a private or loopback IPv4 literal.
+    /// </summary>
+    bool SetSettings(ClientHostnameSettings settings);
+
+    /// <summary>
+    /// Whether a guest session may be shown client machine names. Off by default, and read by
+    /// every surface that labels a client so a guest sees addresses rather than an inventory of
+    /// the machines on the network.
+    /// </summary>
+    bool IsVisibleToGuests();
+
     /// <summary>
     /// Maps each address that has a reverse-DNS name to that name, without its trailing dot, and
     /// says why any address (or all of them) has none.

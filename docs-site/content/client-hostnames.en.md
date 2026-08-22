@@ -90,8 +90,21 @@ If you still get an answer, even though `172.16.99.99` isn't a real server, your
 
 ## If you don't see a name for anything
 
-The app builds a short list of DNS servers from two trusted sources: the IPv4 resolvers configured on its host, and running Docker containers that expose DNS port 53. It asks those servers in order and keeps going after a "name does not exist" answer, so a cache-only DNS server that has no reverse records does not hide the server that does. A server that returns a real name is asked first next time. The app does not guess router addresses, scan the client subnet, or send these lookups to public DNS.
+The app builds a short list of DNS servers and asks them in order, at most eight of them:
 
-If **nothing** shows a name, the usual cause is that none of those trusted servers have reverse records. Routers that run dnsmasq already name every device they hand an address to over DHCP, but those records still need to be reachable through one of the servers the app is allowed to ask.
+1. The address you set in **DNS server to ask**, if you set one.
+2. The DNS servers this host is configured to use. Running on the machine itself, that is whatever DHCP handed it; in a container, that is usually Docker's own resolver, which forwards to the host's.
+3. The gateways this host routes through. Running on the machine itself or with host networking, that is your LAN router. In a bridge-networked container it is the Docker bridge, which answers nothing and costs one query.
+4. The Docker host, from `host.docker.internal`. This is how a bridge-networked manager reaches a resolver running on the machine beside it.
+5. Running containers that publish DNS port 53.
+6. The `.1` and `.254` of each subnet a client was seen in. Every private network uses those two conventions, so no address is built in: the subnets come from your own clients. This is what reaches a home router's DHCP names from inside a container, where the routing table only ever shows the Docker bridge.
+
+It keeps going after a "name does not exist" answer, so a cache-only DNS server with no reverse records does not hide the server that has them, and a server that returns a real name is asked first next time. Only private and loopback addresses are ever asked, so these lookups never reach public DNS, and nothing beyond that list is contacted - the client subnets are never scanned.
+
+Steps 5 and 6 can each be switched off on the Clients page. **Ask Docker for DNS servers** covers step 4 and 5, and turning it off keeps client name lookups away from the Docker socket entirely. **Ask the router on each client subnet** covers step 6, the only addresses the app works out for itself; turning it off leaves the app talking only to DNS servers someone configured.
+
+Client names are not shown to guest sessions unless **Show client names to guests** is turned on. It is off by default: a guest is given a view of the cache, not a list of the machines on your network. With it off a guest sees raw addresses everywhere, and the endpoint that serves the address-to-name map refuses guest sessions outright.
+
+If **nothing** shows a name, the usual cause is that none of those servers hold reverse records. Routers that run dnsmasq already name every device they hand an address to over DHCP, but that has to be switched on, and the records still have to be reachable through one of the servers above. If you know which server holds them and the app is not finding it, put its address in **DNS server to ask** on the Clients page and it will be asked first.
 
 Some devices don't answer a name query by any method at all. If a machine has no reverse record and also doesn't respond to a direct name query, there's no way for anything to discover its name automatically, and giving it a manual nickname is the only option.

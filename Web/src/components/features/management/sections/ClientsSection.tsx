@@ -26,7 +26,7 @@ import { useSelectionSet } from '@hooks/useSelectionSet';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useClientHostnames } from '@contexts/useClientHostnames';
 import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
-import ApiService from '@services/api.service';
+import ApiService, { type ClientHostnameSettings } from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { resolveClientLabel } from '@utils/clientLabel';
 import { getClientHostnameReasonKey } from '@utils/clientHostnameReason';
@@ -62,7 +62,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     getHostnameForIp,
     reason: hostnamesReason,
     someUnnamedDismissed,
-    dismissSomeUnnamed
+    dismissSomeUnnamed,
+    settings: hostnameSettings,
+    setSettings: setHostnameSettings
   } = useClientHostnames();
   const hostnamesReasonKey = getClientHostnameReasonKey(hostnamesReason);
   const visibleHostnamesReasonKey =
@@ -83,6 +85,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     setHostnamesExpanded((prev) => !prev)
   );
   const [savingHostnames, setSavingHostnames] = useState(false);
+  const [hostnameResolverInput, setHostnameResolverInput] = useState('');
+  const [savingHostnameResolver, setSavingHostnameResolver] = useState(false);
 
   // ALL client IPs without time filtering - management sections should not be affected by time
   // filters - kept current as client groups change.
@@ -393,6 +397,33 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
       }
     },
     [setHostnamesEnabled, onError]
+  );
+
+  // The stored address arrives after the first render, so the field is seeded from it once it does
+  // and follows any later change, including one made from another browser.
+  useEffect(() => {
+    setHostnameResolverInput(hostnameSettings.resolver ?? '');
+  }, [hostnameSettings.resolver]);
+
+  // Written on demand rather than on every keystroke: the address is only usable once it is whole,
+  // and each save clears every remembered name and re-asks the network.
+  const handleHostnameSettingsSave = useCallback(
+    async (changes: Partial<ClientHostnameSettings>) => {
+      setSavingHostnameResolver(true);
+      try {
+        await setHostnameSettings({
+          ...hostnameSettings,
+          resolver: hostnameResolverInput.trim(),
+          ...changes
+        });
+        onSuccess(t('management.sections.clients.hostnames.settingsSaved'));
+      } catch (err: unknown) {
+        onError(getErrorMessage(err));
+      } finally {
+        setSavingHostnameResolver(false);
+      }
+    },
+    [setHostnameSettings, hostnameSettings, hostnameResolverInput, onSuccess, onError, t]
   );
 
   const handleModalSuccess = (message: string) => {
@@ -960,6 +991,64 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   {/* Fixed slot so the row does not reflow when the spinner appears. */}
                   <div className="w-4 shrink-0 pt-0.5">
                     {(savingHostnames || hostnamesLoading) && <LoadingSpinner inline size="sm" />}
+                  </div>
+                </div>
+                {[
+                  { key: 'guestAccess' as const, value: hostnameSettings.guestAccess },
+                  { key: 'routerLookup' as const, value: hostnameSettings.routerLookup },
+                  { key: 'dockerLookup' as const, value: hostnameSettings.dockerLookup }
+                ].map(({ key, value }) => (
+                  <div key={key} className="flex items-start gap-3 py-2">
+                    <div className="pt-0.5">
+                      <Checkbox
+                        checked={value}
+                        onChange={(e) =>
+                          void handleHostnameSettingsSave({ [key]: e.target.checked })
+                        }
+                        disabled={savingHostnameResolver}
+                        aria-label={t(`management.sections.clients.hostnames.${key}Label`)}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-themed-primary">
+                        {t(`management.sections.clients.hostnames.${key}Label`)}
+                      </p>
+                      <p className="text-xs mt-0.5 text-themed-muted">
+                        {t(`management.sections.clients.hostnames.${key}Description`)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                <div className="space-y-2 py-2">
+                  <p className="text-sm font-medium text-themed-primary">
+                    {t('management.sections.clients.hostnames.resolverLabel')}
+                  </p>
+                  <p className="text-xs text-themed-muted">
+                    {t('management.sections.clients.hostnames.resolverDescription')}
+                  </p>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <input
+                      type="text"
+                      value={hostnameResolverInput}
+                      onChange={(e) => setHostnameResolverInput(e.target.value)}
+                      placeholder={t('management.sections.clients.hostnames.resolverPlaceholder')}
+                      className="themed-input control-h-md w-full px-3 text-sm transition-colors"
+                      disabled={savingHostnameResolver}
+                      aria-label={t('management.sections.clients.hostnames.resolverLabel')}
+                    />
+                    <Button
+                      onClick={() => void handleHostnameSettingsSave({})}
+                      variant="filled"
+                      color="secondary"
+                      className="sm:w-40"
+                      disabled={
+                        savingHostnameResolver ||
+                        hostnameResolverInput.trim() === (hostnameSettings.resolver ?? '')
+                      }
+                      loading={savingHostnameResolver}
+                    >
+                      {t('common.save')}
+                    </Button>
                   </div>
                 </div>
               </div>

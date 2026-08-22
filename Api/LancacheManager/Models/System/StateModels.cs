@@ -131,6 +131,23 @@ public class AppState
     // Off by default: a network without reverse DNS entries can be slow to answer.
     public bool ClientHostnameLookup { get; set; } = false;
 
+    // The DNS server an admin named for those lookups, asked ahead of any that were discovered.
+    // Null means work one out from the host's network configuration and Docker.
+    public string? ClientHostnameResolver { get; set; }
+
+    // Whether guest sessions are shown client machine names. Off by default: a guest is given a
+    // view of the cache, not an inventory of who is on the network.
+    public bool ClientHostnameGuestAccess { get; set; } = false;
+
+    // Whether the lookup may ask the .1 and .254 of each client's own subnet. On by default,
+    // because that is where a home router publishes the names it hands out over DHCP. Switch it
+    // off on a network where the app should only talk to servers someone configured.
+    public bool ClientHostnameRouterLookup { get; set; } = true;
+
+    // Whether the lookup may ask Docker which containers publish DNS, and the Docker host itself.
+    // On by default. Switch it off to keep the lookup away from the Docker socket entirely.
+    public bool ClientHostnameDockerLookup { get; set; } = true;
+
     // Setup wizard state (persisted for resumption across page refreshes)
     public SetupStep? CurrentSetupStep { get; set; }
     public DataSourceChoice? DataSourceChoice { get; set; }

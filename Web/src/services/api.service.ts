@@ -3470,6 +3470,20 @@ class ApiService {
   }
 
   /**
+   * Names the DNS server the lookup asks first, or clears it with an empty string. For the networks
+   * where the app cannot work out which server holds the reverse records on its own.
+   */
+  static async setClientHostnameSettings(
+    settings: ClientHostnameSettings
+  ): Promise<ClientHostnameSettings> {
+    const response = await fetch(
+      `${API_BASE}/clients/hostnames/settings`,
+      this.getJsonFetchOptions(settings, { method: 'POST' })
+    );
+    return this.handleResponse<ClientHostnameSettings>(response);
+  }
+
+  /**
    * The addresses the network publishes for a name. The other direction from getClientHostnames,
    * and unaffected by that lookup's global toggle: this one runs only when someone asks for it.
    */
@@ -3720,10 +3734,24 @@ export interface ClientHostnamesResponse {
   enabled: boolean;
   hostnames: Record<string, string>;
   reason: ClientHostnamesReason;
+  /** Which servers the lookup may ask, and whether guests are shown the answers. */
+  settings?: ClientHostnameSettings;
 }
 
 interface ClientHostnameLookupResponse {
   enabled: boolean;
+}
+
+/** Which DNS servers client hostname lookups may ask, and who is shown the answers. */
+export interface ClientHostnameSettings {
+  /** The DNS server to ask first. Empty hands the choice back to discovery. */
+  resolver: string | null;
+  /** Whether guest sessions are shown client machine names. */
+  guestAccess: boolean;
+  /** Whether the lookup may ask the router addresses of each client subnet. */
+  routerLookup: boolean;
+  /** Whether the lookup may ask Docker for resolvers and the Docker host. */
+  dockerLookup: boolean;
 }
 
 /** Why a forward lookup found no address for the name it was given. Narrower than

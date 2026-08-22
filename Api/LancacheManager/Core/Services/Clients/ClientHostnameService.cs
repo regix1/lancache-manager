@@ -59,6 +59,7 @@ public sealed class ClientHostnameService : IClientHostnameService
     private readonly Func<IPAddress, CancellationToken, Task<string?>> _reverseLookup;
     private readonly Func<string, IPAddress, CancellationToken, Task<string?>>? _queryOnResolver;
     private readonly Func<IReadOnlyList<string>> _nameservers;
+    private readonly Func<IReadOnlyList<string>> _gateways;
     private readonly ClientHostnameCache _cache;
 
     private readonly SemaphoreSlim _resolverLock = new(1, 1);
@@ -70,14 +71,15 @@ public sealed class ClientHostnameService : IClientHostnameService
         IStateService stateService,
         ISignalRNotificationService notifications,
         ILancacheServerLocator locator)
-        : this(logger, stateService, notifications, reverseLookup: null, nameservers: null, locator)
+        : this(logger, stateService, notifications, reverseLookup: null, nameservers: null, gateways: null, locator)
     {
     }
 
     /// <summary>
     /// Substitutes the DNS transport, which answers with the raw reverse name exactly as a resolver
-    /// gives it, so the gating, bounding, normalising and caching around it can be exercised without
-    /// a resolver on the network. Pass null to use real reverse DNS.
+    /// gives it, and the host's own network configuration, so the gating, bounding, normalising and
+    /// caching around them can be exercised without a resolver on the network and without the
+    /// answers changing with the machine the tests run on. Pass null to use the real ones.
     /// </summary>
     internal ClientHostnameService(
         ILogger<ClientHostnameService> logger,
@@ -85,6 +87,7 @@ public sealed class ClientHostnameService : IClientHostnameService
         ISignalRNotificationService notifications,
         Func<IPAddress, CancellationToken, Task<string?>>? reverseLookup,
         Func<IReadOnlyList<string>>? nameservers,
+        Func<IReadOnlyList<string>>? gateways = null,
         ILancacheServerLocator? locator = null,
         Func<string, IPAddress, CancellationToken, Task<string?>>? queryOnResolver = null)
     {
@@ -95,6 +98,7 @@ public sealed class ClientHostnameService : IClientHostnameService
         _queryOnResolver = queryOnResolver;
         _reverseLookup = reverseLookup ?? QueryReverseAsync;
         _nameservers = nameservers ?? ReadLocalNameservers;
+        _gateways = gateways ?? ReadLocalGatewayIps;
         _cache = new ClientHostnameCache(LookupAsync, _hostnameTtl, _failedResultsCacheDuration, MaxConcurrency);
     }
 
@@ -110,6 +114,55 @@ public sealed class ClientHostnameService : IClientHostnameService
         // The toggle doubles as the recovery lever: an admin who publishes the missing reverse
         // records and flips it sees names straight away instead of waiting out answers that were
         // remembered from before the network was fixed.
+        Forget();
+    }
+
+    public ClientHostnameSettings GetSettings()
+    {
+        return new ClientHostnameSettings
+        {
+            Resolver = _stateService.GetClientHostnameResolver(),
+            GuestAccess = _stateService.GetClientHostnameGuestAccess(),
+            RouterLookup = _stateService.GetClientHostnameRouterLookup(),
+            DockerLookup = _stateService.GetClientHostnameDockerLookup()
+        };
+    }
+
+    /// <summary>
+    /// Records which DNS servers the lookup may ask. The named address is refused unless it is a
+    /// private or loopback IPv4 literal: a name would have to be resolved by the very lookup being
+    /// configured, and a public address would send a list of the network's own machines off-site.
+    /// Nothing is stored when the address is refused, so a mistyped one cannot silently clear a
+    /// setting that was working.
+    /// </summary>
+    public bool SetSettings(ClientHostnameSettings settings)
+    {
+        var trimmed = settings.Resolver?.Trim();
+        if (!string.IsNullOrEmpty(trimmed) && !LancacheServerLocator.IsSafeLanResolverIp(trimmed))
+        {
+            return false;
+        }
+
+        _stateService.SetClientHostnameResolver(string.IsNullOrEmpty(trimmed) ? null : trimmed);
+        _stateService.SetClientHostnameGuestAccess(settings.GuestAccess);
+        _stateService.SetClientHostnameRouterLookup(settings.RouterLookup);
+        _stateService.SetClientHostnameDockerLookup(settings.DockerLookup);
+
+        // Same reasoning as the toggle: someone who has just changed which servers are asked is
+        // watching the screen, not waiting out the chain's ten-minute window. Switching a source
+        // off has to drop the names it already found, or they stand for another half hour.
+        Forget();
+        return true;
+    }
+
+    public bool IsVisibleToGuests()
+    {
+        return _stateService.GetClientHostnameGuestAccess();
+    }
+
+    /// <summary>Drops every remembered name and the resolver chain, so the next request rebuilds both.</summary>
+    private void Forget()
+    {
         _cache.Clear();
         Volatile.Write(ref _cachedResolver, null);
         Volatile.Write(ref _promotedResolverIp, null);
@@ -146,11 +199,13 @@ public sealed class ClientHostnameService : IClientHostnameService
             return new ClientHostnameLookupOutcome(resolved, ClientHostnamesReason.NoClients);
         }
 
-        // Select the trusted resolver chain before starting any address work. An empty chain is
-        // an expected, explainable outcome; failures while reading the host's network configuration
-        // are not swallowed here and flow to the application's global exception handler.
-        var resolver = await GetLookupClientAsync(cancellationToken);
-        if (resolver == null)
+        // Build the chain before starting any address work, and build it for one of the addresses
+        // in hand so the routers for this batch's subnet are in it from the first query rather than
+        // arriving on a rebuild partway through. An empty chain is an expected, explainable outcome;
+        // failures while reading the host's network configuration are not swallowed here and flow to
+        // the application's global exception handler.
+        var resolvers = await GetLookupClientsAsync(candidates[0], cancellationToken);
+        if (resolvers.Count == 0)
         {
             return new ClientHostnameLookupOutcome(resolved, ClientHostnamesReason.NoResolver);
         }
@@ -422,7 +477,7 @@ public sealed class ClientHostnameService : IClientHostnameService
 
     private async Task<string?> QueryReverseAsync(IPAddress address, CancellationToken cancellationToken)
     {
-        var resolvers = await GetLookupClientsAsync(cancellationToken);
+        var resolvers = await GetLookupClientsAsync(address.ToString(), cancellationToken);
         if (resolvers.Count == 0)
         {
             throw new InvalidOperationException("No LAN DNS resolver is configured for reverse lookups.");
@@ -511,39 +566,70 @@ public sealed class ClientHostnameService : IClientHostnameService
     /// </summary>
     internal async Task<HostnameResolver?> GetLookupClientAsync(CancellationToken cancellationToken)
     {
-        var resolvers = await GetLookupClientsAsync(cancellationToken);
+        var resolvers = await GetLookupClientsAsync(null, cancellationToken);
         return resolvers.Count == 0 ? null : resolvers[0];
     }
 
     /// <summary>
-    /// The host-configured IPv4 resolvers plus Docker containers that expose port 53, cached
-    /// briefly because network configuration can change while the app is running. Public and
-    /// non-IPv4 addresses are dropped rather than queried.
+    /// Every DNS server one reverse lookup will ask, cached briefly because network configuration
+    /// can change while the app is running. <paramref name="clientIp"/> is the address about to be
+    /// looked up: its subnet decides which router addresses belong in the chain, so a chain built
+    /// for one subnet is rebuilt when a client from another turns up. Pass null when the caller has
+    /// no particular address in mind. Public and non-IPv4 addresses are dropped rather than queried.
     /// </summary>
-    internal async Task<IReadOnlyList<HostnameResolver>> GetLookupClientsAsync(CancellationToken cancellationToken)
+    internal async Task<IReadOnlyList<HostnameResolver>> GetLookupClientsAsync(
+        string? clientIp,
+        CancellationToken cancellationToken)
     {
+        var prefix = SubnetPrefix(clientIp);
+
         var cached = Volatile.Read(ref _cachedResolver);
-        if (cached != null && DateTime.UtcNow - cached.CreatedAtUtc < _resolverTtl)
+        if (IsUsable(cached, prefix))
         {
-            return OrderResolvers(cached.Resolvers);
+            return OrderResolvers(cached!.Resolvers);
         }
 
         await _resolverLock.WaitAsync(cancellationToken);
         try
         {
             cached = _cachedResolver;
-            if (cached != null && DateTime.UtcNow - cached.CreatedAtUtc < _resolverTtl)
+            if (IsUsable(cached, prefix))
             {
-                return OrderResolvers(cached.Resolvers);
+                return OrderResolvers(cached!.Resolvers);
             }
 
-            IReadOnlyList<string> detected = Array.Empty<string>();
-            if (_locator != null)
+            // Subnets carry over from the chain being replaced. A client list that arrives one
+            // address at a time would otherwise rebuild on every new subnet and drop the routers
+            // it found for the previous one.
+            var prefixes = new HashSet<string>(
+                cached?.SubnetPrefixes ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            if (prefix != null)
             {
-                detected = await _locator.DetectLanResolverIpsAsync(cancellationToken);
+                prefixes.Add(prefix);
             }
 
-            var resolverIps = CollectHostnameResolverIps(_nameservers(), detected);
+            // Both switches are read here rather than filtered afterwards, so a source that is off
+            // costs no Docker call and contributes no address that a later step has to remove.
+            IReadOnlyList<string> dockerResolvers = Array.Empty<string>();
+            IReadOnlyList<string> dockerHost = Array.Empty<string>();
+            if (_locator != null && _stateService.GetClientHostnameDockerLookup())
+            {
+                dockerResolvers = await _locator.DetectLanResolverIpsAsync(cancellationToken);
+                dockerHost = await _locator.DetectHostDockerInternalIpsAsync(cancellationToken);
+            }
+
+            IReadOnlyList<string> subnetRouters = _stateService.GetClientHostnameRouterLookup()
+                ? SubnetRouters(prefixes)
+                : Array.Empty<string>();
+
+            var resolverIps = CollectHostnameResolverIps(
+                _stateService.GetClientHostnameResolver(),
+                _nameservers(),
+                _gateways(),
+                dockerHost,
+                dockerResolvers,
+                subnetRouters);
+
             var resolvers = new List<HostnameResolver>(resolverIps.Count);
             foreach (var resolverIp in resolverIps)
             {
@@ -565,7 +651,7 @@ public sealed class ClientHostnameService : IClientHostnameService
                 _logger.LogInformation("No safe IPv4 DNS server is configured for reverse lookups");
             }
 
-            Volatile.Write(ref _cachedResolver, new CachedResolver(resolvers, DateTime.UtcNow));
+            Volatile.Write(ref _cachedResolver, new CachedResolver(resolvers, DateTime.UtcNow, prefixes));
             return OrderResolvers(resolvers);
         }
         finally
@@ -575,13 +661,35 @@ public sealed class ClientHostnameService : IClientHostnameService
     }
 
     /// <summary>
-    /// Host-configured IPv4 resolvers first, then Docker-discovered ones. Public, link-local,
-    /// multicast, malformed, and duplicate addresses are dropped. The list is capped so discovery
-    /// cannot become a scan.
+    /// Whether a cached chain still stands for the address about to be looked up: it must be inside
+    /// its window, and it must already cover that address's subnet, because the routers for a
+    /// subnet nobody had seen yet are missing from it.
+    /// </summary>
+    private static bool IsUsable(CachedResolver? cached, string? prefix)
+    {
+        return cached != null
+            && DateTime.UtcNow - cached.CreatedAtUtc < _resolverTtl
+            && (prefix == null || cached.SubnetPrefixes.Contains(prefix));
+    }
+
+    /// <summary>
+    /// The chain in the order it is asked: the address an admin set first, because an explicit
+    /// choice outranks anything discovered; then the host's own DNS configuration; then the
+    /// gateways it routes through, which on a host-networked or bare-metal deployment is the LAN
+    /// router itself; then the Docker host, which is how a bridge-networked container reaches a
+    /// resolver running beside it; then containers publishing DNS; and last the router addresses
+    /// derived from the client subnets, which are the only entries the app infers rather than
+    /// reads. Inferred addresses go last so the common case never waits on one to time out.
+    /// Public, link-local, multicast, malformed, and duplicate addresses are dropped, and the list
+    /// is capped so the chain cannot grow into a scan.
     /// </summary>
     internal static List<string> CollectHostnameResolverIps(
+        string? adminResolverIp,
         IReadOnlyList<string>? nameservers,
-        IReadOnlyList<string>? detectedResolverIps)
+        IReadOnlyList<string>? gateways,
+        IReadOnlyList<string>? hostDockerInternalIps,
+        IReadOnlyList<string>? dockerResolverIps,
+        IReadOnlyList<string>? subnetRouters)
     {
         var ordered = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -608,16 +716,71 @@ public sealed class ClientHostnameService : IClientHostnameService
             }
         }
 
+        Add(adminResolverIp == null ? null : new[] { adminResolverIp });
         Add(nameservers);
-        Add(detectedResolverIps);
+        Add(gateways);
+        Add(hostDockerInternalIps);
+        Add(dockerResolverIps);
+        Add(subnetRouters);
         return ordered;
     }
 
+    /// <summary>
+    /// The addresses a router conventionally answers on for each subnet a client was seen in. Every
+    /// private IPv4 network uses the same two last-octet conventions, so this hardcodes no network:
+    /// the subnets come from the clients themselves and the addresses are derived from them. This is
+    /// what reaches a home router's DHCP names from a bridge-networked container, where the routing
+    /// table only ever shows the Docker bridge.
+    /// </summary>
+    internal static List<string> SubnetRouters(IEnumerable<string> subnetPrefixes)
+    {
+        var routers = new List<string>();
+        foreach (var prefix in subnetPrefixes)
+        {
+            routers.Add($"{prefix}.1");
+            routers.Add($"{prefix}.254");
+        }
+
+        return routers;
+    }
+
+    /// <summary>
+    /// The first three octets of a private IPv4 address, or null for anything else. Null is the
+    /// "no router can be derived from this" answer, and every caller treats it as such.
+    /// </summary>
+    internal static string? SubnetPrefix(string? ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip) ||
+            !IPAddress.TryParse(ip, out var address) ||
+            address.AddressFamily != AddressFamily.InterNetwork ||
+            !LancacheServerLocator.IsPrivateIp(ip))
+        {
+            return null;
+        }
+
+        var bytes = address.GetAddressBytes();
+        return $"{bytes[0]}.{bytes[1]}.{bytes[2]}";
+    }
+
+    /// <summary>IPv4 DNS servers this host is configured to use.</summary>
     private static List<string> ReadLocalNameservers()
+        => ReadInterfaceAddresses(properties => properties.DnsAddresses);
+
+    /// <summary>
+    /// IPv4 gateways this host routes through. On a bare-metal or host-networked deployment that is
+    /// the LAN router, which is where DHCP reverse records usually live; inside a bridge-networked
+    /// container it is the Docker bridge, which is harmless to ask and answers nothing.
+    /// </summary>
+    private static List<string> ReadLocalGatewayIps()
+        => ReadInterfaceAddresses(properties =>
+            properties.GatewayAddresses.Select(gateway => gateway.Address));
+
+    private static List<string> ReadInterfaceAddresses(
+        Func<IPInterfaceProperties, IEnumerable<IPAddress>> select)
         => NetworkInterface.GetAllNetworkInterfaces()
             .Where(network => network.OperationalStatus == OperationalStatus.Up)
             .Where(network => network.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-            .SelectMany(network => network.GetIPProperties().DnsAddresses)
+            .SelectMany(network => select(network.GetIPProperties()))
             .Where(address => address.AddressFamily == AddressFamily.InterNetwork)
             .Select(address => address.ToString())
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -713,7 +876,15 @@ public sealed class ClientHostnameService : IClientHostnameService
 /// </summary>
 internal sealed record HostnameResolver(LookupClient Client, string Address);
 
-internal sealed record CachedResolver(IReadOnlyList<HostnameResolver> Resolvers, DateTime CreatedAtUtc);
+/// <summary>
+/// A built resolver chain, when it was built, and the client subnets it was built for. The subnets
+/// belong to it because the router addresses in the chain are derived from them, so a chain is only
+/// reusable for a client whose subnet it already covers.
+/// </summary>
+internal sealed record CachedResolver(
+    IReadOnlyList<HostnameResolver> Resolvers,
+    DateTime CreatedAtUtc,
+    IReadOnlySet<string> SubnetPrefixes);
 
 /// <summary>
 /// What one reverse lookup established: the name the network published, if any, and whether the

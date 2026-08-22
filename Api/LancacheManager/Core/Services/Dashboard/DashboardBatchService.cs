@@ -86,6 +86,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         long? endTime,
         long? eventId,
         string? timeZoneId,
+        bool includeClientHostnames,
         CancellationToken ct)
     {
         // A reader that names no zone, or one this server cannot resolve, is grouped on the zone
@@ -104,7 +105,10 @@ public partial class DashboardBatchService : IDashboardBatchService
         var eventIdList = eventId.HasValue ? new List<long> { eventId.Value } : new List<long>();
 
         // The zone is in the key because it changes the hourly buckets in the response body.
-        var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{readerTimeZoneId}:{liveCacheGeneration}:{detectionCacheGeneration}";
+        // Whether client names may appear is part of the key, not a filter applied afterwards: one
+        // cached body is handed to every reader, so a guest must never be served the entry an
+        // account holder warmed.
+        var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{readerTimeZoneId}:{liveCacheGeneration}:{detectionCacheGeneration}:{includeClientHostnames}";
 
         // Concurrent misses for one key share a single fan-out via a Lazy-backed single-flight.
         // The Lazy is constructed before GetOrAdd (construction is inert - it never invokes
@@ -138,14 +142,14 @@ public partial class DashboardBatchService : IDashboardBatchService
                 return await RunSingleFlightAsync(
                     cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
                     hiddenClientIps, statsExcludedOnlyIps, evictedMode,
-                    isLive, liveCacheGeneration, detectionCacheGeneration, ct);
+                    isLive, liveCacheGeneration, detectionCacheGeneration, includeClientHostnames, ct);
             }
 
             var myLazy = new Lazy<Task<DashboardBatchResponse>>(
                 () => RunSingleFlightAsync(
                     cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
                     hiddenClientIps, statsExcludedOnlyIps, evictedMode,
-                    isLive, liveCacheGeneration, detectionCacheGeneration, ct),
+                    isLive, liveCacheGeneration, detectionCacheGeneration, includeClientHostnames, ct),
                 LazyThreadSafetyMode.ExecutionAndPublication);
             var stored = _inflight.GetOrAdd(cacheKey, myLazy);
             var mine = ReferenceEquals(stored, myLazy);
@@ -189,6 +193,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         List<long> eventIdList, string readerTimeZoneId,
         List<string> hiddenClientIps, List<string> statsExcludedOnlyIps, string evictedMode,
         bool isLive, long liveCacheGeneration, long detectionCacheGeneration,
+        bool includeClientHostnames,
         CancellationToken ct)
     {
         // Pre-fetch event download IDs once (shared by clients, services, dashboard, downloads)
@@ -201,7 +206,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         long actualCacheSize = cacheResult?.UsedCacheSize ?? 0;
 
         // Launch remaining queries fully in parallel. AddPooledDbContextFactory bounds concurrency.
-        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
+        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, includeClientHostnames, ct), ct);
         var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var downloadsTask = SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, ct), ct);
@@ -313,7 +318,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps, CancellationToken ct)
+        List<string> statsExcludedOnlyIps, bool includeClientHostnames, CancellationToken ct)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         var maxLimit = _apiOptions.Value.MaxClientsPerRequest;
@@ -351,11 +356,16 @@ public partial class DashboardBatchService : IDashboardBatchService
             ipToGroupMapping = await clientGroupsService.GetIpMappingAsync(ct);
         }
 
-        // Empty unless the hostname lookup is on, in which case a row with no nickname is labelled
-        // with the machine's own name instead of its address. Only the addresses that will be
-        // displayed are resolved, so the busiest clients are the ones that get names.
-        var ipToHostname = (await _clientHostnameService.ResolveAsync(
-            ClientStatsAggregationHelper.TopClientIpsByTraffic(ipAggregates, effectiveLimit), ct)).Hostnames;
+        // Empty unless the hostname lookup is on and this reader may be shown names, in which case
+        // a row with no nickname is labelled with the machine's own name instead of its address.
+        // Only the addresses that will be displayed are resolved, so the busiest clients are the
+        // ones that get names. A reader who may not see them costs no query at all: the label is
+        // decided here, not stripped from the response afterwards, because a name and a nickname
+        // arrive in the same field and cannot be told apart once they are.
+        var ipToHostname = includeClientHostnames
+            ? (await _clientHostnameService.ResolveAsync(
+                ClientStatsAggregationHelper.TopClientIpsByTraffic(ipAggregates, effectiveLimit), ct)).Hostnames
+            : new Dictionary<string, string>();
 
         // Same shared fold as GET /api/stats/clients: groups are summed before the top-N cut and
         // the rows carry the nickname, so both surfaces rank and label clients identically.

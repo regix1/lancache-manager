@@ -1,10 +1,22 @@
 import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
-import ApiService, { type ClientHostnamesResponse } from '@services/api.service';
+import ApiService, {
+  type ClientHostnamesResponse,
+  type ClientHostnameSettings
+} from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { getErrorMessage } from '@utils/error';
 import { ClientHostnameContext } from './ClientHostnameContext.types';
+
+// What the panel shows before the server has answered, and after an older server that does not
+// send settings at all. Discovery on, guests not shown names: the same defaults the server holds.
+const DEFAULT_SETTINGS: ClientHostnameSettings = {
+  resolver: null,
+  guestAccess: false,
+  routerLookup: true,
+  dockerLookup: true
+};
 
 interface ClientHostnameProviderProps {
   children: ReactNode;
@@ -16,7 +28,8 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
   const [hostnameLookup, setHostnameLookup] = useState<ClientHostnamesResponse>({
     enabled: false,
     hostnames: {},
-    reason: 'none'
+    reason: 'none',
+    settings: DEFAULT_SETTINGS
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,18 +67,24 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
     }
   }, []);
 
-  // Load the mapping for any signed-in viewer (admin or guest), matching the nickname source that
-  // shares the label precedence. Changing the setting stays AdminOnly server-side.
+  // Only an account holder may read the address-to-name map: the endpoint refuses a guest, and a
+  // guest that asked anyway would surface the refusal as an error on screen. A guest still sees
+  // names on the dashboard when an admin has allowed it, because those are labelled server-side.
   useEffect(() => {
     if (authLoading) return;
-    if (authMode === 'authenticated' || authMode === 'guest') {
+    if (authMode === 'authenticated') {
       refreshHostnames();
     } else {
       // Retiring the attempt in flight means its own finally will not clear the spinner, and
       // nothing replaces it here, so this branch owns that.
       attemptRef.current++;
       setLoading(false);
-      setHostnameLookup({ enabled: false, hostnames: {}, reason: 'none' });
+      setHostnameLookup((previous) => ({
+        ...previous,
+        enabled: false,
+        hostnames: {},
+        reason: 'none'
+      }));
     }
   }, [authLoading, authMode, refreshHostnames]);
 
@@ -79,10 +98,26 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
         // will no longer clear the spinner itself, this branch clears it.
         attemptRef.current++;
         setLoading(false);
-        setHostnameLookup({ enabled: false, hostnames: {}, reason: 'none' });
+        setHostnameLookup((previous) => ({
+          ...previous,
+          enabled: false,
+          hostnames: {},
+          reason: 'none'
+        }));
         return;
       }
       setHostnameLookup((previous) => ({ ...previous, enabled: true }));
+      await refreshHostnames();
+    },
+    [refreshHostnames]
+  );
+
+  // The server refuses anything outside the private ranges, so the rejection reaches the caller as
+  // an error rather than being swallowed into a silently unchanged field.
+  const setSettings = useCallback(
+    async (settings: ClientHostnameSettings): Promise<void> => {
+      const result = await ApiService.setClientHostnameSettings(settings);
+      setHostnameLookup((previous) => ({ ...previous, settings: result }));
       await refreshHostnames();
     },
     [refreshHostnames]
@@ -106,7 +141,7 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
   // A ClientHostnamesChanged raised while the socket was down is never delivered, so the labels stay
   // as they were until something else refreshes them. Same signed-in check as the handler below.
   useReconnectRefetch(isConnected, () => {
-    if (authModeRef.current !== 'authenticated' && authModeRef.current !== 'guest') return;
+    if (authModeRef.current !== 'authenticated') return;
     void refreshHostnames();
   });
 
@@ -114,7 +149,7 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
   // viewer rather than only the one who made the change.
   useEffect(() => {
     const handleHostnamesChanged = () => {
-      if (authModeRef.current !== 'authenticated' && authModeRef.current !== 'guest') return;
+      if (authModeRef.current !== 'authenticated') return;
       refreshHostnames();
     };
 
@@ -131,11 +166,13 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
         enabled: hostnameLookup.enabled,
         reason: hostnameLookup.reason,
         someUnnamedDismissed,
+        settings: hostnameLookup.settings ?? DEFAULT_SETTINGS,
         loading,
         error,
         getHostnameForIp,
         refreshHostnames,
         setEnabled,
+        setSettings,
         dismissSomeUnnamed
       }}
     >
