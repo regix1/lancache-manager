@@ -3,7 +3,7 @@ name = "Sage & Wood"
 id = "sage-wood"
 description = "Earthy sage green with warm wood browns on charcoal"
 author = "Nature"
-version = "2.4.4"
+version = "2.4.5"
 isDark = true
 sharpCorners = false
 
@@ -215,27 +215,6 @@ content = """
       rgba(139, 111, 71, 0.03) 0%,
       transparent 50%,
       rgba(139, 111, 71, 0.03) 100%
-    );
-  transition: all 0.2s ease;
-}
-
-.themed-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-}
-
-/* Sage green focus glow */
-*:focus-visible {
-  box-shadow: 0 0 0 2px rgba(138, 169, 104, 0.25);
-  outline: none;
-}
-
-/* Natural hover effects */
-.hover\\:bg-themed-hover:hover {
-  background-image:
-    radial-gradient(
-      circle at center,
-      rgba(138, 169, 104, 0.05),
-      transparent
     );
 }
 

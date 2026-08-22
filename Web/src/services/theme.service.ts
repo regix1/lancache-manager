@@ -1482,11 +1482,6 @@ class ThemeService {
       ${this.generateComputedColorVars(colors)}
     }
 
-    /* Global Transitions */
-    body * {
-      transition: background-color 0.2s ease, color 0.2s ease;
-    }
-
     /* Global Body Style */
     body {
       background-color: var(--theme-bg-primary) !important;

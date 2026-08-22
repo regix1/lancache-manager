@@ -206,15 +206,6 @@
   background: linear-gradient(to bottom, var(--seg-glow-color), transparent 60%);
 }
 
-/* Hovering lights the glow. The running pulse and sweep keep playing while hovered: pausing
-   them snapped a mid-breath segment to full brightness and then held it frozen, which read as
-   the line refreshing and no longer updating. */
-@media (hover: hover) {
-  .condensed-strip:hover .condensed-strip-glow {
-    opacity: 1;
-  }
-}
-
 /* The open panel sits in flow directly under the line, so the glow band would land on the
    first revealed card. The open state suppresses it: the glow's job is hinting that the line
    expands, and that is answered once the panel is open. */

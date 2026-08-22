@@ -903,10 +903,10 @@ const UniversalNotificationBar: React.FC = () => {
   return (
     <div className={`w-full ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}>
       <div
-        className={`w-full bg-[var(--theme-nav-bg)] transition duration-300 ease-out motion-reduce:transition-none ${
+        className={`w-full border-b bg-[var(--theme-nav-bg)] transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none ${
           fullItems.length > 0 || stripOpen
-            ? 'border-b shadow-sm border-[var(--theme-nav-border)]'
-            : ''
+            ? 'border-[var(--theme-nav-border)] shadow-sm'
+            : 'border-transparent shadow-none'
         }`}
         style={{
           transform: isAnimatingOut ? 'translateY(-100%)' : 'translateY(0)',

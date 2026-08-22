@@ -3,7 +3,7 @@ name = "Accessible - Deuteranopia"
 id = "accessible-deuteranopia"
 description = "Deuteranopia-accessible theme with neutral dark backgrounds and vibrant orange-blue contrast"
 author = "System"
-version = "2.3.3"
+version = "2.3.4"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -240,31 +240,4 @@ content = """
 /* Amber Dusk - Deuteranopia Accessible Theme */
 /* Warm charcoal backgrounds with vibrant orange-blue contrast */
 /* Safe palette: blues, oranges, pinks, purples, yellows - no greens */
-
-.themed-card {
-  transition: all 0.2s ease;
-}
-
-.themed-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35),
-              0 0 1px rgba(234, 88, 12, 0.1);
-}
-
-/* Warm orange focus glow */
-*:focus-visible {
-  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.4);
-  outline: none;
-}
-
-button {
-  transition: all 0.15s ease;
-}
-
-button:hover {
-  transform: translateY(-1px);
-}
-
-button:active {
-  transform: translateY(0);
-}
 """

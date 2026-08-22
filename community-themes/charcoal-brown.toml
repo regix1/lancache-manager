@@ -3,7 +3,7 @@ name = "Timber & Stone"
 id = "charcoal-brown"
 description = "Warm browns, rich charcoals, and soft taupes - sophisticated earth tones"
 author = "Nature"
-version = "3.4.3"
+version = "3.4.4"
 isDark = true
 sharpCorners = false
 
@@ -247,40 +247,6 @@ content = """
       transparent 50%,
       rgba(139, 115, 85, 0.02) 100%
     );
-  transition: all 0.2s ease;
-}
-
-.themed-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-/* Warm brown focus glow */
-*:focus-visible {
-  box-shadow: 0 0 0 2px rgba(166, 124, 82, 0.3);
-  outline: none;
-}
-
-/* Warm hover effects */
-.hover\\:bg-themed-hover:hover {
-  background-image:
-    radial-gradient(
-      circle at center,
-      rgba(166, 124, 82, 0.04),
-      transparent
-    );
-}
-
-/* Earthy button interactions */
-button {
-  transition: all 0.15s ease;
-}
-
-button:hover {
-  transform: translateY(-1px);
-}
-
-button:active {
-  transform: translateY(0);
 }
 
 /* Warm scrollbar */

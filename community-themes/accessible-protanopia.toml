@@ -3,7 +3,7 @@ name = "Accessible - Protanopia"
 id = "accessible-protanopia"
 description = "Protanopia-accessible theme with neutral dark backgrounds and sapphire-amber accents"
 author = "System"
-version = "2.3.3"
+version = "2.3.4"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -240,34 +240,6 @@ content = """
 /* Midnight Sapphire - Protanopia Accessible Theme */
 /* Rich navy backgrounds with warm amber accents */
 /* Okabe-Ito inspired palette - fully visible without red cones */
-
-.themed-card {
-  transition: all 0.2s ease;
-}
-
-.themed-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35),
-              0 0 1px rgba(37, 99, 235, 0.1);
-}
-
-/* Sapphire focus ring */
-*:focus-visible {
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.4);
-  outline: none;
-}
-
-/* Smooth button interactions */
-button {
-  transition: all 0.15s ease;
-}
-
-button:hover {
-  transform: translateY(-1px);
-}
-
-button:active {
-  transform: translateY(0);
-}
 
 *::-webkit-scrollbar-thumb {
   background: #444444;

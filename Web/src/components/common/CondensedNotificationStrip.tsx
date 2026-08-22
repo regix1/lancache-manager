@@ -274,14 +274,14 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
       });
   }
   // The panel renders in the bar's flow, so the bar needs to know when it is visible to keep
-  // its bottom edge under the revealed cards. Reported through a latest-callback ref so the
-  // unmount report cannot re-fire on prop identity churn.
+  // its bottom edge under the revealed cards. Report before paint so the panel and that edge
+  // cannot appear in separate frames. The latest-callback ref keeps prop churn from re-reporting.
   const panelVisible = open && hasSegments;
   const onOpenChangeRef = useRef(onOpenChange);
   useEffect(() => {
     onOpenChangeRef.current = onOpenChange;
   });
-  useEffect(() => {
+  useLayoutEffect(() => {
     onOpenChangeRef.current?.(panelVisible);
   }, [panelVisible]);
   useEffect(() => () => onOpenChangeRef.current?.(false), []);

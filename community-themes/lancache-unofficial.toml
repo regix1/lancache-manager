@@ -3,7 +3,7 @@ name = "LANCache Unofficial"
 id = "lancache-unofficial"
 description = "Lava-inspired theme - bold reds and warm ambers on deep charcoal"
 author = "Regix"
-version = "2.4.3"
+version = "2.4.4"
 isDark = true
 sharpCorners = false
 
@@ -246,30 +246,6 @@ content = """
       rgba(220, 53, 69, 0.03) 0%,
       transparent 60%
     );
-  transition: all 0.2s ease;
-}
-
-.themed-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(220, 53, 69, 0.08);
-}
-
-/* Red focus glow */
-*:focus-visible {
-  box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.4);
-  outline: none;
-}
-
-/* Smooth button interactions */
-button {
-  transition: all 0.15s ease;
-}
-
-button:hover {
-  transform: translateY(-1px);
-}
-
-button:active {
-  transform: translateY(0);
 }
 
 /* Lava scrollbar */
