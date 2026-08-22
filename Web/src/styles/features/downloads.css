@@ -615,6 +615,21 @@
   .card-grid-container.card-size-large {
     grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   }
+  /* Phone: a ~348px content column takes either two cards or one, so the desktop 200/280/360
+     tracks all collapse to a single full-width column and the three sizes render identically.
+     Small goes two-up here; medium and large both mean one per row. Large also has to drop its
+     360px floor, which is wider than the column itself and pushed the grid into a horizontal
+     overflow (measured 360px of card inside a 348px container). */
+  @media (max-width: 639.98px) {
+    .card-grid-container.card-size-small {
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    }
+
+    .card-grid-container,
+    .card-grid-container.card-size-large {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
 
   .card-grid-item {
     border-radius: var(--theme-border-radius-lg);
