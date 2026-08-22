@@ -282,7 +282,7 @@ class ThemeService {
           name: i18n.t('management.themes.builtIn.darkDefault.name'),
           description: i18n.t('management.themes.builtIn.darkDefault.description'),
           author: i18n.t('management.themes.builtIn.systemAuthor'),
-          version: '1.0.3',
+          version: '1.0.4',
           isDark: true,
           sharpCorners: false,
           disableFocusOutlines: true,
@@ -306,7 +306,30 @@ class ThemeService {
           info: '#60a5fa',
           infoBg: '#1c3468',
           infoText: '#93c5fd',
-          fireworkGlowColor: '#60a5fa'
+          fireworkGlowColor: '#60a5fa',
+
+          // Status and icon inks: the schema defaults clear contrast by climbing the Tailwind
+          // 400 ramp, which puts high-chroma mint, amber and cyan on the slate card. Those
+          // vibrate as Status Check text and as solid ribbon fills. Same hues, chroma pulled
+          // down; every pairing below is measured on bgSecondary (#283649) unless noted.
+          success: '#4ab591', // 4.85:1; 5.81:1 on cardBg, 4.72:1 on successBg
+          successText: '#62bc9e', // 5.37:1; 5.23:1 on successBg
+          warning: '#df9f68', // 5.42:1; 4.55:1 on warningBg
+          warningText: '#d3b769', // 6.27:1; 5.26:1 on warningBg
+          errorText: '#d89797', // 5.20:1 on errorBg; the old #fca5a5 was a neon pink
+          iconBgGreen: '#4ab591',
+          iconBgEmerald: '#4ab591',
+          iconBgOrange: '#df9f68',
+          iconBgYellow: '#c8ad41', // 5.55:1
+          iconBgCyan: '#5cacbc', // 4.72:1
+          iconBgTeal: '#56b3aa', // 4.91:1
+          hitRateHighText: '#62bc9e',
+          hitRateLowText: '#d3b769',
+          hitRateWarningText: '#d3b769',
+          publicAccessText: '#62bc9e',
+          publicAccessBg: 'rgba(74, 181, 145, 0.2)',
+          publicAccessBorder: 'rgba(74, 181, 145, 0.3)',
+          chartCacheHitColor: '#4ab591'
         })
       },
       // Modern, clean light theme (GitHub Primer / Radix pattern):
@@ -319,7 +342,7 @@ class ThemeService {
           name: i18n.t('management.themes.builtIn.lightDefault.name'),
           description: i18n.t('management.themes.builtIn.lightDefault.description'),
           author: i18n.t('management.themes.builtIn.systemAuthor'),
-          version: '5.0.2',
+          version: '5.0.3',
           isDark: false,
           sharpCorners: false,
           disableFocusOutlines: true,
@@ -552,10 +575,10 @@ class ThemeService {
           // Access indicator colors
           publicAccessBg: '#d1fae5',
           publicAccessText: '#047857',
-          publicAccessBorder: '#6ee7b7',
+          publicAccessBorder: '#3d8f72', // 3.45:1 on the wash; the old #6ee7b7 glowed on white
           securedAccessBg: '#fef3c7',
           securedAccessText: '#b45309',
-          securedAccessBorder: '#fcd34d',
+          securedAccessBorder: '#a68520', // 3.14:1 on the wash; the old #fcd34d was neon gold
 
           // Session colors
           userSessionColor: '#2563eb',
@@ -597,7 +620,7 @@ class ThemeService {
           name: 'Graphite',
           description: i18n.t('management.themes.builtIn.graphite.description'),
           author: i18n.t('management.themes.builtIn.systemAuthor'),
-          version: '1.0.0',
+          version: '1.0.2',
           isDark: true,
           sharpCorners: false,
           disableFocusOutlines: true,
@@ -671,14 +694,14 @@ class ThemeService {
 
           // Icon backgrounds - Lifted from the dark defaults so every tile clears 4.5:1 on the card
           iconBgBlue: '#5b9df5',
-          iconBgGreen: '#4ade80',
-          iconBgEmerald: '#34d399',
+          iconBgGreen: '#69b585',
+          iconBgEmerald: '#69b599',
           iconBgPurple: '#b18cf7',
           iconBgIndigo: '#8c96f9',
-          iconBgOrange: '#ff9d57',
-          iconBgYellow: '#e8c14d',
-          iconBgCyan: '#4dd0e1',
-          iconBgTeal: '#2dd4bf',
+          iconBgOrange: '#df9f68',
+          iconBgYellow: '#c7af60',
+          iconBgCyan: '#66aab7',
+          iconBgTeal: '#5fb4ab',
           iconBgRed: '#f5767c',
 
           // Status green and red - held at the icon values above so one green and one red run
@@ -686,7 +709,16 @@ class ThemeService {
           // which read 5.98:1 (green) and 4.03:1 (red) on this theme's card.
           // Both are measured against bgSecondary, the lighter of this theme's two card grounds and
           // the one the management panels actually sit on; cardBg is a step darker and easier.
-          success: '#4ade80', // 7.38:1 on bgSecondary
+          // Sage, not mint: #4ade80 cleared 7.38:1 here but its chroma vibrated against the warm
+          // charcoal, especially as Status Check ink and as the solid ribbon fill.
+          success: '#69b585', // 5.24:1 on bgSecondary, 6.18:1 on cardBg
+          successBg: '#24382c', // Warm olive well; the slate default #053f30 is a cool hole on charcoal
+          successText: '#69b585', // 5.10:1 on that well
+          hitRateHighBg: '#24382c',
+          hitRateHighText: '#69b585',
+          publicAccessText: '#69b585',
+          publicAccessBg: 'rgba(105, 181, 133, 0.2)',
+          publicAccessBorder: 'rgba(105, 181, 133, 0.3)',
           error: '#f5767c', // 4.76:1 on bgSecondary; the old #f4636a was 4.19:1 there
 
           // Status and series blues - the shared defaults for these keys are the deep blue
@@ -703,11 +735,17 @@ class ThemeService {
           // as a distinct chip on the slate theme's blue card but nearly merges into this theme's
           // own warm charcoal card: only lightness separates them, so CIE76 dE falls from 17.5 to
           // 12.4. Carrying the amber into the ground instead of lifting it restores the gap
-          // (dE 18.2 on #262623) and lifts the amber text at the same time - #fcd34d goes 7.12:1
-          // to 7.23:1, #fbbf24 6.15:1 to 6.24:1.
+          // (dE 18.2 on #262623). Ink is the same muted amber as dark-default so the ribbon
+          // and warning text do not vibrate on charcoal.
+          warning: '#df9f68', // 5.68:1 on bgSecondary, 4.61:1 on warningBg
+          warningText: '#d3b769', // 6.58:1 on bgSecondary, 5.33:1 on warningBg
+          hitRateLowText: '#d3b769',
+          hitRateWarningText: '#d3b769',
           warningBg: '#4d3d29',
           hitRateLowBg: '#4d3d29',
           hitRateWarningBg: '#4d3d29',
+          chartCacheHitColor: '#69b585',
+          errorText: '#d89797',
           checkboxHoverShadow: '0 0 0 3px rgba(91, 157, 245, 0.1)',
           userSessionColor: '#5b9df5',
           userSessionBg: 'rgba(91, 157, 245, 0.15)',
@@ -736,10 +774,10 @@ class ThemeService {
           rockstarColor: '#fcaf17',
           arenanetColor: '#6fa754', // Same green lifted 14 L*, then one more step so Xbox's green clears it
           bsgColor: '#6e7b3a',
-          cityofheroesColor: '#4fd98a', // Moved out of the blues; it has no brand color and sat 6 degrees off Steam
+          cityofheroesColor: '#6bbd91', // Same green family as success; chroma pulled down with it
           codColor: '#dd6f3a', // Ember orange lifted off 2.93:1, then shifted red of Nexus Mods' brand orange
           daybreakColor: '#fb8d90', // Same salmon lightened until it separates from EA's red on lightness
-          frontierColor: '#ffdba7', // Pale sand at the same hue; Rockstar's gold and Nexus Mods' orange box it in on both sides
+          frontierColor: '#ddcbb0', // Same sand, saturation cut so it stops glowing on charcoal
           neverwinterColor: '#b98ee0', // Same violet, lightened from 1.67:1 and clear of GOG's violet
           nexusmodsColor: '#f97316',
           nintendoColor: '#e4000f',
@@ -749,7 +787,7 @@ class ThemeService {
           squareColor: '#c84455', // Deep red, lightened from 1.24:1 and moved off Riot's brand red
           tesoColor: '#b95685', // Same wine, lightened from 1.23:1 and turned pink of Square Enix's red
           testColor: '#a1a1aa', // One step lighter on the same grey ramp, clear of renegadexColor
-          warframeColor: '#1dd3d3',
+          warframeColor: '#54b6b6',
           wargamingColor: '#9d9a66' // Olive lifted from 2.01:1 and shifted clear of Path of Exile's gold
         })
       }
