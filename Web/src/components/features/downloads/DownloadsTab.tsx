@@ -31,7 +31,7 @@ import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { useMediaQuery, useIsDesktop } from '@hooks/useMediaQuery';
 import { useReaderClock } from '@hooks/useReaderClock';
 import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
-import { buildClientFilterOptions } from '@utils/clientFilterOptions';
+import { buildClientFilterOptions, findClientFilterGroup } from '@utils/clientFilterOptions';
 import { Alert } from '@components/ui/Alert';
 import { Card } from '@components/ui/Card';
 import { Checkbox } from '@components/ui/Checkbox';
@@ -896,16 +896,12 @@ const DownloadsTab: React.FC = () => {
     }
 
     if (settings.selectedClient !== 'all') {
-      // Check if it's a group selection (e.g., "group-123")
-      if (settings.selectedClient.startsWith('group-')) {
-        const groupId = parseInt(settings.selectedClient.replace('group-', ''), 10);
-        const group = clientGroups.find((g) => g.id === groupId);
-        if (group) {
-          // Filter by any IP in the group
-          filtered = filtered.filter((d) => group.memberIps.includes(d.clientIp));
-        }
+      // A selection naming a group that no longer exists falls through to the address branch,
+      // where it matches nothing, rather than quietly dropping the filter. [10]
+      const group = findClientFilterGroup(settings.selectedClient, clientGroups);
+      if (group) {
+        filtered = filtered.filter((d) => group.memberIps.includes(d.clientIp));
       } else {
-        // Filter by exact IP
         filtered = filtered.filter((d) => d.clientIp === settings.selectedClient);
       }
     }
@@ -962,17 +958,12 @@ const DownloadsTab: React.FC = () => {
   // Session-size filters have no honest live equivalent and are not applied.
   const visibleLivePreviews = useMemo(() => {
     if (livePreviews.length === 0) return livePreviews;
+    const selectedGroup = findClientFilterGroup(settings.selectedClient, clientGroups);
     const clientFilter =
       settings.selectedClient === 'all'
         ? { type: 'all' as const }
-        : settings.selectedClient.startsWith('group-')
-          ? {
-              type: 'group' as const,
-              memberIps:
-                clientGroups.find(
-                  (g) => g.id === parseInt(settings.selectedClient.replace('group-', ''), 10)
-                )?.memberIps ?? []
-            }
+        : selectedGroup
+          ? { type: 'group' as const, memberIps: selectedGroup.memberIps }
           : { type: 'ip' as const, ip: settings.selectedClient };
     return filterLivePreviews(livePreviews, {
       serviceFilterKey: settings.selectedService,

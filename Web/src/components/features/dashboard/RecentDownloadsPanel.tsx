@@ -35,7 +35,7 @@ import {
   getServiceDisplayName,
   getServiceFilterKey
 } from '@utils/serviceDisplayName';
-import { buildClientFilterOptions } from '@utils/clientFilterOptions';
+import { buildClientFilterOptions, findClientFilterGroup } from '@utils/clientFilterOptions';
 import { efficiencyTier, HIT_TIER_CLASS } from '@utils/efficiencyTier';
 import type {
   Download,
@@ -484,21 +484,17 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   );
 
   const filteredDownloads = useMemo(() => {
+    // A selection naming a group that no longer exists falls through to the address branch,
+    // where it matches nothing, rather than quietly dropping the filter. [10]
+    const selectedGroup = findClientFilterGroup(selectedClient, clientGroups);
     return downloads.filter((download) => {
       if (selectedService !== 'all' && getServiceFilterKey(download.service) !== selectedService)
         return false;
       if (selectedClient !== 'all') {
-        // Check if it's a group selection (e.g., "group-123")
-        if (selectedClient.startsWith('group-')) {
-          const groupId = parseInt(selectedClient.replace('group-', ''), 10);
-          const group = clientGroups.find((g) => g.id === groupId);
-          if (group) {
-            // Filter by any IP in the group
-            if (!group.memberIps.includes(download.clientIp)) return false;
-          }
-        } else {
-          // Filter by exact IP
-          if (download.clientIp !== selectedClient) return false;
+        if (selectedGroup) {
+          if (!selectedGroup.memberIps.includes(download.clientIp)) return false;
+        } else if (download.clientIp !== selectedClient) {
+          return false;
         }
       }
       return true;
@@ -508,17 +504,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   // Panel filters applied to previews with the same predicates as the recorded rows.
   const visibleLivePreviews = useMemo(() => {
     if (livePreviews.length === 0) return livePreviews;
+    const selectedGroup = findClientFilterGroup(selectedClient, clientGroups);
     const clientFilter =
       selectedClient === 'all'
         ? { type: 'all' as const }
-        : selectedClient.startsWith('group-')
-          ? {
-              type: 'group' as const,
-              memberIps:
-                clientGroups.find(
-                  (g) => g.id === parseInt(selectedClient.replace('group-', ''), 10)
-                )?.memberIps ?? []
-            }
+        : selectedGroup
+          ? { type: 'group' as const, memberIps: selectedGroup.memberIps }
           : { type: 'ip' as const, ip: selectedClient };
     return filterLivePreviews(livePreviews, {
       serviceFilterKey: selectedService,

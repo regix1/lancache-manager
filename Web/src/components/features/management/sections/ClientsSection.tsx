@@ -19,7 +19,8 @@ import { Pagination } from '@components/ui/Pagination';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Checkbox } from '@components/ui/Checkbox';
-import { IpChip } from '@components/ui/IpChip';
+import { SettingRow } from '@components/ui/SettingRow';
+import { ClientAddressChip } from '@components/ui/ClientAddressChip';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useSelectionSet } from '@hooks/useSelectionSet';
@@ -35,7 +36,6 @@ import { useKnownClientIps } from '@/hooks/useKnownClientIps';
 import { Users, EyeOff, Trash2, Edit2, ChevronDown, ChevronUp, Network } from 'lucide-react';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import type { ClientGroup, ClientExclusionRule, ClientExclusionMode } from '../../../../types';
 import '../managementSectionContent.css';
 import './ClientsSection.css';
@@ -71,7 +71,7 @@ interface ClientsSectionProps {
 
 const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuccess }) => {
   const { t } = useTranslation();
-  const { clientGroups, loading, error, deleteClientGroup } = useClientGroups();
+  const { clientGroups, loading, error, deleteClientGroup, getGroupForIp } = useClientGroups();
   const {
     enabled: hostnamesEnabled,
     loading: hostnamesLoading,
@@ -149,11 +149,6 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   const hasExcludedChanges = useMemo(
     () => serializeRules(excludedRules) !== serializeRules(savedExcludedRules),
     [excludedRules, savedExcludedRules, serializeRules]
-  );
-
-  const excludedIpSet = useMemo(
-    () => new Set(excludedRules.map((rule) => rule.ip)),
-    [excludedRules]
   );
 
   const loadExcludedIps = useCallback(async () => {
@@ -241,34 +236,37 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     }
   };
 
-  const nicknameByIp = useMemo(() => {
-    const map = new Map<string, string>();
-    clientGroups.forEach((group) => {
-      group.memberIps.forEach((ip) => map.set(ip, group.nickname));
-    });
-    return map;
-  }, [clientGroups]);
-
+  // An address that is already excluded stays on the list and says which exclusion it is under,
+  // rather than vanishing from a control the reader is using to check what is excluded. It cannot
+  // be picked again, because adding it a second time would do nothing. [8]
   const knownClientOptions = useMemo(() => {
-    return allClientIps
-      .filter((ip) => !excludedIpSet.has(ip))
+    return [...allClientIps]
       .sort((a, b) => a.localeCompare(b))
       .map((ip) => {
-        const nickname = nicknameByIp.get(ip);
+        const nickname = getGroupForIp(ip)?.nickname;
         const { text, substitutesAddress } = resolveClientLabel(ip, nickname, getHostnameForIp(ip));
+        const excludedMode = excludedRules.find((rule) => rule.ip === ip)?.mode;
         return {
           value: ip,
-          label: substitutesAddress ? `${text} (${ip})` : ip
+          label: substitutesAddress ? `${text} (${ip})` : ip,
+          description: excludedMode
+            ? t(
+                excludedMode === 'hide'
+                  ? 'management.sections.clients.modeHide'
+                  : 'management.sections.clients.modeExclude'
+              )
+            : undefined,
+          disabled: excludedMode !== undefined
         };
       });
-  }, [allClientIps, excludedIpSet, nicknameByIp, getHostnameForIp]);
+  }, [allClientIps, excludedRules, getGroupForIp, getHostnameForIp, t]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [quickNameIps, setQuickNameIps] = useState<string[]>([]);
   const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ClientGroup | null>(null);
-  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<number>>(new Set());
+  const { selected: expandedGroups, toggle: toggleGroup } = useSelectionSet<string>();
   const [openMenuGroupId, setOpenMenuGroupId] = useState<number | null>(null);
 
   // Read back out of the list on every render instead of copied when Edit was clicked, so the
@@ -288,18 +286,6 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     if (!isModalOpen) return;
     refreshKnownClientIps();
   }, [isModalOpen, refreshKnownClientIps]);
-
-  const toggleGroupExpanded = (groupId: number) => {
-    setExpandedGroupIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupId)) {
-        next.delete(groupId);
-      } else {
-        next.add(groupId);
-      }
-      return next;
-    });
-  };
 
   // Get all IPs that are in groups
   const groupedIps = useMemo(() => {
@@ -541,7 +527,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                 <div className="mgmt-list divided-list">
                   {clientGroups.map((group) => {
                     const isMultiIp = group.memberIps.length > 1;
-                    const isExpanded = expandedGroupIds.has(group.id);
+                    const isExpanded = expandedGroups.has(String(group.id));
                     // A nickname can be left holding no addresses at all, and the meta line is
                     // the only place that would otherwise say so.
                     const ipSummary = isMultiIp
@@ -627,7 +613,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                                 color="secondary"
                                 size="sm"
                                 className="btn-icon-square btn-icon-square--sm pointer-target-44"
-                                onClick={() => toggleGroupExpanded(group.id)}
+                                onClick={() => toggleGroup(String(group.id))}
                                 aria-expanded={isExpanded}
                                 aria-label={
                                   isExpanded
@@ -652,29 +638,20 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                             place is the nickname modal. */}
                         <CollapsibleRegion open={isExpanded} contentClassName="mgmt-row-detail">
                           {group.memberIps.length === 0 ? (
-                            <p className="text-sm text-themed-muted">
-                              {t('management.sections.clients.noAddressesYet')}
-                            </p>
+                            <EmptyState
+                              variant="text"
+                              title={t('management.sections.clients.noAddressesYet')}
+                            />
                           ) : (
                             <div className="flex flex-wrap gap-2">
-                              {group.memberIps.map((ip) => {
-                                // The nickname is already the section heading, so the chip
-                                // surfaces the machine's own hostname instead of repeating it.
-                                const label = resolveClientLabel(
-                                  ip,
-                                  null,
-                                  getHostnameForIp(ip)
-                                ).text;
-                                return (
-                                  <IpChip
-                                    key={ip}
-                                    address={label}
-                                    state="readonly"
-                                    mono={false}
-                                    tooltip={ip}
-                                  />
-                                );
-                              })}
+                              {group.memberIps.map((ip) => (
+                                <ClientAddressChip
+                                  key={ip}
+                                  ip={ip}
+                                  hostname={getHostnameForIp(ip)}
+                                  state="readonly"
+                                />
+                              ))}
                             </div>
                           )}
                         </CollapsibleRegion>
@@ -726,11 +703,11 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                             onChange={handleSelectAllVisible}
                             label={t('management.sections.clients.selectAllVisible')}
                           />
-                          <span className="text-sm text-themed-muted tabular-nums">
+                          <Badge variant="neutral" className="badge-count">
                             {t('management.sections.clients.selectedCount', {
                               count: selectedUnnamedIps.length
                             })}
-                          </span>
+                          </Badge>
                           <Button
                             variant="filled"
                             color="primary"
@@ -842,9 +819,10 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                     </Button>
                   </div>
                   {knownClientOptions.length === 0 && (
-                    <div className="text-sm text-themed-muted">
-                      {t('management.sections.clients.allKnownExcluded')}
-                    </div>
+                    <EmptyState
+                      variant="text"
+                      title={t('management.sections.clients.noAddressesYet')}
+                    />
                   )}
 
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -888,14 +866,16 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                 </div>
 
                 {loadingExcluded ? (
-                  <div className="flex items-center gap-2 text-themed-muted text-sm">
-                    <LoadingSpinner inline size="sm" />
-                    {t('management.sections.clients.loadingExcludedIps')}
-                  </div>
+                  <LoadingState
+                    message={t('management.sections.clients.loadingExcludedIps')}
+                    shape="list"
+                    rows={3}
+                  />
                 ) : excludedRules.length === 0 ? (
-                  <div className="text-sm text-themed-muted">
-                    {t('management.sections.clients.noExcludedIps')}
-                  </div>
+                  <EmptyState
+                    variant="text"
+                    title={t('management.sections.clients.noExcludedIps')}
+                  />
                 ) : (
                   <div className="mgmt-list divided-list">
                     {excludedRules.map((rule) => (
@@ -1004,26 +984,16 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   </Alert>
                 ) : null}
                 {HOSTNAME_SWITCHES.map(({ key, label }) => (
-                  <div key={key} className="flex items-start gap-3 py-2">
-                    <div className="pt-0.5">
-                      <Checkbox
-                        checked={hostnameForm[key]}
-                        onChange={(e) =>
-                          setHostnameForm((previous) => ({ ...previous, [key]: e.target.checked }))
-                        }
-                        disabled={savingHostnames}
-                        aria-label={t(`management.sections.clients.hostnames.${label}Label`)}
-                      />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-themed-primary">
-                        {t(`management.sections.clients.hostnames.${label}Label`)}
-                      </p>
-                      <p className="text-xs mt-0.5 text-themed-muted">
-                        {t(`management.sections.clients.hostnames.${label}Description`)}
-                      </p>
-                    </div>
-                  </div>
+                  <SettingRow
+                    key={key}
+                    checked={hostnameForm[key]}
+                    onChange={(checked) =>
+                      setHostnameForm((previous) => ({ ...previous, [key]: checked }))
+                    }
+                    label={t(`management.sections.clients.hostnames.${label}Label`)}
+                    description={t(`management.sections.clients.hostnames.${label}Description`)}
+                    disabled={savingHostnames}
+                  />
                 ))}
                 <div className="space-y-2 py-2">
                   <p className="text-sm font-medium text-themed-primary">
@@ -1032,29 +1002,35 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   <p className="text-xs text-themed-muted">
                     {t('management.sections.clients.hostnames.resolverDescription')}
                   </p>
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                    <input
-                      type="text"
-                      value={hostnameForm.resolver}
-                      onChange={(e) =>
-                        setHostnameForm((previous) => ({ ...previous, resolver: e.target.value }))
-                      }
-                      placeholder={t('management.sections.clients.hostnames.resolverPlaceholder')}
-                      className="themed-input control-h-md w-full px-3 text-sm transition-colors"
-                      disabled={savingHostnames}
-                      aria-label={t('management.sections.clients.hostnames.resolverLabel')}
-                    />
-                    <Button
-                      onClick={() => void handleHostnamesSave()}
-                      variant="filled"
-                      color="secondary"
-                      className="sm:w-40"
-                      disabled={savingHostnames || hostnamesLoading || !hostnamesChanged}
-                      loading={savingHostnames}
-                    >
-                      {t('common.save')}
-                    </Button>
-                  </div>
+                  <input
+                    type="text"
+                    value={hostnameForm.resolver}
+                    onChange={(e) =>
+                      setHostnameForm((previous) => ({ ...previous, resolver: e.target.value }))
+                    }
+                    placeholder={t('management.sections.clients.hostnames.resolverPlaceholder')}
+                    className="themed-input control-h-md w-full px-3 text-sm transition-colors"
+                    disabled={savingHostnames}
+                    aria-label={t('management.sections.clients.hostnames.resolverLabel')}
+                  />
+                </div>
+
+                {/* The switches and the resolver are staged until this button, exactly like the
+                    exclusions panel, so both panels say the same thing the same way. [16] */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+                  <span className="text-xs text-themed-muted">
+                    {hostnamesChanged ? t('management.sections.clients.unsavedChanges') : ''}
+                  </span>
+                  <Button
+                    onClick={() => void handleHostnamesSave()}
+                    variant="filled"
+                    color="primary"
+                    className="sm:w-40"
+                    disabled={savingHostnames || hostnamesLoading || !hostnamesChanged}
+                    loading={savingHostnames}
+                  >
+                    {t('management.sections.clients.saveChanges')}
+                  </Button>
                 </div>
               </div>
             )}

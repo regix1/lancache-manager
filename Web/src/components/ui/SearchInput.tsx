@@ -3,9 +3,10 @@ import { useTranslation } from 'react-i18next';
 
 // Everything a plain text input accepts passes straight through, so a caller that needs an `id`
 // for its own <label>, an `aria-label`, `disabled` or `autoFocus` just sets it - none of those
-// need a bespoke prop here. The native `size` attribute is dropped because it means a character
+// need a bespoke prop here. `ref` is included so a caller driving its own keyboard flow can move
+// focus back to the box. The native `size` attribute is dropped because it means a character
 // count on an input, and this control's `size` picks a row height instead.
-interface SearchInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
+interface SearchInputProps extends Omit<React.ComponentPropsWithRef<'input'>, 'size'> {
   onClear?: () => void;
   size?: 'sm' | 'md';
 }

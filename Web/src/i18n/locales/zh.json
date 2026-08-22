@@ -2546,7 +2546,6 @@
         "pickFromKnownClients": "从已知客户端中选择",
         "selectClients": "选择客户端",
         "addSelected": "添加所选",
-        "allKnownExcluded": "所有已知客户端均已被排除。",
         "addIpsPlaceholder": "添加 IP（逗号或空格分隔）",
         "add": "添加",
         "supportsIpv4Ipv6": "支持 IPv4 和 IPv6。多个 IP 用逗号或空格分隔。",

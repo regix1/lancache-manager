@@ -1,42 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Brush, Bell, Database } from 'lucide-react';
-import { Checkbox } from '@components/ui/Checkbox';
+import { SettingRow } from '@components/ui/SettingRow';
 import { SettingSection } from '@components/ui/SettingSection';
 import preferencesService from '@services/preferences.service';
 import themeService from '@services/theme.service';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { APP_EVENTS } from '@utils/constants';
-
-interface PreferenceRowProps {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  disabled?: boolean;
-}
-
-const PreferenceRow: React.FC<PreferenceRowProps> = ({
-  label,
-  description,
-  checked,
-  onChange,
-  disabled = false
-}) => (
-  <div className="flex items-start gap-3 py-2">
-    <div className="pt-0.5">
-      <Checkbox
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        disabled={disabled}
-      />
-    </div>
-    <div className="flex-1 min-w-0">
-      <p className="text-sm font-medium text-themed-primary">{label}</p>
-      <p className="text-xs mt-0.5 text-themed-muted">{description}</p>
-    </div>
-  </div>
-);
 
 const DisplayPreferences: React.FC = () => {
   const { t } = useTranslation();
@@ -122,13 +92,13 @@ const DisplayPreferences: React.FC = () => {
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {/* Visual Settings */}
       <SettingSection icon={Brush} title={t('management.sections.displayPreferences.visual')}>
-        <PreferenceRow
+        <SettingRow
           label={t('management.sections.displayPreferences.sharpCorners')}
           description={t('management.sections.displayPreferences.sharpCornersDesc')}
           checked={sharpCorners}
           onChange={handleSharpCornersChange}
         />
-        <PreferenceRow
+        <SettingRow
           label={t('management.sections.displayPreferences.disableTooltips')}
           description={t('management.sections.displayPreferences.disableTooltipsDesc')}
           checked={disableTooltips}
@@ -138,13 +108,13 @@ const DisplayPreferences: React.FC = () => {
 
       {/* Notification Settings */}
       <SettingSection icon={Bell} title={t('management.sections.displayPreferences.notifications')}>
-        <PreferenceRow
+        <SettingRow
           label={t('management.sections.displayPreferences.disableStickyNotifications')}
           description={t('management.sections.displayPreferences.disableStickyNotificationsDesc')}
           checked={disableStickyNotifications}
           onChange={handleStickyNotificationsChange}
         />
-        <PreferenceRow
+        <SettingRow
           label={t('management.sections.displayPreferences.keepNotificationsVisible')}
           description={t('management.sections.displayPreferences.keepNotificationsVisibleDesc')}
           checked={picsAlwaysVisible}
@@ -154,7 +124,7 @@ const DisplayPreferences: React.FC = () => {
 
       {/* Downloads Settings */}
       <SettingSection icon={Database} title={t('management.sections.displayPreferences.downloads')}>
-        <PreferenceRow
+        <SettingRow
           label={t('management.sections.displayPreferences.showDatasourceLabels')}
           description={t('management.sections.displayPreferences.showDatasourceLabelsDesc')}
           checked={showDatasourceLabels}

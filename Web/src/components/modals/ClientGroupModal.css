@@ -125,15 +125,3 @@
   display: block;
   margin-top: 0.125rem;
 }
-
-/* The live filter result, sitting after the Addresses label without inheriting its
-   uppercase tracking. */
-.clientgroup-match-count {
-  margin-left: 0.5rem;
-  font-size: var(--font-size-2xs);
-  font-weight: 400;
-  letter-spacing: normal;
-  text-transform: none;
-  color: var(--theme-text-muted);
-  font-variant-numeric: tabular-nums;
-}

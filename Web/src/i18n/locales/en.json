@@ -2546,7 +2546,6 @@
         "pickFromKnownClients": "Pick From Known Clients",
         "selectClients": "Select clients",
         "addSelected": "Add Selected",
-        "allKnownExcluded": "All known clients are already excluded.",
         "addIpsPlaceholder": "Add IPs (comma or space separated)",
         "add": "Add",
         "supportsIpv4Ipv6": "Supports IPv4 and IPv6. Separate multiple IPs with commas or spaces.",

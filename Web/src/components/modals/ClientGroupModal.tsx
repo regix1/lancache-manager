@@ -6,7 +6,8 @@ import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
 import { Checkbox } from '@components/ui/Checkbox';
 import FormField from '@components/ui/FormField';
-import { IpChip } from '@components/ui/IpChip';
+import { ClientAddressChip } from '@components/ui/ClientAddressChip';
+import { SearchInput } from '@components/ui/SearchInput';
 import { Tooltip } from '@components/ui/Tooltip';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
@@ -167,7 +168,10 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   // Picker state. The input value is immediate; only the filtering waits for the debounce.
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeIndex, setActiveIndex] = useState(-1);
+  // Held by address for the same reason the range anchor below is: choosing a row takes it out
+  // of the list, so an index kept from the click names whichever row slid into that slot and
+  // leaves the cursor highlight sitting on an address the user never touched.
+  const [activeAddress, setActiveAddress] = useState<string | null>(null);
   const [lastTouchedAddress, setLastTouchedAddress] = useState<string | null>(null);
 
   const [lookup, setLookup] = useState<HostnameLookup>({ status: 'idle' });
@@ -244,7 +248,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     setSearchQuery('');
     // Cancels a debounce left pending by the previous session.
     scheduleSearch(() => setSearchQuery(''));
-    setActiveIndex(-1);
+    setActiveAddress(null);
     setLastTouchedAddress(null);
     setLookup({ status: 'idle' });
     setLookupNames({});
@@ -329,18 +333,18 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   // Exactly one row is reachable by Tab; the arrows move it from there. When the list
   // shrinks under the cursor and leaves it on an address another nickname owns, the
   // fallback keeps a reachable row rather than dropping the list out of the tab order.
+  // Where the cursor sits now. An address that has just been chosen is gone from the list, so
+  // this falls to -1 and no row is left wearing the cursor.
+  const activeIndex = useMemo(
+    () =>
+      activeAddress === null ? -1 : pickerRows.findIndex((row) => row.address === activeAddress),
+    [activeAddress, pickerRows]
+  );
+
   const rovingIndex =
     activeIndex >= 0 && pickerRows[activeIndex]?.ownerNickname === null
       ? activeIndex
       : firstEnabledIndex;
-
-  useEffect(() => {
-    setActiveIndex((prev) => {
-      if (pickerRows.length === 0) return -1;
-      if (prev < 0) return prev;
-      return Math.min(prev, pickerRows.length - 1);
-    });
-  }, [pickerRows.length]);
 
   const focusRow = useCallback((address: string | undefined): void => {
     if (address === undefined) return;
@@ -354,7 +358,15 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   // that slid into that position takes focus.
   useEffect(() => {
     const index = pendingFocusRef.current;
-    if (index === null) return;
+    if (index === null) {
+      // A row chosen with the mouse is unmounted while it holds focus, which leaves focus on the
+      // document body. The dialog only traps Tab while focus is on one of its descendants, so the
+      // search box takes it back rather than letting the next Tab walk the page behind the modal.
+      if (document.activeElement === document.body) {
+        searchRef.current?.focus();
+      }
+      return;
+    }
     pendingFocusRef.current = null;
     const target = Math.min(index, pickerRows.length - 1);
     if (target < 0) {
@@ -382,7 +394,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   const moveActive = useCallback(
     (target: number): void => {
       if (target < 0) return;
-      setActiveIndex(target);
+      setActiveAddress(pickerRows[target].address);
       focusRow(pickerRows[target].address);
     },
     [pickerRows, focusRow]
@@ -407,7 +419,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     applySearch('');
     // Clearing is an explicit action, so the filter drops now instead of after the debounce.
     setSearchQuery('');
-    setActiveIndex(-1);
+    setActiveAddress(null);
     setLastTouchedAddress(null);
     searchRef.current?.focus();
   }, [applySearch]);
@@ -538,7 +550,14 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
       // A row that changes nothing must not arm the pending focus, or the next
       // unrelated list change would pull focus off whatever the user moved on to.
       if (!isPickable(index)) return;
-      pendingFocusRef.current = index;
+      // Only a keyboard activation puts the cursor back in the list. Enter and Space on a button
+      // arrive here as a click with no click count, while a real press carries one. Moving focus
+      // after a mouse click lands it on whichever row slid into the vacated slot, which then wears
+      // the cursor surface, and that surface outranks the hover one: the list reads as stuck on a
+      // row nobody pointed at, and pointing at any other row appears to do nothing.
+      if (e.detail === 0) {
+        pendingFocusRef.current = index;
+      }
       // An anchor the search text has since ruled out cannot name a span the user can see, so
       // the click stays a plain toggle rather than reaching across rows that are not listed.
       if (e.shiftKey && anchorIndex >= 0) {
@@ -618,7 +637,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     if (searchInput === searchQuery) return null;
     setSearchQuery(searchInput);
     // The keyboard cursor referred to a row the new text may not offer at all.
-    setActiveIndex(-1);
+    setActiveAddress(null);
     return matchAddresses(
       knownIps,
       currentMemberSet,
@@ -905,6 +924,15 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
         >
           {pickerRows.map((row, index) => {
             const owned = row.ownerNickname !== null;
+            // The same label the chips carry, so an address reads the same before and after it is
+            // picked. A name a lookup just found outranks the reverse-name map, which only covers
+            // addresses the install has already seen. The address stays on the row underneath,
+            // because it is what the row is really about.
+            const rowLabel = resolveClientLabel(
+              row.address,
+              null,
+              lookupNames[row.address] ?? getHostnameForIp(row.address)
+            ).text;
             return (
               <button
                 key={row.address}
@@ -923,14 +951,21 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                 onClick={(e) => handleRowClick(index, e)}
                 onKeyDown={(e) => handleRowKeyDown(index, e)}
                 onFocus={() => {
-                  if (!owned) setActiveIndex(index);
+                  if (!owned) setActiveAddress(row.address);
                 }}
                 className={`mgmt-row mgmt-row--interactive focus-ring--inset clientgroup-ip-row w-full text-left${
                   index === activeIndex ? ' clientgroup-ip-row--active' : ''
                 }${owned ? ' clientgroup-ip-row--owned' : ''}`}
               >
                 <span className="mgmt-row__body">
-                  <span className="mgmt-row__title font-mono truncate">{row.address}</span>
+                  <span
+                    className={`mgmt-row__title truncate${rowLabel === row.address ? ' font-mono' : ''}`}
+                  >
+                    {rowLabel}
+                  </span>
+                  {rowLabel !== row.address && (
+                    <span className="mgmt-row__meta font-mono">{row.address}</span>
+                  )}
                   {owned && (
                     <span className="mgmt-row__meta">
                       {t('modals.clientGroup.messages.alreadyNamed', {
@@ -1109,64 +1144,54 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             </Badge>{' '}
             <span className="text-themed-muted">
               ({t('modals.clientGroup.labels.addressesHint')})
-            </span>
+            </span>{' '}
             {searchQuery !== '' && (
-              <span className="clientgroup-match-count">
+              <Badge variant="neutral" className="badge-count">
                 {t('modals.clientGroup.messages.matchCount', {
                   shown: seenMatchCount,
                   total: addressableCount
                 })}
-              </span>
+              </Badge>
             )}
           </label>
 
           {pendingMemberIps.length + removedIps.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-3">
+              {/* The nickname this member belongs to is already the dialog's own title, so the
+                  chip surfaces the machine's own hostname instead of repeating it. */}
               {currentMemberIps.map((ip) => {
                 const marked = removedSet.has(ip);
-                // The nickname this member belongs to is already the dialog's own title, so the
-                // chip surfaces the machine's own hostname instead of repeating it.
-                const label = resolveClientLabel(ip, null, getHostnameForIp(ip)).text;
                 return (
-                  <IpChip
+                  <ClientAddressChip
                     key={ip}
-                    address={label}
+                    ip={ip}
+                    hostname={getHostnameForIp(ip)}
                     state={marked ? 'removing' : 'current'}
                     onRemove={() => handleToggleRemoval(ip)}
                     removeLabel={
                       marked ? t('modals.clientGroup.actions.undoRemove') : t('common.remove')
                     }
                     disabled={saving}
-                    mono={false}
-                    tooltip={ip}
                   />
                 );
               })}
-              {chosenList.map((ip) => {
-                // A name a lookup found outranks the reverse-name map, which only covers addresses
-                // the install has already seen and so has nothing for the machine just added.
-                const label = resolveClientLabel(
-                  ip,
-                  null,
-                  lookupNames[ip] ?? getHostnameForIp(ip)
-                ).text;
-                return (
-                  <IpChip
-                    key={ip}
-                    address={label}
-                    state="added"
-                    onRemove={() => toggleChosen(ip)}
-                    disabled={saving}
-                    mono={false}
-                    tooltip={ip}
-                    // An address nothing has downloaded from shows no stats once it is saved, so it
-                    // says why here rather than looking like a nickname that quietly does nothing.
-                    note={
-                      knownIpSet.has(ip) ? undefined : t('modals.clientGroup.messages.notSeenYet')
-                    }
-                  />
-                );
-              })}
+              {/* A name a lookup found outranks the reverse-name map, which only covers addresses
+                  the install has already seen and so has nothing for the machine just added. */}
+              {chosenList.map((ip) => (
+                <ClientAddressChip
+                  key={ip}
+                  ip={ip}
+                  hostname={lookupNames[ip] ?? getHostnameForIp(ip)}
+                  state="added"
+                  onRemove={() => toggleChosen(ip)}
+                  disabled={saving}
+                  // An address nothing has downloaded from shows no stats once it is saved, so it
+                  // says why here rather than looking like a nickname that quietly does nothing.
+                  note={
+                    knownIpSet.has(ip) ? undefined : t('modals.clientGroup.messages.notSeenYet')
+                  }
+                />
+              ))}
             </div>
           )}
 
@@ -1199,17 +1224,20 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             </div>
           )}
 
-          <input
-            type="text"
-            value={searchInput}
-            onChange={handleSearchChange}
-            onKeyDown={handleSearchKeyDown}
-            ref={searchRef}
-            disabled={saving}
-            className="w-full px-3 py-2 border text-themed-primary text-sm themed-input control-h-md mb-2"
-            placeholder={t('modals.clientGroup.placeholders.searchAddresses')}
-            aria-label={t('modals.clientGroup.placeholders.searchAddresses')}
-          />
+          <div className="mb-2">
+            <SearchInput
+              value={searchInput}
+              onChange={handleSearchChange}
+              onKeyDown={handleSearchKeyDown}
+              // A save disables the box and freezes the rows under it, so the clear control goes
+              // with them rather than staying live beside a control that takes no input.
+              onClear={saving ? undefined : handleClearSearch}
+              ref={searchRef}
+              disabled={saving}
+              placeholder={t('modals.clientGroup.placeholders.searchAddresses')}
+              aria-label={t('modals.clientGroup.placeholders.searchAddresses')}
+            />
+          </div>
 
           {/* A name cannot be matched against a list of addresses, so it gets an action instead of
               a row: the network is asked what it resolves to, and the answer is what gets picked. */}

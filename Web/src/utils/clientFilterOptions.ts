@@ -71,3 +71,25 @@ export const buildClientFilterOptions = (
 
   return options;
 };
+
+/**
+ * Reads a selected filter value back as the group it names, or null when it names no group. Lives
+ * beside the option builder that mints the value, so the two halves of the format cannot drift.
+ *
+ * A selection outlives the group it points at: it is persisted, so it survives the group being
+ * renamed away or deleted, and only the leading "all" and the plain addresses are guaranteed to
+ * still mean something. Anything that is not a group id resolves to null rather than to a NaN that
+ * silently matches nothing. [10]
+ */
+export const findClientFilterGroup = (
+  filterValue: string,
+  clientGroups: ClientGroup[]
+): ClientGroup | null => {
+  const prefix = 'group-';
+  if (!filterValue.startsWith(prefix)) return null;
+
+  const groupId = Number(filterValue.slice(prefix.length));
+  if (Number.isNaN(groupId)) return null;
+
+  return clientGroups.find((group) => group.id === groupId) ?? null;
+};

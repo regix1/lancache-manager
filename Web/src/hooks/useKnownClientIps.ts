@@ -8,6 +8,7 @@ import type { ClientStat } from '../types';
 import { useErrorHandler } from './useErrorHandler';
 import { useLoadLifecycle } from './useLoadLifecycle';
 import { useReconnectRefetch } from './useReconnectRefetch';
+import { useTimeoutCallback } from './useTimeoutCallback';
 
 interface KnownClientIps {
   clientIps: string[];
@@ -44,7 +45,7 @@ export function useKnownClientIps(): KnownClientIps {
   const [clientIps, setClientIps] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const authModeRef = useRef(authMode);
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleReload = useTimeoutCallback(REFRESH_DEBOUNCE_MS);
 
   const { load, reset } = useLoadLifecycle<ClientStat[]>({
     canLoad: () => authModeRef.current === 'authenticated' || authModeRef.current === 'guest',
@@ -98,23 +99,17 @@ export function useKnownClientIps(): KnownClientIps {
 
   useEffect(() => {
     const handleGroupsChanged = () => {
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = setTimeout(() => {
-        refreshTimerRef.current = null;
+      scheduleReload(() => {
         void load(true);
-      }, REFRESH_DEBOUNCE_MS);
+      });
     };
 
     CLIENT_GROUP_EVENTS.forEach((eventName) => on(eventName, handleGroupsChanged));
 
     return () => {
       CLIENT_GROUP_EVENTS.forEach((eventName) => off(eventName, handleGroupsChanged));
-      if (refreshTimerRef.current) {
-        clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
     };
-  }, [on, off, load]);
+  }, [on, off, load, scheduleReload]);
 
   return { clientIps, loading, refresh };
 }
