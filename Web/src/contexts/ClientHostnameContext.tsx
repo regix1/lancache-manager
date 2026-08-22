@@ -67,12 +67,12 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
     }
   }, []);
 
-  // Only an account holder may read the address-to-name map: the endpoint refuses a guest, and a
-  // guest that asked anyway would surface the refusal as an error on screen. A guest still sees
-  // names on the dashboard when an admin has allowed it, because those are labelled server-side.
+  // Every signed-in viewer asks, guest included. The server decides what a guest is told: it
+  // answers one as though the lookup were off until an admin allows guests to see client names,
+  // so the map is simply empty rather than the request being an error the page has to explain.
   useEffect(() => {
     if (authLoading) return;
-    if (authMode === 'authenticated') {
+    if (authMode === 'authenticated' || authMode === 'guest') {
       refreshHostnames();
     } else {
       // Retiring the attempt in flight means its own finally will not clear the spinner, and
@@ -141,7 +141,7 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
   // A ClientHostnamesChanged raised while the socket was down is never delivered, so the labels stay
   // as they were until something else refreshes them. Same signed-in check as the handler below.
   useReconnectRefetch(isConnected, () => {
-    if (authModeRef.current !== 'authenticated') return;
+    if (authModeRef.current !== 'authenticated' && authModeRef.current !== 'guest') return;
     void refreshHostnames();
   });
 
@@ -149,7 +149,7 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
   // viewer rather than only the one who made the change.
   useEffect(() => {
     const handleHostnamesChanged = () => {
-      if (authModeRef.current !== 'authenticated') return;
+      if (authModeRef.current !== 'authenticated' && authModeRef.current !== 'guest') return;
       refreshHostnames();
     };
 

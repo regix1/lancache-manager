@@ -152,7 +152,6 @@ public sealed class EndpointAuthorizationContractTests
         "ClientGroupsController.SetMembers",
         "ClientGroupsController.Update",
         "ClientGroupsController.Delete",
-        "ClientHostnamesController.GetHostnames",
         "ClientHostnamesController.ResolveAddresses",
         "ClientHostnamesController.SetEnabled",
         "ClientHostnamesController.SetSettings",

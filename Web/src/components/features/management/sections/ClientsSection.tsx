@@ -26,7 +26,7 @@ import { useSelectionSet } from '@hooks/useSelectionSet';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useClientHostnames } from '@contexts/useClientHostnames';
 import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
-import ApiService, { type ClientHostnameSettings } from '@services/api.service';
+import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { resolveClientLabel } from '@utils/clientLabel';
 import { getClientHostnameReasonKey } from '@utils/clientHostnameReason';
@@ -39,6 +39,24 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import type { ClientGroup, ClientExclusionRule, ClientExclusionMode } from '../../../../types';
 import '../managementSectionContent.css';
 import './ClientsSection.css';
+
+// Everything in the Client Hostnames panel is written by its one Save button, so the controls hold
+// their own state until then and the button is the single place a save is reported.
+interface HostnameForm {
+  enabled: boolean;
+  guestAccess: boolean;
+  routerLookup: boolean;
+  dockerLookup: boolean;
+  resolver: string;
+}
+
+// The form field each switch writes, and the string that names it on screen.
+const HOSTNAME_SWITCHES = [
+  { key: 'enabled', label: 'toggle' },
+  { key: 'guestAccess', label: 'guestAccess' },
+  { key: 'routerLookup', label: 'routerLookup' },
+  { key: 'dockerLookup', label: 'dockerLookup' }
+] as const;
 
 // Eight rows keeps the raw address list from out-weighing the nicknames it feeds.
 const UNGROUPED_IPS_PER_PAGE = 8;
@@ -85,8 +103,13 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     setHostnamesExpanded((prev) => !prev)
   );
   const [savingHostnames, setSavingHostnames] = useState(false);
-  const [hostnameResolverInput, setHostnameResolverInput] = useState('');
-  const [savingHostnameResolver, setSavingHostnameResolver] = useState(false);
+  const [hostnameForm, setHostnameForm] = useState<HostnameForm>({
+    enabled: false,
+    guestAccess: false,
+    routerLookup: true,
+    dockerLookup: true,
+    resolver: ''
+  });
 
   // ALL client IPs without time filtering - management sections should not be affected by time
   // filters - kept current as client groups change.
@@ -383,48 +406,57 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     onError(t('management.sections.clients.errors.nicknameDeletedWhileEditing'));
   }, [isModalOpen, editingGroupId, clientGroups, handleModalClose, onError, t]);
 
-  // The setting is global, so it is written through the API rather than the per-user preferences
-  // service. Only the hostname map is reloaded afterwards, never the download or stats tables.
-  const handleHostnameLookupChange = useCallback(
-    async (enabled: boolean) => {
-      setSavingHostnames(true);
-      try {
-        await setHostnamesEnabled(enabled);
-      } catch (err: unknown) {
-        onError(getErrorMessage(err));
-      } finally {
-        setSavingHostnames(false);
-      }
-    },
-    [setHostnamesEnabled, onError]
-  );
-
-  // The stored address arrives after the first render, so the field is seeded from it once it does
-  // and follows any later change, including one made from another browser.
+  // The stored values arrive after the first render, so the form is seeded once they do and
+  // follows any later change, including one made from another browser.
   useEffect(() => {
-    setHostnameResolverInput(hostnameSettings.resolver ?? '');
-  }, [hostnameSettings.resolver]);
+    setHostnameForm({
+      enabled: hostnamesEnabled,
+      guestAccess: hostnameSettings.guestAccess,
+      routerLookup: hostnameSettings.routerLookup,
+      dockerLookup: hostnameSettings.dockerLookup,
+      resolver: hostnameSettings.resolver ?? ''
+    });
+  }, [hostnamesEnabled, hostnameSettings]);
+
+  // Nothing is written until Save, so the panel needs to know whether anything is waiting.
+  const hostnamesChanged =
+    hostnameForm.enabled !== hostnamesEnabled ||
+    hostnameForm.guestAccess !== hostnameSettings.guestAccess ||
+    hostnameForm.routerLookup !== hostnameSettings.routerLookup ||
+    hostnameForm.dockerLookup !== hostnameSettings.dockerLookup ||
+    hostnameForm.resolver.trim() !== (hostnameSettings.resolver ?? '');
 
   // Written on demand rather than on every keystroke: the address is only usable once it is whole,
   // and each save clears every remembered name and re-asks the network.
-  const handleHostnameSettingsSave = useCallback(
-    async (changes: Partial<ClientHostnameSettings>) => {
-      setSavingHostnameResolver(true);
-      try {
-        await setHostnameSettings({
-          ...hostnameSettings,
-          resolver: hostnameResolverInput.trim(),
-          ...changes
-        });
-        onSuccess(t('management.sections.clients.hostnames.settingsSaved'));
-      } catch (err: unknown) {
-        onError(getErrorMessage(err));
-      } finally {
-        setSavingHostnameResolver(false);
+  const handleHostnamesSave = useCallback(async () => {
+    setSavingHostnames(true);
+    try {
+      // The servers to ask are written before the lookup is switched on, so the first queries the
+      // toggle sets off already go where the admin just said they should.
+      await setHostnameSettings({
+        resolver: hostnameForm.resolver.trim(),
+        guestAccess: hostnameForm.guestAccess,
+        routerLookup: hostnameForm.routerLookup,
+        dockerLookup: hostnameForm.dockerLookup
+      });
+      if (hostnameForm.enabled !== hostnamesEnabled) {
+        await setHostnamesEnabled(hostnameForm.enabled);
       }
-    },
-    [setHostnameSettings, hostnameSettings, hostnameResolverInput, onSuccess, onError, t]
-  );
+      onSuccess(t('management.sections.clients.hostnames.settingsSaved'));
+    } catch (err: unknown) {
+      onError(getErrorMessage(err));
+    } finally {
+      setSavingHostnames(false);
+    }
+  }, [
+    setHostnameSettings,
+    setHostnamesEnabled,
+    hostnameForm,
+    hostnamesEnabled,
+    onSuccess,
+    onError,
+    t
+  ]);
 
   const handleModalSuccess = (message: string) => {
     onSuccess(message);
@@ -971,50 +1003,24 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                     {t(visibleHostnamesReasonKey)}
                   </Alert>
                 ) : null}
-                <div className="flex items-start gap-3 py-2">
-                  <div className="pt-0.5">
-                    <Checkbox
-                      checked={hostnamesEnabled}
-                      onChange={(e) => void handleHostnameLookupChange(e.target.checked)}
-                      disabled={savingHostnames || hostnamesLoading}
-                      aria-label={t('management.sections.clients.hostnames.toggleLabel')}
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-themed-primary">
-                      {t('management.sections.clients.hostnames.toggleLabel')}
-                    </p>
-                    <p className="text-xs mt-0.5 text-themed-muted">
-                      {t('management.sections.clients.hostnames.toggleDescription')}
-                    </p>
-                  </div>
-                  {/* Fixed slot so the row does not reflow when the spinner appears. */}
-                  <div className="w-4 shrink-0 pt-0.5">
-                    {(savingHostnames || hostnamesLoading) && <LoadingSpinner inline size="sm" />}
-                  </div>
-                </div>
-                {[
-                  { key: 'guestAccess' as const, value: hostnameSettings.guestAccess },
-                  { key: 'routerLookup' as const, value: hostnameSettings.routerLookup },
-                  { key: 'dockerLookup' as const, value: hostnameSettings.dockerLookup }
-                ].map(({ key, value }) => (
+                {HOSTNAME_SWITCHES.map(({ key, label }) => (
                   <div key={key} className="flex items-start gap-3 py-2">
                     <div className="pt-0.5">
                       <Checkbox
-                        checked={value}
+                        checked={hostnameForm[key]}
                         onChange={(e) =>
-                          void handleHostnameSettingsSave({ [key]: e.target.checked })
+                          setHostnameForm((previous) => ({ ...previous, [key]: e.target.checked }))
                         }
-                        disabled={savingHostnameResolver}
-                        aria-label={t(`management.sections.clients.hostnames.${key}Label`)}
+                        disabled={savingHostnames}
+                        aria-label={t(`management.sections.clients.hostnames.${label}Label`)}
                       />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-themed-primary">
-                        {t(`management.sections.clients.hostnames.${key}Label`)}
+                        {t(`management.sections.clients.hostnames.${label}Label`)}
                       </p>
                       <p className="text-xs mt-0.5 text-themed-muted">
-                        {t(`management.sections.clients.hostnames.${key}Description`)}
+                        {t(`management.sections.clients.hostnames.${label}Description`)}
                       </p>
                     </div>
                   </div>
@@ -1029,23 +1035,22 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <input
                       type="text"
-                      value={hostnameResolverInput}
-                      onChange={(e) => setHostnameResolverInput(e.target.value)}
+                      value={hostnameForm.resolver}
+                      onChange={(e) =>
+                        setHostnameForm((previous) => ({ ...previous, resolver: e.target.value }))
+                      }
                       placeholder={t('management.sections.clients.hostnames.resolverPlaceholder')}
                       className="themed-input control-h-md w-full px-3 text-sm transition-colors"
-                      disabled={savingHostnameResolver}
+                      disabled={savingHostnames}
                       aria-label={t('management.sections.clients.hostnames.resolverLabel')}
                     />
                     <Button
-                      onClick={() => void handleHostnameSettingsSave({})}
+                      onClick={() => void handleHostnamesSave()}
                       variant="filled"
                       color="secondary"
                       className="sm:w-40"
-                      disabled={
-                        savingHostnameResolver ||
-                        hostnameResolverInput.trim() === (hostnameSettings.resolver ?? '')
-                      }
-                      loading={savingHostnameResolver}
+                      disabled={savingHostnames || hostnamesLoading || !hostnamesChanged}
+                      loading={savingHostnames}
                     >
                       {t('common.save')}
                     </Button>

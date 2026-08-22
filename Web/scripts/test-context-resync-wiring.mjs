@@ -112,11 +112,7 @@ test('hostnames reload for a signed-in viewer only', () => {
   };
 
   assert.equal(run('authenticated'), 1);
-  assert.equal(
-    run('guest'),
-    0,
-    'the address-to-name map is refused to a guest, so asking for it again would only raise an error'
-  );
+  assert.equal(run('guest'), 1, 'an admin flipping the setting changes every viewer of the labels');
   assert.equal(run('none'), 0);
 });
 

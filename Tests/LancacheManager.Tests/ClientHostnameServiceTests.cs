@@ -10,6 +10,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -189,8 +190,8 @@ public sealed class ClientHostnameServiceTests
             _ => DefaultReturn(method.ReturnType)
         });
 
-        var controller = new ClientHostnamesController(
-            context, service, CreateDefaultProxy<ISignalRNotificationService>(), stateService);
+        var controller = SignedInAs(SessionType.Admin, new ClientHostnamesController(
+            context, service, CreateDefaultProxy<ISignalRNotificationService>(), stateService));
 
         var response = Assert.IsType<ClientHostnamesResponse>(
             Assert.IsType<OkObjectResult>(
@@ -494,11 +495,11 @@ public sealed class ClientHostnameServiceTests
         context.Downloads.Add(new Download { Service = "steam", ClientIp = "10.0.0.9" });
         await context.SaveChangesAsync();
 
-        var controller = new ClientHostnamesController(
+        var controller = SignedInAs(SessionType.Admin, new ClientHostnamesController(
             context,
             service,
             CreateDefaultProxy<ISignalRNotificationService>(),
-            CreateDefaultProxy<IStateService>());
+            CreateDefaultProxy<IStateService>()));
 
         var response = Assert.IsType<ClientHostnamesResponse>(
             Assert.IsType<OkObjectResult>(
@@ -812,6 +813,83 @@ public sealed class ClientHostnameServiceTests
         Assert.Equal(new[] { "172.16.2.98", "172.16.1.222" }, resolvers.Select(resolver => resolver.Address));
     }
 
+    [Theory]
+    [InlineData(SessionType.Guest, false, false)]
+    [InlineData(SessionType.Guest, true, true)]
+    [InlineData(SessionType.Admin, false, true)]
+    [InlineData(SessionType.User, false, true)]
+    public async Task TheEndpointNamesClientsForAGuestOnlyWhenAnAdminHasAllowedItAsync(
+        SessionType sessionType,
+        bool guestAccess,
+        bool expectsNames)
+    {
+        var service = CreateService(enabled: true, _ => "gaming-pc.lan.");
+        Assert.True(service.SetSettings(new ClientHostnameSettings { GuestAccess = guestAccess }));
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"client-hostnames-guest-{Guid.NewGuid():N}")
+            .Options;
+        await using var context = new AppDbContext(options);
+        context.Downloads.Add(new Download { Service = "steam", ClientIp = "10.0.0.9" });
+        await context.SaveChangesAsync();
+
+        var stateService = CreateProxy<IStateService>((method, _) => method.Name switch
+        {
+            nameof(IStateService.GetHiddenClientIps) => new List<string>(),
+            nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
+            nameof(IStateService.GetEvictedDataMode) => "show",
+            _ => DefaultReturn(method.ReturnType)
+        });
+
+        var controller = SignedInAs(sessionType, new ClientHostnamesController(
+            context, service, CreateDefaultProxy<ISignalRNotificationService>(), stateService));
+
+        var response = Assert.IsType<ClientHostnamesResponse>(
+            Assert.IsType<OkObjectResult>(
+                (await controller.GetHostnamesAsync(CancellationToken.None)).Result).Value);
+
+        Assert.Equal(expectsNames, response.Enabled);
+        Assert.Equal(expectsNames, response.Hostnames.Count > 0);
+    }
+
+    [Fact]
+    public async Task AGuestIsNeverToldWhichDnsServerTheAppWasConfiguredToAskAsync()
+    {
+        var service = CreateService(enabled: true, _ => "gaming-pc.lan.");
+        Assert.True(service.SetSettings(new ClientHostnameSettings
+        {
+            Resolver = "172.16.1.222",
+            GuestAccess = true
+        }));
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"client-hostnames-settings-{Guid.NewGuid():N}")
+            .Options;
+        await using var context = new AppDbContext(options);
+
+        var stateService = CreateProxy<IStateService>((method, _) => method.Name switch
+        {
+            nameof(IStateService.GetHiddenClientIps) => new List<string>(),
+            nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
+            nameof(IStateService.GetEvictedDataMode) => "show",
+            _ => DefaultReturn(method.ReturnType)
+        });
+
+        ClientHostnamesResponse Read(SessionType sessionType)
+        {
+            var controller = SignedInAs(sessionType, new ClientHostnamesController(
+                context, service, CreateDefaultProxy<ISignalRNotificationService>(), stateService));
+            return Assert.IsType<ClientHostnamesResponse>(
+                Assert.IsType<OkObjectResult>(
+                    controller.GetHostnamesAsync(CancellationToken.None).Result.Result).Value);
+        }
+
+        // Names are one thing; which server on the network holds them is the admin's own
+        // configuration and travels no further than an account holder.
+        Assert.Null(Read(SessionType.Guest).Settings.Resolver);
+        Assert.Equal("172.16.1.222", Read(SessionType.Admin).Settings.Resolver);
+    }
+
     [Fact]
     public void GuestsAreNotShownClientNamesUntilAnAdminSaysSo()
     {
@@ -1087,6 +1165,20 @@ public sealed class ClientHostnameServiceTests
 
     private static ClientHostnameService CreateService(bool enabled, Func<IPAddress, string?> reverseLookup)
         => CreateService(enabled, (address, _) => Task.FromResult(reverseLookup(address)));
+
+    /// <summary>
+    /// Attaches the session the middleware would have attached, so the controller sees the caller
+    /// it would see behind the real pipeline.
+    /// </summary>
+    private static ClientHostnamesController SignedInAs(
+        SessionType sessionType,
+        ClientHostnamesController controller)
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["Session"] = new UserSession { SessionType = sessionType };
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+        return controller;
+    }
 
     /// <summary>Records the event names broadcast to every viewer, so a test can tell one
     /// announcement for a whole batch from one per address.</summary>

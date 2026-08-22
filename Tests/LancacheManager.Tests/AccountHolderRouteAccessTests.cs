@@ -230,13 +230,12 @@ public sealed class AccountHolderRouteAccessTests
             .Select(entry => entry.GetProperty("key").GetString())
             .First(key => !string.IsNullOrEmpty(key));
 
-        // Six client-list reads, four cache-health reads and three schedule reads.
+        // Five client-list reads, four cache-health reads and three schedule reads.
         string[] closedToAGuest =
         [
             "/api/client-groups",
             $"/api/client-groups/{groupId}",
             "/api/client-groups/mapping",
-            "/api/clients/hostnames",
             "/api/stats/clients",
             "/api/stats/exclusions",
             "/api/cache",
@@ -248,9 +247,12 @@ public sealed class AccountHolderRouteAccessTests
             $"/api/system/schedules/{scheduleKey}/run-status"
         ];
 
-        // The LAN event calendar is the read a guest keeps.
+        // The LAN event calendar is the read a guest keeps, alongside the client name map. That one
+        // answers a guest as though the lookup were off until an admin allows guests to see names,
+        // so it is open in the sense that it answers, not in the sense that it tells a guest anything.
         string[] openToAGuest =
         [
+            "/api/clients/hostnames",
             "/api/events",
             "/api/events/active",
             "/api/events/calendar",
@@ -258,8 +260,8 @@ public sealed class AccountHolderRouteAccessTests
             $"/api/events/{eventId}/downloads"
         ];
 
-        Assert.Equal(13, closedToAGuest.Length);
-        Assert.Equal(5, openToAGuest.Length);
+        Assert.Equal(12, closedToAGuest.Length);
+        Assert.Equal(6, openToAGuest.Length);
 
         foreach (var route in closedToAGuest)
         {

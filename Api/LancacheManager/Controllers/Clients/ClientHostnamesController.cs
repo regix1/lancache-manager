@@ -2,6 +2,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -52,20 +53,30 @@ public class ClientHostnamesController : ControllerBase
     /// <remarks>
     /// Most recently active first up to <see cref="MaxClientsResolved"/>. Returns
     /// <c>Enabled = false</c> with no lookups performed when the hostname service is switched off.
+    /// A guest is answered the same way until an admin allows guests to see client names, and is
+    /// never told which DNS servers the app was configured to ask.
     /// </remarks>
     [HttpGet("")]
-    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(ClientHostnamesResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ClientHostnamesResponse>> GetHostnamesAsync(CancellationToken ct)
     {
-        if (!_hostnameService.IsEnabled())
+        // The gate is here rather than in the browser: a guest that may not see names is answered
+        // as though the lookup were off, so nothing has to be hidden client-side and no request
+        // comes back as an error the page has to explain.
+        var isAccountHolder = HttpContext.GetUserSession()?.SessionType.IsAccountHolder() == true;
+        var maySeeNames = isAccountHolder || _hostnameService.IsVisibleToGuests();
+
+        // Which servers the app asks is an admin's own configuration, so it travels only to an
+        // account holder. It travels with the off state too, so the panel can show what is set
+        // without the lookup having to be turned on to read it back.
+        var settings = isAccountHolder ? _hostnameService.GetSettings() : new ClientHostnameSettings();
+
+        if (!maySeeNames || !_hostnameService.IsEnabled())
         {
-            // The settings travel with the off state too, so the panel can show what is configured
-            // without the lookup having to be turned on to read it back.
             return Ok(new ClientHostnamesResponse
             {
                 Enabled = false,
-                Settings = _hostnameService.GetSettings()
+                Settings = settings
             });
         }
 
@@ -105,7 +116,7 @@ public class ClientHostnamesController : ControllerBase
             Enabled = true,
             Hostnames = new Dictionary<string, string>(outcome.Hostnames, StringComparer.OrdinalIgnoreCase),
             Reason = outcome.Reason,
-            Settings = _hostnameService.GetSettings()
+            Settings = settings
         });
     }
 

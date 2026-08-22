@@ -103,7 +103,7 @@ It keeps going after a "name does not exist" answer, so a cache-only DNS server 
 
 Steps 5 and 6 can each be switched off on the Clients page. **Ask Docker for DNS servers** covers step 4 and 5, and turning it off keeps client name lookups away from the Docker socket entirely. **Ask the router on each client subnet** covers step 6, the only addresses the app works out for itself; turning it off leaves the app talking only to DNS servers someone configured.
 
-Client names are not shown to guest sessions unless **Show client names to guests** is turned on. It is off by default: a guest is given a view of the cache, not a list of the machines on your network. With it off a guest sees raw addresses everywhere, and the endpoint that serves the address-to-name map refuses guest sessions outright.
+Client names are not shown to guest sessions unless **Show client names to guests** is turned on. It is off by default: a guest is given a view of the cache, not a list of the machines on your network. With it off a guest sees raw addresses everywhere: the server answers a guest as though the lookup were switched off, and never tells one which DNS servers the app was configured to ask.
 
 If **nothing** shows a name, the usual cause is that none of those servers hold reverse records. Routers that run dnsmasq already name every device they hand an address to over DHCP, but that has to be switched on, and the records still have to be reachable through one of the servers above. If you know which server holds them and the app is not finding it, put its address in **DNS server to ask** on the Clients page and it will be asked first.
 
