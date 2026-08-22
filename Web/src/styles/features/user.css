@@ -209,6 +209,14 @@
   max-width: 28rem;
 }
 
+/* `.cluster` adds 6px extra margin when a non-chip follows a badged button (12px
+   total, for kebabs in header rows). The session search is a peer of All/Admin/Guest,
+   so it keeps the 6px cluster gap. `:not(.themed-badge)` raises specificity above
+   that sibling rule regardless of chunk order. */
+.cluster.session-filter-cluster > .session-filter-search:not(.themed-badge) {
+  margin-inline-start: 0;
+}
+
 .session-filter-pagesize {
   min-width: 6.5rem;
 }
