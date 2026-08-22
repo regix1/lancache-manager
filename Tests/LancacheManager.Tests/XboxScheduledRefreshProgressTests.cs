@@ -36,16 +36,23 @@ public class XboxScheduledRefreshProgressTests
         using var harness = new Harness();
 
         var terminalCount = 0;
+        // The tracker starts the terminal notification as fire-and-forget and only invokes its
+        // OperationTerminal subscribers several statements later, so the recorded notification can
+        // land first and leave this counter at zero. Wait on the signal this test actually asserts
+        // on as well, or the assert below races the handler.
+        var trackerTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         harness.Tracker.OperationTerminal += info =>
         {
             if (info.Type == OperationType.XboxMapping)
             {
                 Interlocked.Increment(ref terminalCount);
+                trackerTerminal.TrySetResult();
             }
         };
 
         await harness.Service.RefreshNowAsync();
         await harness.Notifications.TerminalRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await trackerTerminal.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         var events = harness.Notifications.XboxLifecycleEvents();
 
