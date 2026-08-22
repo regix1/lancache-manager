@@ -390,6 +390,9 @@ const DownloadsTab: React.FC = () => {
   const wideLabels = useMediaQuery('(min-width: 1536px)');
   // Same breakpoint RetroView uses to decide whether to draw the resizable header at all.
   const isDesktop = useIsDesktop();
+  // Matches the 639.98px card-grid rule in downloads.css: above it the three card sizes get
+  // their own column widths, below it there is only room for one card per row or two.
+  const cardSizesFitSideBySide = useMediaQuery('(min-width: 640px)');
   // Read from context so an export started right after a clock change uses the clock the user is
   // looking at, rather than the one the module-level preference is still holding.
   const readerClock = useReaderClock();
@@ -2010,6 +2013,11 @@ const DownloadsTab: React.FC = () => {
                           <span className="text-sm text-[var(--theme-text-secondary)]">
                             {t('downloads.tab.display.cardSize')}
                           </span>
+                          {/* Large is dropped below 640px: the grid there fits two cards or one, so
+                              large and medium both draw one per row and the third segment picks a
+                              size that does not exist. A saved large shows as medium until the
+                              window is wide enough to tell them apart, and the setting itself is
+                              left alone so the choice survives the trip back to a desktop. */}
                           <SegmentedControl
                             options={[
                               {
@@ -2020,12 +2028,20 @@ const DownloadsTab: React.FC = () => {
                                 value: 'medium',
                                 label: t('downloads.tab.display.cardSizeOptions.medium')
                               },
-                              {
-                                value: 'large',
-                                label: t('downloads.tab.display.cardSizeOptions.large')
-                              }
+                              ...(cardSizesFitSideBySide
+                                ? [
+                                    {
+                                      value: 'large',
+                                      label: t('downloads.tab.display.cardSizeOptions.large')
+                                    }
+                                  ]
+                                : [])
                             ]}
-                            value={settings.cardSize}
+                            value={
+                              cardSizesFitSideBySide || settings.cardSize !== 'large'
+                                ? settings.cardSize
+                                : 'medium'
+                            }
                             onChange={(value) =>
                               setSettings({
                                 ...settings,
