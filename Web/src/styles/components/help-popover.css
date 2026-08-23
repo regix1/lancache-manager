@@ -38,16 +38,27 @@
   /* Subtle variant background */
   .help-section-subtle {
     background-color: var(--theme-bg-secondary);
-    padding: 0.625rem;
+    padding: 0.75rem;
     border-radius: var(--theme-border-radius-lg);
     margin: 0 -0.25rem;
+  }
+
+  /* Stacks a section's copy, definition list, and notes so a warning at the
+     bottom is not flush with the last line above it. */
+  .help-section-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    font-size: var(--font-size-xs);
+    line-height: 1.5;
+    color: var(--theme-text-secondary);
   }
 
   /* HelpNote - full rounded box, no left stripe */
   .help-note {
     display: flex;
     gap: 0.5rem;
-    padding: 0.5rem 0.625rem;
+    padding: 0.625rem 0.75rem;
     border-radius: var(--theme-border-radius-lg);
     font-size: var(--font-size-xs);
     line-height: 1.5;

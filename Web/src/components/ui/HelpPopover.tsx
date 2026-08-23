@@ -250,7 +250,7 @@ export const HelpSection: React.FC<{
 }> = ({ title, children, variant = 'default' }) => (
   <div className={variant === 'subtle' ? 'help-section-subtle' : ''}>
     <div className="help-section-title">{title}</div>
-    <div className="text-xs leading-relaxed text-themed-secondary">{children}</div>
+    <div className="help-section-body">{children}</div>
   </div>
 );
 
