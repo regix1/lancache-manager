@@ -106,21 +106,6 @@
   vertical-align: -0.1em;
 }
 
-/* Same 2rem footprint as the remove icon-square so the pair reads as one cluster. */
-.game-card-chevron {
-  width: 2rem;
-  height: 2rem;
-  padding: 0.4rem;
-  box-sizing: border-box;
-  flex-shrink: 0;
-  color: var(--theme-text-muted);
-  transition: transform 0.2s ease;
-}
-
-.game-card-chevron.is-open {
-  transform: rotate(180deg);
-}
-
 .game-card-select-all {
   display: flex;
   align-items: center;

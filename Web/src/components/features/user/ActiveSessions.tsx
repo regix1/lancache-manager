@@ -1111,10 +1111,27 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               </Button>
             )}
           </div>
-          <ChevronDown
-            className={`session-row__chevron ${isExpanded ? 'is-open' : ''}`}
-            aria-hidden="true"
-          />
+          <Button
+            type="button"
+            variant="transparent"
+            size="sm"
+            open={isExpanded}
+            className="session-row__chevron btn-icon-square btn-icon-square--sm pointer-target-44"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleSessionExpanded(session.id);
+            }}
+            aria-label={
+              isExpanded ? t('ui.accordion.collapseSection') : t('ui.accordion.expandSection')
+            }
+            aria-expanded={isExpanded}
+          >
+            <ChevronDown
+              className={`w-4 h-4 transition duration-300 ease-out${
+                isExpanded ? ' rotate-180 text-themed-accent' : ' rotate-0 text-themed-muted'
+              }`}
+            />
+          </Button>
         </div>
 
         <CollapsibleRegion open={isExpanded} contentClassName="mgmt-row-detail">

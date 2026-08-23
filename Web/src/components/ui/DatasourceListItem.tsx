@@ -2,8 +2,10 @@ import React from 'react';
 import { FolderOpen, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import Badge from '@components/ui/Badge';
+import { Button } from '@components/ui/Button';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Tooltip } from '@components/ui/Tooltip';
+import { rowToggleHandlers } from '@utils/rowToggle';
 
 interface DatasourceListItemProps {
   name: string;
@@ -36,14 +38,15 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
           : 'bg-[var(--theme-bg-primary-emphasis)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
       } ${enabled ? 'opacity-100' : 'opacity-65'}`}
     >
-      {/* Header - clickable to expand */}
-      <button
+      {/* Header is a row, not a <button>, so the expand control can be a real Button. */}
+      <div
         className={`w-full p-3 text-left cursor-pointer transition duration-200 ${
           isExpanded
             ? 'bg-[linear-gradient(135deg,var(--theme-accent-faint)_0%,transparent_100%)]'
             : 'bg-transparent'
         }`}
-        onClick={onToggle}
+        aria-expanded={isExpanded}
+        {...rowToggleHandlers(onToggle)}
       >
         {/* Top Row: Name, Status Badge, Chevron */}
         <div className="flex items-center justify-between">
@@ -94,18 +97,27 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 
             {statusIcons}
 
-            {/* Chevron with rotation animation */}
-            <div
-              className={`flex items-center justify-center w-7 h-7 themed-button-radius transition duration-300 ${
-                isExpanded ? 'bg-[var(--theme-accent-subtle)]' : 'bg-transparent'
-              }`}
+            <Button
+              type="button"
+              variant="transparent"
+              size="sm"
+              open={isExpanded}
+              className="btn-icon-square btn-icon-square--sm pointer-target-44"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
+              aria-label={
+                isExpanded ? t('ui.accordion.collapseSection') : t('ui.accordion.expandSection')
+              }
+              aria-expanded={isExpanded}
             >
               <ChevronDown
-                className={`w-4 h-4 transition duration-300 ease-out ${
-                  isExpanded ? 'rotate-180 text-themed-accent' : 'rotate-0 text-themed-muted'
+                className={`w-4 h-4 transition duration-300 ease-out${
+                  isExpanded ? ' rotate-180 text-themed-accent' : ' rotate-0 text-themed-muted'
                 }`}
               />
-            </div>
+            </Button>
           </div>
         </div>
 
@@ -127,7 +139,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
             </code>
           </Tooltip>
         </div>
-      </button>
+      </div>
 
       {/* Expanded content with smooth animation */}
       {children && (

@@ -265,14 +265,6 @@
   display: none;
 }
 
-.schedule-chevron svg {
-  transition: transform 0.2s ease;
-}
-
-.schedule-item--open .schedule-chevron svg {
-  transform: rotate(180deg);
-}
-
 /* Recessed settings well under the row. Opening it only grows this item downward -
    no other row or column moves. */
 .schedule-row-detail {

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { formatCount } from '@utils/formatters';
 import { themeColorVar, type ColorToken } from '@utils/eventColors';
+import { Button } from '@components/ui/Button';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 
 /** Lucide icons or brand SVG components (SteamIcon, EpicIcon, …) that accept size/className/style. */
@@ -97,25 +98,23 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
   };
 
   const chevronButton = (
-    <button
+    <Button
       type="button"
+      variant="transparent"
+      open={isExpanded}
+      className={`btn-icon-square flex-shrink-0${surface === 'well' ? ' btn-icon-square--sm' : ''}`}
       onClick={(e) => {
         e.stopPropagation();
         onToggle();
       }}
-      className={`flex items-center justify-center ${
-        surface === 'well' ? 'w-7 h-7' : 'w-10 h-10'
-      } themed-button-radius transition duration-300 flex-shrink-0 ${
-        isExpanded ? 'bg-[var(--theme-accent-subtle)]' : 'bg-transparent hover:bg-themed-tertiary'
-      }`}
       aria-label={isExpanded ? t('ui.accordion.collapseSection') : t('ui.accordion.expandSection')}
     >
       <ChevronDown
-        className={`${surface === 'well' ? 'w-4 h-4' : 'w-5 h-5'} transition duration-300 ease-out ${
-          isExpanded ? 'rotate-180 text-themed-accent' : 'rotate-0 text-themed-muted'
+        className={`${surface === 'well' ? 'w-4 h-4' : 'w-5 h-5'} transition duration-300 ease-out${
+          isExpanded ? ' rotate-180 text-themed-accent' : ' rotate-0 text-themed-muted'
         }`}
       />
-    </button>
+    </Button>
   );
 
   return (

@@ -119,16 +119,15 @@
 
   /* Themed edge instead of the global outline. That outline used currentColor,
      and these glyphs are white, so the ring read as an unthemed white box. */
-  .btn-icon-square:focus-visible,
-  .btn-icon-square.is-open {
+  .btn-icon-square:focus-visible {
     outline: none;
     outline-offset: 0;
     border-color: var(--theme-border-focus);
   }
 
   .btn-icon-square.is-open {
-    background-color: var(--theme-bg-surface-active);
-    color: var(--theme-text-primary);
+    background-color: var(--theme-accent-subtle);
+    color: var(--theme-text-accent);
   }
 
   /* Phone: the same 44px touch minimum dropdowns.css gives button.ed-trigger and forms.css gives

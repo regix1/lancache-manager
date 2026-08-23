@@ -894,10 +894,16 @@ const ScheduleRow = memo(function ScheduleRow({
               </button>
             </Tooltip>
             {hasDetail && (
-              <button
+              <Button
                 type="button"
-                className="schedule-icon-btn schedule-chevron themed-border-radius-sm"
-                onClick={toggleDetail}
+                variant="transparent"
+                size="sm"
+                open={detailOpen}
+                className="btn-icon-square btn-icon-square--sm pointer-target-44"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleDetail();
+                }}
                 aria-expanded={detailOpen}
                 aria-label={
                   detailOpen
@@ -905,8 +911,12 @@ const ScheduleRow = memo(function ScheduleRow({
                     : t('management.schedules.showDetails')
                 }
               >
-                <ChevronDown className="w-4 h-4" />
-              </button>
+                <ChevronDown
+                  className={`w-4 h-4 transition duration-300 ease-out${
+                    detailOpen ? ' rotate-180 text-themed-accent' : ' rotate-0 text-themed-muted'
+                  }`}
+                />
+              </Button>
             )}
           </div>
         </div>

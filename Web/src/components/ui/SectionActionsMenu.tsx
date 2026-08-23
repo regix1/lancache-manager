@@ -37,7 +37,8 @@ export function SectionActionsMenu({
           variant="filled"
           color="secondary"
           size="sm"
-          className={`btn-icon-square${open ? ' is-open' : ''}`}
+          open={open}
+          className="btn-icon-square"
           onClick={() => setOpen((o) => !o)}
           disabled={disabled}
           aria-label={label}

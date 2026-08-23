@@ -98,14 +98,19 @@
 }
 
 .session-row__chevron {
+  flex-shrink: 0;
+}
+
+/* Users sessions still use a bare SVG; Prefill uses a filled icon-square Button
+   with this class only for row order. */
+svg.session-row__chevron {
   width: 1.15rem;
   height: 1.15rem;
-  flex-shrink: 0;
   color: var(--theme-text-muted);
   transition: transform 0.2s ease;
 }
 
-.session-row__chevron.is-open {
+svg.session-row__chevron.is-open {
   transform: rotate(180deg);
 }
 
@@ -316,7 +321,7 @@
     animation: none;
   }
 
-  .session-row__chevron {
+  svg.session-row__chevron {
     transition: none;
   }
 }

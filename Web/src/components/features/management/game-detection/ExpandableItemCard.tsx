@@ -192,10 +192,27 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             </Button>
           </Tooltip>
           {hasExpandableContent && (
-            <ChevronDown
-              className={`game-card-chevron${isExpanded ? ' is-open' : ''}`}
-              aria-hidden="true"
-            />
+            <Button
+              type="button"
+              variant="transparent"
+              size="sm"
+              open={isExpanded}
+              className="btn-icon-square btn-icon-square--sm pointer-target-44"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleDetails(id);
+              }}
+              aria-label={
+                isExpanded ? t('ui.accordion.collapseSection') : t('ui.accordion.expandSection')
+              }
+              aria-expanded={isExpanded}
+            >
+              <ChevronDown
+                className={`w-4 h-4 transition duration-300 ease-out${
+                  isExpanded ? ' rotate-180 text-themed-accent' : ' rotate-0 text-themed-muted'
+                }`}
+              />
+            </Button>
           )}
         </div>
       </div>

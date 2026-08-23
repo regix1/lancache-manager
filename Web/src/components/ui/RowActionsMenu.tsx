@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MoreVertical } from 'lucide-react';
+import { MoreHorizontal } from 'lucide-react';
 import { Button } from './Button';
 import { ActionMenu } from './ActionMenu';
 
@@ -43,13 +43,14 @@ export function RowActionsMenu({
           variant="filled"
           color="secondary"
           size="sm"
+          open={open}
           className={`btn-icon-square btn-icon-square--sm pointer-target-44${
             revealOnHover ? ' opacity-0 group-hover:opacity-100 group-focus-within:opacity-100' : ''
-          }${open ? ' is-open opacity-100' : ''}`}
+          }${open ? ' opacity-100' : ''}`}
           onClick={() => onOpenChange(!open)}
           aria-label={t('common.moreActions')}
         >
-          <MoreVertical className="w-4 h-4" />
+          <MoreHorizontal className="w-4 h-4" />
         </Button>
       }
     >

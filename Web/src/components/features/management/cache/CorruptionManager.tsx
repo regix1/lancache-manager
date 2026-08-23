@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
   ChevronDown,
-  ChevronUp,
   CircleCheck,
   RefreshCw,
   Search,
@@ -1290,10 +1289,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                               between the count and the remove button it split the pair that belong
                               together. */}
                           <Button
-                            variant="filled"
-                            color="secondary"
-                            size="xs"
-                            className="mgmt-row__toggle"
+                            type="button"
+                            variant="transparent"
+                            size="sm"
+                            open={isExpanded}
+                            className="btn-icon-square btn-icon-square--sm pointer-target-44"
                             onClick={() => toggleDetails(service)}
                             aria-label={
                               isExpanded
@@ -1306,11 +1306,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                             }
                             aria-expanded={isExpanded}
                           >
-                            {isExpanded ? (
-                              <ChevronUp className="w-4 h-4" />
-                            ) : (
-                              <ChevronDown className="w-4 h-4" />
-                            )}
+                            <ChevronDown
+                              className={`w-4 h-4 transition duration-300 ease-out${
+                                isExpanded
+                                  ? ' rotate-180 text-themed-accent'
+                                  : ' rotate-0 text-themed-muted'
+                              }`}
+                            />
                           </Button>
                         </div>
                       </div>

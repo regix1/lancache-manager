@@ -3,7 +3,13 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useOptionalDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'filled' | 'subtle' | 'default';
+  variant?: 'filled' | 'subtle' | 'default' | 'transparent';
+  /**
+   * Toggles the shared `.is-open` class (used by `.btn-icon-square`). Transparent
+   * buttons stay clear until this is set; filled triggers use it for the pressed
+   * edge.
+   */
+  open?: boolean;
   /**
    * The job the button does. `run`, `stop`, `destructive`, `primary` and `secondary` say what the
    * button is for and let the theme decide its colour; the palette names below say the colour
@@ -48,6 +54,7 @@ export const Button: React.FC<ButtonProps> = ({
   variant = 'default',
   color = 'blue',
   size = 'md',
+  open = false,
   loading = false,
   checkingPermissions,
   awaitPermissions = false,
@@ -79,8 +86,11 @@ export const Button: React.FC<ButtonProps> = ({
       return colors[color];
     }
     if (variant === 'subtle') {
-      // Borderless muted solid (no transparent/ghost look) — same neutral fill for every color.
+      // Borderless muted solid (no transparent look) — same neutral fill for every color.
       return 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary';
+    }
+    if (variant === 'transparent') {
+      return '';
     }
     return 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary';
   };
@@ -114,6 +124,7 @@ export const Button: React.FC<ButtonProps> = ({
         disabled:opacity-50 disabled:cursor-not-allowed
         flex items-center justify-center gap-2
         button-press
+        ${open ? 'is-open' : ''}
         ${className}
       `}
       disabled={disabled || showLoading}

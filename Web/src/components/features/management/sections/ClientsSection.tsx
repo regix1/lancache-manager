@@ -33,7 +33,7 @@ import { resolveClientLabel } from '@utils/clientLabel';
 import { getClientHostnameReasonKey } from '@utils/clientHostnameReason';
 import { isValidIpAddress, parseIpCandidates } from '@utils/ipAddress';
 import { useKnownClientIps } from '@/hooks/useKnownClientIps';
-import { Users, EyeOff, Trash2, Edit2, ChevronDown, ChevronUp, Network } from 'lucide-react';
+import { Users, EyeOff, Trash2, Edit2, ChevronDown, Network } from 'lucide-react';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
 import type { ClientGroup, ClientExclusionRule, ClientExclusionMode } from '../../../../types';
@@ -609,9 +609,10 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                               }
                             >
                               <Button
-                                variant="filled"
-                                color="secondary"
+                                type="button"
+                                variant="transparent"
                                 size="sm"
+                                open={isExpanded}
                                 className="btn-icon-square btn-icon-square--sm pointer-target-44"
                                 onClick={() => toggleGroup(String(group.id))}
                                 aria-expanded={isExpanded}
@@ -625,11 +626,13 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                                       })
                                 }
                               >
-                                {isExpanded ? (
-                                  <ChevronUp className="w-4 h-4" />
-                                ) : (
-                                  <ChevronDown className="w-4 h-4" />
-                                )}
+                                <ChevronDown
+                                  className={`w-4 h-4 transition duration-300 ease-out${
+                                    isExpanded
+                                      ? ' rotate-180 text-themed-accent'
+                                      : ' rotate-0 text-themed-muted'
+                                  }`}
+                                />
                               </Button>
                             </Tooltip>
                           </div>

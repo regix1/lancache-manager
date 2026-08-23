@@ -162,18 +162,15 @@
   min-width: 7rem;
 }
 
-/* Row-level corruption actions (View/Delete saved scan, remove suspect/invalid,
-   detail toggles) use Button size="xs" so they read as compact sub-row controls,
-   matching every other list row in the app. The accordion header above them keeps
-   the normal sm-sized controls (SectionActionsMenu kebab = 40px, matching the
-   accordion chevron) - do not inflate buttons in this cluster back toward that
-   size, it is what made these rows look oversized in the first place. */
+/* Row-level corruption actions (View/Delete saved scan, remove suspect/invalid)
+   use Button size="xs" so they read as compact sub-row controls. The expand
+   control uses the shared icon-square, not an xs text button. The accordion
+   header above them keeps the normal sm-sized controls (SectionActionsMenu
+   kebab = 40px, matching the accordion chevron) - do not inflate the text
+   buttons in this cluster back toward that size. */
 
-.mgmt-corruption-actions .mgmt-row__toggle {
-  width: 1.5rem;
-  min-width: 1.5rem;
-  padding-right: 0;
-  padding-left: 0;
+.mgmt-corruption-actions .btn-icon-square {
+  flex-shrink: 0;
 }
 
 /* Expanded detail well under a list row (corruption chunks, sample URLs,
@@ -421,7 +418,7 @@
   /* The per-service expand chevron is icon-only; the flex-grow above stretches it
      into a wide bar because it is the row's only growing sibling next to a
      non-button Badge. Keep it a square touch target instead of a wide button. */
-  .mgmt-corruption-actions > button.mgmt-row__toggle {
+  .mgmt-corruption-actions > button.btn-icon-square {
     flex: 0 0 2rem;
     width: 2rem;
     min-width: 2rem;
