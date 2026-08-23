@@ -1,6 +1,7 @@
 import { useEffect, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronUp } from 'lucide-react';
+import { Button } from '@components/ui/Button';
 import './BackToTopButton.css';
 
 interface BackToTopButtonProps {
@@ -37,14 +38,15 @@ export function BackToTopButton({
     .join(' ');
 
   return (
-    <button
+    <Button
       type="button"
+      variant="transparent"
       aria-label={t('ui.backToTop.label')}
       className={classes}
       onClick={handleClick}
       tabIndex={visible ? 0 : -1}
     >
       <ChevronUp size={18} aria-hidden="true" />
-    </button>
+    </Button>
   );
 }

@@ -119,7 +119,7 @@
      concerns now live in one place, with one duration per property, matched positionally. */
   .smooth-transition {
     transition-property: background-color, border-color, color, box-shadow, opacity, transform;
-    transition-duration: 450ms, 450ms, 450ms, 450ms, 450ms, 75ms;
+    transition-duration: 180ms, 180ms, 180ms, 180ms, 180ms, 75ms;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
 

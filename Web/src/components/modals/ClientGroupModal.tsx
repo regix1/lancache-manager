@@ -1212,14 +1212,16 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                 })}
               />
               {chosen.count > 0 && (
-                <button
+                <Button
                   type="button"
+                  variant="transparent"
+                  size="sm"
                   onClick={clearChosen}
                   disabled={saving}
                   className="clientgroup-picker-clear themed-border-radius-sm focus-ring text-sm"
                 >
                   {t('common.clear')}
-                </button>
+                </Button>
               )}
             </div>
           )}

@@ -99,13 +99,14 @@ const PostgresPasswordRecovery: React.FC<PostgresPasswordRecoveryProps> = ({ onS
   if (!isOpen) {
     return (
       <div className="config-error-recovery">
-        <button
+        <Button
           type="button"
+          variant="transparent"
           className="config-error-recovery-toggle"
           onClick={() => setIsOpen(true)}
         >
           {t('app.configError.recovery.toggle')}
-        </button>
+        </Button>
       </div>
     );
   }

@@ -513,25 +513,6 @@
   height: 2.5rem;
 }
 
-/* The trigger was a transparent outlined square, which reads as a different system beside the
-   four filled controls it shares the row with. Same neutral control fill as the arrows and no
-   edge; the open state keeps the primary tint the popover already used. */
-.calendar-settings-trigger {
-  border-color: transparent;
-  background-color: var(--theme-bg-surface);
-  color: var(--theme-text-secondary);
-}
-
-.calendar-settings-trigger:hover {
-  background-color: var(--theme-bg-surface-hover);
-}
-
-.calendar-settings-trigger.is-open {
-  border-color: var(--theme-primary);
-  background-color: var(--theme-primary-subtle);
-  color: var(--theme-primary);
-}
-
 @media (max-width: 639.98px) {
   .calendar-gear button {
     width: 2.75rem;

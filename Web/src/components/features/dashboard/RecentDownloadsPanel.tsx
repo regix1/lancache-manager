@@ -630,15 +630,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               className="rdl-detail-toggle-slot"
             >
               <Button
-                variant="filled"
-                color={showDetails ? 'primary' : 'secondary'}
+                variant="menu"
                 size="md"
+                open={showDetails}
                 onClick={toggleDetails}
                 aria-label={t('dashboard.downloadsPanel.showDetails')}
                 aria-pressed={showDetails}
-                leftSection={<Rows3 className="w-4 h-4" />}
-                className="min-h-10 rounded-[var(--theme-border-radius)]"
-              />
+                className="btn-icon-square"
+              >
+                <Rows3 className="w-4 h-4" />
+              </Button>
             </Tooltip>
             {downloads.length > 0 && (
               <>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { formatServiceLabel } from '@utils/serviceDisplayName';
 import type { RibbonSegment } from './types';
@@ -34,8 +35,10 @@ const ResolutionRibbon: React.FC<ResolutionRibbonProps> = ({
             content={label}
             className="status-check-ribbon-segment-wrap"
           >
-            <button
+            <Button
               type="button"
+              variant="transparent"
+              size="xs"
               className={`status-check-ribbon-segment focus-ring status-check-ribbon-segment--${segment.status}`}
               aria-label={label}
               disabled={!interactive}

@@ -86,9 +86,11 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
         {/* Mode Selection Cards */}
         <div className="space-y-3">
           {/* Anonymous Mode */}
-          <button
+          <Button
+            type="button"
+            variant="transparent"
             onClick={() => setSelectedMode('anonymous')}
-            className={`w-full p-4 rounded-lg border-2 text-left transition ${
+            className={`w-full p-4 rounded-lg border-2 text-left justify-start transition ${
               selectedMode === 'anonymous'
                 ? 'border-[var(--theme-primary)] bg-themed-primary-subtle'
                 : 'border-themed-primary bg-transparent'
@@ -110,12 +112,14 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
                 <CheckCircle className="w-5 h-5 flex-shrink-0 icon-primary" />
               )}
             </div>
-          </button>
+          </Button>
 
           {/* Account Login Mode */}
-          <button
+          <Button
+            type="button"
+            variant="transparent"
             onClick={() => handleModeSelect('account')}
-            className={`w-full p-4 rounded-lg border-2 text-left transition ${
+            className={`w-full p-4 rounded-lg border-2 text-left justify-start transition ${
               selectedMode === 'account'
                 ? 'border-[var(--theme-primary)] bg-themed-primary-subtle'
                 : 'border-themed-primary bg-transparent'
@@ -137,7 +141,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
                 <CheckCircle className="w-5 h-5 flex-shrink-0 icon-primary" />
               )}
             </div>
-          </button>
+          </Button>
         </div>
 
         {/* Error Display */}

@@ -791,7 +791,10 @@ const Dashboard: React.FC = () => {
 
                   {/* Show All Button */}
                   <div className="p-2 border-b border-themed-primary">
-                    <button
+                    <Button
+                      type="button"
+                      variant="transparent"
+                      fullWidth
                       onClick={() => {
                         setCardVisibility((prev: CardVisibility) => {
                           const allVisible: CardVisibility = { ...prev };
@@ -807,7 +810,7 @@ const Dashboard: React.FC = () => {
                     >
                       <Eye className="w-4 h-4" />
                       {t('dashboard.showAllCards')}
-                    </button>
+                    </Button>
                   </div>
 
                   {/* Hidden Cards List */}
@@ -816,8 +819,11 @@ const Dashboard: React.FC = () => {
                       filteredHiddenCards.map((card: StatCardData) => {
                         const Icon = card.icon;
                         return (
-                          <button
+                          <Button
                             key={card.key}
+                            type="button"
+                            variant="transparent"
+                            fullWidth
                             onClick={() => {
                               toggleCardVisibility(card.key);
                               if (hiddenCardsCount === 1) {
@@ -839,7 +845,7 @@ const Dashboard: React.FC = () => {
                               </div>
                             </div>
                             <Eye className="w-4 h-4 text-themed-muted group-hover:text-themed-primary transition-colors flex-shrink-0" />
-                          </button>
+                          </Button>
                         );
                       })
                     ) : (
@@ -908,13 +914,15 @@ const Dashboard: React.FC = () => {
               position="top"
               className="inline-flex flex-shrink-0"
             >
-              <button
+              <Button
+                type="button"
+                variant="transparent"
+                className="btn-icon-square ml-2 flex-shrink-0 text-themed-muted"
                 onClick={hideDragHint}
-                className="ml-2 p-1 themed-border-radius-sm hover:bg-themed-hover transition-colors flex-shrink-0 text-themed-muted"
                 aria-label={t('dashboard.hideThisHint')}
               >
                 <X className="w-4 h-4" />
-              </button>
+              </Button>
             </Tooltip>
           </div>
         </div>
@@ -1019,16 +1027,18 @@ const Dashboard: React.FC = () => {
                 strategy="overlay"
                 className="absolute top-2 right-2 z-20 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
               >
-                <button
+                <Button
+                  type="button"
+                  variant="transparent"
+                  className="btn-icon-square focus-visible:opacity-100"
                   onClick={(event) => {
                     event.stopPropagation();
                     toggleCardVisibility(card.key);
                   }}
-                  className="p-2.5 themed-border-radius-sm transition-colors hover:bg-themed-hover focus-visible:opacity-100"
                   aria-label={t('tooltips.hideThisCard')}
                 >
                   <EyeOff className="w-3.5 h-3.5 text-themed-muted" />
-                </button>
+                </Button>
               </Tooltip>
 
               {/* Disabled overlay with tooltip for active cards in historical view */}

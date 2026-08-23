@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { SCHEDULED_PREFILL_SERVICE_RUN_ORDER } from './constants';
@@ -96,9 +97,11 @@ export function ScheduledPrefillPlatformsPanel({
             const container = containersByServiceKey.get(serviceKey);
 
             return (
-              <button
+              <Button
                 key={serviceKey}
                 type="button"
+                variant="transparent"
+                fullWidth
                 className={`scheduled-prefill-platforms__nav-item focus-ring${
                   isActive ? ' scheduled-prefill-platforms__nav-item--active' : ''
                 } ${platformMeta.rowClassName}`}
@@ -158,7 +161,7 @@ export function ScheduledPrefillPlatformsPanel({
                     )}
                   </Badge>
                 </span>
-              </button>
+              </Button>
             );
           })}
         </nav>

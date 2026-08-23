@@ -440,8 +440,11 @@ export function GameSelectionModal({
                         .map((game) => {
                           const isCached = cachedAppIdsSet.has(game.appId);
                           return (
-                            <button
+                            <Button
                               key={game.appId}
+                              type="button"
+                              variant="transparent"
+                              fullWidth
                               onClick={() => toggleGame(game.appId)}
                               className="w-full flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-[var(--theme-selected-bg)] hover:bg-[var(--theme-selected-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
                             >
@@ -469,7 +472,7 @@ export function GameSelectionModal({
                                   )}
                                 </div>
                               </div>
-                            </button>
+                            </Button>
                           );
                         })}
                     </div>
@@ -499,8 +502,11 @@ export function GameSelectionModal({
                         .map((game) => {
                           const isCached = cachedAppIdsSet.has(game.appId);
                           return (
-                            <button
+                            <Button
                               key={game.appId}
+                              type="button"
+                              variant="transparent"
+                              fullWidth
                               onClick={() => toggleGame(game.appId)}
                               className="w-full flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-transparent hover:bg-[var(--theme-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
                             >
@@ -526,7 +532,7 @@ export function GameSelectionModal({
                                   )}
                                 </div>
                               </div>
-                            </button>
+                            </Button>
                           );
                         })}
                     </div>

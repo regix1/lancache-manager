@@ -99,7 +99,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 
             <Button
               type="button"
-              variant="transparent"
+              variant="accordion"
               size="sm"
               open={isExpanded}
               className="btn-icon-square btn-icon-square--sm pointer-target-44"
@@ -113,7 +113,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
               aria-expanded={isExpanded}
             >
               <ChevronDown
-                className={`w-4 h-4 transition duration-300 ease-out${
+                className={`w-4 h-4 transition duration-200 ease-out${
                   isExpanded ? ' rotate-180 text-themed-accent' : ' rotate-0 text-themed-muted'
                 }`}
               />

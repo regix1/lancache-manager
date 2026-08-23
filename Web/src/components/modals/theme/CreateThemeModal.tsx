@@ -60,20 +60,26 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
           onDarkChange={(checked) => loadPresetColors(checked ? 'dark' : 'light')}
           trailingContent={
             <>
-              <button
+              <Button
+                type="button"
+                variant="default"
+                size="xs"
                 onClick={() => loadPresetColors('dark')}
-                className="px-3 py-1 text-xs rounded-lg flex items-center gap-1 bg-themed-tertiary text-themed-secondary"
+                className="px-3 py-1 text-xs rounded-lg bg-themed-tertiary text-themed-secondary"
+                leftSection={<Moon className="w-3 h-3" />}
               >
-                <Moon className="w-3 h-3" />
                 {t('modals.theme.form.loadDarkPreset')}
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                size="xs"
                 onClick={() => loadPresetColors('light')}
-                className="px-3 py-1 text-xs rounded-lg flex items-center gap-1 bg-themed-tertiary text-themed-secondary"
+                className="px-3 py-1 text-xs rounded-lg bg-themed-tertiary text-themed-secondary"
+                leftSection={<Sun className="w-3 h-3" />}
               >
-                <Sun className="w-3 h-3" />
                 {t('modals.theme.form.loadLightPreset')}
-              </button>
+              </Button>
             </>
           }
         />

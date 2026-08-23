@@ -125,9 +125,39 @@
     border-color: var(--theme-border-focus);
   }
 
-  .btn-icon-square.is-open {
+  /* Filled icon-squares (kebabs, menus): pressed surface only. */
+  .btn-icon-square.is-open[data-variant='filled'] {
+    background-color: var(--theme-bg-surface-active);
+    color: var(--theme-text-primary);
+  }
+
+  /* Accordion expand: wash of the chevron's accent, no edge. Beats
+     .bg-themed-accent-subtle (0,1,0) in the same layer. */
+  .btn-icon-square[data-variant='accordion'],
+  .btn-icon-square[data-variant='accordion']:focus-visible {
+    border: none;
+    outline: none;
+  }
+
+  .btn-icon-square.is-open[data-variant='accordion'] {
     background-color: var(--theme-accent-subtle);
     color: var(--theme-text-accent);
+    border: none;
+    outline: none;
+  }
+
+  /* Menu triggers (⋯, gear): surface at rest, primary tint when open, no edge. */
+  button[data-variant='menu'],
+  button[data-variant='menu']:focus-visible {
+    border: none;
+    outline: none;
+  }
+
+  button[data-variant='menu'].is-open {
+    background-color: var(--theme-primary-subtle);
+    color: var(--theme-primary);
+    border: none;
+    outline: none;
   }
 
   /* Phone: the same 44px touch minimum dropdowns.css gives button.ed-trigger and forms.css gives

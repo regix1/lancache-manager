@@ -6,6 +6,7 @@ import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { formatBytes, formatSpeed } from '@utils/formatters';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { Tooltip } from '@components/ui/Tooltip';
+import { Button } from '@components/ui/Button';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import Badge from '@components/ui/Badge';
 import BadgesRow from './BadgesRow';
@@ -104,10 +105,16 @@ const ActiveDownloadsView: React.FC = () => {
           ]}
         />
 
-        <button className="refresh-btn" onClick={refreshSpeed}>
+        <Button
+          type="button"
+          variant="transparent"
+          size="xs"
+          className="refresh-btn"
+          onClick={refreshSpeed}
+        >
           <RefreshCw />
           {t('downloads.active.refresh')}
-        </button>
+        </Button>
       </div>
 
       {/* Downloads List */}

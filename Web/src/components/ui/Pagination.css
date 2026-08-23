@@ -87,6 +87,11 @@
   color: var(--theme-text-primary);
 }
 
+.pagination-bar__btn--num:focus-visible,
+.pagination-bar__btn--num.focus-ring--inset:focus-visible {
+  outline: none;
+}
+
 .pagination-bar__btn--gap {
   font-size: var(--font-size-sm);
   color: var(--theme-text-muted);

@@ -40,8 +40,7 @@ export function RowActionsMenu({
       trigger={
         <Button
           type="button"
-          variant="filled"
-          color="secondary"
+          variant="menu"
           size="sm"
           open={open}
           className={`btn-icon-square btn-icon-square--sm pointer-target-44${

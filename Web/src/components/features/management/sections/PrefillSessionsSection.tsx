@@ -383,7 +383,7 @@ const SessionCard: React.FC<{
         ) : (
           <Button
             type="button"
-            variant="transparent"
+            variant="accordion"
             size="sm"
             open={isHistoryExpanded}
             className="session-row__chevron btn-icon-square btn-icon-square--sm pointer-target-44"
@@ -399,7 +399,7 @@ const SessionCard: React.FC<{
             aria-expanded={isHistoryExpanded}
           >
             <ChevronDown
-              className={`w-4 h-4 transition duration-300 ease-out${
+              className={`w-4 h-4 transition duration-200 ease-out${
                 isHistoryExpanded ? ' rotate-180 text-themed-accent' : ' rotate-0 text-themed-muted'
               }`}
             />

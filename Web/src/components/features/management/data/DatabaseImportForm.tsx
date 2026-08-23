@@ -190,8 +190,10 @@ export function DatabaseImportForm({
           </div>
         )}
 
-        <button
+        <Button
           type="button"
+          variant="transparent"
+          size="xs"
           onClick={() => setShowRawConnectionString((prev) => !prev)}
           className="text-xs text-themed-muted hover:text-themed-secondary transition-colors text-left"
           disabled={isDisabled}
@@ -199,18 +201,21 @@ export function DatabaseImportForm({
           {showRawConnectionString
             ? t('initialization.importHistorical.useFields')
             : t('initialization.importHistorical.useConnectionString')}
-        </button>
+        </Button>
       </div>
 
       {/* Advanced Options */}
       <div className="database-import-form__advanced-toggle border border-themed-secondary">
-        <button
+        <Button
+          type="button"
+          variant="default"
+          fullWidth
           onClick={() => setShowAdvanced(!showAdvanced)}
           className="database-import-form__advanced-toggle-btn text-themed-secondary bg-themed-tertiary hover:bg-themed-hover"
         >
           <span>{t('initialization.importHistorical.advancedOptions')}</span>
           {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </button>
+        </Button>
         <CollapsibleRegion
           open={showAdvanced}
           contentClassName="database-import-form__advanced-content bg-themed-secondary"

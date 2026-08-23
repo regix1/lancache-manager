@@ -34,8 +34,7 @@ export function SectionActionsMenu({
       width={width}
       trigger={
         <Button
-          variant="filled"
-          color="secondary"
+          variant="menu"
           size="sm"
           open={open}
           className="btn-icon-square"

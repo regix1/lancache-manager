@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { IpChip } from '@components/ui/IpChip';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
@@ -282,9 +283,15 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
         )}
 
         {hasActiveFilters && (
-          <button className="session-filter-clear" onClick={resetFilters}>
+          <Button
+            type="button"
+            variant="transparent"
+            size="xs"
+            className="session-filter-clear"
+            onClick={resetFilters}
+          >
             {t('common.clear')}
-          </button>
+          </Button>
         )}
       </div>
 

@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import Badge from '../../ui/Badge';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -160,12 +161,13 @@ export function PrefillCommandButtons({
     const variantClass = forcePrimary ? 'cmd-tile--primary' : getTileVariantClass(cmd);
 
     return (
-      <button
+      <Button
         key={cmd.id}
+        type="button"
+        variant="transparent"
         className={`focus-ring cmd-tile cmd-tile-enter ${variantClass}`}
         onClick={() => onCommandClick(cmd.id)}
         disabled={disabled}
-        type="button"
       >
         <div className="flex items-start gap-3 w-full">
           <span className={`icon-box icon-box--sm cmd-tile-icon ${getIconBgClass(cmd)}`}>
@@ -182,7 +184,7 @@ export function PrefillCommandButtons({
             <span className="text-xs text-themed-muted">{description}</span>
           </div>
         </div>
-      </button>
+      </Button>
     );
   };
 

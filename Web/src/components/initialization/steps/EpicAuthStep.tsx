@@ -222,13 +222,16 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
 
       {/* Skip */}
       <div className="text-center">
-        <button
+        <Button
+          type="button"
+          variant="transparent"
+          size="sm"
           onClick={onSkip}
           disabled={state.loading}
-          className="text-sm text-themed-muted hover:text-themed-secondary smooth-transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="text-sm text-themed-muted hover:text-themed-secondary smooth-transition"
         >
           {t('initialization.epicAuth.skipNote')}
-        </button>
+        </Button>
       </div>
     </div>
   );

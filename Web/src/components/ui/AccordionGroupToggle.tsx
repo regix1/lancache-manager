@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { Button } from '@components/ui/Button';
 import { useAccordionGroupControls } from '@contexts/AccordionGroupContext';
 
 /** Page-level expand/collapse-all control for every AccordionSection registered on the current page. Renders nothing until at least one section has registered. */
@@ -9,14 +10,15 @@ export function AccordionGroupToggle() {
   if (!ctx || !ctx.hasItems) return null;
 
   return (
-    <button
+    <Button
       type="button"
-      className="min-h-8 px-3 py-1.5 text-sm font-medium whitespace-nowrap themed-button-radius bg-themed-surface hover:bg-themed-surface-hover text-themed-primary smooth-transition button-press"
+      variant="default"
+      size="sm"
       onClick={ctx.anyExpanded ? ctx.collapseAll : ctx.expandAll}
     >
       {ctx.anyExpanded
         ? t('management.gameDetection.collapseAll')
         : t('management.gameDetection.expandAll')}
-    </button>
+    </Button>
   );
 }

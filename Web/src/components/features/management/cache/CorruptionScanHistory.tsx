@@ -456,7 +456,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
                           </Badge>
                           <Button
                             type="button"
-                            variant="transparent"
+                            variant="accordion"
                             size="sm"
                             open={isDetailExpanded}
                             className="btn-icon-square btn-icon-square--sm pointer-target-44"
@@ -473,7 +473,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
                             aria-expanded={isDetailExpanded}
                           >
                             <ChevronDown
-                              className={`w-4 h-4 transition duration-300 ease-out${
+                              className={`w-4 h-4 transition duration-200 ease-out${
                                 isDetailExpanded
                                   ? ' rotate-180 text-themed-accent'
                                   : ' rotate-0 text-themed-muted'

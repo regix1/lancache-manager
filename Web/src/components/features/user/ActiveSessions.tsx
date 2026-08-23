@@ -1113,7 +1113,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           </div>
           <Button
             type="button"
-            variant="transparent"
+            variant="accordion"
             size="sm"
             open={isExpanded}
             className="session-row__chevron btn-icon-square btn-icon-square--sm pointer-target-44"
@@ -1127,7 +1127,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             aria-expanded={isExpanded}
           >
             <ChevronDown
-              className={`w-4 h-4 transition duration-300 ease-out${
+              className={`w-4 h-4 transition duration-200 ease-out${
                 isExpanded ? ' rotate-180 text-themed-accent' : ' rotate-0 text-themed-muted'
               }`}
             />

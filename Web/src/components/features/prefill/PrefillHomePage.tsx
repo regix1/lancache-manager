@@ -22,8 +22,10 @@ function ServiceFeatureList({ items }: ServiceFeatureListProps) {
 
   return (
     <div className="prefill-service-features-region">
-      <button
+      <Button
         type="button"
+        variant="transparent"
+        open={open}
         onClick={() => setOpen(!open)}
         aria-expanded={isWideViewport || open}
         className="focus-ring prefill-features-toggle"
@@ -32,7 +34,7 @@ function ServiceFeatureList({ items }: ServiceFeatureListProps) {
         <ChevronDown
           className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
         />
-      </button>
+      </Button>
       <CollapsibleRegion open={isWideViewport || open}>
         <ul className="prefill-service-features">
           {items.map((item) => (

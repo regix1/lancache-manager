@@ -309,6 +309,7 @@
     height: 1.25rem;
     background-color: transparent;
     border: none;
+    outline: none;
     color: var(--theme-text-muted);
     cursor: pointer;
     transition-property: background-color, border-color, color, box-shadow, transform, opacity;
@@ -317,6 +318,10 @@
     user-select: none;
     border-radius: var(--theme-border-radius);
     padding: 0;
+  }
+
+  .number-input-wrapper .spinner-btn:focus-visible {
+    outline: none;
   }
 
   .number-input-wrapper .spinner-btn:hover:not(:disabled) {

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, XCircle, AlertTriangle, Wifi, Info, ChevronDown } from 'lucide-react';
+import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import type { NetworkDiagnostics } from '@services/api.service';
@@ -21,8 +22,10 @@ function HintDetails({ children }: HintDetailsProps) {
 
   return (
     <div>
-      <button
+      <Button
         type="button"
+        variant="transparent"
+        open={open}
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         className="focus-ring prefill-network-hint-toggle"
@@ -31,7 +34,7 @@ function HintDetails({ children }: HintDetailsProps) {
         <ChevronDown
           className={`h-3.5 w-3.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
         />
-      </button>
+      </Button>
       <CollapsibleRegion open={open}>{children}</CollapsibleRegion>
     </div>
   );

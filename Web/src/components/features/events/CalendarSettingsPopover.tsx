@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useCalendarSettings } from '@contexts/useCalendarSettings';
 import { Tooltip } from '@components/ui/Tooltip';
+import { Button } from '@components/ui/Button';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { useAnchoredPanel } from '@hooks/useAnchoredPanel';
 import { POPOVER_GUTTER_PX } from '@utils/viewportClamp';
@@ -108,14 +109,18 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
   return (
     <>
       <Tooltip content={t('events.calendar.settings.title')} position="top">
-        <button
+        <Button
           ref={triggerRef}
           type="button"
+          variant="menu"
+          size="sm"
+          open={isOpen}
           onClick={() => setIsOpen(!isOpen)}
-          className={`calendar-settings-trigger themed-border-radius-sm border w-8 h-8 flex items-center justify-center${isOpen ? ' is-open' : ''}`}
+          className="btn-icon-square btn-icon-square--sm"
+          aria-label={t('events.calendar.settings.title')}
         >
           <Settings className="w-4 h-4" />
-        </button>
+        </Button>
       </Tooltip>
 
       {/* Rendered while `present` (not just `isOpen`) so the exit animation plays.
@@ -148,18 +153,20 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                   {t('events.calendar.settings.title')}
                 </span>
               </div>
-              <button
+              <Button
                 type="button"
+                variant="transparent"
+                size="xs"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   resetSettings();
                 }}
                 className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)] text-[var(--theme-text-muted)]"
+                leftSection={<RotateCcw className="w-3 h-3" />}
               >
-                <RotateCcw className="w-3 h-3" />
                 {t('events.calendar.settings.reset')}
-              </button>
+              </Button>
             </div>
 
             {/* Settings — hairlines from .divided-list; row py-2.5 keeps gap without space-y */}

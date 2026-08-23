@@ -189,13 +189,15 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
             <CalendarDays className="w-5 h-5 text-[var(--theme-primary)]" />
             <span>{event ? t('events.modal.editTitle') : t('events.modal.createTitle')}</span>
             {event && (
-              <button
+              <Button
                 type="button"
+                variant="transparent"
+                size="sm"
                 onClick={handleViewOnDashboard}
                 className="text-sm font-normal text-[var(--theme-primary)] hover:underline"
               >
                 {t('events.modal.actions.viewStats')}
-              </button>
+              </Button>
             )}
           </div>
         }
@@ -247,34 +249,36 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
             <div>
               <FormField label={t('events.modal.labels.startDateTime')} required>
                 {(field) => (
-                  <button
+                  <Button
                     {...field}
                     type="button"
+                    variant="transparent"
                     onClick={() => setShowStartPicker(true)}
-                    className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
+                    className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors justify-start gap-2 font-normal"
                   >
                     <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
                     <span className="truncate text-sm min-w-0 flex-1">
                       {formatDateTime(startDateTime)}
                     </span>
-                  </button>
+                  </Button>
                 )}
               </FormField>
             </div>
             <div>
               <FormField label={t('events.modal.labels.endDateTime')} required>
                 {(field) => (
-                  <button
+                  <Button
                     {...field}
                     type="button"
+                    variant="transparent"
                     onClick={() => setShowEndPicker(true)}
-                    className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
+                    className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors justify-start gap-2 font-normal"
                   >
                     <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
                     <span className="truncate text-sm min-w-0 flex-1">
                       {formatDateTime(endDateTime)}
                     </span>
-                  </button>
+                  </Button>
                 )}
               </FormField>
             </div>

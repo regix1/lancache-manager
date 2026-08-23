@@ -224,37 +224,10 @@
   gap: 0.375rem;
 }
 
-/* Quiet square icon buttons for the row actions (Run Now play + expand chevron):
-   one 2.5rem footprint matching the ed-trigger height, no chrome at rest. */
-.schedule-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--theme-text-muted);
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.schedule-icon-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 @media (hover: hover) {
-  .schedule-icon-btn:hover:not(:disabled) {
-    background-color: var(--theme-bg-hover);
-    color: var(--theme-text-secondary);
-  }
-
   /* Run Now is the row's primary action; its hover picks up the accent. */
   .schedule-run-now:hover:not(:disabled) {
+    background-color: var(--theme-bg-hover);
     color: var(--theme-text-accent);
   }
 }
@@ -465,8 +438,9 @@
     flex: 1 1 auto;
   }
 
-  .schedule-icon-btn.schedule-run-now {
+  .schedule-cell-actions .schedule-run-now.btn-icon-square {
     width: 100%;
+    height: auto;
     background-color: var(--theme-bg-surface);
     border: 1px solid var(--theme-border-secondary);
     color: var(--theme-text-secondary);

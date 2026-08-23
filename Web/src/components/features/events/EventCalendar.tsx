@@ -839,9 +839,12 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                     {monthNames[currentMonth.getMonth()]}
                   </span>
                 </div>
-                <button
+                <Button
+                  type="button"
+                  variant="transparent"
                   onClick={() => setExpandedDay(null)}
-                  className="w-6 h-6 flex items-center justify-center rounded-md transition text-[var(--theme-text-muted)] bg-transparent hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)]"
+                  className="btn-icon-square btn-icon-square--sm w-6 h-6 text-[var(--theme-text-muted)] hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)]"
+                  aria-label={t('common.close')}
                 >
                   <svg
                     width="12"
@@ -854,7 +857,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                   >
                     <path d="M2 2l8 8M10 2l-8 8" />
                   </svg>
-                </button>
+                </Button>
               </div>
 
               {/* Events count */}

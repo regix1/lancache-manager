@@ -100,7 +100,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
   const chevronButton = (
     <Button
       type="button"
-      variant="transparent"
+      variant="accordion"
       open={isExpanded}
       className={`btn-icon-square flex-shrink-0${surface === 'well' ? ' btn-icon-square--sm' : ''}`}
       onClick={(e) => {
@@ -110,7 +110,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
       aria-label={isExpanded ? t('ui.accordion.collapseSection') : t('ui.accordion.expandSection')}
     >
       <ChevronDown
-        className={`${surface === 'well' ? 'w-4 h-4' : 'w-5 h-5'} transition duration-300 ease-out${
+        className={`${surface === 'well' ? 'w-4 h-4' : 'w-5 h-5'} transition duration-200 ease-out${
           isExpanded ? ' rotate-180 text-themed-accent' : ' rotate-0 text-themed-muted'
         }`}
       />

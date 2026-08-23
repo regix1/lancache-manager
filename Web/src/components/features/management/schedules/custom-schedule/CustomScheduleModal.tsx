@@ -948,9 +948,11 @@ function CustomScheduleModal({
             </section>
 
             <section className="custom-schedule-section">
-              <button
+              <Button
                 type="button"
-                className="custom-schedule-advanced-toggle focus-ring"
+                variant="transparent"
+                size="sm"
+                className="custom-schedule-advanced-toggle"
                 aria-expanded={advancedOpen}
                 onClick={() => setAdvancedOpen((open) => !open)}
               >
@@ -961,7 +963,7 @@ function CustomScheduleModal({
                 <span className="caps-label custom-schedule-advanced-label">
                   {t(`${BASE_KEY}.advanced.toggle`)}
                 </span>
-              </button>
+              </Button>
 
               <CollapsibleRegion open={advancedOpen}>
                 <div className="custom-schedule-advanced" ref={advancedRef}>

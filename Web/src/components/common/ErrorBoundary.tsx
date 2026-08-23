@@ -2,6 +2,7 @@ import React, { Component, type ReactNode } from 'react';
 import i18n from '../../i18n';
 import { getErrorMessage } from '@utils/error';
 import { APP_EVENTS } from '@utils/constants';
+import { Button } from '@components/ui/Button';
 
 interface Props {
   children: ReactNode;
@@ -67,13 +68,16 @@ class ErrorBoundary extends Component<Props, State> {
                 </pre>
               </div>
 
-              <button
+              <Button
                 type="button"
+                variant="filled"
+                color="destructive"
+                fullWidth
                 className="error-boundary-button"
                 onClick={() => window.location.reload()}
               >
                 {i18n.t('common.errorBoundary.reload')}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -3,11 +3,10 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useOptionalDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'filled' | 'subtle' | 'default' | 'transparent';
+  variant?: 'filled' | 'subtle' | 'default' | 'transparent' | 'accordion' | 'menu';
   /**
-   * Toggles the shared `.is-open` class (used by `.btn-icon-square`). Transparent
-   * buttons stay clear until this is set; filled triggers use it for the pressed
-   * edge.
+   * Adds `.is-open`. Accordion uses the accent wash; menu uses the primary
+   * tint (⋯ and gear triggers). Other variants only get the class.
    */
   open?: boolean;
   /**
@@ -49,23 +48,26 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   stableWidth?: boolean;
 }
 
-export const Button: React.FC<ButtonProps> = ({
-  children,
-  variant = 'default',
-  color = 'blue',
-  size = 'md',
-  open = false,
-  loading = false,
-  checkingPermissions,
-  awaitPermissions = false,
-  leftSection,
-  rightSection,
-  fullWidth = false,
-  stableWidth = false,
-  className = '',
-  disabled,
-  ...props
-}) => {
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    children,
+    variant = 'default',
+    color = 'blue',
+    size = 'md',
+    open = false,
+    loading = false,
+    checkingPermissions,
+    awaitPermissions = false,
+    leftSection,
+    rightSection,
+    fullWidth = false,
+    stableWidth = false,
+    className = '',
+    disabled,
+    ...props
+  },
+  ref
+) {
   const getVariantClasses = () => {
     if (variant === 'filled') {
       const colors = {
@@ -92,6 +94,16 @@ export const Button: React.FC<ButtonProps> = ({
     if (variant === 'transparent') {
       return '';
     }
+    if (variant === 'accordion') {
+      return open
+        ? 'bg-themed-accent-subtle text-themed-accent'
+        : 'bg-transparent hover:bg-themed-tertiary text-themed-muted';
+    }
+    if (variant === 'menu') {
+      return open
+        ? 'bg-themed-primary-subtle text-themed-primary'
+        : 'bg-themed-surface hover:bg-themed-surface-hover text-themed-secondary';
+    }
     return 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary';
   };
 
@@ -114,6 +126,8 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <button
+      ref={ref}
+      data-variant={variant}
       className={`
         ${getVariantClasses()}
         ${sizes[size]}
@@ -154,4 +168,4 @@ export const Button: React.FC<ButtonProps> = ({
       )}
     </button>
   );
-};
+});

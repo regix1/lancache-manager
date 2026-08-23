@@ -387,14 +387,16 @@ const DepotIncrementalCheck = memo(function DepotIncrementalCheck({
   // once here. It can be pressed while a request is out, since the previous answer stays on
   // screen through a re-check - handleDismiss retires the reply rather than cancelling it.
   const dismissButton = (
-    <button
+    <Button
       type="button"
-      className="btn-icon-square btn-icon-square--sm themed-border-radius-sm focus-ring incremental-check-dismiss"
+      variant="transparent"
+      size="sm"
+      className="btn-icon-square btn-icon-square--sm pointer-target-44 incremental-check-dismiss"
       onClick={handleDismiss}
       aria-label={t('management.schedules.services.depotMapping.dismissIncrementalCheck')}
     >
       <X className="w-4 h-4" />
-    </button>
+    </Button>
   );
 
   return (
@@ -873,9 +875,11 @@ const ScheduleRow = memo(function ScheduleRow({
               }
               className="schedule-action-slot"
             >
-              <button
+              <Button
                 type="button"
-                className="schedule-icon-btn schedule-run-now themed-border-radius-sm"
+                variant="transparent"
+                size="md"
+                className="btn-icon-square pointer-target-44 schedule-run-now"
                 onClick={handleRunNow}
                 disabled={isRunNowDisabled || isDimmed}
                 aria-label={t('management.schedules.runNow')}
@@ -891,15 +895,15 @@ const ScheduleRow = memo(function ScheduleRow({
                     <span className="schedule-run-label">{t('management.schedules.runNow')}</span>
                   </>
                 )}
-              </button>
+              </Button>
             </Tooltip>
             {hasDetail && (
               <Button
                 type="button"
-                variant="transparent"
-                size="sm"
+                variant="accordion"
+                size="md"
                 open={detailOpen}
-                className="btn-icon-square btn-icon-square--sm pointer-target-44"
+                className="btn-icon-square pointer-target-44"
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleDetail();
@@ -912,7 +916,7 @@ const ScheduleRow = memo(function ScheduleRow({
                 }
               >
                 <ChevronDown
-                  className={`w-4 h-4 transition duration-300 ease-out${
+                  className={`w-4 h-4 transition duration-200 ease-out${
                     detailOpen ? ' rotate-180 text-themed-accent' : ' rotate-0 text-themed-muted'
                   }`}
                 />

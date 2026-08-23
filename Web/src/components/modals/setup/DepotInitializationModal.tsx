@@ -3,6 +3,7 @@ import { Rocket, ArrowLeft } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
+import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
 import { ProgressBar } from '@components/ui/ProgressBar';
 import { SetupGate } from '@components/modals/SetupGate';
@@ -193,17 +194,24 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
                   }
                   position="top"
                 >
-                  <button
-                    onClick={backButtonDisabled ? undefined : handleGoBack}
-                    disabled={backButtonDisabled}
-                    className={`p-1.5 rounded-lg transition-colors bg-transparent ${
+                  <Button
+                    type="button"
+                    variant="transparent"
+                    className={`btn-icon-square btn-icon-square--sm p-1.5 rounded-lg transition-colors ${
                       backButtonDisabled
                         ? 'text-themed-muted cursor-not-allowed opacity-50'
                         : 'text-themed-secondary cursor-pointer'
                     }`}
+                    onClick={backButtonDisabled ? undefined : handleGoBack}
+                    disabled={backButtonDisabled}
+                    aria-label={
+                      backButtonDisabled
+                        ? t('initialization.modal.cannotGoBack')
+                        : t('initialization.modal.goBack')
+                    }
                   >
                     <ArrowLeft className="w-5 h-5" />
-                  </button>
+                  </Button>
                 </Tooltip>
               )}
             <div className="flex items-center gap-2">
