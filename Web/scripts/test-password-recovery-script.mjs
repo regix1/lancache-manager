@@ -186,14 +186,21 @@ test('both guides send omitted credentials to the browser', () => {
     assert.match(guide, /\.\/data\/scripts\/reset-main-admin-password\.sh/);
     assert.match(guide, /--username/);
     assert.match(guide, /--password-stdin/);
+    assert.match(guide, /--container my-lancache-manager --username admin --password-stdin/);
+    assert.match(
+      guide,
+      /--local --url http:\/\/127\.0\.0\.1:8080 --username admin --password-stdin/
+    );
+    assert.match(
+      guide,
+      /docker exec -i lancache-manager \/data\/scripts\/reset-main-admin-password\.sh --username admin --password-stdin/
+    );
     assert.doesNotMatch(guide, /--password(?!-stdin)/);
     assert.doesNotMatch(guide, /LCM_API_KEY|LCM_USERNAME|LCM_PASSWORD/);
     assert.doesNotMatch(guide, /never placed in the command line/);
     assert.doesNotMatch(guide, /the script prompts for them/);
   }
 
-  assert.match(englishGuide, /Open LANCache Manager in the browser/);
   assert.match(englishGuide, /setup screen/);
-  assert.match(chineseGuide, /在浏览器中打开 LANCache Manager/);
   assert.match(chineseGuide, /设置屏幕/);
 });

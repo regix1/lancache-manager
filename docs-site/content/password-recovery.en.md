@@ -13,21 +13,21 @@ It cannot reset a secondary administrator or regular user.
 
 ## Docker Compose
 
-LANCache Manager places a recovery script in the persistent data folder every time the container starts. With the supplied Compose file, run:
+LANCache Manager places a recovery script in the persistent data folder every time the container starts. With the supplied Compose file, pick one of the two forms.
+
+Open the one-hour window and finish on the setup screen. The browser asks for the API key, the main administrator username, and a new password:
 
 ```bash
 ./data/scripts/reset-main-admin-password.sh
 ```
 
-Username and password are optional. If you omit them, the script only restarts the container to open the one-hour recovery window. Open LANCache Manager in the browser. The setup screen will ask for the API key, the main administrator username, and a new password.
-
-The API key is never placed in the command. The host only needs Docker; `curl`, `jq`, and the app's published port are handled inside the container.
-
-To reset from the command instead of the browser, pass the username and pipe the password in. The password is never taken as an argument, because a command line is kept in shell history and is readable in the process list:
+Reset from the command instead. Pass the username and pipe the password in. The password is never taken as an argument, because a command line is kept in shell history and is readable in the process list:
 
 ```bash
 printf %s "$NEW_PASSWORD" | ./data/scripts/reset-main-admin-password.sh --username admin --password-stdin
 ```
+
+The API key is never placed in the command. The host only needs Docker; `curl`, `jq`, and the app's published port are handled inside the container.
 
 The new password must:
 
@@ -37,25 +37,41 @@ The new password must:
 
 ## A different container name
 
-The default container name is `lancache-manager`. Pass the actual name when it differs:
+The default container name is `lancache-manager`. Pass the actual name when it differs.
+
+Setup screen:
 
 ```bash
 ./data/scripts/reset-main-admin-password.sh --container my-lancache-manager
 ```
 
+Command:
+
+```bash
+printf %s "$NEW_PASSWORD" | ./data/scripts/reset-main-admin-password.sh --container my-lancache-manager --username admin --password-stdin
+```
+
 ## Unraid or a custom data path
 
-Open a host terminal and find the host folder mapped to `/data` in the container configuration. Run the script from its `scripts` subfolder:
+Open a host terminal and find the host folder mapped to `/data` in the container configuration. Run the script from its `scripts` subfolder.
+
+Setup screen:
 
 ```bash
 /path/mapped/to/data/scripts/reset-main-admin-password.sh
 ```
 
-Add `--container NAME` if the container is not named `lancache-manager`.
+Command:
+
+```bash
+printf %s "$NEW_PASSWORD" | /path/mapped/to/data/scripts/reset-main-admin-password.sh --username admin --password-stdin
+```
+
+Add `--container NAME` to either form if the container is not named `lancache-manager`.
 
 ## The script is missing
 
-The script is installed when a current container image starts. Pull and recreate the container, then run it:
+The script is installed when a current container image starts. Pull and recreate the container, then run either form:
 
 ```bash
 docker compose pull
@@ -63,24 +79,41 @@ docker compose up -d
 ./data/scripts/reset-main-admin-password.sh
 ```
 
+```bash
+docker compose pull
+docker compose up -d
+printf %s "$NEW_PASSWORD" | ./data/scripts/reset-main-admin-password.sh --username admin --password-stdin
+```
+
 Recreating the container does not delete data stored in the `/data` mount.
 
-If `/data` uses a named Docker volume instead of a host folder, restart and run the installed script inside the container:
+If `/data` uses a named Docker volume instead of a host folder, restart and run the installed script inside the container. Use `-it` for the setup-screen form. Use `-i` without a TTY when piping the password:
 
 ```bash
 docker restart lancache-manager
 docker exec -it lancache-manager /data/scripts/reset-main-admin-password.sh
 ```
 
+```bash
+docker restart lancache-manager
+printf %s "$NEW_PASSWORD" | docker exec -i lancache-manager /data/scripts/reset-main-admin-password.sh --username admin --password-stdin
+```
+
 ## Bare-metal or source installation
 
-Restart LANCache Manager first to open the one-hour recovery window. Place the supplied `scripts/reset-main-admin-password.sh` in the data directory's `scripts` folder, then run:
+Restart LANCache Manager first to open the one-hour recovery window. Place the supplied `scripts/reset-main-admin-password.sh` in the data directory's `scripts` folder, then run either form. Change the URL if the app listens elsewhere. Local mode requires `curl` and `jq` on that machine.
+
+Setup screen:
 
 ```bash
 /path/to/data/scripts/reset-main-admin-password.sh --local --url http://127.0.0.1:8080
 ```
 
-Change the URL if the app listens elsewhere. Local mode requires `curl` and `jq` on that machine. `--username` and `--password-stdin` work the same way as they do for Docker.
+Command:
+
+```bash
+printf %s "$NEW_PASSWORD" | /path/to/data/scripts/reset-main-admin-password.sh --local --url http://127.0.0.1:8080 --username admin --password-stdin
+```
 
 ## Fix a failed reset
 

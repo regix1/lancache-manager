@@ -13,21 +13,21 @@
 
 ## Docker Compose
 
-每次容器启动时，LANCache Manager 都会把恢复脚本放入持久化数据目录。使用项目提供的 Compose 文件时，运行：
+每次容器启动时，LANCache Manager 都会把恢复脚本放入持久化数据目录。使用项目提供的 Compose 文件时，从下面两种用法中选一种。
+
+打开一小时窗口，然后在设置屏幕上完成。浏览器会要求输入 API 密钥、主管理员用户名和新密码：
 
 ```bash
 ./data/scripts/reset-main-admin-password.sh
 ```
 
-用户名和密码是可选的。如果省略它们，脚本只会重启容器并打开一小时的恢复窗口。然后在浏览器中打开 LANCache Manager。设置屏幕会要求输入 API 密钥、主管理员用户名和新密码。
-
-API 密钥不会出现在命令中。主机只需要 Docker；`curl`、`jq` 以及应用对外映射的端口都由容器内部处理。
-
-如果要在命令里完成重置而不是使用浏览器，请传入用户名并通过管道传入密码。密码不能作为命令行参数，因为命令行会进入 shell 历史记录，并且在命令运行期间可以从进程列表中看到：
+在命令里完成重置。请传入用户名并通过管道传入密码。密码不能作为命令行参数，因为命令行会进入 shell 历史记录，并且在命令运行期间可以从进程列表中看到：
 
 ```bash
 printf %s "$NEW_PASSWORD" | ./data/scripts/reset-main-admin-password.sh --username admin --password-stdin
 ```
+
+API 密钥不会出现在命令中。主机只需要 Docker；`curl`、`jq` 以及应用对外映射的端口都由容器内部处理。
 
 新密码必须：
 
@@ -37,25 +37,41 @@ printf %s "$NEW_PASSWORD" | ./data/scripts/reset-main-admin-password.sh --userna
 
 ## 容器使用了其他名称
 
-默认容器名称是 `lancache-manager`。如果名称不同，请传入实际名称：
+默认容器名称是 `lancache-manager`。如果名称不同，请传入实际名称。
+
+设置屏幕：
 
 ```bash
 ./data/scripts/reset-main-admin-password.sh --container my-lancache-manager
 ```
 
+命令：
+
+```bash
+printf %s "$NEW_PASSWORD" | ./data/scripts/reset-main-admin-password.sh --container my-lancache-manager --username admin --password-stdin
+```
+
 ## Unraid 或自定义数据路径
 
-打开主机终端，找到容器配置中映射到 `/data` 的主机目录，然后运行其 `scripts` 子目录中的脚本：
+打开主机终端，找到容器配置中映射到 `/data` 的主机目录，然后运行其 `scripts` 子目录中的脚本。
+
+设置屏幕：
 
 ```bash
 /映射到/data的路径/scripts/reset-main-admin-password.sh
 ```
 
-如果容器名称不是 `lancache-manager`，请添加 `--container NAME`。
+命令：
+
+```bash
+printf %s "$NEW_PASSWORD" | /映射到/data的路径/scripts/reset-main-admin-password.sh --username admin --password-stdin
+```
+
+如果容器名称不是 `lancache-manager`，请在任一用法中添加 `--container NAME`。
 
 ## 找不到脚本
 
-当前版本的容器镜像启动时才会安装脚本。请拉取并重新创建容器，然后运行脚本：
+当前版本的容器镜像启动时才会安装脚本。请拉取并重新创建容器，然后使用任一用法：
 
 ```bash
 docker compose pull
@@ -63,24 +79,41 @@ docker compose up -d
 ./data/scripts/reset-main-admin-password.sh
 ```
 
+```bash
+docker compose pull
+docker compose up -d
+printf %s "$NEW_PASSWORD" | ./data/scripts/reset-main-admin-password.sh --username admin --password-stdin
+```
+
 重新创建容器不会删除 `/data` 挂载中的数据。
 
-如果 `/data` 使用 Docker 命名卷而不是主机目录，请重启容器并在容器内运行已安装的脚本：
+如果 `/data` 使用 Docker 命名卷而不是主机目录，请重启容器并在容器内运行已安装的脚本。设置屏幕用法使用 `-it`。通过管道传入密码时使用不带 TTY 的 `-i`：
 
 ```bash
 docker restart lancache-manager
 docker exec -it lancache-manager /data/scripts/reset-main-admin-password.sh
 ```
 
+```bash
+docker restart lancache-manager
+printf %s "$NEW_PASSWORD" | docker exec -i lancache-manager /data/scripts/reset-main-admin-password.sh --username admin --password-stdin
+```
+
 ## 裸机或源码安装
 
-先重启 LANCache Manager，打开一小时的恢复窗口。将项目提供的 `scripts/reset-main-admin-password.sh` 放入数据目录的 `scripts` 文件夹，然后运行：
+先重启 LANCache Manager，打开一小时的恢复窗口。将项目提供的 `scripts/reset-main-admin-password.sh` 放入数据目录的 `scripts` 文件夹，然后使用任一用法。如果应用监听其他地址，请修改 URL。本地模式要求该机器已安装 `curl` 和 `jq`。
+
+设置屏幕：
 
 ```bash
 /数据目录/scripts/reset-main-admin-password.sh --local --url http://127.0.0.1:8080
 ```
 
-如果应用监听其他地址，请修改 URL。本地模式要求该机器已安装 `curl` 和 `jq`。`--username` 和 `--password-stdin` 的用法与 Docker 相同。
+命令：
+
+```bash
+printf %s "$NEW_PASSWORD" | /数据目录/scripts/reset-main-admin-password.sh --local --url http://127.0.0.1:8080 --username admin --password-stdin
+```
 
 ## 处理重置失败
 
