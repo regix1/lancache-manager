@@ -207,7 +207,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
         createPortal(
           <div
             ref={popoverRef}
-            className={`absolute themed-border-radius-sm border help-popover themed-card max-w-[calc(100vw-24px)] z-[90] motion-reduce:animate-none ${
+            className={`absolute themed-border-radius-sm border help-popover themed-card max-w-[calc(100vw-24px)] motion-reduce:animate-none ${
               closing
                 ? 'animate-[dropdownSlideOutDown_0.14s_ease-in_forwards]'
                 : isReady

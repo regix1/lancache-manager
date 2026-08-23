@@ -101,8 +101,10 @@
     }
   }
 
-  /* Ensure dropdown content is absolute */
-  .absolute.themed-card {
+  /* Ensure dropdown content is absolute. Help popovers use the same two classes
+     but portal onto the body and have to sit above a modal (Modal.tsx starts at
+     80); their own rule in help-popover.css owns the stacking. */
+  .absolute.themed-card:not(.help-popover) {
     position: absolute !important;
     z-index: 60 !important;
   }
