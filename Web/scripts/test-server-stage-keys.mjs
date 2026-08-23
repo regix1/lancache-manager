@@ -194,9 +194,9 @@ const evaluate = (expression, bindings) => {
 };
 
 /** What the operator reads for one response body, in one language. */
-const shownFor = (data, bundle) => {
+const shownFor = (data, bundle, recovering = false) => {
   const t = translator(bundle);
-  const sentence = evaluate(sentenceExpression, { data, t });
+  const sentence = evaluate(sentenceExpression, { data, t, recovering });
   return evaluate(submitErrorExpression, { data, t, sentence });
 };
 
@@ -227,4 +227,11 @@ test('a response with no key at all still reads as a sentence', () => {
     'Password is too short'
   );
   assert.equal(shownFor({}, zh), zh.initialization.adminAccount.errors.createFailed);
+});
+
+test('the same form names the reset when it is resetting rather than creating', () => {
+  // One form serves both jobs, so the fallback wording is the only thing telling the operator
+  // which one just failed.
+  assert.equal(shownFor({}, zh, true), zh.initialization.adminAccount.errors.recoverFailed);
+  assert.equal(shownFor({}, en, true), en.initialization.adminAccount.errors.recoverFailed);
 });

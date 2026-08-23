@@ -328,7 +328,6 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         )}
       </p>
 
-      {/* Credentials Form */}
       <div className="space-y-4">
         <CredentialFields
           apiKey={apiKey}

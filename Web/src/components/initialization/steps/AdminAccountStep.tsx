@@ -47,7 +47,8 @@ interface CreateAccountResponse {
 
 export const AdminAccountStep: React.FC = () => {
   const { t } = useTranslation();
-  const { refreshSetupStatus } = useSetupStatus();
+  const { setupStatus, refreshSetupStatus, clearMainAdminRecovery } = useSetupStatus();
+  const recovering = setupStatus?.mainAdminRecoveryAvailable === true;
   const [form, setForm] = useState<FormState>({
     username: '',
     password: '',
@@ -138,7 +139,7 @@ export const AdminAccountStep: React.FC = () => {
 
     try {
       const response = await fetch(
-        `${API_BASE}/account-setup/first-admin`,
+        `${API_BASE}/account-setup/${recovering ? 'recover-main-admin' : 'first-admin'}`,
         ApiService.getJsonFetchOptions(
           {
             username: form.username.trim(),
@@ -160,10 +161,15 @@ export const AdminAccountStep: React.FC = () => {
 
       if (response.ok && data.success) {
         setAccountCreated(true);
-        // The account now exists, which is the one thing the wizard gate was waiting on, so
-        // re-reading the setup status is what closes this screen and hands the operator the
-        // sign-in form.
+        // First-admin: the account now exists, which is the one thing the wizard gate was waiting
+        // on, so re-reading the setup status closes this screen. Recovery: the account already
+        // existed and the server still reports the window as open, so the local flag is what
+        // lets the wizard close and hands the operator the sign-in form.
         setTimeout(() => {
+          if (recovering) {
+            clearMainAdminRecovery();
+            return;
+          }
           void refreshSetupStatus();
         }, 1500);
       } else {
@@ -174,7 +180,11 @@ export const AdminAccountStep: React.FC = () => {
         const sentence =
           data.errors?.[0]?.message ||
           data.error ||
-          t('initialization.adminAccount.errors.createFailed');
+          t(
+            recovering
+              ? 'initialization.adminAccount.errors.recoverFailed'
+              : 'initialization.adminAccount.errors.createFailed'
+          );
         setSubmitError(data.stageKey ? t(data.stageKey, { defaultValue: sentence }) : sentence);
       }
     } catch (error: unknown) {
@@ -182,7 +192,7 @@ export const AdminAccountStep: React.FC = () => {
     } finally {
       setIsSubmitting(false);
     }
-  }, [form, validateForm, refreshSetupStatus, t]);
+  }, [clearMainAdminRecovery, form, recovering, refreshSetupStatus, t, validateForm]);
 
   if (accountCreated) {
     return (
@@ -190,8 +200,16 @@ export const AdminAccountStep: React.FC = () => {
         <StepHeader
           icon={<CheckCircle className="w-7 h-7 icon-success" />}
           iconBackground="bg-themed-success"
-          title={t('initialization.adminAccount.createdHeading')}
-          description={t('initialization.adminAccount.createdDescription')}
+          title={t(
+            recovering
+              ? 'initialization.adminAccount.recoveredHeading'
+              : 'initialization.adminAccount.createdHeading'
+          )}
+          description={t(
+            recovering
+              ? 'initialization.adminAccount.recoveredDescription'
+              : 'initialization.adminAccount.createdDescription'
+          )}
         />
       </div>
     );
@@ -208,8 +226,16 @@ export const AdminAccountStep: React.FC = () => {
       <StepHeader
         icon={<UserPlus className="w-7 h-7 icon-info" />}
         iconBackground="bg-themed-info"
-        title={t('initialization.adminAccount.heading')}
-        description={t('initialization.adminAccount.description')}
+        title={t(
+          recovering
+            ? 'initialization.adminAccount.recoveryHeading'
+            : 'initialization.adminAccount.heading'
+        )}
+        description={t(
+          recovering
+            ? 'initialization.adminAccount.recoveryDescription'
+            : 'initialization.adminAccount.description'
+        )}
       />
 
       {/* The session cookie is only marked Secure on an HTTPS request, because forcing it on a
@@ -312,8 +338,16 @@ export const AdminAccountStep: React.FC = () => {
           fullWidth
         >
           {isSubmitting
-            ? t('initialization.adminAccount.submitting')
-            : t('initialization.adminAccount.submit')}
+            ? t(
+                recovering
+                  ? 'initialization.adminAccount.recovering'
+                  : 'initialization.adminAccount.submitting'
+              )
+            : t(
+                recovering
+                  ? 'initialization.adminAccount.recoverSubmit'
+                  : 'initialization.adminAccount.submit'
+              )}
         </Button>
       </div>
 

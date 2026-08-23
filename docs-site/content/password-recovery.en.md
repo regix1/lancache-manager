@@ -19,25 +19,11 @@ LANCache Manager places a recovery script in the persistent data folder every ti
 ./data/scripts/reset-main-admin-password.sh
 ```
 
-Username and password are optional. If you do not enter them in the command, the script prompts for them.
+Username and password are optional. If you omit them, the script only restarts the container to open the one-hour recovery window. Open LANCache Manager in the browser. The setup screen will ask for the API key, the main administrator username, and a new password.
 
-The script then:
+The API key is never placed in the command. The host only needs Docker; `curl`, `jq`, and the app's published port are handled inside the container.
 
-1. restarts the LANCache Manager container to open the one-hour recovery window;
-2. waits for the app to become ready;
-3. reads the API key inside the container;
-4. uses the username and password you passed, or prompts for any that are missing;
-5. sends the reset request and reports the result.
-
-The API key is never placed in the command. The host only needs Docker and an interactive terminal; `curl`, `jq`, and the app's published port are handled inside the container.
-
-You can pass the username if you want:
-
-```bash
-./data/scripts/reset-main-admin-password.sh --username admin
-```
-
-The script always asks for the password at a prompt. It is never taken as an argument, because a command line is kept in shell history and is readable in the process list while the command runs. To use the script from another script, pipe the password in:
+To reset from the command instead of the browser, pass the username and pipe the password in. The password is never taken as an argument, because a command line is kept in shell history and is readable in the process list:
 
 ```bash
 printf %s "$NEW_PASSWORD" | ./data/scripts/reset-main-admin-password.sh --username admin --password-stdin

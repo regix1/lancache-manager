@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
-import { transpile } from './transpile-module.mjs';
-import { isAdminAccountRequired } from '../src/utils/adminAccountSetup.ts';
+import { compileToUrl, transpile } from './transpile-module.mjs';
+
+const { isAdminAccountRequired } = await import(
+  await compileToUrl('../src/utils/adminAccountSetup.ts')
+);
 
 /**
  * Two kinds of installation own no account row: a brand-new one, and one that has been running since
@@ -163,7 +166,8 @@ const screensFor = (setupStatus, authenticationEnabled) => {
   const adminAccountRequired = isAdminAccountRequired({
     authenticationEnabled,
     accountExists: setupStatus.accountExists ?? null,
-    needsPostgresCredentials: setupStatus.needsPostgresCredentials === true
+    needsPostgresCredentials: setupStatus.needsPostgresCredentials === true,
+    mainAdminRecoveryAvailable: setupStatus.mainAdminRecoveryAvailable === true
   });
   const entryStep = resolveInitialStep(setupStatus, adminAccountRequired);
 
@@ -291,6 +295,19 @@ test('an installation that already has an account is left alone', () => {
   assert.equal(screens.adminAccountRequired, false);
   assert.equal(screens.wizard, false);
   assert.equal(screens.signIn, true);
+});
+
+test('a completed installation with the recovery window open uses the account setup step', () => {
+  const recovering = install({ mainAdminRecoveryAvailable: true });
+
+  const screens = screensFor(recovering, true);
+
+  assert.equal(screens.adminAccountRequired, true);
+  assert.equal(screens.signIn, false);
+  assert.equal(screens.wizard, true);
+  assert.equal(screens.screen, 'wizard');
+  assert.equal(screens.step, 'admin-account');
+  assert.equal(screens.stepComponent, 'AdminAccountStep');
 });
 
 test('an unreadable account table leaves the installation on the sign-in screen', () => {

@@ -26,9 +26,6 @@ const chineseGuide = readFileSync(
   'utf8'
 );
 
-// The shims must shadow the real docker, curl and jq, but replacing PATH outright loses the
-// entries the platform needs to find bash at all, so the shim directory goes in front of the
-// inherited one instead.
 const shimmedPath = (bin) => `${bin}${delimiter}${process.env.PATH ?? ''}`;
 
 const executable = (path, contents) => {
@@ -36,7 +33,7 @@ const executable = (path, contents) => {
   chmodSync(path, 0o755);
 };
 
-const localLayout = () => {
+const localLayout = (curlBody) => {
   const root = mkdtempSync(join(tmpdir(), 'lcm-password-recovery-local-'));
   const data = join(root, 'data');
   const scripts = join(data, 'scripts');
@@ -50,10 +47,7 @@ const localLayout = () => {
   chmodSync(script, 0o755);
   writeFileSync(join(security, 'api_key.txt'), 'key-that-must-not-be-printed\n');
   executable(join(bin, 'jq'), '#!/bin/sh\nprintf "{}\\n"\n');
-  executable(
-    join(bin, 'curl'),
-    `#!/bin/sh\ncase "$*" in\n  *"/health"*) exit 0 ;;\n  *) cat >/dev/null; printf '{"success":true,"message":"Password reset"}\\n' ;;\nesac\n`
-  );
+  executable(join(bin, 'curl'), curlBody);
   return { root, script, bin };
 };
 
@@ -124,13 +118,14 @@ test('the host-side script forwards the username and pipes the password in', () 
   }
 });
 
-test('local recovery prompts when username and password are omitted', () => {
-  const { root, script, bin } = localLayout();
+test('local recovery without credentials opens the window and leaves the prompt to the app', () => {
+  const { root, script, bin } = localLayout(
+    `#!/bin/sh\ncase "$*" in\n  *"/health"*) exit 0 ;;\n  *) echo unexpected >&2; exit 1 ;;\nesac\n`
+  );
 
   try {
     const run = spawnSync('bash', [script, '--local', '--url', 'http://127.0.0.1:8080'], {
       encoding: 'utf8',
-      input: 'owner\nNewPassword-2026\nNewPassword-2026\n',
       env: {
         ...process.env,
         PATH: shimmedPath(bin)
@@ -138,18 +133,20 @@ test('local recovery prompts when username and password are omitted', () => {
     });
 
     assert.equal(run.status, 0, run.stderr);
-    assert.match(run.stdout, /The script will prompt you for anything you did not supply\./);
-    assert.match(run.stdout, /"success":true/);
-    assert.match(run.stdout, /Password reset\. Sign in with the new password\./);
+    assert.match(run.stdout, /The recovery window is open for one hour\./);
+    assert.match(run.stdout, /Open LANCache Manager in your browser\./);
+    assert.doesNotMatch(run.stdout, /Main administrator username/);
+    assert.doesNotMatch(run.stdout, /"success":true/);
     assert.doesNotMatch(run.stdout + run.stderr, /key-that-must-not-be-printed/);
-    assert.doesNotMatch(run.stdout + run.stderr, /NewPassword-2026/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
 test('local recovery takes the username in the command and the password on stdin', () => {
-  const { root, script, bin } = localLayout();
+  const { root, script, bin } = localLayout(
+    `#!/bin/sh\ncase "$*" in\n  *"/health"*) exit 0 ;;\n  *) cat >/dev/null; printf '{"success":true,"message":"Password reset"}\\n' ;;\nesac\n`
+  );
 
   try {
     const run = spawnSync(
@@ -174,7 +171,7 @@ test('local recovery takes the username in the command and the password on stdin
     );
 
     assert.equal(run.status, 0, run.stderr);
-    assert.doesNotMatch(run.stdout, /The script will prompt you for anything/);
+    assert.doesNotMatch(run.stdout, /Open LANCache Manager in your browser/);
     assert.match(run.stdout, /"success":true/);
     assert.match(run.stdout, /Password reset\. Sign in with the new password\./);
     assert.doesNotMatch(run.stdout + run.stderr, /key-that-must-not-be-printed/);
@@ -184,15 +181,19 @@ test('local recovery takes the username in the command and the password on stdin
   }
 });
 
-test('both guides lead with the generated script and optional credentials', () => {
+test('both guides send omitted credentials to the browser', () => {
   for (const guide of [englishGuide, chineseGuide]) {
     assert.match(guide, /\.\/data\/scripts\/reset-main-admin-password\.sh/);
     assert.match(guide, /--username/);
     assert.match(guide, /--password-stdin/);
-    // The password must never be shown as a command-line argument, or the guide teaches a habit
-    // that writes it into shell history and the process list.
     assert.doesNotMatch(guide, /--password(?!-stdin)/);
     assert.doesNotMatch(guide, /LCM_API_KEY|LCM_USERNAME|LCM_PASSWORD/);
     assert.doesNotMatch(guide, /never placed in the command line/);
+    assert.doesNotMatch(guide, /the script prompts for them/);
   }
+
+  assert.match(englishGuide, /Open LANCache Manager in the browser/);
+  assert.match(englishGuide, /setup screen/);
+  assert.match(chineseGuide, /在浏览器中打开 LANCache Manager/);
+  assert.match(chineseGuide, /设置屏幕/);
 });

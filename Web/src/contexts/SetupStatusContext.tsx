@@ -19,6 +19,7 @@ const UNREAD_SETUP_STATUS: SetupStatus = {
   hasProcessedLogs: false,
   needsPostgresCredentials: false,
   accountExists: null,
+  mainAdminRecoveryAvailable: false,
   currentSetupStep: null,
   dataSourceChoice: null,
   completedPlatforms: null,
@@ -77,6 +78,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
           hasProcessedLogs: data.hasProcessedLogs === true,
           needsPostgresCredentials: data.needsPostgresCredentials === true,
           accountExists: typeof data.accountExists === 'boolean' ? data.accountExists : null,
+          mainAdminRecoveryAvailable: data.mainAdminRecoveryAvailable === true,
           currentSetupStep: data.currentSetupStep ?? null,
           dataSourceChoice: data.dataSourceChoice ?? null,
           completedPlatforms: data.completedPlatforms ?? null,
@@ -115,6 +117,10 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
 
   const refreshSetupStatus = async () => {
     await fetchSetupStatus();
+  };
+
+  const clearMainAdminRecovery = () => {
+    setSetupStatus((prev) => (prev ? { ...prev, mainAdminRecoveryAvailable: false } : null));
   };
 
   const markSetupCompleted = () => {
@@ -236,6 +242,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         syncError,
         refreshSetupStatus,
         markSetupCompleted,
+        clearMainAdminRecovery,
         updateWizardState
       }}
     >

@@ -874,7 +874,7 @@
       "logsLabel": "Logs, first create or rotate only",
       "logsCommand": "docker logs lancache-manager",
       "forgotTitle": "Forgot the main administrator password?",
-      "forgotPassword": "On the host, run <code>./data/scripts/reset-main-admin-password.sh</code>. Username and password are optional; the script prompts for any you omit. See <docs>Password Recovery</docs>.",
+      "forgotPassword": "On the host, run <code>./data/scripts/reset-main-admin-password.sh</code>. That opens a one-hour window. The setup screen then asks for the username and a new password. See <docs>Password Recovery</docs>.",
       "docsHref": "https://regix1.github.io/lancache-manager/password-recovery/"
     },
     "success": "Authentication successful! Upgrading to full access...",
@@ -6748,6 +6748,12 @@
       "submitting": "Creating account...",
       "createdHeading": "Account Created",
       "createdDescription": "Sign in with this username and password from now on. Continuing...",
+      "recoveryHeading": "Administrator Account",
+      "recoveryDescription": "Enter the API key, the main administrator username, and a new password.",
+      "recoverSubmit": "Save password",
+      "recovering": "Saving password...",
+      "recoveredHeading": "Password saved",
+      "recoveredDescription": "Sign in with this username and password from now on. Continuing...",
       "insecureConnection": {
         "title": "This connection is not encrypted",
         "description": "The password you set here travels across the network in the clear, and so does every sign-in after it. Put this site behind HTTPS before anyone connects from another machine."
@@ -6765,6 +6771,7 @@
         "apiKeyRequired": "API key is required",
         "tooManyAttempts": "Too many attempts. Wait a minute and try again.",
         "createFailed": "Failed to create the account. Please try again.",
+        "recoverFailed": "The password could not be saved. Please try again.",
         "network": "Network error. Please check your connection."
       }
     },

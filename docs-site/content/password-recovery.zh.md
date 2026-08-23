@@ -19,25 +19,11 @@
 ./data/scripts/reset-main-admin-password.sh
 ```
 
-用户名和密码是可选的。如果命令里没有输入它们，脚本会提示你输入。
+用户名和密码是可选的。如果省略它们，脚本只会重启容器并打开一小时的恢复窗口。然后在浏览器中打开 LANCache Manager。设置屏幕会要求输入 API 密钥、主管理员用户名和新密码。
 
-脚本接着会：
+API 密钥不会出现在命令中。主机只需要 Docker；`curl`、`jq` 以及应用对外映射的端口都由容器内部处理。
 
-1. 重启 LANCache Manager 容器并打开一小时的恢复窗口；
-2. 等待应用就绪；
-3. 在容器内读取 API 密钥；
-4. 使用你传入的用户名和密码；缺哪一项就提示输入哪一项；
-5. 发送重置请求并显示结果。
-
-API 密钥不会出现在命令中。主机只需要 Docker 和交互式终端；`curl`、`jq` 以及应用对外映射的端口都由容器内部处理。
-
-如果愿意，也可以直接传入用户名：
-
-```bash
-./data/scripts/reset-main-admin-password.sh --username admin
-```
-
-脚本始终在提示处询问密码，不接受把密码作为命令行参数，因为命令行会进入 shell 历史记录，并且在命令运行期间可以从进程列表中看到。若要在其他脚本中调用，请通过管道传入密码：
+如果要在命令里完成重置而不是使用浏览器，请传入用户名并通过管道传入密码。密码不能作为命令行参数，因为命令行会进入 shell 历史记录，并且在命令运行期间可以从进程列表中看到：
 
 ```bash
 printf %s "$NEW_PASSWORD" | ./data/scripts/reset-main-admin-password.sh --username admin --password-stdin

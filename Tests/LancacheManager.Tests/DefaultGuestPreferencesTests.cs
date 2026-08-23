@@ -178,7 +178,8 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
             capabilityService: null!,
             nginxLogRotationService: null!,
             cacheManagementService: null!,
-            dbContextFactory: null!);
+            dbContextFactory: null!,
+            claimWindow: null!);
 
         return (controller, (RecordingNotifications)(object)notifications);
     }

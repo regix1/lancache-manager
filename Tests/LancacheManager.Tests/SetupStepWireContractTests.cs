@@ -110,7 +110,8 @@ public sealed class SetupStepWireContractTests : IDisposable
             capabilityService: null!,
             nginxLogRotationService: null!,
             cacheManagementService: null!,
-            dbContextFactory: null!)
+            dbContextFactory: null!,
+            claimWindow: null!)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

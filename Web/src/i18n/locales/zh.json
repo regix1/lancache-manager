@@ -874,7 +874,7 @@
       "logsLabel": "仅首次创建或轮换时写入日志",
       "logsCommand": "docker logs lancache-manager",
       "forgotTitle": "忘记主管理员密码？",
-      "forgotPassword": "在主机上运行 <code>./data/scripts/reset-main-admin-password.sh</code>。用户名和密码可选；未传入的项会提示输入。详见 <docs>密码恢复</docs>。",
+      "forgotPassword": "在主机上运行 <code>./data/scripts/reset-main-admin-password.sh</code>。这会打开一小时的恢复窗口。然后设置屏幕会要求输入用户名和新密码。详见 <docs>密码恢复</docs>。",
       "docsHref": "https://regix1.github.io/lancache-manager/zh/password-recovery/"
     },
     "success": "认证成功！正在升级到完全访问...",
@@ -6714,6 +6714,12 @@
       "submitting": "创建账户中...",
       "createdHeading": "账户已创建",
       "createdDescription": "今后请使用此用户名和密码登录。正在继续...",
+      "recoveryHeading": "管理员账户",
+      "recoveryDescription": "请输入 API 密钥、主管理员用户名和新密码。",
+      "recoverSubmit": "保存密码",
+      "recovering": "正在保存密码...",
+      "recoveredHeading": "密码已保存",
+      "recoveredDescription": "今后请使用此用户名和密码登录。正在继续...",
       "insecureConnection": {
         "title": "此连接未加密",
         "description": "您在此设置的密码会以明文形式在网络上传输，之后的每次登录同样如此。在他人从其他设备连接之前，请为本站点启用 HTTPS。"
@@ -6731,6 +6737,7 @@
         "apiKeyRequired": "API 密钥是必需的",
         "tooManyAttempts": "尝试次数过多。请等待一分钟后重试。",
         "createFailed": "创建账户失败。请重试。",
+        "recoverFailed": "无法保存密码。请重试。",
         "network": "网络错误。请检查您的网络连接。"
       }
     },

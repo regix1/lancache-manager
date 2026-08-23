@@ -15,14 +15,17 @@ usage() {
         "Reset the LANCache Manager main administrator password." \
         "" \
         "Usage:" \
-        "  reset-main-admin-password.sh [--container NAME] [--username NAME]" \
-        "  reset-main-admin-password.sh --local [--url URL] [--username NAME]" \
+        "  reset-main-admin-password.sh [--container NAME]" \
+        "  reset-main-admin-password.sh --local [--url URL]" \
+        "  reset-main-admin-password.sh [--container NAME] --username NAME --password-stdin" \
         "" \
-        "The script prompts for anything you do not supply." \
+        "Username and password are optional. If you omit them, the script only opens the" \
+        "recovery window. Open LANCache Manager in the browser; it will prompt for the" \
+        "main administrator username and a new password." \
         "" \
         "The new password is never read from the command line, because a command line is kept in" \
-        "shell history and is readable in the process list. Type it at the prompt, or pipe it in" \
-        "with --password-stdin when scripting." \
+        "shell history and is readable in the process list. To reset from this script instead of" \
+        "the browser, pass --username and pipe the password in with --password-stdin." \
         "" \
         "Options:" \
         "  --container NAME  Docker container name (default: lancache-manager)" \
@@ -87,6 +90,11 @@ if [ "${DOTNET_RUNNING_IN_CONTAINER:-}" = "true" ]; then
     inside_container=1
 fi
 
+complete_from_command=0
+if [ -n "$username" ] && [ "$password_from_stdin" -eq 1 ]; then
+    complete_from_command=1
+fi
+
 if [ "$inside_container" -eq 0 ] && [ "$local_mode" -eq 0 ]; then
     if ! command -v docker >/dev/null 2>&1; then
         echo "Docker was not found. Install Docker or use --local for a source installation." >&2
@@ -100,15 +108,8 @@ if [ "$inside_container" -eq 0 ] && [ "$local_mode" -eq 0 ]; then
     fi
 
     inner_args=(--inside-container)
-    if [ -n "$username" ]; then
-        inner_args+=(--username "$username")
-    fi
-
-    # The password reaches the container on stdin, never in the command line the container runs.
-    # Piping needs stdin attached and no TTY; prompting needs the TTY, so the two modes differ only
-    # in that flag.
-    if [ "$password_from_stdin" -eq 1 ]; then
-        inner_args+=(--password-stdin)
+    if [ "$complete_from_command" -eq 1 ]; then
+        inner_args+=(--username "$username" --password-stdin)
         docker_flags=(-i)
     else
         docker_flags=(-it)
@@ -120,12 +121,15 @@ if [ "$inside_container" -eq 0 ] && [ "$local_mode" -eq 0 ]; then
         /data/scripts/reset-main-admin-password.sh "${inner_args[@]}"
 fi
 
-for command_name in curl jq; do
-    if ! command -v "$command_name" >/dev/null 2>&1; then
-        echo "$command_name is required in local mode." >&2
-        exit 1
-    fi
-done
+if ! command -v curl >/dev/null 2>&1; then
+    echo "curl is required." >&2
+    exit 1
+fi
+
+if [ "$complete_from_command" -eq 1 ] && ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required to reset the password from the command." >&2
+    exit 1
+fi
 
 if [ "$inside_container" -eq 1 ]; then
     app_url="http://127.0.0.1"
@@ -134,16 +138,6 @@ else
     script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
     api_key_path="$script_directory/../security/api_key.txt"
 fi
-
-if [ ! -r "$api_key_path" ]; then
-    echo "The API key could not be read at $api_key_path." >&2
-    exit 1
-fi
-
-api_key="$(<"$api_key_path")"
-confirmation=""
-response=""
-trap 'unset api_key username password confirmation response' EXIT
 
 echo "Waiting for LANCache Manager to become ready..."
 ready=0
@@ -160,41 +154,25 @@ if [ "$ready" -ne 1 ]; then
     exit 1
 fi
 
-if [ -z "$username" ]; then
-    echo "The script will prompt you for anything you did not supply."
-    read -r -p "Main administrator username: " username
-    if [ -z "$username" ]; then
-        echo "The username cannot be empty." >&2
-        exit 1
-    fi
+if [ "$complete_from_command" -ne 1 ]; then
+    echo "The recovery window is open for one hour."
+    echo "Open LANCache Manager in your browser. It will prompt for the main administrator username and a new password."
+    exit 0
 fi
 
-if [ "$password_from_stdin" -eq 1 ]; then
-    IFS= read -r password || true
-    if [ -z "$password" ]; then
-        echo "No password arrived on standard input." >&2
-        exit 1
-    fi
-else
-    while true; do
-        read -r -s -p "New password: " password
-        printf '\n'
-        read -r -s -p "Confirm new password: " confirmation
-        printf '\n'
+if [ ! -r "$api_key_path" ]; then
+    echo "The API key could not be read at $api_key_path." >&2
+    exit 1
+fi
 
-        if [ -z "$password" ]; then
-            echo "The password cannot be empty." >&2
-            continue
-        fi
+api_key="$(<"$api_key_path")"
+response=""
+trap 'unset api_key username password response' EXIT
 
-        if [ "$password" = "$confirmation" ]; then
-            break
-        fi
-
-        echo "The passwords did not match. Try again." >&2
-        password=""
-        confirmation=""
-    done
+IFS= read -r password || true
+if [ -z "$password" ]; then
+    echo "No password arrived on standard input." >&2
+    exit 1
 fi
 
 if response="$(

@@ -215,6 +215,14 @@ public class SetupStatusResponse
     public bool? AccountExists { get; set; }
 
     /// <summary>
+    /// Whether the post-start window is open and a main administrator already exists, so the
+    /// Authenticate page can offer a password reset. Answered without a session for the same reason
+    /// as <see cref="AccountExists"/>: the caller who needs this form has not signed in. It does not
+    /// authorize the reset; the recover endpoint still requires the API key.
+    /// </summary>
+    public bool MainAdminRecoveryAvailable { get; set; }
+
+    /// <summary>
     /// The wizard step in progress. Null once setup has completed, or before the wizard has recorded
     /// a step.
     /// </summary>

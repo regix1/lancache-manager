@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using LancacheManager.Core.Services.SteamKit2;
+using LancacheManager.Security;
 
 
 namespace LancacheManager.Controllers;
@@ -37,6 +38,7 @@ public class SystemController : ControllerBase
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly CacheManagementService _cacheManagementService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
+    private readonly AccountClaimWindow _claimWindow;
 
     // Names the clock change inside DefaultGuestPreferencesChanged, alongside the single-field keys the
     // same event has always carried. A listener reads this to know the payload holds a whole clock and
@@ -56,7 +58,8 @@ public class SystemController : ControllerBase
         DatasourceCapabilityService capabilityService,
         NginxLogRotationService nginxLogRotationService,
         CacheManagementService cacheManagementService,
-        IDbContextFactory<AppDbContext> dbContextFactory)
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        AccountClaimWindow claimWindow)
     {
         _capabilityService = capabilityService;
         _stateService = stateService;
@@ -71,6 +74,7 @@ public class SystemController : ControllerBase
         _nginxLogRotationService = nginxLogRotationService;
         _cacheManagementService = cacheManagementService;
         _dbContextFactory = dbContextFactory;
+        _claimWindow = claimWindow;
     }
 
     /// <summary>
@@ -331,6 +335,7 @@ public class SystemController : ControllerBase
             SetupCompleted = isCompleted, // For backward compatibility
             NeedsPostgresCredentials = needsPostgresCredentials,
             AccountExists = accountExists,
+            MainAdminRecoveryAvailable = _claimWindow.IsOpen && accountExists == true,
             CurrentSetupStep = state.CurrentSetupStep?.ToWireString(),
             DataSourceChoice = state.DataSourceChoice?.ToWireString(),
             CompletedPlatforms = state.CompletedPlatforms,

@@ -129,8 +129,6 @@ const AuthenticateTab: React.FC = () => {
               </dd>
             </div>
           </dl>
-          {/* Recovery is proved by the API key on the host. A form here would be somewhere to
-              paste the one secret that owns the installation. */}
           <div className="auth-upgrade-help-recovery">
             <p className="auth-upgrade-help-recovery-title">{t('auth.help.forgotTitle')}</p>
             <p>

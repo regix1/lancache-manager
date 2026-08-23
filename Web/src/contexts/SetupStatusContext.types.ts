@@ -14,6 +14,8 @@ export interface SetupStatus {
   needsPostgresCredentials: boolean;
   /** Whether any account exists. Null when the server could not read the account table. */
   accountExists: boolean | null;
+  /** Whether the post-start recovery window is open for the main administrator. */
+  mainAdminRecoveryAvailable: boolean;
   currentSetupStep: string | null;
   dataSourceChoice: string | null;
   completedPlatforms: string | null;
@@ -38,6 +40,7 @@ interface SetupStatusContextType {
   syncError: string | null;
   refreshSetupStatus: () => Promise<void>;
   markSetupCompleted: () => void;
+  clearMainAdminRecovery: () => void;
   updateWizardState: (updates: WizardStateUpdate) => Promise<boolean>;
 }
 

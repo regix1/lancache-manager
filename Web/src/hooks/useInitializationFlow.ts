@@ -224,7 +224,10 @@ function resolveInitialStep(
   // Only an account table the server actually read and found empty sends the operator here. When
   // the account state came back unknown the database is what the wizard has to sort out first,
   // because the account row is stored in the database this step cannot reach.
-  if (adminAccountRequired && setupStatus?.accountExists === false) {
+  if (
+    adminAccountRequired &&
+    (setupStatus?.accountExists === false || setupStatus?.mainAdminRecoveryAvailable === true)
+  ) {
     return 'admin-account';
   }
 
@@ -278,7 +281,8 @@ export function useInitializationFlow({
   const adminAccountRequired = isAdminAccountRequired({
     authenticationEnabled,
     accountExists: setupStatus?.accountExists ?? null,
-    needsPostgresCredentials: setupStatus?.needsPostgresCredentials === true
+    needsPostgresCredentials: setupStatus?.needsPostgresCredentials === true,
+    mainAdminRecoveryAvailable: setupStatus?.mainAdminRecoveryAvailable === true
   });
 
   // Track whether we've done the initial hydration from server state

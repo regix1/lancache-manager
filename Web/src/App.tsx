@@ -125,7 +125,8 @@ const AppContent: React.FC = () => {
   const adminAccountRequired = isAdminAccountRequired({
     authenticationEnabled,
     accountExists: setupStatus?.accountExists ?? null,
-    needsPostgresCredentials: setupStatus?.needsPostgresCredentials === true
+    needsPostgresCredentials: setupStatus?.needsPostgresCredentials === true,
+    mainAdminRecoveryAvailable: setupStatus?.mainAdminRecoveryAvailable === true
   });
   const shouldShowInitializationFlow =
     !setupCompleted || Boolean(setupStatus?.needsPostgresCredentials) || adminAccountRequired;
