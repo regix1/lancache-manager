@@ -8,21 +8,26 @@ inside_container=0
 app_url="http://127.0.0.1"
 username=""
 password=""
+password_from_stdin=0
 
 usage() {
     printf '%s\n' \
         "Reset the LANCache Manager main administrator password." \
         "" \
         "Usage:" \
-        "  reset-main-admin-password.sh [--container NAME] [--username NAME] [--password PASS]" \
-        "  reset-main-admin-password.sh --local [--url URL] [--username NAME] [--password PASS]" \
+        "  reset-main-admin-password.sh [--container NAME] [--username NAME]" \
+        "  reset-main-admin-password.sh --local [--url URL] [--username NAME]" \
         "" \
-        "Username and password are optional. If you omit either one, the script prompts for it." \
+        "The script prompts for anything you do not supply." \
+        "" \
+        "The new password is never read from the command line, because a command line is kept in" \
+        "shell history and is readable in the process list. Type it at the prompt, or pipe it in" \
+        "with --password-stdin when scripting." \
         "" \
         "Options:" \
         "  --container NAME  Docker container name (default: lancache-manager)" \
         "  --username NAME   Main administrator username" \
-        "  --password PASS   New password" \
+        "  --password-stdin  Read the new password from standard input" \
         "  --local           Call a non-containerized LANCache Manager" \
         "  --url URL         App address in local mode (default: http://127.0.0.1)" \
         "  --help            Show this help"
@@ -46,13 +51,9 @@ while [ "$#" -gt 0 ]; do
             username="$2"
             shift 2
             ;;
-        --password)
-            if [ "$#" -lt 2 ] || [ -z "$2" ]; then
-                echo "--password requires a password" >&2
-                exit 2
-            fi
-            password="$2"
-            shift 2
+        --password-stdin)
+            password_from_stdin=1
+            shift
             ;;
         --local)
             local_mode=1
@@ -102,13 +103,20 @@ if [ "$inside_container" -eq 0 ] && [ "$local_mode" -eq 0 ]; then
     if [ -n "$username" ]; then
         inner_args+=(--username "$username")
     fi
-    if [ -n "$password" ]; then
-        inner_args+=(--password "$password")
+
+    # The password reaches the container on stdin, never in the command line the container runs.
+    # Piping needs stdin attached and no TTY; prompting needs the TTY, so the two modes differ only
+    # in that flag.
+    if [ "$password_from_stdin" -eq 1 ]; then
+        inner_args+=(--password-stdin)
+        docker_flags=(-i)
+    else
+        docker_flags=(-it)
     fi
 
     echo "Restarting $container_name to open the password recovery window..."
     docker restart "$container_name" >/dev/null
-    exec env MSYS_NO_PATHCONV=1 docker exec -it "$container_name" \
+    exec env MSYS_NO_PATHCONV=1 docker exec "${docker_flags[@]}" "$container_name" \
         /data/scripts/reset-main-admin-password.sh "${inner_args[@]}"
 fi
 
@@ -152,11 +160,8 @@ if [ "$ready" -ne 1 ]; then
     exit 1
 fi
 
-if [ -z "$username" ] || [ -z "$password" ]; then
-    echo "If you do not enter a username and password in the command, the script will prompt you for them."
-fi
-
 if [ -z "$username" ]; then
+    echo "The script will prompt you for anything you did not supply."
     read -r -p "Main administrator username: " username
     if [ -z "$username" ]; then
         echo "The username cannot be empty." >&2
@@ -164,7 +169,13 @@ if [ -z "$username" ]; then
     fi
 fi
 
-if [ -z "$password" ]; then
+if [ "$password_from_stdin" -eq 1 ]; then
+    IFS= read -r password || true
+    if [ -z "$password" ]; then
+        echo "No password arrived on standard input." >&2
+        exit 1
+    fi
+else
     while true; do
         read -r -s -p "New password: " password
         printf '\n'

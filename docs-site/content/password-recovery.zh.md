@@ -31,13 +31,17 @@
 
 API 密钥不会出现在命令中。主机只需要 Docker 和交互式终端；`curl`、`jq` 以及应用对外映射的端口都由容器内部处理。
 
-如果愿意，也可以直接传入用户名和密码：
+如果愿意，也可以直接传入用户名：
 
 ```bash
-./data/scripts/reset-main-admin-password.sh --username admin --password 'your-new-password'
+./data/scripts/reset-main-admin-password.sh --username admin
 ```
 
-把密码写在命令行里会进入 shell 历史记录。如果不想留下记录，请省略 `--password`，改在提示时输入。
+脚本始终在提示处询问密码，不接受把密码作为命令行参数，因为命令行会进入 shell 历史记录，并且在命令运行期间可以从进程列表中看到。若要在其他脚本中调用，请通过管道传入密码：
+
+```bash
+printf %s "$NEW_PASSWORD" | ./data/scripts/reset-main-admin-password.sh --username admin --password-stdin
+```
 
 新密码必须：
 
@@ -90,7 +94,7 @@ docker exec -it lancache-manager /data/scripts/reset-main-admin-password.sh
 /数据目录/scripts/reset-main-admin-password.sh --local --url http://127.0.0.1:8080
 ```
 
-如果应用监听其他地址，请修改 URL。本地模式要求该机器已安装 `curl` 和 `jq`。`--username` 和 `--password` 的用法与 Docker 相同。
+如果应用监听其他地址，请修改 URL。本地模式要求该机器已安装 `curl` 和 `jq`。`--username` 和 `--password-stdin` 的用法与 Docker 相同。
 
 ## 处理重置失败
 

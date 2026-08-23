@@ -31,13 +31,17 @@ The script then:
 
 The API key is never placed in the command. The host only needs Docker and an interactive terminal; `curl`, `jq`, and the app's published port are handled inside the container.
 
-You can pass the username and password if you want:
+You can pass the username if you want:
 
 ```bash
-./data/scripts/reset-main-admin-password.sh --username admin --password 'your-new-password'
+./data/scripts/reset-main-admin-password.sh --username admin
 ```
 
-A password on the command line is stored in shell history. Omit `--password` if you would rather type it at the prompt.
+The script always asks for the password at a prompt. It is never taken as an argument, because a command line is kept in shell history and is readable in the process list while the command runs. To use the script from another script, pipe the password in:
+
+```bash
+printf %s "$NEW_PASSWORD" | ./data/scripts/reset-main-admin-password.sh --username admin --password-stdin
+```
 
 The new password must:
 
@@ -90,7 +94,7 @@ Restart LANCache Manager first to open the one-hour recovery window. Place the s
 /path/to/data/scripts/reset-main-admin-password.sh --local --url http://127.0.0.1:8080
 ```
 
-Change the URL if the app listens elsewhere. Local mode requires `curl` and `jq` on that machine. `--username` and `--password` work the same way as they do for Docker.
+Change the URL if the app listens elsewhere. Local mode requires `curl` and `jq` on that machine. `--username` and `--password-stdin` work the same way as they do for Docker.
 
 ## Fix a failed reset
 

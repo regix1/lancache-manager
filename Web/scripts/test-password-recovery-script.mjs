@@ -92,7 +92,7 @@ test('the host-side script restarts and enters the selected container', () => {
   }
 });
 
-test('the host-side script forwards optional username and password', () => {
+test('the host-side script forwards the username and pipes the password in', () => {
   const root = mkdtempSync(join(tmpdir(), 'lcm-password-recovery-host-args-'));
   const bin = join(root, 'bin');
   const log = join(root, 'docker.log');
@@ -102,15 +102,7 @@ test('the host-side script forwards optional username and password', () => {
   try {
     const run = spawnSync(
       'bash',
-      [
-        sourceScript,
-        '--container',
-        'custom-lcm',
-        '--username',
-        'owner',
-        '--password',
-        'NewPassword-2026'
-      ],
+      [sourceScript, '--container', 'custom-lcm', '--username', 'owner', '--password-stdin'],
       {
         encoding: 'utf8',
         env: {
@@ -125,7 +117,7 @@ test('the host-side script forwards optional username and password', () => {
     assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), [
       'inspect custom-lcm',
       'restart custom-lcm',
-      'exec -it custom-lcm /data/scripts/reset-main-admin-password.sh --inside-container --username owner --password NewPassword-2026'
+      'exec -i custom-lcm /data/scripts/reset-main-admin-password.sh --inside-container --username owner --password-stdin'
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -146,10 +138,7 @@ test('local recovery prompts when username and password are omitted', () => {
     });
 
     assert.equal(run.status, 0, run.stderr);
-    assert.match(
-      run.stdout,
-      /If you do not enter a username and password in the command, the script will prompt you for them\./
-    );
+    assert.match(run.stdout, /The script will prompt you for anything you did not supply\./);
     assert.match(run.stdout, /"success":true/);
     assert.match(run.stdout, /Password reset\. Sign in with the new password\./);
     assert.doesNotMatch(run.stdout + run.stderr, /key-that-must-not-be-printed/);
@@ -159,7 +148,7 @@ test('local recovery prompts when username and password are omitted', () => {
   }
 });
 
-test('local recovery accepts username and password in the command', () => {
+test('local recovery takes the username in the command and the password on stdin', () => {
   const { root, script, bin } = localLayout();
 
   try {
@@ -172,11 +161,11 @@ test('local recovery accepts username and password in the command', () => {
         'http://127.0.0.1:8080',
         '--username',
         'owner',
-        '--password',
-        'NewPassword-2026'
+        '--password-stdin'
       ],
       {
         encoding: 'utf8',
+        input: 'NewPassword-2026\n',
         env: {
           ...process.env,
           PATH: shimmedPath(bin)
@@ -185,7 +174,7 @@ test('local recovery accepts username and password in the command', () => {
     );
 
     assert.equal(run.status, 0, run.stderr);
-    assert.doesNotMatch(run.stdout, /If you do not enter a username and password/);
+    assert.doesNotMatch(run.stdout, /The script will prompt you for anything/);
     assert.match(run.stdout, /"success":true/);
     assert.match(run.stdout, /Password reset\. Sign in with the new password\./);
     assert.doesNotMatch(run.stdout + run.stderr, /key-that-must-not-be-printed/);
@@ -199,7 +188,10 @@ test('both guides lead with the generated script and optional credentials', () =
   for (const guide of [englishGuide, chineseGuide]) {
     assert.match(guide, /\.\/data\/scripts\/reset-main-admin-password\.sh/);
     assert.match(guide, /--username/);
-    assert.match(guide, /--password/);
+    assert.match(guide, /--password-stdin/);
+    // The password must never be shown as a command-line argument, or the guide teaches a habit
+    // that writes it into shell history and the process list.
+    assert.doesNotMatch(guide, /--password(?!-stdin)/);
     assert.doesNotMatch(guide, /LCM_API_KEY|LCM_USERNAME|LCM_PASSWORD/);
     assert.doesNotMatch(guide, /never placed in the command line/);
   }
