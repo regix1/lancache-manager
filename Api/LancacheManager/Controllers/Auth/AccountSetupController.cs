@@ -156,6 +156,44 @@ public class AccountSetupController : ControllerBase
     }
 
     /// <summary>
+    /// Opens main-administrator password recovery after the host script proves the installation key.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    [IgnoreAntiforgeryToken]
+    [HttpPost("open-main-admin-recovery")]
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public ActionResult<MessageResponse> OpenMainAdminRecovery([FromBody] RecoveryWindowRequest request)
+    {
+        if (!_apiKeyService.ValidateApiKey(request.ApiKey))
+        {
+            return StatusCode(
+                StatusCodes.Status401Unauthorized,
+                new AccountSetupRefusalResponse
+                {
+                    StageKey = AccountSetupRefusalResponse.ApiKeyRequired,
+                    Error = "A valid API key is required"
+                });
+        }
+
+        // A normal restart opens the first-account claim deadline, but it must not advertise
+        // password recovery by itself. The host script calls this route immediately after its
+        // deliberate restart, joining proof of the key with the short post-start window.
+        if (!_claimWindow.OpenRecovery())
+        {
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                new AccountSetupRefusalResponse
+                {
+                    StageKey = AccountSetupRefusalResponse.RecoveryWindowClosed,
+                    Error = "The window for recovering the main administrator password has closed. Restart the application and run the recovery script again."
+                });
+        }
+
+        return Ok(MessageResponse.Ok("Password recovery opened"));
+    }
+
+    /// <summary>
     /// Sets a new password for the account that owns the installation.
     /// </summary>
     /// <remarks>
@@ -196,20 +234,16 @@ public class AccountSetupController : ControllerBase
                 });
         }
 
-        // The same window first-admin creation is held to, for the same reason. Every ordinary
-        // sign-in needs the key AND a username AND a password (AuthController.cs:259-265); this is
-        // the one route that reduces those three to the key alone, so a key that leaked on its own
-        // would otherwise be a remote takeover of the account that cannot be deleted or demoted.
-        // Requiring the window means recovery also costs a restart, which nobody has without
-        // reaching the host the key is stored on.
-        if (!_claimWindow.IsOpen)
+        // Recovery is a narrower state than the first-account window: a routine restart opens the
+        // latter, while only the host script can open the former after proving the API key.
+        if (!_claimWindow.IsRecoveryOpen)
         {
             return StatusCode(
                 StatusCodes.Status403Forbidden,
                 new AccountSetupRefusalResponse
                 {
                     StageKey = AccountSetupRefusalResponse.RecoveryWindowClosed,
-                    Error = "The window for recovering the main administrator password has closed. Restart the application to reopen it."
+                    Error = "The window for recovering the main administrator password has closed. Run the recovery script to reopen it."
                 });
         }
 

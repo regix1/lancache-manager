@@ -126,8 +126,8 @@ if ! command -v curl >/dev/null 2>&1; then
     exit 1
 fi
 
-if [ "$complete_from_command" -eq 1 ] && ! command -v jq >/dev/null 2>&1; then
-    echo "jq is required to reset the password from the command." >&2
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required." >&2
     exit 1
 fi
 
@@ -154,12 +154,6 @@ if [ "$ready" -ne 1 ]; then
     exit 1
 fi
 
-if [ "$complete_from_command" -ne 1 ]; then
-    echo "The recovery window is open for one hour."
-    echo "Open LANCache Manager in your browser. It will prompt for the main administrator username and a new password."
-    exit 0
-fi
-
 if [ ! -r "$api_key_path" ]; then
     echo "The API key could not be read at $api_key_path." >&2
     exit 1
@@ -169,6 +163,32 @@ api_key="$(<"$api_key_path")"
 response=""
 trap 'unset api_key username password response' EXIT
 
+# A process restart opens the first-account claim deadline, not password recovery. Explicitly arm
+# recovery with the installation key so an ordinary reboot never replaces sign-in with the setup
+# screen. Values travel to jq over stdin rather than argv, keeping them out of the process list.
+if response="$(
+    printf '%s\n' "$api_key" |
+        jq -Rn '{apiKey: input}' |
+        curl --fail-with-body --silent --show-error \
+            -X POST "$app_url/api/account-setup/open-main-admin-recovery" \
+            -H 'Content-Type: application/json' \
+            --data-binary @-
+)"; then
+    :
+else
+    status=$?
+    if [ -n "$response" ]; then
+        printf '%s\n' "$response" >&2
+    fi
+    exit "$status"
+fi
+
+if [ "$complete_from_command" -ne 1 ]; then
+    echo "The recovery window is open for one hour."
+    echo "Open LANCache Manager in your browser. It will prompt for the main administrator username and a new password."
+    exit 0
+fi
+
 IFS= read -r password || true
 if [ -z "$password" ]; then
     echo "No password arrived on standard input." >&2
@@ -176,11 +196,8 @@ if [ -z "$password" ]; then
 fi
 
 if response="$(
-    jq -n \
-        --arg apiKey "$api_key" \
-        --arg username "$username" \
-        --arg password "$password" \
-        '{apiKey: $apiKey, username: $username, password: $password}' |
+    printf '%s\n%s\n%s\n' "$api_key" "$username" "$password" |
+        jq -Rn '{apiKey: input, username: input, password: input}' |
         curl --fail-with-body --silent --show-error \
             -X POST "$app_url/api/account-setup/recover-main-admin" \
             -H 'Content-Type: application/json' \

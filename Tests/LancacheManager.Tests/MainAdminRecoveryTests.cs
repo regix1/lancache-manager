@@ -59,8 +59,8 @@ public sealed class MainAdminRecoveryTests : IDisposable
     }
 
     /// <summary>
-    /// Setup status offers recovery for as long as the window is open and an account exists. Leaving
-    /// the hour running after a successful reset would send the operator back to the same form.
+    /// Setup status offers recovery after the host script requests it. Leaving that request active
+    /// after a successful reset would send the operator back to the same form.
     /// </summary>
     [Fact]
     public async Task RecoveryClosesTheClaimWindow()
@@ -69,7 +69,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
         await SeedAccountAsync(database.Factory, "owner", mainAdmin: true);
 
         var window = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
-        Assert.True(window.IsOpen);
+        Assert.True(window.OpenRecovery());
 
         var result = await NewController(database.Factory, _apiKeyService, claimWindow: window)
             .RecoverMainAdminPasswordAsync(
@@ -79,6 +79,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
 
         Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
         Assert.False(window.IsOpen);
+        Assert.False(window.IsRecoveryOpen);
 
         var second = await NewController(database.Factory, _apiKeyService, claimWindow: window)
             .RecoverMainAdminPasswordAsync(
@@ -88,6 +89,57 @@ public sealed class MainAdminRecoveryTests : IDisposable
 
         Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(second));
         Assert.Equal(AccountSetupRefusalResponse.RecoveryWindowClosed, StageKeyOf(second));
+    }
+
+    /// <summary>
+    /// Starting the process opens the first-account claim deadline, but an installation that already
+    /// has an account must stay on sign-in until the host recovery script explicitly asks otherwise.
+    /// </summary>
+    [Fact]
+    public async Task AProcessStartAloneDoesNotOpenPasswordRecovery()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedAccountAsync(database.Factory, "owner", mainAdmin: true);
+
+        var window = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
+        Assert.True(window.IsOpen);
+        Assert.False(window.IsRecoveryOpen);
+
+        var result = await NewController(database.Factory, _apiKeyService, claimWindow: window)
+            .RecoverMainAdminPasswordAsync(
+                NewRequest("owner", _apiKeyService.GetApiKey()),
+                NewSessionService(database.Factory),
+                new AccountLockout(NullLogger<AccountLockout>.Instance));
+
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(result));
+        Assert.Equal(AccountSetupRefusalResponse.RecoveryWindowClosed, StageKeyOf(result));
+        Assert.Equal(PasswordVerificationResult.Success, Verify(await ReadAccountAsync(database, "owner"), OldPassword));
+    }
+
+    /// <summary>
+    /// The host script proves the installation key before recovery appears. A wrong key must not
+    /// turn a routine restart into a recovery window.
+    /// </summary>
+    [Fact]
+    public void RecoveryRequestRequiresTheInstallationKey()
+    {
+        var window = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
+        var controller = NewController(
+            new ThrowingDbContextFactory(),
+            _apiKeyService,
+            claimWindow: window);
+
+        var refused = controller.OpenMainAdminRecovery(
+            new RecoveryWindowRequest { ApiKey = "not-the-key" });
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, StatusOf(refused));
+        Assert.False(window.IsRecoveryOpen);
+
+        var opened = controller.OpenMainAdminRecovery(
+            new RecoveryWindowRequest { ApiKey = _apiKeyService.GetApiKey() });
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(opened));
+        Assert.True(window.IsRecoveryOpen);
     }
 
     /// <summary>
@@ -451,10 +503,17 @@ public sealed class MainAdminRecoveryTests : IDisposable
         new(
             dbContextFactory,
             apiKeyService,
-            claimWindow ?? new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
+            claimWindow ?? NewRecoveryWindow(),
             new PasswordHasher<UserAccount>(),
             auditService ?? new IdentityAuditService(dbContextFactory, NullLogger<IdentityAuditService>.Instance),
             NullLogger<AccountSetupController>.Instance);
+
+    private static AccountClaimWindow NewRecoveryWindow()
+    {
+        var window = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
+        Assert.True(window.OpenRecovery());
+        return window;
+    }
 
     private SessionService NewSessionService(
         IDbContextFactory<AppDbContext> dbContextFactory,

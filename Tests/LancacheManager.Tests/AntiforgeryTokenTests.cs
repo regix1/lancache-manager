@@ -128,7 +128,7 @@ public sealed class AntiforgeryTokenTests
     }
 
     /// <summary>
-    /// The four routes that prove the caller with the installation's key answer without a token, because
+    /// The five routes that prove the caller with the installation's key answer without a token, because
     /// there is nothing there to forge: a page on another origin can neither read the key nor set a
     /// header. They are also the bootstrap and the way back in, so a token requirement would break them in
     /// exactly the states where nothing else works.
@@ -154,17 +154,21 @@ public sealed class AntiforgeryTokenTests
         };
 
         using var firstAdmin = await client.PostAsJsonAsync("/api/account-setup/first-admin", credentials);
+        using var openRecovery = await client.PostAsJsonAsync(
+            "/api/account-setup/open-main-admin-recovery",
+            new RecoveryWindowRequest { ApiKey = "not-the-key" });
         using var recovery = await client.PostAsJsonAsync("/api/account-setup/recover-main-admin", credentials);
         using var repairPassword = await client.PostAsJsonAsync("/api/setup/credentials", new SetupCredentialsRequest());
         using var repairExternal = await client.PostAsJsonAsync("/api/setup/external", new SetExternalDbCredentialsRequest());
 
         Assert.Equal(HttpStatusCode.Unauthorized, firstAdmin.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, openRecovery.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, recovery.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, repairPassword.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, repairExternal.StatusCode);
 
         // The same client and the same absent token against a route that is not exempt. This is what the
-        // four above would answer if the exemption were dropped, and the second call is what shows the
+        // five above would answer if the exemption were dropped, and the second call is what shows the
         // 400 is the token check rather than anything the guest endpoint decided.
         using var refusedGuest = await client.PostAsync("/api/auth/guest", null);
         Assert.Equal(HttpStatusCode.BadRequest, refusedGuest.StatusCode);

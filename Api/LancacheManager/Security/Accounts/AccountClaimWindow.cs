@@ -1,7 +1,8 @@
 namespace LancacheManager.Security;
 
 /// <summary>
-/// How long after a start the main administrator account may be claimed or recovered. An
+/// How long after a start the main administrator account may be claimed. Password recovery uses
+/// the same deadline, but it is not offered until the host script explicitly requests it. An
 /// installation that has been running for longer than this has to be restarted first, so a
 /// forgotten instance left on a network does not stay claimable indefinitely.
 ///
@@ -11,7 +12,8 @@ namespace LancacheManager.Security;
 /// It guards password recovery for a sharper reason. An ordinary sign-in needs the key, a username
 /// and a password together; recovery is the one route that accepts the key by itself. Without this
 /// window a key that leaked on its own would be a remote takeover of the one account that cannot be
-/// deleted or demoted. With it, recovery also costs a restart, which needs the host the key lives on.
+/// deleted or demoted. Recovery therefore needs both a recent restart and an explicit request from
+/// the host script. A routine restart alone must never replace sign-in with the recovery screen.
 /// </summary>
 public class AccountClaimWindow : IHostedService
 {
@@ -30,6 +32,7 @@ public class AccountClaimWindow : IHostedService
     private static readonly TimeSpan _window = TimeSpan.FromHours(1);
 
     private readonly ILogger<AccountClaimWindow> _logger;
+    private bool _recoveryRequested;
 
     /// <summary>
     /// Fixed at construction, which the host does before it starts any hosted service and therefore
@@ -47,6 +50,27 @@ public class AccountClaimWindow : IHostedService
 
     public bool IsOpen => DateTime.UtcNow < _closesAtUtc;
 
+    public bool IsRecoveryOpen => IsOpen && _recoveryRequested;
+
+    /// <summary>
+    /// Offers main-administrator recovery for the remainder of the post-start claim window. This is
+    /// called only after the recovery script proves the API key. Keeping it separate from startup is
+    /// what stops an ordinary container restart from opening the recovery screen.
+    /// </summary>
+    public bool OpenRecovery()
+    {
+        if (!IsOpen)
+        {
+            return false;
+        }
+
+        _recoveryRequested = true;
+        _logger.LogInformation(
+            "Main administrator password recovery is available until {ClosesAtUtc:u}",
+            _closesAtUtc);
+        return true;
+    }
+
     /// <summary>
     /// Starts a new hour from now. First-admin creation checks this window, not whether the table is
     /// empty, so a wipe on a long-running process would otherwise leave the owner on that screen
@@ -55,6 +79,7 @@ public class AccountClaimWindow : IHostedService
     public void Reopen()
     {
         _closesAtUtc = DateTime.UtcNow + _window;
+        _recoveryRequested = false;
         _logger.LogInformation(
             "First administrator account can be created until {ClosesAtUtc:u}; a restart reopens the window",
             _closesAtUtc);
@@ -66,6 +91,7 @@ public class AccountClaimWindow : IHostedService
     internal void Expire()
     {
         _closesAtUtc = DateTime.UtcNow;
+        _recoveryRequested = false;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)

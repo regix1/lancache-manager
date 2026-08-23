@@ -1,6 +1,6 @@
 # API 参考
 
-Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡是能点击完成的操作都可以脚本化。API 共有 284 个端点，分为六组。
+Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡是能点击完成的操作都可以脚本化。API 共有 285 个端点，分为六组。
 
 ## 把整套 API 交给 AI 助手
 
@@ -51,7 +51,7 @@ curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 
 使用 `docker exec lancache-manager cat /data/security/api_key.txt` 获取密钥，也可以在**管理 → 集成**中查看，并在那里重新生成。之后的容器日志只打印提示，完整密钥仅在首次创建或轮换时写入日志。用户名和密码来自在应用中创建的账户。
 
-如果主管理员密码丢失，请在主机上运行 `./data/scripts/reset-main-admin-password.sh`。[密码恢复](password-recovery.md)说明该脚本以及用于排查的 `recover-main-admin` 请求；此端点不需要已登录会话或防伪令牌。
+如果主管理员密码丢失，请在主机上运行 `./data/scripts/reset-main-admin-password.sh`。[密码恢复](password-recovery.md)说明该脚本以及用于排查的 `open-main-admin-recovery` 和 `recover-main-admin` 请求；这两个端点都不需要已登录会话或防伪令牌。
 
 读取数据只需要这个 Cookie 文件。会修改数据的请求（`POST`、`PUT`、`PATCH`、`DELETE`）还需要一个防伪令牌：用同一个 Cookie 文件调用 `GET /api/auth/status`，取出它设置的 `LancacheManager.Antiforgery` Cookie 的值，再作为 `X-Antiforgery-Token` 请求头发回。上面的登录之所以先调用状态端点，正是这个原因。令牌与签发它的会话绑定，而登录会换成一个新会话，所以在发出第一个写请求之前要再调用一次状态端点。
 
@@ -59,13 +59,13 @@ curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 
     该请求头只能打开 `/scalar` 和 `/openapi/v1.json`，其他一概不行。对于只带这一个凭据的请求，其余端点一律返回 `401`，所以升级之后，用它轮询 `/api/cache` 或 `/api/dashboard/batch` 之类端点的脚本会立即失效。
 
-    仍有四个初始化调用自行读取密钥，因为它们必须在任何人登录之前就能应答：`POST /api/setup/credentials` 和 `POST /api/setup/external` 从 `X-Api-Key` 请求头读取，`POST /api/account-setup/first-admin` 和 `POST /api/account-setup/recover-main-admin` 从请求体读取。
+    仍有五个初始化调用自行读取密钥，因为它们必须在任何人登录之前就能应答：`POST /api/setup/credentials` 和 `POST /api/setup/external` 从 `X-Api-Key` 请求头读取；`POST /api/account-setup/first-admin`、`POST /api/account-setup/open-main-admin-recovery` 和 `POST /api/account-setup/recover-main-admin` 从请求体读取。
 
     `/metrics` 同样没有变化。它有自己的设置 `Security:RequireAuthForMetrics`，开启后仍然从请求头读取密钥，因此 Prometheus 抓取端无需改动。
 
 !!! note "无需会话即可应答的端点"
 
-    284 个端点中有 22 个必须在调用方尚无凭据时就能工作：登录、访客模式配置、首次运行初始化、游戏封面图、版本横幅，以及容器健康检查。它们在下载的参考文件中标记为 **public**，其余端点标记为 **requires a signed-in session**。
+    285 个端点中有 23 个必须在调用方尚无凭据时就能工作：登录、访客模式配置、首次运行初始化、密码恢复、游戏封面图、版本横幅，以及容器健康检查。它们在下载的参考文件中标记为 **public**，其余端点标记为 **requires a signed-in session**。
 
 ## 各分组的内容
 

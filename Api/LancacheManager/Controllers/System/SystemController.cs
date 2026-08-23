@@ -335,7 +335,7 @@ public class SystemController : ControllerBase
             SetupCompleted = isCompleted, // For backward compatibility
             NeedsPostgresCredentials = needsPostgresCredentials,
             AccountExists = accountExists,
-            MainAdminRecoveryAvailable = _claimWindow.IsOpen && accountExists == true,
+            MainAdminRecoveryAvailable = _claimWindow.IsRecoveryOpen && accountExists == true,
             CurrentSetupStep = state.CurrentSetupStep?.ToWireString(),
             DataSourceChoice = state.DataSourceChoice?.ToWireString(),
             CompletedPlatforms = state.CompletedPlatforms,

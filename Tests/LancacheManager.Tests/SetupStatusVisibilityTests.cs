@@ -63,7 +63,9 @@ public sealed class SetupStatusVisibilityTests : IDisposable
         _controller = NewController(new ThrowingDbContextFactory());
     }
 
-    private SystemController NewController(IDbContextFactory<AppDbContext> dbContextFactory) =>
+    private SystemController NewController(
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        AccountClaimWindow? claimWindow = null) =>
         new SystemController(
             _stateService,
             new ConfigurationBuilder().Build(),
@@ -78,7 +80,7 @@ public sealed class SetupStatusVisibilityTests : IDisposable
             nginxLogRotationService: null!,
             cacheManagementService: null!,
             dbContextFactory,
-            new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance))
+            claimWindow ?? new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -170,9 +172,16 @@ public sealed class SetupStatusVisibilityTests : IDisposable
             await seed.SaveChangesAsync();
         }
 
-        var body = ReadSetupStatus(database.Factory);
+        var window = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
+        var controller = NewController(database.Factory, window);
+        var body = ReadSetupStatus(controller);
 
         Assert.True(body.AccountExists);
+        Assert.False(body.MainAdminRecoveryAvailable);
+
+        Assert.True(window.OpenRecovery());
+        body = ReadSetupStatus(controller);
+
         Assert.True(body.MainAdminRecoveryAvailable);
     }
 
@@ -195,29 +204,10 @@ public sealed class SetupStatusVisibilityTests : IDisposable
         }
 
         var window = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
-        var deadline = typeof(AccountClaimWindow)
-            .GetField("_closesAtUtc", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?? throw new InvalidOperationException("AccountClaimWindow no longer has a _closesAtUtc field.");
-        deadline.SetValue(window, DateTime.UtcNow.AddMinutes(-1));
+        Assert.True(window.OpenRecovery());
+        window.Expire();
 
-        var controller = new SystemController(
-            _stateService,
-            new ConfigurationBuilder().Build(),
-            NullLogger<SystemController>.Instance,
-            _pathResolver,
-            cacheClearingService: null!,
-            steamKit2Service: null!,
-            datasourceService: null!,
-            notifications: null!,
-            userPreferencesService: null!,
-            capabilityService: null!,
-            nginxLogRotationService: null!,
-            cacheManagementService: null!,
-            database.Factory,
-            window)
-        {
-            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
-        };
+        var controller = NewController(database.Factory, window);
 
         var body = ReadSetupStatus(controller);
 

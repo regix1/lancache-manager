@@ -336,4 +336,13 @@ public class AccountCredentialsRequest
     public string ApiKey { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// The installation key submitted by the host recovery script before the browser is allowed to
+/// offer main-administrator password recovery.
+/// </summary>
+public class RecoveryWindowRequest
+{
+    public string ApiKey { get; set; } = string.Empty;
+}
+
 #endregion

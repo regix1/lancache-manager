@@ -128,8 +128,9 @@ function buildMarkdown(doc) {
   );
   out.push(
     '- The `X-Api-Key` header on its own opens `/scalar` and `/openapi/v1.json` and nothing else. ' +
-      'Four setup endpoints read the key themselves: `POST /api/setup/credentials` and ' +
-      '`POST /api/setup/external` take it in the header, `POST /api/account-setup/first-admin` and ' +
+      'Five setup endpoints read the key themselves: `POST /api/setup/credentials` and ' +
+      '`POST /api/setup/external` take it in the header; `POST /api/account-setup/first-admin`, ' +
+      '`POST /api/account-setup/open-main-admin-recovery`, and ' +
       '`POST /api/account-setup/recover-main-admin` take it in the request body.'
   );
   out.push(

@@ -34,6 +34,7 @@ public sealed class RateLimitCoverageContractTests
         ["ApiKeysController.RegenerateApiKey"] = "auth",
         ["SteamAuthController.Login"] = "steam-auth",
         ["AccountSetupController.CreateFirstAdmin"] = "auth",
+        ["AccountSetupController.OpenMainAdminRecovery"] = "auth",
         ["AccountSetupController.RecoverMainAdminPassword"] = "auth",
         ["AccountsController.CreateAccount"] = "accounts",
         ["AccountsController.EditAccount"] = "accounts"

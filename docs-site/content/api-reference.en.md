@@ -1,6 +1,6 @@
 # API Reference
 
-The web UI runs entirely on LANCache Manager's own HTTP API, so anything you can click, you can script. There are 284 endpoints across six groups.
+The web UI runs entirely on LANCache Manager's own HTTP API, so anything you can click, you can script. There are 285 endpoints across six groups.
 
 ## Hand the whole API to an AI assistant
 
@@ -52,7 +52,7 @@ curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 
 Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`, or from **Management → Integrations**, where you can also regenerate it. Later container logs print only a hint; the full key is written to the logs only when it is first created or rotated. The username and password are those of an account created in the app.
 
-If the main administrator password is lost, run `./data/scripts/reset-main-admin-password.sh` on the host. [Password Recovery](password-recovery.md) covers that script and the `recover-main-admin` request used for troubleshooting; the endpoint needs no signed-in session or antiforgery token.
+If the main administrator password is lost, run `./data/scripts/reset-main-admin-password.sh` on the host. [Password Recovery](password-recovery.md) covers that script and the `open-main-admin-recovery` and `recover-main-admin` requests used for troubleshooting; neither endpoint needs a signed-in session or antiforgery token.
 
 Reads need nothing more than the jar. A request that changes something (`POST`, `PUT`, `PATCH`, `DELETE`) also needs an antiforgery token: call `GET /api/auth/status` with the same jar, take the value of the `LancacheManager.Antiforgery` cookie it sets, and send it back as an `X-Antiforgery-Token` header. That is why the sign-in above starts with the status call. The token belongs to the session it was issued to, and signing in gives you a new one, so call the status endpoint again before your first write.
 
@@ -60,13 +60,13 @@ Reads need nothing more than the jar. A request that changes something (`POST`, 
 
     The header opens `/scalar` and `/openapi/v1.json`, and nothing else. Every other endpoint answers `401` to a request whose only credential is that header, so a script that polls something like `/api/cache` or `/api/dashboard/batch` with it stops working the moment you upgrade.
 
-    Four setup calls still read the key themselves, because they have to answer before anyone can sign in: `POST /api/setup/credentials` and `POST /api/setup/external` take it in the `X-Api-Key` header, and `POST /api/account-setup/first-admin` and `POST /api/account-setup/recover-main-admin` take it in the request body.
+    Five setup calls still read the key themselves, because they have to answer before anyone can sign in: `POST /api/setup/credentials` and `POST /api/setup/external` take it in the `X-Api-Key` header; `POST /api/account-setup/first-admin`, `POST /api/account-setup/open-main-admin-recovery`, and `POST /api/account-setup/recover-main-admin` take it in the request body.
 
     `/metrics` is unchanged as well. It has its own setting, `Security:RequireAuthForMetrics`, and when that is on it still takes the key in the header, so Prometheus scrapers need no change.
 
 !!! note "The endpoints that answer without a session"
 
-    Twenty-two of the 284 have to work before a caller has credentials: signing in, guest-mode configuration, first-run setup, game artwork, the version banner, and the container health probe. They are marked **public** in the downloadable reference, and the rest are marked **requires a signed-in session**.
+    Twenty-three of the 285 have to work before a caller has credentials: signing in, guest-mode configuration, first-run setup, password recovery, game artwork, the version banner, and the container health probe. They are marked **public** in the downloadable reference, and the rest are marked **requires a signed-in session**.
 
 ## What is in each group
 
