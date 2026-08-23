@@ -51,7 +51,7 @@ curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 
 使用 `docker exec lancache-manager cat /data/security/api_key.txt` 获取密钥，也可以在**管理 → 集成**中查看，并在那里重新生成。之后的容器日志只打印提示，完整密钥仅在首次创建或轮换时写入日志。用户名和密码来自在应用中创建的账户。
 
-如果主管理员密码丢失，请使用[密码恢复](password-recovery.md)中的主机端恢复流程。该页面包含完整的 `recover-main-admin` 请求；此端点不需要已登录会话或防伪令牌。
+如果主管理员密码丢失，请在主机上运行 `./data/scripts/reset-main-admin-password.sh`。[密码恢复](password-recovery.md)说明该脚本以及用于排查的 `recover-main-admin` 请求；此端点不需要已登录会话或防伪令牌。
 
 读取数据只需要这个 Cookie 文件。会修改数据的请求（`POST`、`PUT`、`PATCH`、`DELETE`）还需要一个防伪令牌：用同一个 Cookie 文件调用 `GET /api/auth/status`，取出它设置的 `LancacheManager.Antiforgery` Cookie 的值，再作为 `X-Antiforgery-Token` 请求头发回。上面的登录之所以先调用状态端点，正是这个原因。令牌与签发它的会话绑定，而登录会换成一个新会话，所以在发出第一个写请求之前要再调用一次状态端点。
 

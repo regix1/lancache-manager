@@ -209,8 +209,8 @@ RUN if [ "$INSTALL_POSTGRES" = "true" ]; then \
 # Copy published application
 COPY --from=backend-builder /app/publish ./
 
-# Copy entrypoint and the scripts it calls. postgres-setup.sh is sourced by the entrypoint
-# rather than executed, so /scripts must be present for the container to start at all.
+# Copy the entrypoint, its startup helpers, and operator-run scripts. postgres-setup.sh is sourced
+# by the entrypoint; reset-main-admin-password.sh is copied into the persistent data mount at startup.
 COPY entrypoint.sh /entrypoint.sh
 COPY scripts/ /scripts/
 RUN chmod +x /entrypoint.sh /scripts/*.sh

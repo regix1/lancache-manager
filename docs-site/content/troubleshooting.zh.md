@@ -64,7 +64,7 @@ docker exec lancache-manager cat /data/security/api_key.txt
 
 ### 忘记主管理员密码
 
-无需删除数据库或账号即可重置密码。你需要能够访问主机、读取 `/data/security/api_key.txt` 中的 API 密钥，并知道主管理员用户名。完整的 Docker Compose、Docker 和裸机命令请参阅[密码恢复](password-recovery.md)。
+无需删除数据库或账号即可重置密码。在主机上运行 `./data/scripts/reset-main-admin-password.sh`。其他容器名称、Unraid 和源码安装见[密码恢复](password-recovery.md)。
 
 ### 权限问题
 

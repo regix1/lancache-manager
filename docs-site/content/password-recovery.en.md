@@ -1,8 +1,8 @@
 # Reset a Lost Admin Password { #password-recovery }
 
-Use this procedure when you cannot sign in because the **main administrator** password was forgotten.
+Use this procedure when the **main administrator** password was forgotten.
 
-This reset:
+The reset:
 
 - keeps the account, settings, downloads, and database;
 - changes only the main administrator's password;
@@ -11,89 +11,33 @@ This reset:
 
 It cannot reset a secondary administrator or regular user.
 
-## What you need
+## Docker Compose
 
-Run the commands on the machine that runs LANCache Manager. You need:
-
-1. the main administrator's username;
-2. access to Docker on the host;
-3. `curl` and `jq`.
-
-Check the required commands before starting:
+LANCache Manager places a recovery script in the persistent data folder every time the container starts. With the supplied Compose file, run:
 
 ```bash
-docker compose version
-curl --version
-jq --version
+./data/scripts/reset-main-admin-password.sh
 ```
 
-If `curl` or `jq` says `command not found`, install it with the package manager for your operating system before continuing.
+Username and password are optional. If you do not enter them in the command, the script prompts for them.
 
-## Docker Compose: step by step
+The script then:
 
-### 1. Open the Compose folder
+1. restarts the LANCache Manager container to open the one-hour recovery window;
+2. waits for the app to become ready;
+3. reads the API key inside the container;
+4. uses the username and password you passed, or prompts for any that are missing;
+5. sends the reset request and reports the result.
 
-Change into the folder that contains the `docker-compose.yml` used to run LANCache Manager:
+The API key is never placed in the command. The host only needs Docker and an interactive terminal; `curl`, `jq`, and the app's published port are handled inside the container.
+
+You can pass the username and password if you want:
 
 ```bash
-cd /path/to/your/lancache-manager-folder
+./data/scripts/reset-main-admin-password.sh --username admin --password 'your-new-password'
 ```
 
-Confirm that Compose can see the service:
-
-```bash
-docker compose config --services
-```
-
-The output should include:
-
-```text
-lancache-manager
-```
-
-### 2. Restart LANCache Manager
-
-```bash
-docker compose restart lancache-manager
-```
-
-The password-reset endpoint is available for **one hour after the restart**. Restarting does not delete data.
-
-### 3. Read the API key
-
-```bash
-LCM_API_KEY="$(docker compose exec -T lancache-manager cat /data/security/api_key.txt)"
-```
-
-The key is stored in the `LCM_API_KEY` shell variable. The command intentionally prints nothing.
-
-### 4. Set the address of the app
-
-The supplied Compose file publishes LANCache Manager on port `8080`:
-
-```bash
-LCM_URL="http://127.0.0.1:8080"
-```
-
-If your Compose file maps another port, replace `8080` with that host port. For example, a mapping of `9090:80` uses `http://127.0.0.1:9090`.
-
-Wait for the restarted app to become ready:
-
-```bash
-until curl --fail --silent "$LCM_URL/health" >/dev/null; do sleep 2; done
-```
-
-This command finishes silently when the app is ready. Press `Ctrl+C` if it keeps waiting; that usually means `LCM_URL` has the wrong port.
-
-### 5. Enter the username and new password
-
-```bash
-read -r -p "Main administrator username: " LCM_USERNAME
-read -r -s -p "New password: " LCM_PASSWORD
-printf '\n'
-```
-
-Nothing appears while you type the password. That is normal.
+A password on the command line is stored in shell history. Omit `--password` if you would rather type it at the prompt.
 
 The new password must:
 
@@ -101,82 +45,70 @@ The new password must:
 - use at least three of these four groups: lowercase letters, uppercase letters, digits, and other characters;
 - not be the same as the username.
 
-For example, `FreshPassword2026` has lowercase letters, uppercase letters, and digits. Do not use that example as your real password.
+## A different container name
 
-### 6. Send the reset request
-
-Copy and run this block without changing the endpoint:
+The default container name is `lancache-manager`. Pass the actual name when it differs:
 
 ```bash
-jq -n \
-  --arg apiKey "$LCM_API_KEY" \
-  --arg username "$LCM_USERNAME" \
-  --arg password "$LCM_PASSWORD" \
-  '{apiKey: $apiKey, username: $username, password: $password}' |
-curl --fail-with-body --silent --show-error \
-  -X POST "$LCM_URL/api/account-setup/recover-main-admin" \
-  -H 'Content-Type: application/json' \
-  --data-binary @-
+./data/scripts/reset-main-admin-password.sh --container my-lancache-manager
 ```
 
-`jq` safely creates the JSON request. `curl` sends it to LANCache Manager.
+## Unraid or a custom data path
 
-A successful reset prints:
-
-```json
-{"success":true,"message":"Password reset"}
-```
-
-Clear the temporary shell variables:
+Open a host terminal and find the host folder mapped to `/data` in the container configuration. Run the script from its `scripts` subfolder:
 
 ```bash
-unset LCM_API_KEY LCM_USERNAME LCM_PASSWORD
+/path/mapped/to/data/scripts/reset-main-admin-password.sh
 ```
 
-You can now sign in with the new password. The old password no longer works.
+Add `--container NAME` if the container is not named `lancache-manager`.
 
-## Docker without Compose or Unraid
+## The script is missing
 
-Follow steps 3 through 6 above, but restart and read the key with the container name:
+The script is installed when a current container image starts. Pull and recreate the container, then run it:
+
+```bash
+docker compose pull
+docker compose up -d
+./data/scripts/reset-main-admin-password.sh
+```
+
+Recreating the container does not delete data stored in the `/data` mount.
+
+If `/data` uses a named Docker volume instead of a host folder, restart and run the installed script inside the container:
 
 ```bash
 docker restart lancache-manager
-LCM_API_KEY="$(docker exec lancache-manager cat /data/security/api_key.txt)"
-```
-
-Replace `lancache-manager` if your container uses another name. Set `LCM_URL` to the host port assigned to that container.
-
-On Windows Git Bash, read the key with:
-
-```bash
-LCM_API_KEY="$(MSYS_NO_PATHCONV=1 docker exec lancache-manager cat /data/security/api_key.txt)"
+docker exec -it lancache-manager /data/scripts/reset-main-admin-password.sh
 ```
 
 ## Bare-metal or source installation
 
-1. Restart the LANCache Manager process or system service.
-2. Read `security/api_key.txt` inside the application's data directory.
-3. Store that value in `LCM_API_KEY`.
-4. Set `LCM_URL` to the address where the API listens.
-5. Follow steps 5 and 6 above.
+Restart LANCache Manager first to open the one-hour recovery window. Place the supplied `scripts/reset-main-admin-password.sh` in the data directory's `scripts` folder, then run:
 
-## Fix a failed request
+```bash
+/path/to/data/scripts/reset-main-admin-password.sh --local --url http://127.0.0.1:8080
+```
+
+Change the URL if the app listens elsewhere. Local mode requires `curl` and `jq` on that machine. `--username` and `--password` work the same way as they do for Docker.
+
+## Fix a failed reset
 
 ### `401` or `apiKeyRequired`
 
-Read the current key from `/data/security/api_key.txt` again. The key must be inside the JSON request. Adding an `X-Api-Key` header does not work for password recovery.
+The API key in the data directory could not authenticate the request. Confirm that the script is inside the same data directory the running app uses.
 
 ### `403` or `recoveryWindowClosed`
 
-More than one hour has passed since the app started. Restart LANCache Manager and send the request again.
+The one-hour recovery window is closed. Run the host-side script again so it restarts the container, or restart a bare-metal installation before using `--local`.
 
 ### `404` or `mainAdminNotFound`
 
-The username does not belong to the main administrator. Check the username and try again. This endpoint cannot reset another account.
+The username does not belong to the main administrator. This recovery cannot reset another account.
 
 ### `400`
 
-The username or password failed the rules shown in step 5. The response body states which rule failed.
+The username or password failed the rules shown above. The response states which rule failed.
 
 ### `429`
 

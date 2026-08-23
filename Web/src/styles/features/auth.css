@@ -12,13 +12,13 @@
   );
 }
 
-/* Guest upgrade / authenticate page */
+/* Guest upgrade / authenticate page.
+   The tab already sits in App's padded main, so this only sizes the card. */
 
 .auth-upgrade {
   width: 100%;
   max-width: 26rem;
   margin: 0 auto;
-  padding: 1.5rem 0.75rem 2.5rem;
 }
 
 .auth-upgrade-card {
@@ -57,17 +57,19 @@
   display: flex;
   flex-direction: column;
   gap: 0.875rem;
+  min-width: 0;
   padding: 1.25rem;
 }
 
 .auth-upgrade-help {
+  min-width: 0;
   padding: 1rem 1.25rem 1.25rem;
   border-top: 1px solid var(--theme-border-primary);
   background-color: var(--theme-bg-tertiary);
 }
 
 .auth-upgrade-help-title {
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.75rem;
   font-size: var(--font-size-2xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -75,29 +77,106 @@
   color: var(--theme-text-muted);
 }
 
-.auth-upgrade-help-list {
+.auth-upgrade-help-defs {
   margin: 0;
-  padding-left: 1.1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.75rem;
+}
+
+.auth-upgrade-help-defs dt {
+  margin: 0 0 0.2rem;
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+}
+
+.auth-upgrade-help-defs dd {
+  margin: 0;
+}
+
+/* Recovery answers a different question from the key location, so it stays a separate block. */
+.auth-upgrade-help-recovery {
+  margin: 1rem 0 0;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--theme-border-primary);
   font-size: var(--font-size-md);
   line-height: 1.45;
   color: var(--theme-text-secondary);
 }
 
-/* Sits under the numbered steps as a separate note, because it answers a different question from
-   them: those explain how to sign in, this one is for the person who cannot. */
-.auth-upgrade-help-recovery {
-  margin: 0.75rem 0 0;
-  font-size: var(--font-size-md);
-  color: var(--theme-text-muted);
+.auth-upgrade-help-recovery-title {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+  color: var(--theme-text-primary);
 }
 
-.auth-upgrade-help-list code {
-  padding: 0.1rem 0.35rem;
+.auth-upgrade-help-recovery p {
+  margin: 0;
+}
+
+.auth-upgrade-help code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0.15rem 0.4rem;
   border-radius: var(--theme-border-radius);
   background-color: var(--theme-bg-secondary);
   color: var(--theme-text-primary);
   font-size: 0.8125em;
+  overflow-wrap: anywhere;
+}
+
+.auth-upgrade-docs {
+  color: var(--theme-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+.auth-upgrade-docs:hover,
+.auth-upgrade-docs:focus-visible {
+  color: var(--theme-text-primary);
+}
+
+@media (min-width: 768px) {
+  .auth-upgrade {
+    max-width: 48rem;
+  }
+
+  .auth-upgrade-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(16.5rem, 0.85fr);
+    grid-template-areas:
+      'header header'
+      'form help';
+  }
+
+  .auth-upgrade-header {
+    grid-area: header;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--theme-border-primary);
+  }
+
+  .auth-upgrade-form {
+    grid-area: form;
+    padding: 1.5rem;
+  }
+
+  .auth-upgrade-help {
+    grid-area: help;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 1.5rem;
+    border-top: none;
+    border-left: 1px solid var(--theme-border-primary);
+  }
+
+  .auth-upgrade-help-recovery {
+    margin-top: 1.15rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .auth-upgrade {
+    max-width: 52rem;
+  }
 }

@@ -64,7 +64,7 @@ To rotate the key, stop the container, delete `./data/security/api_key.txt`, and
 
 ### Forgotten main administrator password
 
-The password can be reset without deleting the database or account. You need access to the host, the API key in `/data/security/api_key.txt`, and the main administrator's username. Follow [Password Recovery](password-recovery.md) for the complete Docker Compose, Docker, and bare-metal commands.
+The password can be reset without deleting the database or account. On the host, run `./data/scripts/reset-main-admin-password.sh`. [Password Recovery](password-recovery.md) covers other container names, Unraid, and source installs.
 
 ### Permission issues
 

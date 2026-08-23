@@ -860,7 +860,7 @@
   "auth": {
     "header": {
       "title": "Upgrade to Full Access",
-      "subtitle": "Sign in with your API key and account to leave guest mode."
+      "subtitle": "Sign in to leave guest mode."
     },
     "form": {
       "label": "API Key",
@@ -868,17 +868,14 @@
       "submit": "Authenticate"
     },
     "help": {
-      "title": "Where to find your API key",
-      "step1": "SSH into your LANCache Manager server",
-      "step2": {
-        "before": "Check ",
-        "code": "/data/security/api_key.txt"
-      },
-      "step3": {
-        "before": "The key is printed to the logs only when it is first created or rotated.",
-        "code": "docker logs lancache-manager"
-      },
-      "forgotPassword": "Forgot the main administrator password? The Password Recovery page in the documentation site has the complete command. Recovery requires restarting the app and using the API key from /data/security/api_key.txt, so it can only be done from the machine LANCache Manager runs on."
+      "title": "API key",
+      "fileLabel": "On the server",
+      "filePath": "/data/security/api_key.txt",
+      "logsLabel": "Logs, first create or rotate only",
+      "logsCommand": "docker logs lancache-manager",
+      "forgotTitle": "Forgot the main administrator password?",
+      "forgotPassword": "On the host, run <code>./data/scripts/reset-main-admin-password.sh</code>. Username and password are optional; the script prompts for any you omit. See <docs>Password Recovery</docs>.",
+      "docsHref": "https://regix1.github.io/lancache-manager/password-recovery/"
     },
     "success": "Authentication successful! Upgrading to full access...",
     "errors": {

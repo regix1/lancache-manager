@@ -860,7 +860,7 @@
   "auth": {
     "header": {
       "title": "升级到完全访问",
-      "subtitle": "使用 API 密钥和账户登录以退出访客模式。"
+      "subtitle": "登录以退出访客模式。"
     },
     "form": {
       "label": "API 密钥",
@@ -868,17 +868,14 @@
       "submit": "验证身份"
     },
     "help": {
-      "title": "查找您的 API 密钥",
-      "step1": "SSH 进入您的 LANCache 管理器服务器",
-      "step2": {
-        "before": "检查 ",
-        "code": "/data/security/api_key.txt"
-      },
-      "step3": {
-        "before": "仅在首次创建或轮换密钥时才会写入日志。",
-        "code": "docker logs lancache-manager"
-      },
-      "forgotPassword": "忘记主管理员密码？文档站点的“密码恢复”页面提供了完整命令。恢复操作需要重启应用，并使用 /data/security/api_key.txt 中的 API 密钥，因此只能在运行 LANCache Manager 的机器上完成。"
+      "title": "API 密钥",
+      "fileLabel": "服务器上",
+      "filePath": "/data/security/api_key.txt",
+      "logsLabel": "仅首次创建或轮换时写入日志",
+      "logsCommand": "docker logs lancache-manager",
+      "forgotTitle": "忘记主管理员密码？",
+      "forgotPassword": "在主机上运行 <code>./data/scripts/reset-main-admin-password.sh</code>。用户名和密码可选；未传入的项会提示输入。详见 <docs>密码恢复</docs>。",
+      "docsHref": "https://regix1.github.io/lancache-manager/zh/password-recovery/"
     },
     "success": "认证成功！正在升级到完全访问...",
     "errors": {

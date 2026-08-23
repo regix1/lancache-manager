@@ -74,6 +74,19 @@ else
     echo "  Ensure directories are pre-owned by UID:$PUID GID:$PGID on the host."
 fi
 
+# Keep operator-run scripts in the persistent data mount. Replacing the managed copy on each start
+# means an image upgrade also updates the recovery procedure instead of leaving an obsolete script
+# in the host's data directory.
+if install -D -m 0755 /scripts/reset-main-admin-password.sh \
+    /data/scripts/reset-main-admin-password.sh 2>/dev/null; then
+    if [ "$IS_ROOT" -eq 1 ]; then
+        chown "$PUID:$PGID" /data/scripts /data/scripts/reset-main-admin-password.sh 2>/dev/null || true
+    fi
+    echo "Password recovery script installed at /data/scripts/reset-main-admin-password.sh"
+else
+    echo "WARNING: Could not install the password recovery script in /data/scripts."
+fi
+
 # Fix ownership of /logs and /cache if they are writable (not mounted read-only)
 # Only chown the directory itself (not -R) to avoid slow recursive operations on large caches
 for dir in /logs /cache; do

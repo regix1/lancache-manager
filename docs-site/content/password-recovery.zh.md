@@ -1,187 +1,119 @@
-# 重置丢失的管理员密码 { #password-recovery }
+# 重置遗忘的管理员密码 { #password-recovery }
 
-当你因为忘记**主管理员**密码而无法登录时，请使用本流程。
+当你忘记了**主管理员**密码而无法登录时，请使用此流程。
 
-此重置操作会：
+重置操作会：
 
-- 保留账号、设置、下载记录和数据库；
-- 只更改主管理员的密码；
-- 注销该管理员现有的所有会话；
-- 清除因多次登录失败造成的账号锁定。
+- 保留账户、设置、下载记录和数据库；
+- 只修改主管理员的密码；
+- 注销该管理员的所有现有会话；
+- 清除因多次登录失败造成的锁定。
 
-它不能重置其他管理员或普通用户账号。
+此流程不能重置其他管理员或普通用户。
 
-## 开始前需要准备
+## Docker Compose
 
-请在运行 LANCache Manager 的机器上执行命令。你需要：
-
-1. 主管理员的用户名；
-2. Docker 主机的操作权限；
-3. `curl` 和 `jq`。
-
-开始前检查所需命令：
+每次容器启动时，LANCache Manager 都会把恢复脚本放入持久化数据目录。使用项目提供的 Compose 文件时，运行：
 
 ```bash
-docker compose version
-curl --version
-jq --version
+./data/scripts/reset-main-admin-password.sh
 ```
 
-如果 `curl` 或 `jq` 显示 `command not found`，请先使用操作系统的软件包管理器安装它。
+用户名和密码是可选的。如果命令里没有输入它们，脚本会提示你输入。
 
-## Docker Compose：逐步操作
+脚本接着会：
 
-### 1. 打开 Compose 文件夹
+1. 重启 LANCache Manager 容器并打开一小时的恢复窗口；
+2. 等待应用就绪；
+3. 在容器内读取 API 密钥；
+4. 使用你传入的用户名和密码；缺哪一项就提示输入哪一项；
+5. 发送重置请求并显示结果。
 
-进入实际用于运行 LANCache Manager 的 `docker-compose.yml` 所在文件夹：
+API 密钥不会出现在命令中。主机只需要 Docker 和交互式终端；`curl`、`jq` 以及应用对外映射的端口都由容器内部处理。
+
+如果愿意，也可以直接传入用户名和密码：
 
 ```bash
-cd /path/to/your/lancache-manager-folder
+./data/scripts/reset-main-admin-password.sh --username admin --password 'your-new-password'
 ```
 
-确认 Compose 能识别该服务：
-
-```bash
-docker compose config --services
-```
-
-输出中应包含：
-
-```text
-lancache-manager
-```
-
-### 2. 重启 LANCache Manager
-
-```bash
-docker compose restart lancache-manager
-```
-
-重启后，密码重置端点会开放**一小时**。重启不会删除数据。
-
-### 3. 读取 API 密钥
-
-```bash
-LCM_API_KEY="$(docker compose exec -T lancache-manager cat /data/security/api_key.txt)"
-```
-
-密钥会保存在 `LCM_API_KEY` shell 变量中。该命令不会在屏幕上打印任何内容，这是正常现象。
-
-### 4. 设置应用地址
-
-项目提供的 Compose 文件将 LANCache Manager 发布到 `8080` 端口：
-
-```bash
-LCM_URL="http://127.0.0.1:8080"
-```
-
-如果你的 Compose 文件使用了其他端口，请把 `8080` 替换成主机端口。例如，映射 `9090:80` 应使用 `http://127.0.0.1:9090`。
-
-等待重启后的应用准备就绪：
-
-```bash
-until curl --fail --silent "$LCM_URL/health" >/dev/null; do sleep 2; done
-```
-
-应用准备好后，该命令会静默结束。如果一直等待，请按 `Ctrl+C` 停止；这通常表示 `LCM_URL` 中的端口不正确。
-
-### 5. 输入用户名和新密码
-
-```bash
-read -r -p "主管理员用户名: " LCM_USERNAME
-read -r -s -p "新密码: " LCM_PASSWORD
-printf '\n'
-```
-
-输入密码时屏幕不会显示字符，这是正常现象。
+把密码写在命令行里会进入 shell 历史记录。如果不想留下记录，请省略 `--password`，改在提示时输入。
 
 新密码必须：
 
-- 长度为 12 至 256 个字符；
+- 长度为 12 到 256 个字符；
 - 至少使用以下四类字符中的三类：小写字母、大写字母、数字和其他字符；
 - 不能与用户名相同。
 
-例如，`FreshPassword2026` 包含小写字母、大写字母和数字。不要把这个示例用作你的真实密码。
+## 容器使用了其他名称
 
-### 6. 发送重置请求
-
-复制并运行以下整个命令块，不要修改端点地址：
+默认容器名称是 `lancache-manager`。如果名称不同，请传入实际名称：
 
 ```bash
-jq -n \
-  --arg apiKey "$LCM_API_KEY" \
-  --arg username "$LCM_USERNAME" \
-  --arg password "$LCM_PASSWORD" \
-  '{apiKey: $apiKey, username: $username, password: $password}' |
-curl --fail-with-body --silent --show-error \
-  -X POST "$LCM_URL/api/account-setup/recover-main-admin" \
-  -H 'Content-Type: application/json' \
-  --data-binary @-
+./data/scripts/reset-main-admin-password.sh --container my-lancache-manager
 ```
 
-`jq` 会安全地生成 JSON 请求，`curl` 会把请求发送给 LANCache Manager。
+## Unraid 或自定义数据路径
 
-重置成功时会显示：
-
-```json
-{"success":true,"message":"Password reset"}
-```
-
-清除临时 shell 变量：
+打开主机终端，找到容器配置中映射到 `/data` 的主机目录，然后运行其 `scripts` 子目录中的脚本：
 
 ```bash
-unset LCM_API_KEY LCM_USERNAME LCM_PASSWORD
+/映射到/data的路径/scripts/reset-main-admin-password.sh
 ```
 
-现在可以使用新密码登录，旧密码将不再有效。
+如果容器名称不是 `lancache-manager`，请添加 `--container NAME`。
 
-## 不使用 Compose 的 Docker 或 Unraid
+## 找不到脚本
 
-按照上面的第 3 至第 6 步操作，但使用容器名重启并读取密钥：
+当前版本的容器镜像启动时才会安装脚本。请拉取并重新创建容器，然后运行脚本：
+
+```bash
+docker compose pull
+docker compose up -d
+./data/scripts/reset-main-admin-password.sh
+```
+
+重新创建容器不会删除 `/data` 挂载中的数据。
+
+如果 `/data` 使用 Docker 命名卷而不是主机目录，请重启容器并在容器内运行已安装的脚本：
 
 ```bash
 docker restart lancache-manager
-LCM_API_KEY="$(docker exec lancache-manager cat /data/security/api_key.txt)"
-```
-
-如果容器使用了其他名称，请替换 `lancache-manager`。将 `LCM_URL` 设置为该容器分配的主机端口。
-
-在 Windows Git Bash 中，使用以下命令读取密钥：
-
-```bash
-LCM_API_KEY="$(MSYS_NO_PATHCONV=1 docker exec lancache-manager cat /data/security/api_key.txt)"
+docker exec -it lancache-manager /data/scripts/reset-main-admin-password.sh
 ```
 
 ## 裸机或源码安装
 
-1. 重启 LANCache Manager 进程或系统服务。
-2. 读取应用数据目录下的 `security/api_key.txt`。
-3. 将该值保存到 `LCM_API_KEY`。
-4. 将 `LCM_URL` 设置为 API 实际监听的地址。
-5. 按照上面的第 5 和第 6 步操作。
+先重启 LANCache Manager，打开一小时的恢复窗口。将项目提供的 `scripts/reset-main-admin-password.sh` 放入数据目录的 `scripts` 文件夹，然后运行：
 
-## 解决请求失败
+```bash
+/数据目录/scripts/reset-main-admin-password.sh --local --url http://127.0.0.1:8080
+```
+
+如果应用监听其他地址，请修改 URL。本地模式要求该机器已安装 `curl` 和 `jq`。`--username` 和 `--password` 的用法与 Docker 相同。
+
+## 处理重置失败
 
 ### `401` 或 `apiKeyRequired`
 
-重新读取 `/data/security/api_key.txt` 中的当前密钥。密钥必须放在 JSON 请求中。为密码恢复请求添加 `X-Api-Key` 请求头不会生效。
+数据目录中的 API 密钥未能通过验证。请确认脚本位于正在运行的应用所使用的同一个数据目录中。
 
 ### `403` 或 `recoveryWindowClosed`
 
-应用启动后已经超过一小时。重启 LANCache Manager，然后再次发送请求。
+一小时的恢复窗口已关闭。再次运行主机上的脚本以重启容器；裸机安装则应先重启应用，再使用 `--local`。
 
 ### `404` 或 `mainAdminNotFound`
 
-该用户名不属于主管理员。检查用户名后重试。此端点不能重置其他账号。
+该用户名不属于主管理员。此恢复流程不能重置其他账户。
 
 ### `400`
 
-用户名或密码不符合第 5 步所列规则。响应内容会说明具体违反了哪一条规则。
+用户名或密码不符合上述规则。响应内容会说明具体失败规则。
 
 ### `429`
 
-同一地址发送了过多恢复请求。请等待一段时间后再试。
+同一地址发送了过多恢复请求。请稍后再试。
 
 !!! danger "不要删除恢复文件"
 
-    不要通过删除数据库或 `/data/security/api_key.txt` 来恢复密码。删除 API 密钥只会创建一个新的安装密钥，不会重置任何账号密码。
+    不要通过删除数据库或 `/data/security/api_key.txt` 来恢复密码。删除 API 密钥只会创建一个新的安装密钥，不会重置任何账户密码。

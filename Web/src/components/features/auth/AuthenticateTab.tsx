@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { Key } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -75,64 +75,83 @@ const AuthenticateTab: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
-      <div className="auth-upgrade">
-        <Card padding="none" className="auth-upgrade-card">
-          <div className="auth-upgrade-header">
-            <div className="icon-box icon-box--md auth-upgrade-icon">
-              <Key className="w-5 h-5" />
+    <div className="auth-upgrade">
+      <Card padding="none" className="auth-upgrade-card">
+        <div className="auth-upgrade-header">
+          <div className="icon-box icon-box--md auth-upgrade-icon">
+            <Key className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="auth-upgrade-title">{t('auth.header.title')}</h1>
+            <p className="auth-upgrade-subtitle">{t('auth.header.subtitle')}</p>
+          </div>
+        </div>
+
+        <div className="auth-upgrade-form">
+          <CredentialFields
+            apiKey={apiKey}
+            username={username}
+            password={password}
+            onChange={handleCredentialChange}
+            onSubmit={handleAuthenticate}
+            disabled={loading}
+            apiKeyPlaceholder={t('auth.form.placeholder')}
+          />
+
+          {authError && <Alert color="red">{authError}</Alert>}
+
+          <Button
+            variant="filled"
+            color="primary"
+            size="md"
+            onClick={handleAuthenticate}
+            loading={loading}
+            disabled={!credentialsFilled || loading}
+            fullWidth
+          >
+            {t('auth.form.submit')}
+          </Button>
+        </div>
+
+        <div className="auth-upgrade-help">
+          <p className="auth-upgrade-help-title">{t('auth.help.title')}</p>
+          <dl className="auth-upgrade-help-defs">
+            <div>
+              <dt>{t('auth.help.fileLabel')}</dt>
+              <dd>
+                <code>{t('auth.help.filePath')}</code>
+              </dd>
             </div>
             <div>
-              <h1 className="auth-upgrade-title">{t('auth.header.title')}</h1>
-              <p className="auth-upgrade-subtitle">{t('auth.header.subtitle')}</p>
+              <dt>{t('auth.help.logsLabel')}</dt>
+              <dd>
+                <code>{t('auth.help.logsCommand')}</code>
+              </dd>
             </div>
+          </dl>
+          {/* Recovery is proved by the API key on the host. A form here would be somewhere to
+              paste the one secret that owns the installation. */}
+          <div className="auth-upgrade-help-recovery">
+            <p className="auth-upgrade-help-recovery-title">{t('auth.help.forgotTitle')}</p>
+            <p>
+              <Trans
+                i18nKey="auth.help.forgotPassword"
+                components={{
+                  code: <code />,
+                  docs: (
+                    <a
+                      className="auth-upgrade-docs"
+                      href={t('auth.help.docsHref')}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    />
+                  )
+                }}
+              />
+            </p>
           </div>
-
-          <div className="auth-upgrade-form">
-            <CredentialFields
-              apiKey={apiKey}
-              username={username}
-              password={password}
-              onChange={handleCredentialChange}
-              onSubmit={handleAuthenticate}
-              disabled={loading}
-              apiKeyPlaceholder={t('auth.form.placeholder')}
-            />
-
-            {authError && <Alert color="red">{authError}</Alert>}
-
-            <Button
-              variant="filled"
-              color="primary"
-              size="md"
-              onClick={handleAuthenticate}
-              loading={loading}
-              disabled={!credentialsFilled || loading}
-              fullWidth
-            >
-              {t('auth.form.submit')}
-            </Button>
-          </div>
-
-          <div className="auth-upgrade-help">
-            <p className="auth-upgrade-help-title">{t('auth.help.title')}</p>
-            <ol className="auth-upgrade-help-list">
-              <li>{t('auth.help.step1')}</li>
-              <li>
-                {t('auth.help.step2.before')}
-                <code>{t('auth.help.step2.code')}</code>
-              </li>
-              <li>
-                {t('auth.help.step3.before')} <code>{t('auth.help.step3.code')}</code>
-              </li>
-            </ol>
-            {/* Points at the container log rather than offering a field here. Recovery is proved by
-                the API key, and a form on this screen would be somewhere to paste the one secret
-                that owns the installation. Whoever can read that log is already who may recover. */}
-            <p className="auth-upgrade-help-recovery">{t('auth.help.forgotPassword')}</p>
-          </div>
-        </Card>
-      </div>
+        </div>
+      </Card>
     </div>
   );
 };
