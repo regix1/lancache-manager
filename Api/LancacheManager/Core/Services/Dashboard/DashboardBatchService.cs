@@ -1093,7 +1093,7 @@ public partial class DashboardBatchService : IDashboardBatchService
     /// Resolve game names for downloads, filling blanks from the Steam depot, Epic and Xbox
     /// mapping tables in that order and falling back to the service name.
     /// </summary>
-    private static async Task EnrichGameNamesAsync(AppDbContext context, List<Download> downloads, CancellationToken ct)
+    internal static async Task EnrichGameNamesAsync(AppDbContext context, List<Download> downloads, CancellationToken ct)
     {
         if (downloads.Count == 0) return;
 
@@ -1104,12 +1104,17 @@ public partial class DashboardBatchService : IDashboardBatchService
             .Distinct()
             .ToList();
 
-        var steamMappings = depotIds.Count > 0
+        var steamMappingRows = depotIds.Count > 0
             ? await context.SteamDepotMappings
                 .AsNoTracking()
                 .Where(m => m.IsOwner && depotIds.Contains(m.DepotId))
-                .ToDictionaryAsync(m => m.DepotId, m => m, ct)
-            : new Dictionary<long, SteamDepotMapping>();
+                .ToListAsync(ct)
+            : [];
+        var steamMappings = steamMappingRows
+            .GroupBy(m => m.DepotId)
+            .ToDictionary(
+                group => group.Key,
+                SteamDepotMapping.SelectOwner);
 
         // Build Epic game name lookup for Epic downloads
         var epicAppIds = downloads

@@ -614,6 +614,17 @@ public abstract partial class PrefillDaemonServiceBase
         if (PrefillProgressStateExtensions.ParseOrUnknown(progress.State) == PrefillProgressState.AppCompleted
             && !string.IsNullOrEmpty(progress.CurrentAppId))
         {
+            // Claim the completed app before the first database await. A following terminal event can
+            // otherwise observe it as current and try to complete the same history entry again.
+            var bytesDownloaded = progress.BytesDownloaded > 0 ? progress.BytesDownloaded : session.CurrentBytesDownloaded;
+            var totalBytes = progress.TotalBytes > 0 ? progress.TotalBytes : session.CurrentTotalBytes;
+            session.PreviousAppId = progress.CurrentAppId;
+            session.PreviousAppName = progress.CurrentAppName;
+            session.CurrentAppId = null;
+            session.CurrentAppName = null;
+            session.CurrentBytesDownloaded = 0;
+            session.CurrentTotalBytes = 0;
+
             try
             {
                 // Check the Result field from daemon to determine if game was actually downloaded
@@ -634,12 +645,6 @@ public abstract partial class PrefillDaemonServiceBase
                 {
                     status = "Completed";
                 }
-
-                // Use bytes from the app_completed event - daemon sends accurate final values
-                // For Success: BytesDownloaded = TotalBytes (full size)
-                // For AlreadyUpToDate/Skipped: BytesDownloaded = 0
-                var bytesDownloaded = progress.BytesDownloaded > 0 ? progress.BytesDownloaded : session.CurrentBytesDownloaded;
-                var totalBytes = progress.TotalBytes > 0 ? progress.TotalBytes : session.CurrentTotalBytes;
 
                 await _sessionService.CompleteEntryAsync(
                     session.Id,
@@ -749,15 +754,6 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 _logger.LogWarning(ex, "Failed to complete/skip prefill history entry for app {AppId}", progress.CurrentAppId);
             }
-            // Update tracking: app is done, clear CurrentAppId so the "completed" handler
-            // doesn't try to complete the same app again
-            session.PreviousAppId = progress.CurrentAppId;
-            session.PreviousAppName = progress.CurrentAppName;
-            session.CurrentAppId = null;
-            session.CurrentAppName = null;
-            session.CurrentBytesDownloaded = 0;
-            session.CurrentTotalBytes = 0;
-
             return; // Early return - don't process further for app_completed
         }
 

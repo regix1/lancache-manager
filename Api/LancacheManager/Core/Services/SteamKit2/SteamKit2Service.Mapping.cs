@@ -348,9 +348,14 @@ public partial class SteamKit2Service
                 .Distinct()
                 .ToList();
 
-            var depotMappingsFromDb = await scopedDb.DbContext.SteamDepotMappings
+            var depotMappingRows = await scopedDb.DbContext.SteamDepotMappings
                 .Where(m => depotIds.Contains(m.DepotId) && m.IsOwner)
-                .ToDictionaryAsync(m => m.DepotId, m => new { m.AppId, m.AppName }, cancellationToken);
+                .ToListAsync(cancellationToken);
+            var depotMappingsFromDb = depotMappingRows
+                .GroupBy(m => m.DepotId)
+                .ToDictionary(
+                    group => group.Key,
+                    SteamDepotMapping.SelectOwner);
 
             _logger.LogDebug($"Pre-loaded {depotMappingsFromDb.Count} depot mappings from database for batch processing");
 

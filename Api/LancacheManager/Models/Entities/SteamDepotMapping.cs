@@ -28,4 +28,10 @@ public class SteamDepotMapping
     public DateTime DiscoveredAt { get; set; } = DateTime.UtcNow;
 
     public string Source { get; set; } = "observed";
+
+    public static SteamDepotMapping SelectOwner(IEnumerable<SteamDepotMapping> mappings) =>
+        mappings
+            .OrderBy(mapping => mapping.Source == "Prefill")
+            .ThenBy(mapping => mapping.AppId)
+            .First();
 }

@@ -106,13 +106,65 @@ public class PrefillProgressLoginPhaseGuardTests
         Assert.Equal(1, terminalBroadcasts);
     }
 
-    private static (TestableSteamDaemonService Daemon, DaemonSession Session, RecordingNotificationProxy Recorder)
-        CreateDaemonWithSession()
+    [Fact]
+    public async Task AppCompleted_ClearsCurrentAppBeforeHistoryWrite()
     {
-        var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase($"prefill_progress_guard_{Guid.NewGuid():N}")
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"prefill_completion_order_{Guid.NewGuid():N}")
             .Options;
-        var dbFactory = new InMemoryDbContextFactory(dbOptions);
+        var dbFactory = new BlockingDbContextFactory(options);
+        var (daemon, session, _) = CreateDaemonWithSession(dbFactory);
+        session.IsPrefilling = true;
+        session.PrefillState = PrefillState.Downloading;
+        session.CurrentAppId = "667970";
+        session.CurrentAppName = "VTOL VR";
+        session.CurrentBytesDownloaded = 876062432;
+        session.CurrentTotalBytes = 876062432;
+
+        await using (var context = new AppDbContext(options))
+        {
+            context.PrefillHistoryEntries.Add(new PrefillHistoryEntry
+            {
+                SessionId = session.Id,
+                AppId = "667970",
+                AppName = "VTOL VR",
+                StartedAtUtc = DateTime.UtcNow,
+                Status = PrefillHistoryEntryStatus.InProgress
+            });
+            await context.SaveChangesAsync();
+        }
+
+        var notification = daemon.InvokeNotifyPrefillProgressAsync(session, new PrefillProgress
+        {
+            State = "app_completed",
+            Result = "Success",
+            CurrentAppId = "667970",
+            CurrentAppName = "VTOL VR",
+            BytesDownloaded = 876062432,
+            TotalBytes = 876062432
+        });
+
+        await dbFactory.FirstCreateStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            Assert.Null(session.CurrentAppId);
+            Assert.Equal("667970", session.PreviousAppId);
+        }
+        finally
+        {
+            dbFactory.ReleaseFirstCreate.TrySetResult(true);
+        }
+
+        await notification;
+    }
+
+    private static (TestableSteamDaemonService Daemon, DaemonSession Session, RecordingNotificationProxy Recorder)
+        CreateDaemonWithSession(IDbContextFactory<AppDbContext>? dbFactory = null)
+    {
+        dbFactory ??= new InMemoryDbContextFactory(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase($"prefill_progress_guard_{Guid.NewGuid():N}")
+                .Options);
         var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
         var cacheService = new PrefillCacheService(dbFactory, NullLogger<PrefillCacheService>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
@@ -179,6 +231,36 @@ public class PrefillProgressLoginPhaseGuardTests
 
         public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(new AppDbContext(_options));
+    }
+
+    private sealed class BlockingDbContextFactory : IDbContextFactory<AppDbContext>
+    {
+        private readonly DbContextOptions<AppDbContext> _options;
+        private int _asyncCreateCount;
+
+        public BlockingDbContextFactory(DbContextOptions<AppDbContext> options)
+        {
+            _options = options;
+        }
+
+        public TaskCompletionSource<bool> FirstCreateStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> ReleaseFirstCreate { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public AppDbContext CreateDbContext() => new(_options);
+
+        public async Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _asyncCreateCount) == 1)
+            {
+                FirstCreateStarted.TrySetResult(true);
+                await ReleaseFirstCreate.Task.WaitAsync(cancellationToken);
+            }
+
+            return new AppDbContext(_options);
+        }
     }
 
     private sealed class StaticOptionsMonitor<T> : IOptionsMonitor<T>

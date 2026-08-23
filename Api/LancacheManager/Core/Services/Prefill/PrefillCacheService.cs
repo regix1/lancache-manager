@@ -92,12 +92,15 @@ public class PrefillCacheService
     {
         try
         {
-            // Check if mapping already exists
-            var existingMapping = await context.SteamDepotMappings
-                .FirstOrDefaultAsync(m => m.DepotId == depotId && m.AppId == appId);
+            var depotMappings = await context.SteamDepotMappings
+                .Where(m => m.DepotId == depotId)
+                .ToListAsync();
+            var existingMapping = depotMappings.FirstOrDefault(m => m.AppId == appId);
 
             if (existingMapping != null)
             {
+                var changed = false;
+
                 // Update app name if we have a better one (not placeholder)
                 if (!string.IsNullOrEmpty(appName) &&
                     !appName.StartsWith("App ") &&
@@ -108,19 +111,34 @@ public class PrefillCacheService
                 {
                     existingMapping.AppName = appName;
                     existingMapping.DiscoveredAt = DateTime.UtcNow;
+                    changed = true;
+                }
+
+                // A PICS owner describes the depot itself. A prefill mapping only records which
+                // selected app downloaded it, so it must not become a second owner.
+                if (existingMapping.IsOwner &&
+                    existingMapping.Source == "Prefill" &&
+                    depotMappings.Any(m => m.Id != existingMapping.Id && m.IsOwner))
+                {
+                    existingMapping.IsOwner = false;
+                    changed = true;
+                }
+
+                if (changed)
+                {
                     await context.SaveChangesAsync();
-                    _logger.LogDebug("Updated depot mapping name for {DepotId} -> {AppName}", depotId, appName);
+                    _logger.LogDebug("Updated depot mapping for {DepotId} -> {AppName}", depotId, appName);
                 }
                 return;
             }
 
-            // Create new mapping - mark as owner since prefill knows the correct relationship
+            // Keep the existing PICS owner when the selected app downloaded a DLC or shared depot.
             var mapping = new SteamDepotMapping
             {
                 DepotId = depotId,
                 AppId = appId,
                 AppName = appName ?? $"App {appId}",
-                IsOwner = true,  // Prefill-discovered mappings are authoritative
+                IsOwner = !depotMappings.Any(m => m.IsOwner),
                 Source = "Prefill",
                 DiscoveredAt = DateTime.UtcNow
             };
