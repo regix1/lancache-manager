@@ -102,6 +102,7 @@
     padding: 0;
     justify-content: center;
     border-radius: var(--theme-border-radius);
+    border: 1px solid transparent;
   }
 
   /* Keep the glyph from being compressed horizontally: the button is a flex row with a
@@ -114,6 +115,20 @@
   .btn-icon-square--sm {
     width: 2rem;
     height: 2rem;
+  }
+
+  /* Themed edge instead of the global outline. That outline used currentColor,
+     and these glyphs are white, so the ring read as an unthemed white box. */
+  .btn-icon-square:focus-visible,
+  .btn-icon-square.is-open {
+    outline: none;
+    outline-offset: 0;
+    border-color: var(--theme-border-focus);
+  }
+
+  .btn-icon-square.is-open {
+    background-color: var(--theme-bg-surface-active);
+    color: var(--theme-text-primary);
   }
 
   /* Phone: the same 44px touch minimum dropdowns.css gives button.ed-trigger and forms.css gives

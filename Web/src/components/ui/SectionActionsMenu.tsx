@@ -20,7 +20,7 @@ export function SectionActionsMenu({
   children,
   label,
   align = 'right',
-  width = 'w-48',
+  width = 'w-56',
   disabled
 }: SectionActionsMenuProps) {
   const [open, setOpen] = useState(false);
@@ -37,7 +37,7 @@ export function SectionActionsMenu({
           variant="filled"
           color="secondary"
           size="sm"
-          className="btn-icon-square"
+          className={`btn-icon-square${open ? ' is-open' : ''}`}
           onClick={() => setOpen((o) => !o)}
           disabled={disabled}
           aria-label={label}

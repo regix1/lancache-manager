@@ -15,6 +15,8 @@ interface RowActionsMenuProps {
    * user tabbing through the row can still find and activate it. [27]
    */
   revealOnHover?: boolean;
+  /** Passed to ActionMenu. Row labels such as "Terminate session" need more than the menu default. */
+  width?: string;
 }
 
 // Controlled row-level kebab menu, the per-row sibling of SectionActionsMenu (which owns its own
@@ -24,7 +26,8 @@ export function RowActionsMenu({
   children,
   open,
   onOpenChange,
-  revealOnHover = false
+  revealOnHover = false,
+  width = 'w-56'
 }: RowActionsMenuProps) {
   const { t } = useTranslation();
   const close = () => onOpenChange(false);
@@ -33,6 +36,7 @@ export function RowActionsMenu({
     <ActionMenu
       isOpen={open}
       onClose={close}
+      width={width}
       trigger={
         <Button
           type="button"
@@ -41,7 +45,7 @@ export function RowActionsMenu({
           size="sm"
           className={`btn-icon-square btn-icon-square--sm pointer-target-44${
             revealOnHover ? ' opacity-0 group-hover:opacity-100 group-focus-within:opacity-100' : ''
-          }${open ? ' opacity-100' : ''}`}
+          }${open ? ' is-open opacity-100' : ''}`}
           onClick={() => onOpenChange(!open)}
           aria-label={t('common.moreActions')}
         >

@@ -601,7 +601,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                   <>
                     {t('dashboard.downloadsPanel.active')}
                     {!isHistoricalView && activeCount > 0 && (
-                      <span className="rdl-tab-badge tabular-nums">{activeCount}</span>
+                      <Badge variant="neutral" className="badge-count">
+                        {activeCount}
+                      </Badge>
                     )}
                   </>
                 ),

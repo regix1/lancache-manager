@@ -93,6 +93,9 @@ fi
 complete_from_command=0
 if [ -n "$username" ] && [ "$password_from_stdin" -eq 1 ]; then
     complete_from_command=1
+elif [ -n "$username" ] || [ "$password_from_stdin" -eq 1 ]; then
+    echo "--username and --password-stdin must be used together. Omit both to finish in the browser." >&2
+    exit 2
 fi
 
 if [ "$inside_container" -eq 0 ] && [ "$local_mode" -eq 0 ]; then

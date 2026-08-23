@@ -1305,6 +1305,11 @@
         }
       }
     },
+    "access": {
+      "title": "Guest access",
+      "unlockedHint": "New guests can sign in",
+      "lockedHint": "New guests cannot sign in"
+    },
     "toggle": {
       "unlocked": "Unlocked",
       "locked": "Locked",

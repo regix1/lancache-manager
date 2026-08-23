@@ -118,6 +118,25 @@ test('the host-side script forwards the username and pipes the password in', () 
   }
 });
 
+test('partial command credentials are refused before recovery starts', () => {
+  for (const args of [
+    ['--local', '--username', 'owner'],
+    ['--local', '--password-stdin']
+  ]) {
+    const run = spawnSync('bash', [sourceScript, ...args], {
+      encoding: 'utf8',
+      input: 'NewPassword-2026\n'
+    });
+
+    assert.equal(run.status, 2);
+    assert.match(
+      run.stderr,
+      /--username and --password-stdin must be used together\. Omit both to finish in the browser\./
+    );
+    assert.doesNotMatch(run.stdout, /Waiting for LANCache Manager/);
+  }
+});
+
 test('local recovery without credentials opens the window and leaves the prompt to the app', () => {
   const { root, script, bin } = localLayout(
     `#!/bin/sh\ncase "$*" in\n  *"/health"*) exit 0 ;;\n  *"/open-main-admin-recovery"*) cat >/dev/null; printf '{"success":true}\\n' ;;\n  *) echo unexpected >&2; exit 1 ;;\nesac\n`

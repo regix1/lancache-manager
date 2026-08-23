@@ -15,4 +15,6 @@ export interface BadgeProps {
   className?: string;
   /** Accessible name for badges whose text alone is not self-describing (a bare count). */
   ariaLabel?: string;
+  /** Renders a button with the same pill chrome so a clickable chip matches its static twin. */
+  onClick?: () => void;
 }

@@ -344,4 +344,20 @@
       order: 6;
     }
   }
+
+  /* Header session timer + End Session. A shared 7rem box stacked "51m 36s"
+     and clipped the button label. Keep both on one line at the same floor. */
+  .prefill-session-timer,
+  .prefill-end-session {
+    min-width: 9rem;
+    flex-wrap: nowrap;
+  }
+
+  .prefill-session-timer svg {
+    flex-shrink: 0;
+  }
+
+  .prefill-session-timer > span {
+    white-space: nowrap;
+  }
 }

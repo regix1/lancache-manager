@@ -1,12 +1,3 @@
-/* A save disables the control the editor was on, and a browser blurs what it disables. The form
-   takes that focus so it stays inside the dialog, which is what keeps the Tab trap firing. The
-   form is never in the tab order, so a pointer-driven save draws no box around the whole dialog
-   body; a keyboard-driven one still gets its ring, because that is the case where someone needs
-   to be told where focus went. */
-.clientgroup-form:focus:not(:focus-visible) {
-  outline: none;
-}
-
 /* Nickname modal address picker: the shared .mgmt-list surface around a
    CustomScrollbar viewport (the house scrollbar). The viewport cap is set on the
    component so 8 rows are visible, which is the only thing bounding the list -

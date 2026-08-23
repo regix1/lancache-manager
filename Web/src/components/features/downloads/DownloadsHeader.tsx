@@ -8,6 +8,7 @@ import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { buildTrafficKey } from './liveDownloadPreviews';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
+import Badge from '@components/ui/Badge';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { formatBytes, formatPercent, formatSpeedWithSeparatedUnit } from '@utils/formatters';
 import ApiService from '@services/api.service';
@@ -152,11 +153,9 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                 label: (
                   <>
                     {t('downloads.header.activeTab')}
-                    <span
-                      className={`tab-badge ${!isHistoricalView && activeGamesCount > 0 && activeTab !== 'active' ? 'has-active' : ''}`}
-                    >
+                    <Badge variant="neutral" className="badge-count">
                       {isHistoricalView ? '-' : activeGamesCount}
-                    </span>
+                    </Badge>
                   </>
                 ),
                 disabled: isHistoricalView,
@@ -168,7 +167,9 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                 label: (
                   <>
                     {t('downloads.header.recentTab')}
-                    <span className="tab-badge">{latestDownloads.length}</span>
+                    <Badge variant="neutral" className="badge-count">
+                      {latestDownloads.length}
+                    </Badge>
                   </>
                 )
               }

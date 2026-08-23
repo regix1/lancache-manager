@@ -52,6 +52,21 @@
     letter-spacing: 0.05em;
   }
 
+  /* Clickable chip: same uppercase pill as the span, minus the UA button border
+     and font so it does not jump when a static "using default" chip becomes an
+     action. */
+  button.themed-badge {
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+  }
+
+  button.themed-badge.status-badge-neutral:hover,
+  button.themed-badge.status-badge-neutral:active {
+    background-color: var(--theme-bg-surface-hover);
+    color: var(--theme-text-secondary);
+  }
+
   /* Session badges */
   .session-badge-user {
     background-color: var(--theme-user-session-bg);
@@ -129,6 +144,27 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Neutral count chips ride on buttons and selected segments. The neutral fill is a
+     20% wash of secondary text, so the control's colour shows through and the numeral
+     (often inherited button-text) disappears into it. An opaque well keeps the chip
+     the same on idle and selected controls. Compounded so it wins in the prod bundle
+     after @layer is stripped. */
+  .themed-badge.status-badge-neutral.badge-count {
+    background-color: var(--theme-bg-secondary);
+    color: var(--theme-text-secondary);
+    border-color: var(--theme-border-secondary);
+  }
+
+  /* Segments set text-themed-button and a saturated fill on the selected half.
+     A count chip that inherits those washes into the button. Pin every count
+     inside a segment to the same opaque chip, selected or not. */
+  .segmented-control-button .badge-count {
+    background-color: var(--theme-bg-secondary);
+    color: var(--theme-text-secondary);
+    border-color: var(--theme-border-secondary);
+    animation: none;
+  }
+
   /* Count badge sitting on a saturated colour fill (accent button, live badge):
    * a grey outline muddies the colour, so use a translucent white edge instead. */
   .badge-count-on-color {
@@ -140,6 +176,7 @@
    * chip keeps the standard neutral surface + grey border and the warning tone
    * lives in the numeral alone. Compose with a neutral Badge:
    * <Badge variant="neutral" className="badge-count badge-count-warning">. */
+  .themed-badge.status-badge-neutral.badge-count.badge-count-warning,
   .badge-count-warning {
     color: var(--theme-warning-text);
   }

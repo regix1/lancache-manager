@@ -9,7 +9,6 @@ import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import { XboxAuthModal } from '@components/modals/auth/XboxAuthModal';
 import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
-import { useMediaQuery } from '@hooks/useMediaQuery';
 import { ActivityLog } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import { NetworkStatusSection } from './NetworkStatusSection';
@@ -22,7 +21,7 @@ import { API_BASE, STORAGE_KEYS } from '@utils/constants';
 import { getErrorMessage } from '@utils/error';
 import { parseUtcDate } from '@utils/timezone';
 
-import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ScrollText, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
 
 import { useGameService } from '@contexts/useGameService';
 import type { GameServiceId } from '@/types/gameService';
@@ -940,8 +939,6 @@ function ServicePrefillPanel({
   const isSessionActive =
     !!signalR.session && signalR.session.status === 'Active' && signalR.timeRemaining > 0;
   const isSessionExpired = !!signalR.session && !isSessionActive;
-  // Below sm the End Session label collapses to icon-only, so the button needs a Tooltip.
-  const isCompactHeader = useMediaQuery('(max-width: 639px)');
 
   // Battle.net and Riot prefill are fully anonymous - no account login ever. Treat the client
   // as always "logged in"/ready so the auth login card stays hidden, the "Login Required"
@@ -1276,10 +1273,10 @@ function ServicePrefillPanel({
         </div>
 
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          {/* Session Timer - non-interactive chip, matches End Session's height (44px on
-              touch layouts, h-10 from sm up) so the header cluster shares one baseline */}
+          {/* Session Timer - non-interactive, but shares Button's md padding and the 44px control
+              minimum used by this action cluster. */}
           <div
-            className={`inline-flex items-center gap-2 min-h-[44px] sm:min-h-0 sm:h-10 px-4 rounded-lg flex-1 sm:flex-initial justify-center border ${
+            className={`prefill-session-timer inline-flex h-11 min-h-11 flex-none items-center justify-center gap-2 px-4 py-2 themed-button-radius border ${
               signalR.timeRemaining < 600
                 ? 'bg-[var(--theme-warning-subtle)] border-[var(--theme-warning-strong)]'
                 : 'bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]'
@@ -1303,34 +1300,17 @@ function ServicePrefillPanel({
             </span>
           </div>
 
-          {/* End Session Button - icon-only below sm, so the compact layout wraps it in a
-              Tooltip carrying the label. min height tracks the Session Timer chip. */}
-          {!isSessionExpired &&
-            (() => {
-              const endSessionButton = (
-                <Button
-                  variant="filled"
-                  color="stop"
-                  size="md"
-                  onClick={handleEndSession}
-                  className="flex-shrink-0 min-h-[44px] min-w-[44px] sm:min-h-10"
-                >
-                  <X className="h-4 w-4" />
-                  <span className="hidden sm:inline">{t('prefill.endSession')}</span>
-                </Button>
-              );
-              return isCompactHeader ? (
-                <Tooltip
-                  content={t('prefill.endSession')}
-                  position="top"
-                  className="flex flex-shrink-0"
-                >
-                  {endSessionButton}
-                </Tooltip>
-              ) : (
-                endSessionButton
-              );
-            })()}
+          {!isSessionExpired && (
+            <Button
+              variant="filled"
+              color="stop"
+              size="md"
+              onClick={handleEndSession}
+              className="prefill-end-session h-11 min-h-11 flex-none"
+            >
+              {t('prefill.endSession')}
+            </Button>
+          )}
         </div>
       </div>
 

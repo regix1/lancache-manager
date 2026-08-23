@@ -14,12 +14,19 @@ const VARIANT_CLASS: Record<BadgeVariant, string> = {
   'waiting-outline': 'status-badge-waiting-outline'
 };
 
-export default function Badge({ variant, children, className, ariaLabel }: BadgeProps) {
+export default function Badge({ variant, children, className, ariaLabel, onClick }: BadgeProps) {
+  const classes = `themed-badge ${VARIANT_CLASS[variant]}${className ? ` ${className}` : ''}`;
+
+  if (onClick) {
+    return (
+      <button type="button" className={classes} aria-label={ariaLabel} onClick={onClick}>
+        {children}
+      </button>
+    );
+  }
+
   return (
-    <span
-      className={`themed-badge ${VARIANT_CLASS[variant]}${className ? ` ${className}` : ''}`}
-      aria-label={ariaLabel}
-    >
+    <span className={classes} aria-label={ariaLabel}>
       {children}
     </span>
   );

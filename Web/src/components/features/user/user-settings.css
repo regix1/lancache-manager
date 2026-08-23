@@ -31,6 +31,12 @@
   width: 10rem;
 }
 
+/* Time-formats multi-select: the trigger keeps the placeholder ("Select allowed
+   formats") next to the count chip, which 10rem clips. */
+.user-settings-dropdown.user-settings-dropdown--formats {
+  width: 16rem;
+}
+
 .user-settings-inline-spinner {
   position: absolute;
   right: 2.5rem;

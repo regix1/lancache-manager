@@ -1305,6 +1305,11 @@
         }
       }
     },
+    "access": {
+      "title": "访客访问",
+      "unlockedHint": "新访客可以登录",
+      "lockedHint": "新访客无法登录"
+    },
     "toggle": {
       "unlocked": "已解锁",
       "locked": "已锁定",

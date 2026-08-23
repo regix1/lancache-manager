@@ -7,16 +7,11 @@ import {
   Ban,
   Shield,
   Clock,
-  User,
   ChevronDown,
-  ChevronUp,
-  Gamepad2,
   XCircle,
-  Activity,
   Server,
   RefreshCw
 } from 'lucide-react';
-import { Card, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { GroupHeading } from '@components/ui/GroupHeading';
@@ -25,7 +20,6 @@ import { RowActionsMenu } from '@components/ui/RowActionsMenu';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Alert } from '@components/ui/Alert';
-import { Tooltip } from '@components/ui/Tooltip';
 import { Pagination } from '@components/ui/Pagination';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
@@ -37,7 +31,6 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import Badge from '@components/ui/Badge';
-import type { BadgeVariant } from '@components/ui/Badge.types';
 import { VARIANT_BY_STATUS } from '@utils/statusVariant';
 import ApiService, {
   type PrefillSessionDto,
@@ -55,9 +48,11 @@ import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { cleanIpAddress } from '@components/features/user/types';
+import { rowToggleHandlers } from '@utils/rowToggle';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import StatusDot from '@components/common/StatusDot';
+import '../managementSectionContent.css';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { usePersistentPrefillContainerSignalR } from '@components/features/management/schedules/scheduled-prefill/usePersistentPrefillContainerSignalR';
 import type {
@@ -111,12 +106,7 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
   };
 
   return (
-    <Badge
-      variant={VARIANT_BY_STATUS[effectiveStatus] ?? 'neutral'}
-      className="prefill-status-badge"
-    >
-      {getDisplayStatus()}
-    </Badge>
+    <Badge variant={VARIANT_BY_STATUS[effectiveStatus] ?? 'neutral'}>{getDisplayStatus()}</Badge>
   );
 };
 
@@ -148,8 +138,7 @@ const serviceDisplayName = (serviceId: GameServiceId): string =>
 const isAnonymousServiceId = (serviceId: GameServiceId): boolean =>
   serviceId === 'battlenet' || serviceId === 'riot';
 
-// Session/container lifecycle status -> single Badge variant + i18n key. One shared map
-// so the session-card status pill and the persistent-container status text agree on tone.
+// Session lifecycle label keys for the row status dot.
 const STATUS_BADGE_KEY: Record<string, string> = {
   active: 'active',
   authenticated: 'authenticated',
@@ -163,19 +152,6 @@ const STATUS_BADGE_KEY: Record<string, string> = {
   error: 'error'
 };
 
-// Only the words this feature owns. `cancelled` and `error` belong to the run vocabulary,
-// so they come from VARIANT_BY_STATUS instead of being restated here.
-const STATUS_BADGE_VARIANT: Record<string, BadgeVariant> = {
-  active: 'success',
-  authenticated: 'success',
-  pendingauth: 'warning',
-  awaitingcredential: 'warning',
-  terminated: 'error',
-  expired: 'error',
-  orphaned: 'neutral',
-  cleaned: 'neutral'
-};
-
 // Locator source values are opaque backend strings; unknown values fall back to the "unknown"
 // label instead of throwing. dockerInspect and envFile share one label since both mean the value
 // came from the lancache-dns container's settings.
@@ -187,42 +163,8 @@ const CACHE_ROUTE_SOURCE_KEY: Record<string, string> = {
   detected: 'detected'
 };
 
-const getStatusBadgeVariant = (status: string): BadgeVariant => {
-  const normalizedStatus = status.toLowerCase();
-  return STATUS_BADGE_VARIANT[normalizedStatus] ?? VARIANT_BY_STATUS[normalizedStatus] ?? 'neutral';
-};
-
 const getStatusBadgeLabelKey = (status: string): string | null =>
   STATUS_BADGE_KEY[status.toLowerCase()] ?? null;
-
-// Status badge component - ONE Badge carries the session's lifecycle state.
-const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const { t } = useTranslation();
-  const labelKey = getStatusBadgeLabelKey(status);
-  const label = labelKey ? t(`management.prefillSessions.statusBadges.${labelKey}`) : status;
-
-  return (
-    <div className="prefill-status-line cluster">
-      <Badge variant={getStatusBadgeVariant(status)}>{label}</Badge>
-    </div>
-  );
-};
-
-// Summary stat card component
-const StatCard: React.FC<{
-  icon: React.ReactNode;
-  value: number | null | undefined;
-  label: string;
-  iconBgClass: string;
-}> = ({ icon, value, label, iconBgClass }) => (
-  <div className="well-surface prefill-stat-card">
-    <div className={`icon-box icon-box--md prefill-stat-icon ${iconBgClass}`}>{icon}</div>
-    <div className="prefill-stat-content">
-      <div className="prefill-stat-value">{value == null ? '—' : value}</div>
-      <div className="prefill-stat-label">{label}</div>
-    </div>
-  </div>
-);
 
 // Session card component for both live and historical sessions
 const SessionCard: React.FC<{
@@ -317,302 +259,213 @@ const SessionCard: React.FC<{
     }
   );
 
+  const sessionTitle = displayUsername
+    ? displayUsername
+    : isAnonymousService
+      ? t('management.prefillSessions.labels.anonymousAccount', {
+          service: platformDisplayName
+        })
+      : isPersistentSession
+        ? t('management.prefillSessions.labels.persistentContainer')
+        : isAuthenticated_
+          ? t('management.prefillSessions.labels.authenticatedAccount', {
+              service: platformDisplayName
+            })
+          : t('management.prefillSessions.labels.notLoggedInSession');
+
+  const statusLabelKey = getStatusBadgeLabelKey(status);
+  const sessionDotLabel = isPrefilling
+    ? t('management.prefillSessions.labels.loading')
+    : statusLabelKey
+      ? t(`management.prefillSessions.statusBadges.${statusLabelKey}`)
+      : status;
+
   return (
-    <Card className="prefill-session-card">
-      <CardContent className="p-0">
-        {/* Main session info */}
-        <div className="prefill-session-content">
-          {/* Left side: Status indicator and session info */}
-          <div className="prefill-session-main">
-            {/* Status indicator */}
-            <div
-              className={`icon-box icon-box--md prefill-session-indicator ${
-                isPrefilling
-                  ? 'prefill-indicator-downloading'
-                  : isLive
-                    ? 'prefill-indicator-active'
-                    : status === 'Terminated'
-                      ? 'prefill-indicator-terminated'
-                      : 'prefill-indicator-default'
-              }`}
-            >
-              {isPrefilling ? (
-                <LoadingSpinner inline size="md" />
-              ) : isLive ? (
-                <Play className="w-5 h-5" />
-              ) : status === 'Terminated' ? (
-                <StopCircle className="w-5 h-5" />
-              ) : (
-                <Container className="w-5 h-5" />
-              )}
-            </div>
-
-            {/* Session details */}
-            <div className="prefill-session-details">
-              {/* Title row: username / fallback label only */}
-              <div className="prefill-session-header">
-                {displayUsername ? (
-                  <span className={`prefill-session-username platform-${serviceId}`}>
-                    <User className="w-3.5 h-3.5" />
-                    {displayUsername}
-                  </span>
-                ) : (
-                  <span className="prefill-session-no-user">
-                    {isAnonymousService
-                      ? t('management.prefillSessions.labels.anonymousAccount', {
-                          service: platformDisplayName
-                        })
-                      : isPersistentSession
-                        ? t('management.prefillSessions.labels.persistentContainer')
-                        : isAuthenticated_
-                          ? t('management.prefillSessions.labels.authenticatedAccount', {
-                              service: platformDisplayName
-                            })
-                          : t('management.prefillSessions.labels.notLoggedInSession')}
-                  </span>
-                )}
-              </div>
-              {/* Status / platform / Persistent pills: always on their own row */}
-              <div className="prefill-session-badges cluster">
-                <StatusBadge status={status} />
-                <Badge variant="neutral">{platformDisplayName}</Badge>
-                {isPersistentSession && (
-                  <Badge variant="neutral">
-                    {t('management.prefillSessions.labels.persistentBadge')}
-                  </Badge>
-                )}
-              </div>
-
-              {/* Prefilling status */}
-              {isPrefilling && (
-                <div className="prefill-downloading-status">
-                  <Activity className="w-4 h-4" />
-                  <span className="prefill-downloading-name">
-                    {currentAppName || t('management.prefillSessions.labels.loading')}
-                  </span>
-                  {(totalBytesTransferred ?? 0) > 0 && (
-                    <span className="prefill-downloading-size tabular-nums">
-                      {formatBytes(totalBytesTransferred!)}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* Session stats — games prefilled + data transferred (compact readouts) */}
-              {(gamesCount > 0 ||
-                totalBytesFromHistory > 0 ||
-                (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
-                <div className="prefill-stat-line">
-                  {gamesCount > 0 && (
-                    <Tooltip
-                      content={t('management.prefillSessions.tooltips.gamesPrefilled', {
-                        count: gamesCount
-                      })}
-                    >
-                      <span className="prefill-stat-item">
-                        <Gamepad2 className="w-3.5 h-3.5" />
-                        <span className="tabular-nums">{gamesCount}</span>
-                      </span>
-                    </Tooltip>
-                  )}
-                  {(totalBytesFromHistory > 0 ||
-                    (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
-                    <Tooltip content={t('management.prefillSessions.tooltips.totalDataDownloaded')}>
-                      <span className="prefill-stat-item tabular-nums">
-                        {formatBytes(totalBytesFromHistory || totalBytesTransferred || 0)}
-                      </span>
-                    </Tooltip>
-                  )}
-                </div>
-              )}
-
-              {/* Metadata — single muted line, middot-separated */}
-              <div className="prefill-session-meta">
-                {containerName && (
-                  <span className="prefill-meta-item font-mono">{containerName}</span>
-                )}
-                <span className="prefill-meta-item">
-                  <FormattedTimestamp timestamp={createdAt} />
-                </span>
-                {endedAt && (
-                  <span className="prefill-meta-item">
-                    <FormattedTimestamp timestamp={endedAt} />
-                  </span>
-                )}
-                {ipAddress && (
-                  <span className="prefill-meta-item font-mono hidden sm:inline-flex">
-                    {cleanIpAddress(ipAddress)}
-                  </span>
-                )}
-                {(operatingSystem || browser) && (
-                  <span className="prefill-meta-item hidden md:inline-flex">
-                    {operatingSystem || browser}
-                  </span>
-                )}
-              </div>
-            </div>
+    <div className="session-item">
+      <div
+        className="mgmt-row mgmt-row--interactive focus-ring--inset session-row"
+        aria-expanded={isHistoryExpanded}
+        {...rowToggleHandlers(onToggleHistory)}
+      >
+        {isPrefilling ? (
+          <StatusDot tone="info" label={sessionDotLabel} />
+        ) : isLive ? (
+          <StatusDot state="active" label={sessionDotLabel} />
+        ) : status === 'Terminated' ? (
+          <StatusDot tone="error" label={sessionDotLabel} />
+        ) : (
+          <StatusDot tone="idle" label={sessionDotLabel} />
+        )}
+        <div className="mgmt-row__body">
+          <div className="session-row__titleline">
+            <span className="mgmt-row__title block truncate">{sessionTitle}</span>
+            <Badge variant="neutral">{platformDisplayName}</Badge>
+            {isPersistentSession && (
+              <Badge variant="neutral">
+                {t('management.prefillSessions.labels.persistentBadge')}
+              </Badge>
+            )}
           </div>
-
-          {/* Right side: action buttons only (stats moved into the session details) */}
-          <div className="prefill-session-actions">
-            {/* Action buttons — destructive actions first, expand/collapse chevron last (far right) */}
-            <div className="prefill-action-buttons">
-              {isAdmin && isLive && (onBan || onTerminate) && (
-                <RowActionsMenu open={menuOpen} onOpenChange={setMenuOpen}>
-                  {(close) => (
-                    <>
-                      {onBan && (
-                        <ActionMenuDangerItem
-                          onClick={() => {
-                            close();
-                            onBan();
-                          }}
-                          icon={<Ban className="w-4 h-4" />}
-                          disabled={isBanning}
-                        >
-                          {t('management.prefillSessions.tooltips.banUser')}
-                        </ActionMenuDangerItem>
-                      )}
-                      {onTerminate && (
-                        <ActionMenuDangerItem
-                          onClick={() => {
-                            close();
-                            onTerminate();
-                          }}
-                          icon={<StopCircle className="w-4 h-4" />}
-                          disabled={isTerminating}
-                        >
-                          {t('management.prefillSessions.tooltips.terminateSession')}
-                        </ActionMenuDangerItem>
-                      )}
-                    </>
-                  )}
-                </RowActionsMenu>
-              )}
-
-              <Button
-                variant="filled"
-                color="secondary"
-                size="sm"
-                onClick={onToggleHistory}
-                className="prefill-expand-btn btn-icon-square btn-icon-square--sm pointer-target-44"
-              >
-                {isLoadingHistory ? (
-                  <LoadingSpinner inline size="sm" />
-                ) : isHistoryExpanded ? (
-                  <ChevronUp className="w-4 h-4" />
-                ) : (
-                  <ChevronDown className="w-4 h-4" />
-                )}
-              </Button>
-            </div>
+          <div className="mgmt-row__meta session-row__meta">
+            {isPrefilling && (
+              <span>
+                {currentAppName || t('management.prefillSessions.labels.loading')}
+                {(totalBytesTransferred ?? 0) > 0
+                  ? ` · ${formatBytes(totalBytesTransferred!)}`
+                  : ''}
+              </span>
+            )}
+            {gamesCount > 0 && (
+              <span className="tabular-nums">
+                {t('management.prefillSessions.tooltips.gamesPrefilled', { count: gamesCount })}
+              </span>
+            )}
+            {(totalBytesFromHistory > 0 || (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
+              <span className="tabular-nums">
+                {formatBytes(totalBytesFromHistory || totalBytesTransferred || 0)}
+              </span>
+            )}
+            {containerName && <span className="font-mono">{containerName}</span>}
+            <span>
+              <FormattedTimestamp timestamp={createdAt} />
+            </span>
+            {endedAt && (
+              <span>
+                <FormattedTimestamp timestamp={endedAt} />
+              </span>
+            )}
+            {ipAddress && <span className="font-mono">{cleanIpAddress(ipAddress)}</span>}
+            {(operatingSystem || browser) && <span>{operatingSystem || browser}</span>}
           </div>
         </div>
+        <div
+          className="mgmt-row__actions session-row__actions"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        >
+          {isAdmin && isLive && (onBan || onTerminate) && (
+            <RowActionsMenu open={menuOpen} onOpenChange={setMenuOpen}>
+              {(close) => (
+                <>
+                  {onTerminate && (
+                    <ActionMenuItem
+                      onClick={() => {
+                        close();
+                        onTerminate();
+                      }}
+                      icon={<StopCircle className="w-4 h-4" />}
+                      disabled={isTerminating}
+                    >
+                      {t('management.prefillSessions.tooltips.terminateSession')}
+                    </ActionMenuItem>
+                  )}
+                  {onBan && (
+                    <>
+                      {onTerminate && <ActionMenuDivider />}
+                      <ActionMenuDangerItem
+                        onClick={() => {
+                          close();
+                          onBan();
+                        }}
+                        icon={<Ban className="w-4 h-4" />}
+                        disabled={isBanning}
+                      >
+                        {t('management.prefillSessions.tooltips.banUser')}
+                      </ActionMenuDangerItem>
+                    </>
+                  )}
+                </>
+              )}
+            </RowActionsMenu>
+          )}
+        </div>
+        {isLoadingHistory ? (
+          <LoadingSpinner inline size="xs" />
+        ) : (
+          <ChevronDown
+            className={`session-row__chevron ${isHistoryExpanded ? 'is-open' : ''}`}
+            aria-hidden="true"
+          />
+        )}
+      </div>
 
-        {/* Expandable history section */}
-        <CollapsibleRegion open={isHistoryExpanded} contentClassName="prefill-history-section">
-          <div className="prefill-history-header">
-            <Gamepad2 className="w-4 h-4 text-themed-muted" />
-            <span>{t('management.prefillSessions.labels.prefillHistory')}</span>
-          </div>
+      <CollapsibleRegion open={isHistoryExpanded} contentClassName="mgmt-row-detail">
+        <div className="session-detail">
+          <p className="mgmt-subhead caps-label">
+            {t('management.prefillSessions.labels.prefillHistory')}
+          </p>
 
           {isLoadingHistory ? (
-            <div className="prefill-history-loading">
-              <LoadingSpinner inline size="sm" className="text-themed-muted" />
-              <span>{t('management.prefillSessions.labels.loadingHistory')}</span>
+            <div className="flex items-center gap-2 text-xs text-themed-muted">
+              <LoadingSpinner inline size="xs" />
+              {t('management.prefillSessions.labels.loadingHistory')}
             </div>
           ) : !historyData || historyData.length === 0 ? (
-            <div className="prefill-history-empty">
+            <p className="mgmt-scanmeta">
               {isLive
                 ? t('management.prefillSessions.labels.noPrefillHistoryYet')
                 : t('management.prefillSessions.labels.noPrefillHistoryRecorded')}
-            </div>
+            </p>
           ) : (
             <>
-              {/* Summary stats */}
-              <div className="prefill-history-summary">
-                <span>
-                  {t('management.prefillSessions.labels.gamesPrefilled', {
-                    count: historyData.length
-                  })}
-                </span>
-                {totalBytesFromHistory > 0 && (
-                  <span>
-                    {t('management.prefillSessions.labels.total', {
-                      bytes: formatBytes(totalBytesFromHistory)
-                    })}
-                  </span>
-                )}
-              </div>
-
-              {/* History entries */}
-              <div className="prefill-history-list">
+              <div className="mgmt-list divided-list">
                 {paginatedEntries.map((entry) => (
-                  <div key={entry.id} className="prefill-history-entry rounded">
-                    <div className="prefill-history-entry-main">
-                      <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
-                      <div className="prefill-history-entry-content">
-                        <div className="prefill-history-entry-header">
-                          <span className="prefill-history-entry-name">
-                            {entry.appName || t('prefill.log.unnamedApp', { appId: entry.appId })}
-                          </span>
-                          <HistoryStatusBadge
-                            status={entry.status}
-                            completedAtUtc={entry.completedAtUtc}
-                          />
-                        </div>
-                        <div className="prefill-history-entry-meta">
+                  <div key={entry.id} className="mgmt-row">
+                    <div className="mgmt-row__body">
+                      <div className="session-row__titleline">
+                        <span className="mgmt-row__title block truncate">
+                          {entry.appName || t('prefill.log.unnamedApp', { appId: entry.appId })}
+                        </span>
+                        <HistoryStatusBadge
+                          status={entry.status}
+                          completedAtUtc={entry.completedAtUtc}
+                        />
+                      </div>
+                      <div className="mgmt-row__meta session-row__meta">
+                        <span>
+                          {t('management.prefillSessions.historyStarted')}{' '}
+                          <FormattedTimestamp timestamp={entry.startedAtUtc} />
+                        </span>
+                        {entry.completedAtUtc && (
                           <span>
-                            {t('management.prefillSessions.historyStarted')}{' '}
-                            <FormattedTimestamp timestamp={entry.startedAtUtc} />
+                            {t('management.prefillSessions.historyCompleted')}{' '}
+                            <FormattedTimestamp timestamp={entry.completedAtUtc} />
                           </span>
-                          {entry.completedAtUtc && (
-                            <span>
-                              {t('management.prefillSessions.historyCompleted')}{' '}
-                              <FormattedTimestamp timestamp={entry.completedAtUtc} />
-                            </span>
-                          )}
-                          {(entry.bytesDownloaded > 0 || entry.totalBytes > 0) && (
-                            <span>
-                              {entry.totalBytes > 0 &&
-                              entry.bytesDownloaded !== entry.totalBytes &&
-                              entry.status.toLowerCase() !== 'cached'
-                                ? `${formatBytes(entry.bytesDownloaded)} / ${formatBytes(entry.totalBytes)}`
-                                : formatBytes(entry.bytesDownloaded || entry.totalBytes)}
-                            </span>
-                          )}
-                        </div>
+                        )}
+                        {(entry.bytesDownloaded > 0 || entry.totalBytes > 0) && (
+                          <span>
+                            {entry.totalBytes > 0 &&
+                            entry.bytesDownloaded !== entry.totalBytes &&
+                            entry.status.toLowerCase() !== 'cached'
+                              ? `${formatBytes(entry.bytesDownloaded)} / ${formatBytes(entry.totalBytes)}`
+                              : formatBytes(entry.bytesDownloaded || entry.totalBytes)}
+                          </span>
+                        )}
                         {entry.errorMessage && (
-                          <div className="prefill-history-entry-error">
-                            <XCircle className="w-3 h-3" />
-                            <span>{entry.errorMessage}</span>
-                          </div>
+                          <span className="is-error">
+                            <XCircle className="w-3 h-3" /> {entry.errorMessage}
+                          </span>
                         )}
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
-
-              {/* Pagination */}
               {totalPages > 1 && (
-                <div className="prefill-history-pagination">
-                  <Pagination
-                    currentPage={historyPage}
-                    totalPages={totalPages}
-                    totalItems={historyData.length}
-                    itemsPerPage={historyPageSize}
-                    onPageChange={onHistoryPageChange}
-                    itemLabel={t('management.prefillSessions.labels.games')}
-                    compact
-                  />
-                </div>
+                <Pagination
+                  currentPage={historyPage}
+                  totalPages={totalPages}
+                  totalItems={historyData.length}
+                  itemsPerPage={historyPageSize}
+                  onPageChange={onHistoryPageChange}
+                  itemLabel={t('management.prefillSessions.labels.games')}
+                  compact
+                />
               )}
             </>
           )}
-        </CollapsibleRegion>
-      </CardContent>
-    </Card>
+        </div>
+      </CollapsibleRegion>
+    </div>
   );
 };
 
@@ -626,30 +479,28 @@ const BannedUserCard: React.FC<{
   const { t } = useTranslation();
 
   return (
-    <div className="well-surface prefill-ban-card">
-      <div
-        className={`icon-box icon-box--md prefill-ban-icon ${ban.isActive ? 'prefill-ban-active' : 'prefill-ban-lifted'}`}
-      >
-        <Ban className="w-4 h-4" />
-      </div>
-      <div className="prefill-ban-content">
-        <div className="prefill-ban-header cluster">
-          <span className="prefill-ban-username">
+    <div className="mgmt-row">
+      <StatusDot
+        tone={ban.isActive ? 'error' : 'idle'}
+        label={
+          ban.isActive
+            ? t('management.prefillSessions.bannedUsers.active')
+            : t('management.prefillSessions.bannedUsers.lifted')
+        }
+      />
+      <div className="mgmt-row__body">
+        <div className="session-row__titleline">
+          <span className="mgmt-row__title block truncate">
             {ban.username || t('management.prefillSessions.bannedUsers.unknown')}
           </span>
-          <Badge variant={ban.isActive ? 'error' : 'neutral'} className="prefill-ban-badge">
-            {ban.isActive
-              ? t('management.prefillSessions.bannedUsers.active')
-              : t('management.prefillSessions.bannedUsers.lifted')}
-          </Badge>
         </div>
-        <div className="prefill-ban-meta">
+        <div className="mgmt-row__meta session-row__meta">
           <span>
             {t('management.prefillSessions.bannedUsers.banned', { time: '' })}
             <FormattedTimestamp timestamp={ban.bannedAtUtc} />
           </span>
           {ban.banReason && (
-            <span className="prefill-ban-reason">
+            <span>
               {t('management.prefillSessions.bannedUsers.reason', { reason: ban.banReason })}
             </span>
           )}
@@ -668,18 +519,17 @@ const BannedUserCard: React.FC<{
         </div>
       </div>
       {isAdmin && ban.isActive && (
-        <Tooltip content={t('management.prefillSessions.tooltips.liftBan')}>
+        <div className="mgmt-row__actions">
           <Button
-            variant="filled"
-            color="secondary"
-            size="md"
+            variant="default"
+            size="xs"
             onClick={onLiftBan}
             disabled={isLifting}
-            className="prefill-ban-action"
+            loading={isLifting}
           >
-            {isLifting ? <LoadingSpinner inline size="sm" /> : <Shield className="w-4 h-4" />}
+            {t('management.prefillSessions.tooltips.liftBan')}
           </Button>
-        </Tooltip>
+        </div>
       )}
     </div>
   );
@@ -712,13 +562,6 @@ const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerD
   const runLabel = isRunning ? t(`${baseKey}.status.running`) : t(`${baseKey}.status.stopped`);
 
   const showLoginState = isRunning && !isAnonymous;
-  // 'info' matches StatusDot's tone prop (@components/common/StatusDot) - not 'active', which on
-  // StatusDot means the pulsing live-presence state, not a static "logged in" reading.
-  const loginTone: 'info' | 'warning' = container.needsRelogin
-    ? 'warning'
-    : isAuthenticated
-      ? 'info'
-      : 'warning';
   const loginLabel = container.needsRelogin
     ? t(`${baseKey}.status.needsRelogin`)
     : isAuthenticated
@@ -728,54 +571,34 @@ const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerD
   const isPrefilling = isRunning && (container.isPrefilling ?? false);
 
   return (
-    <Card className="prefill-persistent-card">
-      <CardContent className="prefill-persistent-card__body">
-        <div className="prefill-persistent-card__header">
-          <Badge variant="neutral">{displayName}</Badge>
+    <div className="mgmt-row">
+      <StatusDot tone={runTone} label={runLabel} />
+      <div className="mgmt-row__body">
+        <div className="session-row__titleline">
+          <span className="mgmt-row__title">{displayName}</span>
         </div>
-
-        <div className="prefill-persistent-card__status-row">
-          <StatusDot tone={runTone} label={runLabel} />
-          <span className="prefill-persistent-card__status-text">{runLabel}</span>
-        </div>
-
-        {showLoginState && (
-          <div className="prefill-persistent-card__status-row">
-            <StatusDot tone={loginTone} label={loginLabel} />
-            <span className="prefill-persistent-card__status-text">{loginLabel}</span>
-          </div>
-        )}
-
-        {isPrefilling && (
-          <p className="prefill-persistent-card__activity">
-            {container.currentAppName
-              ? t(`${baseKey}.prefilling`, { game: container.currentAppName })
-              : t(`${baseKey}.prefillingGeneric`)}
-            {(container.totalBytesTransferred ?? 0) > 0 && (
-              <span className="tabular-nums">
-                {' '}
-                &middot; {formatBytes(container.totalBytesTransferred ?? 0)}
-              </span>
-            )}
-          </p>
-        )}
-
-        {container.isRunning && !isAnonymous && container.daemonAuthExpiresAtUtc && (
-          <div className="prefill-persistent-card__meta-item">
-            <span className="caps-label prefill-persistent-card__meta-label">
-              {t(`${baseKey}.tokenExpiresAt`)}
+        <div className="mgmt-row__meta session-row__meta">
+          {showLoginState && <span>{loginLabel}</span>}
+          {isPrefilling && (
+            <span>
+              {container.currentAppName
+                ? t(`${baseKey}.prefilling`, { game: container.currentAppName })
+                : t(`${baseKey}.prefillingGeneric`)}
+              {(container.totalBytesTransferred ?? 0) > 0
+                ? ` · ${formatBytes(container.totalBytesTransferred ?? 0)}`
+                : ''}
             </span>
-            <span className="prefill-persistent-card__meta-value tabular-nums">
+          )}
+          {container.isRunning && !isAnonymous && container.daemonAuthExpiresAtUtc && (
+            <span>
+              {t(`${baseKey}.tokenExpiresAt`)}{' '}
               <FormattedTimestamp timestamp={container.daemonAuthExpiresAtUtc} />
             </span>
-          </div>
-        )}
-
-        <div className="prefill-persistent-card__container-name font-mono">
-          {container.sessionId}
+          )}
+          <span className="font-mono">{container.sessionId}</span>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 };
 
@@ -1203,27 +1026,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           actions={<AccordionGroupToggle />}
         />
 
-        <div className="prefill-stats-grid mb-4">
-          <StatCard
-            icon={<Play className="w-5 h-5 icon-success" />}
-            value={guestActiveSessions.length}
-            label={t('management.prefillSessions.activeSessions')}
-            iconBgClass="icon-bg-green"
-          />
-          <StatCard
-            icon={<Container className="w-5 h-5 icon-primary" />}
-            value={totalCount}
-            label={t('management.prefillSessions.totalSessions')}
-            iconBgClass="icon-bg-blue"
-          />
-          <StatCard
-            icon={<Ban className="w-5 h-5 icon-error" />}
-            value={activeBansCount}
-            label={t('management.prefillSessions.activeBans')}
-            iconBgClass="icon-bg-red"
-          />
-        </div>
-
         {cacheRoute && (
           <p className="text-xs text-themed-muted mb-4">
             {cacheRoute.ip
@@ -1307,7 +1109,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 subtitle={t('management.prefillSessions.noActiveSessionsDesc')}
               />
             ) : (
-              <div className="prefill-sessions-list">
+              <div className="mgmt-list divided-list">
                 {guestActiveSessions.map((session) => (
                   <SessionCard
                     key={session.id}
@@ -1366,7 +1168,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 subtitle={t('management.prefillSessions.persistentSessions.noContainersDesc')}
               />
             ) : (
-              <div className="prefill-persistent-list">
+              <div className="mgmt-list divided-list">
                 {persistentContainers.map((container) => (
                   <PersistentContainerCard key={container.sessionId} container={container} />
                 ))}
@@ -1421,7 +1223,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   setPage(1);
                 }}
                 placeholder={t('management.prefillSessions.statusFilters.all')}
-                className="min-w-[90px] sm:min-w-[120px] h-10"
+                className="prefill-filter-status"
                 dropdownWidth="140px"
               />
               <EnhancedDropdown
@@ -1454,7 +1256,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   setPage(1);
                 }}
                 placeholder={t('management.prefillSessions.platformFilters.all')}
-                className="min-w-[90px] sm:min-w-[120px] h-10"
+                className="prefill-filter-platform"
                 dropdownWidth="140px"
               />
             </div>
@@ -1481,7 +1283,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               />
             ) : (
               <>
-                <div className="prefill-sessions-list">
+                <div className="mgmt-list divided-list">
                   {sessions.map((session) => (
                     <SessionCard
                       key={session.id}
@@ -1574,7 +1376,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               />
             ) : (
               <div
-                className={`prefill-bans-list ${loadingBans ? 'opacity-60 pointer-events-none' : ''}`}
+                className={`mgmt-list divided-list ${loadingBans ? 'opacity-60 pointer-events-none' : ''}`}
               >
                 {visibleBans.map((ban) => (
                   <BannedUserCard

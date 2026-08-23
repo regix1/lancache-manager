@@ -112,7 +112,7 @@ export const ActionMenuItem: React.FC<ActionMenuItemProps> = ({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="w-full px-3 py-2 text-left text-sm hover:bg-themed-hover flex items-center gap-2 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+      className="w-full px-3 py-2 text-left text-sm whitespace-nowrap hover:bg-themed-hover flex items-center gap-2 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {icon}
       {children}
@@ -134,7 +134,7 @@ export const ActionMenuDangerItem: React.FC<ActionMenuDangerItemProps> = ({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors duration-150 text-themed-error bg-transparent hover:bg-[var(--theme-error-bg)] disabled:opacity-50 disabled:cursor-not-allowed"
+      className="w-full px-3 py-2 text-left text-sm whitespace-nowrap flex items-center gap-2 transition-colors duration-150 text-themed-error bg-transparent hover:bg-[var(--theme-error-bg)] disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {icon}
       {children}

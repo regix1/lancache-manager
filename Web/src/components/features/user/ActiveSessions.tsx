@@ -30,7 +30,8 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
+import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { GroupHeading } from '@components/ui/GroupHeading';
 import { Checkbox } from '@components/ui/Checkbox';
 import Badge from '@components/ui/Badge';
@@ -1407,18 +1408,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               </HelpPopover>
             }
             icon={Users}
-            count={
-              !loading && activeSessions.length > 0 ? filteredActiveSessions.length : undefined
-            }
+            count={!loading && activeSessions.length > 0 ? activeSessions.length : undefined}
             isExpanded={sessionsExpanded}
             onToggle={() => setSessionsExpanded((prev: boolean) => !prev)}
             badge={
               <SectionHeaderActions>
-                <SectionHeaderChip variant={guestModeLocked ? 'error' : 'success'}>
-                  {guestModeLocked
-                    ? t('activeSessions.toggle.locked')
-                    : t('activeSessions.toggle.unlocked')}
-                </SectionHeaderChip>
                 <SectionActionsMenu label={t('management.actions.menuLabel')} width="w-56">
                   {(close) => (
                     <>
@@ -1448,47 +1442,75 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             }
           >
             <div className="space-y-4">
-              {/* Guest lock control stays visible (not buried in kebab); filters stay in-body */}
-              <div className="mgmt-toolbar session-toolbar">
-                {!loading && activeSessions.length > 0 ? (
-                  <div className="session-filter-cluster cluster">
-                    {(['all', 'admin', 'guest'] as const).map((filter: SessionFilter) => {
-                      const isActive = activeFilterValue === filter;
-                      return (
-                        <Button
-                          key={filter}
-                          variant={isActive ? 'filled' : 'default'}
-                          color={isActive ? 'primary' : 'secondary'}
-                          size="sm"
-                          aria-pressed={isActive}
-                          onClick={() => setActiveFilter(filter)}
-                          rightSection={
-                            <span
-                              className={`themed-badge badge-count ${isActive ? 'badge-count-on-color' : 'status-badge-neutral'}`}
-                            >
-                              {getCountForFilter(filter)}
-                            </span>
-                          }
-                        >
-                          {getFilterLabel(filter)}
-                        </Button>
-                      );
-                    })}
+              <div className="well-surface session-access">
+                <div className="session-access__copy">
+                  <p className="session-access__title">{t('activeSessions.access.title')}</p>
+                  <p className="session-access__hint">
+                    {guestModeLocked
+                      ? t('activeSessions.access.lockedHint')
+                      : t('activeSessions.access.unlockedHint')}
+                  </p>
+                </div>
+                <ToggleSwitch
+                  options={[
+                    {
+                      value: 'unlocked',
+                      label: t('activeSessions.toggle.unlocked'),
+                      icon: <Unlock />,
+                      activeColor: 'success'
+                    },
+                    {
+                      value: 'locked',
+                      label: t('activeSessions.toggle.locked'),
+                      icon: <Lock />,
+                      activeColor: 'error'
+                    }
+                  ]}
+                  value={guestModeLocked ? 'locked' : 'unlocked'}
+                  onChange={onToggleGuestLock}
+                  disabled={updatingGuestLock}
+                  loading={updatingGuestLock}
+                  title={
+                    guestModeLocked
+                      ? t('activeSessions.toggle.lockedTitle')
+                      : t('activeSessions.toggle.unlockedTitle')
+                  }
+                />
+              </div>
 
-                    <div className="session-filter-search">
-                      <SearchInput
-                        size="sm"
-                        value={searchQuery}
-                        onChange={handleSearchChange}
-                        placeholder={t('activeSessions.searchPlaceholder')}
-                        aria-label={t('activeSessions.searchPlaceholder')}
-                        onClear={handleClearSearch}
-                      />
-                    </div>
-
+              {!loading && activeSessions.length > 0 && (
+                <div className="session-toolbar">
+                  <SearchInput
+                    value={searchQuery}
+                    onChange={handleSearchChange}
+                    placeholder={t('activeSessions.searchPlaceholder')}
+                    aria-label={t('activeSessions.searchPlaceholder')}
+                    onClear={handleClearSearch}
+                  />
+                  <div className="session-toolbar__filters">
+                    <SegmentedControl
+                      showLabels
+                      fullWidth
+                      className="session-filter-types"
+                      value={activeFilterValue}
+                      onChange={(value: string) => setActiveFilter(value as SessionFilter)}
+                      options={(['all', 'admin', 'guest'] as const).map(
+                        (filter: SessionFilter) => ({
+                          value: filter,
+                          label: (
+                            <>
+                              {getFilterLabel(filter)}
+                              <Badge variant="neutral" className="badge-count">
+                                {getCountForFilter(filter)}
+                              </Badge>
+                            </>
+                          )
+                        })
+                      )}
+                    />
                     <EnhancedDropdown
                       variant="button"
-                      size="sm"
+                      size="md"
                       options={pageSizeOptions}
                       value={String(pageSize)}
                       onChange={handlePageSizeChange}
@@ -1497,38 +1519,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       dropdownWidth="100px"
                     />
                   </div>
-                ) : (
-                  <div />
-                )}
-
-                <div className="session-toolbar__right">
-                  <ToggleSwitch
-                    options={[
-                      {
-                        value: 'unlocked',
-                        label: t('activeSessions.toggle.unlocked'),
-                        icon: <Unlock />,
-                        activeColor: 'success'
-                      },
-                      {
-                        value: 'locked',
-                        label: t('activeSessions.toggle.locked'),
-                        icon: <Lock />,
-                        activeColor: 'error'
-                      }
-                    ]}
-                    value={guestModeLocked ? 'locked' : 'unlocked'}
-                    onChange={onToggleGuestLock}
-                    disabled={updatingGuestLock}
-                    loading={updatingGuestLock}
-                    title={
-                      guestModeLocked
-                        ? t('activeSessions.toggle.lockedTitle')
-                        : t('activeSessions.toggle.unlockedTitle')
-                    }
-                  />
                 </div>
-              </div>
+              )}
 
               {loading && (
                 <LoadingState message={t('activeSessions.loading')} shape="list" rows={4} />
@@ -1756,18 +1748,17 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   </label>
                   {editingPreferences.selectedTheme &&
                   editingPreferences.selectedTheme !== defaultGuestTheme ? (
-                    <button
-                      type="button"
+                    <Badge
+                      variant="neutral"
                       onClick={() =>
                         setEditingPreferences({
                           ...editingPreferences,
                           selectedTheme: null
                         })
                       }
-                      className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
                     >
                       {t('actions.useDefault')}
-                    </button>
+                    </Badge>
                   ) : (
                     <Badge variant="neutral">{t('actions.usingDefault')}</Badge>
                   )}
@@ -1806,18 +1797,17 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     </label>
                     {editingPreferences.refreshRate &&
                     editingPreferences.refreshRate !== defaultGuestRefreshRate ? (
-                      <button
-                        type="button"
+                      <Badge
+                        variant="neutral"
                         onClick={() =>
                           setEditingPreferences({
                             ...editingPreferences,
                             refreshRate: null
                           })
                         }
-                        className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
                       >
                         {t('actions.useDefault')}
-                      </button>
+                      </Badge>
                     ) : (
                       <Badge variant="neutral">{t('actions.usingDefault')}</Badge>
                     )}
@@ -1868,18 +1858,17 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     </div>
                     <div className="flex items-center gap-2">
                       {editingPreferences.refreshRateLocked !== null && (
-                        <button
-                          type="button"
+                        <Badge
+                          variant="neutral"
                           onClick={() =>
                             setEditingPreferences({
                               ...editingPreferences,
                               refreshRateLocked: null
                             })
                           }
-                          className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
                         >
                           {t('actions.useDefault')}
-                        </button>
+                        </Badge>
                       )}
                       <div
                         className={`modern-toggle cursor-pointer ${editingPreferences.refreshRateLocked === false ? 'checked' : ''}`}
@@ -2008,13 +1997,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                                   {service.name}
                                 </span>
                                 {hasOverride ? (
-                                  <button
-                                    type="button"
+                                  <Badge
+                                    variant="neutral"
                                     onClick={() => setThreadLimit(service.key, null)}
-                                    className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
                                   >
                                     {t('actions.useDefault')}
-                                  </button>
+                                  </Badge>
                                 ) : (
                                   <Badge variant="neutral">{t('actions.usingDefault')}</Badge>
                                 )}
@@ -2167,18 +2155,17 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       return isUsingDefault ? (
                         <Badge variant="neutral">{t('actions.usingDefault')}</Badge>
                       ) : (
-                        <button
-                          type="button"
+                        <Badge
+                          variant="neutral"
                           onClick={() =>
                             setEditingPreferences({
                               ...editingPreferences,
                               allowedTimeFormats: undefined
                             })
                           }
-                          className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
                         >
                           {t('actions.useDefault')}
-                        </button>
+                        </Badge>
                       );
                     })()}
                   </div>

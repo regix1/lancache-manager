@@ -29,9 +29,16 @@ export const SetupGate: React.FC<SetupGateProps> = ({
     <div className="absolute inset-0 opacity-5 setup-gate-stripe" />
 
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="setup-gate-title"
+      tabIndex={-1}
       className={`relative z-10 w-full ${maxWidth === '4xl' ? 'max-w-4xl' : 'max-w-xl'} themed-border-radius border overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)] bg-themed-secondary border-themed-primary`}
     >
-      <div className="px-5 sm:px-8 py-4 sm:py-5 border-b flex items-center justify-between border-themed-secondary">
+      <div
+        id="setup-gate-title"
+        className="px-5 sm:px-8 py-4 sm:py-5 border-b flex items-center justify-between border-themed-secondary"
+      >
         {header}
       </div>
 

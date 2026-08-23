@@ -183,41 +183,62 @@
 }
 
 /* ==============================================
- * SESSION TOOLBAR (filter cluster + result meta + bulk actions)
+ * SESSION ACCESS + FIND TOOLBAR
  * ============================================== */
 
-/* Breathing room above and below the sessions toolbar controls so the filter
-   row does not sit cramped between the accordion header and the list. */
-.session-toolbar {
-  padding: 0.75rem 0;
+/* Guest lock is a setting, not a filter peer. The well gives it its own surface so
+   it never shares a row with All/Admin/Guest, search, or page size. */
+.well-surface.session-access {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.25rem;
+  padding: 0.75rem 0.875rem;
+  overflow: visible;
 }
 
-.session-toolbar__right {
+.session-access__copy {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.session-access__title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  color: var(--theme-text-primary);
+}
+
+.session-access__hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+}
+
+/* Search on its own row; type filter and page size on the next. */
+.session-toolbar {
+  display: flex;
+  flex-direction: column;
   gap: 0.75rem;
 }
 
-/* Search box and page-size dropdown in the filter cluster. Both widths live here
-   rather than as Tailwind utilities on the elements so the phone rules below have a
-   single place to override and never race the utility layer for the same property.
-   These three declarations are what `flex-1 min-w-[19rem] max-w-md` produced, kept
-   identical so only the phone override below changes anything. */
-.session-filter-search {
-  flex: 1 1 0%;
-  min-width: 19rem;
-  max-width: 28rem;
+.session-toolbar__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
 }
 
-/* `.cluster` adds 6px extra margin when a non-chip follows a badged button (12px
-   total, for kebabs in header rows). The session search is a peer of All/Admin/Guest,
-   so it keeps the 6px cluster gap. `:not(.themed-badge)` raises specificity above
-   that sibling rule regardless of chunk order. */
-.cluster.session-filter-cluster > .session-filter-search:not(.themed-badge) {
-  margin-inline-start: 0;
+.session-filter-types {
+  flex: 1 1 16rem;
+  min-width: 0;
 }
 
 .session-filter-pagesize {
+  flex: 0 0 auto;
   min-width: 6.5rem;
 }
 
@@ -265,60 +286,28 @@
     min-height: 2.75rem;
   }
 
-  /* The toolbar gets the same treatment the row actions above already had: each
-     cluster takes the whole line and its controls share it, instead of every group
-     bunching at the left edge with a third of the row used. */
-  .session-filter-cluster {
-    flex: 1 1 100%;
-  }
-
-  /* Equal thirds. At their natural widths the three filters need 292px, so on a
-     360px phone (261px of column) Guest wrapped alone onto a line of its own and
-     stretched across it. A zero basis lets all three share one line at 82px each.
-     `min-content` is the floor: it is the label plus its count badge with nothing to
-     spare, so they stop shrinking there and wrap instead. Without it a 320px screen
-     squeezed them to 68px and cut "Admin" off inside its own button. */
-  .session-filter-cluster > button {
-    flex: 1 1 0;
-    min-width: min-content;
-    min-height: 2.75rem;
-  }
-
-  /* 19rem is 304px - wider than the 291px content column of a 390px phone, which
-     pushed the box past every other row's right edge and into the card padding. */
-  .session-filter-search {
-    flex: 1 1 100%;
-    min-width: 0;
-    max-width: none;
-  }
-
+  .session-filter-types,
   .session-filter-pagesize {
     flex: 1 1 100%;
   }
 
-  .session-toolbar__right {
-    flex: 1 1 100%;
+  /* 2.75rem is the touch minimum used elsewhere in the app. The page-size trigger
+     and the guest-access toggle set a fixed height, so they need the compound
+     selector to beat it. */
+  .session-filter-pagesize .ed-trigger,
+  .session-access button {
+    height: 2.75rem;
   }
 
-  /* The lock switch is wrapped in a Tooltip, so the direct child here is that
-     wrapper, not the button. Stretch both, then the two halves inside the pill, so
-     Unlocked and Locked end up equal and the pill spans the row. */
-  .session-toolbar__right > *,
-  .session-toolbar__right button {
+  /* The lock switch is wrapped in a Tooltip, so the well's trailing child is that
+     wrapper. Stretch both so Unlocked and Locked share the row on a phone. */
+  .session-access > *,
+  .session-access button {
     width: 100%;
   }
 
-  .session-toolbar__right button > span {
+  .session-access button > span {
     flex: 1 1 0;
-  }
-
-  /* 2.75rem is the touch minimum used elsewhere in the app (managementSectionContent
-     .css, StatusCheckSection.css). These three set a fixed height rather than a
-     min-height, so they need the compound selector to beat it. */
-  .session-filter-search .themed-input.input-search-sm,
-  .session-filter-pagesize .ed-trigger,
-  .session-toolbar__right button {
-    height: 2.75rem;
   }
 }
 

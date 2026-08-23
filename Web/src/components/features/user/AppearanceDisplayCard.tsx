@@ -210,7 +210,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
                     <p className="mgmt-row__meta">{t('user.guest.timeFormats.note')}</p>
                   </div>
                   <div className="mgmt-row__actions">
-                    <span className="user-settings-dropdown">
+                    <span className="user-settings-dropdown user-settings-dropdown--formats">
                       <MultiSelectDropdown
                         options={timeFormatOptions}
                         values={defaultGuestPreferences.allowedTimeFormats}
