@@ -125,6 +125,52 @@ public sealed class AuthStatusSessionCookieTests : IDisposable
     }
 
     /// <summary>
+    /// A status request can authenticate a guest, wait behind other work in the action, and finish
+    /// after that browser has signed in to an account and revoked the guest row. Its response must not
+    /// put the dead guest credential back into the browser over the account cookie.
+    /// </summary>
+    [Fact]
+    public async Task RevokedGuestStatus_IsNotReportedAsAuthenticated()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewSessionService(database.Factory, authenticationEnabled: true);
+        var created = await service.CreateGuestSessionAsync(new DefaultHttpContext());
+        Assert.NotNull(created);
+
+        // The authentication handler resolved this object while the guest was still live. Revocation
+        // happens after that point, exactly as it can when an account sign-in overtakes this request.
+        var context = RequestFor(created!.Value.Session);
+        context.Request.Headers.Cookie = $"{CookieName}={created.Value.RawToken}";
+        Assert.True(await service.RevokeSessionAsync(created.Value.Session.Id));
+
+        var status = await StatusAsync(service, database, context);
+
+        Assert.False(status.IsAuthenticated);
+        Assert.Null(status.SessionType);
+    }
+
+    /// <summary>
+    /// The same delayed response must not carry a Set-Cookie header for the revoked guest. Otherwise
+    /// response arrival order lets it replace the account cookie that the sign-in already returned.
+    /// </summary>
+    [Fact]
+    public async Task RevokedGuestStatus_IsNotReissued()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewSessionService(database.Factory, authenticationEnabled: true);
+        var created = await service.CreateGuestSessionAsync(new DefaultHttpContext());
+        Assert.NotNull(created);
+
+        var context = RequestFor(created!.Value.Session);
+        context.Request.Headers.Cookie = $"{CookieName}={created.Value.RawToken}";
+        Assert.True(await service.RevokeSessionAsync(created.Value.Session.Id));
+
+        await StatusAsync(service, database, context);
+
+        Assert.Null(IssuedSessionCookie(context));
+    }
+
+    /// <summary>
     /// A request carrying both a cookie and the key runs as its cookie session, because the request handler
     /// reads the key only once the cookie has produced nothing (SessionAuthenticationHandler.cs:65). The
     /// call site cannot tell those two apart without revalidating the cookie, so it treats the header as the

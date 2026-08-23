@@ -83,6 +83,14 @@ public class AuthController : ControllerBase
         // the session is already here.
         var session = HttpContext.GetUserSession();
         var authenticationEnabled = _sessionService.IsAuthenticationEnabled();
+        var rawToken = SessionService.TokenFromCookie(HttpContext);
+        if (authenticationEnabled && session != null && !string.IsNullOrEmpty(rawToken))
+        {
+            // Authentication runs before the action. A guest can sign in to an account while an
+            // earlier status request is still waiting to run here, so confirm the cookie again before
+            // this response reports or rotates that old session.
+            session = await _sessionService.ValidateSessionAsync(rawToken);
+        }
 
         bool hasData = false;
         bool hasBeenInitialized = false;

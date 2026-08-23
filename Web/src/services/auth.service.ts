@@ -59,6 +59,8 @@ const API_URL = getApiUrl();
 const AUTH_CHECK_TIMEOUT_MS = 10000;
 
 class AuthService {
+  private authQueue: Promise<void> = Promise.resolve();
+
   public isAuthenticated = false;
   public authChecked = false;
   public authMode: AuthMode = 'unauthenticated';
@@ -70,7 +72,25 @@ class AuthService {
   public guestAccessEnabled = true;
   public guestDurationHours = 6;
 
-  async checkAuth(): Promise<AuthStatusResponse> {
+  /**
+   * Session status responses set cookies as well as local state. Keep every status read and session
+   * change in request order so an older guest response cannot arrive after an account sign-in and
+   * replace the account cookie.
+   */
+  private serialize<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.authQueue.then(work, work);
+    this.authQueue = result.then(
+      () => undefined,
+      () => undefined
+    );
+    return result;
+  }
+
+  checkAuth(): Promise<AuthStatusResponse> {
+    return this.serialize(() => this.fetchAuthStatus());
+  }
+
+  private async fetchAuthStatus(): Promise<AuthStatusResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
@@ -160,105 +180,111 @@ class AuthService {
     }
   }
 
-  async login(
+  login(
     apiKey: string,
     username: string,
     password: string
   ): Promise<{ success: boolean; message?: string }> {
-    try {
-      // The antiforgery token the server issues belongs to whoever asked for it, so one left over
-      // from a session that has since ended - signed out, revoked by an admin, expired - is refused
-      // here rather than at the call the user is actually making. Reading the status first is what
-      // makes the token match the caller the server is about to see, and it is the same call the
-      // page already makes on load, so this only does real work when the caller has changed.
-      await this.checkAuth();
+    return this.serialize(async () => {
+      try {
+        // The antiforgery token the server issues belongs to whoever asked for it, so one left over
+        // from a session that has since ended - signed out, revoked by an admin, expired - is refused
+        // here rather than at the call the user is actually making. Reading the status first is what
+        // makes the token match the caller the server is about to see, and it is the same call the
+        // page already makes on load, so this only does real work when the caller has changed.
+        await this.fetchAuthStatus();
 
-      const response = await fetch(`${API_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...antiforgeryHeaders() },
-        credentials: 'include',
-        body: JSON.stringify({ apiKey, username, password })
-      });
+        const response = await fetch(`${API_URL}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...antiforgeryHeaders() },
+          credentials: 'include',
+          body: JSON.stringify({ apiKey, username, password })
+        });
 
-      if (!response.ok) {
-        // Deliberate exception to the "throw ApiError" rule (documented in the error-handling
-        // standard): this method's contract is to RETURN {success,message} so the caller can render
-        // a form error, not to throw. It still parses the shared ApiErrorData shape.
-        const data: ApiErrorData = await response.json().catch(() => ({}) as ApiErrorData);
-        return {
-          success: false,
-          message:
-            data.error ||
-            data.message ||
-            i18n.t('auth.errors.loginFailedStatus', { status: response.status })
-        };
+        if (!response.ok) {
+          // Deliberate exception to the "throw ApiError" rule (documented in the error-handling
+          // standard): this method's contract is to RETURN {success,message} so the caller can render
+          // a form error, not to throw. It still parses the shared ApiErrorData shape.
+          const data: ApiErrorData = await response.json().catch(() => ({}) as ApiErrorData);
+          return {
+            success: false,
+            message:
+              data.error ||
+              data.message ||
+              i18n.t('auth.errors.loginFailedStatus', { status: response.status })
+          };
+        }
+
+        const data: LoginResponse = await response.json();
+        if (data.success) {
+          this.isAuthenticated = true;
+          this.authMode = 'authenticated';
+          // The role comes from the account that signed in, so a user session is not recorded as admin.
+          this.sessionType = data.sessionType;
+        }
+
+        return { success: data.success, message: data.error };
+      } catch (error: unknown) {
+        console.error('[AuthService] login error:', error);
+        return { success: false, message: i18n.t('auth.errors.networkDuringLogin') };
       }
-
-      const data: LoginResponse = await response.json();
-      if (data.success) {
-        this.isAuthenticated = true;
-        this.authMode = 'authenticated';
-        // The role comes from the account that signed in, so a user session is not recorded as admin.
-        this.sessionType = data.sessionType;
-      }
-
-      return { success: data.success, message: data.error };
-    } catch (error: unknown) {
-      console.error('[AuthService] login error:', error);
-      return { success: false, message: i18n.t('auth.errors.networkDuringLogin') };
-    }
+    });
   }
 
-  async startGuestSession(): Promise<{ success: boolean; message?: string }> {
-    try {
-      // Same reason as login above: a guest whose session was cleared still holds that session's
-      // antiforgery token, and starting another one is a POST that would be refused for it.
-      await this.checkAuth();
+  startGuestSession(): Promise<{ success: boolean; message?: string }> {
+    return this.serialize(async () => {
+      try {
+        // Same reason as login above: a guest whose session was cleared still holds that session's
+        // antiforgery token, and starting another one is a POST that would be refused for it.
+        await this.fetchAuthStatus();
 
-      const response = await fetch(`${API_URL}/api/auth/guest`, {
-        method: 'POST',
-        headers: antiforgeryHeaders(),
-        credentials: 'include'
-      });
+        const response = await fetch(`${API_URL}/api/auth/guest`, {
+          method: 'POST',
+          headers: antiforgeryHeaders(),
+          credentials: 'include'
+        });
 
-      if (!response.ok) {
-        // Same deliberate {success,message} return contract as login() above.
-        const data: ApiErrorData = await response.json().catch(() => ({}) as ApiErrorData);
-        return {
-          success: false,
-          message: data.error || data.message || i18n.t('auth.errors.guestSessionFailed')
-        };
+        if (!response.ok) {
+          // Same deliberate {success,message} return contract as login() above.
+          const data: ApiErrorData = await response.json().catch(() => ({}) as ApiErrorData);
+          return {
+            success: false,
+            message: data.error || data.message || i18n.t('auth.errors.guestSessionFailed')
+          };
+        }
+
+        const data: LoginResponse = await response.json();
+        if (data.success) {
+          this.isAuthenticated = true;
+          this.authMode = 'guest';
+          this.sessionType = 'guest';
+        }
+
+        return { success: data.success, message: data.error };
+      } catch (error: unknown) {
+        console.error('[AuthService] startGuestSession error:', error);
+        return { success: false, message: i18n.t('auth.errors.network') };
       }
-
-      const data: LoginResponse = await response.json();
-      if (data.success) {
-        this.isAuthenticated = true;
-        this.authMode = 'guest';
-        this.sessionType = 'guest';
-      }
-
-      return { success: data.success, message: data.error };
-    } catch (error: unknown) {
-      console.error('[AuthService] startGuestSession error:', error);
-      return { success: false, message: i18n.t('auth.errors.network') };
-    }
+    });
   }
 
-  async logout(): Promise<void> {
-    try {
-      await fetch(`${API_URL}/api/auth/logout`, {
-        method: 'POST',
-        headers: antiforgeryHeaders(),
-        credentials: 'include'
-      });
-    } catch (error: unknown) {
-      console.error('[AuthService] logout error:', error);
-    } finally {
-      this.isAuthenticated = false;
-      this.authMode = 'unauthenticated';
-      this.sessionType = null;
-      this.sessionId = null;
-    }
+  logout(): Promise<void> {
+    return this.serialize(async () => {
+      try {
+        await fetch(`${API_URL}/api/auth/logout`, {
+          method: 'POST',
+          headers: antiforgeryHeaders(),
+          credentials: 'include'
+        });
+      } catch (error: unknown) {
+        console.error('[AuthService] logout error:', error);
+      } finally {
+        this.isAuthenticated = false;
+        this.authMode = 'unauthenticated';
+        this.sessionType = null;
+        this.sessionId = null;
+      }
+    });
   }
 
   isAdmin(): boolean {

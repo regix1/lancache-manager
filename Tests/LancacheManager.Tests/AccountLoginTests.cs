@@ -260,6 +260,38 @@ public sealed class AccountLoginTests : IDisposable
     }
 
     /// <summary>
+    /// Signing in from a guest browser replaces that guest with the account-backed session. This is
+    /// the non-overlapping path: it proves the upgrade itself writes the right cookie and row before
+    /// the delayed-status case exercises what can arrive afterward.
+    /// </summary>
+    [Fact]
+    public async Task AccountSignInFromGuest_ReplacesTheGuestSession()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var state = CreateStateService(_root);
+        var account = await NewAccountAsync(database, "operator");
+        var sign = NewSignIn(database, state);
+        var guest = await sign.Sessions.CreateGuestSessionAsync(sign.Request);
+        Assert.NotNull(guest);
+        sign.Request.Request.Headers.Cookie =
+            $"LancacheManager.Session={guest!.Value.RawToken}";
+
+        var result = await sign.Controller.LoginAsync(
+            NewLogin("operator", Password, _apiKeyService.GetApiKey()));
+
+        var body = Assert.IsType<LoginResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.True(body.Success);
+        Assert.Null(await sign.Sessions.ValidateSessionAsync(guest.Value.RawToken));
+
+        var accountToken = SessionTokenFromCookies(sign.Request);
+        Assert.NotNull(accountToken);
+        var accountSession = await sign.Sessions.ValidateSessionAsync(accountToken!);
+        Assert.NotNull(accountSession);
+        Assert.Equal(SessionType.Admin, accountSession!.SessionType);
+        Assert.Equal(account.Id, accountSession.AccountId);
+    }
+
+    /// <summary>
     /// An installation that finished setup and has no account yet belongs to nobody, and a guest
     /// session there reads its cache before its owner has signed in once. The refusal is the endpoint's
     /// own, and no session row is left behind by the attempt.

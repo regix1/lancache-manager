@@ -134,10 +134,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
 
       // Refresh the global auth context
       await refreshAuth();
-
-      if (!result.isAuthenticated && authService.isAuthenticated) {
-        await authService.logout();
-      }
     } catch (error) {
       // Intentional silent probe: a failed auth check degrades gracefully to the
       // unauthenticated state (visible via the auth UI itself), not an error dialog.

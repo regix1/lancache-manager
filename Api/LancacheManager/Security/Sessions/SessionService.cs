@@ -803,10 +803,9 @@ public class SessionService
     {
         using var context = _dbContextFactory.CreateDbContext();
         var persistedSession = await context.UserSessions.FindAsync(session.Id);
-        if (persistedSession == null)
-            return null;
-
         var now = DateTime.UtcNow;
+        if (persistedSession == null || persistedSession.IsRevoked || persistedSession.ExpiresAtUtc <= now)
+            return null;
 
         // Rate-limit: skip if we already rotated recently (previous token still in grace period)
         if (persistedSession.PreviousTokenValidUntilUtc > now)
