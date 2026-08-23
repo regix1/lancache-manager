@@ -5,7 +5,9 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Core.Services.SteamKit2;
+using LancacheManager.Core.Services.Xbox;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
@@ -24,7 +26,11 @@ public class ApiKeysController : ControllerBase
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly ApiKeyService _apiKeyService;
     private readonly SteamKit2Service _steamKit2Service;
+    private readonly XboxCatalogMappingService _xboxCatalogMappingService;
+    private readonly EpicMappingService _epicMappingService;
     private readonly SteamAuthStorageService _steamAuthStorage;
+    private readonly XboxAuthStorageService _xboxAuthStorage;
+    private readonly EpicAuthStorageService _epicAuthStorage;
     private readonly StateService _stateService;
     private readonly SessionService _sessionService;
     private readonly IdentityAuditService _identityAuditService;
@@ -36,7 +42,11 @@ public class ApiKeysController : ControllerBase
         IDbContextFactory<AppDbContext> dbContextFactory,
         ApiKeyService apiKeyService,
         SteamKit2Service steamKit2Service,
+        XboxCatalogMappingService xboxCatalogMappingService,
+        EpicMappingService epicMappingService,
         SteamAuthStorageService steamAuthStorage,
+        XboxAuthStorageService xboxAuthStorage,
+        EpicAuthStorageService epicAuthStorage,
         StateService stateService,
         SessionService sessionService,
         IdentityAuditService identityAuditService,
@@ -47,7 +57,11 @@ public class ApiKeysController : ControllerBase
         _dbContextFactory = dbContextFactory;
         _apiKeyService = apiKeyService;
         _steamKit2Service = steamKit2Service;
+        _xboxCatalogMappingService = xboxCatalogMappingService;
+        _epicMappingService = epicMappingService;
         _steamAuthStorage = steamAuthStorage;
+        _xboxAuthStorage = xboxAuthStorage;
+        _epicAuthStorage = epicAuthStorage;
         _stateService = stateService;
         _sessionService = sessionService;
         _identityAuditService = identityAuditService;
@@ -110,6 +124,9 @@ public class ApiKeysController : ControllerBase
     /// With authentication on it is also how the owner takes the installation back: every other
     /// account is deleted along with the sessions, and the owning account keeps its username and
     /// password so it signs back in with those and the new key.
+    ///
+    /// Steam, Xbox, and Epic sign-ins are cleared with the key, including the stored Steam Web API
+    /// key. The owner signs those platforms back in after they sign back into the app.
     /// </remarks>
     [HttpPost("regenerate")]
     [EnableRateLimiting("auth")]
@@ -149,11 +166,14 @@ public class ApiKeysController : ControllerBase
             }
         }
 
-        // SECURITY: Clear ALL Steam-related data when API key is regenerated
         var steamWasAuthenticated = _stateService.GetSteamAuthMode() == SteamAuthMode.Authenticated;
         var hadSteamWebApiKey = !string.IsNullOrWhiteSpace(_steamAuthStorage.GetAuthData().SteamApiKey);
+        var hadXbox = _xboxAuthStorage.HasSavedCredentials();
+        var hadEpic = _epicAuthStorage.HasSavedCredentials();
 
-        // Clear Steam auth data (with error handling to ensure API key regen completes)
+        // Each platform clear is best-effort so a failure on one cannot leave the new key unissued.
+        // Logout drops the in-memory session; the storage wipe is what removes the files if logout
+        // does not run (tests leave the mapping services unbuilt, same as Steam).
         try
         {
             await _steamKit2Service.ClearAllSteamAuthAsync();
@@ -161,6 +181,42 @@ public class ApiKeysController : ControllerBase
         catch (Exception steamEx)
         {
             _logger.LogWarning(steamEx, "Error clearing Steam auth during API key regeneration (continuing anyway)");
+        }
+
+        try
+        {
+            await _xboxCatalogMappingService.LogoutAsync();
+        }
+        catch (Exception xboxEx)
+        {
+            _logger.LogWarning(xboxEx, "Error clearing Xbox auth during API key regeneration (continuing anyway)");
+        }
+
+        try
+        {
+            await _epicMappingService.LogoutAsync();
+        }
+        catch (Exception epicEx)
+        {
+            _logger.LogWarning(epicEx, "Error clearing Epic auth during API key regeneration (continuing anyway)");
+        }
+
+        try
+        {
+            _xboxAuthStorage.ClearAuthData();
+        }
+        catch (Exception xboxStorageEx)
+        {
+            _logger.LogWarning(xboxStorageEx, "Error clearing Xbox credentials during API key regeneration (continuing anyway)");
+        }
+
+        try
+        {
+            _epicAuthStorage.ClearAuthData();
+        }
+        catch (Exception epicStorageEx)
+        {
+            _logger.LogWarning(epicStorageEx, "Error clearing Epic credentials during API key regeneration (continuing anyway)");
         }
 
         var (oldKey, newKey) = _apiKeyService.RegenerateApiKey();
@@ -217,11 +273,13 @@ public class ApiKeysController : ControllerBase
         }
 
         _logger.LogWarning(
-            "API key regenerated | Sessions ended: {EndedSessions} | Accounts removed: {RemovedAccounts} | Steam PICS: {SteamLogout} | Steam Web API Key: {WebApiKey}",
+            "API key regenerated | Sessions ended: {EndedSessions} | Accounts removed: {RemovedAccounts} | Steam PICS: {SteamLogout} | Steam Web API Key: {WebApiKey} | Xbox: {Xbox} | Epic: {Epic}",
             endedSessions,
             removedAccounts,
             steamWasAuthenticated ? "Logged out" : "Cleared",
-            hadSteamWebApiKey ? "Removed" : "None");
+            hadSteamWebApiKey ? "Removed" : "None",
+            hadXbox ? "Cleared" : "None",
+            hadEpic ? "Cleared" : "None");
 
         return Ok(response);
     }

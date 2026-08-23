@@ -34,9 +34,13 @@ namespace LancacheManager.Tests;
 public sealed class ApiKeyRotationTests : IDisposable
 {
     private readonly string _root;
+    private readonly TempDirPathResolver _pathResolver;
+    private readonly SecureStateEncryptionService _encryption;
     private readonly ApiKeyService _apiKeyService;
     private readonly StateService _stateService;
     private readonly SteamAuthStorageService _steamAuthStorage;
+    private readonly XboxAuthStorageService _xboxAuthStorage;
+    private readonly EpicAuthStorageService _epicAuthStorage;
     private readonly AuthenticationHelper _authenticationHelper;
 
     public ApiKeyRotationTests()
@@ -44,17 +48,21 @@ public sealed class ApiKeyRotationTests : IDisposable
         _root = Path.Combine(Path.GetTempPath(), $"lcm-api-key-rotation-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_root);
 
-        var pathResolver = new TempDirPathResolver(_root);
+        _pathResolver = new TempDirPathResolver(_root);
         _apiKeyService = new ApiKeyService(
-            NullLogger<ApiKeyService>.Instance, Configuration(authenticationEnabled: true), pathResolver);
-        var encryption = new SecureStateEncryptionService(
+            NullLogger<ApiKeyService>.Instance, Configuration(authenticationEnabled: true), _pathResolver);
+        _encryption = new SecureStateEncryptionService(
             DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(_root, "dp-keys"))),
             _apiKeyService,
             NullLogger<SecureStateEncryptionService>.Instance);
         _steamAuthStorage = new SteamAuthStorageService(
-            NullLogger<SteamAuthStorageService>.Instance, pathResolver, encryption);
+            NullLogger<SteamAuthStorageService>.Instance, _pathResolver, _encryption);
+        _xboxAuthStorage = new XboxAuthStorageService(
+            NullLogger<XboxAuthStorageService>.Instance, _pathResolver, _encryption);
+        _epicAuthStorage = new EpicAuthStorageService(
+            NullLogger<EpicAuthStorageService>.Instance, _pathResolver, _encryption);
         _stateService = new StateService(
-            NullLogger<StateService>.Instance, pathResolver, encryption, _steamAuthStorage);
+            NullLogger<StateService>.Instance, _pathResolver, _encryption, _steamAuthStorage);
         _authenticationHelper = new AuthenticationHelper(
             _apiKeyService, NullLogger<AuthenticationHelper>.Instance);
 
@@ -211,6 +219,42 @@ public sealed class ApiKeyRotationTests : IDisposable
         Assert.Equal(_apiKeyService.GetApiKey(), response.ApiKey);
         Assert.True(_apiKeyService.ValidateApiKey(response.ApiKey));
         Assert.Null(await sessions.ValidateSessionAsync(owner.RawToken));
+    }
+
+    /// <summary>
+    /// Xbox and Epic credentials are wiped with the Steam ones. A fresh read from disk has to come
+    /// back empty so a rotation cannot leave those platforms still signed in.
+    /// </summary>
+    [Fact]
+    public async Task RotationClearsXboxAndEpicSignIns()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var sessions = NewSessionService(database.Factory, authenticationEnabled: true);
+        var owner = await SignedInAsMainAdminAsync(sessions, database.Factory);
+
+        _xboxAuthStorage.SaveAuthData(new XboxAuthData
+        {
+            RefreshToken = "xbox-refresh",
+            DeviceKeyPkcs8 = "xbox-device-key",
+            DisplayName = "xbox-user"
+        });
+        _epicAuthStorage.SaveAuthData(new EpicAuthData
+        {
+            RefreshToken = "epic-refresh",
+            DisplayName = "epic-user"
+        });
+
+        await RotateAsync(NewController(
+            database.Factory, sessions, NewAuditService(database.Factory), RequestFor(owner.Session)));
+
+        var xbox = NewXboxStorage().GetAuthData();
+        var epic = NewEpicStorage().GetAuthData();
+
+        Assert.False(NewXboxStorage().HasSavedCredentials());
+        Assert.False(NewEpicStorage().HasSavedCredentials());
+        Assert.Null(xbox.RefreshToken);
+        Assert.Null(xbox.DeviceKeyPkcs8);
+        Assert.Null(epic.RefreshToken);
     }
 
     /// <summary>
@@ -517,11 +561,16 @@ public sealed class ApiKeyRotationTests : IDisposable
         return context;
     }
 
+    private XboxAuthStorageService NewXboxStorage() => new(
+        NullLogger<XboxAuthStorageService>.Instance, _pathResolver, _encryption);
+
+    private EpicAuthStorageService NewEpicStorage() => new(
+        NullLogger<EpicAuthStorageService>.Instance, _pathResolver, _encryption);
+
     /// <summary>
-    /// Steam is left unbuilt: clearing it is the one step the endpoint already treats as best effort
-    /// (ApiKeysController.cs:119-127) because a rotation has to finish without it, and its ten
-    /// dependencies are not what any of this is about. The storage and state services behind it are
-    /// real, because the endpoint reads both before that point.
+    /// Steam, Xbox, and Epic mapping services are left unbuilt: clearing each is best-effort so a
+    /// rotation has to finish without them. The storage and state services behind them are real,
+    /// because the endpoint reads those before that point and wipes the Xbox and Epic files after.
     /// </summary>
     private ApiKeysController NewController(
         IDbContextFactory<AppDbContext> dbContextFactory,
@@ -533,7 +582,11 @@ public sealed class ApiKeyRotationTests : IDisposable
             dbContextFactory,
             _apiKeyService,
             steamKit2Service: null!,
+            xboxCatalogMappingService: null!,
+            epicMappingService: null!,
             _steamAuthStorage,
+            _xboxAuthStorage,
+            _epicAuthStorage,
             _stateService,
             sessionService,
             identityAuditService,

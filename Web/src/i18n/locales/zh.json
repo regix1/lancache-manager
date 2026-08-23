@@ -4181,7 +4181,7 @@
       },
       "regenerateModal": {
         "title": "重新生成 API 密钥",
-        "message": "重新生成 API 密钥将删除其他所有用户账户，立即登出所有已连接的设备和访客，并清除 Steam 登录和已保存的 Steam Web API 密钥。您自己的账户会保留用户名和密码，请使用它们和新密钥重新登录。",
+        "message": "重新生成 API 密钥将删除其他所有用户账户，立即登出所有已连接的设备和访客，并清除 Steam、Xbox 和 Epic 登录以及已保存的 Steam Web API 密钥。您自己的账户会保留用户名和密码，请使用它们和新密钥重新登录。",
         "important": "重要提示："
       },
       "rotatedModal": {

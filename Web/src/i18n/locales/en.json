@@ -4181,7 +4181,7 @@
       },
       "regenerateModal": {
         "title": "Regenerate API Key",
-        "message": "Regenerating the API key deletes every other user account, immediately logs out all connected devices and guests, and clears the Steam sign-in and stored Steam Web API key. Your own account keeps its username and password, so you sign back in with those and the new key.",
+        "message": "Regenerating the API key deletes every other user account, immediately logs out all connected devices and guests, and clears the Steam, Xbox, and Epic sign-ins and the stored Steam Web API key. Your own account keeps its username and password, so you sign back in with those and the new key.",
         "important": "Important:"
       },
       "rotatedModal": {
