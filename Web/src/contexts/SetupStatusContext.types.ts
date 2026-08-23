@@ -40,7 +40,6 @@ interface SetupStatusContextType {
   syncError: string | null;
   refreshSetupStatus: () => Promise<void>;
   markSetupCompleted: () => void;
-  clearMainAdminRecovery: () => void;
   updateWizardState: (updates: WizardStateUpdate) => Promise<boolean>;
 }
 

@@ -59,6 +59,23 @@ public sealed class FirstAdminCreationTests : IDisposable
     }
 
     /// <summary>
+    /// Setup status treats an open window plus an existing account as recovery. The create has to
+    /// close the window so the operator is not sent back to this form for a password they just set.
+    /// </summary>
+    [Fact]
+    public async Task CreateClosesTheClaimWindow()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var window = NewClaimWindow();
+        var controller = NewController(database.Factory, _apiKeyService, window);
+
+        var result = await controller.CreateFirstAdminAsync(NewRequest("operator", _apiKeyService.GetApiKey()));
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        Assert.False(window.IsOpen);
+    }
+
+    /// <summary>
     /// An installation that already has somebody in it is not claimable, and saying so is a refusal
     /// rather than a stack trace: the second person through this endpoint is a normal event on a
     /// shared network, not a fault.

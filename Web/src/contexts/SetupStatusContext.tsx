@@ -119,10 +119,6 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
     await fetchSetupStatus();
   };
 
-  const clearMainAdminRecovery = () => {
-    setSetupStatus((prev) => (prev ? { ...prev, mainAdminRecoveryAvailable: false } : null));
-  };
-
   const markSetupCompleted = () => {
     setSetupStatus((prev) =>
       prev
@@ -242,7 +238,6 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         syncError,
         refreshSetupStatus,
         markSetupCompleted,
-        clearMainAdminRecovery,
         updateWizardState
       }}
     >

@@ -147,6 +147,11 @@ public class AccountSetupController : ControllerBase
 
         _logger.LogInformation("First administrator account {Username} created", account.Username);
 
+        // The setup status treats an open window plus an existing account as recovery. Leaving the
+        // hour running after this create would send the operator back to the same form to "recover"
+        // the password they just set.
+        _claimWindow.Expire();
+
         return Ok(MessageResponse.Ok("Account created"));
     }
 
@@ -252,6 +257,11 @@ public class AccountSetupController : ControllerBase
             targetAccountId: account.Id);
 
         _logger.LogInformation("Password recovered for main administrator {Username}", account.Username);
+
+        // Same reason as first-admin: GetSetupStatus reports recovery while the window is open and
+        // an account exists. A local client clear is overwritten by the next status fetch, which
+        // re-opens the wizard and invites another reset of a password that already landed.
+        _claimWindow.Expire();
 
         return Ok(MessageResponse.Ok("Password reset"));
     }

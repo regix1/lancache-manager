@@ -59,6 +59,38 @@ public sealed class MainAdminRecoveryTests : IDisposable
     }
 
     /// <summary>
+    /// Setup status offers recovery for as long as the window is open and an account exists. Leaving
+    /// the hour running after a successful reset would send the operator back to the same form.
+    /// </summary>
+    [Fact]
+    public async Task RecoveryClosesTheClaimWindow()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedAccountAsync(database.Factory, "owner", mainAdmin: true);
+
+        var window = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
+        Assert.True(window.IsOpen);
+
+        var result = await NewController(database.Factory, _apiKeyService, claimWindow: window)
+            .RecoverMainAdminPasswordAsync(
+                NewRequest("owner", _apiKeyService.GetApiKey()),
+                NewSessionService(database.Factory),
+                new AccountLockout(NullLogger<AccountLockout>.Instance));
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        Assert.False(window.IsOpen);
+
+        var second = await NewController(database.Factory, _apiKeyService, claimWindow: window)
+            .RecoverMainAdminPasswordAsync(
+                NewRequest("owner", _apiKeyService.GetApiKey()),
+                NewSessionService(database.Factory),
+                new AccountLockout(NullLogger<AccountLockout>.Instance));
+
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(second));
+        Assert.Equal(AccountSetupRefusalResponse.RecoveryWindowClosed, StageKeyOf(second));
+    }
+
+    /// <summary>
     /// The key is the whole of what stands between anyone who can reach the port and the account
     /// that owns the installation, so an absent key and a wrong one are both refused, and refused
     /// the same way.

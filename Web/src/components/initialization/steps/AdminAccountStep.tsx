@@ -47,7 +47,7 @@ interface CreateAccountResponse {
 
 export const AdminAccountStep: React.FC = () => {
   const { t } = useTranslation();
-  const { setupStatus, refreshSetupStatus, clearMainAdminRecovery } = useSetupStatus();
+  const { setupStatus, refreshSetupStatus } = useSetupStatus();
   const recovering = setupStatus?.mainAdminRecoveryAvailable === true;
   const [form, setForm] = useState<FormState>({
     username: '',
@@ -161,15 +161,9 @@ export const AdminAccountStep: React.FC = () => {
 
       if (response.ok && data.success) {
         setAccountCreated(true);
-        // First-admin: the account now exists, which is the one thing the wizard gate was waiting
-        // on, so re-reading the setup status closes this screen. Recovery: the account already
-        // existed and the server still reports the window as open, so the local flag is what
-        // lets the wizard close and hands the operator the sign-in form.
+        // The account now exists and the server has closed the claim window, so re-reading setup
+        // status drops the recovery gate and lets this screen close.
         setTimeout(() => {
-          if (recovering) {
-            clearMainAdminRecovery();
-            return;
-          }
           void refreshSetupStatus();
         }, 1500);
       } else {
@@ -192,7 +186,7 @@ export const AdminAccountStep: React.FC = () => {
     } finally {
       setIsSubmitting(false);
     }
-  }, [clearMainAdminRecovery, form, recovering, refreshSetupStatus, t, validateForm]);
+  }, [form, recovering, refreshSetupStatus, t, validateForm]);
 
   if (accountCreated) {
     return (
