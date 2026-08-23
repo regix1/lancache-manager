@@ -81,6 +81,14 @@ public abstract partial class PrefillDaemonServiceBase
                     }
                     lastError = $"Command {cmd[0]} failed with exit code {exitCode}";
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (TimeoutException)
+                {
+                    lastError = "Connectivity check timed out";
+                }
                 catch (Exception ex)
                 {
                     lastError = $"{cmd[0]}: {ex.Message}";
@@ -98,6 +106,10 @@ public abstract partial class PrefillDaemonServiceBase
             _logger.LogWarning("    - Check firewall rules for outbound connections");
 
             return (false, lastError ?? "No connectivity tool available");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -147,6 +159,15 @@ public abstract partial class PrefillDaemonServiceBase
 
                 supportedCommandAttempted = true;
                 lastError = $"Command {cmd[0]} {flag} failed with exit code {exitCode}";
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TimeoutException)
+            {
+                supportedCommandAttempted = true;
+                lastError = $"{familyName} connectivity check timed out";
             }
             catch (Exception ex)
             {
@@ -212,6 +233,10 @@ public abstract partial class PrefillDaemonServiceBase
                     }
                     lastError = $"Command {cmd[0]} returned no IP";
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     lastError = $"{cmd[0]}: {ex.Message}";
@@ -247,6 +272,10 @@ public abstract partial class PrefillDaemonServiceBase
                 _logger.LogWarning("    If this is expected (no lancache-dns), you can ignore this warning.");
                 _logger.LogWarning("    Otherwise, check your DNS configuration.");
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -293,7 +322,14 @@ public abstract partial class PrefillDaemonServiceBase
         cts.CancelAfter(TimeSpan.FromSeconds(15));
 
         using var memoryStream = new MemoryStream();
-        await stream.CopyOutputToAsync(null, memoryStream, null, cts.Token);
+        try
+        {
+            await stream.CopyOutputToAsync(null, memoryStream, null, cts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && cts.IsCancellationRequested)
+        {
+            throw new TimeoutException("Container command timed out after 15 seconds");
+        }
         memoryStream.Position = 0;
         using var reader = new StreamReader(memoryStream);
         var output = await reader.ReadToEndAsync(cts.Token);

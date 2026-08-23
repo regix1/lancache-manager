@@ -37,6 +37,29 @@ function HintDetails({ children }: HintDetailsProps) {
   );
 }
 
+function NetworkTroubleshooting() {
+  const { t } = useTranslation();
+
+  return (
+    <HintDetails>
+      <div className="mt-1 text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-info-bg)] text-[var(--theme-info-text)] space-y-2">
+        <p>
+          {t('prefill.network.trySetting')}{' '}
+          <code className="px-1 py-0.5 rounded bg-themed-tertiary break-all">
+            Prefill__NetworkMode=bridge
+          </code>{' '}
+          {t('prefill.network.inDockerCompose')}
+        </p>
+        <p>{t('prefill.network.lancacheDnsIpInstruction')}</p>
+        <code className="block w-fit max-w-full px-1 py-0.5 rounded bg-themed-tertiary break-all">
+          Prefill__LancacheDnsIp=&lt;DNS-server-IP&gt;
+        </code>
+        <p>{t('prefill.network.lancacheDnsIpExplanation')}</p>
+      </div>
+    </HintDetails>
+  );
+}
+
 function hasIpv6Resolution(result: NetworkDiagnostics['dnsResults'][number]) {
   if (!result.resolvedIps || result.resolvedIps.length === 0) {
     return false;
@@ -62,6 +85,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
   const primaryDomain = diagnostics.dnsResults.length > 0 ? diagnostics.dnsResults[0].domain : '';
   const primaryResult = diagnostics.dnsResults.length > 0 ? diagnostics.dnsResults[0] : undefined;
   const hasPrimaryConfigured = primaryResult?.success && primaryResult?.isPrivateIp;
+  const hasDnsFailure = diagnostics.dnsResults.some((result) => !result.success);
 
   // IPv6 bypass is only an issue if the primary domain doesn't resolve to a private IP via IPv4
   const hasIpv6BypassIssue =
@@ -262,20 +286,12 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
             )}
 
             {/* Internet Error Details */}
-            {!diagnostics.internetConnectivity && diagnostics.internetConnectivityError && (
+            {!diagnostics.internetConnectivity && (
               <>
                 <div className="text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]">
-                  {diagnostics.internetConnectivityError}
+                  {t('prefill.network.internetCheckFailed')}
                 </div>
-                <HintDetails>
-                  <div className="mt-1 text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]">
-                    {t('prefill.network.trySetting')}{' '}
-                    <code className="px-1 py-0.5 rounded bg-themed-tertiary break-all">
-                      Prefill__NetworkMode=bridge
-                    </code>{' '}
-                    {t('prefill.network.inDockerCompose')}
-                  </div>
-                </HintDetails>
+                <NetworkTroubleshooting />
               </>
             )}
           </div>
@@ -364,15 +380,18 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                       )}
 
                     {/* DNS Error Details */}
-                    {!result.success && result.error && (
+                    {!result.success && (
                       <div className="text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]">
-                        {result.error}
+                        {t('prefill.network.dnsCheckFailed')}
                       </div>
                     )}
                   </div>
                 );
               })}
             </div>
+            {diagnostics.internetConnectivity &&
+              hasDnsFailure &&
+              !diagnostics.useHostNetworking && <NetworkTroubleshooting />}
           </div>
         </CollapsibleRegion>
       </div>
