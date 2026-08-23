@@ -89,7 +89,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
     <ExpandableItemCard
       id={service.service_name}
       title={getServiceDisplayName(service.service_name)}
-      titleClassName="text-themed-primary font-semibold truncate capitalize"
+      titleClassName="mgmt-row__title mgmt-row__title--service"
       subtitle={subtitle}
       stats={stats}
       datasources={service.datasources}

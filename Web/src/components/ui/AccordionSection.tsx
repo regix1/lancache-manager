@@ -159,7 +159,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
           )}
 
           <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-            <div className="accordion-title-line flex items-center gap-2 min-w-0 w-fit max-w-full">
+            <div className="accordion-title-line flex items-center gap-2 min-w-0">
               {/* Title — wraps to two lines before ellipsizing so narrow screens
                   keep the meaningful trailing words instead of cutting them off */}
               <span
@@ -202,21 +202,38 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
                   {formatCount(count)}
                 </span>
               )}
-
-              {/* Kebab / chips sit with the title, not against the chevron. The title
-                  cluster is width-fit so flex-1 on the parent does not shove these
-                  to the far edge. */}
-              {badge && (
-                <span className="section-header-actions inline-flex flex-wrap items-center flex-shrink-0">
-                  {badge}
-                </span>
-              )}
             </div>
           </div>
         </div>
 
-        {/* Chevron stays on the far right at every width. */}
-        <span className="flex flex-shrink-0 order-2 self-start sm:self-auto">{chevronButton}</span>
+        {/* Action badge / section actions. On phones it drops to its own full-width
+            row below the title so the header never crushes the title, count and
+            actions onto one cramped line; on sm+ it sits inline before the chevron.
+            Kept before the chevron in the DOM so keyboard focus reaches the section
+            actions before the collapse toggle, matching the sm+ visual order.
+            sm:flex-shrink-0 keeps a wide actions cluster from being squeezed/clipped
+            against the flex-1 title (the section wrapper is overflow-hidden).
+            `section-header-actions` pushes this row's last child to the far edge on
+            phones, so a plain chip and a wrapped cluster both end flush right under the
+            chevron instead of leaving most of the line empty. Chip-to-control gap is the
+            6px on `.section-header-actions` (patterns.css), not the header row's 12px
+            column gap: that 12px next to a ~16px chip read as a missing item. The
+            header's row gap is wider (`gap-y-3`) on purpose, so this row clears the title
+            block by 12px once it wraps onto its own line. */}
+        {badge && (
+          <div className="section-header-actions flex flex-wrap items-center justify-end w-full order-3 sm:w-auto sm:order-2 sm:flex-shrink-0">
+            {badge}
+          </div>
+        )}
+
+        {/* Chevron — pinned to the title row at every width (order keeps it right of
+            the title on mobile and far-right of the badge on desktop). Top-aligned on
+            phones so it always sits level with the title's first line: its position then
+            cannot shift with the title's height or whether an actions row wraps below
+            it, and every card puts the arrow in the same spot. */}
+        <span className="flex flex-shrink-0 order-2 sm:order-3 self-start sm:self-auto">
+          {chevronButton}
+        </span>
       </div>
 
       {/* Content with real height animation; children unmount once collapsed */}

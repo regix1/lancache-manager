@@ -71,3 +71,99 @@
   flex-shrink: 0;
   background-color: var(--theme-bg-elevated);
 }
+
+.game-card-titleline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.game-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.game-card-heading .mgmt-row__title {
+  min-width: 0;
+}
+
+.game-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.game-card-stat-icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.25rem;
+  display: inline-block;
+  vertical-align: -0.1em;
+}
+
+/* Same 2rem footprint as the remove icon-square so the pair reads as one cluster. */
+.game-card-chevron {
+  width: 2rem;
+  height: 2rem;
+  padding: 0.4rem;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  color: var(--theme-text-muted);
+  transition: transform 0.2s ease;
+}
+
+.game-card-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.game-card-select-all {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.game-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.game-detail-path {
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--theme-text-primary);
+  background-color: var(--theme-bg-tertiary);
+  border-radius: var(--theme-border-radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.game-detail-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.375rem;
+}
+
+.game-detail-toolbar--after {
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+}
+
+.game-detail-label {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--theme-text-muted);
+}

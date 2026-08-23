@@ -11,7 +11,7 @@ interface SectionHeaderActionsProps {
  * AccordionSection's `badge` slot.
  *
  * A thin passthrough - AccordionSection already wraps `badge` in its own
- * `.section-header-actions` span on the title line, so this component no longer
+ * `.section-header-actions` div (AccordionSection.tsx), so this component no longer
  * renders a second one. A caller keeps writing `<SectionHeaderActions>{...}</SectionHeaderActions>`
  * unchanged; it just resolves to a fragment now instead of a nested duplicate div.
  */

@@ -206,9 +206,14 @@
   }
 }
 
-/* The kebab now lives on the title line (left of the chevron, after the count).
-   Do not push the last child to the far edge — that was for the old full-width
-   actions row and would park the kebab against the chevron again. */
+/* Phones: the action row is full width under the title. Justify the whole
+   cluster — Create, chips, kebab — to the chevron side. A last-child-only
+   push left the other buttons stranded on the left. */
+@media (max-width: 639.98px) {
+  .section-header-actions {
+    justify-content: flex-end;
+  }
+}
 
 /* Phones: the count badge and the help icon share the title's line and can shrink it
    below the width of its own text, which split "Active Sessions" across two lines at

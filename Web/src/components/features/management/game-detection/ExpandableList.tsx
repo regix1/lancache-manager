@@ -28,53 +28,40 @@ const ExpandableList: React.FC<ExpandableListProps> = ({
   const hasMore = visibleCount < items.length;
   const remaining = items.length - visibleCount;
 
-  const handleLoadMore = () => {
-    setVisibleCount((prev: number) => Math.min(prev + LOAD_MORE_BATCH, items.length));
-  };
-
-  const handleShowLess = () => {
-    setVisibleCount(maxInitial);
-  };
-
   return (
     <div>
-      <div className="flex items-center justify-between mb-1.5">
-        <p className="text-xs text-themed-muted font-medium">
-          {t(labelKey, { count: items.length })}
-        </p>
+      <div className="game-detail-toolbar">
+        <p className="game-detail-label">{t(labelKey, { count: items.length })}</p>
         {visibleCount > maxInitial && (
           <Button
             variant="filled"
             color="secondary"
-            size="xs"
-            onClick={handleShowLess}
-            className="text-xs"
+            size="sm"
+            onClick={() => setVisibleCount(maxInitial)}
           >
             {t('management.gameDetection.showLess')}
           </Button>
         )}
       </div>
-      <div className="space-y-1 max-h-48 overflow-y-auto">
+      <div className="game-detail-list">
         {displayedItems.map((item, idx) => (
-          <div
-            key={idx}
-            className="p-2 rounded border bg-themed-tertiary border-[var(--theme-border-well)] [background-clip:padding-box]"
-          >
-            <span className="text-xs font-mono text-themed-primary break-all block">{item}</span>
-          </div>
+          <p key={idx} className="game-detail-path">
+            {item}
+          </p>
         ))}
       </div>
       {hasMore && (
-        <div className="flex items-center justify-between mt-2">
-          <p className="text-xs text-themed-muted italic">
+        <div className="game-detail-toolbar game-detail-toolbar--after">
+          <p className="game-detail-label">
             {t(showingLabelKey, { showing: visibleCount, total: items.length })}
           </p>
           <Button
             variant="filled"
             color="secondary"
-            size="xs"
-            onClick={handleLoadMore}
-            className="text-xs"
+            size="sm"
+            onClick={() =>
+              setVisibleCount((prev) => Math.min(prev + LOAD_MORE_BATCH, items.length))
+            }
           >
             {t('management.gameDetection.loadMore', {
               count: Math.min(LOAD_MORE_BATCH, remaining)

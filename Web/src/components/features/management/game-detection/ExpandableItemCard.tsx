@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { ChevronDown, Trash2 } from 'lucide-react';
 import '../managementSectionContent.css';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
@@ -103,14 +103,11 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
         ? nginxReopenUnavailableMessage
         : removeTooltip;
 
-  // The dedicated chevron button already toggles the same details section, so the whole row
-  // toggles too - the nested-control guard lets the button (and the selection checkbox) still
-  // handle their own clicks. Only wired up when there is something to expand: with no expandable
-  // content the row has nothing to toggle. [28]
   return (
     <div>
       <div
         className={`mgmt-row${hasExpandableContent ? ' mgmt-row--interactive focus-ring--inset' : ''}`}
+        aria-expanded={hasExpandableContent ? isExpanded : undefined}
         {...(hasExpandableContent ? rowToggleHandlers(() => onToggleDetails(id)) : {})}
       >
         {selectable && (
@@ -122,56 +119,44 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             className="flex-shrink-0"
           />
         )}
-        <div className="flex items-center gap-2 flex-1 min-w-0 game-card-content">
-          {hasExpandableContent && (
-            <Button
-              onClick={() => onToggleDetails(id)}
-              variant="filled"
-              color="secondary"
-              size="sm"
-              className="flex-shrink-0 min-h-[44px] sm:min-h-0"
-            >
-              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </Button>
-          )}
-          {showImage && (
-            <GameImage
-              gameAppId={nameKeyed ? undefined : gameAppId}
-              epicAppId={isEpic ? epicAppId : undefined}
-              nameKeyedService={nameKeyed ? nameKeyed.service : undefined}
-              nameKeyedSlug={nameKeyed ? nameKeyed.slug : undefined}
-              alt={title}
-              className="game-card-image hidden sm:block"
-              loading="lazy"
-              onError={handleImageFinalError}
-            />
-          )}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <h4 className={titleClassName || 'text-themed-primary font-semibold break-words'}>
-                {title}
-              </h4>
-              {isUnknownGame && (
-                <Badge variant="warning">{t('management.gameDetection.unknownGameBadge')}</Badge>
-              )}
-              {subtitle && subtitle}
-            </div>
-            <div className="flex items-center gap-3 text-xs text-themed-muted flex-wrap">
-              {stats.map((stat, idx) => {
-                const Icon = stat.icon;
-                return (
-                  <span key={idx} className="flex items-center gap-1">
-                    <Icon className="w-3 h-3" />
-                    <strong className="text-themed-primary">{stat.value}</strong>{' '}
-                    {stat.labelCount !== undefined
-                      ? t(stat.label, { count: stat.labelCount })
-                      : t(stat.label)}
-                  </span>
-                );
-              })}
-              {datasources && datasources.length > 0 && (
-                <span className="flex items-center gap-1">
-                  {datasources.map((ds) => (
+        <div className="mgmt-row__body game-card-content">
+          <div className="game-card-titleline">
+            {showImage && (
+              <GameImage
+                gameAppId={nameKeyed ? undefined : gameAppId}
+                epicAppId={isEpic ? epicAppId : undefined}
+                nameKeyedService={nameKeyed ? nameKeyed.service : undefined}
+                nameKeyedSlug={nameKeyed ? nameKeyed.slug : undefined}
+                alt={title}
+                className="game-card-image hidden sm:block"
+                loading="lazy"
+                onError={handleImageFinalError}
+              />
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="game-card-heading">
+                <h4 className={titleClassName || 'mgmt-row__title'}>{title}</h4>
+                {isUnknownGame && (
+                  <Badge variant="warning">{t('management.gameDetection.unknownGameBadge')}</Badge>
+                )}
+                {subtitle && subtitle}
+              </div>
+              <div className="mgmt-row__meta game-card-meta">
+                {stats.map((stat, idx) => {
+                  const Icon = stat.icon;
+                  return (
+                    <span key={idx}>
+                      <Icon className="game-card-stat-icon" />
+                      <strong>{stat.value}</strong>{' '}
+                      {stat.labelCount !== undefined
+                        ? t(stat.label, { count: stat.labelCount })
+                        : t(stat.label)}
+                    </span>
+                  );
+                })}
+                {datasources &&
+                  datasources.length > 0 &&
+                  datasources.map((ds) => (
                     <span
                       key={ds}
                       className="themed-badge bg-themed-accent-subtle text-themed-accent"
@@ -179,46 +164,45 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
                       {ds}
                     </span>
                   ))}
-                </span>
-              )}
+              </div>
             </div>
           </div>
         </div>
-        <Tooltip content={actionTooltip}>
-          <Button
-            onClick={onRemove}
-            awaitPermissions
-            loading={isRemoving}
-            disabled={
-              !isAdmin ||
-              diskActionBlocked ||
-              !nginxReopenAvailable ||
-              isCacheRemovalActive ||
-              !diskObjectsAvailable
-            }
-            variant="filled"
-            color="destructive"
-            size="sm"
-            className="flex-shrink-0 min-h-[44px] sm:min-h-0"
-          >
-            {isRemoving ? (
-              // Hide the label on mobile so the button stays compact next to the
-              // spinner; the spinner (from `loading`) is the mobile removing signal.
-              <span className="hidden sm:inline">{t('management.gameDetection.removing')}</span>
-            ) : (
-              <>
-                <Trash2 className="w-4 h-4 sm:hidden" />
-                <span className="hidden sm:inline">{t('common.remove')}</span>
-              </>
-            )}
-          </Button>
-        </Tooltip>
+        <div className="mgmt-row__actions game-card-actions">
+          <Tooltip content={actionTooltip}>
+            <Button
+              type="button"
+              onClick={onRemove}
+              awaitPermissions
+              loading={isRemoving}
+              disabled={
+                !isAdmin ||
+                diskActionBlocked ||
+                !nginxReopenAvailable ||
+                isCacheRemovalActive ||
+                !diskObjectsAvailable
+              }
+              variant="filled"
+              color="destructive"
+              size="sm"
+              className="btn-icon-square btn-icon-square--sm pointer-target-44"
+              aria-label={t('common.remove')}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </Tooltip>
+          {hasExpandableContent && (
+            <ChevronDown
+              className={`game-card-chevron${isExpanded ? ' is-open' : ''}`}
+              aria-hidden="true"
+            />
+          )}
+        </div>
       </div>
 
-      {/* Expandable Details Section */}
       <CollapsibleRegion
         open={hasExpandableContent && isExpanded}
-        contentClassName="mgmt-row-detail space-y-3"
+        contentClassName="mgmt-row-detail game-card-detail"
       >
         {children}
       </CollapsibleRegion>

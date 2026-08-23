@@ -94,11 +94,12 @@ function CacheEntityList<TItem>({
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           onClear={() => setSearchQuery('')}
+          size="sm"
         />
       </div>
 
       {canSelectAll && filteredAndSortedItems.length > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="game-card-select-all">
           <Checkbox
             checked={allVisibleSelected}
             onChange={handleSelectAllToggle}
