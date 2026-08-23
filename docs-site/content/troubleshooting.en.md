@@ -62,6 +62,10 @@ Later container restarts print the file path and a short hint, not the full key.
 
 To rotate the key, stop the container, delete `./data/security/api_key.txt`, and start it again.
 
+### Forgotten main administrator password
+
+The password can be reset without deleting the database or account. You need access to the host, the API key in `/data/security/api_key.txt`, and the main administrator's username. Follow [Password Recovery](password-recovery.md) for the complete Docker Compose, Docker, and bare-metal commands.
+
 ### Permission issues
 
 Make sure `PUID` and `PGID` match the owner of your cache and log files:

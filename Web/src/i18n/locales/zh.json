@@ -878,7 +878,7 @@
         "before": "仅在首次创建或轮换密钥时才会写入日志。",
         "code": "docker logs lancache-manager"
       },
-      "forgotPassword": "忘记主管理员密码？请重启容器以重新打开恢复窗口，然后按 API 参考中的 recover-main-admin 请求重置密码，使用 /data/security/api_key.txt 中的 API 密钥。由于需要密钥和重启，只能在运行 LANCache Manager 的机器上完成。"
+      "forgotPassword": "忘记主管理员密码？文档站点的“密码恢复”页面提供了完整命令。恢复操作需要重启应用，并使用 /data/security/api_key.txt 中的 API 密钥，因此只能在运行 LANCache Manager 的机器上完成。"
     },
     "success": "认证成功！正在升级到完全访问...",
     "errors": {

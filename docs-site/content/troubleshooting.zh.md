@@ -62,6 +62,10 @@ docker exec lancache-manager cat /data/security/api_key.txt
 
 要轮换密钥，停止容器，删除 `./data/security/api_key.txt`，然后重新启动。
 
+### 忘记主管理员密码
+
+无需删除数据库或账号即可重置密码。你需要能够访问主机、读取 `/data/security/api_key.txt` 中的 API 密钥，并知道主管理员用户名。完整的 Docker Compose、Docker 和裸机命令请参阅[密码恢复](password-recovery.md)。
+
 ### 权限问题
 
 确保 `PUID` 和 `PGID` 与你的缓存和日志文件所有者一致：

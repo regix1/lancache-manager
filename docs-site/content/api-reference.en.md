@@ -52,6 +52,8 @@ curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 
 Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`, or from **Management → Integrations**, where you can also regenerate it. Later container logs print only a hint; the full key is written to the logs only when it is first created or rotated. The username and password are those of an account created in the app.
 
+If the main administrator password is lost, use the host-only recovery procedure in [Password Recovery](password-recovery.md). It includes the complete `recover-main-admin` request; no signed-in session or antiforgery token is needed for that endpoint.
+
 Reads need nothing more than the jar. A request that changes something (`POST`, `PUT`, `PATCH`, `DELETE`) also needs an antiforgery token: call `GET /api/auth/status` with the same jar, take the value of the `LancacheManager.Antiforgery` cookie it sets, and send it back as an `X-Antiforgery-Token` header. That is why the sign-in above starts with the status call. The token belongs to the session it was issued to, and signing in gives you a new one, so call the status endpoint again before your first write.
 
 !!! warning "`X-Api-Key` on its own is not a way into the API"

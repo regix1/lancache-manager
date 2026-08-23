@@ -58,6 +58,10 @@
   en: API Reference
   zh: API 参考
 
+- file: password-recovery
+  en: Password Recovery
+  zh: 密码恢复
+
 - file: client-hostnames
   en: Client Hostnames
   zh: 客户端主机名

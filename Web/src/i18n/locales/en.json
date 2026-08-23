@@ -878,7 +878,7 @@
         "before": "The key is printed to the logs only when it is first created or rotated.",
         "code": "docker logs lancache-manager"
       },
-      "forgotPassword": "Forgot the main administrator password? Restart the container to reopen the recovery window, then reset the password with the recover-main-admin API request described in the API reference, using the API key from /data/security/api_key.txt. Because it needs the key and a restart, it can only be done from the machine LANCache Manager runs on."
+      "forgotPassword": "Forgot the main administrator password? The Password Recovery page in the documentation site has the complete command. Recovery requires restarting the app and using the API key from /data/security/api_key.txt, so it can only be done from the machine LANCache Manager runs on."
     },
     "success": "Authentication successful! Upgrading to full access...",
     "errors": {
