@@ -95,17 +95,17 @@
     outline-offset: 2px;
   }
 
-  /* Overlay / trap shells take programmatic focus so Tab stays inside. Chrome treats
+  /* Overlay shells take programmatic focus so Tab stays inside. Chrome treats
      element.focus() after a click as :focus-visible, so the rule above painted a 2px
-     halo around the whole modal, setup card, or popup. Tailwind focus:outline-none
-     only matches :focus and leaves outline-offset: 2px, so it never cancelled this.
-     Buttons, links, inputs, and .focus-ring keep their rings in their own sheets. */
+     halo around the whole modal or setup card. Tailwind focus:outline-none only
+     matches :focus and leaves outline-offset: 2px, so it never cancelled this.
+     Scoped to dialog roles because a bare [tabindex='-1'] also matched the
+     NumberInput steppers and the nickname picker's roving rows, which do need a
+     ring. A focus sink that wants none says so in its own sheet. */
   [role='dialog']:focus,
   [role='dialog']:focus-visible,
   [role='alertdialog']:focus,
-  [role='alertdialog']:focus-visible,
-  [tabindex='-1']:focus,
-  [tabindex='-1']:focus-visible {
+  [role='alertdialog']:focus-visible {
     outline: none;
     outline-offset: 0;
     box-shadow: none;

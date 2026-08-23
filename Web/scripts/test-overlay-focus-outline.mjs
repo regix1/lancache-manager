@@ -19,7 +19,7 @@ test('keyboard controls still get the global focus-visible ring', () => {
 test('trap shells drop the ring so a modal does not halo when inner content blurs', () => {
   assert.match(reset, /\[role='dialog'\]:focus-visible/);
   assert.match(reset, /\[role='alertdialog'\]:focus-visible/);
-  assert.match(reset, /\[tabindex='-1'\]:focus-visible/);
+  assert.doesNotMatch(reset, /\[tabindex='-1'\]:focus-visible/);
 
   const trapBlock = reset.slice(reset.indexOf("[role='dialog']:focus"));
   assert.match(trapBlock, /outline:\s*none/);

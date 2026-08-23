@@ -1,3 +1,12 @@
+/* A save disables the control the editor was on, and a browser blurs what it
+   disables. The form takes that focus so Tab stays inside the dialog. It is a
+   sink, not a control, so it must not pick up the global focus-visible halo. */
+.clientgroup-form:focus,
+.clientgroup-form:focus-visible {
+  outline: none;
+  outline-offset: 0;
+}
+
 /* Nickname modal address picker: the shared .mgmt-list surface around a
    CustomScrollbar viewport (the house scrollbar). The viewport cap is set on the
    component so 8 rows are visible, which is the only thing bounding the list -
