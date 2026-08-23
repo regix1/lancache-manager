@@ -2927,10 +2927,10 @@
     "gameDetection": {
       "title": "Game Cache Detection and Removal",
       "titleShort": "Game Cache",
-      "subtitle": "Scan cache to find games and services with stored files",
+      "subtitle": "Scan cache to find games and service-level files that were not matched to a game",
       "quick": "Quick Scan",
       "fullScanButton": "Full Scan",
-      "servicesSection": "Services",
+      "servicesSection": "Unmapped Services",
       "gamesSection": "Games",
       "removeGameCache": "Remove all cache files for this game",
       "removeServiceCache": "Remove all cache files for this service",
@@ -2970,35 +2970,35 @@
       "scanningNote": "This may take several minutes for large databases and cache files",
       "collapseAll": "Collapse All",
       "expandAll": "Expand All",
-      "filteredBy": "Filtered by <1>{{datasource}}</1>: {{gameCount}} game{{gameCount, plural, one {} other {s}}}, {{serviceCount}} service{{serviceCount, plural, one {} other {s}}}",
+      "filteredBy": "Filtered by <1>{{datasource}}</1>: {{gameCount}} game{{gameCount, plural, one {} other {s}}}, {{serviceCount}} unmapped service{{serviceCount, plural, one {} other {s}}}",
       "clearFilter": "Clear filter",
       "help": {
         "aboutTitle": "About"
       },
       "emptyState": {
-        "noGamesServices": "No games or services with cache files detected",
-        "noGamesServicesDatasource": "No games or services found in {{datasource}}",
+        "noGamesServices": "No games or unmapped services with cache files detected",
+        "noGamesServicesDatasource": "No games or unmapped services found in {{datasource}}",
         "processLogsFirst": "Process access logs to populate the database first",
         "clickFullScan": "Click \"Full Scan\" to scan your cache directory"
       },
       "serviceSteam": "Steam",
       "serviceEpicGames": "Epic Games",
-      "noServicesMatching": "No services found matching \"{{query}}\"",
-      "servicesLabel": "services",
+      "noServicesMatching": "No unmapped services found matching \"{{query}}\"",
+      "servicesLabel": "unmapped services",
       "errors": {
         "syncFailed": "Failed to refresh cached results"
       },
       "placeholders": {
         "allDatasources": "All datasources",
         "searchGames": "Search by game name, AppID, or service...",
-        "searchServices": "Search services..."
+        "searchServices": "Search unmapped services..."
       },
       "appIdLabel": "AppID:",
       "summary": {
         "games_one": "{{count}} game",
         "games_other": "{{count}} games",
-        "services_one": "{{count}} service",
-        "services_other": "{{count}} services",
+        "services_one": "{{count}} unmapped service",
+        "services_other": "{{count}} unmapped services",
         "join": " and "
       }
     },

@@ -206,18 +206,9 @@
   }
 }
 
-/* Phones: AccordionSection drops the action row to its own full-width line under the
-   title, and the cluster is only ever a chip or two plus one trailing control. Left
-   alignment then leaves most of the row empty - on the Users page the chip and kebab
-   ended at 158px in a 336px row, 178px of nothing. Pushing the last child to the far
-   edge fills the line and lands the trailing control directly under the chevron above
-   it. The chips keep their normal gap and their label look; only the trailing control
-   moves, so the stretch-to-fill that would make a chip read as a button is avoided. */
-@media (max-width: 639.98px) {
-  .section-header-actions > :last-child {
-    margin-inline-start: auto;
-  }
-}
+/* The kebab now lives on the title line (left of the chevron, after the count).
+   Do not push the last child to the far edge — that was for the old full-width
+   actions row and would park the kebab against the chevron again. */
 
 /* Phones: the count badge and the help icon share the title's line and can shrink it
    below the width of its own text, which split "Active Sessions" across two lines at

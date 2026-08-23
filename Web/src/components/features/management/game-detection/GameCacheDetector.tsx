@@ -784,14 +784,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Header actions - scan buttons + expand/collapse all
   const headerActions = (
     <SectionHeaderActions>
-      {/* The results count used to sit outside this cluster as a second child of the
-          accordion's badge slot, which put the slot's own gap between it and the
-          actions instead of the cluster's. One cluster, one gap. */}
-      {hasResults && (
-        <SectionHeaderChip variant="info" className="badge-count">
-          {filteredGames.length + filteredServices.length}
-        </SectionHeaderChip>
-      )}
       {selectedCombinedCount > 0 && (
         <SectionHeaderChip variant="neutral" className="badge-count">
           {selectedCombinedCount}
@@ -951,6 +943,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         title={t('management.gameDetection.title')}
         shortTitle={t('management.gameDetection.titleShort')}
         titleAccessory={helpAccessory}
+        count={hasResults ? filteredGames.length + filteredServices.length : undefined}
         icon={HardDrive}
         isExpanded={sectionExpanded}
         onToggle={() => setSectionExpanded((prev) => !prev)}
