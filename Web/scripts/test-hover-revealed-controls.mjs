@@ -7,8 +7,8 @@ import ts from 'typescript';
 
 /**
  * A control that is invisible until the pointer arrives (`opacity-0` at rest, revealed on hover)
- * is unreachable by keyboard unless something ALSO reveals it on focus. This walks every native
- * `<button>`/`<a>` under `src/components/`, and for each one whose own class list or an
+ * is unreachable by keyboard unless something ALSO reveals it on focus. This walks every
+ * `<button>`/`<a>`/`<Button>` under `src/components/`, and for each one whose own class list or an
  * ancestor's carries a hidden-at-rest `opacity-0`, asserts the same chain also carries a focus
  * override: `focus-visible:opacity-100` on the control itself, or `focus-within:opacity-100`
  * (bare or `group-`/breakpoint-prefixed) somewhere up the tree.
@@ -90,7 +90,9 @@ function findRevealCandidates(filePath) {
       tag = node.tagName.getText(sourceFile);
       attributes = node.attributes;
     }
-    if (tag === 'button' || tag === 'a') {
+    // `Button` is the shared wrapper (ui/Button.tsx); it renders a native <button>, so a
+    // hidden-at-rest control written with it needs the same focus reveal as a raw one.
+    if (tag === 'button' || tag === 'a' || tag === 'Button') {
       const selfClass = classAttributeText(attributes, sourceFile);
       const chain = classChainOf(node, sourceFile, selfClass);
       const isHoverReveal =
