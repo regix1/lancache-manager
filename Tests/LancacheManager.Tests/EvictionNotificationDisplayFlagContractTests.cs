@@ -92,7 +92,7 @@ public class EvictionNotificationDisplayFlagContractTests
     [Fact]
     public void AllMode_ScheduledRun_IsVisible_ScanAndRemoval()
     {
-        // Default reconciliation mode is All: a scheduled tick must surface its scan bar (and, in
+        // When the schedule mode is All, a scheduled tick must surface its scan bar (and, in
         // Remove mode, its removal bar) so the user sees progress they explicitly asked for.
         Assert.False(RunSilent(NotificationMode.All, RunTrigger.Scheduled));
         Assert.False(ScanSilent(NotificationMode.All, RunTrigger.Scheduled));

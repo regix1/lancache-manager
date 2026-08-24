@@ -1311,7 +1311,7 @@ public class StateService : IStateService
     /// (eviction) schedule from the legacy global <c>EvictionScanNotifications</c> flag. Seeds only
     /// when the legacy flag was explicitly turned on (true -> All): a user who once opted in keeps
     /// that choice. When the flag is false - the legacy default, indistinguishable from "never
-    /// touched" - nothing is seeded, so the schedule falls back to its own hardcoded default (All)
+    /// touched" - nothing is seeded, so the schedule falls back to its own hardcoded default (Silent)
     /// instead of pinning every existing install to Manual.
     /// Gated on <see cref="AppState.EvictionNotificationsMigrated"/>, NOT on the per-service key's
     /// presence - Reset to Defaults removes the key to restore the hardcoded default, and re-running

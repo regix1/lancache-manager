@@ -73,10 +73,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     protected override TimeSpan Interval => TimeSpan.FromHours(6);
     public override bool DefaultRunOnStartup => false;
     protected override bool SupportsNotifications => true;
-    // Scheduled eviction scans surface their progress bar by default: the reconciliation card is the
-    // one the user explicitly wants to watch, so an unconfigured install defaults to All rather than
-    // silencing every scheduled tick.
-    protected override NotificationMode DefaultNotificationMode => NotificationMode.All;
+    // The 6-hour tick is maintenance: an unconfigured install stays off the notification bar
+    // (Silent) and uses the condensed status line. The Schedules card is what turns those back on.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.Silent;
+    public override NotificationDisplayMode DefaultNotificationDisplayMode => NotificationDisplayMode.Condensed;
 
     public override string ServiceKey => "cacheReconciliation";
 
