@@ -50,6 +50,20 @@ function eventOperationId(event: unknown): string | undefined {
  * does not yet have an operation id, a running card keeps the historical type-level fallback; any
  * other card is touched ONLY when the event provably belongs to it (matching operationId).
  */
+function isBulkRemovalRunning(notifications: UnifiedNotification[]): boolean {
+  return notifications.some(
+    (notification) => notification.type === 'bulk_removal' && notification.status === 'running'
+  );
+}
+
+/** Skip opening a new game_removal singleton while bulk_removal owns progress. */
+function suppressNewGameRemovalDuringBulk(
+  type: NotificationType,
+  notifications: UnifiedNotification[]
+): boolean {
+  return type === 'game_removal' && isBulkRemovalRunning(notifications);
+}
+
 function eventTargetsCard(existing: UnifiedNotification, event: unknown): boolean {
   const cardOperationId = existing.details?.operationId;
   const incomingOperationId = eventOperationId(event);
@@ -235,6 +249,10 @@ export function createStartedHandler<T>(
           }
           return prev;
         }
+      }
+
+      if (suppressNewGameRemovalDuringBulk(config.type, prev)) {
+        return prev;
       }
 
       const newNotification: UnifiedNotification = {
@@ -460,6 +478,9 @@ export function createCompletionHandler<
         // Fast completion - no live slot to transition (missing or already terminal);
         // materialize a terminal card instead of dropping the event
         if (!existing || isTerminalNotificationStatus(existing.status)) {
+          if (suppressNewGameRemovalDuringBulk(config.type, prev)) {
+            return prev;
+          }
           const newNotification = buildFastCompletionNotification();
           scheduleAutoDismiss(
             idToSchedule,
@@ -530,6 +551,9 @@ export function createCompletionHandler<
         if (!existing) {
           // Fast completion - no prior started event
           if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+            return prev;
+          }
+          if (suppressNewGameRemovalDuringBulk(config.type, prev)) {
             return prev;
           }
           const newNotification = buildFastCompletionNotification();
@@ -722,6 +746,9 @@ export function createStatusAwareProgressHandler<T>(
           if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
             return prev;
           }
+          if (suppressNewGameRemovalDuringBulk(config.type, prev)) {
+            return prev;
+          }
           // Fast completion - notification doesn't exist yet (operation completed before UI created it)
           if (config.supportFastCompletion) {
             const newNotification: UnifiedNotification = {
@@ -845,6 +872,9 @@ export function createStatusAwareProgressHandler<T>(
             return n;
           });
         } else {
+          if (suppressNewGameRemovalDuringBulk(config.type, prev)) {
+            return prev;
+          }
           // Cancel any existing auto-dismiss timer
           cancelAutoDismissTimer?.(notificationId);
 

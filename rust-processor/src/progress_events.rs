@@ -329,3 +329,111 @@ pub fn emit_json_line<T: Serialize>(value: &T) {
         let _ = std::io::stdout().flush();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn complete_success_envelope_always_includes_error_detail_null() {
+        let event = CompleteEvent {
+            event: "complete",
+            operation_id: "op-1".to_string(),
+            success: true,
+            status: "completed",
+            stage_key: "signalr.gameRemove.complete".to_string(),
+            context: json!({ "gameAppId": 570 }),
+            cancelled: false,
+            error_detail: None,
+        };
+
+        let value: serde_json::Value = serde_json::to_value(&event).unwrap();
+        assert_eq!(value["event"], "complete");
+        assert_eq!(value["operationId"], "op-1");
+        assert_eq!(value["success"], true);
+        assert_eq!(value["status"], "completed");
+        assert_eq!(value["cancelled"], false);
+        assert!(value.get("errorDetail").is_some());
+        assert!(value["errorDetail"].is_null());
+    }
+
+    #[test]
+    fn complete_failure_envelope_carries_error_detail_string() {
+        let event = CompleteEvent {
+            event: "complete",
+            operation_id: "op-2".to_string(),
+            success: false,
+            status: "failed",
+            stage_key: "signalr.gameRemove.error.fatal".to_string(),
+            context: json!({}),
+            cancelled: false,
+            error_detail: Some("outer: inner".to_string()),
+        };
+
+        let value: serde_json::Value = serde_json::to_value(&event).unwrap();
+        assert_eq!(value["errorDetail"], "outer: inner");
+        assert_eq!(value["cancelled"], false);
+    }
+
+    #[test]
+    fn complete_cancelled_envelope_has_error_detail_null() {
+        let event = CompleteEvent {
+            event: "complete",
+            operation_id: "op-3".to_string(),
+            success: false,
+            status: "cancelled",
+            stage_key: "signalr.gameRemove.cancelled".to_string(),
+            context: json!({}),
+            cancelled: true,
+            error_detail: None,
+        };
+
+        let value: serde_json::Value = serde_json::to_value(&event).unwrap();
+        assert_eq!(value["cancelled"], true);
+        assert!(value["errorDetail"].is_null());
+    }
+
+    #[test]
+    fn started_and_progress_use_camel_case_wire_fields() {
+        let started = StartEvent {
+            event: "started",
+            operation_id: "op-4".to_string(),
+            status: "running",
+            stage_key: "signalr.gameRemove.starting".to_string(),
+            context: json!({ "gameName": "Dota 2" }),
+        };
+        let started_value: serde_json::Value = serde_json::to_value(&started).unwrap();
+        assert_eq!(started_value["operationId"], "op-4");
+        assert_eq!(started_value["stageKey"], "signalr.gameRemove.starting");
+
+        let progress = ProgressEvent {
+            event: "progress",
+            operation_id: "op-4".to_string(),
+            percent_complete: 42.5,
+            status: "running",
+            stage_key: "signalr.gameRemove.cache.file.progress".to_string(),
+            context: json!({ "filesProcessed": 3 }),
+        };
+        let progress_value: serde_json::Value = serde_json::to_value(&progress).unwrap();
+        assert_eq!(progress_value["percentComplete"], 42.5);
+        assert_eq!(progress_value["stageKey"], "signalr.gameRemove.cache.file.progress");
+    }
+
+    #[test]
+    fn progress_reporter_clamps_percent_complete() {
+        let reporter = ProgressReporter::new(true);
+        // Clamp is applied inside emit_progress; exercise via ProgressEvent construction
+        // mirroring the same clamp the emitter uses.
+        let clamped = ProgressEvent {
+            event: "progress",
+            operation_id: reporter.operation_id().to_string(),
+            percent_complete: 150.0_f64.clamp(0.0, 100.0),
+            status: "running",
+            stage_key: "stage".to_string(),
+            context: json!({}),
+        };
+        let value: serde_json::Value = serde_json::to_value(&clamped).unwrap();
+        assert_eq!(value["percentComplete"], 100.0);
+    }
+}

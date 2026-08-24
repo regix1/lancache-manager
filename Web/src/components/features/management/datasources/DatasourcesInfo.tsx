@@ -18,6 +18,7 @@ import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types'
 import { useConfig } from '@contexts/useConfig';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useNotifications } from '@contexts/notifications';
+import { shouldPinOperationIdFromResponse } from '@components/features/management/game-detection/gameRemovalEntity';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { useSelectionSet } from '@hooks/useSelectionSet';
 import { getErrorMessage } from '@utils/error';
@@ -211,7 +212,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     try {
       const result = await ApiService.processAllLogs();
       // Wait-queue model: queued/deduplicated responses must not seed a running card.
-      if (result.operationId && !result.queued && !result.alreadyRunning) {
+      if (shouldPinOperationIdFromResponse(result)) {
         addNotification(
           buildSeededRunningNotification(
             'log_processing',
@@ -235,7 +236,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     try {
       const result = await ApiService.processDatasourceLogs(datasourceName);
       // Wait-queue model: queued/deduplicated responses must not seed a running card.
-      if (result.operationId && !result.queued && !result.alreadyRunning) {
+      if (shouldPinOperationIdFromResponse(result)) {
         addNotification(
           buildSeededRunningNotification(
             'log_processing',

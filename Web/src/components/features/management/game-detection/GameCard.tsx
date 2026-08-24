@@ -7,6 +7,7 @@ import type { GameCacheInfo, CacheEntityVariant, DatasourceInfo } from '../../..
 import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
 import { getGameUniqueId } from './gameUtils';
+import { classifyGameFromCacheInfo } from './gameRemovalEntity';
 import EvictedBadge from '@components/common/EvictedBadge';
 import Badge from '@components/ui/Badge';
 import { useIsEntityBusy } from '@hooks/useIsEntityBusy';
@@ -43,19 +44,12 @@ const GameCard: React.FC<GameCardProps> = ({
   onSelectToggle
 }) => {
   const { t } = useTranslation();
-  const isEpic = game.service === 'epicgames';
-  // Named (Blizzard/Riot) games: game_app_id === 0 with a non-Steam, non-Epic service. They have
-  // no Steam AppId and no depots, and must NOT fall through to the Steam badge/label.
-  const isNamed = game.game_app_id === 0 && !!game.service && game.service !== 'steam' && !isEpic;
-  const isSteam = !isEpic && !isNamed;
+  const entity = classifyGameFromCacheInfo(game);
+  const isEpic = entity.kind === 'epicGame';
+  const isNamed = entity.kind === 'namedGame';
+  const isSteam = entity.kind === 'steamGame';
   const gameUniqueId = getGameUniqueId(game);
-  const isRemoving = useIsEntityBusy(
-    isEpic
-      ? { kind: 'epicGame', epicAppId: game.epic_app_id, gameName: game.game_name }
-      : isNamed
-        ? { kind: 'namedGame', service: game.service!, gameName: game.game_name }
-        : { kind: 'steamGame', gameAppId: game.game_app_id }
-  );
+  const isRemoving = useIsEntityBusy(entity);
   const isEvictedVariant = variant === 'evicted';
   const nginxReopenGate = getNginxReopenGate(datasourceConfigs, game.datasources);
   const nginxReopenUnavailableMessage = nginxReopenGate.messageKey

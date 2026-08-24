@@ -14,6 +14,7 @@ use lancache_processor::db;
 use lancache_processor::log_purge;
 use lancache_processor::progress_events;
 use lancache_processor::progress_utils;
+use lancache_processor::removal_core;
 use log_purge::remove_log_entries_for_service;
 use progress_events::ProgressReporter;
 
@@ -93,17 +94,6 @@ fn write_removal_report(path: &Path, report: &RemovalReport) -> Result<()> {
 
 /// Keep access-log and database provenance when any bare-metal candidate could not prove
 /// its recipe-computed key. Otherwise a skipped cache file would become undiscoverable.
-fn ensure_cache_deletions_verified(verification_skips: usize) -> Result<()> {
-    if verification_skips == 0 {
-        return Ok(());
-    }
-
-    anyhow::bail!(
-        "Cache deletion safety verification failed for {} file(s); skipped files, access logs, and database records were left intact",
-        verification_skips
-    )
-}
-
 fn cache_candidate_verified_for_deletion(
     scheme: cache_utils::CacheKeyScheme,
     cache_path: &Path,
@@ -464,7 +454,7 @@ async fn main() -> Result<()> {
     // A failed bare-metal KEY check leaves the cache candidate untouched. Preserve its
     // access-log and database provenance, write the successfully completed cache portion,
     // and fail the logical removal so the caller can surface and retry it.
-    if let Err(error) = ensure_cache_deletions_verified(verification_skips) {
+    if let Err(error) = removal_core::ensure_cache_deletions_verified(verification_skips) {
         let report = RemovalReport::partial(service, cache_files_deleted, total_bytes_freed);
         write_removal_report(&output_json, &report)?;
         return Err(error);
@@ -588,8 +578,8 @@ mod tests {
 
     #[test]
     fn verification_skips_write_a_partial_report_and_block_log_and_database_removal() {
-        assert!(ensure_cache_deletions_verified(0).is_ok());
-        let error = ensure_cache_deletions_verified(2).unwrap_err().to_string();
+        assert!(removal_core::ensure_cache_deletions_verified(0).is_ok());
+        let error = removal_core::ensure_cache_deletions_verified(2).unwrap_err().to_string();
         assert!(error.contains("2 file(s)"));
         assert!(error.contains("access logs, and database records were left intact"));
 

@@ -62,6 +62,10 @@ import {
 import { getEvictedGames, getEvictedServices } from '../game-detection/cacheEntityFilters';
 import { getGameUniqueId } from '../game-detection/gameUtils';
 import {
+  classifyGameFromCacheInfo,
+  shouldPinOperationIdFromResponse
+} from '../game-detection/gameRemovalEntity';
+import {
   CACHED_DETECTION_RELOAD_DELAY_MS,
   loadCachedDetectionSnapshot,
   type CacheRemovalTarget
@@ -334,7 +338,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       // and the cancel button work immediately instead of racing the SignalR
       // Started event (same pattern as the eviction-scan seed below).
       // Wait-queue model: queued/deduplicated responses must not seed a running card.
-      if (result.operationId && !result.queued && !result.alreadyRunning) {
+      if (shouldPinOperationIdFromResponse(result)) {
         addNotification(
           buildSeededRunningNotification(
             'eviction_removal',
@@ -386,21 +390,18 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       }
     } else {
       const game = partialEvictedTarget as GameCacheInfo;
-      const isEpic = game.service === 'epicgames';
-      // Named (Blizzard/Riot) games have game_app_id === 0 and no Epic id; their identity is
-      // (service, game_name). They have their own per-entity evicted scope
-      // (cache/evicted/named/{service}/{gameName}), mirroring Steam/Epic partial-evicted removal:
-      // only the evicted records/detection for THIS named game are removed.
-      const isNamed =
-        !isEpic && game.game_app_id === 0 && !!game.service && game.service !== 'steam';
-      partialRemovalTargetRef.current = isEpic
-        ? {
-            epicAppId: game.epic_app_id ?? undefined,
-            gameName: game.game_name
-          }
-        : isNamed
-          ? { gameName: game.game_name }
-          : { gameAppId: game.game_app_id };
+      const entity = classifyGameFromCacheInfo(game);
+      const isEpic = entity.kind === 'epicGame';
+      const isNamed = entity.kind === 'namedGame';
+      partialRemovalTargetRef.current =
+        entity.kind === 'epicGame'
+          ? {
+              epicAppId: game.epic_app_id ?? undefined,
+              gameName: game.game_name
+            }
+          : entity.kind === 'namedGame'
+            ? { gameName: entity.gameName, serviceName: entity.service }
+            : { gameAppId: game.game_app_id };
       setPartialEvictedTarget(null);
       try {
         if (isEpic) {
@@ -695,12 +696,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       // selection: the backend silences the scan phase based on its saved EvictedDataMode, so
       // seeding from an unsaved local 'show' while the server runs silent 'remove' would leave
       // a stuck running card (and vice versa would merely delay the bar by one SignalR event).
-      if (
-        result.operationId &&
-        !result.queued &&
-        !result.alreadyRunning &&
-        savedEvictionMode !== 'remove'
-      ) {
+      if (shouldPinOperationIdFromResponse(result) && savedEvictionMode !== 'remove') {
         addNotification(
           buildSeededRunningNotification(
             'eviction_scan',

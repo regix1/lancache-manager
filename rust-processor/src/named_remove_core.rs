@@ -121,17 +121,6 @@ fn normalize_service(service: &str) -> String {
 /// Stop the logical removal when a bare-metal candidate could not prove its
 /// recipe-computed key. Keeping the access-log and database rows makes the skipped
 /// object discoverable for a corrected retry; deleting those rows would orphan it.
-fn ensure_cache_deletions_verified(verification_skips: usize) -> Result<()> {
-    if verification_skips == 0 {
-        return Ok(());
-    }
-
-    anyhow::bail!(
-        "Cache deletion safety verification failed for {} file(s); skipped files, access logs, and database records were left intact",
-        verification_skips
-    )
-}
-
 /// Primary URL query: $1 = GameName, $2 = lowercased owning service. Gates identity on
 /// `LOWER(d."Service") = $2` (the Download side) and returns each row's own `le."Service"`
 /// (the cache-hash service) without constraining it.
@@ -382,7 +371,7 @@ pub async fn run(service: &str) -> Result<()> {
     // A failed bare-metal KEY check is not a successful removal. The cache helper
     // correctly left the candidate untouched; preserve its URL provenance as well
     // so a corrected retry can still find it instead of turning it into an orphan.
-    if let Err(error) = ensure_cache_deletions_verified(outcome.verification_skips) {
+    if let Err(error) = removal_core::ensure_cache_deletions_verified(outcome.verification_skips) {
         let report = RemovalReport {
             game_name: game_name.to_string(),
             cache_files_deleted: outcome.deleted_files,
@@ -487,18 +476,6 @@ mod tests {
         // Defensive: any casing collapses to the gate form.
         assert_eq!(normalize_service("Blizzard"), "blizzard");
         assert_eq!(normalize_service("XBOX"), "xbox");
-    }
-
-    /// A bare-metal KEY mismatch/unreadable header must stop the logical tail of
-    /// removal, or the still-present file loses the DB/log provenance needed to
-    /// discover it on a corrected retry.
-    #[test]
-    fn verification_skips_block_log_and_database_removal() {
-        assert!(ensure_cache_deletions_verified(0).is_ok());
-
-        let error = ensure_cache_deletions_verified(2).unwrap_err().to_string();
-        assert!(error.contains("2 file(s)"));
-        assert!(error.contains("access logs, and database records were left intact"));
     }
 
     /// Primary query gates identity on the Download side (`LOWER(d."Service") = $2`) and selects

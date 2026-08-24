@@ -50,6 +50,7 @@ import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { getActiveGames, getActiveServices } from './cacheEntityFilters';
 import { getGameUniqueId } from './gameUtils';
+import { shouldPinOperationIdFromResponse } from './gameRemovalEntity';
 import {
   buildLoadedResultsSummary,
   CACHED_DETECTION_RELOAD_DELAY_MS,
@@ -460,7 +461,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         const result = await ApiService.startGameCacheDetection(forceRefresh);
         // Wait-queue model: queued/deduplicated responses must not seed a running card -
         // the OperationWaiting event (or the already-visible card) owns the UI.
-        if (result.operationId && !result.queued && !result.alreadyRunning) {
+        if (shouldPinOperationIdFromResponse(result)) {
           addNotification(
             buildSeededRunningNotification(
               'game_detection',
@@ -612,8 +613,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Sequential per-item cache-removal queue. The app-root BulkRemovalProvider
   // owns the run loop, per-item API/SignalR pipeline (capturing each op's id for
   // cascade cancel), AbortController plumbing, and the finalize transition; this
-  // component only builds the item list and mirrors inline progress. The run
-  // survives an in-app tab switch because the provider never unmounts.
+  // component only builds the item list. Progress lives on the bulk_removal
+  // notification. The run survives an in-app tab switch because the provider
+  // never unmounts.
   const { runCacheRemoval } = useBulkRemoval();
 
   // Client-only multi-select for the Services (S3) and Games (S4) lists. Keyed

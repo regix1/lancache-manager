@@ -399,6 +399,19 @@ pub fn purge_log_entries(
     }
 }
 
+/// Bare-metal KEY verification left one or more cache files untouched. Abort the
+/// log/DB tail so provenance is preserved for a corrected retry.
+pub fn ensure_cache_deletions_verified(verification_skips: usize) -> Result<()> {
+    if verification_skips == 0 {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "Cache deletion safety verification failed for {} file(s); skipped files, access logs, and database records were left intact",
+        verification_skips
+    )
+}
+
 /// Build the PUID/PGID permission-error abort message shared by every removal bin.
 /// Returned so the caller can `eprintln!` it, write the report with `failed` status,
 /// and `bail!` with the same text (identical to the prior per-bin logic).
@@ -456,6 +469,15 @@ mod tests {
             scheme,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn verification_skips_block_log_and_database_removal() {
+        assert!(ensure_cache_deletions_verified(0).is_ok());
+
+        let error = ensure_cache_deletions_verified(2).unwrap_err().to_string();
+        assert!(error.contains("2 file(s)"));
+        assert!(error.contains("access logs, and database records were left intact"));
     }
 
     #[test]

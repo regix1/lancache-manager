@@ -12,6 +12,7 @@ import { useNotifications } from '@contexts/notifications';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useSelectionSet } from '@hooks/useSelectionSet';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
+import { shouldPinOperationIdFromResponse } from '@components/features/management/game-detection/gameRemovalEntity';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { Alert } from '@components/ui/Alert';
@@ -239,7 +240,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         : await ApiService.clearAllCache();
       // Wait-queue model: queued/deduplicated responses must not seed a running card -
       // the OperationWaiting event (or the already-visible card) owns the UI.
-      if (result.operationId && !result.queued && !result.alreadyRunning) {
+      if (shouldPinOperationIdFromResponse(result)) {
         addNotification(
           buildSeededRunningNotification(
             'cache_clearing',

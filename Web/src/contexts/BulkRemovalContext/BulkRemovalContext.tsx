@@ -7,6 +7,12 @@ import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalR
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useCancellableQueue } from '@/hooks/useCancellableQueue';
 import { finalizeBulkRemovalNotification } from '@components/features/management/game-detection/cacheRemovalHelpers';
+import {
+  classifyGameFromCacheInfo,
+  matchesGameRemovalComplete,
+  matchesGameRemovalIdentity,
+  shouldPinOperationIdFromResponse
+} from '@components/features/management/game-detection/gameRemovalEntity';
 import type {
   EvictionRemovalStartedEvent,
   EvictionRemovalCompleteEvent,
@@ -181,55 +187,8 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             }
           } else {
             const game = entry.game;
-            const gameAppId = game.game_app_id;
-            const gameName = game.game_name;
-            const isEpic = game.service === 'epicgames' && !!gameName;
-            // Named (Blizzard/Riot) games have game_app_id === 0, no Epic id, and a
-            // non-Steam service. Their identity is (service, gameName) - every named game
-            // shares gameAppId 0, so matching by gameAppId would collide and the Steam
-            // removal endpoint (key=0) would 400. Mirror runTrackedGameRemoval.
-            const isNamed =
-              !isEpic && gameAppId === 0 && !!game.service && game.service !== 'steam';
-            const epicAppId = game.epic_app_id ?? undefined;
-            const namedService = isNamed ? game.service : undefined;
+            const entity = classifyGameFromCacheInfo(game);
             let currentOperationId: string | null = null;
-            const matchesGame = (payload?: {
-              gameAppId?: number | null;
-              epicAppId?: string | null;
-              gameName?: string;
-              service?: string | null;
-              operationId?: string;
-            }): boolean => {
-              if (!payload) {
-                return false;
-              }
-
-              if (currentOperationId) {
-                return payload.operationId === currentOperationId;
-              }
-
-              if (isEpic) {
-                if (epicAppId && payload.epicAppId === epicAppId) {
-                  return true;
-                }
-
-                return payload.gameName === gameName;
-              }
-
-              // Named games (Blizzard/Riot/Xbox) all carry gameAppId=null/0 and epicAppId=null
-              // in their event payload; their identity is (service, gameName). Matching on
-              // gameName alone lets a same-named game on a DIFFERENT named service (e.g. an Xbox
-              // title sharing a name with a Blizzard one) cross-complete, so when the payload
-              // carries a service it must also match.
-              if (isNamed) {
-                if (payload.gameName !== gameName) {
-                  return false;
-                }
-                return payload.service == null || payload.service === namedService;
-              }
-
-              return payload.gameAppId === gameAppId;
-            };
             const waitPromise = waitForSignalRCompletion<
               {
                 gameAppId?: number | null;
@@ -250,9 +209,10 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               signalR: { on, off },
               completeEvent: 'GameRemovalComplete',
               startedEvent: 'GameRemovalStarted',
-              match: matchesGame,
+              match: (payload) => matchesGameRemovalComplete(payload, entity, currentOperationId),
               onStartedCapture: (payload) =>
-                matchesGame(payload) && typeof payload.operationId === 'string'
+                matchesGameRemovalIdentity(payload, entity) &&
+                typeof payload.operationId === 'string'
                   ? { opId: payload.operationId }
                   : null,
               onOperationIdCaptured: (opId) => {
@@ -274,16 +234,13 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               timeoutMs: 600_000
             });
 
-            if (isEpic) {
-              const response = await ApiService.removeEpicGameFromCache(gameName);
-              currentOperationId = response.operationId;
-              ctx.setOperationId(response.operationId);
-            } else if (isNamed) {
-              const response = await ApiService.removeNamedGameFromCache(game.service!, gameName);
-              currentOperationId = response.operationId;
-              ctx.setOperationId(response.operationId);
-            } else {
-              const response = await ApiService.removeGameFromCache(gameAppId);
+            const response =
+              entity.kind === 'epicGame'
+                ? await ApiService.removeEpicGameFromCache(game.game_name)
+                : entity.kind === 'namedGame'
+                  ? await ApiService.removeNamedGameFromCache(entity.service, entity.gameName)
+                  : await ApiService.removeGameFromCache(entity.gameAppId);
+            if (shouldPinOperationIdFromResponse(response)) {
               currentOperationId = response.operationId;
               ctx.setOperationId(response.operationId);
             }
@@ -291,7 +248,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             if (outcome.timedOut) {
               // No completion within the window: count as a failure rather than a
               // silent success so the batch tally stays honest.
-              throw new Error(`Game removal timed out for ${gameName ?? gameAppId}`);
+              throw new Error(`Game removal timed out for ${game.game_name ?? game.game_app_id}`);
             }
           }
         },
@@ -326,12 +283,10 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
   const isCacheRemovalRunning = cacheState.status === 'running';
 
   // --- Evicted-items queue -------------------------------------------------
-  // Structurally the same sequential/cancellable pipeline as the cache queue
-  // above, but each item is dispatched to the correct per-entity EVICTED
-  // endpoint (steam/epic/named game, or service) and waits for that op's
-  // EvictionRemovalComplete. The completion event carries only an operationId
-  // (no entity identity), and the per-entity DELETE returns its operationId in
-  // the response body, so matching is opId-based - no Started-event correlation.
+  // Sequential/cancellable pipeline like the cache queue, but each item hits a
+  // per-entity evicted endpoint. Completion carries only operationId, so after
+  // a queued DELETE the waiter re-binds from EvictionRemovalStarted context
+  // (scope + key). The HTTP body id is the waiting id and would never match.
   const evictedRunOptionsRef = useRef<BulkRemovalRunOptions | null>(null);
 
   const { run: runEvictedQueue, state: evictedState } = useCancellableQueue<EvictedQueueEntry>({
@@ -396,28 +351,22 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
           // would never match it. Re-capturing the promoted id from the Started event keeps
           // the opId-based match (and cancel) correct across promotion.
           const evictedGame = entry.kind === 'game' ? entry.game : null;
-          const evictedIsEpic = evictedGame?.service === 'epicgames';
-          const evictedIsNamed =
-            !!evictedGame &&
-            !evictedIsEpic &&
-            evictedGame.game_app_id === 0 &&
-            !!evictedGame.service &&
-            evictedGame.service !== 'steam';
+          const evictedEntity = evictedGame ? classifyGameFromCacheInfo(evictedGame) : null;
           const expectedScope =
             entry.kind === 'service'
               ? 'service'
-              : evictedIsEpic
+              : evictedEntity?.kind === 'epicGame'
                 ? 'epic'
-                : evictedIsNamed
+                : evictedEntity?.kind === 'namedGame'
                   ? 'named'
                   : 'steam';
           const expectedKey =
             entry.kind === 'service'
               ? entry.service.service_name
-              : evictedIsEpic
+              : evictedEntity?.kind === 'epicGame'
                 ? (evictedGame?.epic_app_id ?? '')
-                : evictedIsNamed
-                  ? `${evictedGame?.service}:${evictedGame?.game_name}`
+                : evictedEntity?.kind === 'namedGame'
+                  ? `${evictedEntity.service}:${evictedEntity.gameName}`
                   : String(evictedGame?.game_app_id ?? '');
           const matchesEntryIdentity = (
             contextBag?: Record<string, string | number | boolean>
@@ -473,16 +422,14 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             operationId = response.operationId;
           } else {
             const game = entry.game;
-            const isEpic = game.service === 'epicgames';
-            const isNamed =
-              !isEpic && game.game_app_id === 0 && !!game.service && game.service !== 'steam';
-            if (isEpic) {
+            const entity = classifyGameFromCacheInfo(game);
+            if (entity.kind === 'epicGame') {
               if (!game.epic_app_id) {
                 throw new Error(t(FAILED_TO_REMOVE_GAME_I18N_KEY));
               }
               const response = await ApiService.removeEvictedForEpicGame(game.epic_app_id);
               operationId = response.operationId;
-            } else if (isNamed) {
+            } else if (entity.kind === 'namedGame') {
               const response = await ApiService.removeEvictedForNamedGame(
                 game.service!,
                 game.game_name

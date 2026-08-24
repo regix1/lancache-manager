@@ -134,6 +134,10 @@ export const pruneGamesByRemovalTarget = (
       return false;
     }
 
+    if (target.serviceName && target.gameName) {
+      return !(game.service === target.serviceName && game.game_name === target.gameName);
+    }
+
     if (target.gameName && game.game_name === target.gameName) {
       return false;
     }

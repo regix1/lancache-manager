@@ -1,14 +1,7 @@
 import { useMemo } from 'react';
 import { useNotifications } from '../contexts/notifications/useNotifications';
 import type { NotificationType } from '../contexts/notifications/types';
-
-type EntityIdentifier =
-  | { kind: 'steamGame'; gameAppId: number }
-  | { kind: 'epicGame'; epicAppId?: string; gameName?: string }
-  // Named (Blizzard/Riot) games have no Steam/Epic id; identity is (service, gameName).
-  // Every named game shares gameAppId 0, so the steamGame arm would collide them.
-  | { kind: 'namedGame'; service: string; gameName: string }
-  | { kind: 'service'; service: string };
+import type { EntityIdentifier } from '@components/features/management/game-detection/gameRemovalEntity';
 
 const DEFAULT_KINDS: NotificationType[] = ['game_removal', 'service_removal', 'eviction_removal'];
 

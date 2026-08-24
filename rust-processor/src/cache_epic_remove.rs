@@ -69,16 +69,20 @@ struct RemovalReport {
 /// Preserve URL provenance when a bare-metal candidate's recipe-computed key
 /// could not be verified. The cache helper leaves that file untouched, so the
 /// access-log and database rows must remain available for a corrected retry.
-fn ensure_cache_deletions_verified(verification_skips: usize) -> Result<()> {
-    if verification_skips == 0 {
-        return Ok(());
-    }
+const PRIMARY_URL_QUERY: &str =
+    "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
+         FROM \"LogEntries\" le
+         INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+         WHERE d.\"GameName\" = $1 AND d.\"EpicAppId\" IS NOT NULL AND le.\"Url\" IS NOT NULL";
 
-    anyhow::bail!(
-        "Cache deletion safety verification failed for {} file(s); skipped files, access logs, and database records were left intact",
-        verification_skips
-    )
-}
+const FALLBACK_URL_QUERY: &str =
+    "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
+         FROM \"LogEntries\" le
+         WHERE LOWER(le.\"Service\") = 'epicgames'
+         AND le.\"Url\" IS NOT NULL
+         AND le.\"DownloadId\" IN (
+             SELECT \"Id\" FROM \"Downloads\" WHERE \"GameName\" = $1 AND \"EpicAppId\" IS NOT NULL
+         )";
 
 /// Query the database for all URLs associated with an Epic game.
 /// Joins LogEntries with Downloads via DownloadId to find URLs for the specific game.
@@ -87,12 +91,7 @@ async fn get_epic_game_urls_from_db(pool: &PgPool, game_name: &str) -> Result<Ha
     eprintln!("Querying database for Epic game URLs...");
 
     // Query LogEntries joined with Downloads to find all URLs for this Epic game
-    let rows = sqlx::query(
-        "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
-         FROM \"LogEntries\" le
-         INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
-         WHERE d.\"GameName\" = $1 AND d.\"EpicAppId\" IS NOT NULL AND le.\"Url\" IS NOT NULL"
-    )
+    let rows = sqlx::query(PRIMARY_URL_QUERY)
     .bind(game_name)
     .fetch_all(pool)
     .await?;
@@ -115,15 +114,7 @@ async fn get_epic_game_urls_from_db(pool: &PgPool, game_name: &str) -> Result<Ha
 
     // Also get URLs from LogEntries that match epicgames service but may not have DownloadId set
     // (fallback for entries processed before Epic game mapping was established)
-    let fallback_rows = sqlx::query(
-        "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
-         FROM \"LogEntries\" le
-         WHERE LOWER(le.\"Service\") = 'epicgames'
-         AND le.\"Url\" IS NOT NULL
-         AND le.\"DownloadId\" IN (
-             SELECT \"Id\" FROM \"Downloads\" WHERE \"GameName\" = $1 AND \"EpicAppId\" IS NOT NULL
-         )"
-    )
+    let fallback_rows = sqlx::query(FALLBACK_URL_QUERY)
     .bind(game_name)
     .fetch_all(pool)
     .await?;
@@ -262,7 +253,7 @@ async fn main() -> Result<()> {
     eprintln!("\nCleaning up empty directories...");
     let empty_dirs_removed = cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
 
-    if let Err(error) = ensure_cache_deletions_verified(outcome.verification_skips) {
+    if let Err(error) = removal_core::ensure_cache_deletions_verified(outcome.verification_skips) {
         let report = RemovalReport {
             game_name: game_name.to_string(),
             cache_files_deleted: outcome.deleted_files,
@@ -339,14 +330,20 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{FALLBACK_URL_QUERY, PRIMARY_URL_QUERY};
 
     #[test]
-    fn verification_skips_block_log_and_database_removal() {
-        assert!(ensure_cache_deletions_verified(0).is_ok());
+    fn primary_query_gates_identity_on_game_name_and_epic_app_id() {
+        assert!(PRIMARY_URL_QUERY.contains("d.\"GameName\" = $1"));
+        assert!(PRIMARY_URL_QUERY.contains("d.\"EpicAppId\" IS NOT NULL"));
+        assert!(PRIMARY_URL_QUERY.contains("le.\"Url\" IS NOT NULL"));
+    }
 
-        let error = ensure_cache_deletions_verified(2).unwrap_err().to_string();
-        assert!(error.contains("2 file(s)"));
-        assert!(error.contains("access logs, and database records were left intact"));
+    #[test]
+    fn fallback_query_gates_epic_service_and_download_identity() {
+        assert!(FALLBACK_URL_QUERY.contains("LOWER(le.\"Service\") = 'epicgames'"));
+        assert!(FALLBACK_URL_QUERY.contains("le.\"DownloadId\" IN ("));
+        assert!(FALLBACK_URL_QUERY.contains("\"GameName\" = $1"));
+        assert!(FALLBACK_URL_QUERY.contains("\"EpicAppId\" IS NOT NULL"));
     }
 }

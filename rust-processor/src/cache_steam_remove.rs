@@ -81,17 +81,6 @@ struct RemovalReport {
 /// Preserve URL provenance when a bare-metal candidate's recipe-computed key
 /// could not be verified. The cache helper leaves that file untouched, so the
 /// access-log and database rows must remain available for a corrected retry.
-fn ensure_cache_deletions_verified(verification_skips: usize) -> Result<()> {
-    if verification_skips == 0 {
-        return Ok(());
-    }
-
-    anyhow::bail!(
-        "Cache deletion safety verification failed for {} file(s); skipped files, access logs, and database records were left intact",
-        verification_skips
-    )
-}
-
 async fn get_game_name_from_db(pool: &PgPool, game_app_id: u32) -> Result<String> {
     let row = sqlx::query(
         "SELECT DISTINCT \"GameName\" FROM \"Downloads\" WHERE \"GameAppId\" = $1 LIMIT 1"
@@ -486,7 +475,7 @@ async fn main() -> Result<()> {
         )
     };
 
-    if let Err(error) = ensure_cache_deletions_verified(verification_skips) {
+    if let Err(error) = removal_core::ensure_cache_deletions_verified(verification_skips) {
         let report = RemovalReport {
             game_app_id,
             game_name: game_name.to_string(),
@@ -641,12 +630,4 @@ mod tests {
         assert!(safe.is_empty());
     }
 
-    #[test]
-    fn verification_skips_block_log_and_database_removal() {
-        assert!(ensure_cache_deletions_verified(0).is_ok());
-
-        let error = ensure_cache_deletions_verified(3).unwrap_err().to_string();
-        assert!(error.contains("3 file(s)"));
-        assert!(error.contains("access logs, and database records were left intact"));
-    }
 }

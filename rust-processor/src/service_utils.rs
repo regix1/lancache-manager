@@ -63,6 +63,62 @@ pub fn normalize_service_name(service: &str) -> String {
     service_lower
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_localhost_variants() {
+        assert_eq!(normalize_service_name("localhost"), "localhost");
+        assert_eq!(normalize_service_name("LOCALHOST"), "localhost");
+        assert_eq!(normalize_service_name("127.0.0.1"), "localhost");
+        assert_eq!(normalize_service_name("127.1"), "localhost");
+    }
+
+    #[test]
+    fn normalize_ipv4_to_ip_address_bucket() {
+        assert_eq!(normalize_service_name("192.168.1.10"), "ip-address");
+        assert_eq!(normalize_service_name("10.0.0.5"), "ip-address");
+    }
+
+    #[test]
+    fn normalize_ipv6_to_ip_address_bucket() {
+        assert_eq!(normalize_service_name("2001:db8::1"), "ip-address");
+        assert_eq!(normalize_service_name("::1"), "ip-address");
+    }
+
+    #[test]
+    fn normalize_named_service_lowercases() {
+        assert_eq!(normalize_service_name("Steam"), "steam");
+        assert_eq!(normalize_service_name("epicgames"), "epicgames");
+        assert_eq!(normalize_service_name("WSUS"), "wsus");
+    }
+
+    #[test]
+    fn should_skip_health_probe_urls() {
+        assert!(should_skip_url("/lancache-heartbeat"));
+        assert!(should_skip_url("/api/health"));
+        assert!(should_skip_url("/ping"));
+        assert!(!should_skip_url("/depot/123/chunk"));
+    }
+
+    #[test]
+    fn is_manager_probe_matches_user_agent_marker() {
+        let probe_line = r#""-" "lancache-manager-status-check/1.0""#;
+        assert!(is_manager_probe(probe_line));
+        assert!(!is_manager_probe(r#""-" "Mozilla/5.0""#));
+    }
+
+    #[test]
+    fn extract_service_from_bracketed_line() {
+        assert_eq!(
+            extract_service_from_line("[Steam] GET /foo"),
+            Some("steam".to_string())
+        );
+        assert_eq!(extract_service_from_line("no bracket"), None);
+    }
+}
+
 /// Extract and normalize service name from a log line
 /// Format: [service] ...
 #[allow(dead_code)]

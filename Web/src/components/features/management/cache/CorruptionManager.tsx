@@ -16,6 +16,7 @@ import { useConfig } from '@contexts/useConfig';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useNotifications } from '@contexts/notifications';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
+import { shouldPinOperationIdFromResponse } from '@components/features/management/game-detection/gameRemovalEntity';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   CorruptionDetectionCompleteEvent,
@@ -578,7 +579,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           lookbackDays,
           detectionMethod === 'structural' ? scanMode : undefined
         );
-        if (result.operationId && !result.queued && !result.alreadyRunning) {
+        if (shouldPinOperationIdFromResponse(result)) {
           const confirmedScanMode =
             detectionMethod === 'structural' ? (result.scanMode ?? scanMode) : undefined;
           addNotification(
@@ -829,7 +830,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     markServiceRemovalStarting(service);
     try {
       const result = await ApiService.removeCorruptedChunks(service, scanId);
-      if (result.operationId && !result.queued && !result.alreadyRunning) {
+      if (shouldPinOperationIdFromResponse(result)) {
         addNotification(
           buildSeededRunningNotification(
             'corruption_removal',

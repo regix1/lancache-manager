@@ -25,6 +25,7 @@ import {
   type CacheRemovalTarget
 } from './cacheDetectionData';
 import { FULL_REMOVAL_REFRESH_DELAY_MS } from './cacheEntityFilters';
+import { classifyGameFromCacheInfo, shouldPinOperationIdFromResponse } from './gameRemovalEntity';
 
 interface FinalizeBulkRemovalText {
   completeKey: string;
@@ -124,22 +125,23 @@ export async function runTrackedGameRemoval({
   scheduleRemovalRefresh,
   onDataRefresh
 }: RunTrackedGameRemovalArgs): Promise<void> {
-  const gameAppId = game.game_app_id;
   const gameName = game.game_name;
-  const isEpic = game.service === 'epicgames';
-  const isNamed = !isEpic && gameAppId === 0 && !!game.service && game.service !== 'steam';
+  const entity = classifyGameFromCacheInfo(game);
+  const isEpic = entity.kind === 'epicGame';
+  const isNamed = entity.kind === 'namedGame';
   const epicAppId = game.epic_app_id;
 
   try {
-    const response = isEpic
-      ? await ApiService.removeEpicGameFromCache(gameName)
-      : isNamed
-        ? await ApiService.removeNamedGameFromCache(game.service!, gameName)
-        : await ApiService.removeGameFromCache(gameAppId);
+    const response =
+      entity.kind === 'epicGame'
+        ? await ApiService.removeEpicGameFromCache(gameName)
+        : entity.kind === 'namedGame'
+          ? await ApiService.removeNamedGameFromCache(entity.service, entity.gameName)
+          : await ApiService.removeGameFromCache(entity.gameAppId);
 
     // Wait-queue model: queued/deduplicated responses must not seed a running card -
     // the OperationWaiting event (purple waiting card) owns the UI until promotion.
-    if (response.operationId && !response.queued && !response.alreadyRunning) {
+    if (shouldPinOperationIdFromResponse(response)) {
       addNotification({
         type: 'game_removal',
         status: 'running',
@@ -153,7 +155,7 @@ export async function runTrackedGameRemoval({
               : {}
             : isNamed
               ? { service: game.service }
-              : { gameAppId })
+              : { gameAppId: entity.gameAppId })
         }
       });
     }
@@ -186,7 +188,7 @@ export async function runTrackedServiceRemoval({
 
     // Wait-queue model: queued/deduplicated responses must not seed a running card -
     // the OperationWaiting event (purple waiting card) owns the UI until promotion.
-    if (response.operationId && !response.queued && !response.alreadyRunning) {
+    if (shouldPinOperationIdFromResponse(response)) {
       addNotification({
         type: 'service_removal',
         status: 'running',
