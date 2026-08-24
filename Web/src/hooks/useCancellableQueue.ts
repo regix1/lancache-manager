@@ -70,7 +70,6 @@ interface CancellableQueueRunArgs<TItem> {
 
 interface CancellableQueueState {
   status: 'idle' | 'running' | 'cancelling' | 'done' | 'error';
-  progress?: { current: number; total: number };
   error?: Error;
 }
 
@@ -224,7 +223,7 @@ export function useCancellableQueue<TItem>(
       try {
         const notifId = openNotification();
         bulkNotifIdRef.current = notifId;
-        setState({ status: 'running', progress: { current: 0, total } });
+        setState({ status: 'running' });
 
         let succeeded = 0;
         let failed = 0;
@@ -242,7 +241,6 @@ export function useCancellableQueue<TItem>(
 
           currentItemRef.current = item;
           onItemStart?.(item, index + 1, total, notifId);
-          setState({ status: 'running', progress: { current: index + 1, total } });
 
           const requestId =
             typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -292,7 +290,6 @@ export function useCancellableQueue<TItem>(
 
         setState({
           status: lastError && !cancelled ? 'error' : 'done',
-          progress: { current: succeeded + failed, total },
           error: lastError ?? undefined
         });
       } finally {
