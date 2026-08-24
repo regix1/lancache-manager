@@ -19,6 +19,13 @@ import { EmptyState } from '@components/ui/ManagerCard';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { WidgetPanel } from '../WidgetPanel';
 import { hourlyMetricValue, type PeakUsageMetric } from './peakUsageMetric';
+import {
+  PEAK_USAGE_ROW_HOURS,
+  isPeakUsageAxisColumn,
+  peakUsageClockLabel,
+  peakUsageColumn,
+  peakUsageRow
+} from './peakUsageAxis';
 
 interface PeakUsageHoursProps {
   /** Whether to use glassmorphism style */
@@ -48,6 +55,46 @@ function todayOverlapsPeriod(
   const periodEnd = hourlyActivity.periodEnd ?? now;
 
   return todayStart <= periodEnd && todayEnd >= periodStart;
+}
+
+function PeakUsageHourAxis({
+  use24HourFormat,
+  rowStartHour = 0,
+  position
+}: {
+  use24HourFormat: boolean;
+  rowStartHour?: number;
+  position?: 'first' | 'second';
+}) {
+  return (
+    <div
+      className={`peak-usage-hour-axis text-themed-muted${
+        position ? ` peak-usage-hour-axis--${position}` : ''
+      }`}
+    >
+      {Array.from({ length: PEAK_USAGE_ROW_HOURS }, (_, column) => (
+        <span key={column} className="peak-usage-hour-label">
+          {isPeakUsageAxisColumn(column)
+            ? peakUsageClockLabel(column, use24HourFormat, rowStartHour)
+            : null}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function PeakUsageAxisSkeleton({ position }: { position?: 'first' | 'second' }) {
+  return (
+    <div className={`peak-usage-hour-axis${position ? ` peak-usage-hour-axis--${position}` : ''}`}>
+      {Array.from({ length: PEAK_USAGE_ROW_HOURS }, (_, column) =>
+        isPeakUsageAxisColumn(column) ? (
+          <div key={column} className="peak-usage-skeleton-axis-tick skeleton-shimmer" />
+        ) : (
+          <span key={column} />
+        )
+      )}
+    </div>
+  );
 }
 
 /**
@@ -81,6 +128,14 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   // Never zero-filled to 24 hours: a failed section sends no buckets, and zeros would draw a full
   // day of silence nobody measured.
   const hourlyData = useMemo((): HourlyActivityItem[] => displayData?.hours ?? [], [displayData]);
+
+  const hourlyByHour = useMemo(() => {
+    const hours = new Map<number, HourlyActivityItem>();
+    for (const item of hourlyData) {
+      hours.set(item.hour, item);
+    }
+    return hours;
+  }, [hourlyData]);
 
   // What a full-brightness cell means. Rescaled per metric, so switching re-shades the grid
   // against the busiest hour for the figure now being read rather than against bytes.
@@ -200,10 +255,28 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
           </div>
 
           {/* Heatmap grid */}
-          <div className="peak-usage-skeleton-heatmap">
-            {Array.from({ length: 24 }).map((_, i) => (
-              <div key={i} className="peak-usage-skeleton-cell skeleton-shimmer" />
-            ))}
+          <div
+            className={`peak-usage-heatmap-block${use24HourFormat ? ' peak-usage-heatmap-block--24hour' : ''}`}
+          >
+            {use24HourFormat ? (
+              <PeakUsageAxisSkeleton position="first" />
+            ) : (
+              <div className="peak-usage-skeleton-row-label peak-usage-skeleton-row-label--am skeleton-shimmer" />
+            )}
+            <div className="peak-usage-heatmap peak-usage-heatmap--am">
+              {Array.from({ length: PEAK_USAGE_ROW_HOURS }).map((_, i) => (
+                <div key={`am-${i}`} className="peak-usage-skeleton-cell skeleton-shimmer" />
+              ))}
+            </div>
+            {use24HourFormat ? null : (
+              <div className="peak-usage-skeleton-row-label peak-usage-skeleton-row-label--pm skeleton-shimmer" />
+            )}
+            <div className="peak-usage-heatmap peak-usage-heatmap--pm">
+              {Array.from({ length: PEAK_USAGE_ROW_HOURS }).map((_, i) => (
+                <div key={`pm-${i}`} className="peak-usage-skeleton-cell skeleton-shimmer" />
+              ))}
+            </div>
+            <PeakUsageAxisSkeleton position={use24HourFormat ? 'second' : undefined} />
           </div>
 
           {/* Legend */}
@@ -269,6 +342,78 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     hourlyData[0]
   ).hour;
   const peakTimeOfDay = getTimeOfDayLabel(peakHour);
+
+  const renderHourCell = (hour: number) => {
+    const hourData = hourlyByHour.get(hour);
+    if (!hourData || (measuredWindow !== null && !measuredWindow.hours.has(hour))) {
+      // An idle fill would read as an hour that was watched and stayed quiet.
+      return (
+        <div
+          key={hour}
+          className="w-full h-6 rounded border border-dashed border-themed-primary opacity-40"
+        />
+      );
+    }
+
+    const isCurrentHour = marksCurrentHour && hour === currentHour;
+    const isPeakHour = hasBusiestHour && hour === peakHour;
+    const cellValue = hourlyMetricValue(hourData, metric);
+    // The current hour keeps whatever fill its activity earned and is marked by the ring
+    // alone. Filling it would paint the same blue the busiest intensity step uses, so the
+    // legend would teach one colour for "now" and the grid would spend it on "most active".
+    const markerClass = isCurrentHour ? 'peak-legend-swatch--now' : '';
+
+    return (
+      <Tooltip
+        key={hour}
+        content={
+          <div className="text-xs space-y-1">
+            <div className="font-semibold text-themed-primary">{formatHour(hour)}</div>
+            {isMultiDayPeriod ? (
+              <>
+                <div className="text-themed-secondary">
+                  {formatCount(hourData.avgDownloads)}{' '}
+                  {t('widgets.peakUsageHours.tooltip.avgDownloadsPerDay')}
+                </div>
+                <div className="text-themed-secondary">
+                  {formatBytes(hourData.avgBytesServed)}{' '}
+                  {t('widgets.peakUsageHours.tooltip.avgServedPerDay')}
+                </div>
+                <div className="pt-1 border-t border-themed-primary text-themed-muted">
+                  {t('widgets.peakUsageHours.tooltip.totalDownloads', {
+                    count: hourData.downloads
+                  })}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-themed-secondary">
+                  {formatCount(hourData.downloads)} {t('widgets.peakUsageHours.tooltip.downloads')}
+                </div>
+                <div className="text-themed-secondary">
+                  {formatBytes(hourData.bytesServed)} {t('widgets.peakUsageHours.tooltip.served')}
+                </div>
+                {hourData.cacheHitBytes > 0 && (
+                  <div className="text-themed-success">
+                    {formatBytes(hourData.cacheHitBytes)}{' '}
+                    {t('widgets.peakUsageHours.tooltip.fromCache')}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        }
+        position="top"
+      >
+        <div
+          className={`w-full h-6 rounded cursor-pointer transition-colors duration-200 hover:brightness-110 ${getIntensityColor(
+            cellValue,
+            isPeakHour
+          )} ${markerClass}`}
+        />
+      </Tooltip>
+    );
+  };
 
   return (
     <WidgetPanel glass={glassmorphism}>
@@ -356,90 +501,38 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
       {/* Heatmap well - 24 hour blocks. flex-1 so the small row-stretch
           remainder lands inside the well instead of as dead card space */}
       <div className="well-surface dash-well p-3 flex-1 flex flex-col justify-center">
-        <div className="grid grid-cols-12 gap-1.5">
-          {hourlyData.map((hourData) => {
-            if (measuredWindow !== null && !measuredWindow.hours.has(hourData.hour)) {
-              // An idle fill would read as an hour that was watched and stayed quiet.
-              return (
-                <div
-                  key={hourData.hour}
-                  className="w-full h-6 rounded border border-dashed border-themed-primary opacity-40"
-                />
-              );
-            }
-
-            const isCurrentHour = marksCurrentHour && hourData.hour === currentHour;
-            const isPeakHour = hasBusiestHour && hourData.hour === peakHour;
-            const cellValue = hourlyMetricValue(hourData, metric);
-            // The current hour keeps whatever fill its activity earned and is marked by the ring
-            // alone. Filling it would paint the same blue the busiest intensity step uses, so the
-            // legend would teach one colour for "now" and the grid would spend it on "most active".
-            const markerClass = isCurrentHour ? 'peak-legend-swatch--now' : '';
-
-            return (
-              <Tooltip
-                key={hourData.hour}
-                content={
-                  <div className="text-xs space-y-1">
-                    <div className="font-semibold text-themed-primary">
-                      {formatHour(hourData.hour)}
-                    </div>
-                    {isMultiDayPeriod ? (
-                      <>
-                        <div className="text-themed-secondary">
-                          {formatCount(hourData.avgDownloads)}{' '}
-                          {t('widgets.peakUsageHours.tooltip.avgDownloadsPerDay')}
-                        </div>
-                        <div className="text-themed-secondary">
-                          {formatBytes(hourData.avgBytesServed)}{' '}
-                          {t('widgets.peakUsageHours.tooltip.avgServedPerDay')}
-                        </div>
-                        <div className="pt-1 border-t border-themed-primary text-themed-muted">
-                          {t('widgets.peakUsageHours.tooltip.totalDownloads', {
-                            count: hourData.downloads
-                          })}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-themed-secondary">
-                          {formatCount(hourData.downloads)}{' '}
-                          {t('widgets.peakUsageHours.tooltip.downloads')}
-                        </div>
-                        <div className="text-themed-secondary">
-                          {formatBytes(hourData.bytesServed)}{' '}
-                          {t('widgets.peakUsageHours.tooltip.served')}
-                        </div>
-                        {hourData.cacheHitBytes > 0 && (
-                          <div className="text-themed-success">
-                            {formatBytes(hourData.cacheHitBytes)}{' '}
-                            {t('widgets.peakUsageHours.tooltip.fromCache')}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                }
-                position="top"
-              >
-                <div
-                  className={`w-full h-6 rounded cursor-pointer transition-colors duration-200 hover:brightness-110 ${getIntensityColor(
-                    cellValue,
-                    isPeakHour
-                  )} ${markerClass}`}
-                />
-              </Tooltip>
-            );
-          })}
-        </div>
-
-        {/* Hour labels - show key hours */}
-        <div className="flex justify-between mt-2 text-[10px] text-themed-muted">
-          <span>{formatHour(0, true)}</span>
-          <span>{formatHour(6, true)}</span>
-          <span>{formatHour(12, true)}</span>
-          <span>{formatHour(18, true)}</span>
-          <span>{formatHour(23, true)}</span>
+        <div
+          className={`peak-usage-heatmap-block${use24HourFormat ? ' peak-usage-heatmap-block--24hour' : ''}`}
+        >
+          {use24HourFormat ? (
+            <PeakUsageHourAxis use24HourFormat rowStartHour={0} position="first" />
+          ) : (
+            <span className="caps-label caps-label--sm peak-usage-heatmap-row-label peak-usage-heatmap-row-label--am">
+              {t('common.dateTimePicker.am')}
+            </span>
+          )}
+          <div className="peak-usage-heatmap peak-usage-heatmap--am">
+            {Array.from({ length: 24 }, (_, hour) => hour)
+              .filter((hour) => peakUsageRow(hour) === 0)
+              .sort((a, b) => peakUsageColumn(a) - peakUsageColumn(b))
+              .map(renderHourCell)}
+          </div>
+          {use24HourFormat ? null : (
+            <span className="caps-label caps-label--sm peak-usage-heatmap-row-label peak-usage-heatmap-row-label--pm">
+              {t('common.dateTimePicker.pm')}
+            </span>
+          )}
+          <div className="peak-usage-heatmap peak-usage-heatmap--pm">
+            {Array.from({ length: 24 }, (_, hour) => hour)
+              .filter((hour) => peakUsageRow(hour) === 1)
+              .sort((a, b) => peakUsageColumn(a) - peakUsageColumn(b))
+              .map(renderHourCell)}
+          </div>
+          <PeakUsageHourAxis
+            use24HourFormat={use24HourFormat}
+            rowStartHour={use24HourFormat ? PEAK_USAGE_ROW_HOURS : 0}
+            position={use24HourFormat ? 'second' : undefined}
+          />
         </div>
       </div>
 
