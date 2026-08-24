@@ -509,6 +509,13 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       fetchAllData({ forceRefresh: true, trigger: 'signalr:GameDetectionComplete' });
     };
 
+    // Cache Files (totalFiles / scan timestamp) is also not time-range dependent. A scan
+    // started from Schedules must update that card even when the dashboard filter is 24h/7d;
+    // the live-only gate on handleRefreshEvent would otherwise leave it stale until reload.
+    const handleCacheScanComplete = () => {
+      fetchAllData({ forceRefresh: true, trigger: 'signalr:CacheScanComplete' });
+    };
+
     // Eviction scan/removal completions change detection + evicted data, which
     // (like game detection) is not time-range dependent — they must refresh even
     // outside the 'live' range, so they bypass handleRefreshEvent's live-only
@@ -547,6 +554,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     // so adding an entry here is the single edit site.
     const dedicatedHandlers: Record<string, EventHandler> = {
       GameDetectionComplete: handleGameDetectionComplete,
+      CacheScanComplete: handleCacheScanComplete,
       CacheClearingComplete: handleCacheClearingComplete,
       EvictionScanComplete: handleEvictionScanComplete,
       EvictionRemovalComplete: handleEvictionRemovalComplete,

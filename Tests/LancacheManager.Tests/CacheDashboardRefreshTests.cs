@@ -137,6 +137,36 @@ public sealed class CacheDashboardRefreshTests
     }
 
     [Fact]
+    public void CacheSizeScan_EmitsCacheScanCompleteAfterTheResultIsPersisted()
+    {
+        var source = ReadSource("Core", "Services", "Cache", "CacheManagementService.cs");
+        var persistIndex = source.IndexOf(
+            "GetCacheSizeAsync persists the fresh result before returning",
+            StringComparison.Ordinal);
+        var emitIndex = source.IndexOf(
+            "SignalREvents.CacheScanComplete",
+            persistIndex < 0 ? 0 : persistIndex,
+            StringComparison.Ordinal);
+
+        Assert.True(persistIndex >= 0);
+        Assert.True(emitIndex > persistIndex);
+    }
+
+    [Fact]
+    public void DashboardBatchHit_RereadsCacheFileScanStats()
+    {
+        var source = ReadSource("Core", "Services", "Dashboard", "DashboardBatchService.cs");
+        var methodStart = source.IndexOf(
+            "private async Task<DashboardBatchResponse> WithFreshCacheInfoAsync",
+            StringComparison.Ordinal);
+        var reread = source.IndexOf("GetCacheInfoAsync()", methodStart, StringComparison.Ordinal);
+
+        Assert.True(methodStart >= 0);
+        Assert.True(reread > methodStart);
+        Assert.Contains("cache file scan stats", source, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void GameDetectionComplete_InvalidatesDetectionAcrossAllDashboardRanges()
     {
         var notificationSource = ReadSource("Infrastructure", "Services", "SignalRNotificationService.cs");

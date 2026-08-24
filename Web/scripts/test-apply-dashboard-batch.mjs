@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  applyDashboardBatchResponse,
-  buildRangeKey
-} from '../src/contexts/DashboardDataContext/applyBatchResponse.ts';
+import { compileToUrl } from './transpile-module.mjs';
+
+const { applyDashboardBatchResponse, buildRangeKey } = await import(
+  await compileToUrl('../src/contexts/DashboardDataContext/applyBatchResponse.ts')
+);
 
 const slices = (overrides = {}) => ({
   cacheInfo: null,
@@ -131,6 +132,28 @@ test('failed cacheSnapshot keeps previous in the same range and clears on range 
     { rangeKey: DAY_KEY, previousRangeKey: LIVE_KEY }
   );
   assert.equal(rangeChange.next.cacheSnapshot, null);
+});
+
+test('a completed cache-file scan replaces cache info in a historical range', () => {
+  const prevCache = {
+    hasCacheScan: true,
+    totalFiles: 100,
+    cacheScanTotalBytes: 1,
+    cacheScanTimestampUtc: '2026-08-23T00:00:00Z'
+  };
+  const nextCache = {
+    hasCacheScan: true,
+    totalFiles: 598763,
+    cacheScanTotalBytes: 388_470_000_000,
+    cacheScanTimestampUtc: '2026-08-24T03:00:00Z'
+  };
+  const { next, hadPartialFailure } = applyDashboardBatchResponse(
+    slices({ cacheInfo: prevCache }),
+    fullBatch({ cache: nextCache }),
+    { rangeKey: DAY_KEY, previousRangeKey: DAY_KEY }
+  );
+  assert.equal(next.cacheInfo, nextCache);
+  assert.equal(hadPartialFailure, false);
 });
 
 test('cache info keeps previous on failure even across a range change', () => {
