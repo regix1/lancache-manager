@@ -20,6 +20,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { WidgetPanel } from '../WidgetPanel';
 import { hourlyMetricValue, type PeakUsageMetric } from './peakUsageMetric';
 import {
+  PEAK_USAGE_AXIS_COLUMNS,
   PEAK_USAGE_ROW_HOURS,
   isPeakUsageAxisColumn,
   peakUsageClockLabel,
@@ -74,7 +75,7 @@ function PeakUsageHourAxis({
     >
       {Array.from({ length: PEAK_USAGE_ROW_HOURS }, (_, column) => (
         <span key={column} className="peak-usage-hour-label">
-          {isPeakUsageAxisColumn(column)
+          {PEAK_USAGE_AXIS_COLUMNS.some((tick) => tick === column)
             ? peakUsageClockLabel(column, use24HourFormat, rowStartHour)
             : null}
         </span>
