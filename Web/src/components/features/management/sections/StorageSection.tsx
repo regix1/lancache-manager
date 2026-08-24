@@ -691,12 +691,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       const result = await ApiService.startEvictionScan();
       // Wait-queue model: a queued/already-running response means the backend parked or
       // deduplicated the request - the OperationWaiting SignalR event (or the existing
-      // card) owns the UI, so do NOT seed a running card over it.
-      // Seed the scan card from the PERSISTED mode (savedEvictionMode), not the local radio
-      // selection: the backend silences the scan phase based on its saved EvictedDataMode, so
-      // seeding from an unsaved local 'show' while the server runs silent 'remove' would leave
-      // a stuck running card (and vice versa would merely delay the bar by one SignalR event).
-      if (shouldPinOperationIdFromResponse(result) && savedEvictionMode !== 'remove') {
+      // card) owns the UI, so do NOT seed a running card over it. Evicted-data mode does not
+      // hide the scan card; schedule notification mode is the only display gate.
+      if (shouldPinOperationIdFromResponse(result)) {
         addNotification(
           buildSeededRunningNotification(
             'eviction_scan',

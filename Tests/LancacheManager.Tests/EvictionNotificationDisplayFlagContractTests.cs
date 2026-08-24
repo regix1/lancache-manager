@@ -6,18 +6,18 @@ namespace LancacheManager.Tests;
 /// <summary>
 /// Locks the eviction/reconciliation notification contract to the display-flag pattern: lifecycle
 /// events are ALWAYS emitted and carry a <c>ShowNotification</c> flag the frontend gates on, rather
-/// than the backend suppressing the transport. Also pins the runSilent/scanSilent split so a manual
-/// Remove-mode run silences the scan bar while still showing the removal bar.
+/// than the backend suppressing the transport. Scan and Remove-mode cleanup both follow the
+/// schedule notification mode; evicted-data mode does not hide the scan card.
 /// </summary>
 public class EvictionNotificationDisplayFlagContractTests
 {
-    // Mirror of the two-concept split in CacheReconciliationService: runSilent is purely the
-    // notification mode for the trigger; the scan phase layers the Remove data mode on top.
+    // Mirror of CacheReconciliationService: scan display silence is the schedule notification
+    // mode for the trigger. Evicted-data mode is not part of this gate.
     private static bool RunSilent(NotificationMode mode, RunTrigger trigger) =>
         !mode.AllowsTrigger(trigger);
 
-    private static bool ScanSilent(NotificationMode mode, RunTrigger trigger, bool isRemoveMode) =>
-        RunSilent(mode, trigger) || isRemoveMode;
+    private static bool ScanSilent(NotificationMode mode, RunTrigger trigger) =>
+        RunSilent(mode, trigger);
 
     [Fact]
     public void EvictionScanRecords_DefaultShowNotification_IsTrue()
@@ -85,8 +85,7 @@ public class EvictionNotificationDisplayFlagContractTests
         foreach (var trigger in Enum.GetValues<RunTrigger>())
         {
             Assert.True(RunSilent(NotificationMode.Silent, trigger));
-            Assert.True(ScanSilent(NotificationMode.Silent, trigger, isRemoveMode: false));
-            Assert.True(ScanSilent(NotificationMode.Silent, trigger, isRemoveMode: true));
+            Assert.True(ScanSilent(NotificationMode.Silent, trigger));
         }
     }
 
@@ -96,26 +95,25 @@ public class EvictionNotificationDisplayFlagContractTests
         // Default reconciliation mode is All: a scheduled tick must surface its scan bar (and, in
         // Remove mode, its removal bar) so the user sees progress they explicitly asked for.
         Assert.False(RunSilent(NotificationMode.All, RunTrigger.Scheduled));
-        Assert.False(ScanSilent(NotificationMode.All, RunTrigger.Scheduled, isRemoveMode: false));
+        Assert.False(ScanSilent(NotificationMode.All, RunTrigger.Scheduled));
 
-        // Removal follows runSilent, so a mode=All scheduled Remove-mode run still shows the removal bar.
+        // Removal follows the same schedule mode, so a mode=All scheduled Remove-mode run shows both.
         var runSilent = RunSilent(NotificationMode.All, RunTrigger.Scheduled);
         Assert.True(!runSilent, "removal ShowNotification == !runSilent must be true");
     }
 
     [Fact]
-    public void ManualRemoveMode_SilencesScan_ButShowsRemoval()
+    public void ManualRemoveMode_ShowsScanAndRemoval()
     {
-        // The defect-8 split: a manual Remove-mode run keeps runSilent false (so the removal bar
-        // shows) while scanSilent is forced true (the scan bar is hidden).
+        // Evicted-data Remove does not hide the scan card. Both bars follow the schedule mode.
         var mode = NotificationMode.All;
         const RunTrigger trigger = RunTrigger.Manual;
 
         var runSilent = RunSilent(mode, trigger);
-        var scanSilent = ScanSilent(mode, trigger, isRemoveMode: true);
+        var scanSilent = ScanSilent(mode, trigger);
 
-        Assert.False(runSilent);   // removal ShowNotification = !runSilent = true (visible)
-        Assert.True(scanSilent);   // scan ShowNotification = !scanSilent = false (hidden)
+        Assert.False(runSilent);
+        Assert.False(scanSilent);
     }
 
     [Fact]

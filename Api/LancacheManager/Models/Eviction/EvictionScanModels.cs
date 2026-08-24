@@ -3,8 +3,8 @@ namespace LancacheManager.Models;
 /// <summary>
 /// SignalR event payload emitted when an eviction scan operation starts.
 /// <c>ShowNotification</c> is the display flag: lifecycle events are ALWAYS emitted so recovery and
-/// progress stay coherent, and the frontend gates whether the card is shown. A silent scan (mode
-/// or Remove-mode scan phase) sends the same events with the flag false.
+/// progress stay coherent, and the frontend gates whether the card is shown. A silent scan (schedule
+/// notification mode) sends the same events with the flag false.
 /// </summary>
 public record EvictionScanStarted(string StageKey, Guid OperationId, Dictionary<string, object?>? Context = null, bool ShowNotification = true);
 
