@@ -1035,16 +1035,6 @@
     min-width: 0;
   }
 
-  /* Phone: the actions trigger stands beside the 44px search box. .btn-icon-square pins itself
-     to 40px in both axes and buttons.css leaves it out of the touch-height bump on purpose, so
-     raising one axis there would make it oblong - both are raised here instead. */
-  @media (max-width: 639.98px) {
-    .downloads-search-row .btn-icon-square {
-      width: 44px;
-      height: 44px;
-    }
-  }
-
   /* View mode and hit filter row on mobile. The two controls share the row and grow to
      fill it; a row that can no longer hold both (longer translated segment labels on a
      360px screen) puts the second control on its own line instead of letting it hang

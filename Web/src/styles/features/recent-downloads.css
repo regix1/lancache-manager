@@ -74,10 +74,9 @@
    the dropdowns share the width evenly; an icon button must opt out of both or it stretches to a
    quarter of the row. The class sits on the Tooltip wrapper because that, not the button, is the
    flex child of the row.
-   `display: flex` is what keeps the button the same height as the pickers beside it: the slot
-   stretches to the row, and the button stretches inside the slot. Its own floor is 40px, the
-   desktop trigger height, so without this it renders 4px short and sits high once dropdowns.css
-   raises the triggers to the 44px touch minimum below 640px. */
+   The slot cannot equalize the height either. `.btn-icon-square` gives the button an explicit
+   2.5rem in both axes and an explicit height ignores a stretch, so the phone touch minimum that
+   dropdowns.css gives the triggers is set on the class itself in buttons.css. */
 .rdl-filters > .rdl-detail-toggle-slot {
   display: flex;
   flex: 0 0 auto;

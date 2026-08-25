@@ -1089,14 +1089,6 @@
     min-width: 0;
   }
 
-  /* The picker and the toggle are one cluster, so they share one height. The picker gets its 44px
-     from dropdowns.css, which is where the trigger's height is released; the toggle needs it
-     spelled out because it ships a 2rem utility class. */
-  .service-analytics-controls .service-analytics-toggle {
-    width: 44px;
-    height: 44px;
-  }
-
   /* dropdowns.css hides the chevron below 400px to save room. This picker keeps it: it is the
      only thing marking the current view name as something you can change. */
   .service-analytics-controls .ed-trigger > svg:last-child {

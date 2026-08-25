@@ -162,13 +162,19 @@
 
   /* Phone: the same 44px touch minimum dropdowns.css gives button.ed-trigger and forms.css gives
      the segmented control. Without it a standard button standing next to either one is 4px
-     shorter, since those two grow for touch and this box keeps its 40px utility height. The
-     smaller sizes are left alone: they sit in dense rows with no room for a 44px control, and
-     .btn-icon-square is excluded because its width is pinned to the 40px height, so raising only
-     the height would leave it taller than it is wide. */
+     shorter, since those two grow for touch and this box keeps its 40px utility height. An
+     icon-square pins its width to its height, so it takes both axes together: raising only the
+     height would leave it taller than it is wide. The small variant stays out of both rules, it
+     sits in dense rows with no room for a 44px box and gets its touch target from
+     .pointer-target-44 instead. */
   @media (max-width: 639.98px) {
-    button.button-press.min-h-10:not(.btn-icon-square) {
+    button.button-press.min-h-10:not(.btn-icon-square--sm) {
       min-height: 44px;
+    }
+
+    button.button-press.btn-icon-square:not(.btn-icon-square--sm) {
+      width: 44px;
+      height: 44px;
     }
   }
 
