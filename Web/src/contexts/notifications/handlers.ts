@@ -1,7 +1,21 @@
 /**
- * Handler factory functions for creating SignalR event handlers.
- * These factories reduce code duplication by providing a common pattern
- * for handling started, progress, and completion events.
+ * The started/progress/completion handlers behind every notification card, plus the two rules
+ * both card sources have to agree on.
+ *
+ * This file is NOT specific to one kind of operation. `useNotificationHandlers` builds these for
+ * all 28 registry types, so a single game removal and a scheduled scan come through here alike.
+ *
+ * Where to look for the rest of a card's life:
+ *   - a batch's OWN card is created in `BulkRemovalContext`, not here, and its run loop is
+ *     `hooks/useBatchQueue.ts`
+ *   - cards rebuilt after a reconnect or a tab switch come from `recovery.ts`
+ *   - what a card looks like is decided in `UniversalNotificationBar`, via `utils/statusVariant`
+ *
+ * Batches and singles MEET here, deliberately. A batch card declares which per-item notification
+ * types its own items produce (`details.itemTypes`), and `findBulkCardOwningType` below is what
+ * stops those items opening a second card next to the batch card that already reports them.
+ * Keeping that check in one place is the point: it once lived in two files and a fix applied to
+ * one of them left the other still broken.
  */
 
 import type {

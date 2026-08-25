@@ -3,7 +3,7 @@ import test from 'node:test';
 import { compileToUrl } from './transpile-module.mjs';
 
 /**
- * Exercises the real useCancellableQueue compiled from product source.
+ * Exercises the real useBatchQueue compiled from product source.
  *
  * The behavior under test: cancelling a batch must not settle the in-flight item's wait
  * early. The batch card has to stay 'running' until that item's own terminal event has
@@ -63,7 +63,7 @@ export default { t: (key) => key };`);
   const errorHandlerUrl = moduleUrl(`// ${nonce}
 export const useErrorHandler = () => ({ notifyError: () => undefined });`);
 
-  const hookUrl = await compileToUrl('../src/hooks/useCancellableQueue.ts', {
+  const hookUrl = await compileToUrl('../src/hooks/useBatchQueue.ts', {
     react: reactUrl,
     '@services/api.service': apiUrl,
     '@contexts/notifications': notificationsUrl,
@@ -81,7 +81,7 @@ export const useErrorHandler = () => ({ notifyError: () => undefined });`);
 
 /** Starts a run whose current item settles only when the test says its terminal event landed. */
 const startRun = (hook, notifications, items) => {
-  const { run } = hook.useCancellableQueue();
+  const { run } = hook.useBatchQueue();
   const finalizeCalls = [];
   const itemContexts = [];
   let settleItem;
@@ -184,7 +184,7 @@ test('a cancel that lands before the operation id fires the cancel when the id a
 test('an uncancelled run still finalizes with its full tally', async () => {
   const { hook, api, notificationsModule } = await loadQueueHook('complete');
   const { notifications, dismissCalls } = notificationsModule;
-  const { run } = hook.useCancellableQueue();
+  const { run } = hook.useBatchQueue();
   const finalizeCalls = [];
 
   await run({

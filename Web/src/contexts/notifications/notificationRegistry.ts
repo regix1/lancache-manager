@@ -1710,7 +1710,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
 
   // ========== Bulk Removal (special; client-driven queue, no server op) ==========
   // Metadata-only entry: the bulk_removal notification is created/managed by the
-  // always-mounted BulkRemovalProvider's useCancellableQueue, NOT by the standard
+  // always-mounted BulkRemovalProvider's useBatchQueue, NOT by the standard
   // SignalR loop. It appears here ONLY so UniversalNotificationBar's cancel-config
   // loop is the single source for cancel wiring (cancelKind 'clientQueue' → the X
   // button flips a flag the provider's cascade effect observes). No SignalR events,

@@ -5,7 +5,7 @@ import { useNotifications } from '@contexts/notifications';
 import { FAILED_TO_REMOVE_GAME_I18N_KEY } from '@contexts/notifications/constants';
 import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { useCancellableQueue } from '@/hooks/useCancellableQueue';
+import { useBatchQueue } from '@/hooks/useBatchQueue';
 import { finalizeBulkRemovalNotification } from '@components/features/management/game-detection/cacheRemovalHelpers';
 import {
   classifyGameFromCacheInfo,
@@ -91,7 +91,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
   // provider hoist.
   const cacheRunOptionsRef = useRef<BulkRemovalRunOptions | null>(null);
 
-  const { run: runCacheQueue, state: cacheState } = useCancellableQueue<BulkQueueEntry>({
+  const { run: runCacheQueue, state: cacheState } = useBatchQueue<BulkQueueEntry>({
     onSettled: () => {
       const opts = cacheRunOptionsRef.current;
       opts?.onRunningChange?.(false);
@@ -303,7 +303,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
   // (scope + key). The HTTP body id is the waiting id and would never match.
   const evictedRunOptionsRef = useRef<BulkRemovalRunOptions | null>(null);
 
-  const { run: runEvictedQueue, state: evictedState } = useCancellableQueue<EvictedQueueEntry>({
+  const { run: runEvictedQueue, state: evictedState } = useBatchQueue<EvictedQueueEntry>({
     onSettled: () => {
       const opts = evictedRunOptionsRef.current;
       opts?.onRunningChange?.(false);

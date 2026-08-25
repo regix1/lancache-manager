@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useOptimisticPending } from '@/hooks/useOptimisticPending';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useSelectionSet } from '@/hooks/useSelectionSet';
-import { useCancellableQueue } from '@/hooks/useCancellableQueue';
+import { useBatchQueue } from '@/hooks/useBatchQueue';
 import { useTranslation } from 'react-i18next';
 import { FileText, RefreshCw, Trash2 } from 'lucide-react';
 import '../managementSectionContent.css';
@@ -433,7 +433,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     }
   }, [selectableKeys]);
 
-  const { run: runLogBatch, state: logBatchState } = useCancellableQueue<LogBatchEntry>({
+  const { run: runLogBatch, state: logBatchState } = useBatchQueue<LogBatchEntry>({
     onSettled: () => {
       // Counts refresh via the existing ServiceCountsChanged subscription; here we
       // only drop the selection so the next batch starts clean.

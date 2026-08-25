@@ -14,7 +14,7 @@ import { useErrorHandler } from './useErrorHandler';
  *  - Successful flows should update progress to 100 and swap the message.
  *  - Failures should flip `status: 'failed'` with a user-facing `error`.
  */
-interface CancellableQueueFinalizeArgs {
+interface BatchQueueFinalizeArgs {
   id: string;
   succeeded: number;
   failed: number;
@@ -31,12 +31,12 @@ interface CancellableQueueFinalizeArgs {
  *     APIs; from within the `onStartedCapture` callback for 202+Started).
  *   - `requestId` - fresh id per iteration; pass to `waitForSignalRCompletion`.
  */
-interface CancellableQueueItemContext {
+interface BatchQueueItemContext {
   setOperationId: (opId: string | null) => void;
   requestId: string;
 }
 
-interface CancellableQueueRunArgs<TItem> {
+interface BatchQueueRunArgs<TItem> {
   /** The items to process sequentially. */
   items: TItem[];
   /**
@@ -58,21 +58,21 @@ interface CancellableQueueRunArgs<TItem> {
    * Performs the per-item API call. MUST call `ctx.setOperationId(opId)` as
    * soon as the opId is known so the cascade effect can cancel it server-side.
    */
-  processItem: (item: TItem, ctx: CancellableQueueItemContext) => Promise<void>;
+  processItem: (item: TItem, ctx: BatchQueueItemContext) => Promise<void>;
   /**
    * Called exactly once after all items settle (success, cancel, or error).
    * The caller is responsible for transitioning the notification to a
-   * terminal state here. See `CancellableQueueFinalizeArgs` docs.
+   * terminal state here. See `BatchQueueFinalizeArgs` docs.
    */
-  finalize: (args: CancellableQueueFinalizeArgs) => void;
+  finalize: (args: BatchQueueFinalizeArgs) => void;
 }
 
-interface CancellableQueueState {
+interface BatchQueueState {
   status: 'idle' | 'running' | 'cancelling' | 'done' | 'error';
   error?: Error;
 }
 
-interface UseCancellableQueueOptions {
+interface UseBatchQueueOptions {
   /**
    * Called once the queue has fully settled (success, cancel, or error).
    * Use for post-run refreshes, e.g. `void fetchEvictedItems()`.
@@ -80,9 +80,9 @@ interface UseCancellableQueueOptions {
   onSettled?: () => void;
 }
 
-interface UseCancellableQueueResult<TItem> {
-  run: (args: CancellableQueueRunArgs<TItem>) => Promise<void>;
-  state: CancellableQueueState;
+interface UseBatchQueueResult<TItem> {
+  run: (args: BatchQueueRunArgs<TItem>) => Promise<void>;
+  state: BatchQueueState;
 }
 
 /**
@@ -118,9 +118,7 @@ interface UseCancellableQueueResult<TItem> {
  * directly, because bulk notifications carry no server-side opId). The cascade
  * effect below picks up that flag and cancels the live run.
  */
-export function useCancellableQueue<TItem>(
-  options?: UseCancellableQueueOptions
-): UseCancellableQueueResult<TItem> {
+export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQueueResult<TItem> {
   const { notifications, scheduleAutoDismiss, updateNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
   const onSettled = options?.onSettled;
@@ -137,7 +135,7 @@ export function useCancellableQueue<TItem>(
   // required so the guard is observed on the very next synchronous call.
   const runActiveRef = useRef<boolean>(false);
 
-  const [state, setState] = useState<CancellableQueueState>({ status: 'idle' });
+  const [state, setState] = useState<BatchQueueState>({ status: 'idle' });
 
   const cancelItemOperation = useCallback(
     (opId: string) => {
@@ -145,7 +143,7 @@ export function useCancellableQueue<TItem>(
         // Best-effort - current item may already be past the point of cancel.
         notifyError('Failed to cancel in-flight queue item', err, {
           silent: true,
-          logLabel: 'useCancellableQueue cancelItemOperation'
+          logLabel: 'useBatchQueue cancelItemOperation'
         });
       });
     },
@@ -205,7 +203,7 @@ export function useCancellableQueue<TItem>(
   }, [notifications, triggerCancel]);
 
   const run = useCallback(
-    async (args: CancellableQueueRunArgs<TItem>): Promise<void> => {
+    async (args: BatchQueueRunArgs<TItem>): Promise<void> => {
       const { items, openNotification, onItemStart, processItem, finalize } = args;
       const total = items.length;
       if (total === 0) return;
@@ -254,7 +252,7 @@ export function useCancellableQueue<TItem>(
               ? crypto.randomUUID()
               : `req-${Date.now()}-${index}`;
 
-          const ctx: CancellableQueueItemContext = {
+          const ctx: BatchQueueItemContext = {
             setOperationId: (opId) => {
               currentItemOperationIdRef.current = opId;
               // The X can land while the item's POST is still in flight, before any id
@@ -292,7 +290,7 @@ export function useCancellableQueue<TItem>(
         }
 
         // Finalize hook - callers transition the notification to its terminal
-        // state here (see CancellableQueueFinalizeArgs docs).
+        // state here (see BatchQueueFinalizeArgs docs).
         finalize({ id: notifId, succeeded, failed, cancelled, total });
 
         // Registry-driven notifications get auto-dismiss scheduled by their

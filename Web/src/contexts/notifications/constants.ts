@@ -72,7 +72,7 @@ export const MOBILE_FULL_CARD_CAP = 3;
  * Cancel state that lives ONLY in this browser session and that no server payload can know:
  * the X button's two-stage soft-cancel -> force-kill intent (`cancelRequested`/`cancelSent`,
  * read by UniversalNotificationBar's cancel handler and deferred-cancel watchdog) and the
- * bulk queue's cancel signal (`cancelling`, the only flag useCancellableQueue's cascade honours).
+ * bulk queue's cancel signal (`cancelling`, the only flag useBatchQueue's cascade honours).
  *
  * These are NOT `details.cancelled`, which is the TERMINAL outcome the server reports and which
  * renders the card in the neutral gray a stop earns rather than the red a failure does - see

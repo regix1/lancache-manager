@@ -233,7 +233,7 @@ export interface NotificationsContextType {
   /**
    * Schedules a notification to auto-dismiss after the configured delay.
    * Respects the user's "Keep Notifications Visible" preference (no-op when enabled).
-   * Used by caller-managed notifications (e.g. useCancellableQueue's bulk_removal)
+   * Used by caller-managed notifications (e.g. useBatchQueue's bulk_removal)
    * that don't go through a registry handler and therefore don't get auto-dismiss
    * scheduled for them automatically.
    */
