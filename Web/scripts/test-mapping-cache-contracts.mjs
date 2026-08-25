@@ -9,7 +9,7 @@ const readWebSource = (relativePath) =>
 
 const signalRTypes = readWebSource('src/contexts/SignalRContext/types.ts');
 const registry = readWebSource('src/contexts/notifications/notificationRegistry.ts');
-const registryBuilders = readWebSource('src/contexts/notifications/registryBuilders.ts');
+const registryEntries = readWebSource('src/contexts/notifications/registryEntries.ts');
 const specialContracts = readWebSource(
   'src/contexts/notifications/specialNotificationContracts.ts'
 );
@@ -120,12 +120,12 @@ test('mapping wire types retain nullable context values and numeric remaining-ap
 
 test('mapping registry builder combines tracker recovery with server-operation cancellation', () => {
   assert.match(
-    registryBuilders,
+    registryEntries,
     /export function buildMappingOperationEntry<[\s\S]*?>\s*\(options: MappingOperationEntryOptions\)/
   );
-  assert.match(registryBuilders, /\/api\/system\/schedules\/\$\{serviceKey\}\/run-status/);
-  assert.match(registryBuilders, /cancelKind:\s*'serverOp'/);
-  assert.match(registryBuilders, /silentRunGate:\s*true/);
+  assert.match(registryEntries, /\/api\/system\/schedules\/\$\{serviceKey\}\/run-status/);
+  assert.match(registryEntries, /cancelKind:\s*'serverOp'/);
+  assert.match(registryEntries, /silentRunGate:\s*true/);
 });
 
 test('special handlers retain data-update events but no mapping lifecycle reducers', () => {

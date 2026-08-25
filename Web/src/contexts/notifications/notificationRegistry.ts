@@ -77,7 +77,7 @@ import {
   errorOrStageKeyMessage,
   operationIdDetails,
   stageKeyMessage
-} from './registryBuilders';
+} from './registryEntries';
 import { translateRecoveryStage, translateStageKeyMessage } from '@utils/stageKeyMessage';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { classifyRemovalKind, removalStageKey } from './removalKind';
