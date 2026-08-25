@@ -15,6 +15,15 @@ import type {
 } from './types';
 import { isTerminalNotificationStatus } from './notificationStatus';
 import i18n from '@/i18n';
+import {
+  CANCELLED_NOTIFICATION_DELAY_MS,
+  FULL_PROGRESS_PERCENT,
+  GENERIC_CANCELLED_I18N_KEY,
+  GENERIC_COMPLETION_I18N_KEY,
+  GENERIC_FAILURE_I18N_KEY,
+  LIVE_ONLY_CANCEL_DETAIL_KEYS,
+  OPERATION_WAITING_I18N_KEYS
+} from './constants';
 
 /**
  * Statuses a live event promotes back to 'running'.
@@ -166,15 +175,6 @@ function mergeEventDetails(
   }
   return { ...base, ...incoming };
 }
-import {
-  CANCELLED_NOTIFICATION_DELAY_MS,
-  FULL_PROGRESS_PERCENT,
-  GENERIC_CANCELLED_I18N_KEY,
-  GENERIC_COMPLETION_I18N_KEY,
-  GENERIC_FAILURE_I18N_KEY,
-  LIVE_ONLY_CANCEL_DETAIL_KEYS,
-  OPERATION_WAITING_I18N_KEYS
-} from './constants';
 
 // ============================================================================
 // Started Handler Factory
