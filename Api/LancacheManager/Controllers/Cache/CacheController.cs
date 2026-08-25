@@ -1883,7 +1883,10 @@ public class CacheController : ControllerBase
                     name,
                     id,
                     "signalr.serviceRemove.cancelled",
-                    Context: new Dictionary<string, object?> { ["name"] = name }),
+                    Context: new Dictionary<string, object?> { ["name"] = name },
+                    // Same reason as the game removal path: success:false on its own reads as a
+                    // genuine error, so a stopped run would show red and announce as an alert.
+                    Cancelled: true),
                 BuildErrorProgressPayload: (id, ex) => new ServiceRemovalProgress(
                     name,
                     id,

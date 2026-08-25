@@ -461,7 +461,11 @@ public class GamesController : ControllerBase
                     EpicAppId: isEpic ? epicAppId : null,
                     StageKey: cancelledStageKey,
                     GameName: displayName,
-                    Context: RemovalContext(displayName, appId, epicAppId)),
+                    Context: RemovalContext(displayName, appId, epicAppId),
+                    // Without this the card reads as a failure: success:false alone is
+                    // indistinguishable from a genuine error, so the UI paints it red and
+                    // announces it as an alert. A run the user stopped is not a fault.
+                    Cancelled: true),
                 BuildErrorProgressPayload: (id, ex) => new GameRemovalProgress(
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
