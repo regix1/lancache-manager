@@ -218,10 +218,16 @@ export function getServiceLegendClass(service: string): string {
   return findBrand(service)?.legendClass ?? UNKNOWN_LEGEND_CLASS;
 }
 
-/** Inline styles for service badges. */
+/**
+ * Inline styles for service badges. The label takes the `-text` tier rather than the brand
+ * property: on a light theme the brand value is tuned for chart slices and tiles, and it is
+ * too bright to clear 4.5:1 as type on the badge ground. A service with no brand color of its
+ * own has no tier to take, so it keeps the muted text color.
+ */
 export function getServiceBadgeStyles(service: string): { backgroundColor: string; color: string } {
+  const brand = findBrand(service);
   return {
     backgroundColor: 'var(--theme-bg-tertiary)',
-    color: `var(${getServiceColorVar(service)})`
+    color: brand ? `var(${brand.colorVar}-text)` : `var(${UNKNOWN_COLOR_VAR})`
   };
 }

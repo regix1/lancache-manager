@@ -319,11 +319,15 @@
     0 0 0 2px var(--theme-primary);
 }
 
+/* The busiest hour is a solid mark on the blue intensity ramp, so it takes the chart palette's
+   orange rather than the warning tone. The warning color is tuned to stay readable as text on a
+   light ground, which puts it at L* 45.6 there and leaves the marker reading as brown against the
+   ramp; the chart orange is vivid in all three themes (#ea580c light, #f97316 dark and graphite). */
 .peak-legend-swatch--peak {
-  background-color: var(--theme-warning);
+  background-color: var(--theme-chart-7);
   box-shadow:
     0 0 0 1px var(--peak-swatch-ground, var(--theme-bg-tertiary)),
-    0 0 0 2px var(--theme-warning);
+    0 0 0 2px var(--theme-chart-7);
 }
 
 .peak-scale-swatch {
@@ -639,16 +643,16 @@
 }
 
 .cache-growth-progress--warning {
-  accent-color: var(--theme-warning);
-  color: var(--theme-warning);
+  accent-color: var(--theme-warning-indicator);
+  color: var(--theme-warning-indicator);
 }
 
 .cache-growth-progress--warning::-webkit-progress-value {
-  background: var(--theme-warning);
+  background: var(--theme-warning-indicator);
 }
 
 .cache-growth-progress--warning::-moz-progress-bar {
-  background: var(--theme-warning);
+  background: var(--theme-warning-indicator);
 }
 
 .cache-growth-progress--error {

@@ -132,13 +132,18 @@
   box-shadow: 0 0 0 2px var(--theme-bg-secondary);
 }
 
+/* The state colors come from the -indicator tier, not the status color itself. A dot is a solid
+   mark answering to the 3:1 non-text floor, while the status color has to clear 4.5:1 as words -
+   which on a light theme drags it down to a dark speck. The tier resolves to the status color
+   unchanged on the dark themes, so only the light theme moves, and the places that color text with
+   the status color keep their ratios. */
 .status-dot.active {
-  background: var(--theme-success);
+  background: var(--theme-success-indicator);
   animation: pulse-dot-ring 2s infinite;
 }
 
 .status-dot.away {
-  background: var(--theme-warning);
+  background: var(--theme-warning-indicator);
   animation: pulse-dot-away 3s infinite;
 }
 
@@ -154,19 +159,19 @@
 }
 
 .status-dot.running {
-  background: var(--theme-success);
+  background: var(--theme-success-indicator);
 }
 
 .status-dot.warning {
-  background: var(--theme-warning);
+  background: var(--theme-warning-indicator);
 }
 
 .status-dot.error {
-  background: var(--theme-error);
+  background: var(--theme-error-indicator);
 }
 
 .status-dot.info {
-  background: var(--theme-info);
+  background: var(--theme-info-indicator);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -3,7 +3,12 @@ import authService from './auth.service';
 import preferencesService from './preferences.service';
 import * as TOML from 'toml';
 import { storage } from '@utils/storage';
-import { parseThemeColors, hexToRgba as schemaHexToRgba } from './themeSchema';
+import {
+  parseThemeColors,
+  hexToRgba as schemaHexToRgba,
+  readableTextColor,
+  indicatorColor
+} from './themeSchema';
 import { assertOk } from './apiError';
 import i18n from '@/i18n';
 import { APP_EVENTS } from '@utils/constants';
@@ -352,7 +357,7 @@ class ThemeService {
           // Core colors - Refined blue primary
           primaryColor: '#2563eb',
           secondaryColor: '#7c3aed',
-          accentColor: '#0891b2',
+          accentColor: '#0e7490', // 5.36:1 on white; the old #0891b2 sat at 3.68
 
           // Backgrounds - Grey canvas, white surfaces
           // Key: the page itself is visibly grey; cards/modals/nav are white and pop
@@ -361,9 +366,12 @@ class ThemeService {
           bgTertiary: '#eff3f8', // Nested elements, table headers (on white cards)
           bgHover: '#e2e8f0', // slate-200 - hover state
           bgElevated: '#ffffff', // Drawer/modal/floating panel background
-          bgSurface: '#f6f8fb', // Sections within elevated surfaces
-          bgSurfaceHover: '#eef1f6', // Hover on surface elements
-          bgSurfaceActive: '#e2e8f0', // Active/pressed surface elements
+          // Control fill ramp, kept clear of the page canvas so a neutral button reads as a
+          // button when it sits straight on the page. The old resting #f6f8fb was 2.7 dE from
+          // bgPrimary and the old hover was bgPrimary exactly, so the control vanished on hover.
+          bgSurface: '#e2e8f0', // slate-200 resting fill - 3.8 dE from the page, 9.4 from a white card
+          bgSurfaceHover: '#d8dfe9', // 3.4 dE down from resting, 7.1 from the page
+          bgSurfaceActive: '#cbd5e1', // slate-300 pressed - 4.0 dE down from hover
           bgOverlay: 'rgba(15,23,42,0.5)', // Slate-tinted backdrop overlay
 
           // Derived-var overrides: the computed defaults are white-alpha tints
@@ -377,7 +385,7 @@ class ThemeService {
           // Text - Crisp primary with a real hierarchy step-down
           textPrimary: '#0f172a', // slate-900 - near black for crisp readability
           textSecondary: '#334155', // slate-700 - clearly secondary, still strong
-          textMuted: '#64748b', // slate-500 - muted but AA on white
+          textMuted: '#58687f', // Slate-500 held 4.5:1 only against white; on the page canvas it read 4.20:1 and on a nested well 4.27:1. Same hue, four steps of L* down: 5.01:1 on the page, 5.09:1 on a well, 5.67:1 on white and 4.60:1 on the slate-200 control fill
           textAccent: '#1d4ed8', // blue-700 - rich blue for links
           textPlaceholder: '#94a3b8', // slate-400 - placeholders recede
 
@@ -420,7 +428,7 @@ class ThemeService {
           successText: '#047857', // emerald-700
           warning: '#a35905', // 4.73:1 on warningBg, 5.27:1 on a white card
           warningBg: '#fef3c7', // amber-100
-          warningText: '#92400e', // amber-800; amber-700 sat at 4.52:1 on the ground above
+          warningText: '#b25015', // Burnt orange rather than the chocolate amber-800 was: the same hue at the most chroma the gamut holds, lifted to where 4.5:1 still binds. 4.66:1 on warningBg, 5.18:1 on a white card, and 7.0 dE from the error text under simulated deuteranopia where the old value sat at 5.0
           // Two steps rather than one: at red-600 this sat 2.5 dE from the amber above under
           // simulated deuteranopia, so warning text and error text were the same colour. Red-800
           // holds 17.2 there and 31.6 under protanopia, and reads better on both grounds as well.
@@ -436,38 +444,38 @@ class ThemeService {
 
           // Service colors - the same brand hues the schema defaults carry, darkened where the
           // brand's own value is too pale to read against a white card
-          steamColor: '#417a9b', // Valve's accent blue a step down; the light one reads 2.02:1 here
-          steamFaint: 'rgba(65, 122, 155, 0.1)',
-          steamOnBorder: 'rgba(65, 122, 155, 0.5)',
-          steamStrong: 'rgba(65, 122, 155, 0.3)',
+          steamColor: '#0e8fc4', // Valve's blue at chart strength: 3.66:1 on the card, 15.5 dE from City of Heroes; the badge label takes the -text tier at 5.57:1
+          steamFaint: 'rgba(7, 112, 153, 0.1)',
+          steamOnBorder: 'rgba(7, 112, 153, 0.5)',
+          steamStrong: 'rgba(7, 112, 153, 0.3)',
           epicColor: '#7c3aed',
           epicFaint: 'rgba(124, 58, 237, 0.1)',
           epicOnBorder: 'rgba(124, 58, 237, 0.5)',
           epicStrong: 'rgba(124, 58, 237, 0.3)',
-          originColor: '#ff4747',
-          blizzardColor: '#5d6bdc',
-          wsusColor: '#1b6fb5', // Off the accent, which it used to match exactly; 29.7 dE from it and 23.0 from Steam
-          riotColor: '#d13639',
+          originColor: '#f9603c', // A true EA orange now the badge no longer has to read off this value: 3.10:1 on the card, 25.3 dE from Riot (24.8 protan, 26.3 deutan) and 16.7 from CoD; the -text tier carries the label at 5.66:1
+          blizzardColor: '#5b68e8', // 4.57:1 on the card, 22.5 dE from Ubisoft; the -text tier carries the label at 6.31:1
+          wsusColor: '#1b6fb5', // Off the accent, which it used to match exactly; 27.6 dE from it and 19.1 from Steam
+          riotColor: '#c23b3d', // Riot's own crimson, legal again now that Origin is a real orange: 25.3 dE from it (24.8 protan), 15.0 from Daybreak, and 5.27:1 on the card
           xboxColor: '#107C10', // Xbox Green
           ubisoftColor: '#4338ca', // Same violet-blue as the default, darkened for white-card legibility
           gogColor: '#8B3FA0', // Darkened for white-card legibility
-          rockstarColor: '#B07D07', // Darkened for white-card legibility
-          arenanetColor: '#5C7A4A',
-          bsgColor: '#6E7B3A',
-          cityofheroesColor: '#2A9CC9', // Darkened for white-card legibility
+          rockstarColor: '#c78600', // Rockstar gold instead of the brown it had become: 3.07:1 on the card, 26.6 dE from Frontier and 20.4 from Path of Exile; the -text tier carries the label at 4.84:1
+          arenanetColor: '#4fa03f', // 3.26:1 on the card, 15.2 dE from Xbox and 32.4 from BSG; the -text tier carries the label at 5.08:1
+          bsgColor: '#587039', // Military olive, a shade lighter and softer so it stays off CoD's orange for protanopes: 5.5:1 on the card, 12.7 protan dE from CoD, 32.4 from ArenaNet and 34.4 from Xbox
+          cityofheroesColor: '#20a0bf', // 3.07:1 on the card, 15.5 dE from Steam and 34.7 from Warframe; the -text tier carries the label at 4.83:1
           codColor: '#C2410C',
-          daybreakColor: '#DC5457', // Darkened for white-card legibility
-          frontierColor: '#A9761F', // Darkened for white-card legibility
+          daybreakColor: '#e86268', // 3.29:1 on the card, 15.0 dE from Riot on every simulation and 27.3 from Origin; the -text tier carries the label at 4.80:1
+          frontierColor: '#8d751d', // Olive lean off the gold pile, dropped far enough under Rockstar that deuteranopes still read it apart from Nintendo's red: 4.5:1 on the card, 10.7 deutan dE from Nintendo, 26.6 from Rockstar and 16.0 from Path of Exile
           neverwinterColor: '#5B3A75',
           nexusmodsColor: '#B45309', // Darkened for white-card legibility
-          nintendoColor: '#E4000F',
-          pathofexileColor: '#B8860B',
-          renegadexColor: '#6B7A8C',
+          nintendoColor: '#e81219', // Nintendo's red back at full strength: 4.63:1 on the card, 20.8 dE from Origin and 32.0 from Riot
+          pathofexileColor: '#b78138', // Bronze rather than the near-black it had become: 3.38:1 on the card, 26.0 dE from Nexus Mods, 20.4 from Rockstar and 16.0 from Frontier
+          renegadexColor: '#6b86a8', // Slate at low chroma so it never competes with Steam: 3.75:1 on the card, 18.9 dE from Steam and 15.4 from the test color
           sonyColor: '#003791',
           squareColor: '#6B1210',
           tesoColor: '#5C1F35',
-          testColor: '#71717A',
-          warframeColor: '#0E9AA0', // Darkened for white-card legibility
+          testColor: '#757482', // Back down the gray ramp, which is what holds it off Warframe's teal once deuteranopia flattens both to gray: 4.6:1 on the card, 12.8 deutan dE from Warframe, 21.0 off Wargaming's taupe and 15.4 from Renegade X; the -text tier carries the label at 4.6:1
+          warframeColor: '#12a48a', // Tealer to split from City of Heroes, 34.7 dE from it: 3.13:1 on the card; the -text tier carries the label at 4.97:1
           wargamingColor: '#5C5347',
 
           // Components - White cards with soft borders; shadows give the depth
@@ -776,7 +784,7 @@ class ThemeService {
           bsgColor: '#6e7b3a',
           cityofheroesColor: '#6bbd91', // Same green family as success; chroma pulled down with it
           codColor: '#dd6f3a', // Ember orange lifted off 2.93:1, then shifted red of Nexus Mods' brand orange
-          daybreakColor: '#fb8d90', // Same salmon lightened until it separates from EA's red on lightness
+          daybreakColor: '#fb8d90', // Same salmon lightened until it clears Origin's peach orange (36.5 dE)
           frontierColor: '#ddcbb0', // Same sand, saturation cut so it stops glowing on charcoal
           neverwinterColor: '#b98ee0', // Same violet, lightened from 1.67:1 and clear of GOG's violet
           nexusmodsColor: '#f97316',
@@ -926,7 +934,8 @@ class ThemeService {
       })
       .join('\n');
 
-    // Every service with a dedicated base color gets a -subtle and -muted alpha tier
+    // Every service with a dedicated base color gets a -subtle and -muted alpha tier, plus a -text
+    // tier for the places the color is set on type rather than painted as a shape
     // (steam/epic/blizzard/riot/xbox additionally keep their hand-tuned faint/on-border/strong below).
     // A service with no entry here has no --theme-<svc> color, so callers fall back to the
     // muted text color rather than emitting a variable that resolves to nothing.
@@ -966,7 +975,8 @@ class ThemeService {
         const mutedOpacity = platformMutedOpacity[key] ?? 0.2;
         return `
       --theme-${key}-subtle: ${v(`${key}Subtle`, rgba(hex, 0.15))};
-      --theme-${key}-muted: ${v(`${key}Muted`, rgba(hex, mutedOpacity))};`;
+      --theme-${key}-muted: ${v(`${key}Muted`, rgba(hex, mutedOpacity))};
+      --theme-${key}-text: ${readableTextColor(hex, bgTertiary)};`;
       })
       .join('\n');
 
@@ -986,6 +996,7 @@ class ThemeService {
       --theme-success-muted: ${v('successMuted', rgba(success, 0.2))};
       --theme-success-strong: ${v('successStrong', rgba(success, 0.4))};
       --theme-success-glow: ${v('successGlow', rgba(success, glowAlpha))};
+      --theme-success-indicator: ${indicatorColor(success, bgSecondary)};
 
       /* Warning */
       --theme-warning-faint: ${v('warningFaint', rgba(warning, 0.08))};
@@ -993,6 +1004,7 @@ class ThemeService {
       --theme-warning-muted: ${v('warningMuted', rgba(warning, 0.2))};
       --theme-warning-strong: ${v('warningStrong', rgba(warning, 0.3))};
       --theme-warning-glow: ${v('warningGlow', rgba(warning, glowAlpha))};
+      --theme-warning-indicator: ${indicatorColor(warning, bgSecondary)};
 
       /* Error */
       --theme-error-faint: ${v('errorFaint', rgba(error, 0.1))};
@@ -1000,10 +1012,12 @@ class ThemeService {
       --theme-error-muted: ${v('errorMuted', rgba(error, 0.2))};
       --theme-error-strong: ${v('errorStrong', rgba(error, 0.3))};
       --theme-error-glow: ${v('errorGlow', rgba(error, glowAlpha))};
+      --theme-error-indicator: ${indicatorColor(error, bgSecondary)};
 
       /* Info */
       --theme-info-subtle: ${v('infoSubtle', rgba(info, 0.15))};
       --theme-info-muted: ${v('infoMuted', rgba(info, 0.2))};
+      --theme-info-indicator: ${indicatorColor(info, bgSecondary)};
       --theme-info-glow: ${v('infoGlow', rgba(info, glowAlpha))};
 
       /* Waiting (purple notification-visibility tone) */

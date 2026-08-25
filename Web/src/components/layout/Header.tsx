@@ -73,14 +73,14 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
                   {connectionStatus === 'connected' && !showStaleData && (
                     <Tooltip content={t('status.connectedTooltip')}>
                       <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--theme-success)]"></div>
+                        <div className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--theme-success-indicator)]"></div>
                       </div>
                     </Tooltip>
                   )}
                   {showStaleData && (
                     <Tooltip content={t('status.staleDataTooltip')}>
                       <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--theme-warning)]"></div>
+                        <div className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--theme-warning-indicator)]"></div>
                       </div>
                     </Tooltip>
                   )}
@@ -95,7 +95,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
                   {connectionStatus === 'reconnecting' && (
                     <Tooltip content={t('status.reconnectingTooltip')}>
                       <div className="flex items-center gap-1 text-themed-warning">
-                        <div className="w-2 h-2 rounded-full animate-pulse flex-shrink-0 bg-[var(--theme-warning)]"></div>
+                        <div className="w-2 h-2 rounded-full animate-pulse flex-shrink-0 bg-[var(--theme-warning-indicator)]"></div>
                         <span className="text-xs">{t('status.reconnectingLabel')}</span>
                       </div>
                     </Tooltip>

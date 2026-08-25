@@ -12,113 +12,113 @@
     background-color: var(--theme-progress-bg);
   }
 
-  /* Service Colors */
+  /* Service Colors - the -text tier, because these classes set type rather than paint a shape */
   .service-steam {
-    color: var(--theme-steam);
+    color: var(--theme-steam-text);
   }
 
   .service-epic {
-    color: var(--theme-epic);
+    color: var(--theme-epic-text);
   }
 
   .service-origin {
-    color: var(--theme-origin);
+    color: var(--theme-origin-text);
   }
 
   .service-blizzard {
-    color: var(--theme-blizzard);
+    color: var(--theme-blizzard-text);
   }
 
   .service-wsus {
-    color: var(--theme-wsus);
+    color: var(--theme-wsus-text);
   }
 
   .service-riot {
-    color: var(--theme-riot);
+    color: var(--theme-riot-text);
   }
 
   .service-xbox {
-    color: var(--theme-xbox);
+    color: var(--theme-xbox-text);
   }
 
   .service-arenanet {
-    color: var(--theme-arenanet);
+    color: var(--theme-arenanet-text);
   }
 
   .service-bsg {
-    color: var(--theme-bsg);
+    color: var(--theme-bsg-text);
   }
 
   .service-cityofheroes {
-    color: var(--theme-cityofheroes);
+    color: var(--theme-cityofheroes-text);
   }
 
   .service-cod {
-    color: var(--theme-cod);
+    color: var(--theme-cod-text);
   }
 
   .service-daybreak {
-    color: var(--theme-daybreak);
+    color: var(--theme-daybreak-text);
   }
 
   .service-frontier {
-    color: var(--theme-frontier);
+    color: var(--theme-frontier-text);
   }
 
   .service-neverwinter {
-    color: var(--theme-neverwinter);
+    color: var(--theme-neverwinter-text);
   }
 
   .service-nexusmods {
-    color: var(--theme-nexusmods);
+    color: var(--theme-nexusmods-text);
   }
 
   .service-nintendo {
-    color: var(--theme-nintendo);
+    color: var(--theme-nintendo-text);
   }
 
   .service-pathofexile {
-    color: var(--theme-pathofexile);
+    color: var(--theme-pathofexile-text);
   }
 
   .service-renegadex {
-    color: var(--theme-renegadex);
+    color: var(--theme-renegadex-text);
   }
 
   .service-sony {
-    color: var(--theme-sony);
+    color: var(--theme-sony-text);
   }
 
   .service-square {
-    color: var(--theme-square);
+    color: var(--theme-square-text);
   }
 
   .service-teso {
-    color: var(--theme-teso);
+    color: var(--theme-teso-text);
   }
 
   .service-test {
-    color: var(--theme-test);
+    color: var(--theme-test-text);
   }
 
   .service-warframe {
-    color: var(--theme-warframe);
+    color: var(--theme-warframe-text);
   }
 
   .service-wargaming {
-    color: var(--theme-wargaming);
+    color: var(--theme-wargaming-text);
   }
 
   .service-ubisoft {
-    color: var(--theme-ubisoft);
+    color: var(--theme-ubisoft-text);
   }
 
   .service-gog {
-    color: var(--theme-gog);
+    color: var(--theme-gog-text);
   }
 
   .service-rockstar {
-    color: var(--theme-rockstar);
+    color: var(--theme-rockstar-text);
   }
 
   /* Icon Colors - for component icons */

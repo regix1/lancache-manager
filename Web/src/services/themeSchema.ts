@@ -89,7 +89,10 @@ const themeColorDefaults: Record<string, string> = {
   // "Steam" on one tab and "cache hit" on the other, at the same size and in the same place.
   steamColor: '#66c0f4', // Valve's accent blue; Steam's palette holds no green
   epicColor: '#8b5cf6', // Epic's brand is black and white only, so this is a stand-in hue
-  originColor: '#ff4747', // EA's wordmark red; the orange belonged to the retired Origin launcher
+  // A light EA orange rather than the wordmark red: two reds sat 15.2 dE apart (10.0 protan),
+  // so Origin and Riot chips were near-twins. This value is 44.7 from riot (28.2 deutan) while
+  // holding 28.3 from nexusmods and 19.8 from graphite's cod, the nearest oranges.
+  originColor: '#ffa35c',
   // No blizzardFaint / blizzardOnBorder / blizzardStrong here, and none for steam or epic:
   // normalizeThemeColors below fills those tints from each theme's own service color, but only
   // when the key is missing. A default here would win for every theme and freeze the tints on
@@ -440,22 +443,183 @@ function lighten(color: string, factor: number): string {
 // Relative luminance is the WCAG definition. It is used only to order two
 // colours, never reported, so nothing downstream depends on the exact number.
 // ---------------------------------------------------------------------------
+function toLinear(channel: number): number {
+  const value = channel / 255;
+  return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+}
+
+function fromLinear(value: number): number {
+  const channel = value <= 0.0031308 ? value * 12.92 : 1.055 * Math.pow(value, 1 / 2.4) - 0.055;
+  return Math.round(Math.max(0, Math.min(1, channel)) * 255);
+}
+
 function relativeLuminance(color: string): number {
   const channels = readColorChannels(color);
   if (!channels) {
     return 0;
   }
 
-  const [red, green, blue] = channels.map((channel) => {
-    const value = channel / 255;
-    return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
-  });
+  const [red, green, blue] = channels.map(toLinear);
 
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
 function isDarkPalette(colors: Record<string, string>): boolean {
   return relativeLuminance(colors.textPrimary) > relativeLuminance(colors.bgPrimary);
+}
+
+function contrastRatio(color: string, ground: string): number {
+  const [high, low] = [relativeLuminance(color), relativeLuminance(ground)].sort((a, b) => b - a);
+  return (high + 0.05) / (low + 0.05);
+}
+
+// ---------------------------------------------------------------------------
+// CIE Lab, so a shade can be moved in lightness without dragging its colorfulness
+// down with it. Scaling HSL lightness - what `scaleLightness` above does, and what
+// the shipped ramps were drawn with - loses chroma on the way down, and a warm hue
+// that loses chroma is what people read as brown. The steps below therefore work in
+// Lab: hue is held exactly, lightness is searched, and chroma is pushed back to the
+// most the sRGB gamut will hold at whatever lightness wins.
+// ---------------------------------------------------------------------------
+function toLab(color: string): [number, number, number] | null {
+  const channels = readColorChannels(color);
+  if (!channels) {
+    return null;
+  }
+
+  const [red, green, blue] = channels.map(toLinear);
+  const x = (0.4124 * red + 0.3576 * green + 0.1805 * blue) / 0.95047;
+  const y = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  const z = (0.0193 * red + 0.1192 * green + 0.9505 * blue) / 1.08883;
+  const f = (value: number): number =>
+    value > 0.008856 ? Math.cbrt(value) : 7.787 * value + 16 / 116;
+  const [fx, fy, fz] = [f(x), f(y), f(z)];
+
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+function fromLch(lightness: number, chroma: number, hue: number): string {
+  const radians = (hue * Math.PI) / 180;
+  const fy = (lightness + 16) / 116;
+  const fx = fy + (chroma * Math.cos(radians)) / 500;
+  const fz = fy - (chroma * Math.sin(radians)) / 200;
+  const inverse = (value: number): number =>
+    value ** 3 > 0.008856 ? value ** 3 : (value - 16 / 116) / 7.787;
+  const [x, y, z] = [0.95047 * inverse(fx), inverse(fy), 1.08883 * inverse(fz)];
+  const red = 3.2406 * x - 1.5372 * y - 0.4986 * z;
+  const green = -0.9689 * x + 1.8758 * y + 0.0415 * z;
+  const blue = 0.0557 * x - 0.204 * y + 1.057 * z;
+
+  return `#${[red, green, blue]
+    .map((channel) => fromLinear(channel).toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+// How much chroma the sRGB gamut holds for this hue at this lightness. The solid has
+// no closed-form edge, so the edge is found by bisection: a request that clips comes
+// back from fromLch at a different lightness or chroma than it was asked for, and
+// that mismatch is the test.
+function chromaCeiling(lightness: number, hue: number): number {
+  let inside = 0;
+  let outside = 140;
+  for (let step = 0; step < 12; step++) {
+    const chroma = (inside + outside) / 2;
+    const lab = toLab(fromLch(lightness, chroma, hue));
+    const [reached, axisA, axisB] = lab ?? [Infinity, 0, 0];
+    const fits =
+      lab !== null &&
+      Math.abs(reached - lightness) <= 1 &&
+      Math.abs(Math.hypot(axisA, axisB) - chroma) <= 2;
+    if (fits) {
+      inside = chroma;
+    } else {
+      outside = chroma;
+    }
+  }
+
+  return inside;
+}
+
+// A color's hue, and how saturated it is as a FRACTION of what its own lightness
+// allows. The fraction is the part worth carrying between lightnesses: hold it and a
+// brand color that was at full chroma comes back at full chroma, while a near-neutral
+// like the test gray stays gray instead of being pushed out to a hue it never had.
+function readTone([lightness, axisA, axisB]: [number, number, number]): {
+  hue: number;
+  saturation: number;
+} {
+  const hue = (Math.atan2(axisB, axisA) * 180) / Math.PI;
+  const ceiling = chromaCeiling(lightness, hue);
+
+  return { hue, saturation: ceiling > 0 ? Math.min(1, Math.hypot(axisA, axisB) / ceiling) : 0 };
+}
+
+// Badge labels and the `.service-*` text classes. The brand value is tuned for chart
+// slices and tiles, and on a near-white ground no vivid warm tone clears 4.5:1, so type
+// takes a darker step and the chart keeps the brand value.
+//
+// The step goes DOWN from the color's own lightness and stops at the first one that
+// clears the floor, so a brand color is moved as little as it can be. A value that
+// already clears the floor is returned as it is - the dark blues and plums in the light
+// palette are meant to be dark, and re-deriving them would repaint them brighter for no
+// reason. Chroma is rebuilt at each step instead of being scaled away, which is the
+// difference between a readable vermillion and the brown that plain darkening gives.
+//
+// A color already lighter than its ground is a dark theme's color on a dark surface
+// and comes back untouched: it has its contrast already, and a hand-tuned dark theme
+// should not be re-derived underneath its author.
+export function readableTextColor(color: string, ground: string): string {
+  const lab = toLab(color);
+  if (!lab || relativeLuminance(color) > relativeLuminance(ground)) {
+    return color;
+  }
+  if (contrastRatio(color, ground) >= 4.5) {
+    return color;
+  }
+
+  const [baseLightness] = lab;
+  const { hue, saturation } = readTone(lab);
+  for (let lightness = Math.round(baseLightness); lightness >= 8; lightness -= 1) {
+    const candidate = fromLch(lightness, saturation * chromaCeiling(lightness, hue), hue);
+    if (contrastRatio(candidate, ground) >= 4.5) {
+      return candidate;
+    }
+  }
+
+  return color;
+}
+
+// Status dots and the other small solid marks. A dot is a shape, not type, so it answers
+// to the 3:1 non-text floor rather than 4.5:1 - and a status color that has to be
+// readable as words on a light page is dragged so dark that an 8px dot reads as a speck.
+//
+// This one searches UPWARD for the most colorful version the floor still allows, rather
+// than the lightest: past the peak, chroma falls away again and the mark washes out, so
+// the brightest legal value is the wrong answer and the most saturated one is the right
+// one. Never darker than the color it came from.
+export function indicatorColor(color: string, ground: string): string {
+  const lab = toLab(color);
+  if (!lab || relativeLuminance(color) > relativeLuminance(ground)) {
+    return color;
+  }
+
+  const [baseLightness] = lab;
+  const { hue, saturation } = readTone(lab);
+  let result = color;
+  let strongest = -1;
+  for (let lightness = Math.round(baseLightness); lightness <= 92; lightness += 1) {
+    const chroma = saturation * chromaCeiling(lightness, hue);
+    const candidate = fromLch(lightness, chroma, hue);
+    if (contrastRatio(candidate, ground) < 3) {
+      break;
+    }
+    if (chroma > strongest) {
+      strongest = chroma;
+      result = candidate;
+    }
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------

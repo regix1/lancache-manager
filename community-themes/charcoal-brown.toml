@@ -69,7 +69,7 @@ waitingText = "#d8c3d4"
 # Service colors - Earthy clays, olives, taupes with dusty blue/sage accents
 steamColor = "#6b8095"  # Dusty slate blue
 epicColor = "#b0aca6"  # Warm silver grey
-originColor = "#c69579"  # Soft caramel clay
+originColor = "#ffca87"  # Pale caramel clay
 blizzardColor = "#a5baca"  # Pale ice blue-grey
 wsusColor = "#8fbc9a"  # Dusty sage green
 riotColor = "#c87164"  # Terracotta rose

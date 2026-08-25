@@ -70,10 +70,10 @@ waitingText = "#ddd6fe"           # Very light lavender text
 # Service colors - calm 25-color set, deuteranopia-safe (blue/violet/pink/warm ladders separated by lightness, verified with CVD simulation)
 steamColor = "#4c80dc"          # Steel cobalt
 epicColor = "#de8ab1"           # Soft raspberry pink
-originColor = "#db7f41"         # Soft orange
+originColor = "#d2834a"         # Soft orange
 blizzardColor = "#5bacea"       # Sky blue
 wsusColor = "#9c82c4"           # Dusty violet
-riotColor = "#9e6c15"           # Deep bronze amber
+riotColor = "#7a5010"           # Deep bronze amber
 xboxColor = "#dbae3f"           # Muted gold
 ubisoftColor = "#f0b3ce"        # Light orchid pink
 

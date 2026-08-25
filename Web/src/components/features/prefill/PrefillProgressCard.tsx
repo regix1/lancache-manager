@@ -180,7 +180,7 @@ export function PrefillProgressCard({
             <div className="space-y-2">
               <div className="h-3 rounded-full overflow-hidden bg-[var(--theme-progress-bg)]">
                 {isReconnecting ? (
-                  <div className="h-full rounded-full animate-pulse w-full opacity-50 bg-[var(--theme-warning)]" />
+                  <div className="h-full rounded-full animate-pulse w-full opacity-50 bg-[var(--theme-warning-indicator)]" />
                 ) : progress.state === 'already_cached' ? (
                   <div
                     key={`cached-${progress.currentAppId}`}
