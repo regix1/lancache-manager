@@ -238,6 +238,7 @@ export interface CacheSnapshotResponse {
   totalCacheSize: number;
   snapshotCount: number;
   isEstimate: boolean;
+  nextSnapshotUtc: string | null;
 }
 
 export type ClientExclusionMode = 'hide' | 'exclude';

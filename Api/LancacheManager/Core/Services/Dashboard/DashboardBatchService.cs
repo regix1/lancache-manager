@@ -847,9 +847,13 @@ public partial class DashboardBatchService : IDashboardBatchService
 
     private async Task<object> GetCacheSnapshotAsync(long? startTime, long? endTime, CancellationToken ct)
     {
+        // A property of the running scheduler, not of the query range, so every return path below
+        // (including both HasData=false ones) can report it.
+        var nextSnapshotUtc = _cacheSnapshotService.NextRunUtc;
+
         if (!startTime.HasValue || !endTime.HasValue)
         {
-            return new CacheSnapshotResponse { HasData = false };
+            return new CacheSnapshotResponse { HasData = false, NextSnapshotUtc = nextSnapshotUtc };
         }
 
         var startUtc = startTime.Value.FromUnixSeconds();
@@ -859,7 +863,7 @@ public partial class DashboardBatchService : IDashboardBatchService
 
         if (summary == null)
         {
-            return new CacheSnapshotResponse { HasData = false };
+            return new CacheSnapshotResponse { HasData = false, NextSnapshotUtc = nextSnapshotUtc };
         }
 
         return new CacheSnapshotResponse
@@ -870,7 +874,8 @@ public partial class DashboardBatchService : IDashboardBatchService
             AverageUsedSize = summary.AverageUsedSize,
             TotalCacheSize = summary.TotalCacheSize,
             SnapshotCount = summary.SnapshotCount,
-            IsEstimate = summary.IsEstimate
+            IsEstimate = summary.IsEstimate,
+            NextSnapshotUtc = nextSnapshotUtc
         };
     }
 

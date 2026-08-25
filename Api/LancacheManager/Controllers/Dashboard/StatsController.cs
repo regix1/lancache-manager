@@ -916,9 +916,13 @@ public class StatsController : ControllerBase
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
     {
+        // A property of the running scheduler, not of the query range, so every return path below
+        // (including both HasData=false ones) can report it.
+        var nextSnapshotUtc = _cacheSnapshotService.NextRunUtc;
+
         if (!startTime.HasValue || !endTime.HasValue)
         {
-            return Ok(new CacheSnapshotResponse { HasData = false });
+            return Ok(new CacheSnapshotResponse { HasData = false, NextSnapshotUtc = nextSnapshotUtc });
         }
 
         var startUtc = startTime.Value.FromUnixSeconds();
@@ -928,7 +932,7 @@ public class StatsController : ControllerBase
 
         if (summary == null)
         {
-            return Ok(new CacheSnapshotResponse { HasData = false });
+            return Ok(new CacheSnapshotResponse { HasData = false, NextSnapshotUtc = nextSnapshotUtc });
         }
 
         return Ok(new CacheSnapshotResponse
@@ -939,7 +943,8 @@ public class StatsController : ControllerBase
             AverageUsedSize = summary.AverageUsedSize,
             TotalCacheSize = summary.TotalCacheSize,
             SnapshotCount = summary.SnapshotCount,
-            IsEstimate = summary.IsEstimate
+            IsEstimate = summary.IsEstimate,
+            NextSnapshotUtc = nextSnapshotUtc
         });
     }
 }

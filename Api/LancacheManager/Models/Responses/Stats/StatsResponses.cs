@@ -213,6 +213,7 @@ public class CacheSnapshotResponse
     public long TotalCacheSize { get; set; }
     public int SnapshotCount { get; set; }
     public bool IsEstimate { get; set; }
+    public DateTime? NextSnapshotUtc { get; set; }
 }
 
 /// <summary>

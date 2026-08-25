@@ -4,11 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useCacheSnapshot, useStats } from '@contexts/DashboardDataContext/hooks';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { WidgetPanel } from '../WidgetPanel';
-import { getCacheGrowth } from './cacheGrowth';
+import { getCacheGrowth, getCacheGrowthEmptyState } from './cacheGrowth';
 
 interface CacheGrowthTrendProps {
   /** Current used cache size in bytes (from cacheInfo) */
@@ -31,11 +32,18 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
     const { timeRange } = useTimeFilter();
     const { cacheSnapshot, loading, error, failed, refetch } = useCacheSnapshot();
     const { failedSections } = useStats();
+    const nextSnapshotTime = useFormattedDateTime(cacheSnapshot?.nextSnapshotUtc ?? null);
 
     const growth = getCacheGrowth(timeRange, loading, cacheSnapshot);
     const recordedChange = growth?.change ?? 0;
     const recordedPercent = growth?.percent ?? null;
     const hasCurrentCapacity = totalCacheSize > 0 || usedCacheSize > 0;
+    const emptyState = getCacheGrowthEmptyState(
+      timeRange,
+      cacheSnapshot,
+      hasCurrentCapacity,
+      failedSections.cache
+    );
     const displayUsedSize = Math.max(usedCacheSize, 0);
     const usagePercent = totalCacheSize > 0 ? (displayUsedSize / totalCacheSize) * 100 : 0;
     const progressValue = totalCacheSize > 0 ? Math.min(displayUsedSize, totalCacheSize) : 0;
@@ -123,10 +131,28 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
               {recordedChange < 0 && <TrendingDown className="w-3 h-3" />}
               <span>{t(`widgets.cacheGrowthTrend.${changeState}`)}</span>
             </div>
+          ) : emptyState === 'live' ? (
+            <EmptyState
+              icon={TrendingUp}
+              subtitle={t('widgets.cacheGrowthTrend.liveRangeDesc')}
+              title={t('widgets.cacheGrowthTrend.liveRangeTitle')}
+              variant="panel"
+            />
+          ) : emptyState === 'emptyCache' ? (
+            <EmptyState
+              icon={TrendingUp}
+              subtitle={t('widgets.cacheGrowthTrend.emptyCacheDesc')}
+              title={t('widgets.cacheGrowthTrend.emptyCacheTitle')}
+              variant="panel"
+            />
           ) : (
             <EmptyState
               icon={TrendingUp}
-              subtitle={t('widgets.cacheGrowthTrend.noDataDesc')}
+              subtitle={
+                emptyState === 'waitingWithNextSnapshot'
+                  ? t('widgets.cacheGrowthTrend.noDataNextDesc', { time: nextSnapshotTime })
+                  : t('widgets.cacheGrowthTrend.noDataDesc')
+              }
               title={t('widgets.cacheGrowthTrend.noDataTitle')}
               variant="panel"
             />
