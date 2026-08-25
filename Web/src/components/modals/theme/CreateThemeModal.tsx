@@ -155,7 +155,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                     }
                     colorHistory={colorHistory}
                     trailingContent={
-                      <>
+                      <div className="theme-editor-modal__preset-row">
                         <Button
                           type="button"
                           variant="default"
@@ -172,7 +172,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                         >
                           {t('modals.theme.form.loadLightPreset')}
                         </Button>
-                      </>
+                      </div>
                     }
                   />
                 )}

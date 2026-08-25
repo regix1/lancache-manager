@@ -19,7 +19,7 @@ interface ThemeFieldsProps {
   onDescriptionChange: (value: string) => void;
   /** Dark-theme checkbox handler. Create repaints the whole form from a preset; Edit just flips the flag. */
   onDarkChange: (checked: boolean) => void;
-  /** Content beside the dark-theme checkbox: Create's two preset-load buttons, Edit's theme-id note. */
+  /** Content in the dark-theme row: Create's preset-load pair (its own full-width line), Edit's theme-id note. */
   trailingContent: ReactNode;
   /** The whole draft, so the base color rows can read their current values. */
   themeData: EditableTheme;

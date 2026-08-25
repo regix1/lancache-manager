@@ -42,6 +42,16 @@
   gap: 1rem;
 }
 
+/* The two preset-load buttons under the dark-theme checkbox. Full flex basis pushes the pair onto
+   its own line so the checkbox is not sharing a row with much taller controls, and the 1fr columns
+   keep the matched pair identical widths. Below the two-column minimum they stack full width. */
+.theme-editor-modal__preset-row {
+  flex-basis: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+}
+
 .theme-editor-modal__actions {
   display: flex;
   justify-content: flex-end;
