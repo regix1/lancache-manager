@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { useAnchorFollow, readAnchorRect, type AnchorRect } from './useAnchorFollow';
 import { useExitPresence, DROPDOWN_EXIT_MS } from './useExitPresence';
 import { clampToViewport } from '@utils/viewportClamp';
@@ -143,6 +143,7 @@ export function useAnchoredPanel(options: AnchoredPanelOptions): AnchoredPanel {
   });
   const [anchorWidth, setAnchorWidth] = useState(0);
   const { present, closing } = useExitPresence(open, DROPDOWN_EXIT_MS);
+  const scrollAtOpen = useRef<{ x: number; y: number } | null>(null);
 
   const handleAnchorMove = useCallback(
     (anchor: AnchorRect): void => {
@@ -187,8 +188,27 @@ export function useAnchoredPanel(options: AnchoredPanelOptions): AnchoredPanel {
   // closing while the page reflows under it still fades out against its trigger.
   useLayoutEffect(() => {
     if (!open || !anchorRef.current) return;
+    // Chrome can scroll the window while the panel's portal div is inserted (observed
+    // inside the appendChild that mounts it, with no scroll API called anywhere). The
+    // jump throws the anchor out of the viewport, and the follow loop's anchor-lost
+    // check then closes a menu the reader just opened. Both passes of this effect run
+    // before paint in the opening commit - one before the panel mounts, one after - so
+    // no person can have scrolled between them: any delta seen here is that browser
+    // adjustment, and putting the page back where it was cancels it.
+    if (panelRef.current === null) {
+      scrollAtOpen.current = { x: window.scrollX, y: window.scrollY };
+    } else if (scrollAtOpen.current !== null) {
+      const { x, y } = scrollAtOpen.current;
+      scrollAtOpen.current = null;
+      if (
+        Math.abs(window.scrollX - x) > POSITION_EPSILON_PX ||
+        Math.abs(window.scrollY - y) > POSITION_EPSILON_PX
+      ) {
+        window.scrollTo({ left: x, top: y, behavior: 'instant' });
+      }
+    }
     handleAnchorMove(readAnchorRect(anchorRef.current));
-  }, [open, present, anchorRef, handleAnchorMove]);
+  }, [open, present, anchorRef, panelRef, handleAnchorMove]);
 
   useAnchorFollow({
     enabled: present,
