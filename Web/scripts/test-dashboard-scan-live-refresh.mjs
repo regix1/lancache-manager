@@ -41,10 +41,7 @@ const collect = (root, matches) => {
 };
 
 const variableNamed = (name) =>
-  collect(
-    file,
-    (node) => ts.isVariableDeclaration(node) && node.name.getText(file) === name
-  )[0];
+  collect(file, (node) => ts.isVariableDeclaration(node) && node.name.getText(file) === name)[0];
 
 const objectLiteralOf = (declaration) => {
   const init = declaration?.initializer;
@@ -54,16 +51,10 @@ const objectLiteralOf = (declaration) => {
   if (ts.isObjectLiteralExpression(init)) {
     return init;
   }
-  if (
-    ts.isAsExpression(init) &&
-    ts.isObjectLiteralExpression(init.expression)
-  ) {
+  if (ts.isAsExpression(init) && ts.isObjectLiteralExpression(init.expression)) {
     return init.expression;
   }
-  if (
-    ts.isSatisfiesExpression(init) &&
-    ts.isObjectLiteralExpression(init.expression)
-  ) {
+  if (ts.isSatisfiesExpression(init) && ts.isObjectLiteralExpression(init.expression)) {
     return init.expression;
   }
   return undefined;
@@ -74,15 +65,13 @@ const dedicatedKeys = () => {
   const literal = objectLiteralOf(declaration);
   assert.ok(literal, 'dedicatedHandlers is the map that bypasses the live-only gate');
   return new Set(
-    literal.properties
-      .filter(ts.isPropertyAssignment)
-      .map((property) => {
-        const name = property.name;
-        if (ts.isIdentifier(name) || ts.isStringLiteral(name)) {
-          return name.text;
-        }
-        return name.getText(file).replaceAll(/['"]/g, '');
-      })
+    literal.properties.filter(ts.isPropertyAssignment).map((property) => {
+      const name = property.name;
+      if (ts.isIdentifier(name) || ts.isStringLiteral(name)) {
+        return name.text;
+      }
+      return name.getText(file).replaceAll(/['"]/g, '');
+    })
   );
 };
 
@@ -126,17 +115,10 @@ test('both scan-complete handlers force a dashboard batch refetch', () => {
     const body = handlerBody(name);
     assert.match(body, /fetchAllData\(/);
     assert.match(body, /forceRefresh:\s*true/);
-    assert.doesNotMatch(
-      body,
-      /!== 'live'/,
-      `${name} must not re-introduce the live-only gate`
-    );
+    assert.doesNotMatch(body, /!== 'live'/, `${name} must not re-introduce the live-only gate`);
   }
 
-  assert.match(
-    handlerBody('handleRefreshEvent'),
-    /currentTimeRangeRef\.current !== 'live'/
-  );
+  assert.match(handlerBody('handleRefreshEvent'), /currentTimeRangeRef\.current !== 'live'/);
 });
 
 test('Games on Disk display stats follow the latest detection payload', async () => {

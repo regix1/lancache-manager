@@ -57,10 +57,7 @@ test('12-hour layout is AM/PM plus one axis; 24-hour layout is two hour axes', a
     new URL('../src/styles/features/dashboard.css', import.meta.url),
     'utf8'
   );
-  assert.match(
-    css,
-    /grid-template-areas:\s*'am cells-am'\s*'pm cells-pm'\s*'\. axis'/
-  );
+  assert.match(css, /grid-template-areas:\s*'am cells-am'\s*'pm cells-pm'\s*'\. axis'/);
   assert.match(
     css,
     /\.peak-usage-heatmap-block--24hour \{[\s\S]*?grid-template-areas:\s*'axis-first'\s*'cells-am'\s*'cells-pm'\s*'axis-second'/
