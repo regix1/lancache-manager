@@ -8,7 +8,7 @@ import { compileToUrl, transpile } from './transpile-module.mjs';
  * Regression test for the per-item removal card that should stay hidden while the
  * bulk card whose OWN items produce that notification type is running, but must
  * NOT be swallowed by an unrelated bulk card (a different batch, or the same batch
- * running a different item type). Compiles handlerFactories.ts from real source so
+ * running a different item type). Compiles handlers.ts from real source so
  * the suppression check under test is the one that ships. Covers all four batch/
  * item-type pairs: the cache batch's game and service items, the evicted batch,
  * and the log batch.
@@ -38,15 +38,12 @@ class MemoryStorage {
 const loadHandlerFactories = async () => {
   const constantsUrl = await compileToUrl('../src/contexts/notifications/constants.ts');
   const statusUrl = await compileToUrl('../src/contexts/notifications/notificationStatus.ts');
-  const handlerFactoriesUrl = await compileToUrl(
-    '../src/contexts/notifications/handlerFactories.ts',
-    {
-      './constants': constantsUrl,
-      './notificationStatus': statusUrl,
-      '@/i18n': I18N_STUB
-    }
-  );
-  return await import(handlerFactoriesUrl);
+  const handlersUrl = await compileToUrl('../src/contexts/notifications/handlers.ts', {
+    './constants': constantsUrl,
+    './notificationStatus': statusUrl,
+    '@/i18n': I18N_STUB
+  });
+  return await import(handlersUrl);
 };
 
 /** Runs a Started event for `type` against a fresh card list holding one running bulk card. */

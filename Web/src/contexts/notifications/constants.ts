@@ -80,8 +80,8 @@ export const MOBILE_FULL_CARD_CAP = 3;
  *
  * Because a persisted card and a REST recovery snapshot both predate (or simply cannot see) the
  * live intent, these keys are stripped wherever card state is rehydrated or merged: the
- * localStorage restore in NotificationsContext, mergeEventDetails in handlerFactories, and
- * reconcileRecoveredCard in recoveryFactory.
+ * localStorage restore in NotificationsContext, mergeEventDetails in handlers, and
+ * reconcileRecoveredCard in recovery.
  */
 export const LIVE_ONLY_CANCEL_DETAIL_KEYS = [
   'cancelRequested',

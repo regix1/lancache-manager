@@ -31,7 +31,7 @@ import {
   createStartedHandler,
   createStatusAwareProgressHandler,
   createCompletionHandler
-} from './handlerFactories';
+} from './handlers';
 import i18n from '@/i18n';
 import {
   formatDatabaseResetProgressMessage,

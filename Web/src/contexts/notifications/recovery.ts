@@ -15,7 +15,7 @@ import {
   FULL_PROGRESS_PERCENT,
   REMOVING_GAME_I18N_KEY
 } from './constants';
-import { findBulkCardOwningType, waitingCardMessage } from './handlerFactories';
+import { findBulkCardOwningType, waitingCardMessage } from './handlers';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
 import i18n from '@/i18n';

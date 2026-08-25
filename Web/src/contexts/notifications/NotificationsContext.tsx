@@ -15,7 +15,7 @@ import {
   LIVE_ONLY_CANCEL_DETAIL_KEYS
 } from './constants';
 import { isTerminalNotificationStatus } from './notificationStatus';
-import { createRecoveryRunner, type FetchWithAuth } from './recoveryFactory';
+import { createRecoveryRunner, type FetchWithAuth } from './recovery';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { useNotificationHandlers } from './useNotificationHandlers';
 import { createSpecialCaseHandlers } from './specialCaseHandlers';

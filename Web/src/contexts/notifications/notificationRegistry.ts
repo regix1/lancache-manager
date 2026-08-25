@@ -1371,7 +1371,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       //   REST /api/cache/removals/active (camelCase via same global policy on EvictionRemovalInfo):
       //     op.operationId, op.scope, op.key, op.gameName
       //   Both ingress points must map to the SAME details shape so recovery hydration
-      //   (recoveryFactory.ts recoverEvictionRemovals) and SignalR live-start produce
+      //   (recovery.ts recoverEvictionRemovals) and SignalR live-start produce
       //   identical notification details. Any change here must be mirrored there.
       getDetails: (event: EvictionRemovalStartedEvent) => {
         const scope = (event.context?.scope as string | undefined)?.toLowerCase();

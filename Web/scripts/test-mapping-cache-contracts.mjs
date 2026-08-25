@@ -13,7 +13,7 @@ const registryBuilders = readWebSource('src/contexts/notifications/registryBuild
 const specialContracts = readWebSource(
   'src/contexts/notifications/specialNotificationContracts.ts'
 );
-const handlerFactories = readWebSource('src/contexts/notifications/handlerFactories.ts');
+const handlers = readWebSource('src/contexts/notifications/handlers.ts');
 const xboxAuthHook = readWebSource('src/hooks/useXboxMappingAuth.ts');
 const cacheManager = readWebSource('src/components/features/management/cache/CacheManager.tsx');
 const dashboardContext = readWebSource('src/contexts/DashboardDataContext/index.tsx');
@@ -30,8 +30,8 @@ const mappingPlatforms = [
 
 const compileHandlerFactory = () => {
   const sourceFile = ts.createSourceFile(
-    'handlerFactories.ts',
-    handlerFactories,
+    'handlers.ts',
+    handlers,
     ts.ScriptTarget.Latest,
     true,
     ts.ScriptKind.TS
@@ -149,7 +149,7 @@ test('special handlers retain data-update events but no mapping lifecycle reduce
 
 test('running progress updates persist the merged notification for reload recovery', () => {
   assert.match(
-    handlerFactories,
+    handlers,
     /const updatedNotification[\s\S]*?localStorage\.setItem\(\s*config\.storageKey,\s*JSON\.stringify\(updatedNotification\)[\s\S]*?return updatedNotification/
   );
 });

@@ -95,7 +95,7 @@ export const formatLogProcessingDetailMessage = (
   });
 };
 
-// Recovery Message Formatters (for recoveryFactory.ts)
+// Recovery Message Formatters (for recovery.ts)
 // ============================================================================
 
 /**

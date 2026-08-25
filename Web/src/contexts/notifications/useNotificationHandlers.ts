@@ -19,7 +19,7 @@ import {
   createCompletionHandler,
   findBulkCardOwningType,
   waitingCardMessage
-} from './handlerFactories';
+} from './handlers';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import type { OperationWaitingEvent, OperationWaitingCompleteEvent } from '../SignalRContext/types';
 import { GENERIC_FAILURE_I18N_KEY, OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE } from './constants';

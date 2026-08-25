@@ -4,7 +4,7 @@
  * i18n stage-key naming (epicRemove.* / gameRemove.* / namedRemove.* for the starting|complete
  * phases), and the conditional identity-field spread (`{gameName, ...(steam && {gameAppId}),
  * ...(epic && {epicAppId})}`) were duplicated across detailMessageFormatters.ts,
- * notificationRegistry.ts, and recoveryFactory.ts and had to be kept in lockstep by hand.
+ * notificationRegistry.ts, and recovery.ts and had to be kept in lockstep by hand.
  */
 
 type RemovalKind = 'epic' | 'steam' | 'named';
