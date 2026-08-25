@@ -36,6 +36,29 @@ function eventOperationId(event: unknown): string | undefined {
   return typeof operationId === 'string' ? operationId : undefined;
 }
 
+/**
+ * Text for an operation parked in the wait queue. Two things describe that state and carry the same
+ * two fields: the live `OperationWaiting` push and a row from the `/api/operations/waiting`
+ * reconciliation. They must word it identically, or the sentence changes when a reconnect swaps one
+ * source for the other.
+ */
+export function waitingCardMessage(source: {
+  name?: string;
+  blockedByName?: string | null;
+}): string {
+  if (source.name) {
+    return source.blockedByName
+      ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED_BLOCKED, {
+          name: source.name,
+          blocker: source.blockedByName
+        })
+      : i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: source.name });
+  }
+  return source.blockedByName
+    ? i18n.t(OPERATION_WAITING_I18N_KEYS.BLOCKED, { blocker: source.blockedByName })
+    : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT);
+}
+
 /** Skip opening a new per-item singleton while the bulk card whose items produce it owns progress. */
 export function findBulkCardOwningType(
   type: NotificationType,
@@ -149,7 +172,8 @@ import {
   GENERIC_CANCELLED_I18N_KEY,
   GENERIC_COMPLETION_I18N_KEY,
   GENERIC_FAILURE_I18N_KEY,
-  LIVE_ONLY_CANCEL_DETAIL_KEYS
+  LIVE_ONLY_CANCEL_DETAIL_KEYS,
+  OPERATION_WAITING_I18N_KEYS
 } from './constants';
 
 // ============================================================================

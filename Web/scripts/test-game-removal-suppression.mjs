@@ -190,8 +190,8 @@ const runWaitingHandler = async (type, bulkNotification) => {
     cancelAutoDismissTimer: () => undefined,
     setNotifications,
     findBulkCardOwningType,
-    waitingMessage: (event) =>
-      event.blockedByName ? `waiting for ${event.blockedByName}` : 'waiting'
+    waitingCardMessage: (source) =>
+      source.blockedByName ? `waiting for ${source.blockedByName}` : 'waiting'
   });
 
   waitingHandler({

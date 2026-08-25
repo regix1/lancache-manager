@@ -17,34 +17,13 @@ import {
   createStartedHandler,
   createStatusAwareProgressHandler,
   createCompletionHandler,
-  findBulkCardOwningType
+  findBulkCardOwningType,
+  waitingCardMessage
 } from './handlerFactories';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import type { OperationWaitingEvent, OperationWaitingCompleteEvent } from '../SignalRContext/types';
-import {
-  GENERIC_FAILURE_I18N_KEY,
-  OPERATION_WAITING_I18N_KEYS,
-  OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE
-} from './constants';
+import { GENERIC_FAILURE_I18N_KEY, OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE } from './constants';
 import i18n from '@/i18n';
-
-/**
- * Text for a queued operation. Prefixes the op's display name so several FIFO-queued cards stay
- * distinguishable, and names the blocking operation whenever the queue knows it.
- */
-function waitingMessage(event: OperationWaitingEvent): string {
-  if (event.name) {
-    return event.blockedByName
-      ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED_BLOCKED, {
-          name: event.name,
-          blocker: event.blockedByName
-        })
-      : i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: event.name });
-  }
-  return event.blockedByName
-    ? i18n.t(OPERATION_WAITING_I18N_KEYS.BLOCKED, { blocker: event.blockedByName })
-    : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT);
-}
 
 /**
  * Resolves the registry entry whose per-type singleton card a wait-queue event targets.
@@ -255,7 +234,7 @@ export function useNotificationHandlers(
         if (owningBulk) {
           return prev.map((n) =>
             n.id === owningBulk.id
-              ? { ...n, status: 'waiting' as const, message: waitingMessage(event) }
+              ? { ...n, status: 'waiting' as const, message: waitingCardMessage(event) }
               : n
           );
         }
@@ -276,7 +255,7 @@ export function useNotificationHandlers(
           id: entry.id,
           type: entry.type,
           status: 'waiting',
-          message: waitingMessage(event),
+          message: waitingCardMessage(event),
           startedAt: existing?.startedAt ?? new Date(),
           details: { operationId: event.operationId }
         };

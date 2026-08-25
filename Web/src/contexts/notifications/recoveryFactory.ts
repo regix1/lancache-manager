@@ -13,10 +13,9 @@ import {
   OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE,
   LIVE_ONLY_CANCEL_DETAIL_KEYS,
   FULL_PROGRESS_PERCENT,
-  OPERATION_WAITING_I18N_KEYS,
   REMOVING_GAME_I18N_KEY
 } from './constants';
-import { findBulkCardOwningType } from './handlerFactories';
+import { findBulkCardOwningType, waitingCardMessage } from './handlerFactories';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
 import i18n from '@/i18n';
@@ -122,21 +121,6 @@ interface WaitingOperationRow {
   blockedByName?: string | null;
 }
 
-/** Queue wording for one waiting row, naming the op and its blocker when the queue knows them. */
-function waitingRowMessage(row: WaitingOperationRow): string {
-  if (row.name) {
-    return row.blockedByName
-      ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED_BLOCKED, {
-          name: row.name,
-          blocker: row.blockedByName
-        })
-      : i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: row.name });
-  }
-  return row.blockedByName
-    ? i18n.t(OPERATION_WAITING_I18N_KEYS.BLOCKED, { blocker: row.blockedByName })
-    : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT);
-}
-
 /**
  * Builds the wait-queue recovery function: synchronizes purple "waiting" cards with the
  * backend queue. Creates missing waiting cards (with details.operationId so cancel works)
@@ -183,7 +167,7 @@ function createWaitingOperationsRecoveryFunction(
             next[index] = {
               ...owningBulk,
               status: 'waiting' as NotificationStatus,
-              message: waitingRowMessage(row)
+              message: waitingCardMessage(row)
             };
             continue;
           }
@@ -191,7 +175,7 @@ function createWaitingOperationsRecoveryFunction(
             id: entry.id,
             type: entry.type,
             status: 'waiting' as NotificationStatus,
-            message: waitingRowMessage(row),
+            message: waitingCardMessage(row),
             startedAt: new Date(),
             details: { operationId: row.operationId }
           });
