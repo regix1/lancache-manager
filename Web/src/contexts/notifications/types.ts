@@ -121,6 +121,14 @@ export interface UnifiedNotification {
     steamAppId?: string;
     bytesFreed?: number;
     logEntriesRemoved?: number;
+    /**
+     * Notification types this bulk card's own items emit (a cache batch mixing
+     * game and service items lists both). While the card runs, a per-item card of
+     * one of these types is skipped so each item does not add a second card
+     * beside the batch card. A batch whose items emit a type not in this list -
+     * or any other running batch - never suppresses it.
+     */
+    itemTypes?: NotificationType[];
 
     // For depot_mapping
     totalMappings?: number;

@@ -122,7 +122,9 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             }),
             progress: 0,
             // No operationId → handleCancel special-cases bulk_removal
-            details: {}
+            // A cache run queues both service and game entries, so its per-item
+            // cards can be either type.
+            details: { itemTypes: ['service_removal', 'game_removal'] }
           });
           bulkNotifId = id;
           return id;
@@ -320,7 +322,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             }),
             progress: 0,
             // No operationId → handleCancel special-cases bulk_removal
-            details: {}
+            details: { itemTypes: ['eviction_removal'] }
           });
           bulkNotifId = id;
           return id;

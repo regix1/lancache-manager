@@ -16,7 +16,8 @@ import type {
 import {
   createStartedHandler,
   createStatusAwareProgressHandler,
-  createCompletionHandler
+  createCompletionHandler,
+  suppressNewItemCardDuringBulk
 } from './handlerFactories';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import type { OperationWaitingEvent, OperationWaitingCompleteEvent } from '../SignalRContext/types';
@@ -226,8 +227,14 @@ export function useNotificationHandlers(
     const waitingHandler = (event: OperationWaitingEvent): void => {
       const entry = findEntryForWireType(registry, event.operationType);
       if (!entry) return;
-      cancelAutoDismissTimer(entry.id);
       setNotifications((prev: UnifiedNotification[]) => {
+        if (suppressNewItemCardDuringBulk(entry.type, prev)) {
+          return prev;
+        }
+        // Only once this event is going to replace the card in that slot: a terminal card
+        // already sitting there would otherwise lose its auto-dismiss timer and stay on
+        // screen forever when the update below is skipped.
+        cancelAutoDismissTimer(entry.id);
         // A re-emit for the SAME queued op announces a new blocker; keep the original
         // startedAt so the card's age does not reset every time the blocker changes.
         const existing = prev.find(

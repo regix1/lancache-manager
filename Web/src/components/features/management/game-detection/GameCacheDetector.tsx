@@ -99,12 +99,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // running flag drives.
   const isDetectionQueued = useOperationBusy({ types: ['game_detection'], status: 'waiting' });
 
-  // Spinner gate for the Remove All button: the bulk_removal card survives remounts,
-  // unlike the local removeAllRunning flag.
-  const isBulkRemovalRunning = useOperationBusy({
-    types: ['bulk_removal'],
-    status: ['running', 'waiting']
-  });
   // Any running/queued removal in the game-cache domain (single, evicted, or bulk)
   // disables Remove All - single removes and Remove All gate together. Removals
   // from unrelated cards (corruption/logs/cache) still enqueue.
@@ -872,7 +866,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         diskActionBlocked ||
                         checkingPermissions ||
                         isCacheRemovalActive ||
-                        isBulkRemovalRunning ||
                         !diskObjectsAvailable ||
                         !selectedNginxReopenGate.available
                       }
@@ -910,7 +903,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         checkingPermissions ||
                         isCacheRemovalActive ||
                         removeAllRunning ||
-                        isBulkRemovalRunning ||
                         !diskObjectsAvailable ||
                         !allNginxReopenGate.available
                       }

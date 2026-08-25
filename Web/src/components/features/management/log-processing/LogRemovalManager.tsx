@@ -475,7 +475,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           status: 'running',
           message: t('management.batchSelect.removeSelected', { count: total }),
           progress: 0,
-          details: {}
+          details: { itemTypes: ['log_removal'] }
         });
         bulkNotifId = id;
         return id;
