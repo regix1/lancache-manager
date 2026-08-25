@@ -104,7 +104,7 @@ impl Layout {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, all(unix, target_pointer_width = "64")))]
     fn linux_x86_64() -> Self {
         Self {
             size: 336,
@@ -3128,8 +3128,8 @@ pub enum RemovalDisposition {
     },
 }
 
-#[cfg(all(test, unix, target_pointer_width = "64"))]
-pub(crate) fn write_linux_v5_test_fixture(
+#[cfg(all(unix, target_pointer_width = "64"))]
+pub fn write_linux_v5_test_fixture(
     root: &Path,
     key: &[u8],
     headers: &[u8],

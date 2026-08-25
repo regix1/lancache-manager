@@ -76,3 +76,42 @@ jobs:
 
       - name: Run backend tests
         run: dotnet test lancache-manager.sln --no-restore -p:SkipRustBuild=true
+
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust-processor
+
+    # Same credentials as the backend job above: db.rs defaults to the lancache/lancache
+    # pair when no DATABASE_URL is set, and the test step below points at this service
+    # using that same pair.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lancache
+          POSTGRES_PASSWORD: lancache
+        ports:
+          - 5432:5432
+        # Over TCP, not the socket: during initialization the image runs a temporary server
+        # that listens on the socket only, so a socket probe reports ready before the port
+        # the tests connect to is open.
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U lancache"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@1.94.0
+
+      # No target-selecting flag, so this builds and runs the lib harness plus all 16 bin
+      # harnesses. A `--lib` or name filter here would silently stop testing the bin targets.
+      - name: Run Rust tests
+        run: cargo test --no-fail-fast
+        env:
+          DATABASE_URL: postgres://lancache:lancache@127.0.0.1:5432/lancache

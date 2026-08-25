@@ -16,6 +16,16 @@ cd ../Web && npm install && npm run dev  # http://localhost:3000
 cd ../Api/LancacheManager && dotnet run  # http://localhost:5000
 ```
 
+Rust tests (from `rust-processor/`):
+
+```bash
+cargo test --no-fail-fast
+```
+
+15 of the tests need a PostgreSQL server. Point `DATABASE_URL` at one (for example
+`postgres://lancache:lancache@127.0.0.1:5432/lancache`) and they run too; without it they
+fail with a connection error instead of silently skipping.
+
 Multi-arch Docker build:
 
 ```bash
