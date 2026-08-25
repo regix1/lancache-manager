@@ -277,7 +277,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ iconOnly = false }) => {
             type="button"
             onClick={() => setIsOpen(!isOpen)}
             aria-label={t('common.timeFilter.title')}
-            className={`ed-trigger w-full px-3 h-10 themed-border-radius-sm border text-left flex items-center justify-between text-sm cursor-pointer bg-[var(--theme-card-bg)] text-[var(--theme-text-primary)] ${isOpen ? 'border-[var(--theme-border-focus)]' : 'border-[var(--theme-border-primary)]'}`}
+            className={`ed-trigger w-full px-3 h-10 themed-border-radius-sm border text-left flex items-center justify-between text-sm cursor-pointer themed-card text-themed-primary ${isOpen ? 'border-[var(--theme-border-focus)]' : 'border-[var(--theme-border-primary)]'}`}
           >
             <div
               className={`flex items-center flex-1 truncate ${iconOnly ? 'justify-center' : 'gap-1.5'}`}
