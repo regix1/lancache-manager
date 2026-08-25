@@ -12,7 +12,7 @@
  */
 export const PEAK_USAGE_ROW_HOURS = 12;
 
-export const PEAK_USAGE_AXIS_COLUMNS = [0, 3, 6, 9] as const;
+const PEAK_USAGE_AXIS_COLUMNS = [0, 3, 6, 9] as const;
 
 export function peakUsageColumn(hour: number): number {
   return hour % PEAK_USAGE_ROW_HOURS;

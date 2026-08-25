@@ -4,7 +4,6 @@ import test from 'node:test';
 import { compileToUrl } from './transpile-module.mjs';
 
 const {
-  PEAK_USAGE_AXIS_COLUMNS,
   PEAK_USAGE_ROW_HOURS,
   isPeakUsageAxisColumn,
   peakUsageClockLabel,
@@ -31,7 +30,6 @@ test('15:00 shares the third column with 03:00, not the 06:00 column', () => {
 });
 
 test('axis ticks are every third column of the 12-hour row', () => {
-  assert.deepEqual([...PEAK_USAGE_AXIS_COLUMNS], [0, 3, 6, 9]);
   for (let column = 0; column < PEAK_USAGE_ROW_HOURS; column += 1) {
     assert.equal(isPeakUsageAxisColumn(column), column % 3 === 0);
   }
