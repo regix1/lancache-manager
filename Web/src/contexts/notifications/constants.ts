@@ -75,8 +75,8 @@ export const MOBILE_FULL_CARD_CAP = 3;
  * bulk queue's cancel signal (`cancelling`, the only flag useCancellableQueue's cascade honours).
  *
  * These are NOT `details.cancelled`, which is the TERMINAL outcome the server reports and which
- * renders the card red - see cacheRemovalHelpers, which sets both at once as
- * `{ cancelled: true, cancelling: false }`.
+ * renders the card in the neutral gray a stop earns rather than the red a failure does - see
+ * cacheRemovalHelpers, which sets both at once as `{ cancelled: true, cancelling: false }`.
  *
  * Because a persisted card and a REST recovery snapshot both predate (or simply cannot see) the
  * live intent, these keys are stripped wherever card state is rehydrated or merged: the

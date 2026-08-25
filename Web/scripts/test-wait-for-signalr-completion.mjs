@@ -103,22 +103,22 @@ test('onStartedCapture re-binds promoted operationId when match uses identity fi
   assert.equal(result.event.operationId, runningId);
 });
 
-test('abort resolves with cancelled and detaches listeners', async () => {
+test('a cancelled item still resolves through its own terminal event', async () => {
   const { waitForSignalRCompletion } = await loadWaitHelper();
   const signalR = createFakeSignalR();
-  const controller = new AbortController();
+  const opId = 'op-cancelled';
 
   const waitPromise = waitForSignalRCompletion({
     signalR,
     completeEvent: 'GameRemovalComplete',
-    match: () => true,
-    signal: controller.signal,
+    match: (payload) => payload?.operationId === opId,
     timeoutMs: 500
   });
 
-  controller.abort();
+  signalR.emit('GameRemovalComplete', { operationId: opId, success: false, cancelled: true });
+
   const result = await waitPromise;
-  assert.equal(result.cancelled, true);
+  assert.equal(result.event.cancelled, true);
   assert.equal(signalR.listenerCount('GameRemovalComplete'), 0);
 });
 

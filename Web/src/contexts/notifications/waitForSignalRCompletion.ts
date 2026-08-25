@@ -14,7 +14,9 @@
  *
  * The helper registers its SignalR listeners synchronously (before the caller
  * performs the HTTP POST) so the Started event is never missed in a race.
- * Listeners are always removed on resolution - success, cancel, or timeout.
+ * Listeners are always removed on resolution - success or timeout. A user cancel does not
+ * settle the wait early: the item's own terminal event (which a cancelled operation still
+ * emits) is what resolves it, so the caller sees exactly one settle per item.
  */
 import type { EventHandler } from '../SignalRContext/types';
 
@@ -63,11 +65,6 @@ interface WaitForSignalRCompletionOptions<TStarted, TCompleted, TProgress = unkn
    * operations can share the same progress event name.
    */
   onProgress?: (payload: TProgress) => void;
-  /**
-   * Abort signal. When aborted the helper resolves with `{ cancelled: true }`
-   * within a single event-loop tick and detaches all listeners.
-   */
-  signal?: AbortSignal;
   /** Safety timeout in milliseconds. Defaults to 120_000 (2 minutes). */
   timeoutMs?: number;
   /**
@@ -81,8 +78,6 @@ interface WaitForSignalRCompletionOptions<TStarted, TCompleted, TProgress = unkn
 interface WaitForSignalRCompletionResult<TCompleted> {
   /** The matching completion payload, if the wait succeeded. */
   event?: TCompleted;
-  /** True when the wait ended because `signal.aborted` fired. */
-  cancelled?: boolean;
   /** True when the wait ended because `timeoutMs` elapsed. */
   timedOut?: boolean;
 }
@@ -99,7 +94,6 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
     onOperationIdCaptured,
     progressEvent,
     onProgress,
-    signal,
     timeoutMs = 120_000
   } = opts;
 
@@ -126,11 +120,6 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
       finish({ event: payload });
     };
 
-    const abortListener = () => {
-      if (settled) return;
-      finish({ cancelled: true });
-    };
-
     const detach = () => {
       signalR.off(completeEvent, completeHandler);
       if (startedEvent) {
@@ -138,9 +127,6 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
       }
       if (progressEvent) {
         signalR.off(progressEvent, progressHandler);
-      }
-      if (signal) {
-        signal.removeEventListener('abort', abortListener);
       }
       if (timeoutHandle !== null) {
         clearTimeout(timeoutHandle);
@@ -164,14 +150,6 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
     }
     if (progressEvent) {
       signalR.on(progressEvent, progressHandler);
-    }
-
-    if (signal) {
-      if (signal.aborted) {
-        finish({ cancelled: true });
-        return;
-      }
-      signal.addEventListener('abort', abortListener, { once: true });
     }
 
     timeoutHandle = setTimeout(() => {

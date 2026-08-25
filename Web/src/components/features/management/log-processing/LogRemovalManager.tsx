@@ -525,7 +525,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
             const overall = Math.min(100, ((currentIndex - 1 + inner / 100) / total) * 100);
             updateNotification(bulkNotifId, { progress: Math.floor(overall) });
           },
-          signal: ctx.signal,
           // Large log files can take several minutes to rewrite; give each item a
           // generous window so a legitimately-slow removal is not misreported.
           timeoutMs: 600_000
@@ -543,7 +542,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           throw new Error(`Log removal timed out for ${service}`);
         }
         // A completion that reports failure (e.g. locked files) must count as failed,
-        // not succeeded. Exclude server-side cancels, which the queue's abort path owns.
+        // not succeeded. Exclude server-side cancels, which the queue's cancel path owns.
         if (outcome.event && outcome.event.success === false && !outcome.event.cancelled) {
           throw new Error(outcome.event.message || `Log removal failed for ${service}`);
         }

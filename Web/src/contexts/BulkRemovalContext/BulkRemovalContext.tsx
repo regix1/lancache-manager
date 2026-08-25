@@ -190,7 +190,6 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
                   updateNotification
                 });
               },
-              signal: ctx.signal,
               timeoutMs: 600_000
             });
             await ApiService.removeServiceFromCache(serviceName);
@@ -246,7 +245,6 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
                   updateNotification
                 });
               },
-              signal: ctx.signal,
               timeoutMs: 600_000
             });
 
@@ -437,7 +435,6 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
                 updateNotification
               });
             },
-            signal: ctx.signal,
             timeoutMs: 600_000
           });
 
@@ -476,7 +473,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             throw new Error('Evicted removal timed out');
           }
           // A completion that reports failure (e.g. locked files) must count as failed,
-          // not succeeded. Exclude server-side cancels, which the queue's abort path owns.
+          // not succeeded. Exclude server-side cancels, which the queue's cancel path owns.
           if (outcome.event && outcome.event.success === false && !outcome.event.cancelled) {
             throw new Error(outcome.event.error ?? 'Evicted removal failed');
           }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
+import i18n from '@/i18n';
 import { useErrorHandler } from './useErrorHandler';
 
 /**
@@ -9,7 +10,7 @@ import { useErrorHandler } from './useErrorHandler';
  *
  *  - Cancelled flows should flip `status: 'completed'` with
  *    `details: { cancelled: true, cancelling: false }` so
- *    `UniversalNotificationBar` renders the red X-circle auto-dismiss.
+ *    `UniversalNotificationBar` renders the neutral gray X-circle auto-dismiss.
  *  - Successful flows should update progress to 100 and swap the message.
  *  - Failures should flip `status: 'failed'` with a user-facing `error`.
  */
@@ -23,7 +24,6 @@ interface CancellableQueueFinalizeArgs {
 
 /**
  * Per-item context threaded through `processItem`. Exposes:
- *   - `signal` - AbortSignal that fires on user cancel.
  *   - `setOperationId` - tells the hook the current in-flight opId so the
  *     cascade effect can cancel it server-side when the user clicks the X
  *     on the bulk notification. Call this as soon as the opId is known
@@ -32,7 +32,6 @@ interface CancellableQueueFinalizeArgs {
  *   - `requestId` - fresh id per iteration; pass to `waitForSignalRCompletion`.
  */
 interface CancellableQueueItemContext {
-  signal: AbortSignal;
   setOperationId: (opId: string | null) => void;
   requestId: string;
 }
@@ -95,7 +94,6 @@ interface UseCancellableQueueResult<TItem> {
  *   - the cascade useEffect that watches the bulk notification's
  *     `details.cancelling` flag and fires `ApiService.cancelOperation` on
  *     the in-flight item when the user clicks X
- *   - AbortController plumbing so `processItem` receives a signal
  *
  * The queue deliberately SURVIVES unmount of the calling component: an
  * in-app tab switch unmounts the Management tab, and treating that as a
@@ -123,7 +121,7 @@ interface UseCancellableQueueResult<TItem> {
 export function useCancellableQueue<TItem>(
   options?: UseCancellableQueueOptions
 ): UseCancellableQueueResult<TItem> {
-  const { notifications, scheduleAutoDismiss } = useNotifications();
+  const { notifications, scheduleAutoDismiss, updateNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
   const onSettled = options?.onSettled;
 
@@ -131,39 +129,53 @@ export function useCancellableQueue<TItem>(
   const currentItemOperationIdRef = useRef<string | null>(null);
   const currentItemRef = useRef<TItem | null>(null);
   const cancelRequestedRef = useRef<boolean>(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
   // Synchronous in-progress guard. A same-tick double-invoke of `run` (e.g. the
   // confirm Modal's button is still clickable during its 250ms close animation)
   // must not start the SAME queue instance twice — the second run would clobber
-  // cancelRequestedRef/abortControllerRef and the provider's per-run options ref,
+  // cancelRequestedRef and the provider's per-run options ref,
   // and run #1's settle would fire run #2's callbacks. A ref (not React state) is
   // required so the guard is observed on the very next synchronous call.
   const runActiveRef = useRef<boolean>(false);
 
   const [state, setState] = useState<CancellableQueueState>({ status: 'idle' });
 
-  // The single cancellation entry point: trips the per-item AbortController
-  // and fires a best-effort server-side cancel on the in-flight item. Invoked
-  // by the cascade effect below when the bulk notification's cancel flag flips
-  // - dedupes via cancelRequestedRef.
+  const cancelItemOperation = useCallback(
+    (opId: string) => {
+      ApiService.cancelOperation(opId).catch((err: unknown) => {
+        // Best-effort - current item may already be past the point of cancel.
+        notifyError('Failed to cancel in-flight queue item', err, {
+          silent: true,
+          logLabel: 'useCancellableQueue cancelItemOperation'
+        });
+      });
+    },
+    [notifyError]
+  );
+
+  // The single cancellation entry point: fires a best-effort server-side cancel
+  // on the in-flight item and marks the run cancelled so the loop stops after
+  // that item settles. Deliberately does NOT cut the in-flight item's completion
+  // wait short: the batch card must stay 'running' until the item's terminal
+  // event has arrived, so findBulkCardOwningType still owns that event and no
+  // per-item card appears next to the batch card. The message flip below is the
+  // immediate feedback for the click while that settle is in flight. Invoked by
+  // the cascade effect when the bulk notification's cancel flag flips - dedupes
+  // via cancelRequestedRef.
   const triggerCancel = useCallback(() => {
     if (cancelRequestedRef.current) return;
     cancelRequestedRef.current = true;
 
-    abortControllerRef.current?.abort();
+    const activeId = bulkNotifIdRef.current;
+    if (activeId) {
+      updateNotification(activeId, { message: i18n.t('common.notifications.cancelling') });
+    }
 
     const currentOp = currentItemOperationIdRef.current;
     if (currentOp) {
       currentItemOperationIdRef.current = null;
-      ApiService.cancelOperation(currentOp).catch((err: unknown) => {
-        // Best-effort - current item may already be past the point of cancel.
-        notifyError('Failed to cancel in-flight queue item', err, {
-          silent: true,
-          logLabel: 'useCancellableQueue triggerCancel'
-        });
-      });
+      cancelItemOperation(currentOp);
     }
-  }, [notifyError]);
+  }, [cancelItemOperation, updateNotification]);
 
   // Cascade effect: watch the bulk notification for `details.cancelling` (set
   // by UniversalNotificationBar.handleCancel's bulk_removal branch).
@@ -209,11 +221,6 @@ export function useCancellableQueue<TItem>(
       currentItemOperationIdRef.current = null;
       currentItemRef.current = null;
 
-      // One AbortController per run, tripped only by an explicit user cancel
-      // (the cascade effect).
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
       // C2: everything from openNotification() onward runs inside try/finally so
       // a synchronous throw (e.g. from openNotification) still clears the C1
       // guard and delivers onSettled (→ provider's onRunningChange(false)). The
@@ -230,7 +237,7 @@ export function useCancellableQueue<TItem>(
         let cancelled = false;
         let lastError: Error | null = null;
 
-        const wasCancelled = () => cancelRequestedRef.current || controller.signal.aborted;
+        const wasCancelled = () => cancelRequestedRef.current;
 
         for (let index = 0; index < items.length; index += 1) {
           const item = items[index];
@@ -248,9 +255,16 @@ export function useCancellableQueue<TItem>(
               : `req-${Date.now()}-${index}`;
 
           const ctx: CancellableQueueItemContext = {
-            signal: controller.signal,
             setOperationId: (opId) => {
               currentItemOperationIdRef.current = opId;
+              // The X can land while the item's POST is still in flight, before any id
+              // exists to cancel. triggerCancel has already run by then, so fire the
+              // deferred cancel here the moment the id arrives - otherwise the item runs
+              // to natural completion and the "Cancelling..." card sits for its full length.
+              if (cancelRequestedRef.current && opId) {
+                currentItemOperationIdRef.current = null;
+                cancelItemOperation(opId);
+              }
             },
             requestId
           };
@@ -294,13 +308,12 @@ export function useCancellableQueue<TItem>(
         });
       } finally {
         bulkNotifIdRef.current = null;
-        abortControllerRef.current = null;
         cancelRequestedRef.current = false;
         runActiveRef.current = false;
         onSettled?.();
       }
     },
-    [onSettled, scheduleAutoDismiss]
+    [cancelItemOperation, onSettled, scheduleAutoDismiss]
   );
 
   return { run, state };
