@@ -49,7 +49,7 @@
  * Universal notification progress bar
  * One track shared by every notification type. The fill colour comes from the card's
  * status colour via --notification-progress-color, so the bar always matches the border
- * and icon (blue running, green completed, red failed/cancelled, purple waiting).
+ * and icon (blue running, green completed, red failed, grey cancelled, purple waiting).
  * ============================================== */
 .notification-progress-track {
   position: relative;

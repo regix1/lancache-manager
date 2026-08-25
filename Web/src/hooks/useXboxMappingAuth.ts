@@ -86,8 +86,10 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       // The user backed out of a login still waiting on the device code (closed the modal, or
       // restarted the flow). The backend's own cancelled event can no longer settle the card,
       // because the auth-state listener returns early once loginInProgressRef is cleared just
-      // below - so settle it here. Status stays 'completed' (there is no 'cancelled' status that
-      // auto-dismisses) and details.cancelled:true is what renders it red.
+      // below - so settle it here. The status stays 'completed' because this card is pushed
+      // through pushLoginCard, which takes the completed/failed pair; details.cancelled:true is
+      // what makes it read as a stop rather than a finish, giving it the grey neutral tone and
+      // the XCircle instead of the success tick.
       loginNotificationActiveRef.current = false;
       pushLoginCard('completed', t('signalr.xbox.mapping.cancelled'), undefined, true);
     }

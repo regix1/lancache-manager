@@ -200,7 +200,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         if (
           notification.status === 'running' &&
           existing &&
-          (existing.status === 'completed' || existing.status === 'failed') &&
+          isTerminalNotificationStatus(existing.status) &&
           Date.now() - new Date(existing.startedAt).getTime() < TERMINAL_SEED_GUARD_MS
         ) {
           return prev;
@@ -368,7 +368,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
         setNotifications((prev: UnifiedNotification[]) => {
           prev.forEach((n) => {
-            if (n.status === 'completed' || n.status === 'failed') {
+            if (isTerminalNotificationStatus(n.status)) {
               idsToSchedule.push(n.id);
             }
           });

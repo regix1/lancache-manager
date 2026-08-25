@@ -956,6 +956,11 @@ export interface DataImportProgressEvent {
 export interface DataImportCompleteEvent {
   operationId: string;
   success: boolean;
+  /**
+   * True when the user stopped the import rather than it failing. The completion handler reads
+   * this to pick the cancelled status, which is why a stopped import reads grey and not red.
+   */
+  cancelled?: boolean;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -1125,6 +1130,11 @@ export interface ScheduledRunCompleteEvent {
   serviceKey: string;
   operationId: string;
   success: boolean;
+  /**
+   * True when the user stopped the run rather than it failing. The completion handler reads this
+   * to pick the cancelled status, which is why a stopped scheduled run reads grey and not red.
+   */
+  cancelled?: boolean;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   percentComplete: number;

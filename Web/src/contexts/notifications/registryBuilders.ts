@@ -96,6 +96,12 @@ interface OperationStatusEvent {
 /**
  * Standard three-status pattern: 'completed' -> 'completed',
  * 'failed'|'cancelled' -> 'failed', everything else -> undefined.
+ *
+ * The cancelled arm never fires in practice: every server-side cancellation is reported on a
+ * Complete payload, never on Progress, and the completion handler reads the cancel flag itself.
+ * It stays because a returned 'cancelled' would otherwise fall through to undefined here, which
+ * the progress handler reads as "still running" - a stopped card frozen mid-run is worse than a
+ * stopped card shown as failed. A cancelled run that reaches a user reads grey, not red.
  */
 function standardGetStatus(event: OperationStatusEvent): string | undefined {
   if (event.status === 'completed') return 'completed';

@@ -86,9 +86,10 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     }
     if (loginNotificationActiveRef.current) {
       // The user backed out of a login still waiting on them (closed the modal, or restarted the
-      // flow). Status stays 'completed' (there is no 'cancelled' status) so the card still
-      // auto-dismisses; details.cancelled:true is what renders it red + XCircle, matching Xbox's
-      // terminal cancel (specialCaseHandlers.ts:271), which sets the very same flag.
+      // flow). The status stays 'completed' because pushLoginCard takes the completed/failed
+      // pair; details.cancelled:true is what makes it read as a stop rather than a finish, giving
+      // it the grey neutral tone and the XCircle. Matches the Xbox mapping cancel, which sets the
+      // very same flag.
       loginNotificationActiveRef.current = false;
       pushLoginCard('completed', t('signalr.epicMapping.signInCancelled'), undefined, true);
     }

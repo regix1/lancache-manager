@@ -593,8 +593,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     progress: {
       getMessage: (event: LogRemovalProgressEvent) => formatLogRemovalProgressMessage(event),
       getProgress: (event: LogRemovalProgressEvent) => event.percentComplete,
-      // Not the shared three-status pattern: this pipeline has no cancelled terminal,
-      // so a cancelled status must not be rendered as a failure.
+      // Not the shared three-status pattern: this pipeline does report a cancelled terminal,
+      // and the shared getter folds cancelled into failed, which would paint a stopped run red.
       getStatus: (event: LogRemovalProgressEvent) =>
         event.status === 'completed'
           ? 'completed'
