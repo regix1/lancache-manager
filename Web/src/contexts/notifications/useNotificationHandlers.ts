@@ -17,7 +17,7 @@ import {
   createStartedHandler,
   createStatusAwareProgressHandler,
   createCompletionHandler,
-  suppressNewItemCardDuringBulk
+  findBulkCardOwningType
 } from './handlerFactories';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import type { OperationWaitingEvent, OperationWaitingCompleteEvent } from '../SignalRContext/types';
@@ -27,6 +27,24 @@ import {
   OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE
 } from './constants';
 import i18n from '@/i18n';
+
+/**
+ * Text for a queued operation. Prefixes the op's display name so several FIFO-queued cards stay
+ * distinguishable, and names the blocking operation whenever the queue knows it.
+ */
+function waitingMessage(event: OperationWaitingEvent): string {
+  if (event.name) {
+    return event.blockedByName
+      ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED_BLOCKED, {
+          name: event.name,
+          blocker: event.blockedByName
+        })
+      : i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: event.name });
+  }
+  return event.blockedByName
+    ? i18n.t(OPERATION_WAITING_I18N_KEYS.BLOCKED, { blocker: event.blockedByName })
+    : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT);
+}
 
 /**
  * Resolves the registry entry whose per-type singleton card a wait-queue event targets.
@@ -228,8 +246,16 @@ export function useNotificationHandlers(
       const entry = findEntryForWireType(registry, event.operationType);
       if (!entry) return;
       setNotifications((prev: UnifiedNotification[]) => {
-        if (suppressNewItemCardDuringBulk(entry.type, prev)) {
-          return prev;
+        // A batch that owns this item type already has a card on screen, so a second card
+        // would just repeat it. The blocker name is the one thing that card does not know,
+        // so move this message onto it rather than dropping the event: without it the batch
+        // card sits at "Removing 1 of 2" with no sign that the item is parked behind
+        // another operation. The batch restores its own message when the item is promoted.
+        const owningBulk = findBulkCardOwningType(entry.type, prev);
+        if (owningBulk) {
+          return prev.map((n) =>
+            n.id === owningBulk.id ? { ...n, message: waitingMessage(event) } : n
+          );
         }
         // Only once this event is going to replace the card in that slot: a terminal card
         // already sitting there would otherwise lose its auto-dismiss timer and stay on
@@ -244,23 +270,11 @@ export function useNotificationHandlers(
             n.details?.operationId === event.operationId
         );
         const filtered = prev.filter((n) => n.id !== entry.id);
-        // Prefix the op's display name so several FIFO-queued cards stay distinguishable,
-        // and name the blocking operation whenever the queue knows it.
-        const message = event.name
-          ? event.blockedByName
-            ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED_BLOCKED, {
-                name: event.name,
-                blocker: event.blockedByName
-              })
-            : i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: event.name })
-          : event.blockedByName
-            ? i18n.t(OPERATION_WAITING_I18N_KEYS.BLOCKED, { blocker: event.blockedByName })
-            : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT);
         const waitingNotification: UnifiedNotification = {
           id: entry.id,
           type: entry.type,
           status: 'waiting',
-          message,
+          message: waitingMessage(event),
           startedAt: existing?.startedAt ?? new Date(),
           details: { operationId: event.operationId }
         };

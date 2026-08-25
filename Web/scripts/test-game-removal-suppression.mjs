@@ -172,7 +172,7 @@ const bindLifted = (arrowSource, bindings) => {
 
 /** Runs waitingHandler for one queued event of `type` against a list holding one bulk card. */
 const runWaitingHandler = async (type, bulkNotification) => {
-  const { suppressNewItemCardDuringBulk } = await loadHandlerFactories();
+  const { findBulkCardOwningType } = await loadHandlerFactories();
 
   const arrowSource = liftConstArrow(
     'src/contexts/notifications/useNotificationHandlers.ts',
@@ -189,9 +189,9 @@ const runWaitingHandler = async (type, bulkNotification) => {
     findEntryForWireType: () => ({ type, id: `${type}_card` }),
     cancelAutoDismissTimer: () => undefined,
     setNotifications,
-    suppressNewItemCardDuringBulk,
-    i18n: { t: (key) => key },
-    OPERATION_WAITING_I18N_KEYS: { NAMED_BLOCKED: 'a', NAMED: 'b', BLOCKED: 'c', DEFAULT: 'd' }
+    findBulkCardOwningType,
+    waitingMessage: (event) =>
+      event.blockedByName ? `waiting for ${event.blockedByName}` : 'waiting'
   });
 
   waitingHandler({ operationType: 'irrelevant-for-this-test', operationId: 'op-1' });

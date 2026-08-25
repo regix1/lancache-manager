@@ -109,6 +109,15 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
 
       let bulkNotifId: string | null = null;
       let currentIndex = 0;
+      // While an item is parked behind another operation, the wait-queue handler replaces this
+      // card's text with the blocker's name. Keeping the item's own line here is what lets the
+      // card go back to naming the item the moment the queue promotes it.
+      let currentItemMessage = '';
+      const restoreItemMessage = (): void => {
+        if (bulkNotifId && currentItemMessage) {
+          updateNotification(bulkNotifId, { message: currentItemMessage });
+        }
+      };
 
       await runCacheQueue({
         items,
@@ -136,12 +145,13 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               ? entry.service.service_name
               : (entry.game.game_name ?? String(entry.game.game_app_id));
           options.onProgress?.({ current: index, total, label });
+          currentItemMessage = t('management.sections.data.gameCacheRemoveAllProgress', {
+            current: index,
+            total,
+            label
+          });
           updateNotification(notifId, {
-            message: t('management.sections.data.gameCacheRemoveAllProgress', {
-              current: index,
-              total,
-              label
-            }),
+            message: currentItemMessage,
             progress: Math.floor(((index - 1) / total) * 100)
           });
         },
@@ -165,6 +175,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               onOperationIdCaptured: (opId) => {
                 operationId = opId;
                 ctx.setOperationId(opId);
+                restoreItemMessage();
               },
               progressEvent: 'ServiceRemovalProgress',
               onProgress: (payload) => {
@@ -220,6 +231,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               onOperationIdCaptured: (opId) => {
                 currentOperationId = opId;
                 ctx.setOperationId(opId);
+                restoreItemMessage();
               },
               progressEvent: 'GameRemovalProgress',
               onProgress: (payload) => {
@@ -309,6 +321,14 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
 
       let bulkNotifId: string | null = null;
       let currentIndex = 0;
+      // Same reason as the cache run: the wait-queue handler borrows this card's text to name
+      // the blocking operation, and this is what the card goes back to once the item starts.
+      let currentItemMessage = '';
+      const restoreItemMessage = (): void => {
+        if (bulkNotifId && currentItemMessage) {
+          updateNotification(bulkNotifId, { message: currentItemMessage });
+        }
+      };
 
       await runEvictedQueue({
         items,
@@ -334,13 +354,14 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               ? entry.service.service_name
               : (entry.game.game_name ?? String(entry.game.game_app_id));
           options.onProgress?.({ current: index, total, label });
+          currentItemMessage = t('management.sections.data.evictionRemoveSelectedProgress', {
+            current: index,
+            total,
+            label,
+            defaultValue: 'Removing {{current}} of {{total}} - {{label}}'
+          });
           updateNotification(notifId, {
-            message: t('management.sections.data.evictionRemoveSelectedProgress', {
-              current: index,
-              total,
-              label,
-              defaultValue: 'Removing {{current}} of {{total}} - {{label}}'
-            }),
+            message: currentItemMessage,
             progress: Math.floor(((index - 1) / total) * 100)
           });
         },
@@ -399,6 +420,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             onOperationIdCaptured: (opId) => {
               operationId = opId;
               ctx.setOperationId(opId);
+              restoreItemMessage();
             },
             progressEvent: 'EvictionRemovalProgress',
             onProgress: (payload) => {

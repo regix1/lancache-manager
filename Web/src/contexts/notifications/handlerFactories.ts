@@ -37,16 +37,23 @@ function eventOperationId(event: unknown): string | undefined {
 }
 
 /** Skip opening a new per-item singleton while the bulk card whose items produce it owns progress. */
-export function suppressNewItemCardDuringBulk(
+export function findBulkCardOwningType(
   type: NotificationType,
   notifications: UnifiedNotification[]
-): boolean {
-  return notifications.some(
+): UnifiedNotification | undefined {
+  return notifications.find(
     (notification) =>
       notification.type === 'bulk_removal' &&
       notification.status === 'running' &&
       notification.details?.itemTypes?.includes(type) === true
   );
+}
+
+function suppressNewItemCardDuringBulk(
+  type: NotificationType,
+  notifications: UnifiedNotification[]
+): boolean {
+  return findBulkCardOwningType(type, notifications) !== undefined;
 }
 
 /**
