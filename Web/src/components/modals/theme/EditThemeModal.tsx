@@ -7,10 +7,12 @@ import { Alert } from '../../ui/Alert';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import FormField from '../../ui/FormField';
 import { ConfirmationModal } from '../../common/ConfirmationModal';
+import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import ThemeEditorForm from '../../features/management/theme/ThemeEditorForm';
 import { ThemeFields } from './ThemeFields';
 import { THEME_MODAL_CONTROL_SIZE, THEME_PREVIEW_SETTLE_MS, toPreviewTheme } from './constants';
 import { useColorHistory } from '@hooks/useColorHistory';
+import { useScrollAreaHeight } from '@hooks/useScrollAreaHeight';
 import { type Theme, type EditableTheme } from '../../features/management/theme/types';
 import themeService from '@services/theme.service';
 import '@/styles/features/theme-editor-modal.css';
@@ -43,6 +45,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
   const [pane, setPane] = useState<ThemePane>('basics');
   const [hasEdits, setHasEdits] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
+  const [setScrollArea, scrollAreaHeight] = useScrollAreaHeight();
   const openedDraftRef = useRef<string | null>(null);
   const previewAppliedRef = useRef(false);
 
@@ -123,60 +126,65 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
             fullWidth
           />
 
-          <div className="theme-editor-modal__scroll-area">
-            <div className="theme-editor-modal__pane">
-              {pane === 'basics' && (
-                <ThemeFields
-                  name={editedTheme.name || ''}
-                  author={editedTheme.author || ''}
-                  description={editedTheme.description || ''}
-                  isDark={editedTheme.isDark || false}
-                  onNameChange={(value) => setEditedTheme({ ...editedTheme, name: value })}
-                  onAuthorChange={(value) => setEditedTheme({ ...editedTheme, author: value })}
-                  onDescriptionChange={(value) =>
-                    setEditedTheme({ ...editedTheme, description: value })
-                  }
-                  onDarkChange={(checked) => setEditedTheme({ ...editedTheme, isDark: checked })}
-                  themeData={editedTheme}
-                  onColorChange={(key, value) =>
-                    setEditedTheme((prev) => ({ ...prev, [key]: value }))
-                  }
-                  colorHistory={colorHistory}
-                  trailingContent={
-                    <span className="text-xs text-themed-muted">
-                      {t('modals.theme.form.themeId', { id: editingTheme?.meta.id })}
-                    </span>
-                  }
-                />
-              )}
+          <div ref={setScrollArea} className="theme-editor-modal__scroll-area">
+            <CustomScrollbar
+              maxHeight={scrollAreaHeight != null ? `${scrollAreaHeight}px` : '100%'}
+              radius="none"
+            >
+              <div className="theme-editor-modal__pane">
+                {pane === 'basics' && (
+                  <ThemeFields
+                    name={editedTheme.name || ''}
+                    author={editedTheme.author || ''}
+                    description={editedTheme.description || ''}
+                    isDark={editedTheme.isDark || false}
+                    onNameChange={(value) => setEditedTheme({ ...editedTheme, name: value })}
+                    onAuthorChange={(value) => setEditedTheme({ ...editedTheme, author: value })}
+                    onDescriptionChange={(value) =>
+                      setEditedTheme({ ...editedTheme, description: value })
+                    }
+                    onDarkChange={(checked) => setEditedTheme({ ...editedTheme, isDark: checked })}
+                    themeData={editedTheme}
+                    onColorChange={(key, value) =>
+                      setEditedTheme((prev) => ({ ...prev, [key]: value }))
+                    }
+                    colorHistory={colorHistory}
+                    trailingContent={
+                      <span className="text-xs text-themed-muted">
+                        {t('modals.theme.form.themeId', { id: editingTheme?.meta.id })}
+                      </span>
+                    }
+                  />
+                )}
 
-              {pane === 'colors' && (
-                <ThemeEditorForm
-                  themeData={editedTheme}
-                  onColorChange={(key, value) =>
-                    setEditedTheme((prev) => ({ ...prev, [key]: value }))
-                  }
-                  colorHistory={colorHistory}
-                />
-              )}
+                {pane === 'colors' && (
+                  <ThemeEditorForm
+                    themeData={editedTheme}
+                    onColorChange={(key, value) =>
+                      setEditedTheme((prev) => ({ ...prev, [key]: value }))
+                    }
+                    colorHistory={colorHistory}
+                  />
+                )}
 
-              {pane === 'customCss' && (
-                <FormField label={t('modals.theme.form.customCss')}>
-                  {(field) => (
-                    <textarea
-                      {...field}
-                      value={editedTheme.customCSS || ''}
-                      onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
-                        setEditedTheme((prev) => ({ ...prev, customCSS: e.target.value }))
-                      }
-                      placeholder={t('modals.theme.placeholders.customCss')}
-                      rows={12}
-                      className="w-full px-3 py-2 font-mono text-xs focus:outline-none themed-input"
-                    />
-                  )}
-                </FormField>
-              )}
-            </div>
+                {pane === 'customCss' && (
+                  <FormField label={t('modals.theme.form.customCss')}>
+                    {(field) => (
+                      <textarea
+                        {...field}
+                        value={editedTheme.customCSS || ''}
+                        onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
+                          setEditedTheme((prev) => ({ ...prev, customCSS: e.target.value }))
+                        }
+                        placeholder={t('modals.theme.placeholders.customCss')}
+                        rows={12}
+                        className="w-full px-3 py-2 font-mono text-xs focus:outline-none themed-input"
+                      />
+                    )}
+                  </FormField>
+                )}
+              </div>
+            </CustomScrollbar>
           </div>
 
           <div className="theme-editor-modal__actions">

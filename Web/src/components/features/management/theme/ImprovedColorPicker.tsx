@@ -213,7 +213,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
       </div>
 
       {/* Color controls */}
-      <div className="flex items-center gap-2">
+      <div className="theme-color-row__controls flex items-center gap-2">
         {/* Color preview button */}
         <div className="relative flex">
           <Tooltip content={t('modals.theme.colorPicker.pickColor')} position="top">

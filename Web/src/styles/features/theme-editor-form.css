@@ -28,9 +28,35 @@
 /* Phone: the row is 44px here, because the search box and the dropdown both take the touch
    floor below this breakpoint and a 40px control beside them reads as 4px short. */
 @media (max-width: 639.98px) {
+  /* The search box takes the whole first line here, and the page filter and the expand-all
+     control share the second one and fill it to the same right edge. The full-width basis on the
+     search box is what forces that break; the other two then get a zero basis so the pair is
+     never wide enough to wrap again. Wrapping is decided from the basis and the min-width floor,
+     before either item is allowed to shrink, and at 320px the filter's own 10rem floor plus the
+     button's text was enough to push the button onto a third line. */
+  .theme-editor-form__search {
+    flex: 1 1 100%;
+  }
+
+  .theme-editor-form__page-filter,
+  .theme-editor-form__expand-all {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
   .theme-editor-form__expand-all > button {
     min-height: 44px;
+    width: 100%;
   }
+}
+
+/* The swatch, the hex field and the two icon buttons add up to more than a 320px screen leaves
+   for them, and the restore button on the end was the part that ran past the scroll viewport's
+   right edge and under the scrollbar. Wrapping lets it drop to a second line instead, which keeps
+   the whole cluster inside the viewport and leaves the scroller's own right padding as the gutter.
+   Nothing wraps at widths where the row already fits. */
+.theme-color-row__controls {
+  flex-wrap: wrap;
 }
 
 /* The color swatch: 32px tall like the hex field and the two icon buttons beside it, wider

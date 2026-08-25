@@ -5353,7 +5353,7 @@
         "loadDarkPreset": "加载深色预设",
         "loadLightPreset": "加载浅色预设",
         "themeId": "主题 ID：{{id}}",
-        "customCss": "自定义 CSS（可选）"
+        "customCss": "自定义 CSS"
       },
       "organization": {
         "byCategory": "按分类",
@@ -5371,49 +5371,49 @@
         "themeName": "我的自定义主题",
         "author": "您的姓名",
         "description": "一个漂亮的自定义主题",
-        "searchColors": "搜索颜色...（例如：'alert'、'header'、'button'、'background'）",
+        "searchColors": "搜索颜色",
         "customCss": "/* 在此添加任何自定义 CSS */"
       },
       "pages": {
         "all": {
           "label": "所有页面",
-          "description": "查看所有颜色 - 显示整个应用中使用的每种颜色"
+          "description": "应用中使用的每一种颜色"
         },
         "dashboard": {
           "label": "仪表板",
-          "description": "8 个统计卡片（总缓存、已用空间、节省带宽、新增到缓存、总服务量、活跃下载、活跃客户端、缓存命中率）、服务图表、最近下载面板、热门客户端表格和拖拽重新排序手柄"
+          "description": "仪表板的统计卡片、图表和面板"
         },
         "downloads": {
           "label": "下载",
-          "description": "带有游戏横幅的下载卡片、服务/客户端筛选器（下拉菜单）、复选框（显示元数据、隐藏本地主机等）、分页控件、缓存命中/未命中徽章、视图模式切换（紧凑/标准）和导出按钮"
+          "description": "下载卡片、筛选器、徽章和视图控件"
         },
         "clients": {
           "label": "客户端",
-          "description": "显示 IP 地址、下载次数、带宽使用量、缓存命中/未命中字节数、命中率进度条和最后活动时间戳的客户端统计表"
+          "description": "客户端统计表及其命中率进度条"
         },
         "authenticate": {
           "label": "验证身份",
-          "description": "访客登录界面 - API 密钥表单、帮助说明、账户恢复提示和文档链接"
+          "description": "访客登录界面及其 API 密钥表单"
         },
         "users": {
           "label": "用户",
-          "description": "已验证用户和访客的会话管理 - 用户/访客徽章、用户图标、IP 地址、设备信息、最后出现时间戳、撤销/删除操作和会话统计"
+          "description": "已登录用户和访客的会话列表"
         },
         "events": {
           "label": "事件",
-          "description": "事件调度日历、可自定义颜色的事件卡片、带有活跃/即将到来/过去状态的事件列表以及事件时间范围筛选"
+          "description": "事件日历、事件卡片和状态列表"
         },
         "prefill": {
           "label": "预填充",
-          "description": "Steam 预填充守护进程会话管理、游戏选择模态框、预填充命令（全部/最近/前50）、下载进度条、带有颜色编码条目的活动日志（成功/错误/警告/信息/下载/认证/命令）、会话计时器、Steam 认证状态"
+          "description": "预填充会话、进度条和活动日志"
         },
         "management": {
           "label": "管理",
-          "description": "认证（API 密钥）、Steam 集成、数据库重置/清除按钮、缓存管理、日志处理、损坏缓存文件扫描、游戏缓存检测器、主题定制（模态框、颜色选择器、复选框、滑块）、GC 设置、警告横幅和 Grafana 端点"
+          "description": "管理页面的面板、按钮和表单"
         },
         "charts": {
           "label": "图表与图形",
-          "description": "增强的服务图表，包含 8 种数据系列颜色、缓存命中/未命中颜色、网格线、坐标轴标签、图例和性能趋势可视化"
+          "description": "图表系列颜色、网格线、坐标轴和图例"
         }
       },
       "groups": {

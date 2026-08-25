@@ -6,10 +6,12 @@ import { Button } from '../../ui/Button';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import FormField from '../../ui/FormField';
 import { ConfirmationModal } from '../../common/ConfirmationModal';
+import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import ThemeEditorForm from '../../features/management/theme/ThemeEditorForm';
 import { ThemeFields } from './ThemeFields';
 import { THEME_MODAL_CONTROL_SIZE, THEME_PREVIEW_SETTLE_MS, toPreviewTheme } from './constants';
 import { useColorHistory } from '@hooks/useColorHistory';
+import { useScrollAreaHeight } from '@hooks/useScrollAreaHeight';
 import { type EditableTheme } from '../../features/management/theme/types';
 import themeService from '@services/theme.service';
 import '@/styles/features/theme-editor-modal.css';
@@ -40,6 +42,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
   const [pane, setPane] = useState<ThemePane>('basics');
   const [hasEdits, setHasEdits] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
+  const [setScrollArea, scrollAreaHeight] = useScrollAreaHeight();
   const openedDraftRef = useRef<string | null>(null);
   const previewAppliedRef = useRef(false);
 
@@ -128,69 +131,80 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
             fullWidth
           />
 
-          <div className="theme-editor-modal__scroll-area">
-            <div className="theme-editor-modal__pane">
-              {pane === 'basics' && (
-                <ThemeFields
-                  name={newTheme.name}
-                  author={newTheme.author}
-                  description={newTheme.description}
-                  isDark={newTheme.isDark}
-                  onNameChange={(value) => setNewTheme({ ...newTheme, name: value })}
-                  onAuthorChange={(value) => setNewTheme({ ...newTheme, author: value })}
-                  onDescriptionChange={(value) => setNewTheme({ ...newTheme, description: value })}
-                  onDarkChange={(checked) => loadPresetColors(checked ? 'dark' : 'light')}
-                  themeData={newTheme}
-                  onColorChange={(key, value) => setNewTheme((prev) => ({ ...prev, [key]: value }))}
-                  colorHistory={colorHistory}
-                  trailingContent={
-                    <>
-                      <Button
-                        type="button"
-                        variant="default"
-                        size={THEME_MODAL_CONTROL_SIZE}
-                        onClick={() => loadPresetColors('dark')}
-                      >
-                        {t('modals.theme.form.loadDarkPreset')}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="default"
-                        size={THEME_MODAL_CONTROL_SIZE}
-                        onClick={() => loadPresetColors('light')}
-                      >
-                        {t('modals.theme.form.loadLightPreset')}
-                      </Button>
-                    </>
-                  }
-                />
-              )}
+          <div ref={setScrollArea} className="theme-editor-modal__scroll-area">
+            <CustomScrollbar
+              maxHeight={scrollAreaHeight != null ? `${scrollAreaHeight}px` : '100%'}
+              radius="none"
+            >
+              <div className="theme-editor-modal__pane">
+                {pane === 'basics' && (
+                  <ThemeFields
+                    name={newTheme.name}
+                    author={newTheme.author}
+                    description={newTheme.description}
+                    isDark={newTheme.isDark}
+                    onNameChange={(value) => setNewTheme({ ...newTheme, name: value })}
+                    onAuthorChange={(value) => setNewTheme({ ...newTheme, author: value })}
+                    onDescriptionChange={(value) =>
+                      setNewTheme({ ...newTheme, description: value })
+                    }
+                    onDarkChange={(checked) => loadPresetColors(checked ? 'dark' : 'light')}
+                    themeData={newTheme}
+                    onColorChange={(key, value) =>
+                      setNewTheme((prev) => ({ ...prev, [key]: value }))
+                    }
+                    colorHistory={colorHistory}
+                    trailingContent={
+                      <>
+                        <Button
+                          type="button"
+                          variant="default"
+                          size={THEME_MODAL_CONTROL_SIZE}
+                          onClick={() => loadPresetColors('dark')}
+                        >
+                          {t('modals.theme.form.loadDarkPreset')}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="default"
+                          size={THEME_MODAL_CONTROL_SIZE}
+                          onClick={() => loadPresetColors('light')}
+                        >
+                          {t('modals.theme.form.loadLightPreset')}
+                        </Button>
+                      </>
+                    }
+                  />
+                )}
 
-              {pane === 'colors' && (
-                <ThemeEditorForm
-                  themeData={newTheme}
-                  onColorChange={(key, value) => setNewTheme((prev) => ({ ...prev, [key]: value }))}
-                  colorHistory={colorHistory}
-                />
-              )}
+                {pane === 'colors' && (
+                  <ThemeEditorForm
+                    themeData={newTheme}
+                    onColorChange={(key, value) =>
+                      setNewTheme((prev) => ({ ...prev, [key]: value }))
+                    }
+                    colorHistory={colorHistory}
+                  />
+                )}
 
-              {pane === 'customCss' && (
-                <FormField label={t('modals.theme.form.customCss')}>
-                  {(field) => (
-                    <textarea
-                      {...field}
-                      value={newTheme.customCSS || ''}
-                      onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
-                        setNewTheme((prev) => ({ ...prev, customCSS: e.target.value }))
-                      }
-                      placeholder={t('modals.theme.placeholders.customCss')}
-                      rows={12}
-                      className="w-full px-3 py-2 font-mono text-xs focus:outline-none themed-input"
-                    />
-                  )}
-                </FormField>
-              )}
-            </div>
+                {pane === 'customCss' && (
+                  <FormField label={t('modals.theme.form.customCss')}>
+                    {(field) => (
+                      <textarea
+                        {...field}
+                        value={newTheme.customCSS || ''}
+                        onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
+                          setNewTheme((prev) => ({ ...prev, customCSS: e.target.value }))
+                        }
+                        placeholder={t('modals.theme.placeholders.customCss')}
+                        rows={12}
+                        className="w-full px-3 py-2 font-mono text-xs focus:outline-none themed-input"
+                      />
+                    )}
+                  </FormField>
+                )}
+              </div>
+            </CustomScrollbar>
           </div>
 
           <div className="theme-editor-modal__actions">

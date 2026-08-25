@@ -187,7 +187,6 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
           value={selectedPage}
           onChange={setSelectedPage}
           size="md"
-          prefix={t('modals.theme.organization.selectPage')}
           triggerAriaLabel={t('modals.theme.organization.selectPage')}
           className="theme-editor-form__page-filter"
         />

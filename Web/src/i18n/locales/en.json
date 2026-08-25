@@ -5353,7 +5353,7 @@
         "loadDarkPreset": "Load Dark Preset",
         "loadLightPreset": "Load Light Preset",
         "themeId": "Theme ID: {{id}}",
-        "customCss": "Custom CSS (Optional)"
+        "customCss": "Custom CSS"
       },
       "organization": {
         "byCategory": "By Category",
@@ -5371,49 +5371,49 @@
         "themeName": "My Custom Theme",
         "author": "Your Name",
         "description": "A beautiful custom theme",
-        "searchColors": "Search colors... (e.g., 'alert', 'header', 'button', 'background')",
+        "searchColors": "Search colors",
         "customCss": "/* Add any custom CSS here */"
       },
       "pages": {
         "all": {
           "label": "All Pages",
-          "description": "View all colors - Shows every color used throughout the application"
+          "description": "Every color used anywhere in the application"
         },
         "dashboard": {
           "label": "Dashboard",
-          "description": "8 stat cards (Total Cache, Used Space, Bandwidth Saved, Added to Cache, Total Served, Active Downloads, Active Clients, Cache Hit Ratio), service chart, recent downloads panel, top clients table, and drag-to-reorder handles"
+          "description": "The dashboard's stat cards, charts, and panels"
         },
         "downloads": {
           "label": "Downloads",
-          "description": "Download cards with game banners, service/client filters (dropdowns), checkboxes (show metadata, hide localhost, etc.), pagination controls, cache hit/miss badges, view mode toggles (compact/normal), and export buttons"
+          "description": "Download cards, filters, badges, and view controls"
         },
         "clients": {
           "label": "Clients",
-          "description": "Client statistics table showing IP addresses, download counts, bandwidth usage, cache hit/miss bytes, hit rate progress bars, and last activity timestamps"
+          "description": "The client statistics table and its hit rate bars"
         },
         "authenticate": {
           "label": "Authenticate",
-          "description": "Guest sign-in screen - API key form, its help definitions, the account recovery notice, and the documentation link"
+          "description": "The guest sign-in screen and its API key form"
         },
         "users": {
           "label": "Users",
-          "description": "Session management for authenticated users and guests - USER/GUEST badges, user icons, IP addresses, device info, last seen timestamps, revoke/delete actions, and session statistics"
+          "description": "Session lists for signed-in users and guests"
         },
         "events": {
           "label": "Events",
-          "description": "Event scheduling calendar, event cards with customizable colors, event list with active/upcoming/past status, and event time range filtering"
+          "description": "The event calendar, event cards, and status list"
         },
         "prefill": {
           "label": "Prefill",
-          "description": "Steam Prefill daemon session management, game selection modal, prefill commands (all/recent/top 50), download progress bars, activity log with color-coded entries (success/error/warning/info/download/auth/command), session timer, Steam authentication status"
+          "description": "Prefill sessions, progress bars, and the activity log"
         },
         "management": {
           "label": "Management",
-          "description": "Authentication (API keys), Steam integration, database reset/clear buttons, cache management, log processing, corrupt cache file scanning, game cache detector, theme customization (modals, color pickers, checkboxes, sliders), GC settings, alert banners, and Grafana endpoints"
+          "description": "The management page's panels, buttons, and forms"
         },
         "charts": {
           "label": "Charts & Graphs",
-          "description": "Enhanced service charts with 8 data series colors, cache hit/miss colors, grid lines, axis labels, legends, and performance trend visualizations"
+          "description": "Chart series colors, grid lines, axes, and legends"
         }
       },
       "groups": {

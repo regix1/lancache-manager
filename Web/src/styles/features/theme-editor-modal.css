@@ -20,11 +20,11 @@
   gap: 1.25rem;
 }
 
+/* No overflow of its own: the scrolling happens inside the CustomScrollbar this wraps. Setting it
+   here as well would nest a second scroller inside the first. */
 .theme-editor-modal__scroll-area {
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
 }
 
 .theme-editor-modal__pane {
@@ -51,6 +51,25 @@
 }
 
 @media (max-width: 639.98px) {
+  /* The three pane names do not fit side by side on a phone, and the modal body clips whatever
+     runs past its edge, which slices the last one mid-word. Tighter side padding buys back the
+     width they need, and a zero min-width lets the buttons actually take their flex share so a
+     long name ends in an ellipsis rather than a hard cut. */
+  .theme-editor-modal .segmented-control-button {
+    min-width: 0;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  /* Block, not the flex box it is by default: text-overflow does nothing to the contents of a
+     flex container, so the name was being cut off with no ellipsis to show it had been. These
+     labels are plain text with no icon beside them, so nothing needs the flex box. */
+  .theme-editor-modal .segmented-control-label {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   /* Full-width stacked buttons, confirm on top so it sits closest to the thumb. */
   .theme-editor-modal__actions {
     flex-direction: column-reverse;
