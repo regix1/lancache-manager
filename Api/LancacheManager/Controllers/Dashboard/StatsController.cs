@@ -25,7 +25,6 @@ public class StatsController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IClientGroupsService _clientGroupsRepository;
-    private readonly CacheSnapshotService _cacheSnapshotService;
     private readonly IStateService _stateRepository;
     private readonly IOptions<ApiOptions> _apiOptions;
     private readonly ISignalRNotificationService _notifications;
@@ -41,7 +40,6 @@ public class StatsController : ControllerBase
     public StatsController(
         AppDbContext context,
         IClientGroupsService clientGroupsRepository,
-        CacheSnapshotService cacheSnapshotService,
         IStateService stateRepository,
         IOptions<ApiOptions> apiOptions,
         ISignalRNotificationService notifications,
@@ -58,7 +56,6 @@ public class StatsController : ControllerBase
         _capabilityService = capabilityService;
         _context = context;
         _clientGroupsRepository = clientGroupsRepository;
-        _cacheSnapshotService = cacheSnapshotService;
         _stateRepository = stateRepository;
         _apiOptions = apiOptions;
         _notifications = notifications;
@@ -904,47 +901,4 @@ public class StatsController : ControllerBase
         });
     }
 
-    /// <summary>
-    /// Gets the historical cache size snapshot for a time range.
-    /// </summary>
-    /// <remarks>
-    /// Returns estimated used space based on periodic snapshots.
-    /// </remarks>
-    [HttpGet("cache-snapshot")]
-    [ProducesResponseType(typeof(CacheSnapshotResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<CacheSnapshotResponse>> CacheSnapshotAsync(
-        [FromQuery] long? startTime = null,
-        [FromQuery] long? endTime = null)
-    {
-        // A property of the running scheduler, not of the query range, so every return path below
-        // (including both HasData=false ones) can report it.
-        var nextSnapshotUtc = _cacheSnapshotService.NextRunUtc;
-
-        if (!startTime.HasValue || !endTime.HasValue)
-        {
-            return Ok(new CacheSnapshotResponse { HasData = false, NextSnapshotUtc = nextSnapshotUtc });
-        }
-
-        var startUtc = startTime.Value.FromUnixSeconds();
-        var endUtc = endTime.Value.FromUnixSeconds();
-
-        var summary = await _cacheSnapshotService.GetSnapshotSummaryAsync(startUtc, endUtc);
-
-        if (summary == null)
-        {
-            return Ok(new CacheSnapshotResponse { HasData = false, NextSnapshotUtc = nextSnapshotUtc });
-        }
-
-        return Ok(new CacheSnapshotResponse
-        {
-            HasData = true,
-            StartUsedSize = summary.StartUsedSize,
-            EndUsedSize = summary.EndUsedSize,
-            AverageUsedSize = summary.AverageUsedSize,
-            TotalCacheSize = summary.TotalCacheSize,
-            SnapshotCount = summary.SnapshotCount,
-            IsEstimate = summary.IsEstimate,
-            NextSnapshotUtc = nextSnapshotUtc
-        });
-    }
 }
