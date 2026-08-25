@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
 import { compileToUrl, transpile } from './transpile-module.mjs';
@@ -273,5 +273,100 @@ test('a batch whose items are a different type keeps its own message', async () 
     bulk.message,
     'Removing 1 of 2 - Arma 3',
     'an unrelated batch must not have its message overwritten by another queue blocker'
+  );
+});
+
+/**
+ * A batch card is only quiet because it declares which per-item notification types its own items
+ * produce. Nothing in the type system requires that: a fourth batch added later without
+ * `details.itemTypes` duplicates every per-item card and every behaviour test above still passes,
+ * because those tests supply the declaration themselves rather than reading it from source.
+ *
+ * So read it from source. Every `addNotification({ type: 'bulk_removal', ... })` in the app must
+ * carry a literal `itemTypes`, and the set of types declared across all batches must match the
+ * CASES the behaviour tests exercise - a new batch type with no behaviour test fails here, and a
+ * behaviour test for a type no batch declares fails here too.
+ */
+const sourceFilesUnder = (dirUrl) => {
+  const found = [];
+  const walk = (url) => {
+    for (const entry of readdirSync(url, { withFileTypes: true })) {
+      const child = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, url);
+      if (entry.isDirectory()) {
+        walk(child);
+      } else if (/\.tsx?$/.test(entry.name)) {
+        found.push(child);
+      }
+    }
+  };
+  walk(dirUrl);
+  return found;
+};
+
+/** The object literal passed to an `addNotification({ type: 'bulk_removal', ... })` call. */
+const bulkCardLiterals = (sourceFile) =>
+  collectNodes(
+    sourceFile,
+    (node) =>
+      ts.isCallExpression(node) &&
+      node.expression.getText(sourceFile).endsWith('addNotification') &&
+      node.arguments.length > 0 &&
+      ts.isObjectLiteralExpression(node.arguments[0]) &&
+      node.arguments[0].properties.some(
+        (prop) =>
+          ts.isPropertyAssignment(prop) &&
+          prop.name.getText(sourceFile) === 'type' &&
+          ts.isStringLiteral(prop.initializer) &&
+          prop.initializer.text === 'bulk_removal'
+      )
+  ).map((call) => call.arguments[0]);
+
+/** Value of `property` on an object literal, or undefined when absent. */
+const literalProperty = (objectLiteral, sourceFile, property) =>
+  objectLiteral.properties.find(
+    (prop) => ts.isPropertyAssignment(prop) && prop.name.getText(sourceFile) === property
+  )?.initializer;
+
+test('every batch card in the app declares the item types it owns', () => {
+  const declared = new Set();
+  let batchCardsFound = 0;
+
+  for (const fileUrl of sourceFilesUnder(new URL('../src/', import.meta.url))) {
+    const source = readFileSync(fileUrl, 'utf8');
+    if (!source.includes('bulk_removal')) continue;
+
+    const relative = fileUrl.href.slice(new URL('../', import.meta.url).href.length);
+    const sourceFile = ts.createSourceFile(relative, source, ts.ScriptTarget.Latest, true);
+
+    for (const card of bulkCardLiterals(sourceFile)) {
+      batchCardsFound += 1;
+      const details = literalProperty(card, sourceFile, 'details');
+      assert.ok(
+        details && ts.isObjectLiteralExpression(details),
+        `${relative}: a bulk_removal card needs a literal details object declaring itemTypes`
+      );
+
+      const itemTypes = literalProperty(details, sourceFile, 'itemTypes');
+      assert.ok(
+        itemTypes && ts.isArrayLiteralExpression(itemTypes) && itemTypes.elements.length > 0,
+        `${relative}: this batch card declares no itemTypes, so every item it runs will open a ` +
+          'second card beside it. Add the per-item notification types this batch produces.'
+      );
+
+      for (const element of itemTypes.elements) {
+        assert.ok(
+          ts.isStringLiteral(element),
+          `${relative}: itemTypes must be string literals so this check can read them`
+        );
+        declared.add(element.text);
+      }
+    }
+  }
+
+  assert.ok(batchCardsFound > 0, 'found no bulk_removal cards at all; this check has gone blind');
+  assert.deepEqual(
+    [...declared].sort(),
+    CASES.map(([type]) => type).sort(),
+    'the types batches declare and the types the behaviour tests above cover have drifted apart'
   );
 });
