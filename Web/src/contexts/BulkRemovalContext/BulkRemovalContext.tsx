@@ -115,7 +115,9 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
       let currentItemMessage = '';
       const restoreItemMessage = (): void => {
         if (bulkNotifId && currentItemMessage) {
-          updateNotification(bulkNotifId, { message: currentItemMessage });
+          // Back to running as well as back to the item's own line: the card turned purple while
+          // this item sat in the queue, and the promotion is what makes it a live removal again.
+          updateNotification(bulkNotifId, { status: 'running', message: currentItemMessage });
         }
       };
 
@@ -326,7 +328,9 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
       let currentItemMessage = '';
       const restoreItemMessage = (): void => {
         if (bulkNotifId && currentItemMessage) {
-          updateNotification(bulkNotifId, { message: currentItemMessage });
+          // Back to running as well as back to the item's own line: the card turned purple while
+          // this item sat in the queue, and the promotion is what makes it a live removal again.
+          updateNotification(bulkNotifId, { status: 'running', message: currentItemMessage });
         }
       };
 

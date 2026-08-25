@@ -238,6 +238,30 @@ test('the owning bulk card suppresses the queued waiting card too, not just the 
   );
 });
 
+test('a batch still owns its item cards after it turns purple while queued', async () => {
+  const { findBulkCardOwningType } = await loadHandlerFactories();
+  // The batch card goes to 'waiting' while its current item is parked behind another operation.
+  // It is still the owner: if this stopped matching, the queue's own card would reappear next to
+  // it and the user would see the same sentence twice, which is the bug this whole pair prevents.
+  const parkedBatch = [
+    {
+      id: 'bulk_removal_x',
+      type: 'bulk_removal',
+      status: 'waiting',
+      details: { itemTypes: ['service_removal', 'game_removal'] }
+    }
+  ];
+  assert.ok(
+    findBulkCardOwningType('game_removal', parkedBatch),
+    'a parked batch must still own the item types it declared'
+  );
+  assert.equal(
+    findBulkCardOwningType('log_removal', parkedBatch),
+    undefined,
+    'it must not claim a type it never declared'
+  );
+});
+
 test('a batch whose items are a different type keeps its own message', async () => {
   const state = await runWaitingHandler('game_removal', {
     id: 'bulk_removal_x',

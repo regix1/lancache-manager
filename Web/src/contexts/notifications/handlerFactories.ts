@@ -44,7 +44,10 @@ export function findBulkCardOwningType(
   return notifications.find(
     (notification) =>
       notification.type === 'bulk_removal' &&
-      notification.status === 'running' &&
+      // 'waiting' as well as 'running': the card turns purple while its current item is parked
+      // behind another operation, and it still owns the per-item cards for the whole run. Matching
+      // only 'running' would let a second card appear for the item it is already reporting on.
+      (notification.status === 'running' || notification.status === 'waiting') &&
       notification.details?.itemTypes?.includes(type) === true
   );
 }

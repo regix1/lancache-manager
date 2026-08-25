@@ -16,6 +16,7 @@ import {
   OPERATION_WAITING_I18N_KEYS,
   REMOVING_GAME_I18N_KEY
 } from './constants';
+import { findBulkCardOwningType } from './handlerFactories';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
 import i18n from '@/i18n';
@@ -121,10 +122,26 @@ interface WaitingOperationRow {
   blockedByName?: string | null;
 }
 
+/** Queue wording for one waiting row, naming the op and its blocker when the queue knows them. */
+function waitingRowMessage(row: WaitingOperationRow): string {
+  if (row.name) {
+    return row.blockedByName
+      ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED_BLOCKED, {
+          name: row.name,
+          blocker: row.blockedByName
+        })
+      : i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: row.name });
+  }
+  return row.blockedByName
+    ? i18n.t(OPERATION_WAITING_I18N_KEYS.BLOCKED, { blocker: row.blockedByName })
+    : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT);
+}
+
 /**
  * Builds the wait-queue recovery function: synchronizes purple "waiting" cards with the
  * backend queue. Creates missing waiting cards (with details.operationId so cancel works)
- * and removes waiting cards whose queued op no longer exists.
+ * and removes waiting cards whose queued op no longer exists. When a batch already reports on
+ * a queued item's type, its own card carries the wording instead of a second card appearing.
  */
 function createWaitingOperationsRecoveryFunction(
   fetchWithAuth: FetchWithAuth,
@@ -144,7 +161,12 @@ function createWaitingOperationsRecoveryFunction(
 
       setNotifications((prev: UnifiedNotification[]) => {
         // Drop stale waiting cards (op promoted or cancelled while we weren't listening).
-        const next = prev.filter((n) => n.status !== 'waiting' || waitingByType.has(n.type));
+        // A bulk_removal card is exempt: it is client-owned, never appears in the queue rows, and
+        // goes purple on its own while its current item is parked. Filtering on the rows alone
+        // would delete a running batch's card the moment it started waiting.
+        const next = prev.filter(
+          (n) => n.type === 'bulk_removal' || n.status !== 'waiting' || waitingByType.has(n.type)
+        );
 
         // Create cards for queued ops that have none (and whose slot isn't already a
         // running card - a promoted op's card must not be downgraded back to waiting).
@@ -152,20 +174,24 @@ function createWaitingOperationsRecoveryFunction(
           const row = waitingByType.get(entry.type);
           if (!row) continue;
           if (next.some((n) => n.id === entry.id)) continue;
+          // A batch already reporting on this item type owns the display. Recreating a separate
+          // card here would put the same sentence on screen twice, which is what happens on a
+          // reconnect or a refresh mid-batch. Hand the queue's wording to the batch card instead.
+          const owningBulk = findBulkCardOwningType(entry.type, next);
+          if (owningBulk) {
+            const index = next.findIndex((n) => n.id === owningBulk.id);
+            next[index] = {
+              ...owningBulk,
+              status: 'waiting' as NotificationStatus,
+              message: waitingRowMessage(row)
+            };
+            continue;
+          }
           next.push({
             id: entry.id,
             type: entry.type,
             status: 'waiting' as NotificationStatus,
-            message: row.name
-              ? row.blockedByName
-                ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED_BLOCKED, {
-                    name: row.name,
-                    blocker: row.blockedByName
-                  })
-                : i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: row.name })
-              : row.blockedByName
-                ? i18n.t(OPERATION_WAITING_I18N_KEYS.BLOCKED, { blocker: row.blockedByName })
-                : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT),
+            message: waitingRowMessage(row),
             startedAt: new Date(),
             details: { operationId: row.operationId }
           });

@@ -254,7 +254,9 @@ export function useNotificationHandlers(
         const owningBulk = findBulkCardOwningType(entry.type, prev);
         if (owningBulk) {
           return prev.map((n) =>
-            n.id === owningBulk.id ? { ...n, message: waitingMessage(event) } : n
+            n.id === owningBulk.id
+              ? { ...n, status: 'waiting' as const, message: waitingMessage(event) }
+              : n
           );
         }
         // Only once this event is going to replace the card in that slot: a terminal card
