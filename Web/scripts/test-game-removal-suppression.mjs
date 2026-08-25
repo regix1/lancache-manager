@@ -194,7 +194,11 @@ const runWaitingHandler = async (type, bulkNotification) => {
       event.blockedByName ? `waiting for ${event.blockedByName}` : 'waiting'
   });
 
-  waitingHandler({ operationType: 'irrelevant-for-this-test', operationId: 'op-1' });
+  waitingHandler({
+    operationType: 'irrelevant-for-this-test',
+    operationId: 'op-1',
+    blockedByName: 'Cache File Scan'
+  });
   return state;
 };
 
@@ -223,5 +227,30 @@ test('the owning bulk card suppresses the queued waiting card too, not just the 
   assert.ok(
     !state.some((n) => n.id === 'game_removal_card' && n.status === 'waiting'),
     'the waiting card must stay suppressed while the owning bulk card is running'
+  );
+  // Suppressing the card must not also swallow the blocker's name: it is the only thing that
+  // explains why the batch is sitting still, and the batch card cannot work it out on its own.
+  const bulk = state.find((n) => n.id === 'bulk_removal_x');
+  assert.equal(
+    bulk.message,
+    'waiting for Cache File Scan',
+    'the batch card must name the blocking operation while its item is parked'
+  );
+});
+
+test('a batch whose items are a different type keeps its own message', async () => {
+  const state = await runWaitingHandler('game_removal', {
+    id: 'bulk_removal_x',
+    type: 'bulk_removal',
+    status: 'running',
+    message: 'Removing 1 of 2 - Arma 3',
+    startedAt: new Date(),
+    details: { itemTypes: ['eviction_removal'] }
+  });
+  const bulk = state.find((n) => n.id === 'bulk_removal_x');
+  assert.equal(
+    bulk.message,
+    'Removing 1 of 2 - Arma 3',
+    'an unrelated batch must not have its message overwritten by another queue blocker'
   );
 });
