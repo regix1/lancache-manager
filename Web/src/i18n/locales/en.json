@@ -5391,9 +5391,9 @@
           "label": "Clients",
           "description": "Client statistics table showing IP addresses, download counts, bandwidth usage, cache hit/miss bytes, hit rate progress bars, and last activity timestamps"
         },
-        "services": {
-          "label": "Services",
-          "description": "Service statistics table with platform-colored badges (Steam, Epic, Origin, Blizzard, WSUS, Riot), download counts, bandwidth totals, cache hit/miss bytes, and hit rate progress bars"
+        "authenticate": {
+          "label": "Authenticate",
+          "description": "Guest sign-in screen - API key form, its help definitions, the account recovery notice, and the documentation link"
         },
         "users": {
           "label": "Users",
@@ -5483,6 +5483,11 @@
           "label": "Primary Brand Color",
           "description": "Main brand color used throughout",
           "affects": ["Primary buttons", "Links", "Active states", "Focus rings"]
+        },
+        "secondaryColor": {
+          "label": "Secondary Brand Color",
+          "description": "Second brand color paired with the primary",
+          "affects": ["Theme cards", "Gradient accents", "Secondary highlights"]
         },
         "accentColor": {
           "label": "Accent Color",
@@ -5708,6 +5713,16 @@
           "description": "Borders within elevated panels and drawers",
           "affects": ["Panel borders", "Drawer dividers", "Modal section borders"]
         },
+        "borderHover": {
+          "label": "Border Hover",
+          "description": "Border color when a control is hovered",
+          "affects": ["Hovered cards", "Hovered inputs", "Hovered rows"]
+        },
+        "borderWell": {
+          "label": "Well Border",
+          "description": "Border around inset well surfaces",
+          "affects": ["Detail wells", "Inset panels", "Nested surfaces"]
+        },
         "success": {
           "label": "Success Primary",
           "description": "Success state primary color (border for alerts)",
@@ -5798,6 +5813,51 @@
           "description": "Information state text color (alert text)",
           "affects": ["Info messages", "Help content", "Alert text", "Notification text"]
         },
+        "waiting": {
+          "label": "Waiting Primary",
+          "description": "Waiting state primary color (border for queued items)",
+          "affects": ["Waiting icons", "Queued badges", "Waiting borders"]
+        },
+        "waitingBg": {
+          "label": "Waiting Background",
+          "description": "Waiting state background (queued item background)",
+          "affects": ["Waiting badges", "Queued rows", "Waiting banners"]
+        },
+        "waitingText": {
+          "label": "Waiting Text",
+          "description": "Waiting state text color",
+          "affects": ["Waiting messages", "Queue position text", "Waiting badge text"]
+        },
+        "publicAccessBg": {
+          "label": "Public Access Background",
+          "description": "Background of the public access badge",
+          "affects": ["Public access badge"]
+        },
+        "publicAccessText": {
+          "label": "Public Access Text",
+          "description": "Text color of the public access badge",
+          "affects": ["Public access badge text"]
+        },
+        "publicAccessBorder": {
+          "label": "Public Access Border",
+          "description": "Border of the public access badge",
+          "affects": ["Public access badge border"]
+        },
+        "securedAccessBg": {
+          "label": "Secured Access Background",
+          "description": "Background of the secured access badge",
+          "affects": ["Secured access badge"]
+        },
+        "securedAccessText": {
+          "label": "Secured Access Text",
+          "description": "Text color of the secured access badge",
+          "affects": ["Secured access badge text"]
+        },
+        "securedAccessBorder": {
+          "label": "Secured Access Border",
+          "description": "Border of the secured access badge",
+          "affects": ["Secured access badge border"]
+        },
         "navBg": {
           "label": "Navigation Background",
           "description": "Navigation bar background (header background)",
@@ -5843,6 +5903,16 @@
           "description": "Header floating controller icon body color (defaults to primary)",
           "affects": ["Header logo icon"]
         },
+        "rocketFlameColor": {
+          "label": "Rocket Flame",
+          "description": "Outer flame under the rocket in the header projects popover",
+          "affects": ["Rocket exhaust", "Flame tip"]
+        },
+        "rocketFlameCoreColor": {
+          "label": "Rocket Flame Core",
+          "description": "Hotter core inside the rocket flame",
+          "affects": ["Rocket flame core"]
+        },
         "progressBg": {
           "label": "Progress Track",
           "description": "Progress bar background",
@@ -5852,6 +5922,41 @@
           "label": "Chart Primary",
           "description": "Primary chart color",
           "affects": ["First data series", "Main chart color"]
+        },
+        "chartColor2": {
+          "label": "Chart Series 2",
+          "description": "Second chart series color",
+          "affects": ["Second data series"]
+        },
+        "chartColor3": {
+          "label": "Chart Series 3",
+          "description": "Third chart series color",
+          "affects": ["Third data series"]
+        },
+        "chartColor4": {
+          "label": "Chart Series 4",
+          "description": "Fourth chart series color",
+          "affects": ["Fourth data series"]
+        },
+        "chartColor5": {
+          "label": "Chart Series 5",
+          "description": "Fifth chart series color",
+          "affects": ["Fifth data series"]
+        },
+        "chartColor6": {
+          "label": "Chart Series 6",
+          "description": "Sixth chart series color",
+          "affects": ["Sixth data series"]
+        },
+        "chartColor7": {
+          "label": "Chart Series 7",
+          "description": "Seventh chart series color",
+          "affects": ["Seventh data series"]
+        },
+        "chartColor8": {
+          "label": "Chart Series 8",
+          "description": "Eighth chart series color",
+          "affects": ["Eighth data series"]
         },
         "chartCacheHitColor": {
           "label": "Cache Hit Color",
@@ -6002,6 +6107,16 @@
           "label": "Guest User Background",
           "description": "Background color for guest user badges",
           "affects": ["GUEST badge background", "Guest icon background"]
+        },
+        "activeSessionColor": {
+          "label": "Active Session Color",
+          "description": "Icon and text color for sessions that are currently active",
+          "affects": ["Active session badge text", "Active session icon"]
+        },
+        "activeSessionBg": {
+          "label": "Active Session Background",
+          "description": "Background for active session badges",
+          "affects": ["Active session badge", "Active session row"]
         },
         "eventColor1": {
           "label": "Event Color 1",
@@ -6342,6 +6457,11 @@
           "label": "Activity Icon (Cache Hit Ratio)",
           "description": "Background for activity/performance icons",
           "affects": ["Cache Hit Ratio card icon", "Performance indicators"]
+        },
+        "iconBgTeal": {
+          "label": "Teal Icon Background",
+          "description": "Background for teal section icons",
+          "affects": ["Teal stat card icons", "Teal section icons"]
         },
         "iconBgRed": {
           "label": "Error Icon (Critical States)",

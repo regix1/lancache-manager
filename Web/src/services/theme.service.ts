@@ -1160,6 +1160,12 @@ class ThemeService {
       /* Glow */
       --theme-glow-soft: ${v('glowSoft', rgba(primary, 0.3))};
       --theme-glow-intense: ${v('glowIntense', rgba(primary, 0.7))};
+
+      /* Rocket flame - the exhaust under the header rocket. The fallbacks are the flame's own
+         warm pair rather than a firework tier, so a theme that says nothing about the flame
+         keeps the orange and yellow it has always had instead of following the primary. */
+      --theme-rocket-flame: ${v('rocketFlameColor', '#ffa585')};
+      --theme-rocket-flame-core: ${v('rocketFlameCoreColor', '#ffe266')};
     `;
   }
 

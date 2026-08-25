@@ -1,0 +1,50 @@
+/* ==============================================
+ * THEME EDITOR — COLOR LIST AND COLOR ROW
+ * Kept unlayered, like the rest of the app's feature stylesheets, so these rules win over
+ * the @layer components recipes they refine regardless of the order the chunks load in.
+ * ============================================== */
+
+/* The search box takes the toolbar's spare width and is allowed to shrink past its own
+   content, so the page filter and the expand-all control keep their widths instead of
+   being pushed onto a second line the moment the modal narrows. */
+.theme-editor-form__search {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.theme-editor-form__page-filter {
+  flex: 0 1 14rem;
+  min-width: 10rem;
+}
+
+/* The shared expand-all control ships at the 32px sm height. In this toolbar it stands
+   beside a 40px search box and a 40px page filter, so it takes the row's height like
+   everything else in the row. Higher specificity than the utility the size prop emits, so
+   no !important is needed. */
+.theme-editor-form__expand-all > button {
+  min-height: 2.5rem;
+}
+
+/* Phone: the row is 44px here, because the search box and the dropdown both take the touch
+   floor below this breakpoint and a 40px control beside them reads as 4px short. */
+@media (max-width: 639.98px) {
+  .theme-editor-form__expand-all > button {
+    min-height: 44px;
+  }
+}
+
+/* The color swatch: 32px tall like the hex field and the two icon buttons beside it, wider
+   than it is tall so the color itself has room to read. Its fill is the token's own value,
+   which only the running theme knows, so it arrives as a custom property and the rule that
+   paints it lives here. */
+.theme-color-swatch {
+  width: 3rem;
+  height: 2rem;
+  background-color: var(--color-swatch-fill);
+}
+
+/* A value the color parser cannot take apart. Only the border color changes, at the 1px the
+   field already draws, so marking it does not move the field or the row around it. */
+.theme-color-hex--invalid {
+  border-color: var(--theme-error);
+}

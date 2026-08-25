@@ -26,6 +26,7 @@ import { LoadingState } from '@components/ui/ManagerCard';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { API_BASE } from '@utils/constants';
+import { downloadTextFile } from '@utils/downloadTextFile';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
@@ -531,13 +532,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
 
   const handleExportTheme = (theme: Theme) => {
     const toml = themeService.exportTheme(theme);
-    const blob = new Blob([toml], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${theme.meta.id}.toml`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadTextFile(toml, `${theme.meta.id}.toml`, 'text/plain');
   };
 
   const downloadSampleTheme = () => {
@@ -849,7 +844,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                     <Button
                       variant="filled"
                       color="secondary"
-                      size="xs"
+                      size="sm"
                       onClick={downloadSampleTheme}
                       className="self-start sm:self-auto"
                     >

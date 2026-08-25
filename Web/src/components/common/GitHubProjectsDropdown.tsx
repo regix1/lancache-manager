@@ -49,12 +49,15 @@ function getFireworkColors(): string[] {
   if (colors.length === 0) {
     const primaryColor = computedStyle.getPropertyValue('--theme-primary').trim();
     if (primaryColor) {
-      // Return primary color with white for contrast
-      colors.push(primaryColor, '#ffffff', primaryColor, '#ffffff');
+      // Return primary color with the page ink for contrast
+      colors.push(
+        primaryColor,
+        'var(--theme-text-primary)',
+        primaryColor,
+        'var(--theme-text-primary)'
+      );
     }
   }
-
-  // Debug log - remove after testing
 
   return colors;
 }
@@ -99,7 +102,7 @@ function createParticleBurst(x: number, y: number): void {
     const vy = Math.sin(angle) * velocity;
 
     // Random color from theme
-    const color = colors[Math.floor(Math.random() * colors.length)] || '#ffffff';
+    const color = colors[Math.floor(Math.random() * colors.length)] || 'var(--theme-text-primary)';
 
     // Random size (mostly 3px, some 2px for variety)
     const size = Math.random() > 0.3 ? 3 : 2;
@@ -215,20 +218,20 @@ const FirecrackerSVG: React.FC = () => (
       d="m433.103.296-10.622 1.457c2.195 4.103 3.192 8.931 2.495 14.009l-14.361 104.658c-2.598 18.936-25.743 26.722-39.258 13.207l-90.298-90.297c-4.232-4.231-6.374-9.407-6.741-14.601-10.993 11.444-12.492 30.776.366 43.634l121.366 121.367c18.165 18.165 49.273 7.7 52.766-17.751l19.302-140.668c2.797-20.385-14.63-37.812-35.015-35.015z"
       fill="var(--theme-primary)"
     />
-    {/* Flame outer - orange/yellow */}
+    {/* Flame outer - its own theme color, so the exhaust does not follow the primary */}
     <path
       d="m147.689 401.87c20.827-25.373 17.142-62.825-8.23-83.652-25.373-20.827-66.558-28.954-87.385-3.581s-52.421 122.162-27.048 142.989c17.12 14.053 31.209-38.02 57.619-50.812s58.27 3.309 65.044-4.944z"
-      fill="#ffa585"
+      fill="var(--theme-rocket-flame)"
     />
-    {/* Flame inner - yellow */}
+    {/* Flame inner - the hotter core, so it stands out of the outer flame */}
     <path
       d="m140.347 365.297c12.571-8.711 15.7-25.963 6.989-38.534s-35.552-16.738-48.122-8.027c-12.571 8.711-29.657 43.318-20.946 55.889 5.878 8.482 18.837-13.053 32.303-15.414 13.466-2.362 25.687 8.919 29.776 6.086z"
-      fill="#ffe266"
+      fill="var(--theme-rocket-flame-core)"
     />
-    {/* Flame tip - orange */}
+    {/* Flame tip - the outer flame again */}
     <path
       d="m121.068 456.914c5.746-6.999 4.729-17.331-2.27-23.076s-17.331-4.729-23.076 2.27c-5.746 6.999-20.334 36.341-13.334 42.087 6.998 5.745 32.934-14.281 38.68-21.281z"
-      fill="#ffa585"
+      fill="var(--theme-rocket-flame)"
     />
     {/* Window highlight */}
     <path
@@ -314,7 +317,7 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, direction, onComple
         dot.style.opacity = '0';
         // Apply theme color directly as inline style
         const colorIndex = i % (trailColors.length || 1);
-        const trailColor = trailColors[colorIndex] || '#ffffff';
+        const trailColor = trailColors[colorIndex] || 'var(--theme-text-primary)';
         dot.style.setProperty('--trail-color', trailColor);
         trailContainer.appendChild(dot);
         trailDotsRef.current.push(dot);

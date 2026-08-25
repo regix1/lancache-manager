@@ -1,21 +1,30 @@
-import React, { useState, useCallback } from 'react';
-import { Layers, Layout, ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { SearchX, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
-import FormField from '@components/ui/FormField';
+import { AccordionSection } from '@components/ui/AccordionSection';
+import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
+import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
+import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { SearchInput } from '@components/ui/SearchInput';
-import { SegmentedControl } from '@components/ui/SegmentedControl';
-import { Tooltip } from '@components/ui/Tooltip';
+import { Button } from '@components/ui/Button';
+import { EmptyState } from '@components/ui/ManagerCard';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { ImprovedColorPicker } from './ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from './constants';
 import { type ColorGroup } from './types';
 import { copyText } from '@utils/clipboard';
 import { useCopyFeedback } from '@/hooks/useCopyFeedback';
+import '@/styles/features/theme-editor-form.css';
 
 interface ThemeEditorFormProps {
   themeData: Record<string, string | boolean>;
   onColorChange: (key: string, value: string) => void;
-  onMetaChange: (key: string, value: string | boolean) => void;
+  /**
+   * Optional because the only field this form ever used it for was the custom CSS box, which
+   * now lives on its own pane. Kept in the shape so a caller still handing it down does not
+   * have to change.
+   */
+  onMetaChange?: (key: string, value: string | boolean) => void;
   colorHistory: {
     commitColor: (key: string, previousColor: string) => void;
     restoreColor: (key: string, applyColor: (color: string) => void) => void;
@@ -23,14 +32,54 @@ interface ThemeEditorFormProps {
   };
 }
 
+interface ColorGroupSectionProps {
+  group: ColorGroup;
+  title: string;
+  description: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}
+
+/**
+ * One collapsible group of color fields.
+ *
+ * A component of its own rather than markup inside the list's map, because it has to call
+ * `useAccordionGroupItem` to reach the expand-all control, and the number of groups on
+ * screen changes with the search and the page filter, so a hook cannot run in that loop.
+ */
+const ColorGroupSection: React.FC<ColorGroupSectionProps> = ({
+  group,
+  title,
+  description,
+  isExpanded,
+  onToggle,
+  children
+}) => {
+  useAccordionGroupItem(`theme-colors-${group.name}`, isExpanded, onToggle);
+
+  return (
+    <AccordionSection
+      title={title}
+      // The shared header takes an icon component that accepts size/className/style, while
+      // the group list types the same lucide icons as the wider ElementType.
+      icon={group.icon as LucideIcon}
+      count={group.colors.length}
+      isExpanded={isExpanded}
+      onToggle={onToggle}
+    >
+      <p className="text-xs text-themed-muted mb-3">{description}</p>
+      <div className="space-y-4">{children}</div>
+    </AccordionSection>
+  );
+};
+
 const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
   themeData,
   onColorChange,
-  onMetaChange,
   colorHistory
 }) => {
   const { t } = useTranslation();
-  const [organizationMode, setOrganizationMode] = useState<'category' | 'page'>('category');
   const [selectedPage, setSelectedPage] = useState('all');
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['foundation']);
   const [copiedColor, markCopied] = useCopyFeedback<string | null>(null);
@@ -113,162 +162,92 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
       .filter((group) => group.colors.length > 0);
   };
 
-  // Get filtered groups based on organization mode
-  const getFilteredGroups = useCallback(
-    (groups: ColorGroup[], search: string): ColorGroup[] => {
-      let filtered = groups;
+  const pageOptions: DropdownOption[] = pageDefinitions.map((page) => ({
+    value: page.name,
+    label: getPageLabel(page),
+    description: getPageDescription(page)
+  }));
 
-      // Apply page filter if in page mode
-      if (organizationMode === 'page') {
-        filtered = filterByPage(filtered, selectedPage);
-      }
-
-      // Apply search filter
-      if (search.trim()) {
-        filtered = filterColorGroups(filtered, search);
-      }
-
-      return filtered;
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [organizationMode, selectedPage]
-  );
+  const visibleGroups = filterColorGroups(filterByPage(colorGroups, selectedPage), searchQuery);
 
   return (
-    <>
-      {/* Organization Mode Toggle */}
-      <SegmentedControl
-        options={[
-          { value: 'category', label: t('modals.theme.organization.byCategory'), icon: <Layers /> },
-          { value: 'page', label: t('modals.theme.organization.byPage'), icon: <Layout /> }
-        ]}
-        value={organizationMode}
-        onChange={(value) => setOrganizationMode(value as 'category' | 'page')}
-        showLabels
-        fullWidth
-      />
-
-      {/* Page Selector (when in page mode) */}
-      <CollapsibleRegion open={organizationMode === 'page'} contentClassName="mt-4">
-        <label className="form-field-label">{t('modals.theme.organization.selectPage')}</label>
-        <div className="grid grid-cols-3 gap-2">
-          {pageDefinitions.map((page) => {
-            const Icon = page.icon;
-            return (
-              <Tooltip
-                key={page.name}
-                content={getPageDescription(page)}
-                position="top"
-                className="block"
-              >
-                <button
-                  onClick={() => setSelectedPage(page.name)}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition duration-200 flex items-center gap-2 ${
-                    selectedPage === page.name
-                      ? 'bg-primary text-themed-button'
-                      : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {getPageLabel(page)}
-                </button>
-              </Tooltip>
-            );
-          })}
+    <AccordionGroupProvider>
+      <div className="cluster mb-4">
+        <div className="theme-editor-form__search">
+          <SearchInput
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t('modals.theme.placeholders.searchColors')}
+            onClear={() => setSearchQuery('')}
+          />
         </div>
-      </CollapsibleRegion>
 
-      {/* Search Bar */}
-      <div className="mt-4">
-        <SearchInput
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={t('modals.theme.placeholders.searchColors')}
-          onClear={() => setSearchQuery('')}
+        <EnhancedDropdown
+          options={pageOptions}
+          value={selectedPage}
+          onChange={setSelectedPage}
+          size="md"
+          prefix={t('modals.theme.organization.selectPage')}
+          triggerAriaLabel={t('modals.theme.organization.selectPage')}
+          className="theme-editor-form__page-filter"
         />
+
+        <span className="theme-editor-form__expand-all">
+          <AccordionGroupToggle />
+        </span>
       </div>
 
-      {/* Color Groups */}
-      <div className="space-y-4 max-h-96 overflow-y-auto">
-        {getFilteredGroups(colorGroups, searchQuery).map((group) => {
-          const Icon = group.icon;
-          const isExpanded = expandedGroups.includes(group.name) || searchQuery.trim() !== '';
-
-          return (
-            <div
+      {visibleGroups.length === 0 ? (
+        // A search that matches nothing used to render an empty list and no words at all.
+        <EmptyState
+          variant="panel"
+          icon={SearchX}
+          title={t('ui.dropdown.noMatches')}
+          subtitle={searchQuery}
+          action={
+            <Button type="button" variant="default" size="sm" onClick={() => setSearchQuery('')}>
+              {t('common.clearSearch')}
+            </Button>
+          }
+        />
+      ) : (
+        <div className="space-y-4">
+          {visibleGroups.map((group) => (
+            <ColorGroupSection
               key={group.name}
-              className="themed-card rounded-lg overflow-hidden border border-themed"
+              group={group}
+              title={getGroupTitle(group)}
+              description={getGroupDescription(group)}
+              isExpanded={expandedGroups.includes(group.name) || searchQuery.trim() !== ''}
+              onToggle={() => toggleGroup(group.name)}
             >
-              <button
-                onClick={() => toggleGroup(group.name)}
-                className={`w-full px-4 py-3 flex items-center justify-between hover:bg-opacity-50 transition duration-200 ${
-                  isExpanded ? 'rounded-t-lg bg-themed-tertiary' : 'rounded-lg bg-transparent'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Icon className="w-4 h-4 text-themed-accent" />
-                  <div className="text-left">
-                    <h5 className="text-sm font-semibold capitalize text-themed-primary">
-                      {getGroupTitle(group)}
-                    </h5>
-                    <p className="text-xs text-themed-muted">{getGroupDescription(group)}</p>
-                  </div>
-                </div>
-                {isExpanded ? (
-                  <ChevronDown className="w-4 h-4" />
-                ) : (
-                  <ChevronRight className="w-4 h-4" />
-                )}
-              </button>
-
-              <CollapsibleRegion
-                open={isExpanded}
-                contentClassName="p-4 space-y-4 rounded-b-lg bg-themed-card border-t border-themed"
-              >
-                {group.colors.map((color) => (
-                  <ImprovedColorPicker
-                    key={color.key}
-                    label={getColorLabel(color)}
-                    description={getColorDescription(color)}
-                    affects={getColorAffects(color)}
-                    value={(themeData[color.key] as string) || ''}
-                    onChange={(value) => onColorChange(color.key, value)}
-                    onColorCommit={(previousColor) =>
-                      colorHistory.commitColor(color.key, previousColor)
-                    }
-                    supportsAlpha={color.supportsAlpha}
-                    copiedColor={copiedColor}
-                    onCopy={copyColor}
-                    onRestore={() =>
-                      colorHistory.restoreColor(color.key, (restoredColor) =>
-                        onColorChange(color.key, restoredColor)
-                      )
-                    }
-                    hasHistory={colorHistory.hasHistory(color.key)}
-                  />
-                ))}
-              </CollapsibleRegion>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Custom CSS */}
-      <div>
-        <FormField label={t('modals.theme.form.customCss')}>
-          {(field) => (
-            <textarea
-              {...field}
-              value={(themeData.customCSS as string) || ''}
-              onChange={(e) => onMetaChange('customCSS', e.target.value)}
-              placeholder={t('modals.theme.placeholders.customCss')}
-              rows={4}
-              className="w-full px-3 py-2 rounded font-mono text-xs focus:outline-none themed-input"
-            />
-          )}
-        </FormField>
-      </div>
-    </>
+              {group.colors.map((color) => (
+                <ImprovedColorPicker
+                  key={color.key}
+                  label={getColorLabel(color)}
+                  description={getColorDescription(color)}
+                  affects={getColorAffects(color)}
+                  value={(themeData[color.key] as string) || ''}
+                  onChange={(value) => onColorChange(color.key, value)}
+                  onColorCommit={(previousColor) =>
+                    colorHistory.commitColor(color.key, previousColor)
+                  }
+                  supportsAlpha={color.supportsAlpha}
+                  copiedColor={copiedColor}
+                  onCopy={copyColor}
+                  onRestore={() =>
+                    colorHistory.restoreColor(color.key, (restoredColor) =>
+                      onColorChange(color.key, restoredColor)
+                    )
+                  }
+                  hasHistory={colorHistory.hasHistory(color.key)}
+                />
+              ))}
+            </ColorGroupSection>
+          ))}
+        </div>
+      )}
+    </AccordionGroupProvider>
   );
 };
 

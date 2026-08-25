@@ -1,7 +1,12 @@
-import { Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@components/ui/Checkbox';
 import FormField from '@components/ui/FormField';
+import { ImprovedColorPicker } from '@components/features/management/theme/ImprovedColorPicker';
+import { type EditableTheme } from '@components/features/management/theme/types';
+import { useCopyFeedback } from '@hooks/useCopyFeedback';
+import { type useColorHistory } from '@hooks/useColorHistory';
+import { copyText } from '@utils/clipboard';
+import { THEME_BASE_COLORS } from './constants';
 import type { ReactNode, ChangeEvent } from 'react';
 
 interface ThemeFieldsProps {
@@ -16,10 +21,15 @@ interface ThemeFieldsProps {
   onDarkChange: (checked: boolean) => void;
   /** Content beside the dark-theme checkbox: Create's two preset-load buttons, Edit's theme-id note. */
   trailingContent: ReactNode;
+  /** The whole draft, so the base color rows can read their current values. */
+  themeData: EditableTheme;
+  onColorChange: (key: string, value: string) => void;
+  colorHistory: ReturnType<typeof useColorHistory>;
 }
 
 /**
- * Name / author / description / dark-theme fields shared by the create and edit theme modals.
+ * The Basics pane of the create and edit theme modals: the theme's name, author, description and
+ * dark/light flag, then the handful of colors every other token is derived from.
  */
 export const ThemeFields: React.FC<ThemeFieldsProps> = ({
   name,
@@ -30,16 +40,28 @@ export const ThemeFields: React.FC<ThemeFieldsProps> = ({
   onAuthorChange,
   onDescriptionChange,
   onDarkChange,
-  trailingContent
+  trailingContent,
+  themeData,
+  onColorChange,
+  colorHistory
 }) => {
   const { t } = useTranslation();
+  const [copiedColor, markCopied] = useCopyFeedback<string | null>(null);
+
+  const copyColor = async (color: string) => {
+    // Only claims the copy when it happened; over plain http the clipboard API is absent.
+    if (await copyText(color)) {
+      markCopied(color);
+    }
+  };
+
+  const colorAffects = (key: string): string[] => {
+    const translated = t(`modals.theme.colors.${key}.affects`, { returnObjects: true });
+    return Array.isArray(translated) ? (translated as string[]) : [];
+  };
 
   return (
     <div className="space-y-4">
-      <h4 className="text-sm font-semibold flex items-center gap-2 text-themed-primary">
-        <Info className="w-4 h-4" />
-        {t('modals.theme.form.themeInfo')}
-      </h4>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <FormField label={t('modals.theme.form.themeName')}>
@@ -50,7 +72,7 @@ export const ThemeFields: React.FC<ThemeFieldsProps> = ({
                 value={name}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => onNameChange(e.target.value)}
                 placeholder={t('modals.theme.placeholders.themeName')}
-                className="w-full px-3 py-2 focus:outline-none themed-input"
+                className="w-full px-3 py-2 text-sm control-h-md focus:outline-none themed-input"
               />
             )}
           </FormField>
@@ -64,7 +86,7 @@ export const ThemeFields: React.FC<ThemeFieldsProps> = ({
                 value={author}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => onAuthorChange(e.target.value)}
                 placeholder={t('modals.theme.placeholders.author')}
-                className="w-full px-3 py-2 focus:outline-none themed-input"
+                className="w-full px-3 py-2 text-sm control-h-md focus:outline-none themed-input"
               />
             )}
           </FormField>
@@ -79,21 +101,44 @@ export const ThemeFields: React.FC<ThemeFieldsProps> = ({
               value={description}
               onChange={(e: ChangeEvent<HTMLInputElement>) => onDescriptionChange(e.target.value)}
               placeholder={t('modals.theme.placeholders.description')}
-              className="w-full px-3 py-2 rounded focus:outline-none themed-input"
+              className="w-full px-3 py-2 text-sm control-h-md focus:outline-none themed-input"
             />
           )}
         </FormField>
       </div>
-      <div className="space-y-3">
-        <div className="flex items-center gap-4">
-          <Checkbox
-            checked={isDark}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => onDarkChange(e.target.checked)}
-            variant="rounded"
-            label={t('modals.theme.form.darkTheme')}
+      {/* Wraps rather than squeezing: the preset buttons do not shrink, and on a phone they used to
+          compress the checkbox out of square. */}
+      <div className="flex flex-wrap items-center gap-4">
+        <Checkbox
+          checked={isDark}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => onDarkChange(e.target.checked)}
+          variant="rounded"
+          className="shrink-0"
+          label={t('modals.theme.form.darkTheme')}
+        />
+        {trailingContent}
+      </div>
+      <div className="theme-editor-modal__base-colors">
+        {THEME_BASE_COLORS.map((color) => (
+          <ImprovedColorPicker
+            key={color.key}
+            label={t(`modals.theme.colors.${color.key}.label`)}
+            description={t(`modals.theme.colors.${color.key}.description`)}
+            affects={colorAffects(color.key)}
+            value={(themeData[color.key] as string) || ''}
+            onChange={(value) => onColorChange(color.key, value)}
+            onColorCommit={(previousColor) => colorHistory.commitColor(color.key, previousColor)}
+            supportsAlpha={color.supportsAlpha}
+            copiedColor={copiedColor}
+            onCopy={copyColor}
+            onRestore={() =>
+              colorHistory.restoreColor(color.key, (restoredColor) =>
+                onColorChange(color.key, restoredColor)
+              )
+            }
+            hasHistory={colorHistory.hasHistory(color.key)}
           />
-          {trailingContent}
-        </div>
+        ))}
       </div>
     </div>
   );

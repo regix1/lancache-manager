@@ -38,6 +38,7 @@ borderSecondary = "#444444"     # Medium border
 borderFocus = "#ea580c"         # Orange focus ring
 borderElevated = "#3a3a3a"      # Borders within elevated panels
 borderHover = "#505050"         # Border hover state
+borderWell = "#373737"          # Recessed well edge
 
 # Navigation - Neutral dark tones
 navBg = "#1b1b1b"               # Dark navigation background
@@ -234,6 +235,8 @@ fireworkColor7 = "#f59e0b"      # Amber
 fireworkColor8 = "#ffffff"      # White
 fireworkRocketColor = "#ea580c" # Orange rocket body
 fireworkGlowColor = "#fbbf24"   # Golden glow effect
+rocketFlameColor = "#fbbf24"     # Golden yellow rocket exhaust
+rocketFlameCoreColor = "#fef3c7" # Hotter pale gold core
 
 [css]
 content = """

@@ -6,8 +6,11 @@ import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Slider } from '@components/ui/Slider';
 import Badge from '@components/ui/Badge';
+import { Button } from '@components/ui/Button';
 import { useAnchoredPanel, type PanelPlacement, type PanelSpace } from '@hooks/useAnchoredPanel';
 import { clampToViewport, MENU_GUTTER_PX } from '@utils/viewportClamp';
+import { hexToRgba, readColorChannels } from '@services/themeSchema';
+import '@/styles/features/theme-editor-form.css';
 
 /** Gap between the swatch and the picker on whichever side it opens. */
 const SWATCH_GAP_PX = 8;
@@ -15,6 +18,11 @@ const SWATCH_GAP_PX = 8;
 const PICKER_WIDTH_PX = 250;
 /** Extra room the right side must offer before the picker prefers it. */
 const RIGHT_SIDE_MARGIN_PX = 20;
+/**
+ * The opacity out of an rgba() value. The three channels come from `readColorChannels`,
+ * which reads past the alpha and drops it because most of its callers pick their own.
+ */
+const RGBA_ALPHA = /^rgba\(\s*\d+[\s,]+\d+[\s,]+\d+\s*[,/]\s*([\d.]+)\s*\)$/i;
 
 interface ImprovedColorPickerProps {
   value: string;
@@ -49,6 +57,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
   const [showPicker, setShowPicker] = useState(false);
   const [hexValue, setHexValue] = useState('');
   const [alpha, setAlpha] = useState(1);
+  const [hexInvalid, setHexInvalid] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const colorBeforeEdit = useRef<string | null>(null);
@@ -56,29 +65,28 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
   // Parse color value (hex or rgba) - skip while picker is open (local state is authoritative during drag)
   useEffect(() => {
     if (showPicker) return;
-    const rgbaMatch = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-    if (rgbaMatch) {
-      const r = parseInt(rgbaMatch[1]);
-      const g = parseInt(rgbaMatch[2]);
-      const b = parseInt(rgbaMatch[3]);
-      const a = rgbaMatch[4] ? parseFloat(rgbaMatch[4]) : 1;
-      const hex = '#' + [r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('');
-      setHexValue(hex);
-      setAlpha(a);
-    } else if (value.startsWith('#')) {
-      setHexValue(value);
-      setAlpha(1);
-    }
+    const channels = readColorChannels(value);
+    if (!channels) return;
+    setHexValue(
+      '#' + channels.map((channel: number) => channel.toString(16).padStart(2, '0')).join('')
+    );
+    const opacity = RGBA_ALPHA.exec(value.trim());
+    setAlpha(opacity ? parseFloat(opacity[1]) : 1);
   }, [value, showPicker]);
 
-  /** Closes the picker, recording the colour it opened on so the edit can be undone. */
-  const closePicker = useCallback((): void => {
+  /** Hands the color the edit started from to the history, so the edit can be undone. */
+  const commitEdit = useCallback((): void => {
     if (onColorCommit && colorBeforeEdit.current && colorBeforeEdit.current !== value) {
       onColorCommit(colorBeforeEdit.current);
     }
     colorBeforeEdit.current = null;
-    setShowPicker(false);
   }, [onColorCommit, value]);
+
+  /** Closes the picker, recording the color it opened on so the edit can be undone. */
+  const closePicker = useCallback((): void => {
+    commitEdit();
+    setShowPicker(false);
+  }, [commitEdit]);
 
   /**
    * The picker sits BESIDE its swatch rather than under it, so the shared below/above
@@ -116,9 +124,9 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
     place
   });
 
-  // Click-outside only. Escape now closes the picker through the shared hook, which it
-  // never did before, and the close-on-scroll listener is gone: the picker is
-  // positioned on the page and carried by its swatch, so scrolling keeps them together.
+  // Click-outside only. Escape is handled below, and the close-on-scroll listener is gone:
+  // the picker is positioned on the page and carried by its swatch, so scrolling keeps
+  // them together.
   useEffect(() => {
     if (!showPicker) return;
 
@@ -137,14 +145,23 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showPicker, closePicker]);
 
-  const hexToRgba = (hex: string, alpha: number): string => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    if (!result) return hex;
-    const r = parseInt(result[1], 16);
-    const g = parseInt(result[2], 16);
-    const b = parseInt(result[3], 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  };
+  // One Escape closes the picker and only the picker. The dialog around it handles Escape
+  // through React, which delegates from the portal container the dialog is mounted in, so
+  // a keypress that is left to bubble reaches the dialog first and takes the whole form
+  // down with the popover. Listening in the capture phase on the document puts this ahead
+  // of both that delegation and the shared panel hook's own Escape.
+  useEffect(() => {
+    if (!showPicker) return;
+
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      closePicker();
+    };
+
+    document.addEventListener('keydown', handleEscape, true);
+    return () => document.removeEventListener('keydown', handleEscape, true);
+  }, [showPicker, closePicker]);
 
   const handleHexChange = (newHex: string) => {
     setHexValue(newHex);
@@ -168,8 +185,18 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
     }
   };
 
+  /**
+   * Flags a value the color parser cannot read. On blur rather than per keystroke, because
+   * a half-typed `#ff` is not a mistake yet and marking it while the caret is still in the
+   * field says the reader got it wrong before they have finished.
+   */
+  const handleHexBlur = (): void => {
+    setHexInvalid(value.trim() !== '' && readColorChannels(value) === null);
+    commitEdit();
+  };
+
   return (
-    <div className="grid grid-cols-[1fr_auto] gap-4 items-start">
+    <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4 items-start">
       {/* Label and description */}
       <div>
         {label && <label className="form-field-label">{label}</label>}
@@ -188,14 +215,15 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
       {/* Color controls */}
       <div className="flex items-center gap-2">
         {/* Color preview button */}
-        <div className="relative">
+        <div className="relative flex">
           <Tooltip content={t('modals.theme.colorPicker.pickColor')} position="top">
             <button
               ref={buttonRef}
               type="button"
               onClick={handlePickerToggle}
-              className="w-12 h-8 rounded border-2 cursor-pointer transition hover:scale-105 border-themed-secondary"
-              style={{ backgroundColor: value }}
+              aria-label={t('modals.theme.colorPicker.pickColor')}
+              className="theme-color-swatch themed-border-radius-sm border-2 cursor-pointer border-themed-secondary"
+              style={{ '--color-swatch-fill': value } as React.CSSProperties}
             />
           </Tooltip>
 
@@ -220,20 +248,26 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
                   <span className="text-xs font-medium text-themed-secondary">
                     {t('modals.theme.colorPicker.pickColor')}
                   </span>
-                  <button
+                  {/* closePicker, not a bare setShowPicker: closing through the X has to
+                      record the color the picker opened on, or Restore has nothing to
+                      undo back to. */}
+                  <Button
                     type="button"
-                    onClick={() => setShowPicker(false)}
-                    className="p-1 rounded hover:bg-themed-hover"
+                    variant="subtle"
+                    size="sm"
+                    onClick={closePicker}
+                    aria-label={t('common.close')}
+                    className="btn-icon-square btn-icon-square--sm pointer-target-44 themed-border-radius-sm"
                   >
                     <X className="w-3 h-3 text-themed-muted" />
-                  </button>
+                  </Button>
                 </div>
                 <HexColorPicker color={hexValue} onChange={handleHexChange} />
                 <div className="mt-3 space-y-2">
                   <HexColorInput
                     color={hexValue}
                     onChange={handleHexChange}
-                    className="w-full px-2 py-1 text-xs rounded font-mono themed-input"
+                    className="themed-input input-search-sm themed-border-radius-sm w-full px-2 font-mono"
                     prefixed
                   />
                   {supportsAlpha && (
@@ -270,26 +304,36 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
         <input
           type="text"
           value={value}
-          onFocus={onStart}
+          onFocus={() => {
+            colorBeforeEdit.current = value;
+            if (onStart) onStart();
+          }}
           onChange={(e) => onChange(e.target.value)}
-          className="w-24 px-2 py-[7px] text-xs rounded font-mono themed-input"
+          onBlur={handleHexBlur}
+          aria-invalid={hexInvalid}
+          className={`themed-input input-search-sm themed-border-radius-sm w-24 px-2 font-mono${
+            hexInvalid ? ' theme-color-hex--invalid' : ''
+          }`}
           placeholder=""
         />
 
         {/* Action buttons */}
         {onCopy && (
           <Tooltip content={t('modals.theme.colorPicker.copyColor')} position="top">
-            <button
+            <Button
               type="button"
+              variant="subtle"
+              size="sm"
               onClick={() => onCopy(value)}
-              className="p-[10px] rounded-lg hover:bg-opacity-50 bg-themed-hover"
+              aria-label={t('modals.theme.colorPicker.copyColor')}
+              className="btn-icon-square btn-icon-square--sm pointer-target-44 themed-border-radius-sm"
             >
               {copiedColor === value ? (
                 <Check className="w-3 h-3 icon-success" />
               ) : (
                 <Copy className="w-3 h-3 text-themed-muted" />
               )}
-            </button>
+            </Button>
           </Tooltip>
         )}
 
@@ -303,14 +347,17 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             }
             position="top"
           >
-            <button
+            <Button
               type="button"
+              variant="subtle"
+              size="sm"
               onClick={onRestore}
               disabled={!hasHistory}
-              className="p-[10px] rounded-lg hover:bg-opacity-50 bg-themed-hover disabled:opacity-30 disabled:cursor-not-allowed transition-none"
+              aria-label={t('modals.theme.colorPicker.restorePrevious')}
+              className="btn-icon-square btn-icon-square--sm pointer-target-44 themed-border-radius-sm"
             >
               <RotateCcw className="w-3 h-3 text-themed-muted" />
-            </button>
+            </Button>
           </Tooltip>
         )}
       </div>

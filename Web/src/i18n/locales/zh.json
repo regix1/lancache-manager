@@ -5391,9 +5391,9 @@
           "label": "客户端",
           "description": "显示 IP 地址、下载次数、带宽使用量、缓存命中/未命中字节数、命中率进度条和最后活动时间戳的客户端统计表"
         },
-        "services": {
-          "label": "服务",
-          "description": "带有平台颜色徽章（Steam、Epic、Origin、Blizzard、WSUS、Riot）、下载次数、带宽总量、缓存命中/未命中字节数和命中率进度条的服务统计表"
+        "authenticate": {
+          "label": "验证身份",
+          "description": "访客登录界面 - API 密钥表单、帮助说明、账户恢复提示和文档链接"
         },
         "users": {
           "label": "用户",
@@ -5483,6 +5483,11 @@
           "label": "主要品牌色",
           "description": "整个应用中使用的主要品牌色",
           "affects": ["主要按钮", "链接", "活跃状态", "焦点环"]
+        },
+        "secondaryColor": {
+          "label": "次要品牌色",
+          "description": "与主色搭配的第二品牌色",
+          "affects": ["主题卡片", "渐变强调", "次要高亮"]
         },
         "accentColor": {
           "label": "强调色",
@@ -5704,6 +5709,16 @@
           "description": "抬高面板和抽屉中的边框",
           "affects": ["面板边框", "抽屉分隔线", "弹窗区域边框"]
         },
+        "borderHover": {
+          "label": "边框悬停",
+          "description": "控件悬停时的边框颜色",
+          "affects": ["悬停卡片", "悬停输入框", "悬停行"]
+        },
+        "borderWell": {
+          "label": "凹槽边框",
+          "description": "内嵌凹槽表面的边框",
+          "affects": ["详情凹槽", "内嵌面板", "嵌套表面"]
+        },
         "success": {
           "label": "成功主要",
           "description": "成功状态主色（警告边框）",
@@ -5764,6 +5779,51 @@
           "description": "信息状态文本色（信息文本）",
           "affects": ["信息消息", "帮助内容", "信息文本", "通知文本"]
         },
+        "waiting": {
+          "label": "等待主要",
+          "description": "等待状态主色（排队项目的边框）",
+          "affects": ["等待图标", "排队徽章", "等待边框"]
+        },
+        "waitingBg": {
+          "label": "等待背景",
+          "description": "等待状态背景色（排队项目背景）",
+          "affects": ["等待徽章", "排队行", "等待横幅"]
+        },
+        "waitingText": {
+          "label": "等待文本",
+          "description": "等待状态文本颜色",
+          "affects": ["等待消息", "队列位置文本", "等待徽章文本"]
+        },
+        "publicAccessBg": {
+          "label": "公开访问背景",
+          "description": "公开访问徽章的背景",
+          "affects": ["公开访问徽章"]
+        },
+        "publicAccessText": {
+          "label": "公开访问文本",
+          "description": "公开访问徽章的文本颜色",
+          "affects": ["公开访问徽章文本"]
+        },
+        "publicAccessBorder": {
+          "label": "公开访问边框",
+          "description": "公开访问徽章的边框",
+          "affects": ["公开访问徽章边框"]
+        },
+        "securedAccessBg": {
+          "label": "受保护访问背景",
+          "description": "受保护访问徽章的背景",
+          "affects": ["受保护访问徽章"]
+        },
+        "securedAccessText": {
+          "label": "受保护访问文本",
+          "description": "受保护访问徽章的文本颜色",
+          "affects": ["受保护访问徽章文本"]
+        },
+        "securedAccessBorder": {
+          "label": "受保护访问边框",
+          "description": "受保护访问徽章的边框",
+          "affects": ["受保护访问徽章边框"]
+        },
         "navBg": {
           "label": "导航背景",
           "description": "导航栏背景（页眉背景）",
@@ -5809,6 +5869,16 @@
           "description": "页眉浮动控制器图标主体颜色（默认为主色）",
           "affects": ["页眉徽标图标"]
         },
+        "rocketFlameColor": {
+          "label": "火箭尾焰",
+          "description": "标题栏项目弹出窗口中火箭下方的外层火焰",
+          "affects": ["火箭尾焰", "焰尖"]
+        },
+        "rocketFlameCoreColor": {
+          "label": "火箭尾焰核心",
+          "description": "火箭尾焰内部更炽热的核心",
+          "affects": ["火箭尾焰核心"]
+        },
         "progressBg": {
           "label": "进度轨道",
           "description": "进度条背景",
@@ -5818,6 +5888,41 @@
           "label": "图表主要",
           "description": "主要图表颜色",
           "affects": ["第一数据系列", "主图表颜色"]
+        },
+        "chartColor2": {
+          "label": "图表系列 2",
+          "description": "第二个图表系列颜色",
+          "affects": ["第二数据系列"]
+        },
+        "chartColor3": {
+          "label": "图表系列 3",
+          "description": "第三个图表系列颜色",
+          "affects": ["第三数据系列"]
+        },
+        "chartColor4": {
+          "label": "图表系列 4",
+          "description": "第四个图表系列颜色",
+          "affects": ["第四数据系列"]
+        },
+        "chartColor5": {
+          "label": "图表系列 5",
+          "description": "第五个图表系列颜色",
+          "affects": ["第五数据系列"]
+        },
+        "chartColor6": {
+          "label": "图表系列 6",
+          "description": "第六个图表系列颜色",
+          "affects": ["第六数据系列"]
+        },
+        "chartColor7": {
+          "label": "图表系列 7",
+          "description": "第七个图表系列颜色",
+          "affects": ["第七数据系列"]
+        },
+        "chartColor8": {
+          "label": "图表系列 8",
+          "description": "第八个图表系列颜色",
+          "affects": ["第八数据系列"]
         },
         "chartCacheHitColor": {
           "label": "缓存命中颜色",
@@ -5968,6 +6073,16 @@
           "label": "访客用户背景",
           "description": "访客用户徽章背景色",
           "affects": ["访客徽章背景", "访客图标背景"]
+        },
+        "activeSessionColor": {
+          "label": "活跃会话颜色",
+          "description": "当前活跃会话的图标和文本颜色",
+          "affects": ["活跃会话徽章文本", "活跃会话图标"]
+        },
+        "activeSessionBg": {
+          "label": "活跃会话背景",
+          "description": "活跃会话徽章的背景",
+          "affects": ["活跃会话徽章", "活跃会话行"]
         },
         "eventColor1": {
           "label": "事件颜色1",
@@ -6308,6 +6423,11 @@
           "label": "活动图标（缓存命中率）",
           "description": "活动/性能图标背景",
           "affects": ["缓存命中率卡片图标", "性能指示"]
+        },
+        "iconBgTeal": {
+          "label": "蓝绿色图标背景",
+          "description": "蓝绿色区块图标的背景",
+          "affects": ["蓝绿色统计卡片图标", "蓝绿色区块图标"]
         },
         "iconBgRed": {
           "label": "错误图标（关键状态）",

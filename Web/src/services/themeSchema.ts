@@ -291,9 +291,16 @@ const themeColorDefaults: Record<string, string> = {
   fireworkColor5: '#22d3ee',
   fireworkColor6: '#a78bfa',
   fireworkColor7: '#38bdf8',
-  fireworkColor8: '#ffffff'
+  fireworkColor8: '#ffffff',
   // fireworkGlowColor is left out on purpose: the halo is a lighter shade of the rocket it
   // surrounds, on a dark page and a light one alike, so it derives below without flipping.
+
+  // ── Rocket flame ─────────────────────────────────────────────────────
+  // The exhaust under the header rocket. It is deliberately NOT a firework tier: the burst
+  // colors follow the primary and would turn the flame blue, so these two stay their own warm
+  // pair and a theme that wants a different flame sets them directly.
+  rocketFlameColor: '#ffa585',
+  rocketFlameCoreColor: '#ffe266'
 };
 
 // ---------------------------------------------------------------------------
@@ -661,7 +668,7 @@ function normalizeThemeColors(colors: Record<string, string>): Record<string, st
 
   // Stop borrows the destructive red rather than carrying a red of its own, so a theme that
   // retunes only its delete colour keeps its stop buttons in step. Stopping a run is its own
-  // job though, so the pair is separately settable for a theme that wants to part them [1]
+  // job though, so the pair is separately settable for a theme that wants to part them
   if (!result.actionStopBg) result.actionStopBg = result.actionDeleteBg;
   if (!result.actionStopHover) result.actionStopHover = result.actionDeleteHover;
 

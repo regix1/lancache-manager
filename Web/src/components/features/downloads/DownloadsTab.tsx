@@ -21,6 +21,7 @@ import { useClientHostnames } from '@contexts/useClientHostnames';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
+import { downloadTextFile } from '@utils/downloadTextFile';
 import {
   EVICTION_SETTINGS_CHANGED_EVENT,
   type EvictionSettingsChangedDetail
@@ -1418,15 +1419,7 @@ const DownloadsTab: React.FC = () => {
         mimeType = 'application/json';
       }
 
-      const blob = new Blob([content], { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      downloadTextFile(content, filename, mimeType);
     } catch (error) {
       notifyError(t('downloads.tab.errors.exportFailed'), error, { logLabel: 'Export failed' });
     } finally {

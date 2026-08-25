@@ -42,6 +42,7 @@ borderSecondary = "#444444"    # Medium border
 borderFocus = "#2563eb"        # Sapphire focus ring
 borderElevated = "#3a3a3a"     # Borders within elevated panels
 borderHover = "#505050"        # Border hover state
+borderWell = "#373737"         # Recessed well edge
 
 # Navigation - Neutral dark tones
 navBg = "#1b1b1b"              # Dark navigation background
@@ -234,6 +235,8 @@ fireworkColor7 = "#7c3aed"     # Vivid violet
 fireworkColor8 = "#ffffff"     # Bright white
 fireworkRocketColor = "#2563eb"  # Sapphire rocket body
 fireworkGlowColor = "#56B4E9"    # Sky blue glow
+rocketFlameColor = "#e69f00"     # Amber rocket exhaust (Okabe-Ito)
+rocketFlameCoreColor = "#F0E442" # Hotter yellow core (Okabe-Ito)
 
 [css]
 content = """

@@ -43,6 +43,7 @@ borderSecondary = "#444444"    # Medium border
 borderFocus = "#dc2626"
 borderElevated = "#3a3a3a"     # Borders within elevated panels
 borderHover = "#505050"        # Border hover state
+borderWell = "#373737"         # Recessed well edge
 
 # Navigation - Neutral dark tones
 navBg = "#1b1b1b"              # Dark navigation background
@@ -235,6 +236,8 @@ fireworkColor7 = "#d97706"    # Seventh firework particle - dark amber-orange
 fireworkColor8 = "#ffffff"    # Eighth firework particle - white
 fireworkRocketColor = "#dc2626"  # Main rocket body (matches primaryColor)
 fireworkGlowColor = "#f87171"    # Glow effect color - light red
+rocketFlameColor = "#fdba74"     # Rocket exhaust - light orange
+rocketFlameCoreColor = "#ffedd5" # Hotter inner core - pale orange
 
 [css]
 content = """

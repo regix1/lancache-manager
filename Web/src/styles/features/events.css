@@ -558,7 +558,7 @@
   font-weight: 700;
   line-height: 1;
   text-align: left;
-  color: #ffffff;
+  color: var(--theme-button-text);
   background: linear-gradient(90deg, var(--event-span-from) 0%, var(--event-span-to) 100%);
 }
 

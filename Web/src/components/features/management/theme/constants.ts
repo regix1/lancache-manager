@@ -12,7 +12,7 @@ import {
   Home,
   Download,
   Users,
-  Server,
+  Key,
   Settings,
   BarChart3,
   Layers,
@@ -26,7 +26,7 @@ export const pageDefinitions: PageGroup[] = [
   { name: 'dashboard', icon: Home },
   { name: 'downloads', icon: Download },
   { name: 'clients', icon: Users },
-  { name: 'services', icon: Server },
+  { name: 'authenticate', icon: Key },
   { name: 'users', icon: Users },
   { name: 'events', icon: CalendarDays },
   { name: 'prefill', icon: Terminal },
@@ -47,7 +47,20 @@ export const colorGroups: ColorGroup[] = [
           'dashboard',
           'downloads',
           'clients',
-          'services',
+          'users',
+          'events',
+          'prefill',
+          'management',
+          'charts'
+        ]
+      },
+      {
+        key: 'secondaryColor',
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
           'users',
           'events',
           'prefill',
@@ -58,7 +71,7 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'accentColor',
         supportsAlpha: true,
-        pages: ['prefill']
+        pages: ['authenticate', 'users', 'prefill', 'management']
       }
     ]
   },
@@ -75,11 +88,12 @@ export const colorGroups: ColorGroup[] = [
           'dashboard',
           'downloads',
           'clients',
-          'services',
+          'authenticate',
           'users',
           'events',
           'prefill',
-          'management'
+          'management',
+          'charts'
         ]
       },
       {
@@ -89,11 +103,12 @@ export const colorGroups: ColorGroup[] = [
           'dashboard',
           'downloads',
           'clients',
-          'services',
+          'authenticate',
           'users',
           'events',
           'prefill',
-          'management'
+          'management',
+          'charts'
         ]
       },
       {
@@ -103,7 +118,7 @@ export const colorGroups: ColorGroup[] = [
           'dashboard',
           'downloads',
           'clients',
-          'services',
+          'authenticate',
           'users',
           'events',
           'prefill',
@@ -114,7 +129,7 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'textAccent',
         supportsAlpha: true,
-        pages: []
+        pages: ['dashboard', 'management']
       },
       {
         key: 'textPlaceholder',
@@ -132,16 +147,7 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'bgPrimary',
         supportsAlpha: true,
-        pages: [
-          'dashboard',
-          'downloads',
-          'clients',
-          'services',
-          'users',
-          'events',
-          'prefill',
-          'management'
-        ]
+        pages: ['dashboard', 'downloads', 'clients', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'bgSecondary',
@@ -150,7 +156,7 @@ export const colorGroups: ColorGroup[] = [
           'dashboard',
           'downloads',
           'clients',
-          'services',
+          'authenticate',
           'users',
           'events',
           'prefill',
@@ -160,7 +166,16 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'bgTertiary',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'users', 'events', 'prefill', 'management']
+        pages: [
+          'dashboard',
+          'downloads',
+          'authenticate',
+          'users',
+          'events',
+          'prefill',
+          'management',
+          'charts'
+        ]
       },
       {
         key: 'bgHover',
@@ -169,7 +184,6 @@ export const colorGroups: ColorGroup[] = [
           'dashboard',
           'downloads',
           'clients',
-          'services',
           'users',
           'events',
           'prefill',
@@ -180,82 +194,37 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'bgElevated',
         supportsAlpha: true,
-        pages: [
-          'dashboard',
-          'downloads',
-          'clients',
-          'services',
-          'users',
-          'events',
-          'prefill',
-          'management'
-        ]
+        pages: ['dashboard', 'downloads', 'clients', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'bgSurface',
         supportsAlpha: true,
-        pages: [
-          'dashboard',
-          'downloads',
-          'clients',
-          'services',
-          'users',
-          'events',
-          'prefill',
-          'management'
-        ]
+        pages: ['dashboard', 'downloads', 'clients', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'bgSurfaceHover',
         supportsAlpha: true,
-        pages: [
-          'dashboard',
-          'downloads',
-          'clients',
-          'services',
-          'users',
-          'events',
-          'prefill',
-          'management'
-        ]
+        pages: ['dashboard', 'downloads', 'clients', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'bgSurfaceActive',
         supportsAlpha: true,
-        pages: [
-          'dashboard',
-          'downloads',
-          'clients',
-          'services',
-          'users',
-          'events',
-          'prefill',
-          'management'
-        ]
+        pages: ['dashboard', 'downloads', 'clients', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'bgOverlay',
         supportsAlpha: true,
-        pages: [
-          'dashboard',
-          'downloads',
-          'clients',
-          'services',
-          'users',
-          'events',
-          'prefill',
-          'management'
-        ]
+        pages: ['dashboard', 'downloads', 'clients', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'cardBg',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'events']
+        pages: ['dashboard', 'downloads', 'events', 'prefill', 'management', 'charts']
       },
       {
         key: 'cardBorder',
         supportsAlpha: true,
-        pages: ['dashboard', 'events']
+        pages: ['dashboard', 'users', 'events', 'prefill', 'charts']
       },
       {
         key: 'cardOutline',
@@ -278,7 +247,7 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'buttonHover',
         supportsAlpha: true,
-        pages: []
+        pages: ['downloads', 'events']
       },
       {
         key: 'buttonText',
@@ -307,7 +276,6 @@ export const colorGroups: ColorGroup[] = [
           'dashboard',
           'downloads',
           'clients',
-          'services',
           'users',
           'events',
           'prefill',
@@ -322,7 +290,6 @@ export const colorGroups: ColorGroup[] = [
           'dashboard',
           'downloads',
           'clients',
-          'services',
           'users',
           'events',
           'prefill',
@@ -337,7 +304,6 @@ export const colorGroups: ColorGroup[] = [
           'dashboard',
           'downloads',
           'clients',
-          'services',
           'users',
           'events',
           'prefill',
@@ -422,7 +388,7 @@ export const colorGroups: ColorGroup[] = [
           'dashboard',
           'downloads',
           'clients',
-          'services',
+          'authenticate',
           'users',
           'events',
           'prefill',
@@ -437,32 +403,29 @@ export const colorGroups: ColorGroup[] = [
           'dashboard',
           'downloads',
           'clients',
-          'services',
           'users',
           'events',
           'prefill',
-          'management'
+          'management',
+          'charts'
         ]
       },
       {
         key: 'borderFocus',
         supportsAlpha: true,
-        pages: []
+        pages: ['dashboard', 'prefill', 'management']
       },
       {
         key: 'borderElevated',
         supportsAlpha: true,
-        pages: [
-          'dashboard',
-          'downloads',
-          'clients',
-          'services',
-          'users',
-          'events',
-          'prefill',
-          'management'
-        ]
-      }
+        pages: ['dashboard', 'downloads', 'clients', 'users', 'events', 'prefill', 'management']
+      },
+      {
+        key: 'borderHover',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'users', 'events', 'prefill', 'management']
+      },
+      { key: 'borderWell', supportsAlpha: true, pages: ['downloads', 'management'] }
     ]
   },
 
@@ -484,7 +447,7 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'successText',
         supportsAlpha: true,
-        pages: ['downloads', 'clients', 'services', 'users', 'prefill']
+        pages: ['dashboard', 'downloads', 'clients', 'users', 'prefill', 'management']
       },
       {
         key: 'warning',
@@ -499,12 +462,12 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'warningText',
         supportsAlpha: true,
-        pages: ['clients', 'services', 'users', 'prefill', 'management']
+        pages: ['dashboard', 'downloads', 'clients', 'users', 'prefill', 'management']
       },
       {
         key: 'error',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'users', 'prefill', 'management']
+        pages: ['dashboard', 'downloads', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'errorBg',
@@ -514,7 +477,7 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'errorText',
         supportsAlpha: true,
-        pages: ['downloads', 'users', 'prefill', 'management']
+        pages: ['dashboard', 'downloads', 'users', 'prefill', 'management']
       },
       {
         key: 'info',
@@ -529,8 +492,29 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'infoText',
         supportsAlpha: true,
-        pages: ['downloads', 'users', 'events', 'prefill', 'management']
-      }
+        pages: ['dashboard', 'downloads', 'users', 'events', 'prefill', 'management']
+      },
+      {
+        key: 'waiting',
+        supportsAlpha: true,
+        pages: ['dashboard', 'users', 'events', 'prefill', 'management']
+      },
+      {
+        key: 'waitingBg',
+        supportsAlpha: true,
+        pages: ['users', 'events', 'prefill', 'management']
+      },
+      {
+        key: 'waitingText',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'users', 'events', 'prefill', 'management']
+      },
+      { key: 'publicAccessBg', supportsAlpha: true, pages: ['users', 'management'] },
+      { key: 'publicAccessText', supportsAlpha: true, pages: ['users', 'management'] },
+      { key: 'publicAccessBorder', supportsAlpha: true, pages: ['users', 'management'] },
+      { key: 'securedAccessBg', supportsAlpha: true, pages: ['users', 'management'] },
+      { key: 'securedAccessText', supportsAlpha: true, pages: ['users', 'management'] },
+      { key: 'securedAccessBorder', supportsAlpha: true, pages: ['users', 'management'] }
     ]
   },
 
@@ -541,20 +525,39 @@ export const colorGroups: ColorGroup[] = [
     colors: [
       { key: 'navBg', supportsAlpha: true },
       { key: 'navBorder', supportsAlpha: true },
-      { key: 'navTabActive', supportsAlpha: true },
-      { key: 'navTabInactive', supportsAlpha: true },
-      { key: 'navTabHover', supportsAlpha: true },
+      { key: 'navTabActive', supportsAlpha: true, pages: ['management'] },
+      { key: 'navTabInactive', supportsAlpha: true, pages: ['management'] },
+      { key: 'navTabHover', supportsAlpha: true, pages: ['management'] },
       { key: 'navTabActiveBorder', supportsAlpha: true },
       { key: 'navMobileMenuBg', supportsAlpha: true },
       { key: 'navMobileItemHover', supportsAlpha: true },
       {
         key: 'floatingIconColor',
         supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'users', 'events', 'prefill', 'management']
+      },
+      {
+        key: 'rocketFlameColor',
+        supportsAlpha: true,
         pages: [
           'dashboard',
           'downloads',
           'clients',
-          'services',
+          'authenticate',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
+      },
+      {
+        key: 'rocketFlameCoreColor',
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'authenticate',
           'users',
           'events',
           'prefill',
@@ -572,22 +575,29 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'progressBg',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'prefill']
+        pages: ['dashboard', 'downloads', 'clients', 'prefill']
       },
-      { key: 'chartColor1', supportsAlpha: true, pages: ['charts'] },
+      { key: 'chartColor1', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'chartColor2', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'chartColor3', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'chartColor4', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'chartColor5', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'chartColor6', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'chartColor7', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'chartColor8', supportsAlpha: true, pages: ['dashboard', 'charts'] },
       {
         key: 'chartCacheHitColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'chartCacheMissColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'charts']
       },
-      { key: 'chartGridColor', supportsAlpha: true, pages: ['charts'] },
-      { key: 'chartTextColor', supportsAlpha: true, pages: ['charts'] },
-      { key: 'chartBorderColor', supportsAlpha: true, pages: ['charts'] }
+      { key: 'chartGridColor', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'chartTextColor', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'chartBorderColor', supportsAlpha: true, pages: ['dashboard', 'charts'] }
     ]
   },
 
@@ -596,27 +606,27 @@ export const colorGroups: ColorGroup[] = [
     name: 'gameCharts',
     icon: Gamepad2,
     colors: [
-      { key: 'gameColor1', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor2', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor3', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor4', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor5', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor6', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor7', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor8', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor9', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor10', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor11', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor12', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor13', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor14', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor15', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor16', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor17', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor18', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor19', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColor20', supportsAlpha: true, pages: ['charts'] },
-      { key: 'gameColorOther', supportsAlpha: true, pages: ['charts'] }
+      { key: 'gameColor1', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor2', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor3', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor4', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor5', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor6', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor7', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor8', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor9', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor10', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor11', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor12', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor13', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor14', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor15', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor16', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor17', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor18', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor19', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColor20', supportsAlpha: true, pages: ['dashboard', 'charts'] },
+      { key: 'gameColorOther', supportsAlpha: true, pages: ['dashboard', 'charts'] }
     ]
   },
 
@@ -628,7 +638,9 @@ export const colorGroups: ColorGroup[] = [
       { key: 'userSessionColor', supportsAlpha: true, pages: ['users'] },
       { key: 'userSessionBg', supportsAlpha: true, pages: ['users'] },
       { key: 'guestSessionColor', supportsAlpha: true, pages: ['users'] },
-      { key: 'guestSessionBg', supportsAlpha: true, pages: ['users'] }
+      { key: 'guestSessionBg', supportsAlpha: true, pages: ['users'] },
+      { key: 'activeSessionColor', supportsAlpha: true, pages: ['users'] },
+      { key: 'activeSessionBg', supportsAlpha: true, pages: ['users'] }
     ]
   },
 
@@ -637,14 +649,14 @@ export const colorGroups: ColorGroup[] = [
     name: 'events',
     icon: CalendarDays,
     colors: [
-      { key: 'eventColor1', supportsAlpha: true, pages: ['events'] },
-      { key: 'eventColor2', supportsAlpha: true, pages: ['events'] },
-      { key: 'eventColor3', supportsAlpha: true, pages: ['events'] },
-      { key: 'eventColor4', supportsAlpha: true, pages: ['events'] },
-      { key: 'eventColor5', supportsAlpha: true, pages: ['events'] },
-      { key: 'eventColor6', supportsAlpha: true, pages: ['events'] },
-      { key: 'eventColor7', supportsAlpha: true, pages: ['events'] },
-      { key: 'eventColor8', supportsAlpha: true, pages: ['events'] }
+      { key: 'eventColor1', supportsAlpha: true, pages: ['dashboard', 'events'] },
+      { key: 'eventColor2', supportsAlpha: true, pages: ['dashboard', 'events'] },
+      { key: 'eventColor3', supportsAlpha: true, pages: ['dashboard', 'events'] },
+      { key: 'eventColor4', supportsAlpha: true, pages: ['dashboard', 'events'] },
+      { key: 'eventColor5', supportsAlpha: true, pages: ['dashboard', 'events'] },
+      { key: 'eventColor6', supportsAlpha: true, pages: ['dashboard', 'events'] },
+      { key: 'eventColor7', supportsAlpha: true, pages: ['dashboard', 'events'] },
+      { key: 'eventColor8', supportsAlpha: true, pages: ['dashboard', 'events'] }
     ]
   },
 
@@ -656,143 +668,143 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'steamColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'prefill', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'prefill', 'management', 'charts']
       },
-      { key: 'steamFaint', supportsAlpha: true, pages: ['prefill'] },
+      { key: 'steamFaint', supportsAlpha: true, pages: ['prefill', 'management'] },
       { key: 'steamOnBorder', supportsAlpha: true, pages: ['prefill'] },
       { key: 'steamStrong', supportsAlpha: true, pages: ['prefill'] },
       {
         key: 'epicColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'prefill', 'management', 'charts']
       },
-      { key: 'epicFaint', supportsAlpha: true, pages: ['prefill'] },
+      { key: 'epicFaint', supportsAlpha: true, pages: ['prefill', 'management'] },
       { key: 'epicOnBorder', supportsAlpha: true, pages: ['prefill'] },
       { key: 'epicStrong', supportsAlpha: true, pages: ['prefill'] },
       {
         key: 'originColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'blizzardColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'prefill', 'management', 'charts']
       },
       {
         key: 'wsusColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'riotColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'prefill', 'management', 'charts']
       },
       {
         key: 'xboxColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'prefill', 'management', 'charts']
       },
       {
         key: 'ubisoftColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'gogColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'rockstarColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'arenanetColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'bsgColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'cityofheroesColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'codColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'daybreakColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'frontierColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'neverwinterColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'nexusmodsColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'nintendoColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'pathofexileColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'renegadexColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'sonyColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'squareColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'tesoColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'testColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'warframeColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       },
       {
         key: 'wargamingColor',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'charts']
       }
     ]
   },
@@ -805,32 +817,32 @@ export const colorGroups: ColorGroup[] = [
       {
         key: 'hitRateHighBg',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services']
+        pages: ['dashboard', 'downloads', 'clients']
       },
       {
         key: 'hitRateHighText',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services']
+        pages: ['dashboard', 'downloads', 'clients']
       },
       {
         key: 'hitRateMediumBg',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services']
+        pages: ['dashboard', 'downloads', 'clients']
       },
       {
         key: 'hitRateMediumText',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services']
+        pages: ['dashboard', 'downloads', 'clients']
       },
       {
         key: 'hitRateLowBg',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services']
+        pages: ['dashboard', 'downloads', 'clients']
       },
       {
         key: 'hitRateLowText',
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services']
+        pages: ['dashboard', 'downloads', 'clients']
       },
       {
         key: 'hitRateWarningBg',
@@ -901,7 +913,8 @@ export const colorGroups: ColorGroup[] = [
         supportsAlpha: true,
         pages: ['dashboard', 'events', 'management']
       },
-      { key: 'iconBgRed', supportsAlpha: true, pages: ['dashboard', 'events'] },
+      { key: 'iconBgTeal', supportsAlpha: true, pages: ['dashboard', 'events', 'management'] },
+      { key: 'iconBgRed', supportsAlpha: true, pages: ['dashboard', 'events', 'management'] },
       { key: 'iconBlueMuted', supportsAlpha: true, pages: ['management'] },
       { key: 'iconGreenMuted', supportsAlpha: true, pages: ['management'] },
       { key: 'iconEmeraldMuted', supportsAlpha: true, pages: ['management'] },
@@ -911,7 +924,7 @@ export const colorGroups: ColorGroup[] = [
       { key: 'iconYellowMuted', supportsAlpha: true, pages: ['management'] },
       { key: 'iconCyanMuted', supportsAlpha: true, pages: ['management'] },
       { key: 'iconTealMuted', supportsAlpha: true, pages: ['management'] },
-      { key: 'iconRedMuted', supportsAlpha: true, pages: ['management'] },
+      { key: 'iconRedMuted', supportsAlpha: true, pages: ['prefill'] },
       { key: 'iconGrayMuted', supportsAlpha: true, pages: ['management'] }
     ]
   }

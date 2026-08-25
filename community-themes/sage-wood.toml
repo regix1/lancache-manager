@@ -30,6 +30,7 @@ borderSecondary = "#505050"
 borderFocus = "#8AA968"
 borderElevated = "#4d4d4d"
 borderHover = "#5a5a5a"
+borderWell = "#4a4a4a"
 navBg = "#323232"
 navBorder = "#454545"
 navTabActive = "#8AA968"
@@ -202,6 +203,8 @@ fireworkColor7 = "#7a9a9f"  # Seventh firework particle - sage blue
 fireworkColor8 = "#e8e3db"  # Eighth firework particle - cream
 fireworkRocketColor = "#8AA968"  # Main rocket body (matches primaryColor)
 fireworkGlowColor = "#a8c090"    # Glow effect color - light sage
+rocketFlameColor = "#d4a574"     # Rocket exhaust - amber wood
+rocketFlameCoreColor = "#e8c87e" # Hotter inner core - harvest gold
 
 [css]
 content = """

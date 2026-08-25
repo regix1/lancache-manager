@@ -31,7 +31,6 @@ import type { PendingFullScan } from '@components/features/management/schedules/
 const Dashboard = lazy(() => import('@components/features/dashboard/Dashboard'));
 const DownloadsTab = lazy(() => import('@components/features/downloads/DownloadsTab'));
 const ClientsTab = lazy(() => import('@components/features/clients/ClientsTab'));
-const ServicesTab = lazy(() => import('@components/features/services/ServicesTab'));
 const AuthenticateTab = lazy(() => import('@components/features/auth/AuthenticateTab'));
 const UserTab = lazy(() => import('@components/features/user/UserTab'));
 const EventsTab = lazy(() => import('@components/features/events'));
@@ -47,7 +46,6 @@ const preloadMap: Record<string, () => void> = {
   dashboard: () => import('@components/features/dashboard/Dashboard'),
   downloads: () => import('@components/features/downloads/DownloadsTab'),
   clients: () => import('@components/features/clients/ClientsTab'),
-  services: () => import('@components/features/services/ServicesTab'),
   authenticate: () => import('@components/features/auth/AuthenticateTab'),
   prefill: () => import('@components/features/prefill/PrefillPanel'),
   users: () => import('@components/features/user/UserTab'),
@@ -403,8 +401,6 @@ const AppContent: React.FC = () => {
           return DownloadsTab;
         case 'clients':
           return ClientsTab;
-        case 'services':
-          return ServicesTab;
         case 'authenticate':
           return AuthenticateTab;
         case 'prefill':
@@ -608,7 +604,7 @@ const AppContent: React.FC = () => {
                         ? 'downloads'
                         : activeTab === 'events'
                           ? 'calendar'
-                          : activeTab === 'clients' || activeTab === 'services'
+                          : activeTab === 'clients'
                             ? 'table'
                             : activeTab === 'authenticate'
                               ? 'form'

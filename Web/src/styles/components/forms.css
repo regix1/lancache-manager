@@ -363,7 +363,7 @@
 
   .modern-toggle .toggle-thumb {
     @apply inline-block h-4 w-4 rounded-full shadow-sm;
-    background: white;
+    background: var(--theme-button-text);
     transform: translateX(2px);
     transition: transform 0.2s ease;
   }

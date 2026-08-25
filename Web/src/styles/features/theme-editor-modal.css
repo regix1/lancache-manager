@@ -1,0 +1,62 @@
+/* Create / edit theme modal shell.
+
+   The modal is opened with `bodyFlexLayout`, so its body is a flex column that never scrolls on
+   its own (Modal.tsx picks `flex flex-col overflow-hidden` there instead of `overflow-y-auto`).
+   That is what lets the pane switcher and the action row stay put while only the middle scrolls;
+   with the default body branch the whole thing scrolls as one page and the Save button ends up
+   below the modal's visible bottom edge. */
+.theme-editor-modal {
+  display: flex;
+  flex-direction: column;
+  /* A 0 flex-basis rather than `auto`: `auto` sizes from content first and does not reliably give
+     the children a definite height to resolve against, which leaves the scroll area sized to its
+     content instead of to the space left over. */
+  flex: 1;
+  /* The dialog is capped by max-height and carries no definite height of its own, so without a
+     floor this column shrink-wraps to content and the modal reads as short on a tall screen. The
+     14rem reserve covers the title bar and the body padding so the action row never clips against
+     the cap; longer content still grows to it. */
+  min-height: calc(100vh - 14rem);
+  gap: 1.25rem;
+}
+
+.theme-editor-modal__scroll-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.theme-editor-modal__pane {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  /* 1px inset keeps a field's border and its focus edge a hair off the scroll viewport's clip. */
+  padding: 1px;
+}
+
+/* The Basics pane's base color rows, on the same rhythm as the grouped rows in the Colors pane. */
+.theme-editor-modal__base-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.theme-editor-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+@media (max-width: 639.98px) {
+  /* Full-width stacked buttons, confirm on top so it sits closest to the thumb. */
+  .theme-editor-modal__actions {
+    flex-direction: column-reverse;
+  }
+
+  .theme-editor-modal__actions > * {
+    width: 100%;
+  }
+}
