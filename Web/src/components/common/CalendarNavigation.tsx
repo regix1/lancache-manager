@@ -53,7 +53,7 @@ function CalendarNavigation({
     // right-aligned there by the auto margin, rather than a lone control being orphaned in the
     // centre of a row that ran out of room.
     <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-4">
-      <div className="flex items-center gap-1 sm:gap-1.5">
+      <div className="calendar-nav flex items-center gap-1 sm:gap-1.5">
         {/* md is the shared 40px control height, and below the phone breakpoint the dropdown
             takes a 44px touch floor, so the icon-only arrows are squares at whichever of the
             two is current. */}

@@ -100,6 +100,15 @@
     /* No corner changes - dropdown is a separate floating bubble */
   }
 
+  /* Calendar navigation: the month and year selects sit between two icon-only arrow buttons,
+     whose edge is transparent, so an edge on only the middle two makes them read as boxes
+     wedged between two bare glyphs instead of one four-part control. The border keeps its
+     1px so all four stay 40px tall, and only gives up its color. Focus and the open state
+     still paint it - the :focus rule below carries !important and wins over this. */
+  .calendar-nav .ed-trigger {
+    border-color: transparent;
+  }
+
   /* Gap between options so they are not stuck together */
   .ed-option + .ed-option {
     margin-top: 0.25rem;
