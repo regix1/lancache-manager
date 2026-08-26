@@ -166,6 +166,9 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                       <input
                         {...field}
                         type="password"
+                        // A single-use authorization code, so there is nothing worth a password
+                        // manager remembering and refilling on a later visit.
+                        autoComplete="new-password"
                         value={authorizationCode}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                           setAuthorizationCode(e.target.value)

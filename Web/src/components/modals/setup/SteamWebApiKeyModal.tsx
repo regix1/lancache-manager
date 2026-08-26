@@ -116,6 +116,11 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
               <input
                 {...field}
                 type="password"
+                // Keeps the browser's password manager from offering to remember the key and
+                // refilling it later, which would put a saved key back on screen for anyone at
+                // this browser. `new-password` is the value browsers actually honor here; `off`
+                // is widely ignored on password inputs.
+                autoComplete="new-password"
                 value={apiKey}
                 onChange={(e) => {
                   setApiKey(e.target.value);

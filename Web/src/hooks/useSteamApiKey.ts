@@ -5,8 +5,12 @@ import { getErrorMessage } from '@utils/error';
 import { useNotifications } from '@contexts/notifications';
 import type { NotificationVariant } from '../types/operations';
 
+/**
+ * The key is write-only. There is deliberately no way to seed the field with an existing key: the
+ * server never returns one (the status endpoint answers with a boolean), and nothing keeps a copy
+ * on the client, so a saved key cannot be read back by anyone, including whoever entered it.
+ */
 interface UseSteamApiKeyOptions {
-  initialApiKey?: string;
   onSaveSuccess?: () => void;
   /**
    * Surfaces the Test/Save lifecycle (validating/saving/valid/invalid/saved/failed) as one
@@ -35,11 +39,11 @@ interface UseSteamApiKeyResult {
 }
 
 export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApiKeyResult {
-  const { initialApiKey = '', onSaveSuccess, statusNotifications = false } = options;
+  const { onSaveSuccess, statusNotifications = false } = options;
   const { t } = useTranslation();
   const { addNotification, updateNotification, scheduleAutoDismiss } = useNotifications();
 
-  const [apiKey, setApiKey] = useState(initialApiKey);
+  const [apiKey, setApiKey] = useState('');
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState<{ valid: boolean; message: string } | null>(null);

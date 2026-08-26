@@ -119,6 +119,9 @@ export const PostgresConnectionFields: React.FC<PostgresConnectionFieldsProps> =
             <input
               {...field}
               type="password"
+              // A database password typed into a server's own setup form, not a sign-in this
+              // browser should remember and offer back later.
+              autoComplete="new-password"
               value={values.password}
               onChange={handleChange('password')}
               disabled={disabled}

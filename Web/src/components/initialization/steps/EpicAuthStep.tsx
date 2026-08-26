@@ -137,6 +137,9 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
               <input
                 {...field}
                 type="password"
+                // A single-use authorization code, so there is nothing worth a password manager
+                // remembering and refilling on a later visit.
+                autoComplete="new-password"
                 value={state.authorizationCode}
                 onChange={handleAuthorizationCodeChange}
                 onKeyDown={(event) => {

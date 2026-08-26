@@ -25,17 +25,16 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
     handleSave,
     resetTestResult
   } = useSteamApiKey({
-    initialApiKey: storage.getItem('steamApiKey') || '',
     onSaveSuccess: onComplete
   });
 
+  // The key lives only in this component's state until it is saved, and the server never sends it
+  // back: the status endpoint answers with a boolean. Earlier versions kept it in browser storage
+  // to refill the field, which left it readable in plaintext by anything with page or profile
+  // access long after setup finished, so clear whatever those versions left behind.
   useEffect(() => {
-    if (apiKey) {
-      storage.setItem('steamApiKey', apiKey);
-    } else {
-      storage.removeItem('steamApiKey');
-    }
-  }, [apiKey]);
+    storage.removeItem('steamApiKey');
+  }, []);
 
   return (
     <div className="space-y-5">
@@ -77,6 +76,10 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
             <input
               {...field}
               type="password"
+              // Keeps the browser's password manager from remembering the key and refilling it
+              // later. `new-password` is the value browsers honor on a secret field; `off` is
+              // widely ignored on password inputs.
+              autoComplete="new-password"
               value={apiKey}
               onChange={(e) => {
                 setApiKey(e.target.value);
