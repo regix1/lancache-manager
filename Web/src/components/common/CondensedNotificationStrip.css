@@ -231,6 +231,11 @@
      Keyframes rather than transitions: churn rewrites styles every tick and a retargeted
      transition restarts from its interpolated state, but keyframes hold. */
   transform-origin: top center;
+  /* The panel is a tall block of text and progress bars, and scaling one re-rasterizes the
+     whole subtree every frame unless it gets its own layer. That cost is what turns a stack of
+     several running notifications into a stutter, so the hint stays on for both directions; it
+     costs nothing at rest because the panel only exists while open or closing. */
+  will-change: transform, opacity;
   animation: condensedStripPanelIn 0.22s cubic-bezier(0.33, 1, 0.68, 1);
 }
 
@@ -245,8 +250,32 @@
   }
 }
 
+/* Closing collapses the panel INTO the line it hangs from - scaling down from the pinned top
+   edge while sliding up the last few pixels - so the height the layout hands back at unmount
+   reads as the end of that motion rather than a jump. Deeper and quicker than the entrance,
+   because an exit the eye has to hunt for is worse than no exit at all. Transform and opacity
+   only: the height stays reserved for the whole exit and is released in one step at unmount,
+   so an interrupted close cannot leave part of it behind. Pointer events stop at once, since
+   the pointer has already left. */
+.condensed-strip-panel.is-closing {
+  pointer-events: none;
+  animation: condensedStripPanelOut 0.13s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@keyframes condensedStripPanelOut {
+  from {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scaleY(0.88) translateY(-6px);
+  }
+}
+
 /* Reduced motion: no entrance motion, no sweep, no pulse; the glow still appears on
-   hover/focus, just without the fade. Closing is already an instant unmount. */
+   hover/focus, just without the fade. The exit fade is skipped in the component itself, which
+   keeps the instant unmount rather than holding a still panel for the exit's duration. */
 @media (prefers-reduced-motion: reduce) {
   .condensed-strip-panel,
   .condensed-strip.is-vanishing .condensed-strip-line,

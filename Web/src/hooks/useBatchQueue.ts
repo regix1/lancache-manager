@@ -33,6 +33,13 @@ interface BatchQueueFinalizeArgs {
  */
 interface BatchQueueItemContext {
   setOperationId: (opId: string | null) => void;
+  /**
+   * Ends the run as cancelled from inside an item. An item parked in the operation
+   * wait-queue can be cancelled from outside this batch (its purple waiting card is
+   * cancellable in any other open tab), and that must read as a cancelled run, never as a
+   * failed item - cancellation is a terminal state of its own, not a failure.
+   */
+  cancelRun: () => void;
   requestId: string;
 }
 
@@ -113,7 +120,7 @@ interface UseBatchQueueResult<TItem> {
  * strings, confirmation modal gating, and the `finalize` update.
  *
  * Contract: when the user cancels the bulk notification,
- * `UniversalNotificationBar.handleCancel`'s clientQueue branch flips
+ * `notificationCancel.handleCancel`'s clientQueue branch flips
  * `details.cancelling = true` (it does NOT call ApiService.cancelOperation
  * directly, because bulk notifications carry no server-side opId). The cascade
  * effect below picks up that flag and cancels the live run.
@@ -150,15 +157,15 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
     [notifyError]
   );
 
-  // The single cancellation entry point: fires a best-effort server-side cancel
-  // on the in-flight item and marks the run cancelled so the loop stops after
-  // that item settles. Deliberately does NOT cut the in-flight item's completion
-  // wait short: the batch card must stay 'running' until the item's terminal
-  // event has arrived, so findBulkCardOwningType still owns that event and no
-  // per-item card appears next to the batch card. The message flip below is the
-  // immediate feedback for the click while that settle is in flight. Invoked by
-  // the cascade effect when the bulk notification's cancel flag flips - dedupes
-  // via cancelRequestedRef.
+  // The single cancellation entry point: fires a best-effort server-side cancel on the in-flight
+  // item and marks the run cancelled so the loop stops after that item settles. It does not cut
+  // that settle short, because the two kinds of item end differently. Cancelling a RUNNING
+  // operation still produces that operation's own terminal event, and the wait ends on it. A
+  // queued item has no worker, so nothing of its own is ever emitted and the wait ends on the
+  // wait-queue entry closing instead. Either way the batch card still owns the item's events
+  // until then, so no per-item card appears next to it. The message flip below is the immediate
+  // feedback for the click while that settle is in flight. Invoked by the cascade effect when the
+  // bulk notification's cancel flag flips - dedupes via cancelRequestedRef.
   const triggerCancel = useCallback(() => {
     if (cancelRequestedRef.current) return;
     cancelRequestedRef.current = true;
@@ -168,6 +175,9 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
       updateNotification(activeId, { message: i18n.t('common.notifications.cancelling') });
     }
 
+    // No id yet means the item's POST has not come back, so there is nothing to cancel server-side
+    // and nothing has gone wrong: the flag set above already stops the loop, setOperationId fires
+    // the deferred cancel the moment an id lands, and finalize reports the run as cancelled.
     const currentOp = currentItemOperationIdRef.current;
     if (currentOp) {
       currentItemOperationIdRef.current = null;
@@ -175,8 +185,30 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
     }
   }, [cancelItemOperation, updateNotification]);
 
+  // Puts the in-flight item's operation id on the batch card, and until that id exists, the fact
+  // that a request is out for it. The wait-queue handler has no other way to tell a queued
+  // operation this batch owns from one it does not, and the card is the only thing it can see.
+  // `updateNotification` merges the top level only, so the previous details have to be spread here
+  // or this write drops `itemTypes` and blinds that handler. The function form reads the card
+  // React is about to update: the X button's `details.cancelling = true` is committed at the end
+  // of the click, and a snapshot taken any earlier would spread a pre-cancel copy back over it.
+  const setCardOperationId = useCallback(
+    (opId: string | null, requestPending: boolean) => {
+      const activeId = bulkNotifIdRef.current;
+      if (!activeId) return;
+      updateNotification(activeId, (card) => ({
+        details: {
+          ...card.details,
+          currentOperationId: opId ?? undefined,
+          itemRequestPending: requestPending
+        }
+      }));
+    },
+    [updateNotification]
+  );
+
   // Cascade effect: watch the bulk notification for `details.cancelling` (set
-  // by UniversalNotificationBar.handleCancel's bulk_removal branch).
+  // by notificationCancel.handleCancel's bulk_removal branch).
   // When cancellation is requested, fire a server-side cancel on the in-flight
   // item so it aborts immediately rather than running to natural completion.
   //
@@ -252,9 +284,16 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
               ? crypto.randomUUID()
               : `req-${Date.now()}-${index}`;
 
+          // The queue announces a parked operation from inside the item's request, so that push can
+          // reach the card before the response does. Saying a request is out for this item is what
+          // lets the wait-queue handler tell that race apart from the batch simply having no id -
+          // between items, or after an item was deduplicated onto a removal it does not own.
+          setCardOperationId(null, true);
+
           const ctx: BatchQueueItemContext = {
             setOperationId: (opId) => {
               currentItemOperationIdRef.current = opId;
+              setCardOperationId(opId, false);
               // The X can land while the item's POST is still in flight, before any id
               // exists to cancel. triggerCancel has already run by then, so fire the
               // deferred cancel here the moment the id arrives - otherwise the item runs
@@ -263,6 +302,13 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
                 currentItemOperationIdRef.current = null;
                 cancelItemOperation(opId);
               }
+            },
+            cancelRun: () => {
+              // A caller ends the run this way only after its item has already left the queue, so
+              // the id still in the ref is terminal and a cancel POST for it can only be rejected.
+              // Drop it first and the cancel below reaches nothing, which is the honest outcome.
+              currentItemOperationIdRef.current = null;
+              triggerCancel();
             },
             requestId
           };
@@ -285,6 +331,7 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
             // abort the rest (mirrors the pre-refactor behaviour).
           } finally {
             currentItemOperationIdRef.current = null;
+            setCardOperationId(null, false);
             currentItemRef.current = null;
           }
         }
@@ -311,7 +358,7 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
         onSettled?.();
       }
     },
-    [cancelItemOperation, onSettled, scheduleAutoDismiss]
+    [cancelItemOperation, onSettled, scheduleAutoDismiss, setCardOperationId, triggerCancel]
   );
 
   return { run, state };

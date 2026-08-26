@@ -15,7 +15,7 @@ import {
   FULL_PROGRESS_PERCENT,
   REMOVING_GAME_I18N_KEY
 } from './constants';
-import { findBulkCardOwningType, waitingCardMessage } from './handlers';
+import { findBulkCardOwningOperation, waitingCardMessage } from './handlers';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
 import i18n from '@/i18n';
@@ -137,10 +137,16 @@ function createWaitingOperationsRecoveryFunction(
       if (!response.ok) return;
 
       const rows = (await response.json()) as WaitingOperationRow[];
-      const waitingByType = new Map<NotificationType, WaitingOperationRow>();
+      // Every row of a type, not just the last one: two operations of one type can be parked at
+      // once and they belong to different owners, so keeping only one of them handed a batch
+      // card the blocker of an operation it never started and left its own item unreported.
+      const waitingByType = new Map<NotificationType, WaitingOperationRow[]>();
       for (const row of rows) {
         const type = OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[row.operationType];
-        if (type) waitingByType.set(type, row);
+        if (!type) continue;
+        const rowsForType = waitingByType.get(type);
+        if (rowsForType) rowsForType.push(row);
+        else waitingByType.set(type, [row]);
       }
 
       setNotifications((prev: UnifiedNotification[]) => {
@@ -155,30 +161,38 @@ function createWaitingOperationsRecoveryFunction(
         // Create cards for queued ops that have none (and whose slot isn't already a
         // running card - a promoted op's card must not be downgraded back to waiting).
         for (const entry of NOTIFICATION_REGISTRY as NotificationRegistryEntry[]) {
-          const row = waitingByType.get(entry.type);
-          if (!row) continue;
-          if (next.some((n) => n.id === entry.id)) continue;
-          // A batch already reporting on this item type owns the display. Recreating a separate
-          // card here would put the same sentence on screen twice, which is what happens on a
-          // reconnect or a refresh mid-batch. Hand the queue's wording to the batch card instead.
-          const owningBulk = findBulkCardOwningType(entry.type, next);
-          if (owningBulk) {
-            const index = next.findIndex((n) => n.id === owningBulk.id);
-            next[index] = {
-              ...owningBulk,
+          for (const row of waitingByType.get(entry.type) ?? []) {
+            // One card slot per type, so a second unowned waiter of the same type stays
+            // unreported until the first one leaves the queue. Skipping an occupied slot is
+            // also what stops a promoted operation's running card being pushed back to waiting,
+            // and it is checked before anything else is done with the row so a reconnect cannot
+            // reach past a live card the same row would have been skipped for.
+            if (next.some((n) => n.id === entry.id)) continue;
+            // The batch that started this very item owns the display. Recreating a separate card
+            // here would put the same sentence on screen twice, which is what happens on a
+            // reconnect or a refresh mid-batch. Hand the queue's wording to that card instead,
+            // and record which operation it now speaks for: a batch whose item request is still
+            // on the wire may claim one row on the strength of that, never both.
+            const owningBulk = findBulkCardOwningOperation(entry.type, row.operationId, next);
+            if (owningBulk) {
+              const index = next.findIndex((n) => n.id === owningBulk.id);
+              next[index] = {
+                ...owningBulk,
+                status: 'waiting' as NotificationStatus,
+                message: waitingCardMessage(row),
+                details: { ...owningBulk.details, currentOperationId: row.operationId }
+              };
+              continue;
+            }
+            next.push({
+              id: entry.id,
+              type: entry.type,
               status: 'waiting' as NotificationStatus,
-              message: waitingCardMessage(row)
-            };
-            continue;
+              message: waitingCardMessage(row),
+              startedAt: new Date(),
+              details: { operationId: row.operationId }
+            });
           }
-          next.push({
-            id: entry.id,
-            type: entry.type,
-            status: 'waiting' as NotificationStatus,
-            message: waitingCardMessage(row),
-            startedAt: new Date(),
-            details: { operationId: row.operationId }
-          });
         }
 
         return next;

@@ -1,6 +1,7 @@
 /**
  * Canonical operation lifecycle status used across SignalR progress events and
- * the notification system. Mirrors the backend `OperationStatus` enum.
+ * the notification system. Mirrors the backend `OperationStatus` enum, plus the
+ * enqueue response's `alreadyRunning`.
  */
 export type OperationStatus =
   | 'pending'
@@ -10,6 +11,13 @@ export type OperationStatus =
   | 'failed'
   | 'cancelled'
   | 'waiting'
+  /**
+   * Not a state an operation sits in: the enqueue response uses it to say the request was
+   * deduplicated onto an identical operation that is ALREADY LIVE, so the id it hands back
+   * belongs to work the caller never started (`OperationQueueService.EnqueueAsync`). A request
+   * deduplicated onto a parked waiter answers `'waiting'` instead.
+   */
+  | 'alreadyRunning'
   /** The run started, found nothing to do, and stopped. Terminal, but neither a success nor an error. */
   | 'skipped';
 

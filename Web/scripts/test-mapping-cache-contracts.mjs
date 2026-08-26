@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
-import { transpile } from './transpile-module.mjs';
+import { MemoryStorage, transpile } from './transpile-module.mjs';
 
 const readWebSource = (relativePath) =>
   readFileSync(new URL(`../${relativePath}`, import.meta.url), 'utf8');
@@ -10,9 +10,6 @@ const readWebSource = (relativePath) =>
 const signalRTypes = readWebSource('src/contexts/SignalRContext/types.ts');
 const registry = readWebSource('src/contexts/notifications/notificationRegistry.ts');
 const registryEntries = readWebSource('src/contexts/notifications/registryEntries.ts');
-const specialContracts = readWebSource(
-  'src/contexts/notifications/specialNotificationContracts.ts'
-);
 const handlers = readWebSource('src/contexts/notifications/handlers.ts');
 const xboxAuthHook = readWebSource('src/hooks/useXboxMappingAuth.ts');
 const cacheManager = readWebSource('src/components/features/management/cache/CacheManager.tsx');
@@ -78,22 +75,6 @@ const compileHandlerFactory = () => {
   return { createCompletionHandler, localStorage };
 };
 
-class MemoryStorage {
-  #values = new Map();
-
-  getItem(key) {
-    return this.#values.get(key) ?? null;
-  }
-
-  setItem(key, value) {
-    this.#values.set(key, String(value));
-  }
-
-  removeItem(key) {
-    this.#values.delete(key);
-  }
-}
-
 test('all five mapping platforms expose a typed lifecycle triple and shared registry entry', () => {
   for (const [eventPrefix, serviceKey] of mappingPlatforms) {
     for (const suffix of ['Started', 'Progress', 'Complete']) {
@@ -128,23 +109,28 @@ test('mapping registry builder combines tracker recovery with server-operation c
   assert.match(registryEntries, /silentRunGate:\s*true/);
 });
 
-test('special handlers retain data-update events but no mapping lifecycle reducers', () => {
-  assert.match(specialContracts, /EpicGameMappingsUpdated/);
-  assert.match(specialContracts, /XboxGameMappingsUpdated/);
-  assert.doesNotMatch(
-    specialContracts,
-    /DepotMapping(?:Started|Progress|Complete)|EpicMappingProgress|XboxMappingProgress/
-  );
-  assert.match(specialContracts, /EpicGameMappingsUpdated/);
-  assert.match(specialContracts, /XboxGameMappingsUpdated/);
-  assert.match(
-    readWebSource('src/contexts/notifications/specialCaseHandlers.ts'),
-    /EPIC_GAME_MAPPING_UPDATE/
-  );
-  assert.match(
-    readWebSource('src/contexts/notifications/specialCaseHandlers.ts'),
-    /XBOX_GAME_MAPPING_UPDATE/
-  );
+test('catalog updates are completion-only registry entries carrying their own card identity', () => {
+  const catalogEntries = [
+    ['epic_catalog_update', 'EPIC_GAME_MAPPING_UPDATE', 'EpicGameMappingsUpdated'],
+    ['xbox_catalog_update', 'XBOX_GAME_MAPPING_UPDATE', 'XboxGameMappingsUpdated']
+  ];
+
+  for (const [type, idConstant, event] of catalogEntries) {
+    const at = registry.indexOf(`type: '${type}'`);
+    assert.notEqual(at, -1, `${type} is missing from the registry`);
+    // The window has to reach past the entry's own getters without running into its neighbour.
+    // All three patterns below sit in the first ~200 characters, but the Epic entry already
+    // overruns into the Xbox one by 4, so widening this is no longer free.
+    const entry = registry.slice(at, at + 600);
+    assert.match(entry, new RegExp(`id: NOTIFICATION_IDS\\.${idConstant}\\b`));
+    assert.match(entry, new RegExp(`events: \\{ complete: '${event}' \\}`));
+    assert.match(entry, /succeeded: true/);
+  }
+
+  // The lifecycle events of the mapping RUNS keep their own entries and must not be folded into
+  // the catalog-update cards, which report a finished merge rather than a run in progress.
+  assert.match(registry, /eventPrefix: 'EpicMapping'/);
+  assert.match(registry, /eventPrefix: 'XboxMapping'/);
 });
 
 test('running progress updates persist the merged notification for reload recovery', () => {

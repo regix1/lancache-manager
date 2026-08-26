@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useMemo, useEffect, type ReactNode } from 'react';
+import React, { useState, useCallback, useRef, useMemo, type ReactNode } from 'react';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import { useAuth } from '../useAuth';
 import themeService from '@services/theme.service';
@@ -11,15 +11,12 @@ import {
   TOAST_DEFAULT_DURATION_MS,
   NOTIFICATION_STORAGE_KEYS,
   NOTIFICATION_IDS,
-  SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID,
   LIVE_ONLY_CANCEL_DETAIL_KEYS
 } from './constants';
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { createRecoveryRunner, type FetchWithAuth } from './recovery';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { useNotificationHandlers } from './useNotificationHandlers';
-import { createSpecialCaseHandlers } from './specialCaseHandlers';
-import { SPECIAL_NOTIFICATION_CONTRACTS } from './specialNotificationContracts';
 
 import { NotificationsContext } from './NotificationsContext.types';
 import { APP_EVENTS } from '@utils/constants';
@@ -115,13 +112,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
   // Track when the tab was hidden, so we can debounce visibility recovery
   const tabHiddenAtRef = useRef<number | null>(null);
-
-  // Drop the pre-registry generic scheduled-prefill toast that never received a completion event.
-  useEffect(() => {
-    setNotifications((prev) =>
-      prev.filter((n) => n.id !== SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID)
-    );
-  }, []);
 
   const getNextInstanceId = useCallback((notificationId: string): number => {
     const current = instanceCounterRef.current.get(notificationId) || 0;
@@ -222,11 +212,21 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     []
   );
 
-  const updateNotification = useCallback((id: string, updates: Partial<UnifiedNotification>) => {
-    setNotifications((prev: UnifiedNotification[]) =>
-      prev.map((n) => (n.id === id ? { ...n, ...updates } : n))
-    );
-  }, []);
+  const updateNotification = useCallback(
+    (
+      id: string,
+      updates:
+        | Partial<UnifiedNotification>
+        | ((notification: UnifiedNotification) => Partial<UnifiedNotification>)
+    ) => {
+      setNotifications((prev: UnifiedNotification[]) =>
+        prev.map((n) =>
+          n.id === id ? { ...n, ...(typeof updates === 'function' ? updates(n) : updates) } : n
+        )
+      );
+    },
+    []
+  );
 
   const removeNotificationAnimated = useCallback((id: string) => {
     window.dispatchEvent(
@@ -303,33 +303,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     cancelAutoDismissTimer,
     removeNotification
   );
-
-  // Special case handlers that don't fit the standard Started->Progress->Complete registry pattern:
-  // - Database Reset: legacy progress completion plus its idempotent terminal event
-  // - Epic/Xbox mapping-data updates: custom one-shot handlers separate from run lifecycles
-  // - Steam Session Error: custom one-shot error display
-  //
-  // Wiring is driven by SPECIAL_NOTIFICATION_CONTRACTS - see
-  // ./specialNotificationContracts.ts. Each contract entry maps a logical
-  // lifecycle to a set of SignalR event subscriptions. The iterator below
-  // collapses the imperative on/off calls into a single loop.
-  React.useEffect(() => {
-    const handlers = createSpecialCaseHandlers(
-      setNotifications,
-      scheduleAutoDismiss,
-      cancelAutoDismissTimer
-    );
-
-    const subscriptions = SPECIAL_NOTIFICATION_CONTRACTS.flatMap((contract) =>
-      contract.subscribe(handlers)
-    );
-
-    subscriptions.forEach(({ event, handler }) => signalR.on(event, handler));
-
-    return () => {
-      subscriptions.forEach(({ event, handler }) => signalR.off(event, handler));
-    };
-  }, [signalR, scheduleAutoDismiss, cancelAutoDismissTimer]);
 
   // Toast notifications
   React.useEffect(() => {

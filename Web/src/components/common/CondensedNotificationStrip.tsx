@@ -1,7 +1,8 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { UnifiedNotification } from '@contexts/notifications';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
+import { useMediaQuery } from '@hooks/useMediaQuery';
 import './CondensedNotificationStrip.css';
 
 /**
@@ -40,6 +41,25 @@ const GLOW_COLOR_BY_STATUS_COLOR: Record<string, string> = {
  * exists only while open.
  */
 const OPEN_HOVER_RECHECK_MS = 250;
+
+/**
+ * How long the pointer has to rest on the line before the panel opens. The strip spans the
+ * width of the bar, so a pointer crossing it on the way somewhere else would otherwise flash
+ * the panel open and shut in passing. Leaving the line, or the pointer leaving the window,
+ * cancels a pending open, so only a deliberate rest reveals the cards. Closing stays instant.
+ */
+const HOVER_OPEN_DELAY_MS = 135;
+
+/**
+ * How long the revealed panel keeps rendering after it closes, while its fade-and-collapse
+ * plays. Slightly longer than the CSS exit animation so the faded end state is what unmounts.
+ * The exit animates transform and opacity only, INSIDE the height the layout has already
+ * reserved, and that height is handed back in one step at unmount - so a close interrupted by
+ * a reopen or by notification churn can never strand a partial height under the line. Like the
+ * line and segment exits, the unmount rides a plain timeout rather than an animationend event,
+ * which can be lost when churn re-renders mid-animation.
+ */
+const PANEL_EXIT_MS = 150;
 
 /**
  * How long the strip keeps rendering its final segments after the last compacted notification
@@ -137,9 +157,10 @@ const StripSegment: React.FC<{ segment: CondensedStripSegment; leaving?: boolean
  * the revealed elements ARE the same cards, sharing one stack with any full-size cards the bar
  * renders below instead of overlaying them.
  *
- * Closing is an INSTANT unmount, never an exit animation: an in-flow panel that animated shut
- * could be interrupted mid-collapse and strand residual height under the line, and an unmount
- * has nothing to freeze. Keep it that way.
+ * Closing fades the panel out over PANEL_EXIT_MS and then unmounts. The animation only ever
+ * touches transform and opacity, so the reserved height stays whole until the unmount releases
+ * it all at once - never animate the panel's height or margins here, because an in-flow
+ * collapse interrupted mid-flight strands residual space under the line.
  */
 export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProps> = ({
   segments,
@@ -276,7 +297,31 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
   // The panel renders in the bar's flow, so the bar needs to know when it is visible to keep
   // its bottom edge under the revealed cards. Report before paint so the panel and that edge
   // cannot appear in separate frames. The latest-callback ref keeps prop churn from re-reporting.
-  const panelVisible = open && hasSegments;
+  const panelOpen = open && hasSegments;
+
+  // The panel outlives its close by PANEL_EXIT_MS so the fade can play. Reopening during the
+  // fade cancels it (the effect re-runs and clears the timer), and a reduced-motion viewer
+  // keeps the instant unmount. When the segments themselves go away the line's own fade-out
+  // owns the goodbye, so the panel leaves with it instead of fading twice.
+  const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  const [panelClosing, setPanelClosing] = useState(false);
+  const panelWasOpenRef = useRef(false);
+  useEffect(() => {
+    if (panelOpen) {
+      panelWasOpenRef.current = true;
+      setPanelClosing(false);
+      return;
+    }
+    if (!panelWasOpenRef.current || prefersReducedMotion || !hasSegments) {
+      return;
+    }
+    panelWasOpenRef.current = false;
+    setPanelClosing(true);
+    const timer = window.setTimeout(() => setPanelClosing(false), PANEL_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [panelOpen, prefersReducedMotion, hasSegments]);
+
+  const panelVisible = panelOpen || panelClosing;
   const onOpenChangeRef = useRef(onOpenChange);
   useEffect(() => {
     onOpenChangeRef.current = onOpenChange;
@@ -286,13 +331,29 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
   }, [panelVisible]);
   useEffect(() => () => onOpenChangeRef.current?.(false), []);
 
+  // A hover-open waiting out HOVER_OPEN_DELAY_MS, cancelled by anything that takes the pointer
+  // off the line before the delay elapses.
+  const openTimerRef = useRef<number | null>(null);
+  const cancelPendingOpen = useCallback((): void => {
+    if (openTimerRef.current !== null) {
+      window.clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => cancelPendingOpen, [cancelPendingOpen]);
+
   const handleMouseEnter = (): void => {
     if (canHover) {
-      setOpen(true);
+      cancelPendingOpen();
+      openTimerRef.current = window.setTimeout(() => {
+        openTimerRef.current = null;
+        setOpen(true);
+      }, HOVER_OPEN_DELAY_MS);
     }
   };
   const handleMouseLeave = (): void => {
     if (canHover) {
+      cancelPendingOpen();
       setOpen(false);
     }
   };
@@ -341,12 +402,15 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
   // Ways the pointer can be gone without a final event ever landing where the strip could see
   // it: the window loses focus, the tab hides, or the pointer exits the document in one
   // hardware step. Each closes the panel outright instead of waiting on a recheck tick whose
-  // inputs may be stale.
+  // inputs may be stale. This runs whether or not the panel is open, because the same events
+  // can land during a pending hover-open and would otherwise reveal the panel behind a hidden
+  // tab, where no later event arrives to close it again.
   useEffect(() => {
-    if (!canHover || !open) {
+    if (!canHover) {
       return;
     }
     const close = (): void => {
+      cancelPendingOpen();
       lastPointerRef.current = null;
       setOpen(false);
     };
@@ -363,7 +427,7 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
       window.removeEventListener('blur', close);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [canHover, open]);
+  }, [canHover, cancelPendingOpen]);
 
   // Tap-opened panels (no hover to end them) close on a press outside the strip, and any open
   // panel closes on Escape.
@@ -474,10 +538,14 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
           ))}
         </span>
       </button>
-      {/* Mounted only while open AND segments are live: closing unmounts instantly (an in-flow
-          exit animation could be interrupted and strand height under the line), and during the
-          line's fade-out the children the bar passes are already empty, so nothing renders. */}
-      {panelVisible && <div className="condensed-strip-panel">{children}</div>}
+      {/* Mounted while open AND segments are live, plus the exit fade that follows a close.
+          During the line's own fade-out the children the bar passes are already empty, so
+          nothing renders there. */}
+      {panelVisible && (
+        <div className={`condensed-strip-panel${panelClosing ? ' is-closing' : ''}`}>
+          {children}
+        </div>
+      )}
     </div>
   );
 };

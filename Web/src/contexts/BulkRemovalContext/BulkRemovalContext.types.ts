@@ -20,6 +20,12 @@ export type BulkQueueEntry =
  */
 export type EvictedQueueEntry = BulkQueueEntry;
 
+/** One (datasource, service) pair queued for sequential log removal. */
+export interface LogBatchEntry {
+  datasource: string;
+  service: string;
+}
+
 /**
  * Per-run options threaded into a bulk-removal entry point. `onSettled` is the
  * caller-supplied post-settle refresh (GameCacheDetector's `onDataRefresh`).
@@ -62,6 +68,14 @@ interface BulkRemovalContextType {
    */
   runEvictedRemoval: (items: EvictedQueueEntry[], options: BulkRemovalRunOptions) => Promise<void>;
   isEvictedRemovalRunning: boolean;
+  /**
+   * Sequential queue for the log-processing "Remove Selected" batch. Rewrites one
+   * (datasource, service) pair's log entries at a time and waits for its
+   * LogRemovalComplete before advancing. Shares the same run-options shape, seeded
+   * bulk_removal card, and finalize transition as {@link runCacheRemoval}.
+   */
+  runLogRemoval: (items: LogBatchEntry[], options: BulkRemovalRunOptions) => Promise<void>;
+  isLogRemovalRunning: boolean;
 }
 
 export const BulkRemovalContext = createContext<BulkRemovalContextType | undefined>(undefined);

@@ -166,6 +166,8 @@ interface StandardOperationEntryOptions<TStarted, TProgress, TComplete> {
   /** Terminal event name, for the one pipeline that named its event `...Completed`. */
   completeEvent?: string;
   cancelTooltipKey: string;
+  /** Set for a pipeline whose first operationId can arrive on a progress tick. */
+  allowsDeferredCancel?: boolean;
   recovery: RecoveryConfig;
   /**
    * Applies the silent-run display gate to all three lifecycle phases. Set it for
@@ -182,9 +184,9 @@ interface StandardOperationEntryOptions<TStarted, TProgress, TComplete> {
 }
 
 /**
- * Builds the entry for a cancellable server operation: standard wiring, a serverOp
- * cancel, the event triple derived from `eventPrefix`, and the operation-id details
- * every card in this family carries.
+ * Builds the entry for a cancellable server operation: a serverOp cancel, the event
+ * triple derived from `eventPrefix`, and the operation-id details every card in this
+ * family carries.
  */
 export function buildStandardOperationEntry<TStarted, TProgress, TComplete>(
   options: StandardOperationEntryOptions<TStarted, TProgress, TComplete>
@@ -196,6 +198,7 @@ export function buildStandardOperationEntry<TStarted, TProgress, TComplete>(
     eventPrefix,
     completeEvent,
     cancelTooltipKey,
+    allowsDeferredCancel,
     recovery,
     silentRunGate,
     started,
@@ -230,9 +233,9 @@ export function buildStandardOperationEntry<TStarted, TProgress, TComplete>(
     type,
     id,
     storageKey,
-    wiring: 'standard',
     cancelKind: 'serverOp',
     cancelTooltipKey,
+    allowsDeferredCancel,
     recovery,
     events: {
       started: `${eventPrefix}Started`,
@@ -265,6 +268,8 @@ interface MappingOperationEntryOptions {
   storageKey: string;
   serviceKey: string;
   eventPrefix: string;
+  /** Terminal event name, for a pipeline that named its event `...Completed`. */
+  completeEvent?: string;
   i18nBase: string;
   cancelTooltipKey: string;
   defaultMessage: string;
@@ -288,6 +293,7 @@ export function buildMappingOperationEntry<
     storageKey,
     serviceKey,
     eventPrefix,
+    completeEvent,
     i18nBase,
     cancelTooltipKey,
     defaultMessage,
@@ -300,6 +306,7 @@ export function buildMappingOperationEntry<
     id,
     storageKey,
     eventPrefix,
+    completeEvent,
     cancelTooltipKey,
     silentRunGate: true,
     recovery: {
@@ -404,7 +411,6 @@ export function buildScheduledRunEntry(
     type,
     id,
     storageKey,
-    wiring: 'standard',
     cancelKind: 'none',
     recovery: {
       kind: 'simple',

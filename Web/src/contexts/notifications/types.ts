@@ -28,7 +28,9 @@ export type NotificationType =
   | 'game_detection'
   | 'data_import'
   | 'epic_game_mapping'
+  | 'epic_catalog_update'
   | 'xbox_game_mapping'
+  | 'xbox_catalog_update'
   | 'battle_net_game_mapping'
   | 'riot_game_mapping'
   | 'eviction_scan'
@@ -129,6 +131,23 @@ export interface UnifiedNotification {
      * or any other running batch - never suppresses it.
      */
     itemTypes?: NotificationType[];
+    /**
+     * Operation id of the batch item currently in flight, parked or running. Item types are
+     * shared - two batches, or a batch and a removal started from a page, can produce the same
+     * one - so this is what proves a queue event belongs to THIS batch rather than merely
+     * matching a type it declared. Cleared between items. It is deliberately not
+     * `details.operationId`: that field puts the card's X on the server-cancel path, and a
+     * batch card cancels its run through the client queue instead.
+     */
+    currentOperationId?: string;
+    /**
+     * True while the batch has sent its current item's request and has not learned that item's
+     * operation id yet. The queue announces a parked operation from inside the request, so the
+     * push can reach the card before the response does, and for that one round trip an empty
+     * `currentOperationId` still means "this could be mine". Once the request is answered an
+     * empty id means the batch has nothing to claim.
+     */
+    itemRequestPending?: boolean;
 
     // For depot_mapping
     totalMappings?: number;
@@ -161,15 +180,6 @@ export interface UnifiedNotification {
     stateCommitted?: boolean;
     detectionCounts?: Record<string, number>;
     coverage?: CorruptionScanCoverage | null;
-
-    // For epic_game_mapping
-    totalEpicGames?: number;
-    newEpicGames?: number;
-    updatedEpicGames?: number;
-
-    // For xbox_game_mapping
-    newXboxGames?: number;
-    newXboxPatterns?: number;
 
     // For generic notifications
     notificationType?: NotificationVariant;
@@ -209,9 +219,17 @@ export interface NotificationsContextType {
   /**
    * Updates an existing notification.
    * @param id - The notification ID to update
-   * @param updates - Partial notification data to merge
+   * @param updates - Partial notification data to merge, or a function handed the live
+   * notification that returns it. Use the function form for a read-modify-write of a nested
+   * object such as `details`, which merges only at the top level: it reads the card React is
+   * about to update rather than a snapshot taken before the caller's own earlier writes landed.
    */
-  updateNotification: (id: string, updates: Partial<UnifiedNotification>) => void;
+  updateNotification: (
+    id: string,
+    updates:
+      | Partial<UnifiedNotification>
+      | ((notification: UnifiedNotification) => Partial<UnifiedNotification>)
+  ) => void;
   /**
    * Removes a notification immediately without animation.
    * @param id - The notification ID to remove
@@ -299,8 +317,6 @@ export interface RegistryStartedConfig<TEvent = LifecycleEvent> {
    * card sweeps until real progress arrives.
    */
   progressMode?: UnifiedNotification['progressMode'];
-  /** Extra notification ids to remove when this operation starts (migration/cleanup) */
-  additionalIdsToRemove?: string[];
 }
 
 /**
@@ -359,22 +375,19 @@ export interface RegistryCompleteConfig<TEvent = LifecycleEvent> {
   getDetailMessage?: (event: TEvent) => string | undefined;
   /** Optional function to get the failure message */
   getFailureMessage?: (event: TEvent) => string;
+  /**
+   * Fixed outcome for an entry whose single event IS the whole lifecycle. Such a payload reports
+   * no `success` field, because there was no run to report on, so the entry states what its event
+   * always means. Setting it also lets the event replace a terminal card in its slot: with no
+   * started or progress phase there is no second operation of this type to confuse the card with,
+   * and whatever sits there can only be an older announcement of the same kind.
+   */
+  succeeded?: boolean;
+  /** Auto-dismiss delay for this type's terminal card, where the shared default is wrong. */
+  dismissDelayMs?: number;
   /** If true, show a brief animation delay before marking complete */
   useAnimationDelay?: boolean;
-  /** Optional function to get ID for fast completion (if different from getId) */
-  getFastCompletionId?: () => string;
 }
-
-/**
- * How a notification type's SignalR lifecycle handlers are wired.
- *   - 'standard': the {@link useNotificationHandlers} loop subscribes
- *     started/progress/complete handlers built from this entry's configs.
- *   - 'special': the entry is metadata-only (cancelKind + recovery). Its
- *     SignalR handlers are hand-built in `createSpecialCaseHandlers` and wired
- *     via SPECIAL_NOTIFICATION_CONTRACTS. The standard loop MUST skip these to
- *     avoid double-subscribing.
- */
-export type NotificationWiring = 'standard' | 'special';
 
 /**
  * How the X button cancels a notification.
@@ -477,21 +490,17 @@ export type NotificationRegistryEntry = CancelWiring & {
   id: string;
   /** localStorage persistence key */
   storageKey: string;
-  /**
-   * How this entry's SignalR handlers are wired. 'special' entries are
-   * metadata-only (no `events`/`started`/`progress`); the standard handler loop
-   * skips them and they are subscribed by createSpecialCaseHandlers instead.
-   */
-  wiring: NotificationWiring;
   /** Recovery wiring (discriminated union). */
   recovery: RecoveryConfig;
   /**
-   * SignalR event names for each lifecycle phase. Present only for
-   * wiring:'standard' entries (the loop reads them).
+   * SignalR event names for the lifecycle phases this type actually has. An entry
+   * that declares none is metadata-only (cancel + recovery); the handler loop skips
+   * it and its card is created by client code instead. An entry whose single event
+   * carries the whole lifecycle declares only `complete`.
    */
   events?: {
-    started: string;
-    progress: string;
+    started?: string;
+    progress?: string;
     complete: string;
   };
   /** Configuration for the started handler (standard entries only) */

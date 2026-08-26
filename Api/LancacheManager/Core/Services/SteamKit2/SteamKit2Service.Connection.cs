@@ -173,6 +173,7 @@ public partial class SteamKit2Service
             _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
             {
                 errorType = logonEx.ErrorType,
+                titleStageKey = SessionErrorTitleKey(logonEx.ErrorType),
                 stageKey = logonEx.StageKey,
                 context = new Dictionary<string, object?> { ["result"] = logonEx.Result },
                 result = logonEx.Result,
@@ -186,6 +187,7 @@ public partial class SteamKit2Service
             _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
             {
                 errorType = "ConnectionFailed",
+                titleStageKey = SessionErrorTitleKey("ConnectionFailed"),
                 stageKey = "signalr.steamSession.reconnectFailed",
                 context = new Dictionary<string, object?> { ["maxAttempts"] = MaxLogonAttempts },
                 timestamp = DateTime.UtcNow,
@@ -193,6 +195,25 @@ public partial class SteamKit2Service
             });
         }
     }
+
+    /// <summary>
+    /// Maps an errorType to the i18n key for the toast's title, so the frontend renders the
+    /// title with one lookup instead of re-deriving it from errorType. The keys exist in both
+    /// locales under signalr.steamSession.errorTitle. Internal +
+    /// <c>InternalsVisibleTo("LancacheManager.Tests")</c> so a test can resolve every returned
+    /// key against the locale files - the frontend lint never reads .cs strings.
+    /// </summary>
+    internal static string SessionErrorTitleKey(string errorType) => errorType switch
+    {
+        "SessionReplaced" or "LoggedInElsewhere" => "signalr.steamSession.errorTitle.sessionReplaced",
+        // No SteamSessionError emitter builds this errorType - an auto-logout travels on its own
+        // SteamAutoLogout event. Kept so the mapping stays complete if one ever routes here.
+        "AutoLogout" => "signalr.steamSession.errorTitle.autoLogout",
+        "InvalidCredentials" or "AuthenticationRequired" or "SessionExpired" => "signalr.steamSession.errorTitle.authRequired",
+        "ServerUnavailable" or "ServiceUnavailable" => "signalr.steamSession.errorTitle.serviceUnavailable",
+        "RateLimited" => "signalr.steamSession.errorTitle.rateLimited",
+        _ => "signalr.steamSession.errorTitle.generic"
+    };
 
     /// <summary>
     /// Determines which login mode to use and fires the appropriate SteamUser logon call.
@@ -444,6 +465,7 @@ public partial class SteamKit2Service
                 _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
                 {
                     errorType,
+                    titleStageKey = SessionErrorTitleKey(errorType),
                     stageKey = "signalr.steamSession.disconnected",
                     context = new Dictionary<string, object?> { ["result"] = callback.Result.ToString() },
                     result = callback.Result.ToString(),

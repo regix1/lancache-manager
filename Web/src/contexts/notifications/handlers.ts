@@ -83,7 +83,7 @@ export function waitingCardMessage(source: {
 }
 
 /** Skip opening a new per-item singleton while the bulk card whose items produce it owns progress. */
-export function findBulkCardOwningType(
+function findBulkCardOwningType(
   type: NotificationType,
   notifications: UnifiedNotification[]
 ): UnifiedNotification | undefined {
@@ -106,6 +106,37 @@ function suppressNewItemCardDuringBulk(
 }
 
 /**
+ * The batch card whose own in-flight item IS this queued operation.
+ *
+ * Declaring an item type is not the same as having started the work: a batch shares its types
+ * with a second batch and with every removal a user starts from a page, so the type alone cannot
+ * decide whose queued operation this is. A batch publishes its current item's operation id while
+ * that item is in flight, and a card carrying a DIFFERENT id is reporting other work - folding
+ * the queued operation into it would relabel a card that has nothing to do with the event and
+ * leave the queued operation with no card of its own to cancel from.
+ *
+ * A batch that has not published an id yet is claimed only while its item's request is still on
+ * the wire. The queue announces a parked operation from inside that request, so the push really
+ * can beat the response home, and that one round trip is the whole reason the type-level answer
+ * survives at all. Once the request is answered an empty id means the batch has nothing to claim -
+ * it is between items, or its item was deduplicated onto a removal whose id it refused - and a
+ * queued operation of the same type belongs to somebody else for as long as that lasts.
+ */
+export function findBulkCardOwningOperation(
+  type: NotificationType,
+  operationId: string | undefined,
+  notifications: UnifiedNotification[]
+): UnifiedNotification | undefined {
+  const owningBulk = findBulkCardOwningType(type, notifications);
+  if (!owningBulk) return undefined;
+  const currentOperationId = owningBulk.details?.currentOperationId;
+  if (currentOperationId) {
+    return operationId && currentOperationId !== operationId ? undefined : owningBulk;
+  }
+  return owningBulk.details?.itemRequestPending === true ? owningBulk : undefined;
+}
+
+/**
  * Whether a lifecycle event is allowed to touch the card currently in its type's singleton slot.
  *
  * CRITICAL: a non-running card in that slot is NOT necessarily the same operation. Two operations
@@ -119,7 +150,7 @@ function suppressNewItemCardDuringBulk(
  * does not yet have an operation id, a running card keeps the historical type-level fallback; any
  * other card is touched ONLY when the event provably belongs to it (matching operationId).
  */
-function eventTargetsCard(existing: UnifiedNotification, event: unknown): boolean {
+export function eventTargetsCard(existing: UnifiedNotification, event: unknown): boolean {
   const cardOperationId = existing.details?.operationId;
   const incomingOperationId = eventOperationId(event);
   if (cardOperationId && incomingOperationId && cardOperationId !== incomingOperationId) {
@@ -220,8 +251,6 @@ interface StartedHandlerConfig<T> {
    * the 0% below, which is a lie for an operation that starts by waiting on a person.
    */
   progressMode?: NotificationProgressMode;
-  /** Extra notification ids to remove when this operation starts */
-  additionalIdsToRemove?: string[];
 }
 
 /**
@@ -258,7 +287,6 @@ export function createStartedHandler<T>(
     const notificationId = config.getId(event);
 
     if (config.shouldDisplay?.(event) === false) {
-      const idsToRemove = new Set([notificationId, ...(config.additionalIdsToRemove ?? [])]);
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((notification) => notification.id === notificationId);
         if (
@@ -269,7 +297,7 @@ export function createStartedHandler<T>(
         }
 
         cancelAutoDismissTimer?.(notificationId);
-        return prev.filter((notification) => !idsToRemove.has(notification.id));
+        return prev.filter((notification) => notification.id !== notificationId);
       });
       return;
     }
@@ -316,9 +344,8 @@ export function createStartedHandler<T>(
       // Persist to localStorage for recovery on page refresh
       localStorage.setItem(config.storageKey, JSON.stringify(newNotification));
 
-      // Remove this notification and any legacy/extra ids, then add the new running slot.
-      const idsToRemove = new Set([notificationId, ...(config.additionalIdsToRemove ?? [])]);
-      const filtered = prev.filter((n) => !idsToRemove.has(n.id));
+      // Drop the old card on this id, then add the new running slot.
+      const filtered = prev.filter((n) => n.id !== notificationId);
       return [...filtered, newNotification];
     });
   };
@@ -359,10 +386,23 @@ interface CompletionHandlerConfig<T> {
   getDetailMessage?: (event: T) => string | undefined;
   /** Optional function to get the failure message */
   getFailureMessage?: (event: T) => string;
+  /**
+   * Fixed outcome for an entry whose single event IS the whole lifecycle. Such a payload reports
+   * no `success` field, because there was no run to report on, so the entry states what its event
+   * always means.
+   */
+  succeeded?: boolean;
+  /**
+   * True where this event IS the whole lifecycle, so the entry has no started or progress phase.
+   * Such an event replaces a terminal card in its slot instead of leaving it: with no other phase
+   * there is no second operation of this type to confuse the card with, and whatever sits there
+   * can only be an older announcement of the same kind.
+   */
+  announcement?: boolean;
+  /** Auto-dismiss delay for this type's terminal card, where the shared default is wrong. */
+  dismissDelayMs?: number;
   /** If true, show a brief animation delay before marking complete */
   useAnimationDelay?: boolean;
-  /** Optional function to get ID for fast completion (if different from getId) */
-  getFastCompletionId?: (event: T) => string;
 }
 
 /**
@@ -417,7 +457,10 @@ export function createCompletionHandler<
           return prev;
         }
 
-        return prev.filter((notification) => notification.id !== notificationId);
+        const next = prev.filter((notification) => notification.id !== notificationId);
+        // A suppressed event usually has no card to remove. Handing back the same array leaves the
+        // list identity alone so those do not re-render every card.
+        return next.length === prev.length ? prev : next;
       });
       return;
     }
@@ -426,6 +469,10 @@ export function createCompletionHandler<
     // A skipped run reports success:true (it did not fail) and status:'skipped', so the outcome
     // can only be read off the wire status. Checked before the success branches below.
     const isSkipped = event.status === 'skipped' && !isCancelled;
+    // An entry that states its own outcome overrides the wire field, which its payload does not
+    // carry: one event for the whole lifecycle means there is no run whose success to report.
+    const succeeded = config.succeeded ?? event.success;
+    const dismissDelayMs = isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : config.dismissDelayMs;
 
     /**
      * A skipped run's own stage key already names the reason it did nothing, so the card reuses
@@ -454,18 +501,13 @@ export function createCompletionHandler<
       );
     };
 
-    // Track the ID to schedule (may be different for fast completion)
-    let idToSchedule = notificationId;
-
     /** Builds a terminal card for fast completion (no prior started event). */
     const buildFastCompletionNotification = (): UnifiedNotification => {
-      const fastId = config.getFastCompletionId?.(event) ?? notificationId;
-      idToSchedule = fastId;
       const failureMessage = resolveFailureMessage();
 
       if (isSkipped) {
         return {
-          id: fastId,
+          id: notificationId,
           type: config.type,
           status: 'skipped' as const,
           message: resolveSkippedMessage(),
@@ -476,9 +518,9 @@ export function createCompletionHandler<
         };
       }
 
-      if (event.success && !isCancelled) {
+      if (succeeded && !isCancelled) {
         return {
-          id: fastId,
+          id: notificationId,
           type: config.type,
           status: 'completed' as const,
           message:
@@ -493,7 +535,7 @@ export function createCompletionHandler<
       }
 
       return {
-        id: fastId,
+        id: notificationId,
         type: config.type,
         status: isCancelled ? ('cancelled' as const) : ('failed' as const),
         message: failureMessage,
@@ -529,17 +571,11 @@ export function createCompletionHandler<
             return prev;
           }
           const newNotification = buildFastCompletionNotification();
-          scheduleAutoDismiss(
-            idToSchedule,
-            isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : undefined
-          );
+          scheduleAutoDismiss(notificationId, dismissDelayMs);
           return [...prev.filter((n) => n.id !== newNotification.id), newNotification];
         }
 
-        scheduleAutoDismiss(
-          idToSchedule,
-          isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : undefined
-        );
+        scheduleAutoDismiss(notificationId, dismissDelayMs);
         return prev.map((n) => {
           if (n.id === notificationId) {
             if (isSkipped) {
@@ -557,7 +593,7 @@ export function createCompletionHandler<
               };
             }
 
-            if (event.success && !isCancelled) {
+            if (succeeded && !isCancelled) {
               return {
                 ...n,
                 progress: FULL_PROGRESS_PERCENT,
@@ -595,8 +631,11 @@ export function createCompletionHandler<
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
-        if (!existing) {
-          // Fast completion - no prior started event
+        // Fast completion - no prior started event. An announcement also lands here when its slot
+        // already holds a terminal card, because that card is an older announcement of the same
+        // kind rather than another operation's: the two guards below would otherwise drop every
+        // repeat and the newer announcement would never be shown.
+        if (!existing || (config.announcement && isTerminalNotificationStatus(existing.status))) {
           if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
             return prev;
           }
@@ -604,11 +643,8 @@ export function createCompletionHandler<
             return prev;
           }
           const newNotification = buildFastCompletionNotification();
-          scheduleAutoDismiss(
-            idToSchedule,
-            isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : undefined
-          );
-          return [...prev, newNotification];
+          scheduleAutoDismiss(notificationId, dismissDelayMs);
+          return [...prev.filter((n) => n.id !== notificationId), newNotification];
         }
 
         // Never touch a card belonging to a DIFFERENT operation of this type (a queued op's
@@ -620,10 +656,7 @@ export function createCompletionHandler<
           return prev;
         }
 
-        scheduleAutoDismiss(
-          idToSchedule,
-          isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : undefined
-        );
+        scheduleAutoDismiss(notificationId, dismissDelayMs);
         return prev.map((n) => {
           if (n.id === notificationId) {
             if (isSkipped) {
@@ -642,7 +675,7 @@ export function createCompletionHandler<
               };
             }
 
-            if (event.success && !isCancelled) {
+            if (succeeded && !isCancelled) {
               return {
                 ...n,
                 progress: FULL_PROGRESS_PERCENT,

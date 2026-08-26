@@ -1488,7 +1488,7 @@ class ApiService {
     operationId: string;
     appId: string;
     gameName: string;
-    status: string;
+    status: OperationStatus;
     queued?: boolean;
     alreadyRunning?: boolean;
   }> {
@@ -1505,7 +1505,7 @@ class ApiService {
         operationId: string;
         appId: string;
         gameName: string;
-        status: string;
+        status: OperationStatus;
         queued?: boolean;
         alreadyRunning?: boolean;
       }>(res);
@@ -1521,7 +1521,7 @@ class ApiService {
     operationId: string;
     appId: string;
     gameName: string;
-    status: string;
+    status: OperationStatus;
     queued?: boolean;
     alreadyRunning?: boolean;
   }> {
@@ -1538,7 +1538,7 @@ class ApiService {
         operationId: string;
         appId: string;
         gameName: string;
-        status: string;
+        status: OperationStatus;
         queued?: boolean;
         alreadyRunning?: boolean;
       }>(res);
@@ -1557,7 +1557,7 @@ class ApiService {
     operationId: string;
     appId: string;
     gameName: string;
-    status: string;
+    status: OperationStatus;
     queued?: boolean;
     alreadyRunning?: boolean;
   }> {
@@ -1574,7 +1574,7 @@ class ApiService {
         operationId: string;
         appId: string;
         gameName: string;
-        status: string;
+        status: OperationStatus;
         queued?: boolean;
         alreadyRunning?: boolean;
       }>(res);
@@ -1588,7 +1588,7 @@ class ApiService {
   static async removeServiceFromCache(serviceName: string): Promise<{
     message: string;
     serviceName: string;
-    status: string;
+    status: OperationStatus;
     operationId: string;
     queued?: boolean;
     alreadyRunning?: boolean;
@@ -1604,7 +1604,7 @@ class ApiService {
       return await this.handleResponse<{
         message: string;
         serviceName: string;
-        status: string;
+        status: OperationStatus;
         operationId: string;
         queued?: boolean;
         alreadyRunning?: boolean;
@@ -1638,13 +1638,18 @@ class ApiService {
   // Remove only the evicted downloads (and their log entries) for a Steam game (fire-and-forget, requires auth)
   static async removeEvictedForGame(
     gameAppId: number
-  ): Promise<{ operationId: string; scope: string; key: string }> {
+  ): Promise<{ operationId: string; scope: string; key: string; status?: OperationStatus }> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/evicted/steam?key=${gameAppId}`,
         this.getFetchOptions({ method: 'DELETE' })
       );
-      return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
+      return await this.handleResponse<{
+        operationId: string;
+        scope: string;
+        key: string;
+        status?: OperationStatus;
+      }>(res);
     } catch (error: unknown) {
       console.error('removeEvictedForGame error:', error);
       throw error;
@@ -1654,13 +1659,18 @@ class ApiService {
   // Remove only the evicted downloads (and their log entries) for an Epic game (fire-and-forget, requires auth)
   static async removeEvictedForEpicGame(
     epicAppId: string
-  ): Promise<{ operationId: string; scope: string; key: string }> {
+  ): Promise<{ operationId: string; scope: string; key: string; status?: OperationStatus }> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/evicted/epic?key=${encodeURIComponent(epicAppId)}`,
         this.getFetchOptions({ method: 'DELETE' })
       );
-      return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
+      return await this.handleResponse<{
+        operationId: string;
+        scope: string;
+        key: string;
+        status?: OperationStatus;
+      }>(res);
     } catch (error: unknown) {
       console.error('removeEvictedForEpicGame error:', error);
       throw error;
@@ -1670,13 +1680,18 @@ class ApiService {
   // Remove only the evicted downloads (and their log entries) for a non-game service (fire-and-forget, requires auth)
   static async removeEvictedForService(
     serviceName: string
-  ): Promise<{ operationId: string; scope: string; key: string }> {
+  ): Promise<{ operationId: string; scope: string; key: string; status?: OperationStatus }> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/evicted/service?key=${encodeURIComponent(serviceName)}`,
         this.getFetchOptions({ method: 'DELETE' })
       );
-      return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
+      return await this.handleResponse<{
+        operationId: string;
+        scope: string;
+        key: string;
+        status?: OperationStatus;
+      }>(res);
     } catch (error: unknown) {
       console.error('removeEvictedForService error:', error);
       throw error;
@@ -1689,7 +1704,13 @@ class ApiService {
   static async removeEvictedForNamedGame(
     service: string,
     gameName: string
-  ): Promise<{ operationId: string; scope: string; service: string; gameName: string }> {
+  ): Promise<{
+    operationId: string;
+    scope: string;
+    service: string;
+    gameName: string;
+    status?: OperationStatus;
+  }> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/evicted/named/${encodeURIComponent(service)}/${encodeURIComponent(gameName)}`,
@@ -1700,6 +1721,7 @@ class ApiService {
         scope: string;
         service: string;
         gameName: string;
+        status?: OperationStatus;
       }>(res);
     } catch (error: unknown) {
       console.error('removeEvictedForNamedGame error:', error);

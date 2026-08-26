@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useOptimisticPending } from '@/hooks/useOptimisticPending';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useSelectionSet } from '@/hooks/useSelectionSet';
-import { useBatchQueue } from '@/hooks/useBatchQueue';
 import { useTranslation } from 'react-i18next';
 import { FileText, RefreshCw, Trash2 } from 'lucide-react';
 import '../managementSectionContent.css';
@@ -13,18 +12,12 @@ import { getErrorMessage } from '@utils/error';
 import { useNotifications } from '@contexts/notifications';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
-import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
+import { useBulkRemoval, type LogBatchEntry } from '@contexts/BulkRemovalContext';
 import { useConfig } from '@contexts/useConfig';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import type {
-  LogRemovalStartedEvent,
-  LogRemovalProgressEvent,
-  LogRemovalCompleteEvent
-} from '@contexts/SignalRContext/types';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { useReconnectRefetch } from '@/hooks/useReconnectRefetch';
-import { finalizeBulkRemovalNotification } from '@components/features/management/game-detection/cacheRemovalHelpers';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
@@ -45,12 +38,6 @@ import type { DatasourceInfo, DatasourceServiceCounts } from '@/types';
 import { resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { resolveDatasources } from '@utils/datasources';
 import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
-
-/** One (datasource, service) pair queued for sequential log removal. */
-interface LogBatchEntry {
-  datasource: string;
-  service: string;
-}
 
 // Main services that should always be shown first
 const MAIN_SERVICES = [
@@ -157,8 +144,8 @@ interface LogRemovalManagerProps {
 
 const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
-  const { notifications, isAnyRemovalRunning, addNotification, updateNotification } =
-    useNotifications();
+  const { notifications, isAnyRemovalRunning, addNotification } = useNotifications();
+  const { runLogRemoval, isLogRemovalRunning: isBatchRunning } = useBulkRemoval();
   const { on, off, isConnected } = useSignalR();
   const { config } = useConfig();
   const { cacheReadOnly, logsReadOnly, cacheExist, logsExist, checkingPermissions } =
@@ -433,16 +420,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     }
   }, [selectableKeys]);
 
-  const { run: runLogBatch, state: logBatchState } = useBatchQueue<LogBatchEntry>({
-    onSettled: () => {
-      // Counts refresh via the existing ServiceCountsChanged subscription; here we
-      // only drop the selection so the next batch starts clean.
-      selectionRef.current.clear();
-    }
-  });
-  const isBatchRunning =
-    logBatchState.status === 'running' || logBatchState.status === 'cancelling';
-
   const runBatchRemoval = useCallback(async () => {
     setShowBatchConfirm(false);
     if (authMode !== 'authenticated') {
@@ -458,130 +435,14 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         const sep = key.indexOf('::');
         return { datasource: key.slice(0, sep), service: key.slice(sep + 2) };
       });
-    const total = items.length;
-    if (total === 0) return;
+    if (items.length === 0) return;
 
-    let bulkNotifId: string | null = null;
-    let currentIndex = 0;
-
-    await runLogBatch({
-      items,
-      openNotification: () => {
-        // Mirror BulkRemovalContext's cache card exactly: a bulk_removal card with no
-        // operationId, so handleCancel routes cancellation through the client-queue
-        // branch (flips details.cancelling) rather than a server-side cancel.
-        const id = addNotification({
-          type: 'bulk_removal',
-          status: 'running',
-          message: t('management.batchSelect.removeSelected', { count: total }),
-          progress: 0,
-          details: { itemTypes: ['log_removal'] }
-        });
-        bulkNotifId = id;
-        return id;
-      },
-      onItemStart: (entry, index, tot, notifId) => {
-        currentIndex = index;
-        updateNotification(notifId, {
-          message: t('signalr.logRemoval.removing', {
-            service: getServiceDisplayName(entry.service)
-          }),
-          progress: Math.floor(((index - 1) / tot) * 100)
-        });
-      },
-      processItem: async (entry, ctx) => {
-        const { datasource, service } = entry;
-        let operationId: string | null = null;
-        // Register the SignalR listeners BEFORE the DELETE so the Started/Complete
-        // events are never missed in a race. Log removal is single-flight
-        // server-side and this queue runs one item at a time, so matching on the
-        // captured operationId (else the service name on the terminal event) is
-        // unambiguous within the batch.
-        const waitPromise = waitForSignalRCompletion<
-          LogRemovalStartedEvent,
-          LogRemovalCompleteEvent,
-          LogRemovalProgressEvent
-        >({
-          signalR: { on, off },
-          completeEvent: 'LogRemovalComplete',
-          startedEvent: 'LogRemovalStarted',
-          match: (payload) =>
-            operationId ? payload?.operationId === operationId : payload?.service === service,
-          onStartedCapture: (payload) => {
-            const startedService = payload?.context?.service;
-            return typeof payload?.operationId === 'string' &&
-              (startedService === undefined || startedService === service)
-              ? { opId: payload.operationId }
-              : null;
-          },
-          onOperationIdCaptured: (opId) => {
-            operationId = opId;
-            ctx.setOperationId(opId);
-          },
-          progressEvent: 'LogRemovalProgress',
-          onProgress: (payload) => {
-            if (!bulkNotifId || !operationId || payload?.operationId !== operationId) return;
-            const inner = Math.min(100, Math.max(0, payload.percentComplete ?? 0));
-            const overall = Math.min(100, ((currentIndex - 1 + inner / 100) / total) * 100);
-            updateNotification(bulkNotifId, { progress: Math.floor(overall) });
-          },
-          // Large log files can take several minutes to rewrite; give each item a
-          // generous window so a legitimately-slow removal is not misreported.
-          timeoutMs: 600_000
-        });
-
-        const result = await ApiService.removeServiceFromDatasourceLogs(datasource, service);
-        if (result?.operationId) {
-          operationId = result.operationId;
-          ctx.setOperationId(result.operationId);
-        }
-        const outcome = await waitPromise;
-        if (outcome.timedOut) {
-          // No completion within the window: count as a failure rather than a silent
-          // success so the batch tally and progress stay honest.
-          throw new Error(`Log removal timed out for ${service}`);
-        }
-        // A completion that reports failure (e.g. locked files) must count as failed,
-        // not succeeded. Exclude server-side cancels, which the queue's cancel path owns.
-        if (outcome.event && outcome.event.success === false && !outcome.event.cancelled) {
-          throw new Error(outcome.event.message || `Log removal failed for ${service}`);
-        }
-      },
-      finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
-        finalizeBulkRemovalNotification({
-          id,
-          succeeded,
-          failed,
-          total: finalizeTotal,
-          cancelled,
-          t,
-          updateNotification,
-          text: {
-            completeKey: 'management.batchSelect.batchComplete',
-            completeDefaultValue: 'Removed {{count}} of {{total}} service logs',
-            partialFailureKey: 'management.batchSelect.batchCompleteWithFailures',
-            partialFailureDefaultValue: 'Removed {{count}} service logs, but {{failed}} failed',
-            cancelledKey: 'management.batchSelect.batchCancelled',
-            cancelledDefaultValue: 'Log removal cancelled after {{count}} service logs',
-            cancelledWithFailuresKey: 'management.batchSelect.batchCancelledWithFailures',
-            cancelledWithFailuresDefaultValue:
-              'Log removal cancelled after {{count}} service logs, with {{failed}} failures'
-          }
-        });
-      }
+    await runLogRemoval(items, {
+      // Counts refresh via the existing ServiceCountsChanged subscription; here we
+      // only drop the selection so the next batch starts clean.
+      onSettled: () => selectionRef.current.clear()
     });
-  }, [
-    authMode,
-    onError,
-    t,
-    selectableKeys,
-    selection,
-    runLogBatch,
-    addNotification,
-    updateNotification,
-    on,
-    off
-  ]);
+  }, [authMode, onError, t, selectableKeys, selection, runLogRemoval]);
 
   const toggleDatasourceExpanded = (name: string) => {
     setExpandedDatasources((prev) => {

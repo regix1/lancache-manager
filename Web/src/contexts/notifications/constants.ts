@@ -41,7 +41,9 @@ export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, Notificati
  * ServiceScheduleRegistry serviceKey -> OperationType map, so a manual run of the same operation
  * shares the card and therefore the display setting). A notification whose type is absent here has
  * no per-card display setting and always renders as a full card. Keep in lockstep with the backend
- * registry: a new scheduled service adds one line here.
+ * registry: a new scheduled service adds one line here. The two catalog announcements are not
+ * scheduled runs at all, but they report the result of one and so ride their mapping service's
+ * display setting.
  */
 export const SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: Partial<Record<NotificationType, string>> =
   {
@@ -57,7 +59,9 @@ export const SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: Partial<Record<Notifica
     game_detection: 'gameDetection',
     depot_mapping: 'depotMapping',
     epic_game_mapping: 'epicMapping',
+    epic_catalog_update: 'epicMapping',
     xbox_game_mapping: 'xboxMapping',
+    xbox_catalog_update: 'xboxMapping',
     battle_net_game_mapping: 'battleNetMapping',
     riot_game_mapping: 'riotMapping'
   };
@@ -205,9 +209,6 @@ export const NOTIFICATION_STORAGE_KEYS = {
   /** Key for scheduled dashboard cache warmer run state */
   DASHBOARD_CACHE_WARMER: 'notification_dashboard_cache_warmer'
 } as const;
-
-/** Pre-registry generic toast id for scheduled prefill Run Now (never completed). */
-export const SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID = 'generic_Scheduled_prefill_started';
 
 // ============================================================================
 // Notification ID Generators

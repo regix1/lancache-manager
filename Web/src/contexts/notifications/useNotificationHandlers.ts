@@ -17,9 +17,11 @@ import {
   createStartedHandler,
   createStatusAwareProgressHandler,
   createCompletionHandler,
-  findBulkCardOwningType,
+  eventTargetsCard,
+  findBulkCardOwningOperation,
   waitingCardMessage
 } from './handlers';
+import { isTerminalNotificationStatus } from './notificationStatus';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import type { OperationWaitingEvent, OperationWaitingCompleteEvent } from '../SignalRContext/types';
 import { GENERIC_FAILURE_I18N_KEY, OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE } from './constants';
@@ -58,8 +60,7 @@ function buildStartedHandler(
       getMessage: started.getMessage,
       getDetails: started.getDetails,
       replaceExisting: started.replaceExisting,
-      progressMode: started.progressMode,
-      additionalIdsToRemove: started.additionalIdsToRemove
+      progressMode: started.progressMode
     },
     setNotifications,
     cancelAutoDismissTimer
@@ -125,8 +126,10 @@ function buildCompleteHandler(
       getFailureMessage: entry.complete.getFailureMessage,
       getCancelledMessage: entry.complete.getCancelledMessage,
       getCancelledDetails: entry.complete.getCancelledDetails,
-      useAnimationDelay: entry.complete.useAnimationDelay,
-      getFastCompletionId: entry.complete.getFastCompletionId
+      succeeded: entry.complete.succeeded,
+      announcement: !entry.started && !entry.progress,
+      dismissDelayMs: entry.complete.dismissDelayMs,
+      useAnimationDelay: entry.complete.useAnimationDelay
     },
     setNotifications,
     scheduleAutoDismiss
@@ -176,32 +179,35 @@ export function useNotificationHandlers(
     }
 
     for (const entry of registry) {
-      // Special-wiring entries are metadata-only (cancelKind + recovery); their
-      // SignalR handlers are hand-built in createSpecialCaseHandlers and wired
-      // via SPECIAL_NOTIFICATION_CONTRACTS. Skip them here to avoid
-      // double-subscribing. They carry no `events`/`started`/`progress`.
-      if (entry.wiring !== 'standard' || !entry.events || !entry.started || !entry.progress) {
+      // An entry that declares no lifecycle events is metadata-only (cancelKind +
+      // recovery); its card is created by client code, so there is nothing here to
+      // subscribe.
+      if (!entry.events) {
         continue;
       }
 
-      // Started handler
-      const startedHandler = buildStartedHandler(
-        entry,
-        entry.started,
-        setNotifications,
-        cancelAutoDismissTimer
-      );
-      subscribe(entry.events.started, startedHandler);
+      // Each phase is subscribed only where the entry declares it: an announcement whose single
+      // event is already terminal has no start to open a card for and no progress to report.
+      if (entry.events.started && entry.started) {
+        const startedHandler = buildStartedHandler(
+          entry,
+          entry.started,
+          setNotifications,
+          cancelAutoDismissTimer
+        );
+        subscribe(entry.events.started, startedHandler);
+      }
 
-      // Progress handler
-      const progressHandler = buildProgressHandler(
-        entry,
-        entry.progress,
-        setNotifications,
-        scheduleAutoDismiss,
-        cancelAutoDismissTimer
-      );
-      subscribe(entry.events.progress, progressHandler);
+      if (entry.events.progress && entry.progress) {
+        const progressHandler = buildProgressHandler(
+          entry,
+          entry.progress,
+          setNotifications,
+          scheduleAutoDismiss,
+          cancelAutoDismissTimer
+        );
+        subscribe(entry.events.progress, progressHandler);
+      }
 
       // Complete handler (optional - some types rely solely on status-aware progress)
       const completeHandler = buildCompleteHandler(
@@ -230,13 +236,35 @@ export function useNotificationHandlers(
         // so move this message onto it rather than dropping the event: without it the batch
         // card sits at "Removing 1 of 2" with no sign that the item is parked behind
         // another operation. The batch restores its own message when the item is promoted.
-        const owningBulk = findBulkCardOwningType(entry.type, prev);
+        const owningBulk = findBulkCardOwningOperation(entry.type, event.operationId, prev);
         if (owningBulk) {
           return prev.map((n) =>
             n.id === owningBulk.id
-              ? { ...n, status: 'waiting' as const, message: waitingCardMessage(event) }
+              ? {
+                  ...n,
+                  status: 'waiting' as const,
+                  message: waitingCardMessage(event),
+                  // Record which operation the card now speaks for. A batch whose item request is
+                  // still on the wire has no id to compare against, and it must claim only one
+                  // queued operation on the strength of that: the next one of the same type is a
+                  // different operation and needs its own card.
+                  details: { ...n.details, currentOperationId: event.operationId }
+                }
               : n
           );
+        }
+        // The slot may already hold ANOTHER operation's live card - two operations of one type
+        // are exactly what puts this one in the queue. Replacing it would take away the running
+        // operation's progress and point its X at this queued operation instead. A card whose
+        // own operation has finished is not live state, so the queued op still takes that slot
+        // rather than going unreported.
+        const slotCard = prev.find((n) => n.id === entry.id);
+        if (
+          slotCard &&
+          !isTerminalNotificationStatus(slotCard.status) &&
+          !eventTargetsCard(slotCard, event)
+        ) {
+          return prev;
         }
         // Only once this event is going to replace the card in that slot: a terminal card
         // already sitting there would otherwise lose its auto-dismiss timer and stay on
@@ -244,12 +272,10 @@ export function useNotificationHandlers(
         cancelAutoDismissTimer(entry.id);
         // A re-emit for the SAME queued op announces a new blocker; keep the original
         // startedAt so the card's age does not reset every time the blocker changes.
-        const existing = prev.find(
-          (n) =>
-            n.id === entry.id &&
-            n.status === 'waiting' &&
-            n.details?.operationId === event.operationId
-        );
+        const existing =
+          slotCard?.status === 'waiting' && slotCard.details?.operationId === event.operationId
+            ? slotCard
+            : undefined;
         const filtered = prev.filter((n) => n.id !== entry.id);
         const waitingNotification: UnifiedNotification = {
           id: entry.id,
@@ -279,8 +305,18 @@ export function useNotificationHandlers(
         return;
       }
 
-      setNotifications((prev: UnifiedNotification[]) =>
-        prev.map((n) => {
+      setNotifications((prev: UnifiedNotification[]) => {
+        let terminated = false;
+        let restored = false;
+        const next = prev.map((n) => {
+          // A batch card turns purple while its own item is parked, and it carries that item's
+          // id in details.currentOperationId, never in the per-type card's slot. The batch run
+          // is not over just because one item left the queue, so put the card back to running
+          // and leave the wording to the batch, which rewrites it for the item either way.
+          if (n.status === 'waiting' && n.details?.currentOperationId === event.operationId) {
+            restored = true;
+            return { ...n, status: 'running' as const };
+          }
           // Guard: only terminate cards STILL waiting - if promotion already replaced the
           // card with a running one, a late cancel/failure event must not clobber it.
           if (
@@ -289,6 +325,7 @@ export function useNotificationHandlers(
             n.details?.operationId !== event.operationId
           )
             return n;
+          terminated = true;
           return event.cancelled
             ? {
                 ...n,
@@ -302,9 +339,17 @@ export function useNotificationHandlers(
                 message: event.error ?? i18n.t(GENERIC_FAILURE_I18N_KEY),
                 error: event.error
               };
-        })
-      );
-      scheduleAutoDismiss(entry.id);
+        });
+        // Nothing became terminal, so there is nothing to time out. Arming it regardless put a
+        // dismiss timer on whatever else happened to be in that slot.
+        if (terminated) {
+          scheduleAutoDismiss(entry.id);
+        }
+        // This runs on every wait-queue completion, most of which belong to a card nobody here is
+        // showing. Handing back the same array leaves the list identity alone so those do not
+        // re-render every card.
+        return terminated || restored ? next : prev;
+      });
     };
 
     subscribe('OperationWaiting', waitingHandler as (...args: unknown[]) => void);

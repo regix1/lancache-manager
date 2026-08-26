@@ -76,19 +76,47 @@ const stubFetch = async (url) =>
       }
     : { ok: false, json: async () => ({}) };
 
+/** Two queued game removals at once: one started by a batch, one started on its own. */
+const stubFetchTwoWaiters = async (url) =>
+  url === '/api/operations/waiting'
+    ? {
+        ok: true,
+        json: async () => [
+          {
+            operationId: 'batch-item',
+            operationType: 'gameRemoval',
+            name: 'Game Removal (Arma 3)',
+            blockedByName: 'Cache File Scan'
+          },
+          {
+            operationId: 'standalone',
+            operationType: 'gameRemoval',
+            name: 'Game Removal (Dota 2)',
+            blockedByName: 'Depot Mapping'
+          }
+        ]
+      }
+    : { ok: false, json: async () => ({}) };
+
+/** An empty queue: every waiting operation is gone by the time recovery runs. */
+const stubFetchEmptyQueue = async (url) =>
+  url === '/api/operations/waiting'
+    ? { ok: true, json: async () => [] }
+    : { ok: false, json: async () => ({}) };
+
 /** Runs recovery against a starting card list and returns the resulting list. */
-const runRecovery = async (startingCards) => {
+const runRecovery = async (startingCards, fetchWaiting) => {
   const { createRecoveryRunner } = await loadRecovery();
   let state = startingCards;
   const setNotifications = (update) => {
     state = typeof update === 'function' ? update(state) : update;
   };
-  await createRecoveryRunner(stubFetch, setNotifications, () => undefined)();
+  await createRecoveryRunner(fetchWaiting, setNotifications, () => undefined)();
   return state;
 };
 
 test('recovery opens a waiting card when no batch owns that item type', async () => {
-  const state = await runRecovery([]);
+  const state = await runRecovery([], stubFetch);
 
   const card = state.find((n) => n.id === 'game_removal');
   assert.ok(card, 'a queued operation with no batch running should get its own card back');
@@ -97,16 +125,21 @@ test('recovery opens a waiting card when no batch owns that item type', async ()
 });
 
 test('recovery does not add a second card when a batch already owns that item type', async () => {
-  const state = await runRecovery([
-    {
-      id: 'bulk_removal_x',
-      type: 'bulk_removal',
-      status: 'running',
-      message: 'Removing 1 of 2 - Arma 3',
-      startedAt: new Date(),
-      details: { itemTypes: ['service_removal', 'game_removal'] }
-    }
-  ]);
+  const state = await runRecovery(
+    [
+      {
+        id: 'bulk_removal_x',
+        type: 'bulk_removal',
+        status: 'running',
+        message: 'Removing 1 of 2 - Arma 3',
+        startedAt: new Date(),
+        // The batch's item request is still on the wire, which is when a queue row of that type
+        // can be assumed to be its own.
+        details: { itemTypes: ['service_removal', 'game_removal'], itemRequestPending: true }
+      }
+    ],
+    stubFetch
+  );
 
   assert.ok(
     !state.some((n) => n.id === 'game_removal'),
@@ -121,33 +154,92 @@ test('recovery does not add a second card when a batch already owns that item ty
 });
 
 test('recovery leaves a running batch card alone when nothing is queued', async () => {
-  const { createRecoveryRunner } = await loadRecovery();
-  let state = [
-    {
-      id: 'bulk_removal_x',
-      type: 'bulk_removal',
-      status: 'waiting',
-      message: 'waiting for something',
-      startedAt: new Date(),
-      details: { itemTypes: ['game_removal'] }
-    }
-  ];
-  const setNotifications = (update) => {
-    state = typeof update === 'function' ? update(state) : update;
-  };
-
-  // An empty queue: recovery drops waiting cards whose operation is gone. A batch card is
-  // client-owned and never appears in those rows, so filtering on the rows alone would delete
-  // a live batch's card the moment it went purple.
-  const emptyQueue = async (url) =>
-    url === '/api/operations/waiting'
-      ? { ok: true, json: async () => [] }
-      : { ok: false, json: async () => ({}) };
-
-  await createRecoveryRunner(emptyQueue, setNotifications, () => undefined)();
+  // Recovery drops waiting cards whose operation is gone. A batch card is client-owned and never
+  // appears in those rows, so filtering on the rows alone would delete a live batch's card the
+  // moment it went purple.
+  const state = await runRecovery(
+    [
+      {
+        id: 'bulk_removal_x',
+        type: 'bulk_removal',
+        status: 'waiting',
+        message: 'waiting for something',
+        startedAt: new Date(),
+        details: { itemTypes: ['game_removal'] }
+      }
+    ],
+    stubFetchEmptyQueue
+  );
 
   assert.ok(
     state.some((n) => n.id === 'bulk_removal_x'),
     'a batch card must survive recovery even while it is showing a waiting state'
   );
+});
+
+/**
+ * One card slot per type means two queued operations of one type cannot both have a card, but they
+ * must not be confused for each other either: keying the rows by type alone let the last row win,
+ * so a batch card ended up naming the blocker of an operation it never started while its own item
+ * went unreported.
+ */
+test('recovery gives each queued operation to whoever started it when two of one type are parked', async () => {
+  const state = await runRecovery(
+    [
+      {
+        id: 'bulk_removal_x',
+        type: 'bulk_removal',
+        status: 'running',
+        message: 'Removing 1 of 2 - Arma 3',
+        startedAt: new Date(),
+        details: { itemTypes: ['game_removal'], currentOperationId: 'batch-item' }
+      }
+    ],
+    stubFetchTwoWaiters
+  );
+
+  const bulk = state.find((n) => n.id === 'bulk_removal_x');
+  assert.equal(bulk.status, 'waiting');
+  assert.match(
+    bulk.message,
+    /Cache File Scan/,
+    "the batch names the blocker of its OWN item, not the other waiter's"
+  );
+
+  const standalone = state.find((n) => n.id === 'game_removal');
+  assert.ok(standalone, 'the operation the batch did not start needs its own card');
+  assert.equal(standalone.details.operationId, 'standalone');
+});
+
+/**
+ * A batch whose item request is still on the wire has no operation id to compare against, so it may
+ * claim a row of its type. It may claim only ONE: two rows are two operations and the batch started
+ * at most one of them. Letting both land on the batch card left the second row's blocker overwriting
+ * the first row's wording and neither operation with a card the X can reach.
+ */
+test('a batch with a request on the wire claims one queued row, not both', async () => {
+  const state = await runRecovery(
+    [
+      {
+        id: 'bulk_removal_x',
+        type: 'bulk_removal',
+        status: 'running',
+        message: 'Removing 1 of 2 - Arma 3',
+        startedAt: new Date(),
+        details: { itemTypes: ['game_removal'], itemRequestPending: true }
+      }
+    ],
+    stubFetchTwoWaiters
+  );
+
+  const bulk = state.find((n) => n.id === 'bulk_removal_x');
+  assert.match(
+    bulk.message,
+    /Cache File Scan/,
+    'the batch keeps the first row it claimed instead of being overwritten by the second'
+  );
+
+  const standalone = state.find((n) => n.id === 'game_removal');
+  assert.ok(standalone, 'the row the batch could not claim still needs a card of its own');
+  assert.equal(standalone.details.operationId, 'standalone');
 });

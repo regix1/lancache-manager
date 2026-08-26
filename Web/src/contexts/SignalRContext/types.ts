@@ -805,6 +805,8 @@ export interface AutomaticScanSkippedEvent {
 
 export interface SteamSessionErrorEvent {
   errorType: string;
+  /** i18n key for the toast title, chosen by the backend from errorType. [27] */
+  titleStageKey?: string;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -1179,14 +1181,15 @@ export interface ActivitySnapshotEvent {
   activities: ActivityItem[];
 }
 
-// Mirrors the backend payload emitted by XboxMappingService.MergeDaemonCatalogCoreAsync
-// ({ source, newMappings, newPatterns }). Xbox tracks newly discovered games (newMappings) and
-// newly stored CDN URL fragments (newPatterns); it does NOT compute a running total / updated count
-// like Epic, so this intentionally diverges from EpicGameMappingsUpdatedEvent.
+// Two XboxMappingService call sites share this event name with different payloads: the daemon
+// catalog merge sends { source: 'xbox-daemon-catalog', newMappings, newPatterns } (newly
+// discovered games and newly stored CDN URL fragments; no running total like Epic), and download
+// resolution sends { source: 'xbox-download-resolution', resolvedCount } with neither count. [26]
 export interface XboxGameMappingsUpdatedEvent {
   source: string;
-  newMappings: number;
-  newPatterns: number;
+  newMappings?: number;
+  newPatterns?: number;
+  resolvedCount?: number;
 }
 
 export interface EvictionScanStartedEvent {

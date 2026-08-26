@@ -12,22 +12,7 @@ import {
   recordEditActionIntent,
   recordEditSessionStartResult
 } from '../src/components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger.ts';
-
-class MemoryStorage {
-  #values = new Map();
-
-  getItem(key) {
-    return this.#values.get(key) ?? null;
-  }
-
-  setItem(key, value) {
-    this.#values.set(key, value);
-  }
-
-  removeItem(key) {
-    this.#values.delete(key);
-  }
-}
+import { MemoryStorage } from './transpile-module.mjs';
 
 const baseline = {
   selectedAppIdsByService: {

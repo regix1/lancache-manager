@@ -4,29 +4,27 @@
  * notification type, including the SignalR event names, handler configurations,
  * cancel wiring (cancelKind + tooltip), and recovery wiring.
  *
- * `wiring` splits entries into two families:
- *   - 'standard': the {@link useNotificationHandlers} loop subscribes
- *     started/progress/complete handlers from this entry.
- *   - 'special': metadata-only (cancelKind + recovery). SignalR handlers are
- *     hand-built in createSpecialCaseHandlers and wired via
- *     SPECIAL_NOTIFICATION_CONTRACTS. The standard loop skips these.
- *
- * The remaining special-wiring entries appear here ONLY so cancel + recovery
- * live in one config surface per type. Their handler bodies are NOT inlined:
- *   - database_reset: terminal DatabaseResetComplete handled via createCompletionHandler,
- *     idempotent with the legacy progress-status completion
- *   - steam_session_error: custom one-shot error toast (not a lifecycle, no recovery)
+ * An entry that declares `events` is subscribed by the {@link useNotificationHandlers}
+ * loop, phase by phase, so an announcement whose single event is already terminal
+ * declares `events.complete` alone. An entry that declares none is metadata-only: its
+ * card is created by client code, and it appears here ONLY so cancel + recovery live
+ * in one config surface per type.
  */
 
-import type { NotificationRegistryEntry, SimpleRecoveryConfig, StageContext } from './types';
-import type { OperationStatus } from '@/types/operations';
-import type { CorruptionDetectionMethod } from '@/types';
+import type { NotificationRegistryEntry, SimpleRecoveryConfig } from './types';
 import type {
-  StructuralBaselineStatus,
-  StructuralEffectiveScanMode,
-  StructuralScanMode,
-  StructuralScanSummary
-} from '@/types/corruptionScan';
+  CacheOperationsResponse,
+  CacheSizeScanStatusResponse,
+  CorruptionDetectionStatusResponse,
+  DatabaseResetStatusResponse,
+  DataImportStatusResponse,
+  EvictionScanStatusResponse,
+  GameDetectionStatusResponse,
+  LogProcessingStatusResponse,
+  LogRemovalStatusResponse,
+  ScheduledPrefillRunStatusResponse
+} from './recoveryStatusResponses';
+import { corruptionNotificationDetails, formatCorruptionProgress } from './corruptionProgress';
 import {
   ACTIVE_PROGRESS_PERCENT_CAP,
   GENERIC_COMPLETION_I18N_KEY,
@@ -34,7 +32,7 @@ import {
   NOTIFICATION_IDS,
   NOTIFICATION_STORAGE_KEYS,
   REMOVING_GAME_I18N_KEY,
-  SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID
+  STEAM_ERROR_DISMISS_DELAY_MS
 } from './constants';
 import i18n from '@/i18n';
 import {
@@ -58,7 +56,6 @@ import {
   buildGameDetectionInterpolation,
   formatCorruptionDetectionStartedMessage,
   formatCorruptionDetectionProgressMessage,
-  formatCorruptionProgress,
   formatCorruptionDetectionCompleteMessage,
   formatCorruptionDetectionFailureMessage,
   formatCacheClearProgressMessage,
@@ -67,7 +64,11 @@ import {
   formatDataImportStartedMessage,
   formatDataImportProgressMessage,
   formatDataImportCompleteMessage,
-  formatDataImportFailureMessage
+  formatDataImportFailureMessage,
+  formatDatabaseResetProgressMessage,
+  formatDatabaseResetCompleteMessage,
+  formatEpicGameMappingsUpdatedMessage,
+  formatXboxGameMappingsUpdatedMessage
 } from './detailMessageFormatters';
 import {
   buildScheduledRunEntry,
@@ -105,6 +106,8 @@ import type {
   CorruptionDetectionStartedEvent,
   CorruptionDetectionProgressEvent,
   CorruptionDetectionCompleteEvent,
+  DatabaseResetStartedEvent,
+  DatabaseResetProgressEvent,
   CacheClearingStartedEvent,
   CacheClearProgressEvent,
   CacheClearCompleteEvent,
@@ -137,8 +140,30 @@ import type {
   BattleNetMappingCompleteEvent,
   RiotMappingStartedEvent,
   RiotMappingProgressEvent,
-  RiotMappingCompleteEvent
+  RiotMappingCompleteEvent,
+  EpicGameMappingsUpdatedEvent,
+  XboxGameMappingsUpdatedEvent,
+  SteamSessionErrorEvent
 } from '../SignalRContext/types';
+
+/**
+ * Terminal `DatabaseResetComplete` SignalR payload (camelCase, mirrors the backend
+ * `SignalRNotifications.DatabaseResetComplete` record). Emitted exactly once via
+ * `OperationInfo.OnTerminalEmit` on the normal success/error path AND the universal
+ * force-kill/cancel path. Declared here because `DatabaseResetStartedEvent` and
+ * `DatabaseResetProgressEvent` have SignalR contract types but the terminal payload
+ * does not; it satisfies the completion config's `{ success; stageKey?; context?;
+ * message?; cancelled? }` constraint.
+ */
+interface DatabaseResetCompleteEvent {
+  operationId: string;
+  success: boolean;
+  stageKey?: string;
+  status?: string;
+  cancelled?: boolean;
+  error?: string;
+  context?: Record<string, string | number | boolean>;
+}
 
 /**
  * Prefixes a translated corruption-removal progress message with the display
@@ -161,280 +186,6 @@ function prefixCorruptionRemovalService(
     return `${label} (${index}/${count}): ${message}`;
   }
   return `${label}: ${message}`;
-}
-
-// ============================================================================
-// Per-endpoint Recovery Response DTOs
-// ============================================================================
-// Each interface mirrors the C# controller response shape. Nullability follows
-// the backend C# DTOs. The simple-recovery `createNotification` readers below
-// access these REST property names directly (snake_case/camelCase as the wire
-// delivers them) and must NOT be normalized against the SignalR event shapes.
-
-/** GET /api/logs/process/status - RustLogProcessorService.GetStatus() */
-interface LogProcessingStatusResponse {
-  isProcessing: boolean;
-  silentMode: boolean;
-  percentComplete: number;
-  mbProcessed: number;
-  mbTotal: number;
-  entriesProcessed: number;
-  /** Final line count; 0 while running (the Rust line-count pre-pass was removed). */
-  totalLines: number;
-  stageKey?: string;
-  context?: StageContext;
-  /** camelCase — backend anonymous object → JsonNamingPolicy.CamelCase */
-  operationId?: string;
-}
-
-/** GET /api/cache/operations - ActiveOperationsResponse */
-interface CacheOperationProgressItem {
-  operationId?: string;
-  id?: string;
-  statusMessage?: string;
-  stageKey?: string;
-  context?: StageContext;
-  percentComplete: number;
-  filesDeleted: number;
-  directoriesProcessed: number;
-  bytesDeleted: number;
-}
-
-interface CacheOperationsResponse {
-  isProcessing: boolean;
-  operations?: CacheOperationProgressItem[];
-}
-
-/** GET /api/database/reset-status - DatabaseResetStatusResponse */
-interface DatabaseResetStatusResponse {
-  isProcessing: boolean;
-  /** Canonical OperationStatus or null (null replaces the legacy `"idle"` sentinel). */
-  status?: OperationStatus | null;
-  message?: string | null;
-  /** C# `double?` - genuinely nullable */
-  percentComplete?: number | null;
-  stageKey?: string;
-  context?: StageContext;
-  operationId?: string | null;
-  tablesCleared?: number | null;
-  totalTables?: number | null;
-  filesDeleted?: number | null;
-}
-
-/** GET /api/logs/remove/status - RustServiceRemovalService.GetLogRemovalStatus() */
-interface LogRemovalStatusResponse {
-  isProcessing: boolean;
-  service?: string | null;
-  datasource?: string | null;
-  operationId?: string | null;
-  filesProcessed: number;
-  percentComplete?: number | null;
-  linesProcessed: number;
-  linesRemoved: number;
-  status?: OperationStatus | null;
-  stageKey?: string;
-  context?: StageContext;
-}
-
-/** GET /api/system/schedules/scheduledPrefill/run-status - ScheduledPrefillRunStatusDto */
-interface ScheduledPrefillRunStatusResponse {
-  isRunning: boolean;
-  operationId?: string | null;
-  showNotification?: boolean;
-}
-
-/** GET /api/games/detect/active - ActiveDetectionResponse */
-interface GameDetectionOperationInfo {
-  operationId?: string;
-  statusMessage: string;
-  percentComplete: number;
-  scanType?: 'full' | 'incremental';
-  totalGamesDetected?: number;
-  context?: StageContext;
-}
-
-interface GameDetectionStatusResponse {
-  isProcessing: boolean;
-  operation: GameDetectionOperationInfo | null;
-  /**
-   * Run-stable display flag for the active detection. A silent automatic run reports false so
-   * recovery can skip resurrecting a card instead of leaving it stuck once the silent terminal arrives.
-   */
-  showNotification?: boolean;
-}
-
-/**
- * GET /api/cache/corruption/detect/status - CacheController.GetCorruptionDetectionStatus()
- * Returns anonymous `{ isRunning: false }` when idle, or the full object below when active.
- * Active responses carry method-aware stage/context/progress; idle responses contain only
- * `isRunning: false`. The recovery handler keeps `?? 0` for that idle/legacy boundary.
- */
-interface CorruptionDetectionStatusResponse {
-  isRunning: boolean;
-  operationId?: string | null;
-  detectionMethod?: CorruptionDetectionMethod;
-  scanMode?: StructuralScanMode;
-  effectiveScanMode?: StructuralEffectiveScanMode;
-  baselineStatus?: StructuralBaselineStatus;
-  resumed?: boolean;
-  status?: OperationStatus | null;
-  message?: string | null;
-  startTime?: string | null;
-  stageKey?: string;
-  context?: StageContext;
-  percentComplete?: number;
-  scanSummary?: StructuralScanSummary;
-}
-
-interface CorruptionNotificationSource {
-  operationId?: string | null;
-  detectionMethod?: CorruptionDetectionMethod;
-  scanMode?: StructuralScanMode;
-  effectiveScanMode?: StructuralEffectiveScanMode;
-  baselineStatus?: StructuralBaselineStatus;
-  resumed?: boolean;
-  filesDiscovered?: number;
-  filesProcessed?: number;
-  filesReused?: number;
-  filesInspected?: number;
-  filesRevalidated?: number;
-  invalidFiles?: number;
-  filesPendingRetry?: number;
-  filesPruned?: number;
-  stateEntries?: number;
-  stateCommitted?: boolean;
-  scanSummary?: StructuralScanSummary;
-  context?: StageContext;
-}
-
-const corruptionScanMode = (
-  source: CorruptionNotificationSource
-): StructuralScanMode | undefined => {
-  const contextMode = source.context?.scanMode;
-  return (
-    source.scanMode ??
-    source.scanSummary?.scanMode ??
-    (contextMode === 'full' || contextMode === 'incremental' ? contextMode : undefined)
-  );
-};
-
-const corruptionEffectiveScanMode = (
-  source: CorruptionNotificationSource
-): StructuralEffectiveScanMode | undefined => {
-  const value =
-    source.effectiveScanMode ??
-    source.scanSummary?.effectiveScanMode ??
-    source.context?.effectiveScanMode;
-  return value === 'full' || value === 'incremental' || value === 'baseline' ? value : undefined;
-};
-
-const corruptionBaselineStatus = (
-  source: CorruptionNotificationSource
-): StructuralBaselineStatus | undefined => {
-  const value =
-    source.baselineStatus ?? source.scanSummary?.baselineStatus ?? source.context?.baselineStatus;
-  return value === 'stateless' ||
-    value === 'building' ||
-    value === 'ready' ||
-    value === 'incomplete'
-    ? value
-    : undefined;
-};
-
-const finiteContextCount = (value: unknown): number | undefined =>
-  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
-
-const corruptionNotificationDetails = (source: CorruptionNotificationSource) => ({
-  operationId: source.operationId ?? undefined,
-  detectionMethod: source.detectionMethod,
-  scanMode: corruptionScanMode(source),
-  effectiveScanMode: corruptionEffectiveScanMode(source),
-  baselineStatus: corruptionBaselineStatus(source),
-  resumed:
-    source.resumed ??
-    source.scanSummary?.resumed ??
-    (typeof source.context?.resumed === 'boolean' ? source.context.resumed : undefined),
-  filesDiscovered:
-    finiteContextCount(source.filesDiscovered) ??
-    finiteContextCount(source.scanSummary?.filesDiscovered) ??
-    finiteContextCount(source.context?.filesDiscovered),
-  filesProcessed:
-    finiteContextCount(source.filesProcessed) ??
-    finiteContextCount(source.scanSummary?.filesProcessed) ??
-    finiteContextCount(source.context?.filesProcessed),
-  filesReused:
-    finiteContextCount(source.filesReused) ??
-    finiteContextCount(source.scanSummary?.filesReused) ??
-    finiteContextCount(source.context?.filesReused),
-  filesInspected:
-    finiteContextCount(source.filesInspected) ??
-    finiteContextCount(source.scanSummary?.filesInspected) ??
-    finiteContextCount(source.context?.filesInspected),
-  filesRevalidated:
-    finiteContextCount(source.filesRevalidated) ??
-    finiteContextCount(source.scanSummary?.filesRevalidated) ??
-    finiteContextCount(source.context?.filesRevalidated),
-  invalidFiles:
-    finiteContextCount(source.invalidFiles) ??
-    finiteContextCount(source.scanSummary?.invalidFiles) ??
-    finiteContextCount(source.context?.invalidFiles),
-  filesPendingRetry:
-    finiteContextCount(source.filesPendingRetry) ??
-    finiteContextCount(source.scanSummary?.filesPendingRetry) ??
-    finiteContextCount(source.context?.filesPendingRetry),
-  filesPruned:
-    finiteContextCount(source.filesPruned) ??
-    finiteContextCount(source.scanSummary?.filesPruned) ??
-    finiteContextCount(source.context?.filesPruned),
-  stateEntries:
-    finiteContextCount(source.stateEntries) ??
-    finiteContextCount(source.scanSummary?.stateEntries) ??
-    finiteContextCount(source.context?.stateEntries),
-  stateCommitted:
-    source.stateCommitted ??
-    source.scanSummary?.stateCommitted ??
-    (typeof source.context?.stateCommitted === 'boolean'
-      ? source.context.stateCommitted
-      : undefined)
-});
-
-/** GET /api/migration/import/status - DataImportStatusResponse */
-interface DataImportStatusResponse {
-  isProcessing: boolean;
-  status?: OperationStatus | null;
-  message?: string | null;
-  /** C# `double?` - genuinely nullable */
-  percentComplete?: number | null;
-  operationId?: string | null;
-  stageKey?: string;
-  context?: StageContext;
-}
-
-/** GET /api/stats/eviction/scan/status - anonymous object from StatsController */
-interface EvictionScanStatusResponse {
-  isProcessing: boolean;
-  silentMode: boolean;
-  status: string;
-  percentComplete: number;
-  message: string;
-  operationId: string | null;
-  stageKey?: string;
-  context?: StageContext;
-}
-
-interface CacheSizeScanStatusResponse {
-  isProcessing: boolean;
-  /**
-   * Run-stable display flag for the active scan. A silent automatic run reports false so
-   * recovery can skip resurrecting a card instead of leaving it stuck once the silent terminal arrives.
-   */
-  showNotification?: boolean;
-  status: string;
-  percentComplete: number;
-  message: string;
-  operationId: string | null;
-  stageKey?: string;
-  context?: StageContext;
 }
 
 // ============================================================================
@@ -1264,8 +1015,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     started: {
       defaultMessage: 'Scheduled prefill started',
       getMessage: () => i18n.t('management.schedules.services.scheduledPrefill.events.started'),
-      replaceExisting: true,
-      additionalIdsToRemove: [SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID]
+      replaceExisting: true
     },
     progress: {
       getMessage: (event: ScheduledPrefillProgressEvent) => {
@@ -1327,9 +1077,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         i18n.t('management.schedules.services.scheduledPrefill.events.cancelled'),
       getFailureMessage: (event: ScheduledPrefillCompletedEvent) =>
         event.error ?? i18n.t('management.schedules.services.scheduledPrefill.events.failed')
-    },
-    onComplete: (removeNotification) => {
-      removeNotification(SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID);
     }
   }),
 
@@ -1625,24 +1372,16 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     ]
   }),
 
-  // ==========================================================================
-  // Special-wiring entries (metadata-only)
-  // --------------------------------------------------------------------------
-  // These types do NOT fit the standard Started->Progress->Complete loop.
-  // Their SignalR handlers are hand-built in createSpecialCaseHandlers and wired
-  // via SPECIAL_NOTIFICATION_CONTRACTS. They appear here ONLY to keep cancel +
-  // recovery configured in one place per type. useNotificationHandlers skips
-  // every wiring:'special' entry (no `events`/`started`/`progress`), so there is
-  // no double-subscribe.
-  // ==========================================================================
-
-  // ========== Database Reset (special) ==========
-  {
+  // ========== Database Reset ==========
+  buildStandardOperationEntry<
+    DatabaseResetStartedEvent,
+    DatabaseResetProgressEvent,
+    DatabaseResetCompleteEvent
+  >({
     type: 'database_reset',
     id: NOTIFICATION_IDS.DATABASE_RESET,
     storageKey: NOTIFICATION_STORAGE_KEYS.DATABASE_RESET,
-    wiring: 'special',
-    cancelKind: 'serverOp',
+    eventPrefix: 'DatabaseReset',
     cancelTooltipKey: CANCEL_TOOLTIP.databaseReset,
     // The reset is already marked as processing before its operationId is registered, so a page
     // load in that window recovers a running card with no id (see createNotification below). The
@@ -1695,20 +1434,123 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         details: { operationId: data.operationId ?? undefined }
       }),
       staleMessageKey: 'signalr.dbReset.stale'
-    } satisfies SimpleRecoveryConfig<DatabaseResetStatusResponse>
+    } satisfies SimpleRecoveryConfig<DatabaseResetStatusResponse>,
+    started: {
+      defaultMessage: 'Starting database reset...',
+      getMessage: stageKeyMessage('signalr.dbReset.starting')
+    },
+    progress: {
+      getMessage: formatDatabaseResetProgressMessage,
+      getProgress: (event: DatabaseResetProgressEvent) => event.percentComplete || 0,
+      getCompletedMessage: formatDatabaseResetCompleteMessage,
+      getErrorMessage: (event: DatabaseResetProgressEvent) =>
+        event.stageKey
+          ? i18n.t(event.stageKey, event.context ?? {})
+          : i18n.t(GENERIC_FAILURE_I18N_KEY),
+      supportFastCompletion: true
+    },
+    // The terminal DatabaseResetComplete event is idempotent with the legacy
+    // progress-status completion: whichever arrives first wins and the other is a
+    // no-op, because the completion handler only acts on a still-running card.
+    complete: {
+      getSuccessMessage: (event: DatabaseResetCompleteEvent) =>
+        event.stageKey
+          ? i18n.t(event.stageKey, event.context ?? {})
+          : i18n.t('signalr.dbReset.complete'),
+      getSuccessDetails: operationIdDetails,
+      getFailureMessage: (event: DatabaseResetCompleteEvent) =>
+        event.stageKey
+          ? i18n.t(event.stageKey, event.context ?? {})
+          : i18n.t(GENERIC_FAILURE_I18N_KEY),
+      getCancelledMessage: (event: DatabaseResetCompleteEvent) =>
+        event.stageKey
+          ? i18n.t(event.stageKey, event.context ?? {})
+          : i18n.t('signalr.dbReset.cancelled'),
+      getCancelledDetails: operationIdDetails
+    }
+  }),
+
+  // ==========================================================================
+  // Completion-only entries
+  // --------------------------------------------------------------------------
+  // One event carries the whole lifecycle: there is no run to open a card for and
+  // no progress to report, so these declare `events.complete` alone and state the
+  // outcome their event always means. They persist nothing and recover nothing -
+  // an announcement that was missed while the tab was closed is simply gone.
+  // ==========================================================================
+
+  // ========== Epic catalog update (one-shot toast) ==========
+  {
+    type: 'epic_catalog_update',
+    id: NOTIFICATION_IDS.EPIC_GAME_MAPPING_UPDATE,
+    storageKey: '',
+    cancelKind: 'none',
+    recovery: { kind: 'none' },
+    events: { complete: 'EpicGameMappingsUpdated' },
+    complete: {
+      succeeded: true,
+      shouldDisplay: (event: EpicGameMappingsUpdatedEvent) =>
+        Boolean(event.newGames || event.updatedGames),
+      getSuccessMessage: () => i18n.t('notifications.epicGameMappingsUpdated.title'),
+      getDetailMessage: formatEpicGameMappingsUpdatedMessage
+    }
   },
 
-  // ========== Steam Session Error (special; toast, no recovery, no cancel) ==========
+  // ========== Xbox catalog update (one-shot toast) ==========
+  {
+    type: 'xbox_catalog_update',
+    id: NOTIFICATION_IDS.XBOX_GAME_MAPPING_UPDATE,
+    storageKey: '',
+    cancelKind: 'none',
+    recovery: { kind: 'none' },
+    events: { complete: 'XboxGameMappingsUpdated' },
+    complete: {
+      succeeded: true,
+      // The same event announces a single download's game being resolved, carrying neither count.
+      // Without this gate that emission renders a card reporting nothing was added. [13]
+      shouldDisplay: (event: XboxGameMappingsUpdatedEvent) =>
+        Boolean(event.newMappings || event.newPatterns),
+      getSuccessMessage: () => i18n.t('notifications.xboxGameMappingsUpdated.title'),
+      getDetailMessage: formatXboxGameMappingsUpdatedMessage
+    }
+  },
+
+  // ========== Steam session error (one-shot error toast) ==========
+  // Both lines come off the event: the title from the key the emitter mapped from its error type,
+  // the detail from the event's own stage key, the same reading every operation card uses. Keeping
+  // the error-type mapping on the emitter leaves one copy of it rather than two that can disagree.
+  // The card stays twice as long as the shared default because a dropped Steam session is
+  // something a person has to act on. [33]
   {
     type: 'steam_session_error',
     id: NOTIFICATION_IDS.STEAM_SESSION_ERROR,
     storageKey: '',
-    wiring: 'special',
     cancelKind: 'none',
-    recovery: { kind: 'none' }
+    recovery: { kind: 'none' },
+    events: { complete: 'SteamSessionError' },
+    complete: {
+      succeeded: false,
+      dismissDelayMs: STEAM_ERROR_DISMISS_DELAY_MS,
+      getFailureMessage: (event: SteamSessionErrorEvent) =>
+        i18n.t(event.titleStageKey ?? 'signalr.steamSession.errorTitle.generic'),
+      getDetailMessage: (event: SteamSessionErrorEvent) =>
+        event.stageKey
+          ? i18n.t(event.stageKey, event.context ?? {})
+          : i18n.t('signalr.steamSession.disconnected', {
+              result: event.result ?? i18n.t('common.unknown')
+            })
+    }
   },
 
-  // ========== Bulk Removal (special; client-driven queue, no server op) ==========
+  // ==========================================================================
+  // Metadata-only entries
+  // --------------------------------------------------------------------------
+  // These types declare no lifecycle events, so the handler loop skips them.
+  // Their cards are created by client code; the entries appear here ONLY to keep
+  // cancel + recovery configured in one place per type.
+  // ==========================================================================
+
+  // ========== Bulk Removal (client-driven queue, no server op) ==========
   // Metadata-only entry: the bulk_removal notification is created/managed by the
   // always-mounted BulkRemovalProvider's useBatchQueue, NOT by the standard
   // SignalR loop. It appears here ONLY so UniversalNotificationBar's cancel-config
@@ -1719,13 +1561,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'bulk_removal',
     id: 'bulk_removal',
     storageKey: '',
-    wiring: 'special',
     cancelKind: 'clientQueue',
     cancelTooltipKey: CANCEL_TOOLTIP.bulkRemoval,
     recovery: { kind: 'none' }
   },
 
-  // ========== Prefill Login (special; card raised by the login hooks) ==========
+  // ========== Prefill Login (card raised by the login hooks) ==========
   // Metadata-only entry, same reason as bulk_removal above: the card is created by
   // usePrefillSteamAuth / usePersistentXboxAuth while a daemon sign-in waits on the
   // person, and this entry exists so UniversalNotificationBar's cancel-config loop is
@@ -1738,7 +1579,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'prefill_login',
     id: 'prefill_login',
     storageKey: '',
-    wiring: 'special',
     cancelKind: 'serverOp',
     cancelTooltipKey: CANCEL_TOOLTIP.prefillLogin,
     recovery: { kind: 'none' }

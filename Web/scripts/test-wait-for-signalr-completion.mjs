@@ -137,3 +137,56 @@ test('timeout resolves with timedOut', async () => {
   assert.equal(result.timedOut, true);
   assert.equal(signalR.listenerCount('GameRemovalComplete'), 0);
 });
+
+test('an item dequeued before promotion settles with dequeued', async () => {
+  const { waitForSignalRCompletion } = await loadWaitHelper();
+  const signalR = createFakeSignalR();
+  const waitingId = 'wait-dequeued';
+
+  const waitPromise = waitForSignalRCompletion({
+    signalR,
+    completeEvent: 'GameRemovalComplete',
+    match: () => false,
+    waitingOperationId: () => waitingId,
+    timeoutMs: 500
+  });
+
+  signalR.emit('OperationWaitingComplete', {
+    operationId: waitingId,
+    operationType: 'gameRemoval',
+    cancelled: true,
+    promoted: false
+  });
+
+  const result = await waitPromise;
+  assert.equal(result.dequeued.cancelled, true);
+  assert.equal(result.event, undefined);
+  assert.equal(signalR.listenerCount('OperationWaitingComplete'), 0);
+});
+
+test('promotion is not a dequeue - the wait stays open for the real completion', async () => {
+  const { waitForSignalRCompletion } = await loadWaitHelper();
+  const signalR = createFakeSignalR();
+  const waitingId = 'wait-promoted';
+  const runningId = 'run-promoted';
+
+  const waitPromise = waitForSignalRCompletion({
+    signalR,
+    completeEvent: 'GameRemovalComplete',
+    match: (payload) => payload?.operationId === runningId,
+    waitingOperationId: () => waitingId,
+    timeoutMs: 500
+  });
+
+  signalR.emit('OperationWaitingComplete', {
+    operationId: waitingId,
+    operationType: 'gameRemoval',
+    cancelled: false,
+    promoted: true
+  });
+  signalR.emit('GameRemovalComplete', { operationId: runningId, success: true });
+
+  const result = await waitPromise;
+  assert.ok(result.event, 'a promoted operation still emits its own completion');
+  assert.equal(result.dequeued, undefined);
+});
