@@ -8,7 +8,7 @@ import type {
   DefaultGuestPreferencesChangedEvent,
   AllowedTimeFormatsChangedEvent
 } from './SignalRContext/types';
-import { preferPendingTimezone } from '@utils/pendingPreferences';
+import { preferPendingTimezone, preferPendingValue } from '@utils/pendingPreferences';
 import {
   applyGuestClockChanges,
   DEFAULT_GUEST_PREFERENCE_KEYS,
@@ -27,9 +27,27 @@ import { APP_EVENTS } from '@utils/constants';
 import {
   CLOCK_KEYS,
   DEFAULT_PREFERENCES,
+  OPTIMISTIC_TOGGLE_KEYS,
   type ClockPreferences,
+  type OptimisticToggleKey,
   type UserPreferences
 } from '@/types/userPreferences';
+
+/**
+ * Let a switch whose save is still on the wire outrank the row a broadcast carries.
+ *
+ * The broadcast is not wrong, only older than the click still in flight: it was built before the
+ * server saw that click, so for every key other than the one it announces it repeats what the row
+ * held a moment ago. Keys with nothing in flight take the broadcast unchanged, which is what keeps
+ * this a settle rather than a reason to ignore broadcasts.
+ */
+const settlePendingToggles = (prefs: UserPreferences): UserPreferences => {
+  const settled: UserPreferences = { ...prefs };
+  OPTIMISTIC_TOGGLE_KEYS.forEach((key: OptimisticToggleKey) => {
+    settled[key] = preferPendingValue<boolean>(key, prefs[key]);
+  });
+  return settled;
+};
 
 export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }> = ({
   children
@@ -156,7 +174,10 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         };
 
         const pendingClocks = pendingDefaultClocks.current.get(sessionId) ?? [];
-        const settledPrefs = applyGuestClockChanges(normalizedPrefs, pendingClocks);
+        const settledPrefs = applyGuestClockChanges(
+          isCurrentSession ? settlePendingToggles(normalizedPrefs) : normalizedPrefs,
+          pendingClocks
+        );
         pendingDefaultClocks.current.delete(sessionId);
 
         // Keep the ref and loaded marker in step with the state write. A SignalR callback can run after
@@ -253,7 +274,11 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         allowedTimeFormats: newPrefs.allowedTimeFormats ?? null
       };
 
-      if (existing && JSON.stringify(existing) === JSON.stringify(normalizedPrefs)) return;
+      const settledPrefs = isCurrentSession
+        ? settlePendingToggles(normalizedPrefs)
+        : normalizedPrefs;
+
+      if (existing && JSON.stringify(existing) === JSON.stringify(settledPrefs)) return;
 
       const baseline = existing ?? DEFAULT_PREFERENCES;
 
@@ -273,10 +298,10 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         ];
 
         keysToCheck.forEach((key) => {
-          if (baseline[key] !== normalizedPrefs[key]) {
+          if (baseline[key] !== settledPrefs[key]) {
             window.dispatchEvent(
               new CustomEvent(APP_EVENTS.PREFERENCE_CHANGED, {
-                detail: { key, value: normalizedPrefs[key] }
+                detail: { key, value: settledPrefs[key] }
               })
             );
           }
@@ -284,7 +309,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       }
 
       nextLoadGeneration(sessionId);
-      setPreferences((prev) => ({ ...prev, [sessionId]: normalizedPrefs }));
+      setPreferences((prev) => ({ ...prev, [sessionId]: settledPrefs }));
       if (!loadedIds.current.has(sessionId)) {
         loadedIds.current.add(sessionId);
       }

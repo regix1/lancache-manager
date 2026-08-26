@@ -28,6 +28,7 @@ import type {
   CancelAutoDismissTimer
 } from './types';
 import { isTerminalNotificationStatus } from './notificationStatus';
+import { storage } from '@utils/storage';
 import i18n from '@/i18n';
 import {
   CANCELLED_NOTIFICATION_DELAY_MS,
@@ -161,7 +162,7 @@ export function eventTargetsCard(existing: UnifiedNotification, event: unknown):
 }
 
 function clearPersistedNotificationIfTargeted(storageKey: string, event: unknown): boolean {
-  const persisted = localStorage.getItem(storageKey);
+  const persisted = storage.getItem(storageKey);
   if (!persisted) {
     return true;
   }
@@ -175,7 +176,7 @@ function clearPersistedNotificationIfTargeted(storageKey: string, event: unknown
     return false;
   }
 
-  localStorage.removeItem(storageKey);
+  storage.removeItem(storageKey);
   return true;
 }
 
@@ -319,7 +320,7 @@ export function createStartedHandler<T>(
               // singleton card is already 'running'); strip stale cancel flags unconditionally.
               details: mergeEventDetails(existing.details, eventDetails, true)
             };
-            localStorage.setItem(config.storageKey, JSON.stringify(merged));
+            storage.setItem(config.storageKey, JSON.stringify(merged));
             return prev.map((n) => (n.id === notificationId ? merged : n));
           }
           return prev;
@@ -342,7 +343,7 @@ export function createStartedHandler<T>(
       };
 
       // Persist to localStorage for recovery on page refresh
-      localStorage.setItem(config.storageKey, JSON.stringify(newNotification));
+      storage.setItem(config.storageKey, JSON.stringify(newNotification));
 
       // Drop the old card on this id, then add the new running slot.
       const filtered = prev.filter((n) => n.id !== notificationId);
@@ -946,7 +947,7 @@ export function createStatusAwareProgressHandler<T>(
                 // cancel flags are dropped when the operationId changed (see mergeEventDetails).
                 ...(eventDetails ? { details: mergeEventDetails(n.details, eventDetails) } : {})
               };
-              localStorage.setItem(config.storageKey, JSON.stringify(updatedNotification));
+              storage.setItem(config.storageKey, JSON.stringify(updatedNotification));
               return updatedNotification;
             }
             return n;
@@ -979,7 +980,7 @@ export function createStatusAwareProgressHandler<T>(
           };
 
           // Persist to localStorage for recovery
-          localStorage.setItem(config.storageKey, JSON.stringify(newNotification));
+          storage.setItem(config.storageKey, JSON.stringify(newNotification));
 
           const filtered = prev.filter((n) => n.id !== notificationId);
           return [...filtered, newNotification];

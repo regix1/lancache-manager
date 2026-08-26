@@ -10,6 +10,7 @@ import ErrorBoundary from '@components/common/ErrorBoundary';
 import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useNotifySuccess } from '@/hooks/useErrorHandler';
+import { storage } from '@utils/storage';
 
 // Import navigation and sections
 import ManagementNav, { type ManagementSection } from './ManagementNav';
@@ -39,7 +40,7 @@ const ManagementTab: React.FC = () => {
 
   // Active section state - persisted to localStorage
   const [activeSection, setActiveSection] = useState<ManagementSection>(() => {
-    const saved = localStorage.getItem('management-active-section');
+    const saved = storage.getItem('management-active-section');
     // Migrate old 'authentication' value to 'settings'
     if (saved === 'authentication') return 'settings';
     return (saved as ManagementSection) || 'settings';
@@ -79,7 +80,7 @@ const ManagementTab: React.FC = () => {
 
   // Persist active section to localStorage
   useEffect(() => {
-    localStorage.setItem('management-active-section', activeSection);
+    storage.setItem('management-active-section', activeSection);
   }, [activeSection]);
 
   // Check if optimizations (GC management) is enabled

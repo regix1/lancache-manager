@@ -63,6 +63,16 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
     }
   };
 
+  // The wizard runs the same in-process sign-in as the Management tab, so dismissing it has to
+  // reach the server the same way. The phone-approval poll outlives the request that started it,
+  // and until it gives up the account is marked as signing in and every later attempt is refused.
+  // Best-effort: the poll ends on its own window if this request fails.
+  const handleCancelLogin = () => {
+    void ApiService.cancelSteamLogin().catch((err: unknown) => {
+      console.error('Cancel Steam login failed:', getErrorMessage(err));
+    });
+  };
+
   return (
     <>
       <div className="space-y-5">
@@ -170,6 +180,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
         onClose={handleCloseModal}
         state={state}
         actions={actions}
+        onCancelLogin={handleCancelLogin}
         loginDeadline={loginDeadline}
       />
     </>

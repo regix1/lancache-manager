@@ -74,6 +74,8 @@ import type {
 } from '@/types';
 import type { StructuralScanMode } from '@/types/corruptionScan';
 import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
+import { sessionStore } from '@utils/storage';
+import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
 interface CorruptionManagerProps {
   authMode: AuthMode;
@@ -168,16 +170,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     scanRequestInFlightRef.current = false;
   }, [activeDetectionNotification, startingScanAction]);
 
-  const [sectionExpanded, setSectionExpanded] = useState(() => {
-    const saved = localStorage.getItem('management-corruption-expanded');
-    return saved !== null ? saved === 'true' : false;
-  });
+  const [sectionExpanded, setSectionExpanded] = useSectionExpanded(
+    'management-corruption-expanded',
+    false
+  );
   useAccordionGroupItem('storage-corruption', sectionExpanded, () =>
     setSectionExpanded((expanded) => !expanded)
   );
-  useEffect(() => {
-    localStorage.setItem('management-corruption-expanded', String(sectionExpanded));
-  }, [sectionExpanded]);
 
   const { isLoading, isRefreshing, hasInitiallyLoaded, beginLoad, markLoaded, markFailed } =
     useManagerLoading();
@@ -418,7 +417,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         if (loaded) {
           const loadedProjection = projectCorruptionCounts(cached.corruptionCounts ?? {});
           const sessionKey = `corruptionManager_loadedNotificationShown_${method}`;
-          const alreadyShown = sessionStorage.getItem(sessionKey) === 'true';
+          const alreadyShown = sessionStore.getItem(sessionKey) === 'true';
           if (showNotification || !alreadyShown) {
             if (loadedProjection.total > 0) {
               addNotification({
@@ -433,7 +432,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             } else if (showNotification) {
               notifySuccess(t('management.corruption.notifications.noCorruptedInPrevious'));
             }
-            sessionStorage.setItem(sessionKey, 'true');
+            sessionStore.setItem(sessionKey, 'true');
           }
         } else if (showNotification && !cached.hasCachedResults) {
           addNotification({

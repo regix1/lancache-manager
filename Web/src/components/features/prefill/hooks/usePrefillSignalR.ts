@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { type HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { SIGNALR_BASE, STORAGE_KEYS } from '@utils/constants';
+import { sessionStore } from '@utils/storage';
 import { formatDurationFromSeconds, formatTimeRemaining, type PrefillSessionDto } from '../types';
 import type { DaemonAuthState } from '@/types/operations';
 import type { LogEntryType } from '../ActivityLog.utils';
@@ -136,7 +137,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   // against server truth and clears it if the daemon is no longer prefilling.
   const [isPrefillActive, setIsPrefillActive] = useState<boolean>(() => {
     try {
-      const inProgress = sessionStorage.getItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
+      const inProgress = sessionStore.getItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
       if (inProgress) {
         const parsed = JSON.parse(inProgress);
         const startedAt = new Date(parsed.startedAt).getTime();
@@ -154,7 +155,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   // live tick), and cleared by initializeSession when the server reports the daemon is idle.
   const [prefillProgress, setPrefillProgress] = useState<PrefillProgress | null>(() => {
     try {
-      const inProgress = sessionStorage.getItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
+      const inProgress = sessionStore.getItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
       if (inProgress) {
         const parsed = JSON.parse(inProgress);
         const startedAt = new Date(parsed.startedAt).getTime();
@@ -279,11 +280,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       setIsPrefillActive(false);
       setIsCancellingState(false);
       isCancelling.current = false;
-      try {
-        sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-      } catch {
-        /* ignore */
-      }
+      sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
     }, CANCEL_WATCHDOG_MS);
 
     try {
@@ -503,14 +500,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             // Prefill completed - clear the "reconnecting" progress state
             setIsPrefillActive(false);
             setPrefillProgress(null);
-            try {
-              sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-            } catch {
-              /* ignore */
-            }
+            sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
 
             if (Date.now() - completedTime < COMPLETION_NOTIFICATION_WINDOW_MS) {
-              const currentBgCompletion = sessionStorage.getItem('prefill_background_completion');
+              const currentBgCompletion = sessionStore.getItem('prefill_background_completion');
               if (!currentBgCompletion && !isCompletionDismissed(lastResult.completedAt)) {
                 const formattedDuration = formatDurationFromSeconds(lastResult.durationSeconds);
                 setBackgroundCompletion({
@@ -531,11 +524,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             // Prefill failed or cancelled - clear the "reconnecting" progress state
             setIsPrefillActive(false);
             setPrefillProgress(null);
-            try {
-              sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-            } catch {
-              /* ignore */
-            }
+            sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
           }
           // If lastResult is null or status is 'in_progress' AND the server says we are NOT
           // prefilling, reconcile away any stale paint-before-network placeholder so the bar
@@ -544,11 +533,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           else if (!activeSession.isPrefilling) {
             setIsPrefillActive(false);
             setPrefillProgress(null);
-            try {
-              sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-            } catch {
-              /* ignore */
-            }
+            sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
           }
         } catch {
           // Non-critical
@@ -561,9 +546,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         // Also check if there's stale storage data from a previous session
         // This happens when the server was stopped/restarted and cleared sessions
         const hasStaleData =
-          sessionStorage.getItem(STORAGE_KEYS.PREFILL_SESSION_ID) ||
-          sessionStorage.getItem('prefill_activity_log') ||
-          sessionStorage.getItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
+          sessionStore.getItem(STORAGE_KEYS.PREFILL_SESSION_ID) ||
+          sessionStore.getItem('prefill_activity_log') ||
+          sessionStore.getItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
         if (hasStaleData) {
           clearAllPrefillStorage();
         }

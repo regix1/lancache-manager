@@ -16,6 +16,7 @@ import themeService from '@services/theme.service';
 import ApiService from '@services/api.service';
 import { assertOk } from '@services/apiError';
 import { APP_EVENTS, API_BASE } from '@utils/constants';
+import { storage } from '@utils/storage';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 
 const COMMUNITY_THEMES_GITHUB_URL =
@@ -133,7 +134,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         console.warn(
           `GitHub API rate limit low (${rateLimitRemaining.current} remaining), using cached data if available`
         );
-        const cachedData = localStorage.getItem(GITHUB_CACHE_KEY);
+        const cachedData = storage.getItem(GITHUB_CACHE_KEY);
         if (cachedData) {
           const files = JSON.parse(cachedData) as GitHubFile[];
           const themes = await fetchThemeContents(files);
@@ -149,7 +150,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       const headers: HeadersInit = {
         Accept: 'application/vnd.github.v3+json'
       };
-      const cachedEtag = localStorage.getItem(GITHUB_ETAG_KEY);
+      const cachedEtag = storage.getItem(GITHUB_ETAG_KEY);
       if (cachedEtag) {
         headers['If-None-Match'] = cachedEtag;
       }
@@ -171,7 +172,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
       if (response.status === 304) {
         // Not modified - use cached data
-        const cachedData = localStorage.getItem(GITHUB_CACHE_KEY);
+        const cachedData = storage.getItem(GITHUB_CACHE_KEY);
         if (cachedData) {
           files = JSON.parse(cachedData) as GitHubFile[];
         } else {
@@ -188,12 +189,12 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         // Cache the ETag and response data
         const etag = response.headers.get('ETag');
         if (etag) {
-          localStorage.setItem(GITHUB_ETAG_KEY, etag);
+          storage.setItem(GITHUB_ETAG_KEY, etag);
         }
-        localStorage.setItem(GITHUB_CACHE_KEY, JSON.stringify(files));
+        storage.setItem(GITHUB_CACHE_KEY, JSON.stringify(files));
       } else {
         // Non-200/304 response - try cached data as fallback
-        const cachedData = localStorage.getItem(GITHUB_CACHE_KEY);
+        const cachedData = storage.getItem(GITHUB_CACHE_KEY);
         if (cachedData) {
           console.warn(`GitHub API returned ${response.status}, falling back to cached data`);
           files = JSON.parse(cachedData) as GitHubFile[];

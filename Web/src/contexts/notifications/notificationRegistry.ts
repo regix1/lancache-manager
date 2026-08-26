@@ -81,6 +81,7 @@ import {
 } from './registryEntries';
 import { translateRecoveryStage, translateStageKeyMessage } from '@utils/stageKeyMessage';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
+import { storage } from '@utils/storage';
 import { classifyRemovalKind, removalStageKey } from './removalKind';
 import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from '@components/features/management/schedules/scheduled-prefill/constants';
 
@@ -538,7 +539,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     onComplete: (removeNotification) => {
       removeNotification(NOTIFICATION_IDS.CORRUPTION_DETECTION);
-      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION);
+      storage.removeItem(NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION);
     }
   }),
 
@@ -1166,7 +1167,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     onComplete: (removeNotification) => {
       removeNotification(NOTIFICATION_IDS.EVICTION_SCAN);
-      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN);
+      storage.removeItem(NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN);
     }
   }),
 

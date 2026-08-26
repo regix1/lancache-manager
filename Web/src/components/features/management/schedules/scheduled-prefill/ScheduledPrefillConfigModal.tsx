@@ -74,6 +74,7 @@ import type {
   ScheduledPrefillServiceKey
 } from './types';
 import { getErrorMessage, isAbortError } from '@utils/error';
+import { sessionStore } from '@utils/storage';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 
 interface ScheduledPrefillConfigModalProps {
@@ -413,14 +414,14 @@ export function ScheduledPrefillConfigModal({
       return storedCleanupPromiseRef.current;
     }
 
-    const stored = loadScheduledPrefillEditSession(sessionStorage);
+    const stored = loadScheduledPrefillEditSession(sessionStore);
     if (!stored || !hasScheduledPrefillEditActions(stored)) {
       return;
     }
 
     const request = (async () => {
       const pending = beginEditSessionCleanup(
-        sessionStorage,
+        sessionStore,
         stored,
         createScheduledPrefillEditSessionId
       );
@@ -432,7 +433,7 @@ export function ScheduledPrefillConfigModal({
         await ApiService.cleanupPersistentPrefillEditSession(
           buildEditSessionCleanupRequest(pending)
         );
-        clearConfirmedEditSession(sessionStorage, pending.editSessionId, pending.cleanupId!);
+        clearConfirmedEditSession(sessionStore, pending.editSessionId, pending.cleanupId!);
         if (editSessionRef.current?.editSessionId === pending.editSessionId) {
           editSessionRef.current = null;
         }
@@ -459,7 +460,7 @@ export function ScheduledPrefillConfigModal({
 
   useEffect(() => {
     const handlePageHide = () => {
-      const editSession = editSessionRef.current ?? loadScheduledPrefillEditSession(sessionStorage);
+      const editSession = editSessionRef.current ?? loadScheduledPrefillEditSession(sessionStore);
       if (!editSession || !hasScheduledPrefillEditActions(editSession)) {
         return;
       }
@@ -467,7 +468,7 @@ export function ScheduledPrefillConfigModal({
       editSessionRetiredRef.current = true;
       retireEditSessionLoginState(editSession);
       const pending = beginEditSessionCleanup(
-        sessionStorage,
+        sessionStore,
         editSession,
         createScheduledPrefillEditSessionId
       );
@@ -477,7 +478,7 @@ export function ScheduledPrefillConfigModal({
         true
       )
         .then(() => {
-          clearConfirmedEditSession(sessionStorage, pending.editSessionId, pending.cleanupId!);
+          clearConfirmedEditSession(sessionStore, pending.editSessionId, pending.cleanupId!);
         })
         .catch(() => undefined);
     };
@@ -487,7 +488,7 @@ export function ScheduledPrefillConfigModal({
         return;
       }
 
-      if (loadScheduledPrefillEditSession(sessionStorage)) {
+      if (loadScheduledPrefillEditSession(sessionStore)) {
         void retryStoredEditSessionCleanup().catch(() => undefined);
       } else if (editSessionRetiredRef.current) {
         editSessionRef.current = null;
@@ -523,7 +524,7 @@ export function ScheduledPrefillConfigModal({
     }
 
     const controller = new AbortController();
-    const storedEditSession = loadScheduledPrefillEditSession(sessionStorage);
+    const storedEditSession = loadScheduledPrefillEditSession(sessionStore);
     if (!storedEditSession) {
       editSessionRef.current = null;
       editSessionRetiredRef.current = false;
@@ -615,7 +616,7 @@ export function ScheduledPrefillConfigModal({
       sessionId: string | null
     ): { editSession: ScheduledPrefillEditSessionLedger; editActionId: string } => {
       const recorded = recordEditActionIntent(
-        sessionStorage,
+        sessionStore,
         initializeEditSession(),
         service as ScheduledPrefillEditSessionServiceId,
         kind,
@@ -635,7 +636,7 @@ export function ScheduledPrefillConfigModal({
       persistentContainers !== null &&
       !editSessionRef.current &&
       !editSessionRetiredRef.current &&
-      !loadScheduledPrefillEditSession(sessionStorage)
+      !loadScheduledPrefillEditSession(sessionStore)
     ) {
       initializeEditSession();
     }
@@ -1180,7 +1181,7 @@ export function ScheduledPrefillConfigModal({
       editActionId
     );
     const updated = recordEditSessionStartResult(
-      sessionStorage,
+      sessionStore,
       editSession,
       serviceId as ScheduledPrefillEditSessionServiceId,
       editActionId,
@@ -1552,7 +1553,7 @@ export function ScheduledPrefillConfigModal({
       editSessionRetiredRef.current = true;
       const committedEditSession = editSessionRef.current;
       if (committedEditSession) {
-        discardCommittedEditSession(sessionStorage, committedEditSession.editSessionId);
+        discardCommittedEditSession(sessionStore, committedEditSession.editSessionId);
       }
       editSessionRef.current = null;
       if (nextValidityDays !== null) {
@@ -1577,7 +1578,7 @@ export function ScheduledPrefillConfigModal({
       setClosingEditSession(true);
       setGameSelection(null);
 
-      const editSession = editSessionRef.current ?? loadScheduledPrefillEditSession(sessionStorage);
+      const editSession = editSessionRef.current ?? loadScheduledPrefillEditSession(sessionStore);
       if (!editSession || !hasScheduledPrefillEditActions(editSession)) {
         onClose();
         return;
@@ -1587,13 +1588,13 @@ export function ScheduledPrefillConfigModal({
       setEditSessionCleanupPending(true);
       retireEditSessionLoginState(editSession);
       const pending = beginEditSessionCleanup(
-        sessionStorage,
+        sessionStore,
         editSession,
         createScheduledPrefillEditSessionId
       );
       editSessionRef.current = pending;
       await ApiService.cleanupPersistentPrefillEditSession(buildEditSessionCleanupRequest(pending));
-      clearConfirmedEditSession(sessionStorage, pending.editSessionId, pending.cleanupId!);
+      clearConfirmedEditSession(sessionStore, pending.editSessionId, pending.cleanupId!);
       editSessionRef.current = null;
       setEditSessionCleanupPending(false);
       onClose();

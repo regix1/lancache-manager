@@ -1229,6 +1229,21 @@ const DownloadsTab: React.FC = () => {
   // no pager to click back with. Matches what usePaginatedList does for the lists that use it.
   const safePage = Math.min(currentPage, totalPages);
 
+  // The clamp above only decides which slice renders; currentPage keeps the out-of-range number.
+  // Left there, a list that grows back past that page jumps forward to it on its own, which reads
+  // as the view moving with nobody touching the pager.
+  //
+  // Retro is excluded, and that exclusion is the point rather than an oversight: retro is paginated
+  // server-side, `totalPages` here counts the CLIENT list, and that list is empty while retro is
+  // showing. Measuring retro against it would drag a legitimate page 30 down to page 1 on every
+  // render. RetroView runs its own clamp against the server's total instead.
+  useEffect(() => {
+    if (settings.viewMode === 'retro') return;
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [settings.viewMode, currentPage, totalPages]);
+
   const itemsToDisplay = useMemo(() => {
     if (settings.itemsPerPage === 'unlimited') {
       return allItemsSorted;

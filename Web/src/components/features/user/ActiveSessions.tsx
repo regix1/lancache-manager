@@ -758,8 +758,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     });
   };
 
-  // i18n relative time for the row's last-seen meta (module getRelativeTime is
-  // English-only; this threads t so the copy is translatable).
+  // Relative time for the row's last-seen meta. The shared formatRelativeTime in utils/formatters
+  // is translated too, so that is not why this exists: it reads the timestamp with `new Date`,
+  // which takes a naive server timestamp as local time and can put "last seen" hours out, and it
+  // has no answer for a session that has never been seen. This parses as UTC and says "never".
   const formatRelativeTime = (dateString: string | null): string => {
     if (!dateString) return t('activeSessions.relative.never');
     const now = new Date();
@@ -959,6 +961,15 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     (safePage - 1) * pageSize,
     safePage * pageSize
   );
+
+  // The clamp above only decides what renders; currentPage keeps the out-of-range number. Left
+  // there, a list that grows back past that page jumps forward to it on its own, which reads as the
+  // view moving without anyone touching the pager. Writing the clamp back keeps the two in step.
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // ============================================================
   // Render Helpers: Session Row (one responsive item — desktop + mobile)

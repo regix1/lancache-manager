@@ -33,6 +33,7 @@ import { formatBytes, formatCount, formatRelativeTime } from '@utils/formatters'
 import { getErrorMessage } from '@utils/error';
 import { resolveDatasources } from '@utils/datasources';
 import type { CacheClearCompleteEvent } from '@contexts/SignalRContext/types';
+import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
 interface CacheManagerProps {
   isAdmin: boolean;
@@ -103,17 +104,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   // no-op); a per-datasource clear leaves it clickable so the click can enqueue.
   const isClearAllRunning = isCacheClearing && !clearingDatasource;
   const { selected: expandedDatasources, toggle: toggleExpanded } = useSelectionSet<string>();
-  const [sectionExpanded, setSectionExpanded] = useState(() => {
-    const saved = localStorage.getItem('management-disk-cache-expanded');
-    return saved !== null ? saved === 'true' : false;
-  });
+  const [sectionExpanded, setSectionExpanded] = useSectionExpanded(
+    'management-disk-cache-expanded',
+    false
+  );
   useAccordionGroupItem('storage-cache', sectionExpanded, () =>
     setSectionExpanded((prev) => !prev)
   );
-
-  useEffect(() => {
-    localStorage.setItem('management-disk-cache-expanded', String(sectionExpanded));
-  }, [sectionExpanded]);
   const cacheOperationInProgressRef = useRef(false);
   const deleteModeChangeInProgressRef = useRef(false);
 

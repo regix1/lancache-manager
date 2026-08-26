@@ -31,6 +31,7 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { formatBytes, formatCount } from '@utils/formatters';
 import { resolveDatasources } from '@utils/datasources';
 import type { DatasourceInfo, DatasourceLogPosition } from '../../../../types';
+import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
 interface DatasourcesManagerProps {
   isAdmin: boolean;
@@ -69,10 +70,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const [resetModal, setResetModal] = useState<{ datasource: string | null; all: boolean } | null>(
     null
   );
-  const [isExpanded, setIsExpanded] = useState<boolean>(() => {
-    const saved = localStorage.getItem('management-datasources-expanded-v2');
-    return saved !== null ? saved === 'true' : false;
-  });
+  const [isExpanded, setIsExpanded] = useSectionExpanded(
+    'management-datasources-expanded-v2',
+    false
+  );
   useAccordionGroupItem('storage-datasources', isExpanded, () => setIsExpanded((prev) => !prev));
 
   const { addNotification } = useNotifications();
@@ -200,10 +201,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       }
     })();
   });
-
-  useEffect(() => {
-    localStorage.setItem('management-datasources-expanded-v2', String(isExpanded));
-  }, [isExpanded]);
 
   const handleProcessAll = async () => {
     if (!isAdmin || isProcessing) return;

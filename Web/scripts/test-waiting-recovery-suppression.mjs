@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compileToUrl } from './transpile-module.mjs';
+import { MemoryStorage, compileToUrl } from './transpile-module.mjs';
 
 /**
  * Recovery rebuilds purple waiting cards from `GET /api/operations/waiting`, and it runs far more
@@ -40,11 +40,16 @@ const REGISTRY_STUB = moduleUrl(`
 `);
 
 const loadRecovery = async () => {
+  // handlers.ts persists cards through the storage wrapper, which probes availability once when
+  // its module is first imported, so the backing store has to exist before that import.
+  globalThis.localStorage = new MemoryStorage();
   const constantsUrl = await compileToUrl('../src/contexts/notifications/constants.ts');
   const statusUrl = await compileToUrl('../src/contexts/notifications/notificationStatus.ts');
+  const storageUrl = await compileToUrl('../src/utils/storage.ts');
   const handlersUrl = await compileToUrl('../src/contexts/notifications/handlers.ts', {
     './constants': constantsUrl,
     './notificationStatus': statusUrl,
+    '@utils/storage': storageUrl,
     '@/i18n': I18N_STUB
   });
   const removalKindUrl = await compileToUrl('../src/contexts/notifications/removalKind.ts', {
@@ -55,6 +60,7 @@ const loadRecovery = async () => {
     './handlers': handlersUrl,
     './notificationRegistry': REGISTRY_STUB,
     './removalKind': removalKindUrl,
+    '@utils/storage': storageUrl,
     '@/i18n': I18N_STUB
   });
   return await import(recoveryUrl);

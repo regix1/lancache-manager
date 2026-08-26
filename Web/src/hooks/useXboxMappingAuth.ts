@@ -62,6 +62,14 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   // emitting a "cancelled" card when there is no login to cancel.
   const loginNotificationActiveRef = useRef(false);
 
+  // Terminal statuses only, and that is what keeps it safe. addNotification refuses to put a
+  // 'running' card over a terminal one less than TERMINAL_SEED_GUARD_MS old
+  // (NotificationsContext.tsx:190), so a client-seeded running card pushed straight after a cancel
+  // would be swallowed and the operation would show nothing. Xbox never hits that: its running card
+  // comes from the backend's XboxMappingStarted event, which inserts through setNotifications and
+  // never passes the guard. Epic does seed its own running card here, which is why it clears the
+  // old one with removeNotification first (useEpicMappingAuth.ts:70) - anything added here with a
+  // 'running' status needs that same line.
   const pushLoginCard = useCallback(
     (status: NotificationStatus, message: string, error?: string, cancelled = false) => {
       if (!loginStatusNotifications) {

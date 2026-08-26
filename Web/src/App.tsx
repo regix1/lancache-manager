@@ -41,6 +41,7 @@ const PrefillPanel = lazy(() =>
 );
 import ActiveEventBorder from '@components/common/ActiveEventBorder';
 import { APP_EVENTS } from '@utils/constants';
+import { sessionStore } from '@utils/storage';
 
 const preloadMap: Record<string, () => void> = {
   dashboard: () => import('@components/features/dashboard/Dashboard'),
@@ -169,11 +170,11 @@ const AppContent: React.FC = () => {
 
   // Check if modal was dismissed this session
   const wasModalDismissed = useCallback(() => {
-    return sessionStorage.getItem('fullScanModalDismissed') === 'true';
+    return sessionStore.getItem('fullScanModalDismissed') === 'true';
   }, []);
 
   const markModalDismissed = useCallback(() => {
-    sessionStorage.setItem('fullScanModalDismissed', 'true');
+    sessionStore.setItem('fullScanModalDismissed', 'true');
   }, []);
 
   // The Steam Game Mapping card on the Schedules page asks for the modal back after Cancel hid it
@@ -184,7 +185,7 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const handleShowFullScanModal = (event: Event) => {
       const requirement = (event as CustomEvent<PendingFullScan>).detail;
-      sessionStorage.removeItem('fullScanModalDismissed');
+      sessionStore.removeItem('fullScanModalDismissed');
       setFullScanModalChangeGap(requirement?.changeGap);
       setFullScanModalEstimatedApps(requirement?.estimatedAppsToScan);
       setShowFullScanRequiredModal(true);

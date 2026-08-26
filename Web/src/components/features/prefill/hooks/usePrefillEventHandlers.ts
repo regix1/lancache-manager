@@ -7,6 +7,7 @@ import i18n from '@/i18n';
 import { COMPLETION_NOTIFICATION_WINDOW_MS, getEventName } from './prefillConstants';
 import type { PrefillProgress, BackgroundCompletion, CachedAnimationItem } from './prefillTypes';
 import { STORAGE_KEYS } from '@utils/constants';
+import { sessionStore } from '@utils/storage';
 
 interface UsePrefillEventHandlersOptions {
   addLog: (type: LogEntryType, message: string, details?: string) => void;
@@ -349,17 +350,10 @@ export function registerPrefillEventHandlers(
         // start path (2nd tab / replayed start). The PrefillProgress seed-guard re-derives the
         // correct count from the daemon's totalApps on the first tick.
         expectedAppCountRef.current = 0;
-        try {
-          sessionStorage.setItem(
-            STORAGE_KEYS.PREFILL_IN_PROGRESS,
-            JSON.stringify({
-              startedAt: new Date().toISOString(),
-              sessionId: stateSessionId
-            })
-          );
-        } catch {
-          /* ignore */
-        }
+        sessionStore.setJSON(STORAGE_KEYS.PREFILL_IN_PROGRESS, {
+          startedAt: new Date().toISOString(),
+          sessionId: stateSessionId
+        });
       } else if (state === 'completed') {
         setIsPrefillActive(false);
         const duration = durationSeconds ?? 0;
@@ -403,11 +397,7 @@ export function registerPrefillEventHandlers(
           message: t('prefill.completion.message', { duration: formattedDuration }),
           duration: duration
         });
-        try {
-          sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-        } catch {
-          /* ignore */
-        }
+        sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
       } else if (state === 'failed') {
         setIsPrefillActive(false);
         addLog('error', t('prefill.log.prefillFailed'));
@@ -417,11 +407,7 @@ export function registerPrefillEventHandlers(
         stopAnimations();
         setPrefillProgress(null);
         resetAnimationState();
-        try {
-          sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-        } catch {
-          /* ignore */
-        }
+        sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
       } else if (state === 'cancelled') {
         setIsPrefillActive(false);
         addLog('info', t('prefill.log.prefillCancelled'));
@@ -431,11 +417,7 @@ export function registerPrefillEventHandlers(
         stopAnimations();
         setPrefillProgress(null);
         resetAnimationState();
-        try {
-          sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-        } catch {
-          /* ignore */
-        }
+        sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
       }
     }
   );
@@ -508,11 +490,7 @@ export function registerPrefillEventHandlers(
             );
           }
         }
-        try {
-          sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-        } catch {
-          /* ignore */
-        }
+        sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
       } catch {
         // Failed to resubscribe after reconnection
       }

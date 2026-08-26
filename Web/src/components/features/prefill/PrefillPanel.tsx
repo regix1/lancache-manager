@@ -18,6 +18,7 @@ import { usePrefillContext } from '@contexts/usePrefillContext';
 import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { API_BASE, STORAGE_KEYS } from '@utils/constants';
+import { sessionStore } from '@utils/storage';
 import { getErrorMessage } from '@utils/error';
 import { parseUtcDate } from '@utils/timezone';
 
@@ -655,11 +656,7 @@ function ServicePrefillPanel({
         if (isPrefillCommand) {
           signalR.setIsPrefillActive(false);
           signalR.setPrefillProgress(null);
-          try {
-            sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-          } catch {
-            /* ignore */
-          }
+          sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
         }
       } finally {
         setIsExecuting(false);

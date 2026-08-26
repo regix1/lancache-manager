@@ -36,13 +36,15 @@ export function formatBytes(bytes: number, decimals = 2, zeroLabel = '0 B'): str
 }
 
 /**
- * Format speed (bytes per second) to human-readable string in bits
- * Network speeds are traditionally measured in bits (Mb/s), not bytes (MB/s)
+ * The bits-per-second ladder both speed formatters read, for a rate above zero.
+ *
+ * Network speeds are traditionally measured in bits (Mb/s), not bytes (MB/s). The two formatters
+ * held verbatim copies of this, so a unit added to one of them did not exist in the other.
+ *
+ * Zero stays with the callers: they disagree about what an idle readout says, and neither spelling
+ * is a property of the ladder.
  */
-export function formatSpeed(bytesPerSecond: number | undefined | null, decimals = 1): string {
-  if (!bytesPerSecond || bytesPerSecond <= 0) return i18n.t('common.notAvailable');
-
-  // Convert bytes to bits
+function speedInBits(bytesPerSecond: number, decimals: number): { value: string; unit: string } {
   const bitsPerSecond = bytesPerSecond * 8;
 
   const k = 1024;
@@ -51,8 +53,19 @@ export function formatSpeed(bytesPerSecond: number | undefined | null, decimals 
 
   const i = Math.floor(Math.log(bitsPerSecond) / Math.log(k));
   const unit = sizes[i] || 'b';
+  const value = parseFloat((bitsPerSecond / Math.pow(k, i)).toFixed(dm));
 
-  return parseFloat((bitsPerSecond / Math.pow(k, i)).toFixed(dm)) + ' ' + unit + '/s';
+  return { value: value.toString(), unit: `${unit}/s` };
+}
+
+/**
+ * Format speed (bytes per second) to human-readable string in bits
+ */
+export function formatSpeed(bytesPerSecond: number | undefined | null, decimals = 1): string {
+  if (!bytesPerSecond || bytesPerSecond <= 0) return i18n.t('common.notAvailable');
+
+  const { value, unit } = speedInBits(bytesPerSecond, decimals);
+  return `${value} ${unit}`;
 }
 
 /**
@@ -65,16 +78,7 @@ export function formatSpeedWithSeparatedUnit(
 ): { value: string; unit: string } {
   if (!bytesPerSecond || bytesPerSecond <= 0) return { value: '0', unit: 'b/s' };
 
-  const bitsPerSecond = bytesPerSecond * 8;
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['b', 'Kb', 'Mb', 'Gb', 'Tb', 'Pb'];
-
-  const i = Math.floor(Math.log(bitsPerSecond) / Math.log(k));
-  const unit = sizes[i] || 'b';
-  const value = parseFloat((bitsPerSecond / Math.pow(k, i)).toFixed(dm));
-
-  return { value: value.toString(), unit: `${unit}/s` };
+  return speedInBits(bytesPerSecond, decimals);
 }
 
 /**

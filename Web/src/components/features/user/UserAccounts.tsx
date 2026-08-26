@@ -179,6 +179,15 @@ const UserAccounts: React.FC = () => {
   const safePage = Math.min(currentPage, totalPages);
   const visibleAccounts = accounts.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
+  // The clamp above only decides what renders; currentPage keeps the out-of-range number, so a list
+  // that grows back past that page jumps forward to it on its own. Writing the clamp back keeps the
+  // two in step.
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const columns: DataTableColumn<UserAccount>[] = [
     {
       key: 'username',

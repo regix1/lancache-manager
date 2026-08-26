@@ -16,6 +16,7 @@ import {
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { createRecoveryRunner, type FetchWithAuth } from './recovery';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
+import { storage } from '@utils/storage';
 import { useNotificationHandlers } from './useNotificationHandlers';
 
 import { NotificationsContext } from './NotificationsContext.types';
@@ -67,7 +68,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     for (const key of persistentKeys) {
       try {
-        const saved = localStorage.getItem(key);
+        const saved = storage.getItem(key);
         if (saved) {
           const parsed = JSON.parse(saved) as UnifiedNotification;
           if (parsed.status === 'running') {

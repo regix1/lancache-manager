@@ -67,6 +67,8 @@ import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { resolveDatasources } from '@utils/datasources';
 import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
+import { sessionStore } from '@utils/storage';
+import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
 interface GameCacheDetectorProps {
   mockMode?: boolean;
@@ -129,10 +131,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [selectedDatasource, setSelectedDatasource] = useState<string | null>(null);
 
   // Accordion state for Services, Games, and Evicted Games sections
-  const [sectionExpanded, setSectionExpanded] = useState(() => {
-    const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.GAME_CACHE_EXPANDED);
-    return saved !== null ? saved === 'true' : false;
-  });
+  const [sectionExpanded, setSectionExpanded] = useSectionExpanded(
+    MANAGEMENT_STORAGE_KEYS.GAME_CACHE_EXPANDED,
+    false
+  );
   useAccordionGroupItem('storage-game-detection', sectionExpanded, () =>
     setSectionExpanded((prev) => !prev)
   );
@@ -152,10 +154,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [showRemoveAllConfirm, setShowRemoveAllConfirm] = useState(false);
   const [removeAllRunning, setRemoveAllRunning] = useState(false);
   const [isLoadingInitialCache, setIsLoadingInitialCache] = useState(() => !mockMode);
-
-  useEffect(() => {
-    localStorage.setItem(MANAGEMENT_STORAGE_KEYS.GAME_CACHE_EXPANDED, String(sectionExpanded));
-  }, [sectionExpanded]);
 
   // Format last detection time with timezone awareness
   const formattedLastDetectionTime = useFormattedDateTime(lastDetectionTime);
@@ -279,8 +277,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           return;
         }
 
-        const alreadyShownThisSession =
-          sessionStorage.getItem(LOADED_RESULTS_SESSION_KEY) === 'true';
+        const alreadyShownThisSession = sessionStore.getItem(LOADED_RESULTS_SESSION_KEY) === 'true';
         const isActivelyScanning = loading || scanType === 'full' || scanType === 'incremental';
         const resultsSummary = buildLoadedResultsSummary(snapshot);
 
@@ -293,7 +290,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             }),
             details: { notificationType: 'info' }
           });
-          sessionStorage.setItem(LOADED_RESULTS_SESSION_KEY, 'true');
+          sessionStore.setItem(LOADED_RESULTS_SESSION_KEY, 'true');
         }
       } finally {
         setIsLoadingInitialCache(false);

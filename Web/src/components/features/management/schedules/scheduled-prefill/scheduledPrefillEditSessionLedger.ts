@@ -2,6 +2,15 @@ import type { ScheduledPrefillServiceId } from './types';
 
 const SCHEDULED_PREFILL_EDIT_SESSION_STORAGE_KEY = 'scheduled-prefill:edit-session:v1';
 
+/**
+ * The three methods this file actually calls on the store it is handed.
+ *
+ * Naming the whole DOM `Storage` here required the caller to pass `sessionStorage` itself, which
+ * throws on the property access in a browser with site data blocked for the origin. Nothing here
+ * reads `length` or `key()`, so asking for them only ruled out the safe wrapper.
+ */
+type EditSessionStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
 export const createScheduledPrefillEditSessionId = (): string =>
   globalThis.crypto?.randomUUID?.() ??
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -80,7 +89,10 @@ const cloneLedger = (
   ) as ScheduledPrefillEditSessionLedger['services']
 });
 
-const persistLedger = (storage: Storage, ledger: ScheduledPrefillEditSessionLedger): void => {
+const persistLedger = (
+  storage: EditSessionStore,
+  ledger: ScheduledPrefillEditSessionLedger
+): void => {
   storage.setItem(SCHEDULED_PREFILL_EDIT_SESSION_STORAGE_KEY, JSON.stringify(ledger));
 };
 
@@ -109,7 +121,7 @@ export function createScheduledPrefillEditSession(
 }
 
 export function loadScheduledPrefillEditSession(
-  storage: Storage
+  storage: EditSessionStore
 ): ScheduledPrefillEditSessionLedger | null {
   const raw = storage.getItem(SCHEDULED_PREFILL_EDIT_SESSION_STORAGE_KEY);
   if (!raw) {
@@ -137,7 +149,7 @@ export function hasScheduledPrefillEditActions(ledger: ScheduledPrefillEditSessi
 }
 
 export function recordEditActionIntent(
-  storage: Storage,
+  storage: EditSessionStore,
   ledger: ScheduledPrefillEditSessionLedger,
   service: ScheduledPrefillEditSessionServiceId,
   kind: ScheduledPrefillEditActionKind,
@@ -160,7 +172,7 @@ export function recordEditActionIntent(
 }
 
 export function recordEditSessionStartResult(
-  storage: Storage,
+  storage: EditSessionStore,
   ledger: ScheduledPrefillEditSessionLedger,
   service: ScheduledPrefillEditSessionServiceId,
   editActionId: string,
@@ -187,7 +199,7 @@ export function recordEditSessionStartResult(
 }
 
 export function beginEditSessionCleanup(
-  storage: Storage,
+  storage: EditSessionStore,
   ledger: ScheduledPrefillEditSessionLedger | null,
   createId: () => string
 ): ScheduledPrefillEditSessionLedger {
@@ -237,7 +249,7 @@ export function buildEditSessionCleanupRequest(
 }
 
 export function clearConfirmedEditSession(
-  storage: Storage,
+  storage: EditSessionStore,
   editSessionId: string,
   cleanupId: string
 ): boolean {
@@ -255,7 +267,10 @@ export function clearConfirmedEditSession(
   return true;
 }
 
-export function discardCommittedEditSession(storage: Storage, editSessionId: string): boolean {
+export function discardCommittedEditSession(
+  storage: EditSessionStore,
+  editSessionId: string
+): boolean {
   const current = loadScheduledPrefillEditSession(storage);
   if (!current || current.editSessionId !== editSessionId) {
     return false;

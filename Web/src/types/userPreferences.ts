@@ -19,6 +19,24 @@ export const CLOCK_KEYS: readonly (keyof ClockPreferences)[] = [
   'use24HourFormat'
 ];
 
+/**
+ * The switches a user flips one at a time, each held until its own save answers.
+ *
+ * A broadcast about any ONE preference carries the whole row, so it also carries the server's older
+ * value for every other key: without this list a switch flipped during another switch's round trip
+ * is written back to what it was. The clock is deliberately absent - its three flags are one choice
+ * and are settled together as a tuple.
+ */
+export const OPTIMISTIC_TOGGLE_KEYS = [
+  'sharpCorners',
+  'disableTooltips',
+  'disableStickyNotifications',
+  'picsAlwaysVisible',
+  'showDatasourceLabels'
+] as const;
+
+export type OptimisticToggleKey = (typeof OPTIMISTIC_TOGGLE_KEYS)[number];
+
 export interface UserPreferences {
   selectedTheme: string | null;
   sharpCorners: boolean;

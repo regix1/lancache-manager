@@ -4,6 +4,7 @@ import ApiService from '@services/api.service';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useAuth } from '@contexts/useAuth';
 import { isAdminAccountRequired } from '@utils/adminAccountSetup';
+import { storage } from '@utils/storage';
 import { useErrorHandler } from './useErrorHandler';
 import type { SetupStatus } from '@contexts/SetupStatusContext.types';
 import type { PicsStatus } from '@/types';
@@ -353,7 +354,7 @@ export function useInitializationFlow({
   const markSetupCompleted = useCallback(async (): Promise<boolean> => {
     try {
       // Clear all localStorage on setup completion so default values take effect fresh
-      localStorage.clear();
+      storage.clear();
       await ApiService.markSetupComplete();
       markSetupCompletedLocally();
       await refreshSetupStatus();

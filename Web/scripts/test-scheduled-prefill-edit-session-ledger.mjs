@@ -55,7 +55,7 @@ test('an untouched edit session never becomes durable cleanup work', () => {
 
 test('edit-session cleanup recovery is app-global and retries until confirmation', () => {
   assert.match(appSource, /<ScheduledPrefillEditSessionCleanupRecovery \/>/);
-  assert.match(recoverySource, /loadScheduledPrefillEditSession\(sessionStorage\)/);
+  assert.match(recoverySource, /loadScheduledPrefillEditSession\(sessionStore\)/);
   assert.match(recoverySource, /cleanupPersistentPrefillEditSession/);
   assert.match(recoverySource, /clearConfirmedEditSession/);
   assert.match(recoverySource, /setTimeout\(\(\) =>/);

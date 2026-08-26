@@ -8,6 +8,7 @@ import type {
   DepotMappingCompleteEvent
 } from '@contexts/SignalRContext/types';
 import { PicsProgressContext, type PicsProgress } from './PicsProgressContext.types';
+import { sessionStore } from '@utils/storage';
 
 interface PicsProgressProviderProps {
   children: ReactNode;
@@ -24,17 +25,9 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
   const hasAccess = authMode === 'authenticated';
 
   // Initialize progress from sessionStorage cache if available
-  const [progress, setProgress] = useState<PicsProgress | null>(() => {
-    try {
-      const cached = sessionStorage.getItem('pics_progress_cache');
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    } catch (_error) {
-      // Ignore errors, return null
-    }
-    return null;
-  });
+  const [progress, setProgress] = useState<PicsProgress | null>(() =>
+    sessionStore.getJSON<PicsProgress>('pics_progress_cache')
+  );
 
   // The cache above keeps the last numbers on screen across a reload, so a non-null progress says
   // nothing about what this page load knows - the blob can predate an API key being added or a data
@@ -59,7 +52,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
         const data: PicsProgress = await response.json();
         setProgress(data);
         // Cache to sessionStorage to prevent loading flashes
-        sessionStorage.setItem('pics_progress_cache', JSON.stringify(data));
+        sessionStore.setItem('pics_progress_cache', JSON.stringify(data));
       }
     } catch (error) {
       // Background poll (mount + SignalR reconnect recovery). The sessionStorage cache and

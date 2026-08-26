@@ -8,6 +8,7 @@ import {
   hasScheduledPrefillEditActions,
   loadScheduledPrefillEditSession
 } from './scheduledPrefillEditSessionLedger';
+import { sessionStore } from '@utils/storage';
 
 const CLEANUP_RETRY_DELAY_MS = 5000;
 
@@ -22,13 +23,13 @@ export function ScheduledPrefillEditSessionCleanupRecovery() {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const retry = async () => {
-      const stored = loadScheduledPrefillEditSession(sessionStorage);
+      const stored = loadScheduledPrefillEditSession(sessionStore);
       if (!stored || !hasScheduledPrefillEditActions(stored)) {
         return;
       }
 
       const pending = beginEditSessionCleanup(
-        sessionStorage,
+        sessionStore,
         stored,
         createScheduledPrefillEditSessionId
       );
@@ -36,7 +37,7 @@ export function ScheduledPrefillEditSessionCleanupRecovery() {
         await ApiService.cleanupPersistentPrefillEditSession(
           buildEditSessionCleanupRequest(pending)
         );
-        clearConfirmedEditSession(sessionStorage, pending.editSessionId, pending.cleanupId!);
+        clearConfirmedEditSession(sessionStore, pending.editSessionId, pending.cleanupId!);
       } catch {
         if (!disposed) {
           retryTimer = setTimeout(() => {

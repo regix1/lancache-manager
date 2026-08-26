@@ -81,6 +81,7 @@ import { FAILED_TO_REMOVE_GAME_I18N_KEY } from '@contexts/notifications/constant
 import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
 import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { resolveDatasources } from '@utils/datasources';
+import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
 // Adapts the combined evicted selection set (prefixed keyspace) into the raw-keyed
 // SelectionAdapter each list expects, translating keys through the given prefix.
@@ -468,50 +469,29 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // kick-off request in flight.
   const isEvictionScanRunning = isEvictionScanNotificationRunning || isStartingEvictionScan;
 
-  const [evictedDataExpanded, setEvictedDataExpanded] = useState(() => {
-    const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.EVICTED_DATA_EXPANDED);
-    return saved !== null ? saved === 'true' : false;
-  });
+  const [evictedDataExpanded, setEvictedDataExpanded] = useSectionExpanded(
+    MANAGEMENT_STORAGE_KEYS.EVICTED_DATA_EXPANDED,
+    false
+  );
   useAccordionGroupItem('storage-eviction', evictedDataExpanded, () =>
     setEvictedDataExpanded((prev) => !prev)
   );
 
-  useEffect(() => {
-    localStorage.setItem(
-      MANAGEMENT_STORAGE_KEYS.EVICTED_DATA_EXPANDED,
-      String(evictedDataExpanded)
-    );
-  }, [evictedDataExpanded]);
-
-  const [evictionSettingsExpanded, setEvictionSettingsExpanded] = useState(() => {
-    const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.EVICTION_SETTINGS_EXPANDED);
-    return saved !== null ? saved === 'true' : true;
-  });
+  const [evictionSettingsExpanded, setEvictionSettingsExpanded] = useSectionExpanded(
+    MANAGEMENT_STORAGE_KEYS.EVICTION_SETTINGS_EXPANDED,
+    true
+  );
   useAccordionGroupItem('storage-eviction-settings', evictionSettingsExpanded, () =>
     setEvictionSettingsExpanded((prev) => !prev)
   );
 
-  useEffect(() => {
-    localStorage.setItem(
-      MANAGEMENT_STORAGE_KEYS.EVICTION_SETTINGS_EXPANDED,
-      String(evictionSettingsExpanded)
-    );
-  }, [evictionSettingsExpanded]);
-
-  const [evictedItemsExpanded, setEvictedItemsExpanded] = useState(() => {
-    const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.EVICTED_ITEMS_EXPANDED);
-    return saved !== null ? saved === 'true' : true;
-  });
+  const [evictedItemsExpanded, setEvictedItemsExpanded] = useSectionExpanded(
+    MANAGEMENT_STORAGE_KEYS.EVICTED_ITEMS_EXPANDED,
+    true
+  );
   useAccordionGroupItem('storage-evicted-items', evictedItemsExpanded, () =>
     setEvictedItemsExpanded((prev) => !prev)
   );
-
-  useEffect(() => {
-    localStorage.setItem(
-      MANAGEMENT_STORAGE_KEYS.EVICTED_ITEMS_EXPANDED,
-      String(evictedItemsExpanded)
-    );
-  }, [evictedItemsExpanded]);
 
   // "Remove All" state - sequential per-item eviction removal. One at a time
   // mirrors the per-item Remove flow (each item gets its own SignalR operation,

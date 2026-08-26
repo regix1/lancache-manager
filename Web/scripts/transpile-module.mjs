@@ -154,6 +154,33 @@ export const liftConstArrow = (relativePath, constName) => {
 };
 
 /**
+ * Source text of the arrow handed to a React hook inside a component.
+ *
+ * An initializer, an effect body or a handler wrapped in `useCallback` is never exported, so the
+ * one that ships can only be driven by lifting it out of the file. `contains` picks which of a
+ * file's several `useState`/`useEffect`/`useCallback` calls is meant - a storage key, a call the
+ * body makes - and the test fails rather than guesses when it matches more than one.
+ *
+ * @param {string} relativePath Path to the component, relative to the repo's `Web/` directory.
+ * @param {string} hookName Hook the arrow is passed to, e.g. 'useState'.
+ * @param {string} contains Text that appears in the wanted arrow and in no sibling.
+ * @returns {string} The arrow's source text.
+ */
+export const liftHookCallback = (relativePath, hookName, contains) => {
+  const sourceFile = parseSource(relativePath, typescript.ScriptKind.TSX);
+  const call = findSoleNode(sourceFile, `${hookName} call for ${contains}`, (node) => {
+    if (!typescript.isCallExpression(node) || node.arguments.length === 0) return false;
+    const callee = typescript.isPropertyAccessExpression(node.expression)
+      ? node.expression.name.getText(sourceFile)
+      : node.expression.getText(sourceFile);
+    if (callee !== hookName) return false;
+    const [argument] = node.arguments;
+    return typescript.isArrowFunction(argument) && argument.getText(sourceFile).includes(contains);
+  });
+  return call.arguments[0].getText(sourceFile);
+};
+
+/**
  * Compiles a lifted arrow and binds its free variables BY NAME. Every name the arrow reads from
  * its enclosing scope has to appear in `bindings`, or calling it throws a ReferenceError - nothing
  * type-checks these scripts, so that is the only warning a moved or renamed free variable gives.

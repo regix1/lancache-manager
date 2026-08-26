@@ -4,6 +4,7 @@ import { GAME_SERVICES, type GameServiceConfig, type GameServiceId } from '@/typ
 import type { ShowToastEvent } from '@contexts/SignalRContext/types';
 import { GameServiceContext } from './GameServiceContext.types';
 import { APP_EVENTS } from '@utils/constants';
+import { storage } from '@utils/storage';
 
 const STORAGE_KEY = 'lancache-selected-service';
 
@@ -11,13 +12,9 @@ const STORAGE_KEY = 'lancache-selected-service';
 // NotificationsProvider - has mounted), so no notification channel is reachable here even in
 // principle. Falls back to the 'steam' default, which is harmless. Deliberately silent.
 function loadPersistedService(): GameServiceId {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored && GAME_SERVICES.some((service: GameServiceConfig) => service.id === stored)) {
-      return stored as GameServiceId;
-    }
-  } catch (error) {
-    console.error('[GameService] Failed to read from localStorage:', error);
+  const stored = storage.getItem(STORAGE_KEY);
+  if (stored && GAME_SERVICES.some((service: GameServiceConfig) => service.id === stored)) {
+    return stored as GameServiceId;
   }
   return 'steam';
 }
@@ -35,15 +32,13 @@ export const GameServiceProvider: React.FC<GameServiceProviderProps> = ({ childr
 
   const setSelectedService = useCallback((id: GameServiceId) => {
     setSelectedServiceState(id);
-    try {
-      localStorage.setItem(STORAGE_KEY, id);
-    } catch (error) {
+    storage.setItem(STORAGE_KEY, id);
+    if (!storage.isAvailable()) {
       // User-initiated action (switching the game-service tab). The selection still applies for
-      // this session via state above, but won't survive a reload - surface it. GameServiceProvider
-      // is an ancestor of NotificationsProvider in AppProviders.tsx, so useErrorHandler is not
-      // reachable here; use the existing show-toast bridge instead (mirrors
-      // NotificationsContext.tsx:332-356).
-      console.error('[GameService] Failed to persist selected service:', error);
+      // this session via the wrapper's memory fallback, but won't survive a reload - surface it.
+      // GameServiceProvider is an ancestor of NotificationsProvider in AppProviders.tsx, so
+      // useErrorHandler is not reachable here; use the existing show-toast bridge instead
+      // (mirrors NotificationsContext.tsx:332-356).
       window.dispatchEvent(
         new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
           detail: {

@@ -7,6 +7,7 @@ import {
 import type { BackgroundCompletion } from '@components/features/prefill/hooks/prefillTypes';
 import { PrefillContext } from './PrefillContext.types';
 import { STORAGE_KEYS } from '@utils/constants';
+import { sessionStore } from '@utils/storage';
 
 const STORAGE_KEY = 'prefill_activity_log';
 const BACKGROUND_COMPLETION_KEY = 'prefill_background_completion';
@@ -24,7 +25,7 @@ interface PrefillProviderProps {
 // gracefully to an empty log, which is harmless. Deliberately silent.
 const restoreLogsFromStorage = (): LogEntry[] => {
   try {
-    const saved = sessionStorage.getItem(STORAGE_KEY);
+    const saved = sessionStore.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       // Convert timestamp strings back to Date objects
@@ -43,28 +44,14 @@ const restoreLogsFromStorage = (): LogEntry[] => {
 // logEntries state still works this session even if the write fails); a full storage quota is
 // the only realistic cause. Deliberately silent.
 const saveLogsToStorage = (entries: LogEntry[]) => {
-  try {
-    // Keep only the most recent entries to prevent storage bloat
-    const entriesToSave = entries.slice(-MAX_LOG_ENTRIES);
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(entriesToSave));
-  } catch (error) {
-    console.error('[PrefillContext] Failed to save logs:', error);
-  }
+  // Keep only the most recent entries to prevent storage bloat
+  sessionStore.setJSON(STORAGE_KEY, entries.slice(-MAX_LOG_ENTRIES));
 };
 
 // Helper to restore background completion from sessionStorage. Same render-phase constraint as
 // restoreLogsFromStorage above - no notification channel is reachable here. Deliberately silent.
-const restoreBackgroundCompletion = (): BackgroundCompletion | null => {
-  try {
-    const saved = sessionStorage.getItem(BACKGROUND_COMPLETION_KEY);
-    if (saved) {
-      return JSON.parse(saved);
-    }
-  } catch (error) {
-    console.error('[PrefillContext] Failed to restore background completion:', error);
-  }
-  return null;
-};
+const restoreBackgroundCompletion = (): BackgroundCompletion | null =>
+  sessionStore.getJSON<BackgroundCompletion>(BACKGROUND_COMPLETION_KEY);
 
 export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) => {
   const [logEntries, setLogEntries] = useState<LogEntry[]>(() => restoreLogsFromStorage());
@@ -125,23 +112,15 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
 
   const clearLogs = useCallback(() => {
     setLogEntries([]);
-    try {
-      sessionStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // Ignore errors
-    }
+    sessionStore.removeItem(STORAGE_KEY);
   }, []);
 
   const setBackgroundCompletion = useCallback((completion: BackgroundCompletion | null) => {
     setBackgroundCompletionState(completion);
-    try {
-      if (completion) {
-        sessionStorage.setItem(BACKGROUND_COMPLETION_KEY, JSON.stringify(completion));
-      } else {
-        sessionStorage.removeItem(BACKGROUND_COMPLETION_KEY);
-      }
-    } catch {
-      // Ignore errors
+    if (completion) {
+      sessionStore.setJSON(BACKGROUND_COMPLETION_KEY, completion);
+    } else {
+      sessionStore.removeItem(BACKGROUND_COMPLETION_KEY);
     }
   }, []);
 
@@ -149,57 +128,39 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
     // Record the completedAt timestamp before clearing so we don't re-show it
     const current = backgroundCompletion;
     if (current?.completedAt) {
-      try {
-        sessionStorage.setItem(DISMISSED_COMPLETION_KEY, current.completedAt);
-      } catch {
-        // Ignore errors
-      }
+      sessionStore.setItem(DISMISSED_COMPLETION_KEY, current.completedAt);
     }
     setBackgroundCompletionState(null);
-    try {
-      sessionStorage.removeItem(BACKGROUND_COMPLETION_KEY);
-    } catch {
-      // Ignore errors
-    }
+    sessionStore.removeItem(BACKGROUND_COMPLETION_KEY);
   }, [backgroundCompletion]);
 
   // Check if a completion with a specific timestamp has been dismissed
   // Uses a 60-second window to account for client/server timestamp differences
   const isCompletionDismissed = useCallback((completedAt: string): boolean => {
-    try {
-      const dismissedAt = sessionStorage.getItem(DISMISSED_COMPLETION_KEY);
-      if (!dismissedAt) return false;
+    const dismissedAt = sessionStore.getItem(DISMISSED_COMPLETION_KEY);
+    if (!dismissedAt) return false;
 
-      // Parse both timestamps and compare within a 60-second window
-      const dismissedTime = new Date(dismissedAt).getTime();
-      const completedTime = new Date(completedAt).getTime();
+    // Parse both timestamps and compare within a 60-second window
+    const dismissedTime = new Date(dismissedAt).getTime();
+    const completedTime = new Date(completedAt).getTime();
 
-      // If timestamps are within 60 seconds of each other, consider it dismissed
-      // This handles client/server timestamp differences
-      return Math.abs(dismissedTime - completedTime) < 60000;
-    } catch {
-      return false;
-    }
+    // If timestamps are within 60 seconds of each other, consider it dismissed
+    // This handles client/server timestamp differences
+    return Math.abs(dismissedTime - completedTime) < 60000;
   }, []);
 
   // Clear all prefill-related storage (for session end/cleanup)
   const clearAllPrefillStorage = useCallback(() => {
-    try {
-      // Clear all prefill-related sessionStorage keys
-      sessionStorage.removeItem(STORAGE_KEY); // prefill_activity_log
-      sessionStorage.removeItem(BACKGROUND_COMPLETION_KEY); // prefill_background_completion
-      sessionStorage.removeItem(DISMISSED_COMPLETION_KEY); // prefill_dismissed_completion_at
-      sessionStorage.removeItem(STORAGE_KEYS.PREFILL_SESSION_ID);
-      sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
+    // Clear all prefill-related sessionStorage keys
+    sessionStore.removeItem(STORAGE_KEY); // prefill_activity_log
+    sessionStore.removeItem(BACKGROUND_COMPLETION_KEY); // prefill_background_completion
+    sessionStore.removeItem(DISMISSED_COMPLETION_KEY); // prefill_dismissed_completion_at
+    sessionStore.removeItem(STORAGE_KEYS.PREFILL_SESSION_ID);
+    sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
 
-      // Reset local state
-      setLogEntries([]);
-      setBackgroundCompletionState(null);
-    } catch (error) {
-      // Best-effort storage cleanup (session end); a failure here only leaves stale cached
-      // entries behind, it does not affect the active session. Deliberately silent.
-      console.error('[PrefillContext] Failed to clear prefill storage:', error);
-    }
+    // Reset local state
+    setLogEntries([]);
+    setBackgroundCompletionState(null);
   }, []);
 
   const value = {

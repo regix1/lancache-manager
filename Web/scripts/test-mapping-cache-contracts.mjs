@@ -65,14 +65,16 @@ const compileHandlerFactory = () => {
   `;
   const compiled = transpile(harness, ts.ModuleKind.CommonJS);
   const exports = {};
-  const localStorage = new MemoryStorage();
+  // The lifted declarations read the storage wrapper as a free variable; MemoryStorage covers the
+  // three methods they call.
+  const storage = new MemoryStorage();
   const createCompletionHandler = new Function(
     'exports',
-    'localStorage',
+    'storage',
     `${compiled}; return exports.createCompletionHandler;`
-  )(exports, localStorage);
+  )(exports, storage);
 
-  return { createCompletionHandler, localStorage };
+  return { createCompletionHandler, localStorage: storage };
 };
 
 test('all five mapping platforms expose a typed lifecycle triple and shared registry entry', () => {
@@ -136,7 +138,7 @@ test('catalog updates are completion-only registry entries carrying their own ca
 test('running progress updates persist the merged notification for reload recovery', () => {
   assert.match(
     handlers,
-    /const updatedNotification[\s\S]*?localStorage\.setItem\(\s*config\.storageKey,\s*JSON\.stringify\(updatedNotification\)[\s\S]*?return updatedNotification/
+    /const updatedNotification[\s\S]*?storage\.setItem\(\s*config\.storageKey,\s*JSON\.stringify\(updatedNotification\)[\s\S]*?return updatedNotification/
   );
 });
 

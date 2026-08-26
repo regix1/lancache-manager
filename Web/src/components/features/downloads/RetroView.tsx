@@ -24,6 +24,7 @@ import { useIsDesktop } from '@hooks/useMediaQuery';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
 import type { ColumnWidths } from '@utils/textMeasurement';
+import { storage } from '@utils/storage';
 import { Alert } from '@components/ui/Alert';
 import { Pagination } from '@components/ui/Pagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
@@ -297,6 +298,23 @@ const RetroView = memo(
         [serverRetro.totalPages]
       );
 
+      // Wiping the logs, or any filter that shrinks the set, can leave the view on a page past the
+      // end. The server answers that page with no rows, and the pager below is gated on
+      // `totalPages > 1`, so on the way down to a single page it unmounts and takes with it the only
+      // control that could get back. Clamping against the SERVER's total is the whole point here -
+      // retro is paginated server-side, and the client-side total counts a different set of rows,
+      // so measuring against it would drag a legitimate deep page back to the start.
+      //
+      // Waiting for the response to echo the page that was asked for is what keeps a deep link
+      // working: until then the total on hand is the placeholder, and page 30 would be clamped away
+      // before its own rows ever arrived.
+      useEffect(() => {
+        if (!serverMode) return;
+        if (serverRetro.currentPage === currentPage && currentPage > totalPages) {
+          onPageChange(totalPages);
+        }
+      }, [serverMode, serverRetro.currentPage, currentPage, totalPages, onPageChange]);
+
       // Total items for pagination footer label.
       const totalItems = serverRetro.totalItems;
 
@@ -424,11 +442,7 @@ const RetroView = memo(
       columnWidthsRef.current = columnWidths;
 
       const persistWidths = useCallback((widths: ColumnWidths) => {
-        try {
-          localStorage.setItem(RETRO_WIDTHS_STORAGE_KEY, JSON.stringify(widths));
-        } catch {
-          // Ignore localStorage errors
-        }
+        storage.setJSON(RETRO_WIDTHS_STORAGE_KEY, widths);
       }, []);
 
       // Container ref for measurements
@@ -546,11 +560,7 @@ const RetroView = memo(
       // "Fit columns" toolbar action: drop any manual widths and fit the
       // measured content widths into the table's current rendered width.
       const handleResetWidths = useCallback(() => {
-        try {
-          localStorage.removeItem(RETRO_WIDTHS_STORAGE_KEY);
-        } catch {
-          // Ignore localStorage errors
-        }
+        storage.removeItem(RETRO_WIDTHS_STORAGE_KEY);
         setIsManualWidths(false);
 
         const measured =

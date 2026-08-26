@@ -2325,7 +2325,8 @@
         "keepNotificationsVisibleDesc": "禁用所有通知的自动关闭，直到手动关闭",
         "downloads": "下载",
         "showDatasourceLabels": "显示数据源标签",
-        "showDatasourceLabelsDesc": "多数据源时显示数据源信息"
+        "showDatasourceLabelsDesc": "多数据源时显示数据源信息",
+        "saveFailed": "无法保存该设置，已恢复为原值。"
       },
       "integrations": {
         "daemon": {

@@ -153,9 +153,16 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     }
   };
 
-  // For regular mode: switch to manual 2FA code entry
+  // For regular mode: switch to manual 2FA code entry.
+  //
+  // Abandoning the phone wait needs the same server-side cancel a dismiss does. Dropping the
+  // request only ends this side of it: the wait it started keeps running for its own window, the
+  // account stays marked as signing in, and the code typed here is then refused with "a Steam
+  // sign-in is already in progress" until that window expires. The typed code is still good by
+  // then, but the person has been told it is not.
   const handleSwitchToManualCode = () => {
     cancelPendingRequest();
+    onCancelLogin?.();
     actions.setWaitingForMobileConfirmation(false);
     actions.setNeedsTwoFactor(true);
     actions.setUseManualCode(true);

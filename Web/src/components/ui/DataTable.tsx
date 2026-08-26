@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { storage } from '@utils/storage';
 
 // --- Constants ---
 
@@ -127,7 +128,7 @@ function initColumnWidths<T>(
 ): Record<string, number> {
   if (storageKey) {
     try {
-      const saved = localStorage.getItem(storageKey);
+      const saved = storage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved) as Record<string, number>;
         const merged: Record<string, number> = {};
@@ -233,14 +234,10 @@ function DataTableInner<T>(
     resizable ? initColumnWidths(columns, storageKey) : {}
   );
 
-  // Persist widths to localStorage when they change
+  // Persist widths when they change
   useEffect(() => {
     if (resizable && storageKey) {
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(columnWidths));
-      } catch {
-        // Ignore localStorage errors
-      }
+      storage.setJSON(storageKey, columnWidths);
     }
   }, [resizable, storageKey, columnWidths]);
 
@@ -305,11 +302,7 @@ function DataTableInner<T>(
     if (!resizable) return;
 
     if (storageKey) {
-      try {
-        localStorage.removeItem(storageKey);
-      } catch {
-        // Ignore
-      }
+      storage.removeItem(storageKey);
     }
 
     const containerWidth = containerRef.current?.clientWidth;

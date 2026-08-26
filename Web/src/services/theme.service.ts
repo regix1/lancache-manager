@@ -1690,12 +1690,23 @@ class ThemeService {
     return toml;
   }
 
-  async setSharpCorners(enabled: boolean): Promise<void> {
+  /**
+   * Reports what the save answered so a caller can put its switch back.
+   *
+   * The local field moves first and is put back when the save says no, because it is read
+   * synchronously by everything that renders from it: left on the picked value it would keep
+   * describing a preference the server never took.
+   */
+  async setSharpCorners(enabled: boolean): Promise<boolean> {
+    const previous = this._sharpCorners;
     // Update local state immediately
     this._sharpCorners = enabled;
 
     // Save to API (this will trigger SignalR broadcast to other users)
-    await preferencesService.setPreference('sharpCorners', enabled);
+    const saved = await preferencesService.setPreference('sharpCorners', enabled);
+    if (!saved) {
+      this._sharpCorners = previous;
+    }
 
     // Apply immediately for current user
     if (this.currentTheme) {
@@ -1703,6 +1714,7 @@ class ThemeService {
     } else {
       this.applyDefaultVariables();
     }
+    return saved;
   }
 
   getSharpCornersSync(): boolean {
@@ -1746,48 +1758,69 @@ class ThemeService {
     return this._disableFocusOutlines;
   }
 
-  async setDisableTooltips(enabled: boolean): Promise<void> {
+  /** Reports what the save answered; see setSharpCorners for why the field is put back. */
+  async setDisableTooltips(enabled: boolean): Promise<boolean> {
+    const previous = this._disableTooltips;
     // Update local state immediately
     this._disableTooltips = enabled;
 
     // Save to API
-    await preferencesService.setPreference('disableTooltips', enabled);
+    const saved = await preferencesService.setPreference('disableTooltips', enabled);
+    if (!saved) {
+      this._disableTooltips = previous;
+    }
 
     // Trigger update
-    document.documentElement.setAttribute('data-disable-tooltips', enabled.toString());
+    document.documentElement.setAttribute(
+      'data-disable-tooltips',
+      this._disableTooltips.toString()
+    );
 
     // Dispatch event for any components that need to react
     window.dispatchEvent(new Event(APP_EVENTS.TOOLTIPS_CHANGE));
+    return saved;
   }
 
   getDisableTooltipsSync(): boolean {
     return this._disableTooltips;
   }
 
-  async setPicsAlwaysVisible(enabled: boolean): Promise<void> {
+  /** Reports what the save answered; see setSharpCorners for why the field is put back. */
+  async setPicsAlwaysVisible(enabled: boolean): Promise<boolean> {
+    const previous = this._picsAlwaysVisible;
     // Update local state immediately
     this._picsAlwaysVisible = enabled;
 
     // Save to API (this will trigger SignalR broadcast to other users)
-    await preferencesService.setPreference('picsAlwaysVisible', enabled);
+    const saved = await preferencesService.setPreference('picsAlwaysVisible', enabled);
+    if (!saved) {
+      this._picsAlwaysVisible = previous;
+    }
 
     // Apply immediately for current user
     window.dispatchEvent(new Event(APP_EVENTS.NOTIFICATION_VISIBILITY_CHANGE));
+    return saved;
   }
 
   getPicsAlwaysVisibleSync(): boolean {
     return this._picsAlwaysVisible;
   }
 
-  async setDisableStickyNotifications(enabled: boolean): Promise<void> {
+  /** Reports what the save answered; see setSharpCorners for why the field is put back. */
+  async setDisableStickyNotifications(enabled: boolean): Promise<boolean> {
+    const previous = this._disableStickyNotifications;
     // Update local state immediately
     this._disableStickyNotifications = enabled;
 
     // Save to API (this will trigger SignalR broadcast to other users)
-    await preferencesService.setPreference('disableStickyNotifications', enabled);
+    const saved = await preferencesService.setPreference('disableStickyNotifications', enabled);
+    if (!saved) {
+      this._disableStickyNotifications = previous;
+    }
 
     // Apply immediately for current user
     window.dispatchEvent(new Event(APP_EVENTS.STICKY_NOTIFICATIONS_CHANGE));
+    return saved;
   }
 
   getDisableStickyNotificationsSync(): boolean {

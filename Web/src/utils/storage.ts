@@ -1,29 +1,33 @@
-// storage.ts - Production-safe localStorage wrapper
+// storage.ts - Production-safe localStorage/sessionStorage wrapper
 
 /**
- * Safe localStorage wrapper that handles exceptions gracefully.
+ * Safe storage wrapper that handles exceptions gracefully.
  * Prevents app crashes in private browsing mode, quota exceeded, or security restrictions.
+ * The backing store is read through a thunk because even the property access
+ * `localStorage` / `sessionStorage` throws when site data is blocked.
  */
 class SafeStorage {
   private available: boolean;
   private memoryFallback: Map<string, string>;
+  private backing: () => Storage;
 
-  constructor() {
+  constructor(backing: () => Storage) {
+    this.backing = backing;
     this.available = this.checkAvailability();
     this.memoryFallback = new Map<string, string>();
   }
 
   /**
-   * Check if localStorage is available
+   * Check if the backing store is available
    */
   private checkAvailability(): boolean {
     try {
       const test = '__storage_test__';
-      localStorage.setItem(test, test);
-      localStorage.removeItem(test);
+      this.backing().setItem(test, test);
+      this.backing().removeItem(test);
       return true;
     } catch (error) {
-      console.warn('localStorage is not available, using memory fallback:', error);
+      console.warn('Browser storage is not available, using memory fallback:', error);
       return false;
     }
   }
@@ -34,9 +38,9 @@ class SafeStorage {
   getItem(key: string): string | null {
     if (this.available) {
       try {
-        return localStorage.getItem(key);
+        return this.backing().getItem(key);
       } catch (error) {
-        console.error(`Failed to get item from localStorage (${key}):`, error);
+        console.error(`Failed to get item from storage (${key}):`, error);
         return this.memoryFallback.get(key) || null;
       }
     }
@@ -49,12 +53,12 @@ class SafeStorage {
   setItem(key: string, value: string): void {
     if (this.available) {
       try {
-        localStorage.setItem(key, value);
+        this.backing().setItem(key, value);
         // Also update memory fallback as backup
         this.memoryFallback.set(key, value);
       } catch (error) {
         // QuotaExceededError or SecurityError
-        console.error(`Failed to set item in localStorage (${key}):`, error);
+        console.error(`Failed to set item in storage (${key}):`, error);
         // Fall back to memory storage
         this.memoryFallback.set(key, value);
       }
@@ -69,9 +73,9 @@ class SafeStorage {
   removeItem(key: string): void {
     if (this.available) {
       try {
-        localStorage.removeItem(key);
+        this.backing().removeItem(key);
       } catch (error) {
-        console.error(`Failed to remove item from localStorage (${key}):`, error);
+        console.error(`Failed to remove item from storage (${key}):`, error);
       }
     }
     this.memoryFallback.delete(key);
@@ -83,9 +87,9 @@ class SafeStorage {
   clear(): void {
     if (this.available) {
       try {
-        localStorage.clear();
+        this.backing().clear();
       } catch (error) {
-        console.error('Failed to clear localStorage:', error);
+        console.error('Failed to clear storage:', error);
       }
     }
     this.memoryFallback.clear();
@@ -103,7 +107,7 @@ class SafeStorage {
     try {
       return JSON.parse(item) as T;
     } catch (error) {
-      console.error(`Failed to parse JSON from localStorage (${key}):`, error);
+      console.error(`Failed to parse JSON from storage (${key}):`, error);
       return defaultValue !== undefined ? defaultValue : null;
     }
   }
@@ -116,7 +120,7 @@ class SafeStorage {
       const json = JSON.stringify(value);
       this.setItem(key, json);
     } catch (error) {
-      console.error(`Failed to stringify JSON for localStorage (${key}):`, error);
+      console.error(`Failed to stringify JSON for storage (${key}):`, error);
     }
   }
 
@@ -128,5 +132,6 @@ class SafeStorage {
   }
 }
 
-// Export a singleton instance
-export const storage = new SafeStorage();
+// Export singleton instances
+export const storage = new SafeStorage(() => localStorage);
+export const sessionStore = new SafeStorage(() => sessionStorage);

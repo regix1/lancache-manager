@@ -6,11 +6,23 @@ import { SettingSection } from '@components/ui/SettingSection';
 import preferencesService from '@services/preferences.service';
 import themeService from '@services/theme.service';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 import { APP_EVENTS } from '@utils/constants';
+import { dropPendingPreference, setPendingPreference } from '@utils/pendingPreferences';
+import type { OptimisticToggleKey } from '@/types/userPreferences';
+
+/** One switch's write: what it is called, what it shows now, and how to put a new value up. */
+interface DisplayPreferenceWrite {
+  key: OptimisticToggleKey;
+  previous: boolean;
+  setLocal: (value: boolean) => void;
+  save: (value: boolean) => Promise<boolean>;
+}
 
 const DisplayPreferences: React.FC = () => {
   const { t } = useTranslation();
   const { currentPreferences, setOptimisticPreference } = useSessionPreferences();
+  const { notifyError } = useErrorHandler();
 
   // Visual preferences
   const [sharpCorners, setSharpCorners] = useState(false);
@@ -68,51 +80,100 @@ const DisplayPreferences: React.FC = () => {
   // disagree for the whole server round-trip, and the mirror effect above reads all five fields
   // while depending on the whole `currentPreferences` object: a broadcast about ANY one preference
   // rewrites the other four from whatever the server last knew. Flipping two toggles quickly was
-  // enough to make the second visibly bounce back, and if its save failed it stayed wrong while the
-  // user believed it had taken.
-  const handleSharpCornersChange = useCallback(
-    async (checked: boolean) => {
-      setSharpCorners(checked);
-      setOptimisticPreference('sharpCorners', checked);
-      await themeService.setSharpCorners(checked);
+  // enough to make the second visibly bounce back.
+  //
+  // The picked value is also held in the pending store for the length of the save, because the
+  // context's own state is not what a broadcast overwrites - the broadcast rebuilds the whole row
+  // from the server, and only a key the store is holding survives that. It is released either way
+  // once the save answers, so a real server change is never ignored for longer than one round trip.
+  const writePreference = useCallback(
+    async (write: DisplayPreferenceWrite, checked: boolean) => {
+      write.setLocal(checked);
+      setOptimisticPreference(write.key, checked);
+      setPendingPreference(write.key, checked);
+
+      try {
+        if (await write.save(checked)) return;
+
+        // The save was refused, so the switch is showing a preference the server never took.
+        write.setLocal(write.previous);
+        setOptimisticPreference(write.key, write.previous);
+        notifyError(t('management.sections.displayPreferences.saveFailed'));
+      } finally {
+        dropPendingPreference(write.key);
+      }
     },
-    [setOptimisticPreference]
+    [setOptimisticPreference, notifyError, t]
+  );
+
+  const handleSharpCornersChange = useCallback(
+    (checked: boolean) =>
+      writePreference(
+        {
+          key: 'sharpCorners',
+          previous: sharpCorners,
+          setLocal: setSharpCorners,
+          save: (value) => themeService.setSharpCorners(value)
+        },
+        checked
+      ),
+    [writePreference, sharpCorners]
   );
 
   const handleTooltipsChange = useCallback(
-    async (checked: boolean) => {
-      setDisableTooltips(checked);
-      setOptimisticPreference('disableTooltips', checked);
-      await themeService.setDisableTooltips(checked);
-    },
-    [setOptimisticPreference]
+    (checked: boolean) =>
+      writePreference(
+        {
+          key: 'disableTooltips',
+          previous: disableTooltips,
+          setLocal: setDisableTooltips,
+          save: (value) => themeService.setDisableTooltips(value)
+        },
+        checked
+      ),
+    [writePreference, disableTooltips]
   );
 
   const handleStickyNotificationsChange = useCallback(
-    async (checked: boolean) => {
-      setDisableStickyNotifications(checked);
-      setOptimisticPreference('disableStickyNotifications', checked);
-      await themeService.setDisableStickyNotifications(checked);
-    },
-    [setOptimisticPreference]
+    (checked: boolean) =>
+      writePreference(
+        {
+          key: 'disableStickyNotifications',
+          previous: disableStickyNotifications,
+          setLocal: setDisableStickyNotifications,
+          save: (value) => themeService.setDisableStickyNotifications(value)
+        },
+        checked
+      ),
+    [writePreference, disableStickyNotifications]
   );
 
   const handlePicsVisibleChange = useCallback(
-    async (checked: boolean) => {
-      setPicsAlwaysVisible(checked);
-      setOptimisticPreference('picsAlwaysVisible', checked);
-      await themeService.setPicsAlwaysVisible(checked);
-    },
-    [setOptimisticPreference]
+    (checked: boolean) =>
+      writePreference(
+        {
+          key: 'picsAlwaysVisible',
+          previous: picsAlwaysVisible,
+          setLocal: setPicsAlwaysVisible,
+          save: (value) => themeService.setPicsAlwaysVisible(value)
+        },
+        checked
+      ),
+    [writePreference, picsAlwaysVisible]
   );
 
   const handleDatasourceLabelsChange = useCallback(
-    async (checked: boolean) => {
-      setShowDatasourceLabels(checked);
-      setOptimisticPreference('showDatasourceLabels', checked);
-      await preferencesService.setPreference('showDatasourceLabels', checked);
-    },
-    [setOptimisticPreference]
+    (checked: boolean) =>
+      writePreference(
+        {
+          key: 'showDatasourceLabels',
+          previous: showDatasourceLabels,
+          setLocal: setShowDatasourceLabels,
+          save: (value) => preferencesService.setPreference('showDatasourceLabels', value)
+        },
+        checked
+      ),
+    [writePreference, showDatasourceLabels]
   );
 
   return (

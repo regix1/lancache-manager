@@ -204,14 +204,14 @@ const Dashboard: React.FC = () => {
   );
 
   const [cardLayout, setCardLayout] = useState<CardLayout>(() => {
-    const savedLayout = localStorage.getItem('dashboard-card-layout') as CardLayout | null;
+    const savedLayout = storage.getItem('dashboard-card-layout') as CardLayout | null;
     return savedLayout === 'balanced' || savedLayout === '3-column' || savedLayout === '4-column'
       ? savedLayout
       : 'balanced';
   });
   const handleCardLayoutChange = (value: string) => {
     setCardLayout(value as CardLayout);
-    localStorage.setItem('dashboard-card-layout', value);
+    storage.setItem('dashboard-card-layout', value);
   };
 
   const getStatCardsGridClass = useCallback((layout: CardLayout, visibleCount: number) => {

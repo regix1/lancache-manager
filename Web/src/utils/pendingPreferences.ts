@@ -55,12 +55,29 @@ export const getPendingValue = <T extends PreferenceValue>(key: string): T | nul
  * Pick between a pending value and an incoming one. Use when processing SignalR updates.
  * Returns the pending value while one is held, otherwise returns incoming.
  */
-const preferPendingValue = <T extends PreferenceValue>(key: string, incoming: T): T => {
+export const preferPendingValue = <T extends PreferenceValue>(key: string, incoming: T): T => {
   const pendingVal = getPendingValue<T>(key);
   if (pendingVal !== null && incoming !== pendingVal) {
     return pendingVal;
   }
   return incoming;
+};
+
+/**
+ * Hold the value a toggle was just switched to until its own save answers.
+ *
+ * A single preference stands alone, so it is held and released by its key rather than by the pick
+ * number the clock needs: the clock's three columns are one choice and have to be taken back
+ * together, while nothing else here writes more than the one key.
+ */
+export const setPendingPreference = (key: string, value: PreferenceValue): void => {
+  pending.set(key, { value, click: (clicks += 1) });
+  notify();
+};
+
+/** Release a value held by setPendingPreference, whatever its save answered. */
+export const dropPendingPreference = (key: string): void => {
+  if (pending.delete(key)) notify();
 };
 
 // ============================================================================

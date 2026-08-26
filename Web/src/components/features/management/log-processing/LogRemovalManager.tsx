@@ -38,6 +38,7 @@ import type { DatasourceInfo, DatasourceServiceCounts } from '@/types';
 import { resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { resolveDatasources } from '@utils/datasources';
 import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
+import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
 // Main services that should always be shown first
 const MAIN_SERVICES = [
@@ -189,17 +190,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     clearPending: clearServiceRemovalPending,
     clearOnNotification: clearServiceRemovalOnNotification
   } = useOptimisticPending<string>();
-  const [sectionExpanded, setSectionExpanded] = useState(() => {
-    const saved = localStorage.getItem('management-log-removal-expanded');
-    return saved !== null ? saved === 'true' : false;
-  });
+  const [sectionExpanded, setSectionExpanded] = useSectionExpanded(
+    'management-log-removal-expanded',
+    false
+  );
   useAccordionGroupItem('storage-log-removal', sectionExpanded, () =>
     setSectionExpanded((prev) => !prev)
   );
-
-  useEffect(() => {
-    localStorage.setItem('management-log-removal-expanded', String(sectionExpanded));
-  }, [sectionExpanded]);
 
   // Track the last processed completion notification ID to prevent duplicate reloads
   const lastProcessedCompletionRef = useRef<string | null>(null);

@@ -18,6 +18,7 @@ import {
 import { findBulkCardOwningOperation, waitingCardMessage } from './handlers';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
+import { storage } from '@utils/storage';
 import i18n from '@/i18n';
 import type { CorruptionDetectionMethod } from '@/types';
 
@@ -233,7 +234,7 @@ function createSimpleRecoveryFunction<TData>(
 
       // Check if we should skip (e.g., silent mode)
       if (config.shouldSkip?.(data)) {
-        localStorage.removeItem(storageKey);
+        storage.removeItem(storageKey);
         setNotifications((prev: UnifiedNotification[]) => prev.filter((n) => n.type !== type));
         return;
       }
@@ -254,9 +255,9 @@ function createSimpleRecoveryFunction<TData>(
         });
       } else {
         // Clear stale localStorage entry if present
-        const saved = localStorage.getItem(storageKey);
+        const saved = storage.getItem(storageKey);
         if (saved) {
-          localStorage.removeItem(storageKey);
+          storage.removeItem(storageKey);
         }
 
         // Always transition any running notification of this type to completed.
@@ -531,9 +532,9 @@ function recoverEvictionRemovals(
   } else {
     // Clear stale state - always clean up any running eviction_removal notification with no
     // matching active op on the server. The operation completed before the page loaded.
-    const saved = localStorage.getItem(NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL);
+    const saved = storage.getItem(NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL);
     if (saved) {
-      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL);
+      storage.removeItem(NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL);
     }
 
     setNotifications((prev: UnifiedNotification[]) => {
@@ -600,9 +601,9 @@ function recoverOperations(
     // "running" notification when the completion event cleared localStorage before
     // the app restarted (e.g. SignalR fired completion → removeItem, then page
     // reloaded from an in-memory running state added by a prior recovery call).
-    const saved = localStorage.getItem(storageKey);
+    const saved = storage.getItem(storageKey);
     if (saved) {
-      localStorage.removeItem(storageKey);
+      storage.removeItem(storageKey);
     }
 
     setNotifications((prev: UnifiedNotification[]) => {

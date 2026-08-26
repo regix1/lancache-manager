@@ -117,9 +117,11 @@ const liftRegistryEntry = (type, bindings) => {
 const loadHandlers = async () => {
   const constantsUrl = await compileToUrl('../src/contexts/notifications/constants.ts');
   const statusUrl = await compileToUrl('../src/contexts/notifications/notificationStatus.ts');
+  const storageUrl = await compileToUrl('../src/utils/storage.ts');
   const handlersUrl = await compileToUrl('../src/contexts/notifications/handlers.ts', {
     './constants': constantsUrl,
     './notificationStatus': statusUrl,
+    '@utils/storage': storageUrl,
     '@/i18n': I18N_STUB
   });
   return await import(handlersUrl);

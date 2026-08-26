@@ -1,4 +1,5 @@
 import { measureTextWidth, getRetroViewFonts, type ColumnWidths } from '@utils/textMeasurement';
+import { storage } from '@utils/storage';
 
 export const RETRO_WIDTHS_STORAGE_KEY = 'retro-view-column-widths';
 
@@ -40,7 +41,7 @@ const COLUMN_KEYS = Object.keys(MEASURE_BASE_WIDTHS) as (keyof ColumnWidths)[];
  */
 export const readStoredWidths = (): ColumnWidths | null => {
   try {
-    const saved = localStorage.getItem(RETRO_WIDTHS_STORAGE_KEY);
+    const saved = storage.getItem(RETRO_WIDTHS_STORAGE_KEY);
     if (!saved) return null;
     const parsed: unknown = JSON.parse(saved);
     if (typeof parsed !== 'object' || parsed === null) return null;
@@ -61,7 +62,7 @@ export const readStoredWidths = (): ColumnWidths | null => {
     }
     return widths;
   } catch {
-    // Ignore localStorage errors
+    // Ignore malformed persisted JSON
     return null;
   }
 };

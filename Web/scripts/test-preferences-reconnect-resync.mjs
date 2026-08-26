@@ -63,6 +63,7 @@ const {
   confirmPendingTimezone,
   dropPendingTimezone,
   preferPendingTimezone,
+  preferPendingValue,
   getPendingValue
 } = await import(pendingUrl);
 const { applyGuestClockChanges } = await import(
@@ -70,7 +71,15 @@ const { applyGuestClockChanges } = await import(
     '../types/userPreferences.ts': await compileToUrl('../src/types/userPreferences.ts')
   })
 );
-const { DEFAULT_PREFERENCES } = await import(await compileToUrl('../src/types/userPreferences.ts'));
+const { DEFAULT_PREFERENCES, OPTIMISTIC_TOGGLE_KEYS } = await import(
+  await compileToUrl('../src/types/userPreferences.ts')
+);
+
+/** The context's own settle, which both the load and the broadcast handler run. */
+const settlePendingToggles = lift(callbackNamed('settlePendingToggles'), {
+  OPTIMISTIC_TOGGLE_KEYS,
+  preferPendingValue
+});
 const { SIGNALR_SEED_EVENTS } = await import(
   await compileToUrl('../src/contexts/SignalRContext/types.ts')
 );
@@ -165,6 +174,7 @@ const mountPreferences = ({ body = SERVER_12H, gate = Promise.resolve() } = {}) 
     ...shared,
     nextLoadGeneration,
     preferPendingTimezone,
+    settlePendingToggles,
     applyGuestClockChanges,
     ApiService: { getFetchOptions: () => ({}) },
     fetch: async (url) => {
@@ -190,6 +200,7 @@ const mountPreferences = ({ body = SERVER_12H, gate = Promise.resolve() } = {}) 
     ...shared,
     nextLoadGeneration,
     preferPendingTimezone,
+    settlePendingToggles,
     DEFAULT_PREFERENCES,
     APP_EVENTS: { PREFERENCE_CHANGED: 'preference-changed' },
     CustomEvent: class {
