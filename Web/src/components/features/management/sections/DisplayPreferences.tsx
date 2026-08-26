@@ -10,7 +10,7 @@ import { APP_EVENTS } from '@utils/constants';
 
 const DisplayPreferences: React.FC = () => {
   const { t } = useTranslation();
-  const { currentPreferences } = useSessionPreferences();
+  const { currentPreferences, setOptimisticPreference } = useSessionPreferences();
 
   // Visual preferences
   const [sharpCorners, setSharpCorners] = useState(false);
@@ -62,31 +62,58 @@ const DisplayPreferences: React.FC = () => {
     return () => window.removeEventListener(APP_EVENTS.PREFERENCE_CHANGED, handlePreferenceChange);
   }, []);
 
-  // Handlers for each preference
-  const handleSharpCornersChange = useCallback(async (checked: boolean) => {
-    setSharpCorners(checked);
-    await themeService.setSharpCorners(checked);
-  }, []);
+  // Handlers for each preference.
+  //
+  // Each one tells the context the new value as well as its own state. Without that the two
+  // disagree for the whole server round-trip, and the mirror effect above reads all five fields
+  // while depending on the whole `currentPreferences` object: a broadcast about ANY one preference
+  // rewrites the other four from whatever the server last knew. Flipping two toggles quickly was
+  // enough to make the second visibly bounce back, and if its save failed it stayed wrong while the
+  // user believed it had taken.
+  const handleSharpCornersChange = useCallback(
+    async (checked: boolean) => {
+      setSharpCorners(checked);
+      setOptimisticPreference('sharpCorners', checked);
+      await themeService.setSharpCorners(checked);
+    },
+    [setOptimisticPreference]
+  );
 
-  const handleTooltipsChange = useCallback(async (checked: boolean) => {
-    setDisableTooltips(checked);
-    await themeService.setDisableTooltips(checked);
-  }, []);
+  const handleTooltipsChange = useCallback(
+    async (checked: boolean) => {
+      setDisableTooltips(checked);
+      setOptimisticPreference('disableTooltips', checked);
+      await themeService.setDisableTooltips(checked);
+    },
+    [setOptimisticPreference]
+  );
 
-  const handleStickyNotificationsChange = useCallback(async (checked: boolean) => {
-    setDisableStickyNotifications(checked);
-    await themeService.setDisableStickyNotifications(checked);
-  }, []);
+  const handleStickyNotificationsChange = useCallback(
+    async (checked: boolean) => {
+      setDisableStickyNotifications(checked);
+      setOptimisticPreference('disableStickyNotifications', checked);
+      await themeService.setDisableStickyNotifications(checked);
+    },
+    [setOptimisticPreference]
+  );
 
-  const handlePicsVisibleChange = useCallback(async (checked: boolean) => {
-    setPicsAlwaysVisible(checked);
-    await themeService.setPicsAlwaysVisible(checked);
-  }, []);
+  const handlePicsVisibleChange = useCallback(
+    async (checked: boolean) => {
+      setPicsAlwaysVisible(checked);
+      setOptimisticPreference('picsAlwaysVisible', checked);
+      await themeService.setPicsAlwaysVisible(checked);
+    },
+    [setOptimisticPreference]
+  );
 
-  const handleDatasourceLabelsChange = useCallback(async (checked: boolean) => {
-    setShowDatasourceLabels(checked);
-    await preferencesService.setPreference('showDatasourceLabels', checked);
-  }, []);
+  const handleDatasourceLabelsChange = useCallback(
+    async (checked: boolean) => {
+      setShowDatasourceLabels(checked);
+      setOptimisticPreference('showDatasourceLabels', checked);
+      await preferencesService.setPreference('showDatasourceLabels', checked);
+    },
+    [setOptimisticPreference]
+  );
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

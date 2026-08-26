@@ -113,7 +113,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Get theme preference from SessionPreferencesContext
-  const { currentPreferences } = useSessionPreferences();
+  const { currentPreferences, setOptimisticPreference } = useSessionPreferences();
 
   // Sync currentTheme with context when it changes (handles SignalR updates)
   useEffect(() => {
@@ -182,6 +182,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       }
       await themeService.setTheme(themeId);
       setCurrentTheme(themeId);
+      // Tell the context too. Clearing the preview below re-runs the sync effect, and until the
+      // server's broadcast lands the context still names the OLD theme, so that effect would write
+      // it straight back over this line: the active tick and the dropdown jump to the previous
+      // theme for a round-trip, then jump forward again.
+      setOptimisticPreference('selectedTheme', themeId);
       // Committing a theme ends any preview that was running. Clearing it raises the
       // preview-change event, which is how the header's stop-preview button knows to disappear
       themeService.clearPreviewTheme();
