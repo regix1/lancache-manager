@@ -56,6 +56,12 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     // first credentials poll is still waiting on a phone tap. Without this guard that second submit
     // would register a second depotMapping operation and the bar would show two sign-in cards.
     private int _loginActive;
+
+    // The in-flight sign-in's tracked operation, so closing the login modal can stop its credentials
+    // poll. Held apart from _currentMappingReporter because a PICS rebuild writes that field, and
+    // cancelling a sign-in must never stop a crawl. Volatile because the poll task clears it in its
+    // finally while a request thread reads it.
+    private volatile MappingOperationReporter? _loginReporter;
     private bool _disposed;
     private bool _initialized;
 

@@ -101,6 +101,16 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
     }
   };
 
+  // Dismissing the modal is a decision to stop, so tell the server. The credentials poll outlives
+  // the request that started it - closing the browser tab must never kill a confirmation the user
+  // has already approved on their phone, but pressing Cancel has to. Best-effort: the poll gives up
+  // on its own window if this request fails, and the form is already reset either way.
+  const handleCancelLogin = () => {
+    void ApiService.cancelSteamLogin().catch((err: unknown) => {
+      console.error('Cancel Steam login failed:', getErrorMessage(err));
+    });
+  };
+
   const canManage = authMode === 'authenticated' && !mockMode;
   const isAuthenticated = steamAuthMode === 'authenticated';
 
@@ -247,6 +257,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         onClose={handleCloseModal}
         state={state}
         actions={actions}
+        onCancelLogin={handleCancelLogin}
         loginDeadline={loginDeadline}
       />
     </>

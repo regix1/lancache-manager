@@ -61,6 +61,62 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         Assert.Empty(tracker.GetActiveOperations(OperationType.DepotMapping));
     }
 
+    /// <summary>
+    /// Closing the login modal ends the sign-in. The poll deliberately ignores the request's abort
+    /// signal, so this explicit call is the only thing that can stop a wait that runs for minutes
+    /// while the user finds their phone.
+    /// </summary>
+    [Fact]
+    public async Task CancelLogin_EndsASignInThatIsStillWaitingAsync()
+    {
+        var tracker = CreateTracker();
+        // Held, so the sign-in parks on the session gate the way it parks on a phone confirmation:
+        // registered, started, and going nowhere until something cancels it.
+        var service = CreateService(tracker, new SemaphoreSlim(0, 1));
+
+        var signIn = service.AuthenticateAsync("account", "password");
+        await WaitForActiveSignInAsync(tracker);
+
+        service.CancelLogin();
+
+        var result = await signIn.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(result.Success);
+        Assert.Equal("Sign-in was cancelled.", result.Message);
+        Assert.NotNull(result.OperationId);
+        Assert.Equal(
+            OperationStatus.Cancelled,
+            tracker.GetOperation(result.OperationId!.Value)?.Status);
+    }
+
+    /// <summary>
+    /// A close arriving after the sign-in already ended must do nothing at all - the modal cannot
+    /// tell, and a second cancel that reached the next operation would stop a depot crawl.
+    /// </summary>
+    [Fact]
+    public async Task CancelLogin_AfterTheSignInEnded_DoesNothingAsync()
+    {
+        var tracker = CreateTracker();
+        var service = CreateService(tracker);
+
+        var result = await service.AuthenticateAsync("account", "password");
+        service.CancelLogin();
+
+        Assert.Equal(
+            OperationStatus.Failed,
+            tracker.GetOperation(result.OperationId!.Value)?.Status);
+    }
+
+    /// <summary>Polls until the sign-in has registered its operation, so the cancel lands mid-flight.</summary>
+    private static async Task WaitForActiveSignInAsync(UnifiedOperationTracker tracker)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!tracker.GetActiveOperations(OperationType.DepotMapping).Any())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "the sign-in never registered an operation");
+            await Task.Delay(10);
+        }
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))
@@ -75,7 +131,9 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         return new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
     }
 
-    private SteamKit2Service CreateService(IUnifiedOperationTracker tracker)
+    private SteamKit2Service CreateService(
+        IUnifiedOperationTracker tracker,
+        SemaphoreSlim? sessionGate = null)
     {
         Directory.CreateDirectory(_root);
 
@@ -104,7 +162,7 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         SetPrivateField(service, "_operationTracker", tracker);
         SetPrivateField(service, "_stateService", stateService);
         SetPrivateField(service, "_cancellationTokenSource", new CancellationTokenSource());
-        SetPrivateField(service, "_sessionGate", new SemaphoreSlim(1, 1));
+        SetPrivateField(service, "_sessionGate", sessionGate ?? new SemaphoreSlim(1, 1));
         SetPrivateField(service, "_depotToAppMappings", new ConcurrentDictionary<uint, HashSet<uint>>());
         return service;
     }

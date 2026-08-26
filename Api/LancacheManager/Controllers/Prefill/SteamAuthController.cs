@@ -138,6 +138,23 @@ public class SteamAuthController : ControllerBase
     }
 
     /// <summary>
+    /// Cancels an in-flight sign-in.
+    /// </summary>
+    /// <remarks>
+    /// Used when the user closes the login modal. The credentials poll outlives the request that
+    /// started it, so without this it keeps waiting on a phone confirmation nobody is going to give.
+    /// Does NOT clear credentials or sign out an already-authenticated account, and does not touch a
+    /// depot crawl running beside the sign-in. Mirrors <c>POST /api/xbox/game-mappings/auth/cancel</c>.
+    /// </remarks>
+    [HttpPost("login/cancel")]
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
+    public ActionResult<MessageOnlyResponse> CancelLogin()
+    {
+        _steamKit2Service.CancelLogin();
+        return Ok(new MessageOnlyResponse { Message = "Steam sign-in cancelled" });
+    }
+
+    /// <summary>
     /// Sets the Steam authentication mode.
     /// </summary>
     /// <remarks>

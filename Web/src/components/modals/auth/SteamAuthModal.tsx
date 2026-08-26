@@ -99,13 +99,13 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   }, [opened, disableAutoLogoutClose, on, off, cancelPendingRequest, actions, onClose]);
 
   const handleCloseModal = () => {
-    // Allow closing when waiting for mobile confirmation (user should be able to cancel)
+    // Allow closing when waiting for mobile confirmation (user should be able to cancel).
+    // onCancelLogin ends the daemon session in prefill mode and stops the credentials poll in the
+    // manager's own flow: both are this dismiss ending the sign-in, so neither is gated on the mode.
     if (waitingForMobileConfirmation) {
       cancelPendingRequest();
       actions.resetAuthForm();
-      if (isPrefillMode) {
-        onCancelLogin?.(); // End the session in prefill mode
-      }
+      onCancelLogin?.();
       onClose();
       return;
     }

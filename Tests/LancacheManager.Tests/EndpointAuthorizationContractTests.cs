@@ -976,7 +976,7 @@ public sealed class EndpointAuthorizationContractTests
             "ScheduledPrefillConfigController" => ["ScheduledPrefillConfigController.GetConfig", "ScheduledPrefillConfigController.GetSchedule", "ScheduledPrefillConfigController.SetConfig", "ScheduledPrefillConfigController.GetRunStatus"],
             "StatusCheckController" => ["StatusCheckController.GetState", "StatusCheckController.SetResolverMode", "StatusCheckController.Run", "StatusCheckController.TestDomain", "StatusCheckController.RefreshDomains", "StatusCheckController.GetDomains"],
             "SteamApiKeysController" => ["SteamApiKeysController.GetStatus", "SteamApiKeysController.TestKey", "SteamApiKeysController.SaveKey", "SteamApiKeysController.RemoveKey"],
-            "SteamAuthController" => ["SteamAuthController.GetStatus", "SteamAuthController.Login", "SteamAuthController.SetMode", "SteamAuthController.Logout"],
+            "SteamAuthController" => ["SteamAuthController.GetStatus", "SteamAuthController.Login", "SteamAuthController.CancelLogin", "SteamAuthController.SetMode", "SteamAuthController.Logout"],
             "XboxGameMappingController" => ["XboxGameMappingController.GetAllMappings", "XboxGameMappingController.GetStats", "XboxGameMappingController.GetAuthStatus", "XboxGameMappingController.StartLogin", "XboxGameMappingController.CancelLogin", "XboxGameMappingController.Logout", "XboxGameMappingController.SearchGames"],
             "BattleNetDaemonController" => DaemonActions("BattleNetDaemonController"),
             "EpicDaemonController" => DaemonActions("EpicDaemonController"),

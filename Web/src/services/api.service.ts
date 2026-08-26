@@ -2780,6 +2780,16 @@ class ApiService {
     await ApiService.handleResponse(response);
   }
 
+  // Cancels an in-flight sign-in (e.g. when the login modal is closed) WITHOUT clearing credentials
+  // or signing out an already-authenticated account. Distinct from clearSteamAuth.
+  static async cancelSteamLogin(): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/steam-auth/login/cancel`,
+      this.getFetchOptions({ method: 'POST' })
+    );
+    await ApiService.handleResponse(response);
+  }
+
   static async clearSteamApiKey(): Promise<void> {
     const response = await fetch(
       `${API_BASE}/steam-api-keys/current`,

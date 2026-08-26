@@ -37,6 +37,9 @@ public partial class SteamKit2Service
             // last scheduled crawl - a silent one would leave the sign-in with no card at all.
             _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
             reporter = CreateDepotMappingReporter(_cancellationTokenSource.Token);
+            // Published before the poll starts, so a modal closed during the phone-approval wait has
+            // something to cancel for the whole time the wait can run.
+            _loginReporter = reporter;
 
             // This stage key is what the card shows for the whole wait, which runs to a minute while
             // the user goes and finds their phone. The reporter's default would say "Starting depot
@@ -153,6 +156,10 @@ public partial class SteamKit2Service
         }
         finally
         {
+            // Cleared before the dispose below, so a cancel arriving now finds nothing rather than a
+            // reporter that is about to go away.
+            _loginReporter = null;
+
             if (reporter is not null)
             {
                 // Backstop: a path that reached neither the returns above nor a catch still lands on
@@ -163,6 +170,24 @@ public partial class SteamKit2Service
             }
 
             Interlocked.Exchange(ref _loginActive, 0);
+        }
+    }
+
+    /// <summary>
+    /// Cancels an in-flight sign-in WITHOUT touching saved credentials or an authenticated session -
+    /// safe to call when the user closes the login modal. Only the sign-in's own tracked operation is
+    /// stopped, so a PICS rebuild running beside it keeps going. Nothing in flight is a no-op, which
+    /// is what a close during the Steam Guard step hits: that step waits on the person, not on Steam.
+    /// </summary>
+    public void CancelLogin()
+    {
+        try
+        {
+            _loginReporter?.RequestCancellation();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The poll finished between the field read and the cancel.
         }
     }
 
