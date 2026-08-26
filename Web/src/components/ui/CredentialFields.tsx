@@ -50,7 +50,10 @@ const CredentialFields: React.FC<CredentialFieldsProps> = ({
               onKeyDown={handleKeyDown}
               placeholder={apiKeyPlaceholder}
               className={inputClassName}
-              autoComplete="off"
+              // `new-password` rather than `off`: browsers ignore `off` on a password input and
+              // will still offer to remember the key and refill it on a later visit. The username
+              // and password fields below are a real sign-in, so they keep their own semantics.
+              autoComplete="new-password"
               disabled={disabled}
               autoFocus={autoFocus}
             />

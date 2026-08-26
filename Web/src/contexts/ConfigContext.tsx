@@ -135,7 +135,9 @@ const PostgresPasswordRecovery: React.FC<PostgresPasswordRecoveryProps> = ({ onS
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 placeholder={t('app.configError.recovery.apiKeyPlaceholder')}
-                autoComplete="off"
+                // `new-password` rather than `off`: browsers ignore `off` on a password input and
+                // will still offer to remember the key and refill it on a later visit.
+                autoComplete="new-password"
                 disabled={isSaving}
               />
             )}

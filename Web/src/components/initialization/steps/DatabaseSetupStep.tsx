@@ -257,7 +257,9 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
                 onChange={handleInputChange('apiKey')}
                 placeholder={t('initialization.databaseSetup.apiKeyPlaceholder')}
                 className="w-full px-3 py-2.5 themed-input"
-                autoComplete="off"
+                // `new-password` rather than `off`: browsers ignore `off` on a password input and
+                // will still offer to remember the key and refill it on a later visit.
+                autoComplete="new-password"
                 disabled={isSubmitting}
               />
             )}

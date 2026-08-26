@@ -200,7 +200,9 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
               onChange={handleFieldChange('apiKey')}
               placeholder={t('initialization.apiKey.placeholder')}
               disabled={isSubmitting}
-              autoComplete="off"
+              // `new-password` rather than `off`: browsers ignore `off` on a password input and
+              // will still offer to remember the key and refill it on a later visit.
+              autoComplete="new-password"
               className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
             />
           )}
