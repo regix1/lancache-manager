@@ -3208,6 +3208,10 @@
       "configureApiKey": "Configure API Key",
       "remove": "Remove",
       "lastChecked": "Last checked",
+      "bothUnavailable": {
+        "title": "Both V2 and V1 Unavailable",
+        "description": "Both Steam Web API V2 and V1 are currently unavailable. This may be a temporary Steam service issue. Please try again later."
+      },
       "removeModal": {
         "title": "Remove Steam Web API Key",
         "message": "Are you sure you want to remove the Steam Web API key? If V2 becomes unavailable, you will need to reconfigure the key to use V1 fallback.",

@@ -28,6 +28,7 @@ const SteamWebApiStatus: React.FC = () => {
 
   const needsApiKey =
     status?.version === 'V1NoKey' || (status?.version === 'BothFailed' && !status?.hasApiKey);
+  const showWarning = !status?.isFullyOperational && !loading;
 
   const confirmRemoveApiKey = async () => {
     setRemoving(true);
@@ -194,6 +195,12 @@ const SteamWebApiStatus: React.FC = () => {
             </HelpNote>
           </HelpPopover>
         </div>
+
+        {showWarning && status?.version === 'BothFailed' && status?.hasApiKey && (
+          <Alert color="red" title={t('management.steamWebApi.bothUnavailable.title')}>
+            {t('management.steamWebApi.bothUnavailable.description')}
+          </Alert>
+        )}
 
         <div className="mgmt-list">
           <div className="mgmt-row">

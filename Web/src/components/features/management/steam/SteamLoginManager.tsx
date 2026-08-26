@@ -4,7 +4,6 @@ import { User, UserCheck } from 'lucide-react';
 
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import Badge from '@components/ui/Badge';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
@@ -205,13 +204,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                     {t('management.steamAuth.accountLogin')}
                   </Button>
                 )
-              ) : (
-                <Badge variant={isAuthenticated ? 'success' : 'neutral'}>
-                  {isAuthenticated
-                    ? t('management.steamAuth.connected')
-                    : t('management.steamAuth.anonymous')}
-                </Badge>
-              )}
+              ) : null}
             </div>
           </div>
 
