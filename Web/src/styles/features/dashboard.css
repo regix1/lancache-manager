@@ -965,6 +965,13 @@
   padding: 0;
 }
 
+/* The legend caps its labels so eight user-named series stay one row each, but a tooltip
+   line is "name: 313.79 GB" and the cap cut the value off on phones. The viewport clamp
+   already keeps the wider box on screen. */
+.line-trend-tooltip .line-trend-legend-label {
+  max-width: none;
+}
+
 /* Dashboard stat card grids */
 .stat-cards-2col,
 .stat-cards-3col,

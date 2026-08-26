@@ -1047,8 +1047,11 @@
     width: 100%;
   }
 
+  /* Zero basis, not auto: with auto the four-icon control measures wider than the
+     three-label one, so the seam between them sits a few px right of the seam the
+     50/50 dropdown rows above draw. */
   .downloads-view-row .segmented-control-container {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-width: 0;
   }
 

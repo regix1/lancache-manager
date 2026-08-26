@@ -53,7 +53,7 @@ function CalendarNavigation({
     // right-aligned there by the auto margin, rather than a lone control being orphaned in the
     // centre of a row that ran out of room.
     <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-4">
-      <div className="calendar-nav flex items-center gap-1 sm:gap-1.5">
+      <div className="calendar-nav flex items-center gap-1 max-sm:flex-1 sm:gap-1.5">
         {/* md is the shared 40px control height, and below the phone breakpoint the dropdown
             takes a 44px touch floor, so the icon-only arrows are squares at whichever of the
             two is current. */}
@@ -67,10 +67,12 @@ function CalendarNavigation({
           <ChevronLeft className="w-5 h-5" />
         </Button>
 
-        {/* Both selects are pinned. Letting them size to their label moves every control after
-            them whenever the month changes, because proportional type gives Sep, May and Jul
-            three different widths, and monthNames is localized so a locale can be wider still.
-            The widths hold the longest label each list can produce, so the arrows never move. */}
+        {/* Both selects hold a constant width. Letting them size to their label moves every
+            control after them whenever the month changes, because proportional type gives Sep,
+            May and Jul three different widths, and monthNames is localized so a locale can be
+            wider still. On sm+ the widths are pinned to the longest label each list can produce;
+            below that the month select instead fills whatever the arrows and year leave on the
+            row, which is still a fixed span, because 68px cut December to "De..." on a phone. */}
         <EnhancedDropdown
           options={monthOptions}
           value={String(currentMonth.getMonth())}
@@ -79,7 +81,7 @@ function CalendarNavigation({
           size="md"
           maxHeight="200px"
           dropdownWidth="w-40"
-          className="w-[68px] sm:w-[120px]"
+          className="max-sm:flex-1 max-sm:min-w-0 sm:w-[120px]"
         />
 
         <EnhancedDropdown
