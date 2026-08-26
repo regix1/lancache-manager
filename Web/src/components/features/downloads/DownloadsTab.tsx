@@ -1215,22 +1215,30 @@ const DownloadsTab: React.FC = () => {
     settings.groupByFrequency
   ]);
 
+  const totalPages = useMemo(() => {
+    if (settings.itemsPerPage === 'unlimited') return 1;
+    const itemsPerPageNum = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20;
+    // Floor of 1: an empty list would otherwise report 0 pages and put the pager out of range of
+    // its own clamp.
+    return Math.max(1, Math.ceil(allItemsSorted.length / itemsPerPageNum));
+  }, [allItemsSorted.length, settings.itemsPerPage]);
+
+  // Clamped here, in the data path, rather than relying on the pager's own clamp effect. The pager
+  // only renders while totalPages > 1, so a list that shrinks to a single page unmounts the very
+  // component that would have corrected the page, leaving a slice past the end: an empty list with
+  // no pager to click back with. Matches what usePaginatedList does for the lists that use it.
+  const safePage = Math.min(currentPage, totalPages);
+
   const itemsToDisplay = useMemo(() => {
     if (settings.itemsPerPage === 'unlimited') {
       return allItemsSorted;
     }
 
     const itemsPerPageNum = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20;
-    const startIndex = (currentPage - 1) * itemsPerPageNum;
+    const startIndex = (safePage - 1) * itemsPerPageNum;
     const endIndex = startIndex + itemsPerPageNum;
     return allItemsSorted.slice(startIndex, endIndex);
-  }, [allItemsSorted, currentPage, settings.itemsPerPage]);
-
-  const totalPages = useMemo(() => {
-    if (settings.itemsPerPage === 'unlimited') return 1;
-    const itemsPerPageNum = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20;
-    return Math.ceil(allItemsSorted.length / itemsPerPageNum);
-  }, [allItemsSorted.length, settings.itemsPerPage]);
+  }, [allItemsSorted, safePage, settings.itemsPerPage]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -1251,6 +1259,10 @@ const DownloadsTab: React.FC = () => {
     settings.itemsPerPage,
     settings.groupByGameRetro,
     settings.groupByServiceRetro,
+    // Both of these change how many rows the list has, so they belong here with the other
+    // filters. Without them a toggle could collapse the list under the current page.
+    settings.groupUnknownGames,
+    settings.groupByFrequency,
     timeRange,
     customStartDate,
     customEndDate,
@@ -2081,7 +2093,7 @@ const DownloadsTab: React.FC = () => {
               <div className="pagination-sticky">
                 <div className="p-2 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)]">
                   <Pagination
-                    currentPage={currentPage}
+                    currentPage={safePage}
                     totalPages={totalPages}
                     totalItems={allItemsSorted.length}
                     itemsPerPage={
