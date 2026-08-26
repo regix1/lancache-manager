@@ -12,11 +12,11 @@
      the children a definite height to resolve against, which leaves the scroll area sized to its
      content instead of to the space left over. */
   flex: 1;
-  /* The dialog is capped by max-height and carries no definite height of its own, so without a
-     floor this column shrink-wraps to content and the modal reads as short on a tall screen. The
-     14rem reserve covers the title bar and the body padding so the action row never clips against
-     the cap; longer content still grows to it. */
-  min-height: calc(100vh - 14rem);
+  /* A fixed floor, not a viewport-derived one: tying the floor to 100vh pinned the modal to
+     near-full page height on tall monitors no matter how little a pane held. 20rem is enough to
+     keep the sparse Theme Information pane from shrink-wrapping into a sliver, while content
+     otherwise drives the height up to the dialog's own max-height cap. */
+  min-height: 20rem;
   gap: 1.25rem;
 }
 
