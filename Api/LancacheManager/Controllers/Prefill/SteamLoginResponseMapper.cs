@@ -34,12 +34,15 @@ public static class SteamLoginResponseMapper
             return null;
         }
 
+        // Prefer the service's own wording, the way the SessionExpired branch below already does: it
+        // knows whether this is the first prompt or a code Steam just rejected, and those two need to
+        // read differently or the user retypes the same failing code.
         if (result.RequiresTwoFactor)
         {
             return new OkObjectResult(new SteamLoginResponse
             {
                 RequiresTwoFactor = true,
-                Message = "Two-factor authentication required",
+                Message = result.Message ?? "Two-factor authentication required",
                 OperationId = result.OperationId
             });
         }
@@ -49,7 +52,7 @@ public static class SteamLoginResponseMapper
             return new OkObjectResult(new SteamLoginResponse
             {
                 RequiresEmailCode = true,
-                Message = "Email verification code required",
+                Message = result.Message ?? "Email verification code required",
                 OperationId = result.OperationId
             });
         }

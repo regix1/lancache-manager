@@ -209,6 +209,22 @@ public partial class SteamKit2Service
         await _sessionGate.WaitAsync(ct);
         try
         {
+            // A guard code the user just typed is single-use. Re-running the poll starts a fresh
+            // auth session carrying a code Steam has already spent, so the retry cannot succeed and
+            // the user is told the servers are busy when the real answer is that the code is gone.
+            // Retry only the legs that carry no code (first password submit, mobile confirmation),
+            // where rotating to another CM server is free.
+            if (!string.IsNullOrEmpty(twoFactorCode) || !string.IsNullOrEmpty(emailCode))
+            {
+                return await PollCredentialsAuthAsync(
+                    username,
+                    password,
+                    twoFactorCode,
+                    emailCode,
+                    allowMobileConfirmation,
+                    ct);
+            }
+
             return await RetryOnBusyCmLockedAsync(
                 () => PollCredentialsAuthAsync(
                     username,
@@ -377,7 +393,9 @@ public partial class SteamKit2Service
                     {
                         Success = false,
                         RequiresTwoFactor = true,
-                        Message = "Two-factor authentication code required"
+                        Message = authenticator.CodeWasRejected
+                            ? "Steam did not accept that two-factor code. Codes expire quickly and each one works once, so open your authenticator and enter the current code."
+                            : "Two-factor authentication code required"
                     }
                 };
             }
@@ -391,7 +409,9 @@ public partial class SteamKit2Service
                     {
                         Success = false,
                         RequiresEmailCode = true,
-                        Message = "Email verification code required"
+                        Message = authenticator.CodeWasRejected
+                            ? "Steam did not accept that email code. Check the latest message from Steam and enter the code it contains."
+                            : "Email verification code required"
                     }
                 };
             }
@@ -415,7 +435,10 @@ public partial class SteamKit2Service
     /// <summary>
     /// Simple authenticator for web-based authentication
     /// </summary>
-    private class WebAuthenticator : IAuthenticator
+    // Internal rather than private, with InternalsVisibleTo("LancacheManager.Tests"), so a test can
+    // prove a rejected code is never handed back. Resubmitting one spins SteamKit2's guard loop with
+    // no delay and no exit, and nothing else in the stack can catch that.
+    internal class WebAuthenticator : IAuthenticator
     {
         private readonly string? _twoFactorCode;
         private readonly string? _emailCode;
@@ -424,6 +447,13 @@ public partial class SteamKit2Service
         public bool NeedsTwoFactor { get; private set; }
         public bool NeedsEmailCode { get; private set; }
         public bool NeedsMobileConfirmation { get; private set; }
+
+        /// <summary>
+        /// Set when Steam rejected the code that was submitted, as opposed to never having been
+        /// given one. The two need different wording: the first prompt asks for a code, a rejection
+        /// has to say the code did not work or the user retypes the same one.
+        /// </summary>
+        public bool CodeWasRejected { get; private set; }
 
         public WebAuthenticator(string? twoFactorCode, string? emailCode, bool allowMobileConfirmation = false)
         {
@@ -435,6 +465,17 @@ public partial class SteamKit2Service
         public Task<string> GetDeviceCodeAsync(bool previousCodeWasIncorrect)
         {
             NeedsTwoFactor = true;
+            // Steam sets previousCodeWasIncorrect after rejecting the last code and asks again for a
+            // NEW one. A submitted code is single-use, so returning the same one leaves SteamKit2's
+            // resubmit loop with nothing to change: it sends, gets TwoFactorCodeMismatch, and asks
+            // again immediately, with no delay and no exit. Failing here ends the poll, and the
+            // InvalidOperationException catch turns it into RequiresTwoFactor so the modal asks for
+            // a fresh code.
+            if (previousCodeWasIncorrect)
+            {
+                CodeWasRejected = true;
+                throw new InvalidOperationException("Two-factor code was rejected");
+            }
             if (!string.IsNullOrEmpty(_twoFactorCode))
             {
                 return Task.FromResult(_twoFactorCode);
@@ -445,6 +486,12 @@ public partial class SteamKit2Service
         public Task<string> GetEmailCodeAsync(string email, bool previousCodeWasIncorrect)
         {
             NeedsEmailCode = true;
+            // Same single-use rule as the device code above.
+            if (previousCodeWasIncorrect)
+            {
+                CodeWasRejected = true;
+                throw new InvalidOperationException("Email code was rejected");
+            }
             if (!string.IsNullOrEmpty(_emailCode))
             {
                 return Task.FromResult(_emailCode);
