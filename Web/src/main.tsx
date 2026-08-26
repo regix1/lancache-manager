@@ -1,5 +1,4 @@
 import ReactDOM from 'react-dom/client';
-import { NuqsAdapter } from 'nuqs/adapters/react';
 import App from './App';
 import './index.css';
 import '@/i18n';
@@ -32,18 +31,28 @@ themeService
     themeService.setupPreferenceListeners();
   });
 
+// The downloads list used to mirror its page and page size into the query string. It owns both in
+// component state now, so a bookmark or a shared link still carrying them would show stale text that
+// nothing reads. Drop just those two and leave every other param alone.
+const dropRetiredListParams = (): void => {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has('page') && !url.searchParams.has('pageSize')) {
+    return;
+  }
+  url.searchParams.delete('page');
+  url.searchParams.delete('pageSize');
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+};
+
 const renderApp = (): void => {
+  dropRetiredListParams();
   const rootEl = document.getElementById('root');
   if (rootEl === null) {
     console.error('[Fatal] Missing root element');
     return;
   }
 
-  ReactDOM.createRoot(rootEl).render(
-    <NuqsAdapter>
-      <App />
-    </NuqsAdapter>
-  );
+  ReactDOM.createRoot(rootEl).render(<App />);
 };
 
 renderApp();

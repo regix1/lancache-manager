@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 
-import { useQueryState, parseAsInteger, createParser } from 'nuqs';
 import { useTranslation } from 'react-i18next';
 import {
   Database,
@@ -511,22 +510,10 @@ const DownloadsTab: React.FC = () => {
     };
   }, [on, off]);
 
-  // Page number synced to URL via nuqs; on page 1 the param is omitted (clean URLs).
-  const [currentPageRaw, setCurrentPageUrl] = useQueryState('page', parseAsInteger.withDefault(1));
-  const currentPage = currentPageRaw ?? 1;
-  const setCurrentPage = useCallback(
-    (updater: number | ((prev: number) => number)) => {
-      if (typeof updater === 'function') {
-        void setCurrentPageUrl((prev) => {
-          const next = (updater as (p: number) => number)(prev ?? 1);
-          return next === 1 ? null : next;
-        });
-      } else {
-        void setCurrentPageUrl(updater === 1 ? null : updater);
-      }
-    },
-    [setCurrentPageUrl]
-  );
+  // Page number is component state. It used to live in the URL, which meant the page and the page
+  // size each had two owners; the size pair fought the retro cap below and rewrote each other
+  // without settling. Paging is a within-visit position, so it starts at 1 on arrival.
+  const [currentPage, setCurrentPage] = useState(1);
   const nonRetroContentRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef(currentPage);
   // Mirrors settings.viewMode so handlePageChange can branch without being
@@ -610,43 +597,11 @@ const DownloadsTab: React.FC = () => {
     return () => clearTimeout(timer);
   }, [settings.searchQuery]);
 
-  // Page size synced to URL via nuqs. Supports number | 'unlimited'. URL wins on first
-  // visit when present; otherwise localStorage-derived default (already in `settings`) is used.
-  const pageSizeParser = useMemo(
-    () =>
-      createParser<number | 'unlimited'>({
-        parse: (v: string): number | 'unlimited' | null => {
-          if (v === 'unlimited') return 'unlimited';
-          const parsed = parseInt(v, 10);
-          return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-        },
-        serialize: (v: number | 'unlimited'): string => (typeof v === 'number' ? String(v) : v),
-        eq: (a, b) => a === b
-      }).withDefault(settings.itemsPerPage),
-    // Default captured at mount only; subsequent changes flow via the sync effects below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  );
-  const [pageSizeUrl, setPageSizeUrl] = useQueryState('pageSize', pageSizeParser);
-
-  // URL → settings sync: if URL has pageSize and it differs from settings, adopt it into settings
-  // so localStorage persistence stays in sync via the existing settings effect.
-  useEffect(() => {
-    if (pageSizeUrl !== null && pageSizeUrl !== settings.itemsPerPage) {
-      setSettings((prev) => ({ ...prev, itemsPerPage: pageSizeUrl }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageSizeUrl]);
-
-  // settings → URL sync: whenever itemsPerPage changes (e.g. view-mode switch updates it),
-  // keep the URL param in sync so refresh/back-forward stay accurate.
-  useEffect(() => {
-    if (settings.itemsPerPage !== pageSizeUrl) {
-      void setPageSizeUrl(settings.itemsPerPage);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.itemsPerPage]);
-
+  // Page size has one owner: `settings.itemsPerPage`, persisted to localStorage by the effect
+  // further down. It used to be mirrored into a `pageSize` URL param by a pair of effects, each
+  // depending on one side while reading both. With the retro cap below as a third writer they
+  // never settled: the URL pushed the saved size back, the cap forced it down again, and the value
+  // visibly flickered between the two.
   // hasEverMounted refs for display:none pattern - keep views mounted once visited
   const compactEverMounted = useRef(settings.viewMode === 'compact');
   const cardEverMounted = useRef(settings.viewMode === 'card');
@@ -848,11 +803,10 @@ const DownloadsTab: React.FC = () => {
     return options;
   }, [t, settings.viewMode]);
 
-  // Handler for items-per-page changes - writes both settings (localStorage) and URL.
+  // Handler for items-per-page changes - writes settings, which the effect below persists.
   const handleItemsPerPageChange = (value: string) => {
     const newValue: number | 'unlimited' = value === 'unlimited' ? 'unlimited' : parseInt(value);
     setSettings((prev) => ({ ...prev, itemsPerPage: newValue }));
-    void setPageSizeUrl(newValue);
   };
 
   const filteredDownloads = useMemo(() => {
