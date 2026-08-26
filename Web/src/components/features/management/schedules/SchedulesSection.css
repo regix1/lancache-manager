@@ -438,7 +438,12 @@
     flex: 1 1 auto;
   }
 
-  .schedule-cell-actions .schedule-run-now.btn-icon-square {
+  /* Compounded past `button.button-press.btn-icon-square:not(.btn-icon-square--sm)` in
+     buttons.css, which pins an icon-square to 44x44 below 640px so its two axes stay equal.
+     That rule carries an element selector and would otherwise outweigh a three-class
+     selector here, squeezing this stretched button back to a 44px box with the label
+     spilling out either side. The touch floor is not lost: min-height still applies. */
+  .schedule-cell-actions button.schedule-run-now.btn-icon-square.pointer-target-44 {
     width: 100%;
     height: auto;
     background-color: var(--theme-bg-surface);
