@@ -46,7 +46,10 @@ const localLayout = (curlBody) => {
   copyFileSync(sourceScript, script);
   chmodSync(script, 0o755);
   writeFileSync(join(security, 'api_key.txt'), 'key-that-must-not-be-printed\n');
-  executable(join(bin, 'jq'), '#!/bin/sh\nprintf "{}\\n"\n');
+  // Drains stdin before answering, the way jq does when it reads its inputs. Without the drain the
+  // shim exits while the script is still writing the payload, and the SIGPIPE that kills the writer
+  // becomes the pipeline's status under `set -o pipefail` even though the request itself succeeded.
+  executable(join(bin, 'jq'), '#!/bin/sh\ncat >/dev/null\nprintf "{}\\n"\n');
   executable(join(bin, 'curl'), curlBody);
   return { root, script, bin };
 };
