@@ -3204,16 +3204,10 @@
         "needsKey": "V2 不可用，V1 需要 API 密钥",
         "down": "Web API 不可用"
       },
-      "v1WithKey": "V1（有密钥）",
-      "v1NoKey": "V1（无密钥）",
       "updateApiKey": "更新 API 密钥",
       "configureApiKey": "配置 API 密钥",
       "remove": "移除",
       "lastChecked": "上次检查",
-      "bothUnavailable": {
-        "title": "V2 和 V1 均不可用",
-        "description": "Steam Web API V2 和 V1 当前均不可用。可能是 Steam 服务的临时问题。请稍后再试。"
-      },
       "removeModal": {
         "title": "移除 Steam Web API 密钥",
         "message": "您确定要移除 Steam Web API 密钥吗？如果 V2 不可用，您将需要重新配置密钥以使用 V1 回退。",

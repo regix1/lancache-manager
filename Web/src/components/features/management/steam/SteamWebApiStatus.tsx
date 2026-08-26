@@ -4,7 +4,6 @@ import { Button } from '@components/ui/Button';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Alert } from '@components/ui/Alert';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
-import Badge from '@components/ui/Badge';
 
 import SteamWebApiKeyModal from '@components/modals/setup/SteamWebApiKeyModal';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -29,7 +28,6 @@ const SteamWebApiStatus: React.FC = () => {
 
   const needsApiKey =
     status?.version === 'V1NoKey' || (status?.version === 'BothFailed' && !status?.hasApiKey);
-  const showWarning = !status?.isFullyOperational && !loading;
 
   const confirmRemoveApiKey = async () => {
     setRemoving(true);
@@ -134,13 +132,9 @@ const SteamWebApiStatus: React.FC = () => {
     }
   }, [status?.isFullyOperational, status, updateProgress]);
 
-  const statusTone = loading
-    ? undefined
-    : status?.isFullyOperational
-      ? 'ok'
-      : needsApiKey
-        ? 'warn'
-        : 'err';
+  // Anything short of fully operational reads as an error, including the missing-key case: the
+  // status line is the only state indicator on this row, so it carries the whole signal.
+  const statusTone = loading ? undefined : status?.isFullyOperational ? 'ok' : 'err';
   const stateLabel = loading
     ? t('management.steamWebApi.checkingStatus')
     : !status
@@ -201,12 +195,6 @@ const SteamWebApiStatus: React.FC = () => {
           </HelpPopover>
         </div>
 
-        {showWarning && status?.version === 'BothFailed' && status?.hasApiKey && (
-          <Alert color="red" title={t('management.steamWebApi.bothUnavailable.title')}>
-            {t('management.steamWebApi.bothUnavailable.description')}
-          </Alert>
-        )}
-
         <div className="mgmt-list">
           <div className="mgmt-row">
             <div className="mgmt-row__body">
@@ -221,20 +209,6 @@ const SteamWebApiStatus: React.FC = () => {
               )}
             </div>
             <div className="mgmt-row__actions">
-              {!loading && status && (
-                <>
-                  <Badge variant={status.isV2Available ? 'success' : 'error'}>V2</Badge>
-                  <Badge
-                    variant={
-                      status.isV1Available ? 'success' : !status.hasApiKey ? 'warning' : 'error'
-                    }
-                  >
-                    {status.hasApiKey
-                      ? t('management.steamWebApi.v1WithKey')
-                      : t('management.steamWebApi.v1NoKey')}
-                  </Badge>
-                </>
-              )}
               <Button
                 variant="filled"
                 color="secondary"
