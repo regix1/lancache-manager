@@ -26,6 +26,15 @@ export const useSteamWebApiStatusState = () => {
   const hasFailedAuth = useRef(false);
 
   const fetchStatus = useCallback(async (forceRefresh = false, skipLoading = false) => {
+    // A forced refresh is an explicit request, so it clears an earlier auth failure instead of
+    // being dropped by it. The latch exists to stop the automatic retries from looping against a
+    // 401, and without this a single early 401 left the status null for the rest of the session:
+    // every later refresh returned here, and the callers that read isFullyOperational then saw a
+    // key as missing while the server reported it working.
+    if (forceRefresh) {
+      hasFailedAuth.current = false;
+    }
+
     // Don't retry if we've already failed auth
     if (hasFailedAuth.current) {
       return;
@@ -93,12 +102,5 @@ export const useSteamWebApiStatusState = () => {
     }
   });
 
-  const updateStatus = useCallback(
-    (updater: (prev: SteamWebApiStatus | null) => SteamWebApiStatus | null) => {
-      setStatus(updater);
-    },
-    []
-  );
-
-  return { status, loading, error, refresh, updateStatus };
+  return { status, loading, error, refresh };
 };

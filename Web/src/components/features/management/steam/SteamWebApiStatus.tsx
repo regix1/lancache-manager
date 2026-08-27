@@ -16,7 +16,7 @@ import { getErrorMessage } from '@utils/error';
 
 const SteamWebApiStatus: React.FC = () => {
   const { t } = useTranslation();
-  const { status, loading, refresh, updateStatus } = useSteamWebApiStatus();
+  const { status, loading, refresh } = useSteamWebApiStatus();
   const { updateProgress } = usePicsProgress();
   const { addNotification, updateNotification, scheduleAutoDismiss } = useNotifications();
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -52,23 +52,10 @@ const SteamWebApiStatus: React.FC = () => {
       const data = await response.json();
 
       if (response.ok) {
-        updateStatus((prev) => {
-          if (!prev) return prev;
-
-          const isFullyOperational = prev.isV2Available;
-
-          return {
-            ...prev,
-            hasApiKey: false,
-            version: prev.isV2Available ? 'V2Only' : 'V1NoKey',
-            isV1Available: false,
-            isFullyOperational,
-            message: prev.isV2Available
-              ? 'Steam Web API V2 operational'
-              : 'Steam Web API V2 unavailable - V1 requires API key (not configured)',
-            lastChecked: new Date().toISOString()
-          };
-        });
+        // Whether the API still works without the key is the server's answer to give: it re-tests
+        // V2 once the key is gone. Refreshing keeps the panel showing the previous answer until the
+        // real one arrives, which is why it does not need a placeholder to fill the gap.
+        await refresh();
 
         updateNotification(cardId, {
           status: 'completed',
@@ -98,20 +85,11 @@ const SteamWebApiStatus: React.FC = () => {
     }
   };
 
-  const handleApiKeySuccess = () => {
-    updateStatus((prev) => {
-      if (!prev) return prev;
-
-      return {
-        ...prev,
-        hasApiKey: true,
-        isV1Available: true,
-        isFullyOperational: true,
-        version: 'V1WithKey',
-        message: 'Steam Web API V1 operational with API key',
-        lastChecked: new Date().toISOString()
-      };
-    });
+  const handleApiKeySuccess = async () => {
+    // The save route stores the key and the server decides what that makes the API, so the status
+    // comes from asking it. Every gate elsewhere reads isFullyOperational from this same shared
+    // status, so a value invented here would put the panel and those gates on different answers.
+    await refresh();
   };
 
   useEffect(() => {

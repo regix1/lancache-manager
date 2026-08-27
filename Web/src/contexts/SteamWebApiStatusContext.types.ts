@@ -6,7 +6,6 @@ interface SteamWebApiStatusContextType {
   loading: boolean;
   error: string | null;
   refresh: () => void;
-  updateStatus: (updater: (prev: SteamWebApiStatus | null) => SteamWebApiStatus | null) => void;
 }
 
 export const SteamWebApiStatusContext = createContext<SteamWebApiStatusContextType | undefined>(
