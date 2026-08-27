@@ -64,6 +64,7 @@ These six count every download the cache recorded, including downloads whose fil
 | `lancache_game_cache_files` | Cache files found for this game |
 | `lancache_games_on_disk_bytes` | Total bytes attributed to games, deduplicated |
 | `lancache_games_on_disk_count` | Number of games found on disk |
+| `lancache_identified_service_bytes` | Total bytes attributed to a service but to no game, deduplicated |
 | `lancache_detection_computed_timestamp` | When the on-disk numbers were last computed, as a unix timestamp |
 
 The on-disk family skips evicted games, which is what the Games on Disk view does, so the two agree. `lancache_detection_computed_timestamp` is there because these numbers only recompute on a cache scan or a removal. Without it a flat graph looks the same whether nothing changed or nothing ran.

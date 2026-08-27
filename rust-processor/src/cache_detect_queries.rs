@@ -179,30 +179,29 @@ pub async fn query_game_downloads(
     eprintln!("Found {} URLs across all mapped games", mapped_url_count);
     eprintln!("Querying unknown games...");
 
-    // Both branches GROUP BY (depot, url, service) and carry MAX(le."BytesServed") as the
-    // URL's size for probe sizing. (No-limit was SELECT DISTINCT over the same column set;
-    // GROUP BY over that set is equivalent for row identity and lets us aggregate bytes.)
-    let mut unknown_query = if max_urls_per_game.is_some() {
-        QueryBuilder::<Postgres>::new(
-            "SELECT le.\"Service\", le.\"DepotId\", le.\"Url\", MAX(le.\"BytesServed\")
-             FROM \"LogEntries\" le
-             WHERE le.\"DepotId\" IS NOT NULL
-             AND le.\"Url\" IS NOT NULL
-             AND NOT EXISTS (
-                 SELECT 1 FROM \"SteamDepotMappings\" sdm WHERE sdm.\"DepotId\" = le.\"DepotId\"
-             )",
-        )
-    } else {
-        QueryBuilder::<Postgres>::new(
-            "SELECT le.\"Service\", le.\"DepotId\", le.\"Url\", MAX(le.\"BytesServed\")
-             FROM \"LogEntries\" le
-             WHERE le.\"DepotId\" IS NOT NULL
-             AND le.\"Url\" IS NOT NULL
-             AND NOT EXISTS (
-                 SELECT 1 FROM \"SteamDepotMappings\" sdm WHERE sdm.\"DepotId\" = le.\"DepotId\"
-             )",
-        )
-    };
+    // The sampled and unsampled paths GROUP BY (depot, url, service) and carry
+    // MAX(le."BytesServed") as the URL's size for probe sizing. (No-limit was SELECT DISTINCT
+    // over the same column set; GROUP BY over that set is equivalent for row identity and lets
+    // us aggregate bytes.) They diverge only at the GROUP BY/LIMIT push below, so the SELECT is
+    // built once - two byte-identical copies drift apart the first time one of them needs a
+    // predicate change.
+    //
+    // NOT EXISTS tests for an OWNED mapping, the exact complement of the mapped branch above,
+    // so between them the two branches take every row carrying a DepotId - which is what lets
+    // query_service_downloads leave depot rows alone entirely. A depot whose only mapping rows
+    // carry IsOwner = false has no owning app to name it, so it belongs here as an Unknown Game
+    // row; an owner-blind test drops it out of both game branches and its bytes end up in the
+    // anonymous service bucket instead.
+    let mut unknown_query = QueryBuilder::<Postgres>::new(
+        "SELECT le.\"Service\", le.\"DepotId\", le.\"Url\", MAX(le.\"BytesServed\")
+         FROM \"LogEntries\" le
+         WHERE le.\"DepotId\" IS NOT NULL
+         AND le.\"Url\" IS NOT NULL
+         AND NOT EXISTS (
+             SELECT 1 FROM \"SteamDepotMappings\" sdm
+             WHERE sdm.\"DepotId\" = le.\"DepotId\" AND sdm.\"IsOwner\" = true
+         )",
+    );
 
     if !excluded_unknown_depot_ids.is_empty() {
         unknown_query.push(" AND le.\"DepotId\" NOT IN (");
@@ -213,11 +212,15 @@ pub async fn query_game_downloads(
         separated.push_unseparated(")");
     }
 
+    // ORDER BY le."DepotId" belongs to both paths, not just the unsampled one: the row loop
+    // below caps URLs per depot by counting and resetting that count when the depot id changes,
+    // so it caps nothing unless a depot's rows arrive together. Pushed once, ahead of the
+    // LIMIT the sampled path adds, so the two cannot drift apart.
+    unknown_query.push(" GROUP BY le.\"DepotId\", le.\"Url\", le.\"Service\" ORDER BY le.\"DepotId\"");
+
     if let Some(limit) = max_urls_per_game {
-        unknown_query.push(" GROUP BY le.\"DepotId\", le.\"Url\", le.\"Service\" LIMIT ");
+        unknown_query.push(" LIMIT ");
         unknown_query.push_bind((limit * 10) as i64);
-    } else {
-        unknown_query.push(" GROUP BY le.\"DepotId\", le.\"Url\", le.\"Service\" ORDER BY le.\"DepotId\"");
     }
 
     let mut total_url_count = mapped_url_count;
@@ -266,11 +269,21 @@ pub async fn query_service_downloads(
 ) -> Result<HashMap<String, Vec<(String, String, i64)>>> {
     eprintln!("Querying LogEntries for non-game services...");
 
-    // Anti-join against all per-game mapping paths so URLs already handled per-game in
-    // Phase 3 (mapped Steam depots), Phase 3b (Epic downloads), or Phase 3c (name-keyed
-    // Blizzard/Riot games) are not re-probed here. Without these, the service bucket
-    // re-scans every URL already matched per-game - typically millions of redundant
-    // probes - AND double-counts named-game URLs as both a game and the service.
+    // Hold out every URL already handled per-game in Phase 3 (Steam depots), Phase 3b (Epic
+    // downloads) or Phase 3c (name-keyed Blizzard/Riot games) so it is not re-probed here.
+    // Without these, the service bucket re-scans every URL already matched per-game -
+    // typically millions of redundant probes - AND double-counts named-game URLs as both a
+    // game and the service.
+    //
+    // Steam depots are held out by le."DepotId" IS NULL rather than by an anti-join on
+    // "SteamDepotMappings". query_game_downloads splits every row carrying a DepotId between
+    // its mapped branch (an owned mapping exists) and its unknown branch (none does), and
+    // those two tests are exact complements, so a depot row always belongs to one of them.
+    // Taking any depot row here as well would leave the steam service row reporting the file
+    // count of objects whose bytes a game claimed first, because the disk-summary refresh
+    // recomputes a service's TotalSizeBytes but keeps its scan-time CacheFilesFound. Steam
+    // URLs with no depot id stay service bytes, which is right: neither game branch takes
+    // them, and only steam traffic is given a DepotId in the first place (parser.rs).
     //
     // The `dn` anti-join excludes ONLY Downloads that resolved to a named game
     // (GameName IS NOT NULL). Shared/agnostic paths with NULL GameName (e.g. shared
@@ -281,8 +294,6 @@ pub async fn query_service_downloads(
     let query = "
         SELECT le.\"Service\", le.\"Url\", MAX(le.\"BytesServed\")
         FROM \"LogEntries\" le
-        LEFT JOIN \"SteamDepotMappings\" sdm
-            ON le.\"DepotId\" = sdm.\"DepotId\" AND sdm.\"IsOwner\" = true
         LEFT JOIN \"Downloads\" d
             ON le.\"DownloadId\" = d.\"Id\" AND d.\"EpicAppId\" IS NOT NULL
         LEFT JOIN \"Downloads\" dn
@@ -294,7 +305,7 @@ pub async fn query_service_downloads(
           AND le.\"Url\" IS NOT NULL
           AND LOWER(le.\"Service\") NOT IN ('unknown', 'localhost')
           AND le.\"Service\" != ''
-          AND sdm.\"DepotId\" IS NULL
+          AND le.\"DepotId\" IS NULL
           AND d.\"Id\" IS NULL
           AND dn.\"Id\" IS NULL
         GROUP BY le.\"Service\", le.\"Url\"

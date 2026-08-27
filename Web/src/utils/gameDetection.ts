@@ -74,6 +74,8 @@ export const isActiveGame = (game: GameDetectionSummary): boolean =>
 
 interface GamesOnDiskDisplayStats {
   totalSize: number;
+  /** Identified bytes attributed to services rather than a named game. */
+  serviceSize: number;
   gameCount: number;
   includesEvicted: boolean;
   evictedCount: number;
@@ -101,6 +103,7 @@ export function buildGamesOnDiskDisplayStats(
 
   return {
     totalSize: detection.games_on_disk_bytes,
+    serviceSize: detection.identified_service_bytes ?? 0,
     gameCount: detection.games_on_disk_count,
     includesEvicted: showEvictedBadge && evictedCount > 0,
     evictedCount,

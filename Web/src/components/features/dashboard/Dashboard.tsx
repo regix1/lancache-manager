@@ -9,6 +9,7 @@ import {
   Server,
   Activity,
   Files,
+  Boxes,
   Eye,
   EyeOff,
   Search,
@@ -71,7 +72,8 @@ const DEFAULT_CARD_VISIBILITY: CardVisibility = {
   activeClients: true,
   cacheHitRatio: true,
   cacheFiles: false,
-  gamesOnDisk: false
+  gamesOnDisk: false,
+  servicesOnDisk: false
 };
 
 const DEFAULT_CARD_ORDER: string[] = [
@@ -84,7 +86,8 @@ const DEFAULT_CARD_ORDER: string[] = [
   'totalServed',
   'activeClients',
   'cacheFiles',
-  'gamesOnDisk'
+  'gamesOnDisk',
+  'servicesOnDisk'
 ];
 
 const getStatTooltips = (t: (key: string) => string): Record<string, React.ReactNode> => ({
@@ -136,6 +139,11 @@ const getStatTooltips = (t: (key: string) => string): Record<string, React.React
   gamesOnDisk: (
     <HelpSection title={t('dashboard.statCards.gamesOnDisk.term')}>
       {t('dashboard.statCards.gamesOnDisk.description')}
+    </HelpSection>
+  ),
+  servicesOnDisk: (
+    <HelpSection title={t('dashboard.statCards.servicesOnDisk.term')}>
+      {t('dashboard.statCards.servicesOnDisk.description')}
     </HelpSection>
   )
 });
@@ -658,6 +666,34 @@ const Dashboard: React.FC = () => {
         color: 'blue' as const,
         visible: cardVisibility.gamesOnDisk ?? false,
         tooltip: statTooltips.gamesOnDisk
+      },
+      // The other half of the identified footprint: bytes the scan matched to a service rather
+      // than to a named game, which is mostly Windows Update, Xbox, Blizzard and Epic content.
+      // It shares Games on Disk's detection run, so it shares that card's staleness.
+      servicesOnDisk: {
+        key: 'servicesOnDisk',
+        title: t('dashboard.cards.servicesOnDisk'),
+        value: gamesOnDiskStats ? formatBytes(gamesOnDiskStats.serviceSize) : '-',
+        subtitle: gamesOnDiskStats
+          ? [
+              formattedLastDetectionTime
+                ? t('dashboard.cards.scannedAt', { time: formattedLastDetectionTime })
+                : null,
+              t('dashboard.cards.onDiskNow')
+            ]
+              .filter(Boolean)
+              .join(' • ')
+          : detectionFailed
+            ? t('common.failedToLoad')
+            : t('dashboard.cards.noScanData'),
+        badge: gamesOnDiskStats?.isStale ? (
+          <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
+        ) : undefined,
+        tone: gamesOnDiskStats?.isStale ? 'warning' : undefined,
+        icon: Boxes,
+        color: 'blue' as const,
+        visible: cardVisibility.servicesOnDisk ?? false,
+        tooltip: statTooltips.servicesOnDisk
       }
     }),
     [

@@ -499,7 +499,8 @@ public static class SignalRNotifications
         string Status,
         string StageKey,
         string? Message = null,
-        string? Error = null
+        string? Error = null,
+        Dictionary<string, object?>? Context = null
     );
 
     /// <summary>

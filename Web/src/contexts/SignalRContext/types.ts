@@ -1061,6 +1061,7 @@ export interface XboxMappingAuthStateChangedEvent {
   stageKey: string;
   message?: string | null;
   error?: string | null;
+  context?: Record<string, string | number | boolean>;
 }
 
 export type BattleNetMappingStartedEvent = MappingStartedEvent;

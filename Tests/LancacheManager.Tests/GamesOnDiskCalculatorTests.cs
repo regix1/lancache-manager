@@ -118,6 +118,45 @@ public class GamesOnDiskCalculatorTests : IDisposable
     }
 
     // -----------------------------------------------------------------------------------------
+    // Services carry bytes into the identified total alongside games. Every other case in this
+    // file passes an empty service list, so nothing pinned ServiceBytes reaching TotalBytes -
+    // the aggregate the dashboard reads as identified_cache_bytes, and the term that makes the
+    // Games on Disk figure smaller than the identified total.
+    // -----------------------------------------------------------------------------------------
+
+    [Fact]
+    public void ComputeAttributedCacheFromDisk_GameAndService_TotalBytesIsBothBucketsSummed()
+    {
+        var gamePath = CreateTempCacheFile(1024);
+        var servicePath = CreateTempCacheFile(4096);
+
+        var game = new GameCacheInfo
+        {
+            GameAppId = 0,
+            Service = "xbox",
+            GameName = "Halo Infinite",
+            EpicAppId = null,
+            CacheFilePaths = new List<string> { gamePath }
+        };
+
+        var service = new ServiceCacheInfo
+        {
+            ServiceName = "wsus",
+            CacheFilePaths = new List<string> { servicePath }
+        };
+
+        var attributed = GamesOnDiskCalculator.ComputeAttributedCacheFromDisk(
+            new List<GameCacheInfo> { game },
+            new List<ServiceCacheInfo> { service });
+
+        Assert.Equal(1024UL, attributed.Aggregate.GameBytes);
+        Assert.Equal(4096UL, attributed.Aggregate.ServiceBytes);
+        Assert.Equal(
+            attributed.Aggregate.GameBytes + attributed.Aggregate.ServiceBytes,
+            attributed.Aggregate.TotalBytes);
+    }
+
+    // -----------------------------------------------------------------------------------------
     // Reproducing round-trip test. Against the unfixed
     // RefreshDiskSummaryAsync (bare TryGetValue(...) ?? 0), this FAILS because TotalSizeBytes
     // is clobbered to 0. After the fix, a non-evicted game with CacheFilesFound > 0 whose paths

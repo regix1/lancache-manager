@@ -77,6 +77,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     // Games on disk (read from the persisted detection summary, never recomputed here)
     private long _gamesOnDiskBytes;
     private long _gamesOnDiskCount;
+    private long _identifiedServiceBytes;
     private long _detectionComputedTimestamp;
 
     // The inputs the per-game on-disk figures were last read for. Plain fields rather than
@@ -589,6 +590,12 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         );
 
         _meter.CreateObservableGauge(
+            "lancache_identified_service_bytes",
+            () => Interlocked.Read(ref _identifiedServiceBytes),
+            description: "Deduplicated cache bytes on disk attributed to a service but to no identified game. Add this to lancache_games_on_disk_bytes for the share of the last scan that has a name"
+        );
+
+        _meter.CreateObservableGauge(
             "lancache_detection_computed_timestamp",
             () => Interlocked.Read(ref _detectionComputedTimestamp),
             description: "Unix timestamp of the last cache detection run. The games-on-disk figures only change when a scan or a removal runs, so this is how old they are"
@@ -1006,6 +1013,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // PER-SERVICE METRICS
         // ============================================
         var serviceStats = await downloads
+            .ApplyPlaceholderServiceFilter()
             .GroupBy(d => d.Service.ToLower())
             .Select(g => new
             {
@@ -1374,12 +1382,14 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
                 {
                     s.GamesOnDiskBytes,
                     s.GamesOnDiskCount,
+                    s.IdentifiedServiceBytes,
                     s.ComputedAtUtc
                 })
                 .FirstOrDefaultAsync(cancellationToken);
 
             Interlocked.Exchange(ref _gamesOnDiskBytes, detectionSummary != null ? (long)detectionSummary.GamesOnDiskBytes : 0);
             Interlocked.Exchange(ref _gamesOnDiskCount, detectionSummary?.GamesOnDiskCount ?? 0);
+            Interlocked.Exchange(ref _identifiedServiceBytes, detectionSummary != null ? (long)detectionSummary.IdentifiedServiceBytes : 0);
             Interlocked.Exchange(
                 ref _detectionComputedTimestamp,
                 detectionSummary != null

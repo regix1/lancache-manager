@@ -302,11 +302,6 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             // A skipped run keeps whatever percent it actually reached, which for a run that stopped
             // before doing anything is 0. Stamping 100 would claim work that never happened.
             var percent = info.Success && !info.Skipped ? 100d : _highestPercent;
-            // A cancelled run carries no error: it did not fail, it was stopped.
-            var error = info.Success || info.Cancelled
-                ? null
-                : (info.Error ?? "Scheduled run failed");
-
             var status = info.Cancelled
                 ? OperationStatus.Cancelled
                 : info.Skipped
@@ -315,6 +310,14 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             var terminalStageKey = _terminalStagePublished
                 ? _terminalStageKey
                 : _externalTerminalStageKey?.Invoke(info) ?? _terminalStageKey;
+            // A cancelled run carries no error: it did not fail, it was stopped. A failure that
+            // supplied no error keeps one only while the key above is the run's all-outcomes complete
+            // key, which reads as success text on a failed card. Once the key was picked for THIS
+            // outcome the frontend translates it, but only while this field is null, so a generic
+            // English sentence here would take precedence and hide the real reason. [27]
+            var error = info.Success || info.Cancelled
+                ? null
+                : info.Error ?? (terminalStageKey == _completeStageKey ? "Scheduled run failed" : null);
             var terminal = new ScheduledRunCompleteEvent(
                 _serviceKey,
                 _operationId,

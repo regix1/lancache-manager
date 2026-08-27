@@ -88,6 +88,103 @@ public sealed class SteamDepotOwnerMappingTests
         Assert.Equal("VTOL VR: AH-94", download.GameName);
     }
 
+    /// <summary>
+    /// A depot whose only <see cref="SteamDepotMapping"/> rows carry <c>IsOwner = false</c> - the
+    /// state <see cref="PrefillCacheService"/> records when another app already owns the depot -
+    /// has no owning app to name it, so the unknown-depot query must claim it as an
+    /// <c>Unknown Game (Depot N)</c> row. Its mapped-depot sibling requires <c>IsOwner = true</c>,
+    /// so an owner-blind test here drops that depot out of both game branches and its bytes
+    /// become anonymous service bytes instead.
+    /// The query is built inline against a live pool, so the predicate is pinned at the source
+    /// the way <c>BareMetalDiskFeatureContractTests</c> pins the Rust named-removal core.
+    /// The single-occurrence check keeps the SELECT collapsed: while it was written out once per
+    /// sampling mode, a predicate could be added to one copy and silently missed on the other.
+    /// </summary>
+    [Fact]
+    public void UnknownDepotQueryMatchesOnlyDepotsWithNoOwnedMapping()
+    {
+        var sql = ReadDetectionQuerySource();
+
+        const string unknownDepotSelect =
+            """SELECT le.\"Service\", le.\"DepotId\", le.\"Url\", MAX(le.\"BytesServed\")""";
+        const string ownerBlindMappingTest =
+            """NOT EXISTS ( SELECT 1 FROM \"SteamDepotMappings\" sdm WHERE sdm.\"DepotId\" = le.\"DepotId\" )""";
+
+        Assert.Equal(1, sql.Split(unknownDepotSelect).Length - 1);
+        Assert.Contains(OwnedMappingPredicate, sql, StringComparison.Ordinal);
+        Assert.DoesNotContain(ownerBlindMappingTest, sql, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The unknown-depot gate and the service query's Steam gate are a matched pair and have to
+    /// stay disjoint. The unknown branch claims every depot row with no owned mapping and the
+    /// mapped branch claims the rest, so the service query must leave depot rows alone entirely
+    /// and take only rows carrying no depot id. Letting it match them again would not double-count
+    /// bytes - <c>GamesOnDiskCalculator.ComputeAttributedCacheFromDisk</c> walks games
+    /// before services over one shared path set - but it would leave the steam service row
+    /// reporting the file count of objects whose bytes the game claimed, because
+    /// <c>RefreshDiskSummaryCoreAsync</c> recomputes a service's <c>TotalSizeBytes</c> and keeps
+    /// its scan-time <c>CacheFilesFound</c>. Editing either gate alone reopens that, so both are
+    /// asserted together here.
+    /// </summary>
+    [Fact]
+    public void ServiceQueryLeavesEveryDepotRowToTheGameQueries()
+    {
+        var sql = ReadDetectionQuerySource();
+
+        Assert.Contains(OwnedMappingPredicate, sql, StringComparison.Ordinal);
+        Assert.Contains(
+            """AND le.\"Service\" != '' AND le.\"DepotId\" IS NULL""",
+            sql,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The sampled path caps URLs per depot by counting rows and resetting that count whenever the
+    /// depot id changes, so it caps nothing unless a depot's rows arrive together. Both paths share
+    /// one <c>ORDER BY le."DepotId"</c> push for that reason. Nothing calls the sampled path today
+    /// - the single caller passes <c>None</c> - so no run would reveal a lost ordering.
+    /// </summary>
+    [Fact]
+    public void UnknownDepotQueryOrdersByDepotForItsPerDepotCap()
+    {
+        var sql = ReadDetectionQuerySource();
+
+        Assert.Contains(
+            """
+            GROUP BY le.\"DepotId\", le.\"Url\", le.\"Service\" ORDER BY le.\"DepotId\"
+            """,
+            sql,
+            StringComparison.Ordinal);
+
+        // The sampled path used to group and then LIMIT with no ordering in between.
+        Assert.DoesNotContain(
+            """GROUP BY le.\"DepotId\", le.\"Url\", le.\"Service\" LIMIT""",
+            sql,
+            StringComparison.Ordinal);
+    }
+
+    private const string OwnedMappingPredicate =
+        """NOT EXISTS ( SELECT 1 FROM \"SteamDepotMappings\" sdm WHERE sdm.\"DepotId\" = le.\"DepotId\" AND sdm.\"IsOwner\" = true )""";
+
+    /// <summary>
+    /// The detection queries are built inline against a live pool, so they are asserted as source
+    /// text. Whitespace is collapsed so reindenting the SQL cannot break a contract.
+    /// </summary>
+    private static string ReadDetectionQuerySource()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "lancache-manager.sln")))
+        {
+            directory = directory.Parent;
+        }
+
+        var root = directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found");
+        var source = File.ReadAllText(Path.Combine(root, "rust-processor", "src", "cache_detect_queries.rs"));
+
+        return string.Join(' ', source.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
     private static DbContextOptions<AppDbContext> NewOptions() =>
         new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"steam_depot_owner_{Guid.NewGuid():N}")

@@ -123,7 +123,8 @@ public class XboxAuthClient
             }
             else if (token.Error != null && token.Error != "authorization_pending")
             {
-                throw new InvalidOperationException($"Xbox device-code login failed: {token.Error}");
+                var detail = string.IsNullOrWhiteSpace(token.ErrorDescription) ? token.Error : $"{token.Error}: {token.ErrorDescription}";
+                throw new InvalidOperationException($"Xbox device-code login failed: {detail}");
             }
         }
 
@@ -151,7 +152,10 @@ public class XboxAuthClient
         var token = await PostTokenFormAsync(form, ct);
         if (token.AccessToken == null)
         {
-            throw new InvalidOperationException($"Xbox token refresh failed: {token.Error ?? "no access token"}");
+            var detail = token.Error == null
+                ? "no access token"
+                : string.IsNullOrWhiteSpace(token.ErrorDescription) ? token.Error : $"{token.Error}: {token.ErrorDescription}";
+            throw new InvalidOperationException($"Xbox token refresh failed: {detail}");
         }
         return token;
     }
@@ -278,7 +282,7 @@ public class XboxAuthClient
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
         using var response = await _httpClient.SendAsync(request, ct);
-        response.EnsureSuccessStatusCode();
+        await EnsureXblAuthSuccessAsync(response, ct);
 
         var json = await response.Content.ReadAsStringAsync(ct);
         var result = JsonSerializer.Deserialize<XboxXblAuthResponse>(json, _readOptions);
@@ -311,7 +315,7 @@ public class XboxAuthClient
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
         using var response = await _httpClient.SendAsync(request, ct);
-        response.EnsureSuccessStatusCode();
+        await EnsureXblAuthSuccessAsync(response, ct);
 
         var json = await response.Content.ReadAsStringAsync(ct);
         var result = JsonSerializer.Deserialize<XboxXblAuthResponse>(json, _readOptions);
@@ -347,7 +351,7 @@ public class XboxAuthClient
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
         using var response = await _httpClient.SendAsync(request, ct);
-        response.EnsureSuccessStatusCode();
+        await EnsureXblAuthSuccessAsync(response, ct);
 
         var json = await response.Content.ReadAsStringAsync(ct);
         var result = JsonSerializer.Deserialize<XboxXstsTokenResponse>(json, _readOptions);
@@ -466,6 +470,55 @@ public class XboxAuthClient
             _logger.LogDebug(ex, "Failed to fetch Xbox gamertag for xuid {Xuid} (non-fatal)", xuid);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Replaces <c>EnsureSuccessStatusCode</c> on the account-facing XBL calls (user authenticate, device
+    /// authenticate, XSTS authorize). Those endpoints put the reason the ACCOUNT was refused in an
+    /// <c>XErr</c> code in the 401 body - which country restrictions, child accounts and profile-less
+    /// Microsoft accounts all hit - so throwing without reading the body reduces every one of them to
+    /// "401 Unauthorized".
+    /// </summary>
+    internal static async Task EnsureXblAuthSuccessAsync(HttpResponseMessage response, CancellationToken ct = default)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        long? xErr = null;
+        try
+        {
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var error = JsonSerializer.Deserialize<XboxXblAuthErrorResponse>(json, _readOptions);
+            if (error?.XErr > 0)
+            {
+                xErr = error.XErr;
+            }
+        }
+        catch (JsonException)
+        {
+            // Not a JSON body; fall through to the plain HTTP message.
+        }
+
+        var (stageKey, context, message) = xErr switch
+        {
+            2148916233 => ("signalr.xbox.mapping.errors.noXboxProfile", (IReadOnlyDictionary<string, object>?)null,
+                "This Microsoft account has no Xbox profile. Sign in once at xbox.com to create one, then try again."),
+            2148916235 => ("signalr.xbox.mapping.errors.regionUnavailable", null,
+                "Xbox Live is not available in this account's country or region."),
+            2148916236 or 2148916237 => ("signalr.xbox.mapping.errors.ageVerificationRequired", null,
+                "This account needs age verification in its country before it can use Xbox Live."),
+            2148916238 => ("signalr.xbox.mapping.errors.childAccount", null,
+                "This is a child account. An adult must add it to a Microsoft family group before it can use Xbox Live."),
+            not null => ("signalr.xbox.mapping.errors.refused",
+                new Dictionary<string, object> { ["code"] = xErr.Value },
+                $"Xbox refused the sign-in (XErr {xErr}, HTTP {(int)response.StatusCode})."),
+            null => ("signalr.xbox.mapping.errors.httpFailure",
+                new Dictionary<string, object> { ["status"] = (int)response.StatusCode },
+                $"Xbox authentication failed with HTTP {(int)response.StatusCode}.")
+        };
+        throw new XboxLogonException(message, stageKey, context);
     }
 
     #endregion

@@ -768,7 +768,7 @@ public class StatsController : ControllerBase
 
         // Get top service from Downloads table (not cached ServiceStats)
         // Exclude stats-excluded IPs from the sum calculation
-        var topServiceQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode);
+        var topServiceQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode).ApplyPlaceholderServiceFilter();
         var topServiceGroups = await topServiceQuery
             .GroupBy(d => d.Service)
             .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) })
@@ -857,6 +857,7 @@ public class StatsController : ControllerBase
 
         // xboxlive and microsoft rows are folded into xbox after materialisation
         var serviceBreakdown = ServiceBreakdownMerger.MergeXboxRows(await downloadsQuery
+            .ApplyPlaceholderServiceFilter()
             .GroupBy(d => d.Service)
             .Select(g => new ServiceBreakdownItem
             {

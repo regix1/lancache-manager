@@ -272,6 +272,38 @@ public class XboxScheduledRefreshProgressTests
     }
 
     [Fact]
+    public async Task AccountLevelRefusalSendsTheStageKeyAndNoErrorStringAsync()
+    {
+        using var auth = new StubDeviceCodeHandler
+        {
+            TokenBody = """{"access_token":"AT","refresh_token":"RT"}""",
+            ChainStatus = HttpStatusCode.Unauthorized,
+            ChainBody = """{"XErr":2148916238}"""
+        };
+        using var harness = new Harness(authHandler: auth);
+
+        await harness.Service.StartLoginAsync();
+        await auth.ChainReached.WaitAsync(TimeSpan.FromSeconds(20));
+        auth.ReleaseChain();
+        await harness.Notifications.TerminalRecorded.Task.WaitAsync(TimeSpan.FromSeconds(20));
+
+        // Both card readers take the error string ahead of the stage key, so putting the exception's
+        // English message in Error here would silently replace every translated refusal reason with a
+        // raw server sentence and look exactly like a broken lookup.
+        var complete = Assert.IsType<ScheduledRunCompleteEvent>(
+            Assert.Single(harness.Notifications.EventsFor(SignalREvents.XboxMappingComplete)));
+        Assert.Equal("signalr.xbox.mapping.errors.childAccount", complete.StageKey);
+        Assert.Null(complete.Error);
+
+        var authState = Assert.IsType<SignalRNotifications.XboxMappingAuthStateChanged>(
+            harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Last());
+        Assert.Equal("failed", authState.Status);
+        Assert.Equal("signalr.xbox.mapping.errors.childAccount", authState.StageKey);
+        Assert.Null(authState.Error);
+        Assert.Null(authState.Message);
+    }
+
+    [Fact]
     public void SuccessMarksTheSessionBeforeTheAttemptIsCleared()
     {
         // A client reads loginInProgress and isAuthenticated from one snapshot, and treats false/false
@@ -317,6 +349,12 @@ public class XboxScheduledRefreshProgressTests
         /// <summary>Completes once the login is past approval and into the XBL token chain.</summary>
         public Task ChainReached => _chainReached.Task;
 
+        /// <summary>What the XBL token chain answers once released. The default is a bodyless failure;
+        /// a 401 carrying an XErr is what makes Microsoft's refusal a classified one.</summary>
+        public HttpStatusCode ChainStatus { get; init; } = HttpStatusCode.ServiceUnavailable;
+
+        public string? ChainBody { get; init; }
+
         public void ReleaseChain() => _chainReleased.TrySetResult();
 
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -340,7 +378,13 @@ public class XboxScheduledRefreshProgressTests
 
             _chainReached.TrySetResult();
             await _chainReleased.Task.WaitAsync(cancellationToken);
-            return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            var refused = new HttpResponseMessage(ChainStatus);
+            if (ChainBody is not null)
+            {
+                refused.Content = new StringContent(ChainBody, Encoding.UTF8, "application/json");
+            }
+
+            return refused;
         }
 
         protected override void Dispose(bool disposing)
@@ -577,6 +621,16 @@ public class XboxScheduledRefreshProgressTests
             }
 
             return Task.CompletedTask;
+        }
+
+        /// <summary>The raw payloads recorded for one event name, so a test can assert on fields the
+        /// lifecycle snapshot below drops.</summary>
+        public List<object?> EventsFor(string eventName)
+        {
+            lock (_sync)
+            {
+                return _events.Where(e => e.EventName == eventName).Select(e => e.Data).ToList();
+            }
         }
 
         public List<ProgressSnapshot> XboxLifecycleEvents()

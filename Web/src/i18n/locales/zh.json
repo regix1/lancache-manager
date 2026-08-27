@@ -529,6 +529,7 @@
       "downloadsInRange": "{{count}} 次下载",
       "uniqueClientsInRange": "{{count}} 个独立客户端",
       "gamesOnDisk": "磁盘上的游戏",
+      "servicesOnDisk": "磁盘上的服务",
       "gamesDetected": "检测到 {{count}} 个游戏",
       "noScanData": "暂无扫描数据",
       "noCacheScanData": "暂无扫描数据 — 请前往“管理”→“缓存”运行扫描。",
@@ -576,7 +577,11 @@
       },
       "gamesOnDisk": {
         "term": "磁盘上的游戏",
-        "description": "上次游戏缓存检测扫描中与已知游戏匹配的缓存文件大小。共享文件按扫描完成时计算出的实际文件大小只统计一次。服务级缓存（Windows 更新等）不包含在内。当有缓存文件扫描结果时，未被识别的缓存文件会显示在未映射缓存部分中。"
+        "description": "上次游戏缓存检测扫描中与已知游戏匹配的缓存文件大小。共享文件按扫描完成时计算出的实际文件大小只统计一次。服务级缓存（Windows 更新等）不计入此总数，它有自己的“磁盘上的服务”卡片。当有缓存文件扫描结果时，未被识别的缓存文件会显示在未映射缓存部分中。"
+      },
+      "servicesOnDisk": {
+        "term": "磁盘上的服务",
+        "description": "上次游戏缓存检测扫描中与服务（而非具体游戏）匹配的缓存文件大小，通常是 Windows 更新、Xbox、暴雪和 Epic 的内容。将它与“磁盘上的游戏”以及未映射缓存相加，即可对应整个缓存文件扫描总量。"
       },
       "unmappedCache": "{{size}} 未映射缓存"
     },
@@ -7294,7 +7299,15 @@
         "collecting": "正在收集 Xbox 游戏库...",
         "completed": "Xbox 登录完成",
         "cancelled": "Xbox 登录已取消",
-        "failed": "Xbox 登录失败"
+        "failed": "Xbox 登录失败",
+        "errors": {
+          "noXboxProfile": "此 Microsoft 帐户没有 Xbox 个人资料。请先在 xbox.com 登录一次以创建个人资料，然后重试。",
+          "regionUnavailable": "Xbox Live 在此帐户所在的国家或地区不可用。",
+          "ageVerificationRequired": "此帐户需要在其所在国家/地区完成年龄验证才能使用 Xbox Live。",
+          "childAccount": "这是一个儿童帐户。必须由成年人将其添加到 Microsoft 家庭组后才能使用 Xbox Live。",
+          "refused": "Xbox 拒绝了此次登录（代码 {{code}}）。",
+          "httpFailure": "Xbox 身份验证失败，HTTP 状态码 {{status}}。"
+        }
       }
     },
     "epicRemove": {

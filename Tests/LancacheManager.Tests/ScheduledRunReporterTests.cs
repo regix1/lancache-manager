@@ -160,6 +160,26 @@ public class ScheduledRunReporterTests
     }
 
     [Fact]
+    public async Task CompleteAsync_FailureWithNoErrorAndNoOwnStageKeyStillNamesAFailureAsync()
+    {
+        var notifications = new CapturingNotificationService();
+        var tracker = CreateTracker();
+        await using var reporter = CreateReporter(notifications, tracker);
+
+        await reporter.StartAsync("probe.starting");
+        await reporter.CompleteAsync(success: false);
+
+        var complete = await notifications.WhenEventAsync(CompleteEventName).WaitAsync(TimeSpan.FromSeconds(5));
+        var payload = Assert.IsType<ScheduledRunCompleteEvent>(complete.Payload);
+
+        // The key here is the run's all-outcomes complete key, whose text reads as a finished run, and
+        // the frontend renders a failed card from the error ahead of the key. Leaving the error empty
+        // would put "complete" on a card that failed.
+        Assert.Equal("probe.complete", payload.StageKey);
+        Assert.False(string.IsNullOrEmpty(payload.Error));
+    }
+
+    [Fact]
     public async Task CompleteAsync_ParentTokenCancellationStillEmitsCancelledTerminalAsync()
     {
         var notifications = new CapturingNotificationService();

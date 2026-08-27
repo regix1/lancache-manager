@@ -101,6 +101,54 @@ public sealed class XboxAuthClientTests
         Assert.Contains("scope=service::user.auth.xboxlive.com::MBI_SSL", decodedBody);
     }
 
+    [Theory]
+    [InlineData(2148916233, "signalr.xbox.mapping.errors.noXboxProfile")]
+    [InlineData(2148916235, "signalr.xbox.mapping.errors.regionUnavailable")]
+    [InlineData(2148916236, "signalr.xbox.mapping.errors.ageVerificationRequired")]
+    [InlineData(2148916237, "signalr.xbox.mapping.errors.ageVerificationRequired")]
+    [InlineData(2148916238, "signalr.xbox.mapping.errors.childAccount")]
+    public async Task EnsureXblAuthSuccessAsync_MapsKnownXErrCodesToStageKeys(long xErr, string expectedStageKey)
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent(
+                $$"""{ "Identity": "0", "XErr": {{xErr}}, "Message": "", "Redirect": "" }""",
+                Encoding.UTF8,
+                "application/json")
+        };
+
+        var ex = await Assert.ThrowsAsync<XboxLogonException>(
+            () => XboxAuthClient.EnsureXblAuthSuccessAsync(response));
+
+        Assert.Equal(expectedStageKey, ex.StageKey);
+        Assert.Null(ex.Context);
+    }
+
+    [Fact]
+    public async Task EnsureXblAuthSuccessAsync_SurfacesUnknownXErrAndPlainHttpFailures()
+    {
+        using var unknownXErr = new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent("""{ "XErr": 2148916234 }""", Encoding.UTF8, "application/json")
+        };
+        var ex = await Assert.ThrowsAsync<XboxLogonException>(
+            () => XboxAuthClient.EnsureXblAuthSuccessAsync(unknownXErr));
+        Assert.Equal("signalr.xbox.mapping.errors.refused", ex.StageKey);
+        Assert.Equal(2148916234L, ex.Context?["code"]);
+
+        using var nonJson = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+        {
+            Content = new StringContent("<html>upstream error</html>", Encoding.UTF8, "text/html")
+        };
+        ex = await Assert.ThrowsAsync<XboxLogonException>(
+            () => XboxAuthClient.EnsureXblAuthSuccessAsync(nonJson));
+        Assert.Equal("signalr.xbox.mapping.errors.httpFailure", ex.StageKey);
+        Assert.Equal(503, ex.Context?["status"]);
+
+        using var success = new HttpResponseMessage(HttpStatusCode.OK);
+        await XboxAuthClient.EnsureXblAuthSuccessAsync(success);
+    }
+
     [Fact]
     public void SignatureBuffer_HasExactGoldenLayout()
     {

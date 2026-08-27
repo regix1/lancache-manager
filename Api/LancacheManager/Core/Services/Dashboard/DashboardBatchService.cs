@@ -493,6 +493,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         // Service breakdown (also provides top service - no separate query needed)
         // xboxlive and microsoft rows are folded into xbox after materialisation
         var serviceBreakdown = ServiceBreakdownMerger.MergeXboxRows(await downloadsQuery
+            .ApplyPlaceholderServiceFilter()
             .GroupBy(d => d.Service)
             .Select(g => new ServiceBreakdownItem
             {
@@ -905,6 +906,7 @@ public partial class DashboardBatchService : IDashboardBatchService
     internal static IQueryable<ServiceStats> ServiceStatsQuery(IQueryable<Download> filteredQuery)
     {
         return filteredQuery
+            .ApplyPlaceholderServiceFilter()
             .GroupBy(d => d.Service)
             .Select(g => new ServiceStats
             {

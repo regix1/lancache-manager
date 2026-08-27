@@ -175,7 +175,21 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
         return;
       }
       if (event.status === 'failed') {
-        failLogin(event.error ?? event.message ?? t('modals.xboxAuth.errors.loginFailed'));
+        // A classified provider refusal (XboxLogonException on the backend) carries a stage key
+        // under signalr.xbox.mapping.errors.* and no error/message; the general catch keeps
+        // sending ex.Message as error, which still wins so today's text is unchanged for it.
+        const stageDetail = event.stageKey ? t(event.stageKey, event.context ?? {}) : undefined;
+        if (!event.error && event.stageKey) {
+          // A classified refusal can only be thrown from inside the catalog harvest, so it is always
+          // past approval and the reporter has already settled the card with this exact translated
+          // sentence one message earlier. Hand ownership over before failLogin snapshots it, or a
+          // second card lands carrying the generic "Xbox login failed" and demotes the real reason to
+          // a detail line the condensed strip never draws. [27]
+          loginNotificationActiveRef.current = false;
+        }
+        failLogin(
+          event.error ?? stageDetail ?? event.message ?? t('modals.xboxAuth.errors.loginFailed')
+        );
         return;
       }
       // Cancelled. Same ownership snapshot failLogin takes, for the same reason.

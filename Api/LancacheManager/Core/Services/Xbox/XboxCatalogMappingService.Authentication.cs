@@ -309,6 +309,29 @@ public partial class XboxCatalogMappingService
                 "signalr.xbox.mapping.cancelled",
                 "Xbox login cancelled");
         }
+        catch (XboxLogonException ex)
+        {
+            _logger.LogWarning(ex, "Xbox mapping login failed");
+            var mappingContext = CreateXboxMappingContext(errorDetail: ex.Message);
+            if (ex.Context is not null)
+            {
+                foreach (var (key, value) in ex.Context)
+                {
+                    mappingContext[key] = value;
+                }
+            }
+
+            await reporter.CompleteAsync(
+                success: false,
+                stageKey: ex.StageKey,
+                context: mappingContext);
+
+            await EmitAuthStateAsync(
+                reporter.OperationId,
+                "failed",
+                ex.StageKey,
+                context: mappingContext);
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Xbox mapping login failed");
@@ -552,7 +575,8 @@ public partial class XboxCatalogMappingService
         string status,
         string stageKey,
         string? message = null,
-        string? error = null)
+        string? error = null,
+        Dictionary<string, object?>? context = null)
     {
         try
         {
@@ -563,7 +587,8 @@ public partial class XboxCatalogMappingService
                     status,
                     stageKey,
                     message,
-                    error));
+                    error,
+                    context));
         }
         catch (Exception ex)
         {

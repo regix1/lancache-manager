@@ -35,6 +35,24 @@ public static class DownloadQueryExtensions
         return query.Where(d => d.IsActive || d.CacheHitBytes > 0 || d.CacheMissBytes > 0);
     }
 
+    /// <summary>
+    /// Hides the two service tags that name no service. Both are placeholders the log parser
+    /// substitutes for a hostname it could not use: <c>localhost</c> for traffic tagged 127.x, and
+    /// <c>ip-address</c> for a client that reached the cache by address instead of by name. Neither
+    /// can ever be attributed to files on disk, because a cache filename hashes the service
+    /// identifier nginx wrote and these two replace that identifier rather than repeat it, so a
+    /// service row for either is a name with nothing behind it.
+    ///
+    /// Aggregate service rows only. Their individual downloads and their client IPs stay visible,
+    /// which is how a client misconfigured to use an address remains noticeable.
+    /// </summary>
+    public static IQueryable<Download> ApplyPlaceholderServiceFilter(this IQueryable<Download> query)
+    {
+        return query.Where(d => !_placeholderServices.Contains(d.Service.ToLower()));
+    }
+
+    private static readonly string[] _placeholderServices = ["localhost", "ip-address"];
+
     public static IQueryable<Download> ApplyEventFilter(this IQueryable<Download> query, List<long> eventIds, HashSet<long>? eventDownloadIds)
     {
         if (eventIds.Count == 0 || eventDownloadIds == null)

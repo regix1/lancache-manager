@@ -529,6 +529,7 @@
       "downloadsInRange": "{{count}} downloads",
       "uniqueClientsInRange": "{{count}} unique",
       "gamesOnDisk": "Games on Disk",
+      "servicesOnDisk": "Services on Disk",
       "gamesDetected": "{{count}} games detected",
       "noScanData": "No scan data yet",
       "noCacheScanData": "No scan data yet — run a scan in Management → Cache.",
@@ -576,7 +577,11 @@
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
-        "description": "Size of cache files matched to known games during the last Game Cache Detection scan. Shared files are counted once using actual file sizes computed when the scan completes. Service-level cache (Windows Update, etc.) is not included here. Cache files nothing identified appear in the unmapped cache portion when a cache file scan is available."
+        "description": "Size of cache files matched to known games during the last Game Cache Detection scan. Shared files are counted once using actual file sizes computed when the scan completes. Service-level cache (Windows Update, etc.) is not counted here — it has its own Services on Disk card. Cache files nothing identified appear in the unmapped cache portion when a cache file scan is available."
+      },
+      "servicesOnDisk": {
+        "term": "Services on Disk",
+        "description": "Size of cache files the last Game Cache Detection scan matched to a service rather than to a named game, typically Windows Update, Xbox, Blizzard and Epic content. Add this to Games on Disk and the unmapped cache figure to account for the whole cache file scan total."
       },
       "unmappedCache": "{{size}} unmapped cache"
     },
@@ -7328,7 +7333,15 @@
         "collecting": "Collecting Xbox library...",
         "completed": "Xbox login complete",
         "cancelled": "Xbox login cancelled",
-        "failed": "Xbox login failed"
+        "failed": "Xbox login failed",
+        "errors": {
+          "noXboxProfile": "This Microsoft account has no Xbox profile. Sign in once at xbox.com to create one, then try again.",
+          "regionUnavailable": "Xbox Live is not available in this account's country or region.",
+          "ageVerificationRequired": "This account needs age verification in its country before it can use Xbox Live.",
+          "childAccount": "This is a child account. An adult must add it to a Microsoft family group before it can use Xbox Live.",
+          "refused": "Xbox refused the sign-in (code {{code}}).",
+          "httpFailure": "Xbox authentication failed with HTTP {{status}}."
+        }
       }
     },
     "epicRemove": {

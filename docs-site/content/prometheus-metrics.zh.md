@@ -64,6 +64,7 @@
 | `lancache_game_cache_files` | 该游戏找到的缓存文件数 |
 | `lancache_games_on_disk_bytes` | 归属于游戏的总字节数，已去重 |
 | `lancache_games_on_disk_count` | 磁盘上找到的游戏数量 |
+| `lancache_identified_service_bytes` | 归属于某个服务但未归属到任何游戏的总字节数，已去重 |
 | `lancache_detection_computed_timestamp` | 磁盘数据最近一次计算的时间，Unix 时间戳 |
 
 磁盘类指标会跳过已驱逐的游戏，与"磁盘上的游戏"视图的做法一致，因此两者的数字相符。之所以提供 `lancache_detection_computed_timestamp`，是因为这些数字只在缓存扫描或移除操作时才会重新计算。没有它的话，一条水平的曲线既可能表示确实没有变化，也可能表示根本没有运行过计算。

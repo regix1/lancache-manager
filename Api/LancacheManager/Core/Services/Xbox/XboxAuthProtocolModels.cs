@@ -94,6 +94,9 @@ internal sealed class XboxMsaTokenResponse
 
     [JsonPropertyName("error")]
     public string? Error { get; set; }
+
+    [JsonPropertyName("error_description")]
+    public string? ErrorDescription { get; set; }
 }
 
 // --- XBL / XSTS wire models (PascalCase) ---
@@ -112,6 +115,17 @@ internal sealed class XboxXblAuthResponse
 
     [JsonPropertyName("NotAfter")]
     public DateTime NotAfter { get; set; }
+}
+
+/// <summary>
+/// Error body the XBL user-authenticate and XSTS endpoints return on 401. <c>XErr</c> says why the
+/// account was refused (no Xbox profile, unavailable country, age verification, child account) and
+/// exceeds <see cref="int.MaxValue"/>, hence <see cref="long"/>.
+/// </summary>
+internal sealed class XboxXblAuthErrorResponse
+{
+    [JsonPropertyName("XErr")]
+    public long XErr { get; set; }
 }
 
 /// <summary>Response from <c>xsts.auth.xboxlive.com/xsts/authorize</c>.</summary>
