@@ -197,26 +197,4 @@ public class AccountDisplayNameCaptureTests
 
         return (daemon, session, sessionService, recorder);
     }
-
-    private class RecordingNotificationProxy : DispatchProxy
-    {
-        public List<(string Method, object?[] Args)> Invocations { get; } = new();
-
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            if (targetMethod is not null)
-            {
-                Invocations.Add((targetMethod.Name, args ?? Array.Empty<object?>()));
-            }
-
-            var returnType = targetMethod?.ReturnType;
-            if (returnType is null || returnType == typeof(void)) return null;
-            if (returnType == typeof(Task)) return Task.CompletedTask;
-            if (returnType.IsValueType && Nullable.GetUnderlyingType(returnType) is null)
-            {
-                return Activator.CreateInstance(returnType);
-            }
-            return null;
-        }
-    }
 }

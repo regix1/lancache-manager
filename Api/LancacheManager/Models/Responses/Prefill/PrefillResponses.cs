@@ -20,6 +20,20 @@ public class PrefillCacheStatusResponse
 }
 
 /// <summary>
+/// Result of clearing one app's prefill cache.
+/// </summary>
+public class PrefillCacheRemovalResponse
+{
+    public string Message { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Depot rows actually removed. Zero means the app read as cached off another app's rows and
+    /// owned none of its own, which is the only case where the badge survives the delete.
+    /// </summary>
+    public int RemovedDepots { get; set; }
+}
+
+/// <summary>
 /// 404 body for "no running persistent session" lookups (<see cref="Controllers.PersistentPrefillController"/>).
 /// Distinguishes a session that exists but flipped to <see cref="DaemonSessionStatus.Error"/>
 /// (e.g. the daemon's socket dropped) from no session ever having been started, so the frontend

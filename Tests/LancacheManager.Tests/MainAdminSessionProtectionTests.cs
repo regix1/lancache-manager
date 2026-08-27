@@ -356,6 +356,7 @@ public sealed class MainAdminSessionProtectionTests
             riotDaemonService: null!,
             xboxDaemonService: null!,
             cacheService: null!,
+            notifications: null!,
             NullLogger<PrefillAdminController>.Instance);
 
         var httpContext = new DefaultHttpContext();

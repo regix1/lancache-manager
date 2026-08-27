@@ -86,6 +86,14 @@ public static class SignalREvents
     /// </summary>
     public const string ServiceCountsChanged = "ServiceCountsChanged";
 
+    // Prefill Cache
+    /// <summary>
+    /// Broadcast whenever the shared prefill cached-depot table changes (a depot newly recorded by a
+    /// download, one app removed, the whole cache cleared) so every open game picker refetches
+    /// instead of showing the cached state another browser has already moved on from.
+    /// </summary>
+    public const string PrefillCacheChanged = "PrefillCacheChanged";
+
     // Database Operations
     public const string DatabaseResetStarted = "DatabaseResetStarted";
     public const string DatabaseResetProgress = "DatabaseResetProgress";

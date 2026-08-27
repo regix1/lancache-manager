@@ -150,6 +150,7 @@ export const SIGNALR_EVENTS = [
   'PrefillProgress',
   'PrefillHistoryUpdated',
   'SessionEnded',
+  'PrefillCacheChanged',
 
   // Epic Prefill Daemon Events
   'EpicDaemonSessionCreated',

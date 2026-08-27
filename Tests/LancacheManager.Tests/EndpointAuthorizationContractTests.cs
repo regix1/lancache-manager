@@ -182,6 +182,7 @@ public sealed class EndpointAuthorizationContractTests
         "PrefillAdminController.BanByUsername",
         "PrefillAdminController.LiftBan",
         "PrefillAdminController.ClearAllCache",
+        "PrefillAdminController.ClearAppCache",
         "ScheduleController.GetAll",
         "ScheduleController.GetByKey",
         "ScheduleController.GetRunStatus",

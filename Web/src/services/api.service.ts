@@ -2302,6 +2302,24 @@ class ApiService {
     }
   }
 
+  // Drop one app's cached-depot records (database rows only, never cache files on disk)
+  static async deletePrefillCachedApp(
+    appId: string
+  ): Promise<{ message: string; removedDepots: number }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/prefill-admin/cache/${encodeURIComponent(appId)}`,
+        this.getFetchOptions({
+          method: 'DELETE'
+        })
+      );
+      return await this.handleResponse<{ message: string; removedDepots: number }>(res);
+    } catch (error: unknown) {
+      console.error('deletePrefillCachedApp error:', error);
+      throw error;
+    }
+  }
+
   // =====================================================
   // Migration / Import APIs
   // =====================================================

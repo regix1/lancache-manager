@@ -283,41 +283,4 @@ public class PrefillProgressLoginPhaseGuardTests
         }
     }
 
-    /// <summary>
-    /// Records every <see cref="ISignalRNotificationService"/> invocation (method name + args) so a test
-    /// can assert which SignalR events were (or were not) broadcast, then returns the same harmless
-    /// null/Task defaults as <see cref="NullReturningProxy"/> for members the tests don't exercise. Not
-    /// sealed: <see cref="DispatchProxy.Create{T, TProxy}"/> generates a subtype of the proxy class.
-    /// </summary>
-    private class RecordingNotificationProxy : DispatchProxy
-    {
-        public List<(string Method, object?[] Args)> Invocations { get; } = new();
-
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            if (targetMethod is not null)
-            {
-                Invocations.Add((targetMethod.Name, args ?? Array.Empty<object?>()));
-            }
-
-            var returnType = targetMethod?.ReturnType;
-
-            if (returnType is null || returnType == typeof(void))
-            {
-                return null;
-            }
-
-            if (returnType == typeof(Task))
-            {
-                return Task.CompletedTask;
-            }
-
-            if (returnType.IsValueType && Nullable.GetUnderlyingType(returnType) is null)
-            {
-                return Activator.CreateInstance(returnType);
-            }
-
-            return null;
-        }
-    }
 }

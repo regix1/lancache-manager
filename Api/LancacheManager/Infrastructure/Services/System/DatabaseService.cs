@@ -707,6 +707,9 @@ public class DatabaseService
                                 Math.Min(currentProgress + progressPerTable, 85.0),
                                 "PrefillCachedDepots", prefillCachedDepotsCount,
                                 $"Cleared prefill cache status ({prefillCachedDepotsCount:N0} rows)");
+
+                            // Open game pickers are holding the cached app ids this table produced.
+                            await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
                             break;
 
                         case "CacheSnapshots":

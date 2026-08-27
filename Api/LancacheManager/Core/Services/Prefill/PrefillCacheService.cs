@@ -25,7 +25,11 @@ public class PrefillCacheService
     /// Records that a depot has been successfully cached.
     /// Called after a successful prefill download.
     /// </summary>
-    public async Task RecordCachedDepotAsync(
+    /// <returns>
+    /// True when this depot was newly recorded, false when an entry already covering the same
+    /// manifest only had its timestamp refreshed.
+    /// </returns>
+    public async Task<bool> RecordCachedDepotAsync(
         long appId,
         long depotId,
         ulong manifestId,
@@ -77,11 +81,28 @@ public class PrefillCacheService
                 depotId, appId, appName, manifestId);
         }
 
-        await context.SaveChangesAsync();
+        try
+        {
+            await context.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex)
+        {
+            // Depot+manifest is unique, so two containers prefilling the same game both read no row
+            // and both insert; one of them loses. The row still exists and the rest of the batch
+            // still has to be written, so this is not a failure to report upwards.
+            _logger.LogDebug(ex, "Depot {DepotId} manifest {ManifestId} was recorded by another writer",
+                depotId, manifestId);
+            return false;
+        }
 
         // Also update SteamDepotMappings so downloads can resolve game names
         // This captures mappings that PICS doesn't provide (e.g., private branches, unusual depot structures)
         await EnsureDepotMappingExistsAsync(context, appId, depotId, appName);
+
+        // Re-recording a depot+manifest already in the table only moves its timestamp, so every app
+        // stays on the side of the cached/not-cached line it was already on. Only the insert branch
+        // moves one across, which is what a listener needs to hear about.
+        return existing == null;
     }
 
     /// <summary>
@@ -158,16 +179,22 @@ public class PrefillCacheService
     /// <summary>
     /// Records multiple depots as cached (batch operation after app download).
     /// </summary>
-    public async Task RecordCachedDepotsAsync(
+    /// <returns>True when at least one depot in the batch was newly recorded.</returns>
+    public async Task<bool> RecordCachedDepotsAsync(
         long appId,
         string? appName,
         IEnumerable<(long DepotId, ulong ManifestId, long TotalBytes)> depots,
         string? cachedBy)
     {
+        var recorded = false;
+
         foreach (var (depotId, manifestId, totalBytes) in depots)
         {
-            await RecordCachedDepotAsync(appId, depotId, manifestId, appName, totalBytes, cachedBy);
+            // |= rather than a short-circuiting || so every depot is still recorded once one has been.
+            recorded |= await RecordCachedDepotAsync(appId, depotId, manifestId, appName, totalBytes, cachedBy);
         }
+
+        return recorded;
     }
 
     /// <summary>
@@ -246,7 +273,12 @@ public class PrefillCacheService
     /// <summary>
     /// Clears the cache for a specific app (for force re-download).
     /// </summary>
-    public async Task ClearAppCacheAsync(long appId)
+    /// <returns>
+    /// The number of depot rows removed. Cached status is read per depot+manifest with no app term,
+    /// so an app whose depots all sit under another app's rows reads as cached while owning none,
+    /// and clearing it removes nothing.
+    /// </returns>
+    public async Task<int> ClearAppCacheAsync(long appId)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -260,6 +292,8 @@ public class PrefillCacheService
             await context.SaveChangesAsync();
             _logger.LogInformation("Cleared cache for app {AppId} ({Count} depots)", appId, entries.Count);
         }
+
+        return entries.Count;
     }
 
     /// <summary>

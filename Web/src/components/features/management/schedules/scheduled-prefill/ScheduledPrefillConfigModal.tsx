@@ -76,6 +76,8 @@ import type {
 import { getErrorMessage, isAbortError } from '@utils/error';
 import { sessionStore } from '@utils/storage';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 
 interface ScheduledPrefillConfigModalProps {
   opened: boolean;
@@ -265,6 +267,7 @@ export function ScheduledPrefillConfigModal({
   onSaved
 }: ScheduledPrefillConfigModalProps) {
   const { t } = useTranslation();
+  const { on: onSignalR, off: offSignalR, isConnected } = useSignalR();
   // CustomScrollbar's own maxHeight="100%" does not reliably resolve here: this modal's body is a
   // pure flex-grow chain with no explicit CSS height anywhere in it, and a plain block descendant's
   // percentage max-height needs one (measured: it fell back to unconstrained content height instead
@@ -1366,6 +1369,31 @@ export function ScheduledPrefillConfigModal({
     },
     []
   );
+
+  // The cached-depot table is shared by every container and every browser, so a game finishing in
+  // any of them has to reach this picker while it is open. Nothing to re-read when it is closed:
+  // the reload needs the open selection's service and session, and reopening loads them anyway.
+  useEffect(() => {
+    const handlePrefillCacheChanged = () => {
+      if (!gameSelection) {
+        return;
+      }
+      void loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
+    };
+    onSignalR('PrefillCacheChanged', handlePrefillCacheChanged);
+    return () => {
+      offSignalR('PrefillCacheChanged', handlePrefillCacheChanged);
+    };
+  }, [onSignalR, offSignalR, gameSelection, loadGameSelection]);
+
+  // A broadcast that lands while the socket is down is lost, leaving the cached badges stale for
+  // as long as the picker stays open. Re-read once the connection is live again.
+  useReconnectRefetch(isConnected, () => {
+    if (!gameSelection) {
+      return;
+    }
+    void loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
+  });
 
   const handleOpenGameSelection = (serviceKey: ScheduledPrefillServiceKey) => {
     const serviceId = getPersistentServiceId(serviceKey);

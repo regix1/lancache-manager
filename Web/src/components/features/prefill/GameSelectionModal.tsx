@@ -7,8 +7,9 @@ import Badge from '../../ui/Badge';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import { SearchInput } from '../../ui/SearchInput';
-import { Check, Gamepad2, Import, Database, EyeOff, Eye } from 'lucide-react';
+import { Check, Gamepad2, Import, Database, Trash2 } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { EmptyState } from '@components/ui/ManagerCard';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 
 export interface OwnedGame {
@@ -29,6 +30,8 @@ interface GameSelectionModalProps {
   cachedAppIds?: string[];
   isUsingCache?: boolean;
   onRescan?: () => Promise<void>;
+  onRemoveFromCache?: (appId: string) => Promise<void>;
+  removingAppId?: string | null;
 }
 
 export function GameSelectionModal({
@@ -41,7 +44,9 @@ export function GameSelectionModal({
   isLoading = false,
   cachedAppIds = [],
   isUsingCache = false,
-  onRescan
+  onRescan,
+  onRemoveFromCache,
+  removingAppId = null
 }: GameSelectionModalProps) {
   const { t } = useTranslation();
   const { notifyError } = useErrorHandler();
@@ -52,6 +57,7 @@ export function GameSelectionModal({
 
   // Create a Set for O(1) lookup
   const cachedAppIdsSet = useMemo(() => new Set(cachedAppIds), [cachedAppIds]);
+  const gameIdSet = useMemo(() => new Set(games.map((g) => g.appId)), [games]);
 
   const canImportAppIds = serviceId === 'steam';
 
@@ -109,7 +115,6 @@ export function GameSelectionModal({
       return;
     }
 
-    const ownedAppIds = new Set(games.map((g) => g.appId));
     let added = 0;
     let alreadySelected = 0;
     const notInLibrary: string[] = [];
@@ -117,7 +122,7 @@ export function GameSelectionModal({
     setLocalSelected((prev) => {
       const next = new Set(prev);
       for (const appId of appIds) {
-        if (!ownedAppIds.has(appId)) {
+        if (!gameIdSet.has(appId)) {
           notInLibrary.push(appId);
         } else if (next.has(appId)) {
           alreadySelected++;
@@ -133,9 +138,10 @@ export function GameSelectionModal({
     if (added > 0) {
       setImportText('');
     }
-  }, [importText, games, parseImportText]);
+  }, [importText, gameIdSet, parseImportText]);
 
-  // Filter games by search and cached status
+  // Filter games by search. The cached filter belongs to the available group alone: a game the
+  // user has already picked has to stay on screen or there is no way left to untick it.
   const filteredGames = useMemo(() => {
     let filtered = games;
 
@@ -148,18 +154,25 @@ export function GameSelectionModal({
       );
     }
 
-    // Filter out cached games if hideCached is enabled
-    if (hideCached) {
-      filtered = filtered.filter((game) => !cachedAppIdsSet.has(game.appId));
-    }
-
     return filtered;
-  }, [games, search, hideCached, cachedAppIdsSet]);
+  }, [games, search]);
 
   // Count cached games for display
   const cachedCount = useMemo(
     () => games.filter((g) => cachedAppIdsSet.has(g.appId)).length,
     [games, cachedAppIdsSet]
+  );
+
+  // The parent's selection can name an app the library no longer lists. A stale id would
+  // otherwise inflate every count here and be handed straight back to the server on save.
+  const selectedInLibrary = useMemo(
+    () => [...localSelected].filter((id) => gameIdSet.has(id)),
+    [localSelected, gameIdSet]
+  );
+
+  const cachedSelectedCount = useMemo(
+    () => selectedInLibrary.filter((id) => cachedAppIdsSet.has(id)).length,
+    [selectedInLibrary, cachedAppIdsSet]
   );
 
   // Sort: selected first, then alphabetically
@@ -173,6 +186,59 @@ export function GameSelectionModal({
     });
   }, [filteredGames, localSelected]);
 
+  const selectedGames = useMemo(
+    () => sortedGames.filter((game) => localSelected.has(game.appId)),
+    [sortedGames, localSelected]
+  );
+
+  // hideCached applies to this group only, so a selected game that is already cached keeps a row.
+  const availableGames = useMemo(
+    () =>
+      sortedGames.filter(
+        (game) => !localSelected.has(game.appId) && !(hideCached && cachedAppIdsSet.has(game.appId))
+      ),
+    [sortedGames, localSelected, hideCached, cachedAppIdsSet]
+  );
+
+  const shownGamesCount = selectedGames.length + availableGames.length;
+
+  // Five reasons the list can come up empty, first match wins. The search-with-a-selection branch
+  // comes before the plain search ones because a selection the search has hidden is the one case
+  // where the header still counts games the reader can see no row for. The last one names the
+  // toggle by its on-screen label, which is why that label no longer flips between Show and Hide.
+  const emptyState = useMemo(() => {
+    if (games.length === 0) {
+      return {
+        title: t('prefill.gameSelection.libraryEmpty'),
+        subtitle: t('prefill.gameSelection.libraryEmptyHelp')
+      };
+    }
+    if (search.trim() && selectedInLibrary.length > 0) {
+      return {
+        title: t('prefill.gameSelection.noGamesFound'),
+        subtitle: t('prefill.gameSelection.selectedHiddenBySearch', {
+          count: selectedInLibrary.length
+        })
+      };
+    }
+    if (search.trim() && hideCached) {
+      return {
+        title: t('prefill.gameSelection.noGamesFound'),
+        subtitle: t('prefill.gameSelection.tryDifferentSearchOrShowCached')
+      };
+    }
+    if (search.trim()) {
+      return {
+        title: t('prefill.gameSelection.noGamesFound'),
+        subtitle: t('prefill.gameSelection.tryDifferentSearch')
+      };
+    }
+    return {
+      title: t('prefill.gameSelection.allCachedHidden'),
+      subtitle: t('prefill.gameSelection.allCachedHiddenHelp')
+    };
+  }, [games.length, search, hideCached, selectedInLibrary.length, t]);
+
   const toggleGame = useCallback((appId: string) => {
     setLocalSelected((prev) => {
       const next = new Set(prev);
@@ -185,9 +251,11 @@ export function GameSelectionModal({
     });
   }, []);
 
+  // The rows on screen, both groups: hiding cached games has to keep them out of Select All too,
+  // or the button hands back a selection the user asked not to see.
   const selectAll = useCallback(() => {
-    setLocalSelected(new Set(filteredGames.map((g) => g.appId)));
-  }, [filteredGames]);
+    setLocalSelected(new Set([...selectedGames, ...availableGames].map((g) => g.appId)));
+  }, [selectedGames, availableGames]);
 
   const selectNone = useCallback(() => {
     setLocalSelected(new Set());
@@ -196,7 +264,9 @@ export function GameSelectionModal({
   const handleSave = useCallback(async () => {
     setIsSaving(true);
     try {
-      await onSave(Array.from(localSelected));
+      // An empty library means the games route answered with nothing, not that every pick is an
+      // orphan. Filtering against it would post an empty list and erase the whole selection.
+      await onSave(games.length > 0 ? selectedInLibrary : Array.from(localSelected));
       onClose();
     } catch (err) {
       notifyError(t('prefill.errors.saveSelectionFailed'), err, {
@@ -205,7 +275,7 @@ export function GameSelectionModal({
     } finally {
       setIsSaving(false);
     }
-  }, [localSelected, onSave, onClose, notifyError, t]);
+  }, [games.length, selectedInLibrary, localSelected, onSave, onClose, notifyError, t]);
 
   return (
     <Modal opened={opened} onClose={onClose} title={t('prefill.gameSelection.title')} size="lg">
@@ -219,34 +289,21 @@ export function GameSelectionModal({
             onClear={() => setSearch('')}
           />
           {isUsingCache && (
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2 rounded-lg text-xs bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
-              <div className="flex items-center gap-2 text-[var(--theme-text-muted)]">
-                <Database className="h-3.5 w-3.5 text-[var(--theme-success)]" />
-                <span>{t('prefill.gameSelection.usingCached')}</span>
-              </div>
-              {onRescan && (
-                <Button
-                  variant="filled"
-                  color="run"
-                  size="sm"
-                  onClick={onRescan}
-                  disabled={isLoading}
-                  className="min-h-[44px] sm:min-h-0 sm:h-7 px-2 text-xs"
-                >
-                  {t('prefill.gameSelection.rescan')}
-                </Button>
-              )}
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-muted)]">
+              <Database className="h-3.5 w-3.5 text-[var(--theme-success)]" />
+              <span>{t('prefill.gameSelection.usingCached')}</span>
             </div>
           )}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {/* Wrapping row rather than a 4-column grid: the cluster holds three to five buttons
+              depending on Import and Rescan, and a grid leaves the short last row half empty. */}
+          <div className="flex flex-wrap gap-2">
             {canImportAppIds && (
               <Button
                 variant="filled"
                 color={showImport ? 'primary' : 'secondary'}
                 size="sm"
                 onClick={() => setShowImport(!showImport)}
-                fullWidth
-                className="min-h-[44px] sm:min-h-8"
+                className="flex-1 basis-[calc(50%-0.25rem)] sm:basis-0 sm:min-w-[7rem] min-h-[44px] sm:min-h-8"
               >
                 <Import className="h-4 w-4" />
                 {t('prefill.gameSelection.importAppIds')}
@@ -255,16 +312,25 @@ export function GameSelectionModal({
             {cachedCount > 0 && (
               <Button
                 variant="filled"
-                color={hideCached ? 'primary' : 'secondary'}
+                color={hideCached ? 'secondary' : 'primary'}
                 size="sm"
                 onClick={() => setHideCached(!hideCached)}
-                fullWidth
-                className="min-h-[44px] sm:min-h-8"
+                aria-pressed={!hideCached}
+                className="flex-1 basis-[calc(50%-0.25rem)] sm:basis-0 sm:min-w-[7rem] min-h-[44px] sm:min-h-8"
               >
-                {hideCached ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                {hideCached
-                  ? t('prefill.gameSelection.showCached')
-                  : t('prefill.gameSelection.hideCached')}
+                {t('prefill.gameSelection.showCached')}
+              </Button>
+            )}
+            {onRescan && (
+              <Button
+                variant="filled"
+                color="run"
+                size="sm"
+                onClick={onRescan}
+                disabled={isLoading}
+                className="flex-1 basis-[calc(50%-0.25rem)] sm:basis-0 sm:min-w-[7rem] min-h-[44px] sm:min-h-8"
+              >
+                {t('prefill.gameSelection.rescan')}
               </Button>
             )}
             <Button
@@ -272,8 +338,7 @@ export function GameSelectionModal({
               color="secondary"
               size="sm"
               onClick={selectAll}
-              fullWidth
-              className="min-h-[44px] sm:min-h-8"
+              className="flex-1 basis-[calc(50%-0.25rem)] sm:basis-0 sm:min-w-[7rem] min-h-[44px] sm:min-h-8"
             >
               {t('common.selectAll')}
             </Button>
@@ -282,8 +347,7 @@ export function GameSelectionModal({
               color="secondary"
               size="sm"
               onClick={selectNone}
-              fullWidth
-              className="min-h-[44px] sm:min-h-8"
+              className="flex-1 basis-[calc(50%-0.25rem)] sm:basis-0 sm:min-w-[7rem] min-h-[44px] sm:min-h-8"
             >
               {t('common.clear')}
             </Button>
@@ -364,28 +428,41 @@ export function GameSelectionModal({
           </div>
         </CollapsibleRegion>
 
-        {/* Selection count */}
+        {/* Selection count. "Already cached" is muted rather than green: those games are the ones
+            the daemon will skip, which is neutral news, not good news. */}
         <div className="text-sm mb-2 text-[var(--theme-text-muted)] flex flex-wrap items-center gap-2">
-          <span className="text-[var(--theme-primary)] font-semibold">{localSelected.size}</span>
-          <span>
-            {t('prefill.gameSelection.ofGamesSelected', {
-              total: games.length,
-              count: games.length
-            })}
-          </span>
-          {cachedCount > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <Database className="inline h-3.5 w-3.5 text-[var(--theme-success)]" />
-              <span className="text-[var(--theme-success)]">
-                {t('prefill.gameSelection.cached', { count: cachedCount })}
+          {selectedInLibrary.length > 0 ? (
+            <>
+              <span className="font-semibold text-[var(--theme-text-primary)] tabular-nums">
+                {t('prefill.gameSelection.willDownload', {
+                  count: selectedInLibrary.length - cachedSelectedCount
+                })}
               </span>
+              {cachedSelectedCount > 0 && (
+                <span className="tabular-nums">
+                  · {t('prefill.gameSelection.alreadyCachedCount', { count: cachedSelectedCount })}
+                </span>
+              )}
+              {shownGamesCount !== games.length && (
+                <span className="tabular-nums">
+                  ·{' '}
+                  {t('prefill.gameSelection.showingOfTotal', {
+                    count: shownGamesCount,
+                    total: games.length
+                  })}
+                </span>
+              )}
+            </>
+          ) : shownGamesCount !== games.length ? (
+            <span className="tabular-nums">
+              {t('prefill.gameSelection.showingOfTotal', {
+                count: shownGamesCount,
+                total: games.length
+              })}
             </span>
-          )}
-          {(search || hideCached) && (
-            <span className="text-[var(--theme-text-muted)]">
-              ({t('prefill.gameSelection.showing', { count: filteredGames.length })}
-              {search ? ` ${t('prefill.gameSelection.matching', { query: search })}` : ''}
-              {hideCached ? `, ${t('prefill.gameSelection.hidingCached')}` : ''})
+          ) : (
+            <span className="tabular-nums">
+              {t('prefill.gameSelection.libraryTotal', { count: games.length })}
             </span>
           )}
         </div>
@@ -404,36 +481,31 @@ export function GameSelectionModal({
                 </div>
               ))}
             </div>
-          ) : sortedGames.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-[var(--theme-text-muted)]">
-              <div className="w-16 h-16 rounded-xl flex items-center justify-center mb-3 bg-[var(--theme-bg-secondary)]">
-                <Gamepad2 className="h-8 w-8 opacity-50" />
-              </div>
-              <p className="font-medium">{t('prefill.gameSelection.noGamesFound')}</p>
-              {search && (
-                <p className="text-sm mt-1 opacity-70">
-                  {t('prefill.gameSelection.tryDifferentSearch')}
-                </p>
-              )}
+          ) : shownGamesCount === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <EmptyState
+                variant="panel"
+                icon={Gamepad2}
+                title={emptyState.title}
+                subtitle={emptyState.subtitle}
+              />
             </div>
           ) : (
             <div className="absolute inset-0 flex flex-col overflow-hidden rounded-lg">
               {/* Selected games section - sticky at top */}
-              {sortedGames.some((g) => localSelected.has(g.appId)) && (
+              {selectedGames.length > 0 && (
                 <div
                   className={`flex flex-col ${
-                    sortedGames.some((g) => !localSelected.has(g.appId))
+                    availableGames.length > 0
                       ? 'flex-shrink-0 max-h-[45%] sm:max-h-[40%]'
                       : 'flex-1 min-h-0'
                   }`}
                 >
                   <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 flex items-center gap-2 bg-[var(--theme-selected-bg)] text-[var(--theme-selected-text)] border-b border-[var(--theme-border-secondary)]">
                     <span>{t('prefill.gameSelection.selected')}</span>
-                    {localSelected.size > 0 && (
-                      <Badge variant="neutral" className="badge-count">
-                        {localSelected.size}
-                      </Badge>
-                    )}
+                    <Badge variant="neutral" className="badge-count">
+                      {selectedInLibrary.length}
+                    </Badge>
                   </div>
                   <CustomScrollbar
                     maxHeight="100%"
@@ -443,21 +515,24 @@ export function GameSelectionModal({
                     variant="float"
                   >
                     <div className="divided-list">
-                      {sortedGames
-                        .filter((g) => localSelected.has(g.appId))
-                        .map((game) => {
-                          const isCached = cachedAppIdsSet.has(game.appId);
-                          return (
+                      {selectedGames.map((game) => {
+                        const isCached = cachedAppIdsSet.has(game.appId);
+                        return (
+                          /* The row carries the background so the strip behind the remove control
+                             is painted too, and so the control is a sibling of the select toggle
+                             rather than a button nested inside one. */
+                          <div
+                            key={game.appId}
+                            className="w-full flex items-center min-h-[44px] transition-[background-color] duration-150 ease-out bg-[var(--theme-selected-bg)] hover:bg-[var(--theme-selected-bg-hover)]"
+                          >
                             <Button
-                              key={game.appId}
                               type="button"
                               variant="transparent"
-                              fullWidth
                               onClick={() => toggleGame(game.appId)}
                               /* Square corners: the row paints its own selected background, and
                                  the button's default radius would leave the list's darker
                                  surface showing through all four corners of every row. */
-                              className="w-full !rounded-none flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-[var(--theme-selected-bg)] hover:bg-[var(--theme-selected-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
+                              className="flex-1 min-w-0 !rounded-none flex items-center gap-3 px-4 py-3 text-left bg-transparent hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
                             >
                               <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-[var(--theme-primary)] border-2 border-[var(--theme-primary)]">
                                 <Check className="h-3 w-3 text-[var(--theme-button-text)]" />
@@ -473,7 +548,7 @@ export function GameSelectionModal({
                                   </div>
                                 </Tooltip>
                                 <div className="text-xs text-[var(--theme-text-muted)] flex items-center gap-2">
-                                  <span>
+                                  <span className="min-w-0 truncate">
                                     {t('prefill.gameSelection.appId', { id: game.appId })}
                                   </span>
                                   {isCached && (
@@ -484,20 +559,42 @@ export function GameSelectionModal({
                                 </div>
                               </div>
                             </Button>
-                          );
-                        })}
+                            {isCached && onRemoveFromCache && (
+                              <Button
+                                type="button"
+                                variant="filled"
+                                color="secondary"
+                                size="sm"
+                                onClick={() => onRemoveFromCache(game.appId)}
+                                disabled={removingAppId === game.appId}
+                                aria-label={t('prefill.gameSelection.removeFromCache', {
+                                  name: game.name
+                                })}
+                                /* Both margins are load-bearing: .pointer-target-44 overhangs the
+                                   32px box by 6px a side. The right 6px have to land inside mr-3
+                                   rather than across the list's border, and without ml-2 the left
+                                   6px sit over the select toggle, where a tap meant to untick the
+                                   row removes it from the cache instead (measured at 320 and 390). */
+                                className="btn-icon-square btn-icon-square--sm pointer-target-44 delete-hover ml-2 mr-3 flex-shrink-0"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </CustomScrollbar>
                 </div>
               )}
 
               {/* Available games section */}
-              {sortedGames.some((g) => !localSelected.has(g.appId)) && (
+              {availableGames.length > 0 && (
                 <div className="flex-1 min-h-0 flex flex-col">
                   <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 flex items-center gap-2 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
                     <span>{t('prefill.gameSelection.availableGames')}</span>
                     <Badge variant="neutral" className="badge-count">
-                      {sortedGames.filter((g) => !localSelected.has(g.appId)).length}
+                      {availableGames.length}
                     </Badge>
                   </div>
                   <CustomScrollbar
@@ -508,18 +605,18 @@ export function GameSelectionModal({
                     variant="float"
                   >
                     <div className="divided-list">
-                      {sortedGames
-                        .filter((g) => !localSelected.has(g.appId))
-                        .map((game) => {
-                          const isCached = cachedAppIdsSet.has(game.appId);
-                          return (
+                      {availableGames.map((game) => {
+                        const isCached = cachedAppIdsSet.has(game.appId);
+                        return (
+                          <div
+                            key={game.appId}
+                            className="w-full flex items-center min-h-[44px] transition-[background-color] duration-150 ease-out bg-transparent hover:bg-[var(--theme-bg-hover)]"
+                          >
                             <Button
-                              key={game.appId}
                               type="button"
                               variant="transparent"
-                              fullWidth
                               onClick={() => toggleGame(game.appId)}
-                              className="w-full !rounded-none flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-transparent hover:bg-[var(--theme-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
+                              className="flex-1 min-w-0 !rounded-none flex items-center gap-3 px-4 py-3 text-left bg-transparent hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
                             >
                               <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-transparent border-2 border-[var(--theme-border-primary)]" />
                               <div className="flex-1 min-w-0">
@@ -533,7 +630,7 @@ export function GameSelectionModal({
                                   </div>
                                 </Tooltip>
                                 <div className="text-xs text-[var(--theme-text-muted)] flex items-center gap-2">
-                                  <span>
+                                  <span className="min-w-0 truncate">
                                     {t('prefill.gameSelection.appId', { id: game.appId })}
                                   </span>
                                   {isCached && (
@@ -544,8 +641,25 @@ export function GameSelectionModal({
                                 </div>
                               </div>
                             </Button>
-                          );
-                        })}
+                            {isCached && onRemoveFromCache && (
+                              <Button
+                                type="button"
+                                variant="filled"
+                                color="secondary"
+                                size="sm"
+                                onClick={() => onRemoveFromCache(game.appId)}
+                                disabled={removingAppId === game.appId}
+                                aria-label={t('prefill.gameSelection.removeFromCache', {
+                                  name: game.name
+                                })}
+                                className="btn-icon-square btn-icon-square--sm pointer-target-44 delete-hover ml-2 mr-3 flex-shrink-0"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </CustomScrollbar>
                 </div>

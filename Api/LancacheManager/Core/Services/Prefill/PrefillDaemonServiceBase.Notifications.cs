@@ -1,4 +1,5 @@
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Hubs;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
@@ -681,11 +682,20 @@ public abstract partial class PrefillDaemonServiceBase
                     {
                         if (uint.TryParse(progress.CurrentAppId, out var numericAppId))
                         {
-                            await _cacheService.RecordCachedDepotsAsync(
+                            var recorded = await _cacheService.RecordCachedDepotsAsync(
                                 numericAppId,
                                 progress.CurrentAppName,
                                 progress.Depots.Select(d => (d.DepotId, d.ManifestId, d.TotalBytes)),
                                 session.AccountUsername);
+
+                            // An AlreadyUpToDate app re-records depots the table already holds, so a
+                            // prefill of 200 already-cached games reaches this line 200 times with
+                            // nothing new to say. Only a depot that was actually written moves a game
+                            // between the game picker's cached and available groups.
+                            if (recorded)
+                            {
+                                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+                            }
                         }
                     }
                     catch (Exception cacheEx)

@@ -9,6 +9,8 @@ import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import { XboxAuthModal } from '@components/modals/auth/XboxAuthModal';
 import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
+import { useErrorHandler } from '@hooks/useErrorHandler';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { ActivityLog } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import { NetworkStatusSection } from './NetworkStatusSection';
@@ -130,8 +132,11 @@ function ServicePrefillPanel({
     xboxPrefillEnabled
   } = useAuth();
 
-  // Main SignalR hub for system-level events (PrefillDefaultsChanged)
-  const { on: onSignalR, off: offSignalR } = useSignalR();
+  // Main SignalR hub for system-level events (PrefillDefaultsChanged). Named apart from
+  // `signalR.isConnected` below, which is the per-service prefill daemon hub and carries none of
+  // these broadcasts.
+  const { on: onSignalR, off: offSignalR, isConnected: isMainHubConnected } = useSignalR();
+  const { notifyError } = useErrorHandler();
 
   // Local UI state
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -144,6 +149,7 @@ function ServicePrefillPanel({
   const [isLoadingGames, setIsLoadingGames] = useState(false);
   const [cachedAppIds, setCachedAppIds] = useState<string[]>([]);
   const [isUsingGamesCache, setIsUsingGamesCache] = useState(false);
+  const [removingAppId, setRemovingAppId] = useState<string | null>(null);
 
   // Prefill settings state
   const [selectedOS, setSelectedOS] = useState<string[]>(['windows', 'linux', 'macos']);
@@ -507,7 +513,11 @@ function ServicePrefillPanel({
           }
         }
 
-        setCachedAppIds(cachedIds);
+        // Same reason the snapshot is withheld: a failed check is not proof nothing is cached, so
+        // the badges already on screen stay put rather than blanking mid-run.
+        if (cacheStatusResolved) {
+          setCachedAppIds(cachedIds);
+        }
         // Only persist an authoritative snapshot: the cached-status check resolved AND the
         // library actually came back. An empty/failed transient is left uncached (hasData:false)
         // so a later load retries instead of reusing a wrong-empty library until cache expiry.
@@ -528,6 +538,55 @@ function ServicePrefillPanel({
       }
     },
     [signalR.session, addLog, t, serviceBasePath, gamesCacheWindowMs, serviceId]
+  );
+
+  // The cached-depot table is shared by every container and every browser, so a game finishing
+  // anywhere - or a cached entry removed anywhere - must reach this library without a Rescan.
+  // The backend broadcasts this only when rows actually changed, so an all-already-cached run
+  // cannot turn into one event per game.
+  useEffect(() => {
+    // A first-ever run still emits one event per newly cached game, and each reload is three
+    // sequential requests including the slow daemon round trip, so a burst must not stack them.
+    let isRefetching = false;
+    const handlePrefillCacheChanged = () => {
+      if (isRefetching) return;
+      isRefetching = true;
+      void loadGames(true).finally(() => {
+        isRefetching = false;
+      });
+    };
+    onSignalR('PrefillCacheChanged', handlePrefillCacheChanged);
+    return () => {
+      offSignalR('PrefillCacheChanged', handlePrefillCacheChanged);
+    };
+  }, [onSignalR, offSignalR, loadGames]);
+
+  // A broadcast that lands while the socket is down is lost, leaving the cached badges stale until
+  // the next Rescan. Re-read once the main hub is live again.
+  useReconnectRefetch(isMainHubConnected, () => void loadGames(true));
+
+  const handleRemoveFromCache = useCallback(
+    async (appId: string) => {
+      setRemovingAppId(appId);
+      try {
+        const removal = await ApiService.deletePrefillCachedApp(appId);
+        if (removal.removedDepots === 0) {
+          // Cached status is read per depot and manifest with no app term, so a game whose files
+          // were all downloaded under another game owns no rows and keeps its badge after this.
+          notifyError(t('prefill.errors.removeFromCacheSharedFiles'));
+        }
+        // Re-read rather than trusting the broadcast to come back to this browser: with the
+        // socket down, the row the user just acted on would otherwise keep its Cached badge.
+        await loadGames(true);
+      } catch (err) {
+        notifyError(t('prefill.errors.removeFromCacheFailed'), err, {
+          logLabel: 'Failed to remove app from prefill cache'
+        });
+      } finally {
+        setRemovingAppId(null);
+      }
+    },
+    [loadGames, notifyError, t]
   );
 
   const executeCommand = useCallback(
@@ -1122,6 +1181,12 @@ function ServicePrefillPanel({
         cachedAppIds={cachedAppIds}
         isUsingCache={isUsingGamesCache}
         onRescan={() => loadGames(true)}
+        onRemoveFromCache={
+          // The delete route is AccountHolder-only while the read that fills this list is not, so a
+          // guest offered this control could only ever be answered with a 403.
+          isAdmin ? handleRemoveFromCache : undefined
+        }
+        removingAppId={removingAppId}
       />
 
       {/* Large Prefill Confirmation Dialog */}

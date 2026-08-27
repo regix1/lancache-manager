@@ -1,6 +1,8 @@
 using LancacheManager.Models;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Hubs;
 using LancacheManager.Middleware;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -23,6 +25,7 @@ public class PrefillAdminController : ControllerBase
     private readonly RiotDaemonService _riotDaemonService;
     private readonly XboxPrefillDaemonService _xboxDaemonService;
     private readonly PrefillCacheService _cacheService;
+    private readonly ISignalRNotificationService _notifications;
     private readonly ILogger<PrefillAdminController> _logger;
 
     public PrefillAdminController(
@@ -33,6 +36,7 @@ public class PrefillAdminController : ControllerBase
         RiotDaemonService riotDaemonService,
         XboxPrefillDaemonService xboxDaemonService,
         PrefillCacheService cacheService,
+        ISignalRNotificationService notifications,
         ILogger<PrefillAdminController> logger)
     {
         _sessionService = sessionService;
@@ -42,6 +46,7 @@ public class PrefillAdminController : ControllerBase
         _riotDaemonService = riotDaemonService;
         _xboxDaemonService = xboxDaemonService;
         _cacheService = cacheService;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -507,7 +512,26 @@ public class PrefillAdminController : ControllerBase
     {
         await _cacheService.ClearAllCacheAsync();
         _logger.LogInformation("Entire prefill cache cleared by session {SessionId}", HttpContext.GetRequiredSessionId());
+        await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
         return Ok(new MessageOnlyResponse { Message = "Prefill cache cleared" });
+    }
+
+    /// <summary>
+    /// Clears the prefill cache for a single app so its next prefill downloads it again.
+    /// </summary>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpDelete("cache/{appId:long}")]
+    [ProducesResponseType(typeof(PrefillCacheRemovalResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PrefillCacheRemovalResponse>> ClearAppCacheAsync(long appId)
+    {
+        var removedDepots = await _cacheService.ClearAppCacheAsync(appId);
+        _logger.LogInformation("Prefill cache cleared for app {AppId} ({Count} depots) by session {SessionId}", appId, removedDepots, HttpContext.GetRequiredSessionId());
+        await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+        return Ok(new PrefillCacheRemovalResponse
+        {
+            Message = $"Prefill cache cleared for app {appId}",
+            RemovedDepots = removedDepots
+        });
     }
 
     #endregion
