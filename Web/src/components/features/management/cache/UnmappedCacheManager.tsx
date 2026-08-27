@@ -19,6 +19,7 @@ import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSectionExpanded } from '@hooks/useSectionExpanded';
 import { usePaginatedList } from '@hooks/usePaginatedList';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
@@ -43,6 +44,7 @@ import { Pagination } from '@components/ui/Pagination';
 import { SearchInput } from '@components/ui/SearchInput';
 import Badge from '@components/ui/Badge';
 import CacheEntityList from '../game-detection/CacheEntityList';
+import { loadCachedDetectionSnapshot } from '../game-detection/cacheDetectionData';
 import {
   UNMAPPED_CONTRACT_VERSION,
   type CachedUnmappedScanResponse,
@@ -60,6 +62,13 @@ interface UnmappedCacheManagerProps {
 // expanded row never renders the whole list, and give search and pagination something to
 // do only once the list outgrows a single page.
 const FILES_PER_PAGE = 25;
+
+type RemovalScope = 'removeAll' | 'removeSelected';
+
+// What is displayed is a saved scan, so a file cached after it ran is still listed as unmapped
+// until detection runs again and claims it. These are the steps between picking a delete action
+// and running it: ask, run detection, re-run the unmapped scan, then show the new counts.
+type PreRemovalStep = 'ask' | 'detecting' | 'rescanning' | 'compared';
 
 interface UnmappedFileListProps {
   files: UnmappedCacheFile[];
@@ -204,6 +213,19 @@ const UnmappedCacheManager: React.FC<UnmappedCacheManagerProps> = ({
   const [loadFailed, setLoadFailed] = useState(false);
   const [pendingRemoveAll, setPendingRemoveAll] = useState(false);
   const [pendingRemoveSelected, setPendingRemoveSelected] = useState(false);
+  const [pendingScope, setPendingScope] = useState<RemovalScope | null>(null);
+  const [preRemovalStep, setPreRemovalStep] = useState<PreRemovalStep>('ask');
+  // Loading a scan clears the selection, and the rescan in the middle of this flow is a load, so
+  // the picked service names are held here instead of read back off the checkboxes afterwards.
+  const [pendingSelectedServices, setPendingSelectedServices] = useState<string[]>([]);
+  // The scope's totals as they stood when detection was started, so the counts can be compared
+  // once the rescan lands.
+  const [filesBeforeDetection, setFilesBeforeDetection] = useState(0);
+  const [bytesBeforeDetection, setBytesBeforeDetection] = useState(0);
+  // Three states, and the difference matters: a string is a known run, null is a detection that
+  // has never finished, and undefined is "not read yet or the read failed". Only null may drive
+  // the strongest warning, so a dropped request cannot invent one.
+  const [detectionLastRun, setDetectionLastRun] = useState<string | null | undefined>(undefined);
   // Bumped whenever the displayed result is replaced, so a response belonging to the
   // previous scan can never repaint the section after a newer one has landed.
   const resultEpochRef = useRef(0);
@@ -226,9 +248,18 @@ const UnmappedCacheManager: React.FC<UnmappedCacheManagerProps> = ({
     markStarting: markRemovalStarting,
     clearPending: clearRemovalPending,
     clearOnNotification: clearRemovalOnNotification
-  } = useOptimisticPending<'removeAll' | 'removeSelected'>();
+  } = useOptimisticPending<RemovalScope>();
 
   const formattedLastScan = useFormattedDateTime(lastScanTime);
+  const formattedDetection = useFormattedDateTime(detectionLastRun ?? null);
+
+  const detectionNeverRan = detectionLastRun === null;
+  // The dangerous ordering: detection last ran before the scan, so everything cached in between
+  // reached the list without detection ever having had a chance to claim it.
+  const detectionPredatesScan =
+    typeof detectionLastRun === 'string' &&
+    lastScanTime !== null &&
+    new Date(detectionLastRun).getTime() < new Date(lastScanTime).getTime();
 
   const clearLoadedResults = useCallback(() => {
     resultEpochRef.current += 1;
@@ -307,12 +338,16 @@ const UnmappedCacheManager: React.FC<UnmappedCacheManagerProps> = ({
     const handleScanComplete = () => {
       setStartingScan(false);
       scanRequestInFlightRef.current = false;
-      void loadCachedScan(true);
+      // The new counts are only shown once the reload has landed; announcing them any earlier
+      // would put the previous scan's numbers in front of someone about to delete.
+      void loadCachedScan(true).then(() => {
+        if (preRemovalStep === 'rescanning') setPreRemovalStep('compared');
+      });
     };
 
     on('UnmappedScanComplete', handleScanComplete);
     return () => off('UnmappedScanComplete', handleScanComplete);
-  }, [loadCachedScan, off, on]);
+  }, [loadCachedScan, off, on, preRemovalStep]);
 
   useEffect(() => {
     const handleRemovalComplete = (event: UnmappedRemovalCompleteEvent) => {
@@ -395,6 +430,20 @@ const UnmappedCacheManager: React.FC<UnmappedCacheManagerProps> = ({
   const selectedFileTotal = selectedServices.reduce((total, row) => total + row.fileCount, 0);
   const selectedByteTotal = selectedServices.reduce((total, row) => total + row.totalBytes, 0);
 
+  // What the pending delete would actually touch, so the before-and-after counts describe the
+  // rows the user picked rather than the whole list.
+  const pendingSelectedRows = services.filter((row) =>
+    pendingSelectedServices.includes(row.service)
+  );
+  const scopeFileTotal =
+    pendingScope === 'removeSelected'
+      ? pendingSelectedRows.reduce((total, row) => total + row.fileCount, 0)
+      : totalFiles;
+  const scopeByteTotal =
+    pendingScope === 'removeSelected'
+      ? pendingSelectedRows.reduce((total, row) => total + row.totalBytes, 0)
+      : totalBytes;
+
   const removalBlocked =
     !scanId ||
     totalFiles === 0 ||
@@ -468,7 +517,7 @@ const UnmappedCacheManager: React.FC<UnmappedCacheManagerProps> = ({
   );
 
   const removeFiles = useCallback(
-    async (key: 'removeAll' | 'removeSelected', scopedServices: string[]) => {
+    async (key: RemovalScope, scopedServices: string[]) => {
       if (removalBlocked || !scanId || scopedServices.length === 0) return;
       markRemovalStarting(key);
       try {
@@ -484,6 +533,86 @@ const UnmappedCacheManager: React.FC<UnmappedCacheManagerProps> = ({
     },
     [clearRemovalPending, markRemovalStarting, onError, removalBlocked, scanId, t]
   );
+
+  const openPreRemovalCheck = useCallback(
+    (scope: RemovalScope) => {
+      setPendingScope(scope);
+      setPreRemovalStep('ask');
+      setPendingSelectedServices(selectedServices.map((row) => row.service));
+    },
+    [selectedServices]
+  );
+
+  const closePreRemovalCheck = useCallback(() => {
+    setPendingScope(null);
+    setPreRemovalStep('ask');
+    setDetectionLastRun(undefined);
+  }, []);
+
+  // Read only while the check is open. A delete is a deliberate, infrequent act, and the shared
+  // loader already collapses a concurrent request into one.
+  useEffect(() => {
+    if (pendingScope === null) return;
+    let abandoned = false;
+    void loadCachedDetectionSnapshot()
+      .then((snapshot) => {
+        if (!abandoned) setDetectionLastRun(snapshot.lastDetectionTime);
+      })
+      .catch(() => {
+        // Left unknown on purpose: the server refuses the dangerous case on its own, so a failed
+        // read must not manufacture a warning or take the escape hatch away.
+      });
+    return () => {
+      abandoned = true;
+    };
+  }, [pendingScope]);
+
+  // Skipping the check hands the choice to the confirmation the section already had, so the
+  // wording of the delete itself is unchanged.
+  const deleteWithoutDetection = useCallback(() => {
+    if (pendingScope === 'removeAll') setPendingRemoveAll(true);
+    if (pendingScope === 'removeSelected') setPendingRemoveSelected(true);
+    setPendingScope(null);
+  }, [pendingScope]);
+
+  // An incremental run is enough: what makes the list stale is content cached since the last
+  // detection, and that is exactly what an incremental run attributes.
+  const runDetectionThenRescan = useCallback(async () => {
+    setFilesBeforeDetection(scopeFileTotal);
+    setBytesBeforeDetection(scopeByteTotal);
+    setPreRemovalStep('detecting');
+    try {
+      const result = await ApiService.startGameCacheDetection();
+      if (shouldPinOperationIdFromResponse(result)) {
+        addNotification(
+          buildSeededRunningNotification(
+            'game_detection',
+            result.operationId,
+            t('signalr.gameDetect.starting.incremental')
+          )
+        );
+      }
+    } catch (error: unknown) {
+      onError?.(
+        t('management.unmapped.errors.startDetection', {
+          error: getErrorMessage(error) || t('common.unknownError')
+        })
+      );
+      setPreRemovalStep('ask');
+    }
+  }, [addNotification, onError, scopeByteTotal, scopeFileTotal, t]);
+
+  useEffect(() => {
+    if (preRemovalStep !== 'detecting') return;
+    // Detection has written its claims, so the unmapped scan can now be re-run against them.
+    const handleDetectionComplete = () => {
+      setPreRemovalStep('rescanning');
+      void startScan();
+    };
+
+    on('GameDetectionComplete', handleDetectionComplete);
+    return () => off('GameDetectionComplete', handleDetectionComplete);
+  }, [off, on, preRemovalStep, startScan]);
 
   const getServiceKey = useCallback((row: UnmappedServiceRow) => row.service, []);
 
@@ -571,7 +700,7 @@ const UnmappedCacheManager: React.FC<UnmappedCacheManagerProps> = ({
                 icon={<Trash2 className="w-3.5 h-3.5" />}
                 disabled={removalBlocked || selectedServices.length === 0 || !diskObjectsAvailable}
                 onClick={() => {
-                  setPendingRemoveSelected(true);
+                  openPreRemovalCheck('removeSelected');
                   close();
                 }}
               >
@@ -588,7 +717,7 @@ const UnmappedCacheManager: React.FC<UnmappedCacheManagerProps> = ({
                 icon={<Trash2 className="w-3.5 h-3.5" />}
                 disabled={removalBlocked || !diskObjectsAvailable}
                 onClick={() => {
-                  setPendingRemoveAll(true);
+                  openPreRemovalCheck('removeAll');
                   close();
                 }}
               >
@@ -813,6 +942,126 @@ const UnmappedCacheManager: React.FC<UnmappedCacheManagerProps> = ({
           ) : null}
         </div>
       </AccordionSection>
+
+      <ConfirmationModal
+        opened={pendingScope !== null && preRemovalStep !== 'compared'}
+        onClose={closePreRemovalCheck}
+        onConfirm={() => void runDetectionThenRescan()}
+        title={t('management.unmapped.modal.checkTitle')}
+        confirmLabel={t('management.unmapped.modal.checkRunDetection')}
+        confirmColor="blue"
+        confirmDisabled={preRemovalStep !== 'ask'}
+      >
+        <p className="text-themed-secondary">{t('management.unmapped.modal.checkRisk')}</p>
+        <p className="text-themed-secondary">
+          {t('management.unmapped.modal.checkScanTime', { time: formattedLastScan })}
+          {detectionLastRun ? (
+            <>
+              {' '}
+              {t('management.unmapped.modal.checkDetectionLastRun', { time: formattedDetection })}
+            </>
+          ) : null}
+        </p>
+        {detectionNeverRan || detectionPredatesScan ? (
+          <Alert color="red">
+            <p className="text-sm">
+              {detectionNeverRan
+                ? t('management.unmapped.modal.checkDetectionNever')
+                : t('management.unmapped.modal.checkDetectionOlder')}
+            </p>
+          </Alert>
+        ) : null}
+        <p className="text-themed-secondary">{t('management.unmapped.modal.checkRecommend')}</p>
+        {/* Cancel stays live throughout, so the wait is never a dead end. That rules out the
+            modal's `loading` prop, which would disable it. */}
+        {preRemovalStep === 'ask' ? (
+          <div className="flex">
+            {/* The quiet control, and the one that is refused outright while nothing is claimed. */}
+            <Button
+              variant="default"
+              size="sm"
+              disabled={detectionNeverRan}
+              onClick={deleteWithoutDetection}
+            >
+              {t('management.unmapped.modal.checkDeleteAnyway')}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm text-themed-secondary">
+              <LoadingSpinner inline size="sm" />
+              <span>
+                {preRemovalStep === 'detecting'
+                  ? t('management.unmapped.modal.checkDetecting')
+                  : t('management.unmapped.modal.checkRescanning')}
+              </span>
+            </div>
+            <p className="text-xs text-themed-muted">
+              {t('management.unmapped.modal.checkWaitNote')}
+            </p>
+          </div>
+        )}
+      </ConfirmationModal>
+
+      <ConfirmationModal
+        opened={pendingScope !== null && preRemovalStep === 'compared'}
+        onClose={closePreRemovalCheck}
+        onConfirm={() => {
+          const scope = pendingScope;
+          closePreRemovalCheck();
+          if (scope === 'removeAll') {
+            void removeFiles(
+              'removeAll',
+              services.map((row) => row.service)
+            );
+          }
+          if (scope === 'removeSelected') {
+            void removeFiles(
+              'removeSelected',
+              pendingSelectedRows.map((row) => row.service)
+            );
+          }
+        }}
+        title={t('management.unmapped.modal.detectionDoneTitle')}
+        confirmLabel={
+          pendingScope === 'removeSelected'
+            ? t('management.unmapped.modal.removeSelectedConfirm')
+            : t('management.unmapped.modal.removeAllConfirm')
+        }
+        confirmDisabled={removalBlocked || scopeFileTotal === 0}
+      >
+        {/* The reclaimed count is the whole argument for having run detection, so it is said out
+            loud rather than left as a subtraction between two other numbers. */}
+        <p className="text-themed-secondary">
+          {scopeFileTotal === 0
+            ? t('management.unmapped.modal.detectionDoneNothingLeft', {
+                beforeFiles: formatCount(filesBeforeDetection)
+              })
+            : scopeFileTotal === filesBeforeDetection
+              ? t('management.unmapped.modal.detectionDoneUnchanged', {
+                  files: formatCount(scopeFileTotal),
+                  size: formatBytes(scopeByteTotal)
+                })
+              : scopeFileTotal < filesBeforeDetection
+                ? t('management.unmapped.modal.detectionDoneReclaimed', {
+                    reclaimed: formatCount(filesBeforeDetection - scopeFileTotal),
+                    beforeFiles: formatCount(filesBeforeDetection),
+                    files: formatCount(scopeFileTotal),
+                    size: formatBytes(scopeByteTotal)
+                  })
+                : t('management.unmapped.modal.detectionDoneGrew', {
+                    beforeFiles: formatCount(filesBeforeDetection),
+                    beforeSize: formatBytes(bytesBeforeDetection),
+                    files: formatCount(scopeFileTotal),
+                    size: formatBytes(scopeByteTotal)
+                  })}
+        </p>
+        {scopeFileTotal > 0 && (
+          <Alert color="red">
+            <p className="text-sm">{t('management.unmapped.modal.removalWarning')}</p>
+          </Alert>
+        )}
+      </ConfirmationModal>
 
       <ConfirmationModal
         opened={pendingRemoveAll}

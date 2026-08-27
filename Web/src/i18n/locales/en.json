@@ -3074,7 +3074,8 @@
         "loadCachedRetry": "Try again, or run a new scan from the menu.",
         "startScan": "Failed to start the unmapped cache scan: {{error}}",
         "loadFiles": "Could not load the files for {{service}}",
-        "removeFiles": "Failed to delete unmapped cache files: {{error}}"
+        "removeFiles": "Failed to delete unmapped cache files: {{error}}",
+        "startDetection": "Failed to start game detection: {{error}}"
       },
       "help": {
         "aboutTitle": "What this finds",
@@ -3093,7 +3094,24 @@
         "removeSelectedConfirm": "Delete selected",
         "confirmRemoveSelected": "This deletes {{files}} files from {{count}} service and frees {{size}}.",
         "confirmRemoveSelected_other": "This deletes {{files}} files from {{count}} services and frees {{size}}.",
-        "removalWarning": "Deleted cache files cannot be restored. The next request for that content downloads it again."
+        "removalWarning": "Deleted cache files cannot be restored. The next request for that content downloads it again.",
+        "checkTitle": "This list may include game files",
+        "checkRisk": "A file is on this list because no detection run claims it. That includes files belonging to games detection has not catalogued yet. Deleting one deletes real game data, and it cannot be undone.",
+        "checkScanTime": "This list comes from a scan on {{time}}.",
+        "checkDetectionLastRun": "Detection last ran on {{time}}.",
+        "checkDetectionOlder": "Detection last ran before this scan, so anything cached in between is on this list whether or not it belongs to a game.",
+        "checkDetectionNever": "Detection has never finished a run, so nothing is claimed and every cached file is on this list. Deleting now would empty the cache, and the server refuses it.",
+        "checkRecommend": "Running detection now, then rescanning, is what tells game files apart from files that really are unmapped.",
+        "checkRunDetection": "Run detection first",
+        "checkDeleteAnyway": "Delete without running detection",
+        "checkDetecting": "Running detection...",
+        "checkRescanning": "Rescanning for unmapped files...",
+        "checkWaitNote": "Cancel closes this window. The scan keeps running, and you can start the delete again once it finishes.",
+        "detectionDoneTitle": "Detection has finished",
+        "detectionDoneReclaimed": "Detection claimed {{reclaimed}} of the {{beforeFiles}} files that were on this list. Those belong to games, and deleting them would have destroyed real game data. {{files}} files ({{size}}) are left.",
+        "detectionDoneUnchanged": "Detection claimed none of them. {{files}} files ({{size}}) are still unmapped.",
+        "detectionDoneGrew": "Before detection ran, {{beforeFiles}} files ({{beforeSize}}) were on this list. Now {{files}} files ({{size}}) are.",
+        "detectionDoneNothingLeft": "Detection claimed all {{beforeFiles}} of them. Every one belongs to a game, none were unmapped, and there is nothing left to delete."
       }
     },
     "capability": {

@@ -3074,7 +3074,8 @@
         "loadCachedRetry": "请重试，或从菜单运行一次新扫描。",
         "startScan": "启动未映射缓存扫描失败：{{error}}",
         "loadFiles": "无法加载 {{service}} 的文件",
-        "removeFiles": "删除未映射缓存文件失败：{{error}}"
+        "removeFiles": "删除未映射缓存文件失败：{{error}}",
+        "startDetection": "启动游戏检测失败：{{error}}"
       },
       "help": {
         "aboutTitle": "此功能查找什么",
@@ -3093,7 +3094,24 @@
         "removeSelectedConfirm": "删除所选",
         "confirmRemoveSelected": "这将从 {{count}} 个服务中删除 {{files}} 个文件并释放 {{size}}。",
         "confirmRemoveSelected_other": "这将从 {{count}} 个服务中删除 {{files}} 个文件并释放 {{size}}。",
-        "removalWarning": "已删除的缓存文件无法恢复。下次请求该内容时会重新下载。"
+        "removalWarning": "已删除的缓存文件无法恢复。下次请求该内容时会重新下载。",
+        "checkTitle": "此列表可能包含游戏文件",
+        "checkRisk": "文件出现在此列表中，是因为还没有任何检测运行认领它。其中可能包含属于游戏、但检测尚未编入目录的文件。删除这类文件就是删除真实的游戏数据，且无法撤销。",
+        "checkScanTime": "此列表来自 {{time}} 的扫描。",
+        "checkDetectionLastRun": "检测上次运行于 {{time}}。",
+        "checkDetectionOlder": "检测上次运行早于本次扫描，因此这期间缓存的内容都会出现在此列表中，无论它是否属于某个游戏。",
+        "checkDetectionNever": "检测从未完成过一次运行，因此没有任何文件被认领，磁盘上的每个缓存文件都在此列表中。此时删除会清空整个缓存，服务器会拒绝该操作。",
+        "checkRecommend": "现在先运行检测再重新扫描，才能把游戏文件和真正未映射的文件区分开。",
+        "checkRunDetection": "先运行检测",
+        "checkDeleteAnyway": "不运行检测直接删除",
+        "checkDetecting": "正在运行检测...",
+        "checkRescanning": "正在重新扫描未映射文件...",
+        "checkWaitNote": "取消只会关闭此窗口。扫描会继续运行，结束后可以重新开始删除。",
+        "detectionDoneTitle": "检测已完成",
+        "detectionDoneReclaimed": "在此列表原有的 {{beforeFiles}} 个文件中，检测认领了 {{reclaimed}} 个。它们属于游戏，删除会破坏真实的游戏数据。还剩 {{files}} 个文件（{{size}}）。",
+        "detectionDoneUnchanged": "检测没有认领其中任何一个。仍有 {{files}} 个未映射文件（{{size}}）。",
+        "detectionDoneGrew": "检测运行前，此列表有 {{beforeFiles}} 个文件（{{beforeSize}}）。现在有 {{files}} 个（{{size}}）。",
+        "detectionDoneNothingLeft": "检测认领了全部 {{beforeFiles}} 个文件。它们都属于游戏，没有一个是未映射的，没有需要删除的内容了。"
       }
     },
     "capability": {

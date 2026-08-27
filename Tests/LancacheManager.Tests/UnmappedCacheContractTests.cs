@@ -7,6 +7,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -278,6 +279,79 @@ public sealed class UnmappedCacheContractTests
         // scanner reads the file into a set.
         Assert.Equal(3L, counts.Written);
         Assert.Equal(1L, counts.Skipped);
+    }
+
+    [Fact]
+    public async Task Removal_IsRefusedWhileNoDetectionRowClaimsAFileAsync()
+    {
+        var options = InMemoryOptions();
+
+        await using var dbContext = new AppDbContext(options);
+        var refusal = await Assert.ThrowsAsync<ValidationException>(
+            () => UnmappedCacheService.RequireDetectionHasClaimedFilesAsync(
+                dbContext,
+                CancellationToken.None));
+
+        // The message has to say why the button stopped working, not just that it did.
+        Assert.Contains("every file on disk counts as unmapped", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains("Run game cache detection", refusal.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Removal_IsRefusedWhileEveryDetectionRowReportsNoFilesAsync()
+    {
+        var options = InMemoryOptions();
+        await using (var seed = new AppDbContext(options))
+        {
+            // The shape a cache wipe leaves behind: rows present, every one of them holding nothing.
+            seed.CachedGameDetections.Add(new CachedGameDetection
+            {
+                GameAppId = 440,
+                GameName = "Team Fortress 2",
+                CacheFilesFound = 0,
+                IsEvicted = true
+            });
+            seed.CachedServiceDetections.Add(new CachedServiceDetection
+            {
+                ServiceName = "steam",
+                CacheFilesFound = 0,
+                IsEvicted = true
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        await using var dbContext = new AppDbContext(options);
+        await Assert.ThrowsAsync<ValidationException>(
+            () => UnmappedCacheService.RequireDetectionHasClaimedFilesAsync(
+                dbContext,
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Removal_ProceedsOnceOneDetectionRowClaimsAFileAsync()
+    {
+        var options = InMemoryOptions();
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.CachedGameDetections.Add(new CachedGameDetection
+            {
+                GameAppId = 440,
+                GameName = "Team Fortress 2",
+                CacheFilesFound = 0,
+                IsEvicted = true
+            });
+            seed.CachedServiceDetections.Add(new CachedServiceDetection
+            {
+                ServiceName = "steam",
+                CacheFilesFound = 1,
+                CacheFilePathsJson = JsonSerializer.Serialize(new[] { PathOne })
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        // A healthy install must never be blocked: one claiming row anywhere is enough.
+        await using var dbContext = new AppDbContext(options);
+        await UnmappedCacheService.RequireDetectionHasClaimedFilesAsync(dbContext, CancellationToken.None);
     }
 
     [Fact]

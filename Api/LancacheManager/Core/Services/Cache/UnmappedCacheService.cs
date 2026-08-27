@@ -155,6 +155,13 @@ public class UnmappedCacheService
             throw new ValidationException("At least one service is required");
         }
 
+        // Placed here rather than on the route so the card, the route and any scheduled removal
+        // added later all inherit it.
+        await using (var gateContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
+        {
+            await RequireDetectionHasClaimedFilesAsync(gateContext, cancellationToken);
+        }
+
         var pathGroups = await LoadStoredPathsAsync(scanId, services, cancellationToken);
         if (pathGroups.Count == 0)
         {
@@ -449,6 +456,33 @@ public class UnmappedCacheService
             throw new InvalidDataException(
                 "The unmapped scan report totals did not match its per-service groups");
         }
+    }
+
+    /// <summary>
+    /// Refuses a removal while no detection row reports a cache file. A file is called unmapped
+    /// because nothing in these two tables claims it, so until one of them claims something the
+    /// stored scan lists every file on disk and deleting from it empties the cache. Reads
+    /// <c>CacheFilesFound</c>, the same per-row count the claimed digests are written from, so the
+    /// gate and the classification cannot disagree.
+    /// </summary>
+    internal static async Task RequireDetectionHasClaimedFilesAsync(
+        AppDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        var claimsAFile =
+            await dbContext.CachedGameDetections
+                .AnyAsync(game => game.CacheFilesFound > 0, cancellationToken)
+            || await dbContext.CachedServiceDetections
+                .AnyAsync(service => service.CacheFilesFound > 0, cancellationToken);
+        if (claimsAFile)
+        {
+            return;
+        }
+
+        throw new ValidationException(
+            "Game cache detection has not claimed a single cache file, so every file on disk counts "
+            + "as unmapped and this list is the whole cache. Deleting it would empty the cache. Run "
+            + "game cache detection, then run the unmapped cache scan again.");
     }
 
     /// <summary>
