@@ -19,6 +19,9 @@ export interface OwnedGame {
 interface GameSelectionModalProps {
   opened: boolean;
   onClose: () => void;
+  // Which platform's library is on screen. Only Steam gets the App ID import, whose IDs and
+  // help text come from SteamPrefill and mean nothing on Epic, Xbox, Battle.net or Riot.
+  serviceId: string;
   games: OwnedGame[];
   selectedAppIds: string[];
   onSave: (selectedIds: string[]) => Promise<void>;
@@ -31,6 +34,7 @@ interface GameSelectionModalProps {
 export function GameSelectionModal({
   opened,
   onClose,
+  serviceId,
   games,
   selectedAppIds,
   onSave,
@@ -48,6 +52,8 @@ export function GameSelectionModal({
 
   // Create a Set for O(1) lookup
   const cachedAppIdsSet = useMemo(() => new Set(cachedAppIds), [cachedAppIds]);
+
+  const canImportAppIds = serviceId === 'steam';
 
   // Import state
   const [showImport, setShowImport] = useState(false);
@@ -233,17 +239,19 @@ export function GameSelectionModal({
             </div>
           )}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <Button
-              variant="filled"
-              color={showImport ? 'primary' : 'secondary'}
-              size="sm"
-              onClick={() => setShowImport(!showImport)}
-              fullWidth
-              className="min-h-[44px] sm:min-h-8"
-            >
-              <Import className="h-4 w-4" />
-              {t('prefill.gameSelection.importAppIds')}
-            </Button>
+            {canImportAppIds && (
+              <Button
+                variant="filled"
+                color={showImport ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setShowImport(!showImport)}
+                fullWidth
+                className="min-h-[44px] sm:min-h-8"
+              >
+                <Import className="h-4 w-4" />
+                {t('prefill.gameSelection.importAppIds')}
+              </Button>
+            )}
             {cachedCount > 0 && (
               <Button
                 variant="filled"
@@ -283,7 +291,7 @@ export function GameSelectionModal({
         </div>
 
         {/* Import Section - Expandable */}
-        <CollapsibleRegion open={showImport}>
+        <CollapsibleRegion open={canImportAppIds && showImport}>
           <div className="mb-3 p-3 rounded-lg bg-[var(--theme-bg-tertiary)] border border-dashed border-[var(--theme-primary)]">
             <p className="text-xs mb-2 text-[var(--theme-text-muted)]">
               {t('prefill.gameSelection.importHelp')}
@@ -446,7 +454,10 @@ export function GameSelectionModal({
                               variant="transparent"
                               fullWidth
                               onClick={() => toggleGame(game.appId)}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-[var(--theme-selected-bg)] hover:bg-[var(--theme-selected-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
+                              /* Square corners: the row paints its own selected background, and
+                                 the button's default radius would leave the list's darker
+                                 surface showing through all four corners of every row. */
+                              className="w-full !rounded-none flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-[var(--theme-selected-bg)] hover:bg-[var(--theme-selected-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
                             >
                               <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-[var(--theme-primary)] border-2 border-[var(--theme-primary)]">
                                 <Check className="h-3 w-3 text-[var(--theme-button-text)]" />
@@ -508,7 +519,7 @@ export function GameSelectionModal({
                               variant="transparent"
                               fullWidth
                               onClick={() => toggleGame(game.appId)}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-transparent hover:bg-[var(--theme-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
+                              className="w-full !rounded-none flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-transparent hover:bg-[var(--theme-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
                             >
                               <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-transparent border-2 border-[var(--theme-border-primary)]" />
                               <div className="flex-1 min-w-0">
@@ -561,7 +572,7 @@ export function GameSelectionModal({
             className="w-full sm:w-auto min-h-[44px] sm:min-h-10"
           >
             {isSaving ? <LoadingSpinner inline size="sm" /> : <Check className="h-4 w-4" />}
-            {t('prefill.gameSelection.saveSelection', { count: localSelected.size })}
+            {t('prefill.gameSelection.saveSelection')}
           </Button>
         </div>
       </div>

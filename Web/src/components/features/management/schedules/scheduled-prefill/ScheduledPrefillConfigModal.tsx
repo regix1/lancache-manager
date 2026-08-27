@@ -1931,6 +1931,7 @@ export function ScheduledPrefillConfigModal({
       <GameSelectionModal
         opened={gameSelection !== null}
         onClose={() => setGameSelection(null)}
+        serviceId={gameSelection?.serviceKey ?? ''}
         games={gameSelection?.games ?? []}
         selectedAppIds={
           gameSelection && config ? config[gameSelection.serviceKey].selectedAppIds : []

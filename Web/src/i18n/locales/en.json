@@ -5042,7 +5042,7 @@
       "availableGames": "Available Games",
       "appId": "App ID: {{id}}",
       "cachedBadge": "Cached",
-      "saveSelection": "Save Selection ({{count}})"
+      "saveSelection": "Save Selection"
     },
     "placeholders": {
       "selectPlatforms": "Select platforms",

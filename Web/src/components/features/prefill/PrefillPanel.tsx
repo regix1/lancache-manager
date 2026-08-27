@@ -1114,6 +1114,7 @@ function ServicePrefillPanel({
       <GameSelectionModal
         opened={showGameSelection}
         onClose={() => setShowGameSelection(false)}
+        serviceId={serviceId}
         games={ownedGames}
         selectedAppIds={selectedAppIds}
         onSave={handleSaveGameSelection}

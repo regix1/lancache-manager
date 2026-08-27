@@ -5042,7 +5042,7 @@
       "availableGames": "可用游戏",
       "appId": "应用 ID：{{id}}",
       "cachedBadge": "已缓存",
-      "saveSelection": "保存选择（{{count}}）"
+      "saveSelection": "保存选择"
     },
     "placeholders": {
       "selectPlatforms": "选择平台",
