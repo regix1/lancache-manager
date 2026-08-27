@@ -1022,6 +1022,47 @@
   }
 }
 
+/* Balanced flow grid: card counts no column count divides evenly flow four per row
+   on a 12-track grid, and the short last row's cards widen to fill the row. */
+.stat-cards-flow {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 1rem;
+  isolation: isolate;
+  width: 100%;
+}
+
+.stat-cards-flow > * {
+  min-width: 0;
+  grid-column: span 12;
+}
+
+@media (min-width: 768px) {
+  .stat-cards-flow > * {
+    grid-column: span 6;
+  }
+
+  .stat-cards-flow > .stat-card-md-full {
+    grid-column: span 12;
+  }
+}
+
+/* The lg rules sit after the md ones so an odd-count last card that carries both
+   classes takes the four-per-row span once the grid widens. */
+@media (min-width: 1024px) {
+  .stat-cards-flow > * {
+    grid-column: span 3;
+  }
+
+  .stat-cards-flow > .stat-card-lg-third {
+    grid-column: span 4;
+  }
+
+  .stat-cards-flow > .stat-card-lg-full {
+    grid-column: span 12;
+  }
+}
+
 /* Top Clients table — lives inside a .dash-well: in-well header row with a
    hairline under it, hairline dividers between body rows, flush hover fill.
    Same divided-list language as the Recent Downloads panel and mgmt-list. */
@@ -1148,4 +1189,18 @@
   font-size: var(--font-size-xs);
   line-height: 1.2;
   color: var(--theme-text-secondary);
+}
+
+/* A card whose value can switch figures puts three things on the footer instead of two, and its
+   note is the longest on the dashboard because it carries the reading the value is not showing.
+   Once that note wraps, a control sitting beside it is boxed in by a ragged right edge that moves
+   with the text, and adding an outdated-scan badge on the same line squeezes both. Give the note
+   a line of its own so the control and the badge get the full width below it, still anchored to
+   the two edges by the space-between the base rule already sets. */
+.stat-card-footer.stat-card-footer--with-control {
+  flex-wrap: wrap;
+}
+
+.stat-card-footer--with-control > .stat-card-footer-note {
+  flex: 1 0 100%;
 }

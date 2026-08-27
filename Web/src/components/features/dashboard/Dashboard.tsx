@@ -254,8 +254,22 @@ const Dashboard: React.FC = () => {
       return 'stat-cards-3col';
     }
 
-    return 'stat-cards-4col';
+    return 'stat-cards-flow';
   }, []);
+
+  // In the balanced flow grid, the short last row's cards widen so every row spans the
+  // full width. The md classes cover the 2-per-row breakpoint, the lg ones 4-per-row.
+  const getFlowSpanClass = (index: number, count: number) => {
+    const classes: string[] = [];
+    if (count % 2 === 1 && index === count - 1) {
+      classes.push('stat-card-md-full');
+    }
+    const remainder = count % 4;
+    if (remainder > 0 && index >= count - remainder) {
+      classes.push(remainder === 1 ? 'stat-card-lg-full' : 'stat-card-lg-third');
+    }
+    return classes.join(' ');
+  };
 
   // Determine if we're viewing historical/filtered data (not live)
   // Any non-live mode should disable real-time only stats
@@ -1027,7 +1041,9 @@ const Dashboard: React.FC = () => {
 
       {/* Stats Grid */}
       <div className={getStatCardsGridClass(cardLayout, visibleCards.length)}>
-        {visibleCards.map((card: StatCardData) => {
+        {visibleCards.map((card: StatCardData, cardIndex: number) => {
+          const flowSpanClass =
+            cardLayout === 'balanced' ? getFlowSpanClass(cardIndex, visibleCards.length) : '';
           // Check if this is a live-only card that should be disabled in historical view
           // Note: usedSpace now supports historical data via snapshots, so it's never disabled
           const isLiveOnlyCard = card.key === 'activeDownloads' || card.key === 'activeClients';
@@ -1050,7 +1066,7 @@ const Dashboard: React.FC = () => {
             <div
               key={card.key}
               data-card-key={card.key}
-              className={`relative group h-full edit-mode-card ${
+              className={`relative group h-full edit-mode-card ${flowSpanClass} ${
                 isDragMode && draggedCard === card.key ? 'scale-105 shadow-lg card-selected' : ''
               } ${isDragMode && dragOverCard === card.key ? 'translate-y-1' : ''} ${
                 dragOverCard === card.key ? 'drag-over' : ''

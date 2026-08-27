@@ -171,7 +171,7 @@ const StatCard: React.FC<StatCardProps> = ({
       {/* One footer on the floor of every card, badged or not: the note reads from the left edge
           and the range chip anchors the right, so the row lands on both edges whichever of the
           two a card happens to have. */}
-      <div className="stat-card-footer">
+      <div className={`stat-card-footer${footerControl ? ' stat-card-footer--with-control' : ''}`}>
         {loading ? (
           <div className="stat-card-skeleton-subtitle skeleton-shimmer" />
         ) : (
