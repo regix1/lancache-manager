@@ -523,6 +523,7 @@
       "snapshots": "{{count}} snapshot",
       "snapshots_other": "{{count}} snapshots",
       "filesOnDisk": "files on disk",
+      "scanTotalSize": "{{size}} total",
       "onDiskNow": "on disk now",
       "fullDiskLimit": "Using full disk",
       "overConfiguredLimit": "{{percent}} of configured limit",
@@ -553,7 +554,7 @@
       },
       "addedToCache": {
         "term": "Added to Cache",
-        "description": "New content that was downloaded from the internet and saved to your cache for the first time."
+        "description": "New content that was downloaded from the internet and saved to your cache for the first time. This counts everything ever written, so it runs ahead of what is on disk now by whatever has since been evicted. Compare the Cache Files size for the current figure."
       },
       "totalServed": {
         "term": "Total Served",
@@ -573,7 +574,7 @@
       },
       "cacheFiles": {
         "term": "Cache Files",
-        "description": "Total files from the last whole-cache scan. Schedule automatic scans under Management → Schedules → Cache File Scan, or start a manual scan in Management → Cache."
+        "description": "Total files from the last whole-cache scan, and the size those files take up. Games on Disk, Services on Disk and the unmapped cache figure are shares of that size and add up to it. Schedule automatic scans under Management → Schedules → Cache File Scan, or start a manual scan in Management → Cache."
       },
       "gamesOnDisk": {
         "term": "Games on Disk",

@@ -612,6 +612,14 @@ const Dashboard: React.FC = () => {
             ? t('dashboard.cards.noCacheScanData')
             : [
                 t('dashboard.cards.filesOnDisk'),
+                // The byte total from the same walk that produced the file count. Games on Disk,
+                // Services on Disk and unmapped cache are shares of this figure, so without it
+                // on screen there is nothing for those three to be checked against.
+                cacheInfo?.cacheScanTotalBytes !== undefined
+                  ? t('dashboard.cards.scanTotalSize', {
+                      size: formatBytes(cacheInfo.cacheScanTotalBytes)
+                    })
+                  : null,
                 formattedCacheScanTime
                   ? t('dashboard.cards.scannedAt', { time: formattedCacheScanTime })
                   : null,

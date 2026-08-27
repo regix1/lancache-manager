@@ -523,6 +523,7 @@
       "snapshots": "{{count}} 个快照",
       "snapshots_other": "{{count}} 个快照",
       "filesOnDisk": "磁盘上的文件",
+      "scanTotalSize": "共 {{size}}",
       "onDiskNow": "当前磁盘上",
       "fullDiskLimit": "使用整个磁盘",
       "overConfiguredLimit": "已用配置上限的 {{percent}}",
@@ -553,7 +554,7 @@
       },
       "addedToCache": {
         "term": "新增到缓存",
-        "description": "从互联网下载并首次保存到缓存的新内容。"
+        "description": "从互联网下载并首次保存到缓存的新内容。它统计的是历来写入的全部数据，因此会比当前磁盘上的数据多出此后被淘汰的那部分。当前的实际大小请参见“缓存文件”卡片上的大小。"
       },
       "totalServed": {
         "term": "总服务量",
@@ -573,7 +574,7 @@
       },
       "cacheFiles": {
         "term": "缓存文件",
-        "description": "上次全量缓存扫描的文件总数。可在 管理 → 计划 → 缓存文件扫描 中设置自动扫描，或在 管理 → 缓存 中启动手动扫描。"
+        "description": "上次全量缓存扫描的文件总数，以及这些文件占用的大小。“磁盘上的游戏”、“磁盘上的服务”和未映射缓存都是该大小的组成部分，三者相加即等于它。可在 管理 → 计划 → 缓存文件扫描 中设置自动扫描，或在 管理 → 缓存 中启动手动扫描。"
       },
       "gamesOnDisk": {
         "term": "磁盘上的游戏",
