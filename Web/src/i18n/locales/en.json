@@ -579,7 +579,11 @@
       },
       "cacheFiles": {
         "term": "Cache Files",
-        "description": "Files the last whole-cache scan found on disk, and the size they take up. Game, service and unmapped cache are shares of that size."
+        "description": "How many files the last whole-cache scan found on disk. One game is spread over thousands of them, so this counts pieces of cache, not downloads."
+      },
+      "cacheSize": {
+        "term": "Cache Size",
+        "description": "What those files take up on disk, each counted once. Games on Disk is smaller because it counts only cache matched to a known game; Services on Disk and unidentified files make up the rest."
       },
       "gamesOnDisk": {
         "term": "Games on Disk",

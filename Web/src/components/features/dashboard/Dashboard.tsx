@@ -91,7 +91,13 @@ const DEFAULT_CARD_ORDER: string[] = [
   'servicesOnDisk'
 ];
 
-const getStatTooltips = (t: (key: string) => string): Record<string, React.ReactNode> => ({
+const getStatTooltips = (
+  t: (key: string) => string,
+  // The Cache Files card explains whichever figure it is showing: the count and the size come
+  // from one scan but answer different questions, and only the size has a relationship to
+  // Games on Disk worth spelling out.
+  cacheFilesValue: CacheFilesValue
+): Record<string, React.ReactNode> => ({
   totalCache: (
     <HelpSection title={t('dashboard.statCards.totalCache.term')}>
       {t('dashboard.statCards.totalCache.description')}
@@ -132,11 +138,16 @@ const getStatTooltips = (t: (key: string) => string): Record<string, React.React
       {t('dashboard.statCards.cacheHitRatio.description')}
     </HelpSection>
   ),
-  cacheFiles: (
-    <HelpSection title={t('dashboard.statCards.cacheFiles.term')}>
-      {t('dashboard.statCards.cacheFiles.description')}
-    </HelpSection>
-  ),
+  cacheFiles:
+    cacheFilesValue === 'size' ? (
+      <HelpSection title={t('dashboard.statCards.cacheSize.term')}>
+        {t('dashboard.statCards.cacheSize.description')}
+      </HelpSection>
+    ) : (
+      <HelpSection title={t('dashboard.statCards.cacheFiles.term')}>
+        {t('dashboard.statCards.cacheFiles.description')}
+      </HelpSection>
+    ),
   gamesOnDisk: (
     <HelpSection title={t('dashboard.statCards.gamesOnDisk.term')}>
       {t('dashboard.statCards.gamesOnDisk.description')}
@@ -174,7 +185,6 @@ const Dashboard: React.FC = () => {
     useTimeFilter();
   const { selectedEvent: _selectedEvent } = useEvents();
   const { speedSnapshot, activeDownloadCount } = useSpeed();
-  const statTooltips = useMemo(() => getStatTooltips(t), [t]);
 
   // Eviction mode - determines whether evicted games are included in "Games on Disk"
   const [evictedDataMode, setEvictedDataMode] = useState<string>('show');
@@ -232,6 +242,9 @@ const Dashboard: React.FC = () => {
     setCacheFilesValue(value as CacheFilesValue);
     storage.setItem('dashboard-cache-files-value', value);
   };
+
+  // Built after the toggle it reads, since the Cache Files help text changes with it.
+  const statTooltips = useMemo(() => getStatTooltips(t, cacheFilesValue), [t, cacheFilesValue]);
 
   const getStatCardsGridClass = useCallback((layout: CardLayout, visibleCount: number) => {
     if (layout === '3-column') {
