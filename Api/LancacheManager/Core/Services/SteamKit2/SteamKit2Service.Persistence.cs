@@ -218,4 +218,21 @@ public partial class SteamKit2Service
             _logger.LogWarning(ex, "Failed to save last PICS crawl time to state");
         }
     }
+
+    /// <summary>
+    /// Save the time a full PICS crawl finished, which is what hybrid mode counts its week from.
+    /// Stamped by every full scheduled crawl and not just hybrid ones, so switching to hybrid the day
+    /// after a full run waits a week rather than starting a second full crawl straight away.
+    /// </summary>
+    private void SaveLastFullCrawlTime()
+    {
+        try
+        {
+            _stateService.SetLastFullPicsCrawl(DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save last full PICS crawl time to state");
+        }
+    }
 }

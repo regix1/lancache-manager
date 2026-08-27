@@ -374,7 +374,7 @@ public class DepotsController : ControllerBase
     /// requirements are not met, so a direct call, a second tab, or a stale page cannot store a
     /// mode that every scheduled run would have to skip.
     /// </remarks>
-    /// <param name="mode">Mode value: true (incremental), false (full), or "github" (PICS updates only)</param>
+    /// <param name="mode">Mode value: true (incremental), false (full), "hybrid" (incremental until the last full crawl is a week old, then one full crawl), or "github" (PICS updates only)</param>
     [Authorize(Policy = "AccountHolder")]
     [HttpPut("rebuild/config/mode")]
     [ProducesResponseType(typeof(CrawlModeResponse), StatusCodes.Status200OK)]
@@ -403,9 +403,26 @@ public class DepotsController : ControllerBase
             _steamKit2Service.CrawlIncrementalMode = "github";
             scanMode = "GitHub (PICS Updates)";
         }
+        else if (mode.ValueKind == JsonValueKind.String && mode.GetString() == "hybrid")
+        {
+            // A hybrid week ends in a full crawl, so it is judged against what a full scan needs.
+            // Storing it where a full scan would be refused would put a run that cannot finish on
+            // the schedule, and the incremental days do not add a requirement of their own: with no
+            // mappings stored the first hybrid run is the full one, which builds the baseline.
+            var unavailable = DepotScanModeRequirement.Missing(_steamKit2Service, _stateService, incremental: false);
+            if (unavailable != null)
+            {
+                _logger.LogInformation("Crawl mode rejected: {StageKey}", unavailable.StageKey);
+
+                return BadRequest(unavailable);
+            }
+
+            _steamKit2Service.CrawlIncrementalMode = "hybrid";
+            scanMode = "Hybrid";
+        }
         else
         {
-            return BadRequest(new ConflictResponse { Error = "Invalid scan mode. Must be true, false, or \"github\"" });
+            return BadRequest(new ConflictResponse { Error = "Invalid scan mode. Must be true, false, \"hybrid\", or \"github\"" });
         }
 
         _logger.LogInformation("Crawl mode updated to {Mode}", scanMode);
@@ -465,9 +482,11 @@ internal static class DepotScanModeRequirement
         if (incremental)
         {
             // An incremental scan asks Steam what changed since the mappings already stored, so with
-            // none stored there is nothing to compare against. A full scan empties the mapping table
-            // at the start and refills it as it goes, so a count read while a crawl is running says
-            // nothing about whether a baseline exists.
+            // none stored there is nothing to compare against. A crawl that is still running has not
+            // written all of its mappings yet, so a count read mid-crawl says nothing about whether a
+            // baseline exists by the time this mode is used. No crawl empties the table: mappings are
+            // only ever inserted or updated in place, and the one route that deletes them is the
+            // GitHub import replacing the whole set.
             if (availability.RebuildRunning || availability.DepotMappingsFound > 0)
             {
                 return null;

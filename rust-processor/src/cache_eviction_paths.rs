@@ -317,31 +317,25 @@ where
             .entry(PathBuf::from(&ds.cache_path))
             .or_default();
 
-        for entry in jwalk::WalkDir::new(cache_dir)
-            .min_depth(1)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            if entry.file_type().is_file() {
-                match entry
-                    .file_name()
-                    .to_str()
-                    .and_then(cache_utils::parse_cache_file_digest)
-                {
-                    Some(digest) => {
-                        if root_digests.insert(digest) {
-                            total_files += 1;
-                        }
+        for entry in cache_utils::walk_cache_root(cache_dir) {
+            match entry
+                .file_name()
+                .to_str()
+                .and_then(cache_utils::parse_cache_file_digest)
+            {
+                Some(digest) => {
+                    if root_digests.insert(digest) {
+                        total_files += 1;
                     }
-                    // Not a 32-hex md5 name -> can never match a probe candidate; keep it out
-                    // of the index but surface the count so a weird cache layout is visible.
-                    None => non_hash_names += 1,
                 }
-                files_since_last_report += 1;
-                if files_since_last_report >= FILE_COUNT_PROGRESS_INTERVAL {
-                    on_file_count(total_files);
-                    files_since_last_report = 0;
-                }
+                // Not a 32-hex md5 name -> can never match a probe candidate; keep it out
+                // of the index but surface the count so a weird cache layout is visible.
+                None => non_hash_names += 1,
+            }
+            files_since_last_report += 1;
+            if files_since_last_report >= FILE_COUNT_PROGRESS_INTERVAL {
+                on_file_count(total_files);
+                files_since_last_report = 0;
             }
         }
 

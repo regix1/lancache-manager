@@ -13,6 +13,7 @@ use uuid::Uuid;
 use lancache_processor::cache_corruption_detector;
 use lancache_processor::cache_structural_scanner;
 use lancache_processor::cache_structural_state;
+use lancache_processor::cache_unmapped;
 use lancache_processor::cache_utils;
 use lancache_processor::cancel;
 use lancache_processor::db;
@@ -138,6 +139,26 @@ enum Commands {
         evidence_file: String,
         #[arg(short, long)]
         progress: bool,
+    },
+    /// Report the cache files no detection row in `claimed_digests` accounts for.
+    UnmappedScan {
+        cache_dir: String,
+        claimed_digests: String,
+        #[arg(default_value = "none")]
+        progress_json: String,
+        /// Shared UTC scan anchor, echoed verbatim so the host can tell this report from a
+        /// leftover one.
+        #[arg(long)]
+        scan_started_utc: String,
+    },
+    /// Remove only the paths in the evidence file, and only while `claimed_digests` still has
+    /// no row for them. That list must be regenerated for this removal, not reused from the scan.
+    UnmappedRemove {
+        cache_dir: String,
+        claimed_digests: String,
+        progress_json: String,
+        #[arg(long)]
+        evidence_file: String,
     },
 }
 
@@ -1522,6 +1543,45 @@ async fn main() -> Result<()> {
                 "signalr.corruptionRemove.error.fatal",
                 result,
             );
+        }
+        // These two carry no --progress flag, so the stdout reporter would be inert and its
+        // failure funnel could never emit. A failure leaves by `?`, which is the same stderr
+        // reason plus exit 1 the funnel gives a file-poll caller.
+        Commands::UnmappedScan {
+            cache_dir,
+            claimed_digests,
+            progress_json,
+            scan_started_utc,
+        } => {
+            let progress_path = (progress_json != "none" && !progress_json.is_empty())
+                .then(|| PathBuf::from(&progress_json));
+            let report = tokio::task::spawn_blocking(move || {
+                cache_unmapped::scan(
+                    Path::new(&cache_dir),
+                    Path::new(&claimed_digests),
+                    progress_path.as_deref(),
+                    &scan_started_utc,
+                )
+            })
+            .await
+            .context("unmapped scan blocking task failed")??;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::UnmappedRemove {
+            cache_dir,
+            claimed_digests,
+            progress_json,
+            evidence_file,
+        } => {
+            let progress_path = (progress_json != "none" && !progress_json.is_empty())
+                .then(|| PathBuf::from(&progress_json));
+            let report = cache_unmapped::remove(
+                Path::new(&cache_dir),
+                Path::new(&claimed_digests),
+                progress_path.as_deref(),
+                Path::new(&evidence_file),
+            )?;
+            println!("{}", serde_json::to_string(&report)?);
         }
     }
     Ok(())

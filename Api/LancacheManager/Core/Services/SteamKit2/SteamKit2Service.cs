@@ -614,7 +614,8 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     }
 
     /// <summary>
-    /// Get or set the automatic scan mode: true (incremental), false (full), or "github" (PICS updates only)
+    /// Get or set the automatic scan mode: true (incremental), false (full), "hybrid" (incremental
+    /// until the last full crawl is a week old, then one full crawl), or "github" (PICS updates only)
     /// </summary>
     public object CrawlIncrementalMode
     {
@@ -652,15 +653,28 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             {
                 return "Full";
             }
-            if (jsonElement.ValueKind == JsonValueKind.String && jsonElement.GetString() == "github")
+            if (jsonElement.ValueKind == JsonValueKind.String)
             {
-                return "GitHub";
+                var jsonName = jsonElement.GetString();
+                if (jsonName == "github")
+                {
+                    return "GitHub";
+                }
+                if (jsonName == "hybrid")
+                {
+                    return "Hybrid";
+                }
             }
         }
 
-        if (mode?.ToString() == "github")
+        var name = mode?.ToString();
+        if (name == "github")
         {
             return "GitHub";
+        }
+        if (name == "hybrid")
+        {
+            return "Hybrid";
         }
 
         // Default to Incremental if mode is not recognized
@@ -669,9 +683,10 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     }
 
     /// <summary>
-    /// Check if crawl mode is incremental (true or not github)
+    /// Check if crawl mode is incremental (true or not github). Hybrid resolves to the run it takes
+    /// this time, so callers get the same answer whether the mode names a run or picks one.
     /// </summary>
-    private bool IsIncrementalMode(object mode)
+    internal static bool IsIncrementalMode(object mode, DateTime? lastFullCrawlUtc, DateTime nowUtc)
     {
         if (mode is bool b)
         {
@@ -691,11 +706,31 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             }
             if (jsonElement.ValueKind == JsonValueKind.String)
             {
-                return jsonElement.GetString() != "github";
+                return IsIncrementalMode(jsonElement.GetString(), lastFullCrawlUtc, nowUtc);
             }
         }
 
-        return mode?.ToString() != "github";
+        return IsIncrementalMode(mode?.ToString(), lastFullCrawlUtc, nowUtc);
+    }
+
+    private static bool IsIncrementalMode(string? mode, DateTime? lastFullCrawlUtc, DateTime nowUtc)
+    {
+        if (mode == "github")
+        {
+            return false;
+        }
+
+        if (mode == "hybrid")
+        {
+            // A hybrid week crawls incrementally until the last full crawl is a week old, then runs
+            // one full crawl and re-anchors on it. The decision reads a timestamp rather than a tally
+            // of runs so that a tick missed while the container was down still lands the full crawl
+            // on the next tick instead of shifting the week, and a restart changes nothing. With no
+            // full crawl recorded there is no baseline to build on, so the first run is a full one.
+            return lastFullCrawlUtc.HasValue && nowUtc - lastFullCrawlUtc.Value < TimeSpan.FromDays(7);
+        }
+
+        return true;
     }
 
     /// <summary>

@@ -78,6 +78,8 @@ public class StateService : IStateService
         // OperationStates moved to data/operations/operation_history.json
         public bool SetupCompleted { get; set; } = false;
         public DateTime? LastPicsCrawl { get; set; }
+        // Separate from LastPicsCrawl, which every mode stamps. See AppState.
+        public DateTime? LastFullPicsCrawl { get; set; }
         public StatusCheckResult? StatusCheckResult { get; set; }
         // User-selected DNS resolver mode for Status Check ("auto" | "bridge" | "host"). Default "auto".
         public string StatusCheckResolverMode { get; set; } = "auto";
@@ -973,6 +975,16 @@ public class StateService : IStateService
         UpdateState(state => state.LastPicsCrawl = crawlTime);
     }
 
+    public DateTime? GetLastFullPicsCrawl()
+    {
+        return GetState().LastFullPicsCrawl;
+    }
+
+    public void SetLastFullPicsCrawl(DateTime crawlTime)
+    {
+        UpdateState(state => state.LastFullPicsCrawl = crawlTime);
+    }
+
     // Status Check (DNS diagnostics) Methods
     public StatusCheckResult? GetStatusCheckResult()
     {
@@ -1826,6 +1838,7 @@ public class StateService : IStateService
             // OperationStates loaded from separate file via GetOperationStates()
             SetupCompleted = persisted.SetupCompleted,
             LastPicsCrawl = persisted.LastPicsCrawl,
+            LastFullPicsCrawl = persisted.LastFullPicsCrawl,
             StatusCheckResult = persisted.StatusCheckResult,
             StatusCheckResolverMode = persisted.StatusCheckResolverMode,
             EpicMappingLastCollection = persisted.EpicMappingLastCollection,
@@ -1951,6 +1964,7 @@ public class StateService : IStateService
             // OperationStates saved to separate file via SaveOperationStates()
             SetupCompleted = state.SetupCompleted,
             LastPicsCrawl = state.LastPicsCrawl,
+            LastFullPicsCrawl = state.LastFullPicsCrawl,
             StatusCheckResult = state.StatusCheckResult,
             StatusCheckResolverMode = state.StatusCheckResolverMode,
             EpicMappingLastCollection = state.EpicMappingLastCollection,

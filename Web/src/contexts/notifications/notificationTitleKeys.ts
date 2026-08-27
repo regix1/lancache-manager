@@ -9,6 +9,8 @@ export const NOTIFICATION_TITLE_KEYS: Record<NotificationType, string | null> = 
   game_removal: 'common.notifications.titles.gameRemoval',
   corruption_removal: 'common.notifications.titles.corruptionRemoval',
   corruption_detection: 'common.notifications.titles.corruptionDetection',
+  unmapped_scan: 'common.notifications.titles.unmappedScan',
+  unmapped_removal: 'common.notifications.titles.unmappedRemoval',
   database_reset: 'common.notifications.titles.databaseReset',
   depot_mapping: 'common.notifications.titles.depotMapping',
   game_detection: 'common.notifications.titles.gameDetection',

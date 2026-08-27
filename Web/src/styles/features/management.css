@@ -329,3 +329,13 @@
   overflow-wrap: anywhere;
   user-select: all;
 }
+
+/* Unmapped cache rows carry two count badges and the expander in one cluster. Below the
+   phone breakpoint that cluster claims the whole line, and the service name beside it
+   truncates to a single letter, so give the cluster its own row instead. */
+@media (max-width: 639.98px) {
+  .mgmt-unmapped-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

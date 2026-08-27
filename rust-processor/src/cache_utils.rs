@@ -385,6 +385,20 @@ pub fn cache_path_for_digest(cache_dir: &Path, digest: u128) -> PathBuf {
     cache_dir.join(last_2).join(middle_2).join(&hash)
 }
 
+/// Yields every regular file under one cache root.
+///
+/// The digest parser stays with the caller on purpose. The eviction index matches file NAMES
+/// case-insensitively, so a foreign name can never mask a probe candidate and be read as an
+/// eviction; a scan that deletes needs the `levels=2:2` directory shape verified first. Those
+/// are different questions, and only the traversal is shared.
+pub fn walk_cache_root(root: &Path) -> impl Iterator<Item = jwalk::DirEntry<((), ())>> {
+    jwalk::WalkDir::new(root)
+        .min_depth(1)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+}
+
 /// Reproduce nginx's `$uri` from a stored `LogEntries.Url`.
 ///
 /// The lancache monolithic image keys the cache on `$cacheidentifier$uri$slice_range`
@@ -970,7 +984,6 @@ pub fn existing_keyed_paths_for_url_with_scheme(
 /// Returns None when the file is unreadable, the key is unreasonably long, or there
 /// is no complete KEY line — mutating callers must treat None as "do not touch"
 /// under the bare-metal scheme.
-#[allow(dead_code)]
 pub fn read_cache_file_key(path: &Path) -> Option<String> {
     let mut file = std::fs::File::open(path).ok()?;
     read_cache_file_key_from_reader(&mut file)

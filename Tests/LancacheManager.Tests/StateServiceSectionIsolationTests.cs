@@ -483,6 +483,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         },
         SetupCompleted = true,
         LastPicsCrawl = new DateTime(2031, 3, 4, 5, 6, 7, DateTimeKind.Utc),
+        LastFullPicsCrawl = new DateTime(2032, 4, 5, 6, 7, 8, DateTimeKind.Utc),
         StatusCheckResult = new StatusCheckResult(), // non-null is already distinctive from the default null
 
         StatusCheckResolverMode = "host",

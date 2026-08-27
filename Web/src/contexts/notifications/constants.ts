@@ -170,6 +170,10 @@ export const NOTIFICATION_STORAGE_KEYS = {
   CORRUPTION_REMOVAL: 'notification_corruption_removal',
   /** Key for corruption detection operation state */
   CORRUPTION_DETECTION: 'notification_corruption_detection',
+  /** Key for unmapped cache scan operation state */
+  UNMAPPED_SCAN: 'notification_unmapped_scan',
+  /** Key for unmapped cache removal operation state */
+  UNMAPPED_REMOVAL: 'notification_unmapped_removal',
   /** Key for game detection operation state */
   GAME_DETECTION: 'notification_game_detection',
   /** Key for cache clearing operation state */
@@ -240,6 +244,10 @@ export const NOTIFICATION_IDS = {
   GAME_DETECTION: 'game_detection',
   /** ID for corruption detection operations */
   CORRUPTION_DETECTION: 'corruption_detection',
+  /** ID for unmapped cache scan operations */
+  UNMAPPED_SCAN: 'unmapped_scan',
+  /** ID for unmapped cache removal operations */
+  UNMAPPED_REMOVAL: 'unmapped_removal',
   /** ID for data import operations */
   DATA_IMPORT: 'data_import',
   /** ID for the tracked Epic mapping lifecycle */

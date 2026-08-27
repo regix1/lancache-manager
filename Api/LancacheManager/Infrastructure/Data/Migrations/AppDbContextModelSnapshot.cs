@@ -356,6 +356,61 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("CachedServiceDetections");
                 });
 
+            modelBuilder.Entity("LancacheManager.Models.CachedUnmappedDetection", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("DatasourceName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<long>("FileCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("FilesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ScanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ServiceName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<long>("TotalSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ScanId");
+
+                    b.ToTable("CachedUnmappedDetections");
+                });
+
+            modelBuilder.Entity("LancacheManager.Models.CachedUnmappedScan", b =>
+                {
+                    b.Property<Guid>("ScanId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ContractVersion")
+                        .HasColumnType("integer");
+
+                    b.HasKey("ScanId");
+
+                    b.ToTable("CachedUnmappedScans");
+                });
+
             modelBuilder.Entity("LancacheManager.Models.ClientGroup", b =>
                 {
                     b.Property<long>("Id")
@@ -1426,6 +1481,17 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                 {
                     b.HasOne("LancacheManager.Models.CachedCorruptionScan", "Scan")
                         .WithMany("Candidates")
+                        .HasForeignKey("ScanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Scan");
+                });
+
+            modelBuilder.Entity("LancacheManager.Models.CachedUnmappedDetection", b =>
+                {
+                    b.HasOne("LancacheManager.Models.CachedUnmappedScan", "Scan")
+                        .WithMany()
                         .HasForeignKey("ScanId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

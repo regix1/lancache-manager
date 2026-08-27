@@ -122,8 +122,14 @@ public partial class SteamKit2Service
                 return;
             }
 
+            // Resolve the run once. Hybrid picks incremental or full from the clock, so asking twice
+            // could have the viability gate judge one run and TryStartRebuild start the other, which
+            // is how an incremental crawl would get past the gate that exists to stop it.
+            var incremental = IsIncrementalMode(
+                _crawlIncrementalMode, _stateService.GetLastFullPicsCrawl(), DateTime.UtcNow);
+
             // For automatic incremental scans, check viability first
-            if (IsIncrementalMode(_crawlIncrementalMode))
+            if (incremental)
             {
                 try
                 {
@@ -181,7 +187,7 @@ public partial class SteamKit2Service
                 }
             }
 
-            if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: IsIncrementalMode(_crawlIncrementalMode), trigger: CurrentRunTrigger))
+            if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: incremental, trigger: CurrentRunTrigger))
             {
                 // Await the background task so the base class sets LastRunUtc and fires the run-end
                 // ServiceExecutionStateChanged broadcast only after the actual PICS crawl finishes -
@@ -193,6 +199,13 @@ public partial class SteamKit2Service
 
                 _lastCrawlTime = DateTime.UtcNow;
                 SaveLastCrawlTime(); // Persist to state.json
+
+                if (!incremental)
+                {
+                    // Stamped after the crawl finishes, not before it starts, so a run that died
+                    // partway through does not push the next hybrid full crawl out by a week.
+                    SaveLastFullCrawlTime();
+                }
             }
         }
     }

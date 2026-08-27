@@ -67,6 +67,10 @@ import type {
   NotificationDisplayMode,
   ServiceScheduleInfo
 } from '../components/features/management/schedules/types';
+import type {
+  CachedUnmappedScanResponse,
+  UnmappedCacheFile
+} from '../components/features/management/cache/unmappedCacheTypes';
 import type { CustomSchedule } from '../components/features/management/schedules/custom-schedule/types';
 import type {
   ScheduledPrefillConfigDto,
@@ -1118,10 +1122,11 @@ class ApiService {
   }
 
   static async setDepotScheduledScanMode(
-    mode: 'incremental' | 'full' | 'github',
+    mode: 'incremental' | 'hybrid' | 'full' | 'github',
     signal?: AbortSignal
   ): Promise<void> {
-    const payload: boolean | 'github' = mode === 'github' ? 'github' : mode === 'incremental';
+    const payload: boolean | 'github' | 'hybrid' =
+      mode === 'github' || mode === 'hybrid' ? mode : mode === 'incremental';
 
     try {
       const res = await fetch(
@@ -1429,6 +1434,97 @@ class ApiService {
       return body ?? {};
     } catch (error: unknown) {
       console.error('deleteCorruptionScanHistory error:', error);
+      throw error;
+    }
+  }
+
+  // Get the saved unmapped-cache scan (returns immediately without running a scan)
+  static async getCachedUnmappedScan(): Promise<CachedUnmappedScanResponse> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/unmapped/cached`,
+        this.getFetchOptions({
+          signal: AbortSignal.timeout(30000) // 30 seconds for large datasets
+        })
+      );
+      return await this.handleResponse<CachedUnmappedScanResponse>(res);
+    } catch (error: unknown) {
+      console.error('getCachedUnmappedScan error:', error);
+      throw error;
+    }
+  }
+
+  // Start the background scan for cache files no detection run claims
+  static async startUnmappedScan(): Promise<{
+    operationId: string;
+    message: string;
+    status: string;
+    queued?: boolean;
+    alreadyRunning?: boolean;
+  }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/unmapped/scan`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      return await this.handleResponse<{
+        operationId: string;
+        message: string;
+        status: string;
+        queued?: boolean;
+        alreadyRunning?: boolean;
+      }>(res);
+    } catch (error: unknown) {
+      console.error('startUnmappedScan error:', error);
+      throw error;
+    }
+  }
+
+  // List one service's orphaned files from a saved scan
+  static async getUnmappedCacheFiles(
+    service: string,
+    scanId: string
+  ): Promise<UnmappedCacheFile[]> {
+    try {
+      const params = new URLSearchParams();
+      params.set('scanId', scanId);
+      const res = await fetch(
+        `${API_BASE}/cache/services/${encodeURIComponent(service)}/unmapped?${params.toString()}`,
+        this.getFetchOptions({
+          signal: AbortSignal.timeout(60000) // a service can hold tens of thousands of files
+        })
+      );
+      return await this.handleResponse<UnmappedCacheFile[]>(res);
+    } catch (error: unknown) {
+      console.error('getUnmappedCacheFiles error:', error);
+      throw error;
+    }
+  }
+
+  // Delete the orphaned files a saved scan found, for the named services (requires auth).
+  // The endpoint rejects an empty service list, so callers pass every service they mean.
+  static async removeUnmappedCacheFiles(
+    scanId: string,
+    services: string[]
+  ): Promise<{ operationId: string; message: string }> {
+    try {
+      const params = new URLSearchParams();
+      params.set('scanId', scanId);
+      params.set('services', services.join(','));
+      const res = await fetch(
+        `${API_BASE}/cache/unmapped?${params.toString()}`,
+        this.getFetchOptions({
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+          // No timeout - the Rust remover handles large operations efficiently
+        })
+      );
+      return await this.handleResponse<{ operationId: string; message: string }>(res);
+    } catch (error: unknown) {
+      console.error('removeUnmappedCacheFiles error:', error);
       throw error;
     }
   }

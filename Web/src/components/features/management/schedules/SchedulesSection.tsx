@@ -106,11 +106,13 @@ const CountdownDisplay = memo(function CountdownDisplay({
   return <span className="schedule-countdown">{display}</span>;
 });
 
-type DepotScheduledScanMode = 'incremental' | 'full' | 'github';
+type DepotScheduledScanMode = 'incremental' | 'hybrid' | 'full' | 'github';
 
+// Incremental and full still travel as the boolean the route has always taken, so the modes that
+// have no boolean left to travel as are the ones spelled out as strings.
 const getDepotScheduledScanMode = (mode: boolean | string | undefined): DepotScheduledScanMode => {
-  if (mode === 'github') {
-    return 'github';
+  if (mode === 'github' || mode === 'hybrid') {
+    return mode;
   }
   if (mode === false) {
     return 'full';
@@ -118,9 +120,11 @@ const getDepotScheduledScanMode = (mode: boolean | string | undefined): DepotSch
   return 'incremental';
 };
 
-const toDepotScheduledScanModePayload = (mode: DepotScheduledScanMode): boolean | 'github' => {
-  if (mode === 'github') {
-    return 'github';
+const toDepotScheduledScanModePayload = (
+  mode: DepotScheduledScanMode
+): boolean | 'github' | 'hybrid' => {
+  if (mode === 'github' || mode === 'hybrid') {
+    return mode;
   }
   return mode === 'incremental';
 };
@@ -178,17 +182,26 @@ const getDepotScanModeRequirement = (
   if (!availability.isKnown) {
     return null;
   }
+  // Hybrid is held to what a full scan needs, here and below, because the week it runs ends in a
+  // full scan: a hybrid schedule that cannot run one is a schedule that can only ever skip its own
+  // seventh day. It keeps its own label while borrowing the reason, because the closed dropdown
+  // renders the selected option's label and a refused hybrid reading "Full" would name a mode the
+  // user has not chosen.
   if (!availability.isSetupCompleted) {
     return {
       labelKey:
         mode === 'incremental'
           ? 'management.depotMapping.modes.incrementalSetupRequired'
-          : 'management.depotMapping.modes.fullSetupRequired',
+          : mode === 'hybrid'
+            ? 'management.depotMapping.modes.hybridSetupRequired'
+            : 'management.depotMapping.modes.fullSetupRequired',
       helpKey: 'management.depotMapping.modes.setupRequiredHelp'
     };
   }
   // An incremental scan asks Steam what changed since the mappings it already holds, so with none
   // stored there is nothing to compare against and Steam answers with a required full update.
+  // Hybrid is deliberately not held to this: with no full scan behind it there is nothing for its
+  // seventh-day timer to measure from, so its first run is the full scan that builds the baseline.
   if (mode === 'incremental' && !availability.hasDepotMappings) {
     return {
       labelKey: 'management.depotMapping.modes.incrementalMappingsRequired',
@@ -196,10 +209,13 @@ const getDepotScanModeRequirement = (
     };
   }
   // Incremental reads the PICS changelist over the Steam client connection and never calls the
-  // Steam Web API, so only the full scan, which enumerates every app through it, needs the key.
-  if (mode === 'full' && !availability.isSteamWebApiAvailable) {
+  // Steam Web API, so only a scan that enumerates every app through it needs the key.
+  if ((mode === 'full' || mode === 'hybrid') && !availability.isSteamWebApiAvailable) {
     return {
-      labelKey: 'management.depotMapping.modes.fullWebApiRequired',
+      labelKey:
+        mode === 'hybrid'
+          ? 'management.depotMapping.modes.hybridWebApiRequired'
+          : 'management.depotMapping.modes.fullWebApiRequired',
       helpKey: 'management.depotMapping.modes.fullWebApiRequiredHelp'
     };
   }
@@ -223,9 +239,19 @@ const DepotScheduleModeDropdown = memo(function DepotScheduleModeDropdown({
   const buildOption = (scanMode: DepotScheduledScanMode): DropdownOption => {
     const requirement = getDepotScanModeRequirement(scanMode, availability);
     if (!requirement) {
+      // Two of the four modes cannot be read off a one-word label: incremental does not say what
+      // it leaves untouched, and hybrid does not say when it switches. Both notes are attached
+      // without the disabled flag the refusal below carries, so both modes stay selectable.
+      const note =
+        scanMode === 'incremental'
+          ? t('management.depotMapping.modes.incrementalNote')
+          : scanMode === 'hybrid'
+            ? t('management.depotMapping.modes.hybridNote')
+            : undefined;
       return {
         value: scanMode,
-        label: t(`management.depotMapping.modes.${scanMode}`)
+        label: t(`management.depotMapping.modes.${scanMode}`),
+        description: note
       };
     }
     // The label is the reason in short form, matching how the missing Web API key already reads;
@@ -237,8 +263,10 @@ const DepotScheduleModeDropdown = memo(function DepotScheduleModeDropdown({
       disabled: true
     };
   };
+  // Hybrid sits next to incremental because it is the answer to the note incremental carries.
   const options: DropdownOption[] = [
     buildOption('incremental'),
+    buildOption('hybrid'),
     buildOption('full'),
     buildOption('github')
   ];

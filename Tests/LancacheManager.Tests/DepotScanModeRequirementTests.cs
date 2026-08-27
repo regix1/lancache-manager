@@ -59,9 +59,9 @@ public class DepotScanModeRequirementTests
         Assert.Null(DepotScanModeRequirement.Missing(availability, incremental: true));
     }
 
-    // A full scan empties the mapping table at the start and refills it as it goes, so the count
-    // reads zero for most of the run. Judging that as an absent baseline would refuse Incremental
-    // for every save made while a scan is in flight.
+    // A crawl that is still running has not written all of its mappings yet, so the count can read
+    // zero well into a first scan. Judging that as an absent baseline would refuse Incremental for
+    // every save made while a scan is in flight.
     [Fact]
     public void IncrementalIsAllowedWhileACrawlIsRefillingTheTable()
     {

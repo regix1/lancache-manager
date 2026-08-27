@@ -760,6 +760,9 @@ builder.Services.AddSingleton<GameCacheDetectionService>();
 // Register CorruptionDetectionService
 builder.Services.AddSingleton<CorruptionDetectionService>();
 
+// Register UnmappedCacheService
+builder.Services.AddSingleton<UnmappedCacheService>();
+
 // Register PrefillSessionService for ban management and session persistence
 builder.Services.AddSingleton<PrefillSessionService>();
 

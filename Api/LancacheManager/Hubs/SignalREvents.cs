@@ -45,6 +45,12 @@ public static class SignalREvents
     public const string CorruptionRemovalStarted = "CorruptionRemovalStarted";
     public const string CorruptionRemovalProgress = "CorruptionRemovalProgress";
     public const string CorruptionRemovalComplete = "CorruptionRemovalComplete";
+    public const string UnmappedScanStarted = "UnmappedScanStarted";
+    public const string UnmappedScanProgress = "UnmappedScanProgress";
+    public const string UnmappedScanComplete = "UnmappedScanComplete";
+    public const string UnmappedRemovalStarted = "UnmappedRemovalStarted";
+    public const string UnmappedRemovalProgress = "UnmappedRemovalProgress";
+    public const string UnmappedRemovalComplete = "UnmappedRemovalComplete";
     public const string CacheClearingStarted = "CacheClearingStarted";
     public const string CacheClearingProgress = "CacheClearingProgress";
     public const string CacheClearingComplete = "CacheClearingComplete";

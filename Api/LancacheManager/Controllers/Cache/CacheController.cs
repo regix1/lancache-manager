@@ -37,6 +37,7 @@ public class CacheController : ControllerBase
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly CorruptionDetectionService _corruptionDetectionService;
+    private readonly UnmappedCacheService _unmappedCacheService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly DatasourceService _datasourceService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
@@ -61,6 +62,7 @@ public class CacheController : ControllerBase
         CacheManagementService cacheService,
         CacheClearingService cacheClearingService,
         CorruptionDetectionService corruptionDetectionService,
+        UnmappedCacheService unmappedCacheService,
         ILogger<CacheController> logger,
         IPathResolver pathResolver,
         ISignalRNotificationService notifications,
@@ -78,6 +80,7 @@ public class CacheController : ControllerBase
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
         _corruptionDetectionService = corruptionDetectionService;
+        _unmappedCacheService = unmappedCacheService;
         _logger = logger;
         _pathResolver = pathResolver;
         _notifications = notifications;
@@ -681,6 +684,154 @@ public class CacheController : ControllerBase
             ScanSummary = metrics == null
                 ? null
                 : CorruptionDetectionService.SnapshotStructuralSummary(metrics)
+        });
+    }
+
+    /// <summary>
+    /// Returns the stored unmapped cache scan.
+    /// </summary>
+    /// <remarks>
+    /// Returns immediately with the stored scan (if any) without running a new one.
+    /// </remarks>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpGet("unmapped/cached")]
+    [ProducesResponseType(typeof(UnmappedCacheResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetCachedUnmappedAsync(CancellationToken cancellationToken = default)
+    {
+        var stored = await _unmappedCacheService.GetScanAsync(cancellationToken);
+        return Ok(stored ?? new UnmappedCacheResponse { HasCachedResults = false });
+    }
+
+    /// <summary>
+    /// Starts a background scan for cache files no game or service detection row claims.
+    /// </summary>
+    /// <remarks>
+    /// Returns immediately with an operation ID. Results are sent via SignalR when complete.
+    /// </remarks>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpPost("unmapped/scan")]
+    [ProducesResponseType(typeof(UnmappedCacheStartResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    public async Task<IActionResult> StartUnmappedScanAsync(CancellationToken cancellationToken = default)
+    {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
+        // Deliberately no request token in the delegate: it may run at queue promotion, long
+        // after this HTTP request completed (the operation owns its own CTS via the tracker).
+        async Task<Guid?> StartScanAsync() => await _unmappedCacheService.StartScanAsync();
+
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.UnmappedCacheScan,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.UnmappedCacheScan,
+                ConflictScope.Bulk(),
+                UnmappedCacheService.ScanOperationName,
+                StartScanAsync,
+                cancellationToken));
+        }
+
+        var operationId = await StartScanAsync();
+        return Accepted(new UnmappedCacheStartResponse
+        {
+            OperationId = operationId
+                ?? throw new InvalidOperationException("The unmapped cache scan did not return an operation ID"),
+            Message = "Unmapped cache scan started"
+        });
+    }
+
+    /// <summary>
+    /// Returns the stored unmapped cache files for one service.
+    /// </summary>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpGet("services/{service}/unmapped")]
+    [ProducesResponseType(typeof(List<UnmappedFileResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetServiceUnmappedFilesAsync(
+        string service,
+        CancellationToken cancellationToken,
+        [FromQuery] Guid scanId)
+    {
+        if (!_serviceNameRegex.IsMatch(service))
+        {
+            throw new ValidationException("Invalid service name");
+        }
+
+        if (scanId == Guid.Empty)
+        {
+            throw new ValidationException("An unmapped scan ID is required");
+        }
+
+        return Ok(await _unmappedCacheService.GetServiceFilesAsync(scanId, service, cancellationToken));
+    }
+
+    /// <summary>
+    /// Removes the unmapped cache files a prior scan found for the named services.
+    /// </summary>
+    /// <remarks>
+    /// The claimed-file set is rebuilt immediately before deleting, so a file a detection run
+    /// attributed since the scan is refused rather than removed.
+    /// </remarks>
+    /// <param name="services">Comma-separated service names from the stored scan.</param>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpDelete("unmapped")]
+    [ProducesResponseType(typeof(UnmappedCacheStartResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    public async Task<IActionResult> RemoveUnmappedFilesAsync(
+        CancellationToken cancellationToken,
+        [FromQuery] Guid scanId,
+        [FromQuery] string? services)
+    {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
+        if (scanId == Guid.Empty)
+        {
+            throw new ValidationException("An unmapped scan ID is required");
+        }
+
+        var serviceNames = (services ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (serviceNames.Length == 0 || serviceNames.Any(name => !_serviceNameRegex.IsMatch(name)))
+        {
+            throw new ValidationException("At least one valid service name is required");
+        }
+
+        // Deliberately no request token in the delegate: it may run at queue promotion, long
+        // after this HTTP request completed (the operation owns its own CTS via the tracker).
+        async Task<Guid?> StartRemovalAsync() =>
+            await _unmappedCacheService.StartRemovalAsync(scanId, serviceNames);
+
+        // The removal unlinks cache files, so it must wait out the operations the checker
+        // serializes cache-mutating removals against (a corruption scan mid-walk, another
+        // full-tree pass), the same way the other removal routes do.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.UnmappedCacheRemoval,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.UnmappedCacheRemoval,
+                ConflictScope.Bulk(),
+                UnmappedCacheService.RemovalOperationName,
+                StartRemovalAsync,
+                cancellationToken));
+        }
+
+        return Accepted(new UnmappedCacheStartResponse
+        {
+            OperationId = await _unmappedCacheService.StartRemovalAsync(scanId, serviceNames, cancellationToken),
+            Message = "Unmapped cache removal started"
         });
     }
 

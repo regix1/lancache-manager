@@ -31,6 +31,11 @@ public class AppState
     public List<OperationState> OperationStates { get; set; } = new();
     public bool SetupCompleted { get; set; } = false;
     public DateTime? LastPicsCrawl { get; set; }
+    // When a full PICS crawl last finished, kept apart from LastPicsCrawl because that one is
+    // stamped by every mode and by the suppression path, so it cannot answer "when was the last
+    // FULL crawl". Hybrid mode reads this to decide whether the run it is about to start is the
+    // weekly full one. Null means no full crawl has been recorded, so the next hybrid run is full.
+    public DateTime? LastFullPicsCrawl { get; set; }
     // Last completed Status Check sweep result, so GET api/status-check survives a restart.
     public StatusCheckResult? StatusCheckResult { get; set; }
     // User-selected DNS resolver mode for Status Check ("auto" | "bridge" | "host"). Default "auto".

@@ -169,6 +169,8 @@
         "gameRemoval": "Game Cache Removal",
         "corruptionRemoval": "Suspect Cache File Removal",
         "corruptionDetection": "Corruption Scan",
+        "unmappedScan": "Unmapped Cache Scan",
+        "unmappedRemoval": "Unmapped Cache Deletion",
         "databaseReset": "Database Reset",
         "depotMapping": "Depot Mapping",
         "gameDetection": "Game Detection",
@@ -197,6 +199,8 @@
       "cancelCacheClearing": "Cancel cache clearing",
       "cancelCorruptionRemoval": "Cancel suspect cache file removal",
       "cancelCorruptionDetection": "Cancel corruption scan",
+      "cancelUnmappedScan": "Cancel unmapped cache scan",
+      "cancelUnmappedRemoval": "Cancel unmapped cache deletion",
       "cancelDepotMapping": "Cancel depot mapping",
       "cancelGameDetection": "Cancel game detection",
       "cancelGameRemoval": "Cancel game removal",
@@ -583,7 +587,7 @@
       },
       "cacheSize": {
         "term": "Cache Size",
-        "description": "What those files take up on disk, each counted once. Games on Disk is smaller because it counts only cache matched to a known game; Services on Disk and unidentified files make up the rest."
+        "description": "What those files take up on disk, each counted once. Games on Disk, Services on Disk and the unmapped figure beside them always add up to exactly this. Anything downloaded since the last detection run counts as unmapped until detection runs again and attributes it."
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
@@ -3025,6 +3029,65 @@
         "join": " and "
       }
     },
+    "unmapped": {
+      "title": "Unmapped Cache",
+      "titleShort": "Unmapped",
+      "fileCount": "{{formattedCount}} file",
+      "fileCount_other": "{{formattedCount}} files",
+      "scanTotals": "{{files}} files · {{size}}",
+      "scanningMessage": "Reading every cache file and matching it against what detection already claims. This takes a few minutes on a large cache.",
+      "removeSelected": "Delete files for selected services",
+      "removeAll": "Delete every unmapped file",
+      "removing": "Deleting...",
+      "loadingCachedScan": "Loading the last unmapped cache scan",
+      "loadingFiles": "Loading files...",
+      "noFilesAvailable": "No files were saved for this service.",
+      "expandDetails": "Show unmapped files for {{service}}",
+      "collapseDetails": "Hide unmapped files for {{service}}",
+      "searchLabel": "Search files",
+      "searchPlaceholder": "Search by address",
+      "searchResultCount": "{{count}} of {{total}} files",
+      "noSearchMatch": "No file address matches \"{{query}}\".",
+      "clearSearch": "Clear search",
+      "fileLabel": "files",
+      "serviceSearchPlaceholder": "Search services",
+      "noServiceMatch": "No service matches \"{{query}}\".",
+      "serviceLabel": "services",
+      "emptyStates": {
+        "nothingUnmapped": {
+          "title": "Every cache file is accounted for",
+          "subtitle": "The last scan found no cache file that detection does not already claim."
+        },
+        "noScan": {
+          "title": "No scan yet",
+          "subtitle": "Run a scan from the menu to find cache files that no game and no service claims."
+        }
+      },
+      "errors": {
+        "loadCachedScan": "Could not load the last unmapped cache scan",
+        "loadCachedRetry": "Try again, or run a new scan from the menu.",
+        "startScan": "Failed to start the unmapped cache scan: {{error}}",
+        "loadFiles": "Could not load the files for {{service}}",
+        "removeFiles": "Failed to delete unmapped cache files: {{error}}"
+      },
+      "help": {
+        "aboutTitle": "What this finds",
+        "about": "Cache files on disk that no game and no service detection run claims. Each one is named after a hash, so the scan reads the upstream address stored inside the file to say what it holds.",
+        "causesTitle": "Why files end up here",
+        "causes": "A download that was never matched to a game, a service that stopped being detected, or content cached before detection covered it.",
+        "removalNote": "Deleting these frees disk space and nothing else. Anything still wanted is downloaded again on the next request."
+      },
+      "modal": {
+        "removeAllTitle": "Delete every unmapped file?",
+        "removeAllConfirm": "Delete all",
+        "confirmRemoveAll": "This deletes {{files}} files and frees {{size}}.",
+        "removeSelectedTitle": "Delete the selected services' files?",
+        "removeSelectedConfirm": "Delete selected",
+        "confirmRemoveSelected": "This deletes {{files}} files from {{count}} service and frees {{size}}.",
+        "confirmRemoveSelected_other": "This deletes {{files}} files from {{count}} services and frees {{size}}.",
+        "removalWarning": "Deleted cache files cannot be restored. The next request for that content downloads it again."
+      }
+    },
     "capability": {
       "diskObjectsUnavailable": "Disk-level game and service actions require a clear cache-key scheme for every enabled datasource. Clearing the whole cache still works."
     },
@@ -3319,12 +3382,17 @@
     "depotMapping": {
       "modes": {
         "incremental": "Incremental",
+        "hybrid": "Hybrid",
         "full": "Full",
         "github": "GitHub",
+        "incrementalNote": "Only re-reads apps Steam reports as changed, so a mapping that was wrong when it was first written stays wrong until a full scan runs.",
+        "hybridNote": "Runs incremental scans until the last full scan is a week old, then runs a full one.",
         "fullWebApiRequired": "Full (Web API required)",
+        "hybridWebApiRequired": "Hybrid (Web API required)",
         "fullWebApiRequiredHelp": "A full scan needs a Steam Web API key.",
         "incrementalSetupRequired": "Incremental (setup required)",
         "fullSetupRequired": "Full (setup required)",
+        "hybridSetupRequired": "Hybrid (setup required)",
         "setupRequiredHelp": "Finish setup before scheduling a Steam depot scan.",
         "incrementalMappingsRequired": "Incremental (depot mappings required)",
         "mappingsRequiredHelp": "Nothing to compare against yet. Run a full scan or import from GitHub first."
@@ -7145,6 +7213,19 @@
       },
       "progressDirectories": "{{base}} ({{processed}}/{{total}} directories)",
       "stale": "Cache clearing completed"
+    },
+    "unmappedScan": {
+      "starting": "Starting the unmapped cache scan...",
+      "enumerating": "Counting cache files... {{count}} found",
+      "readingKeys": "Reading the stored address from each unmapped file...",
+      "complete": "Unmapped cache scan complete",
+      "cancelled": "Unmapped cache scan cancelled"
+    },
+    "unmappedRemove": {
+      "starting": "Starting unmapped cache file deletion...",
+      "removingCacheFiles": "Deleting unmapped cache files...",
+      "complete": "Unmapped cache files deleted",
+      "cancelled": "Unmapped cache file deletion cancelled"
     },
     "corruptionDetect": {
       "starting": "Starting corruption scan…",

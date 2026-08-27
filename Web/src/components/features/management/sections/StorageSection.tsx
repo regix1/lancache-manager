@@ -53,6 +53,7 @@ import DatasourcesManager from '../datasources/DatasourcesInfo';
 import LogRemovalManager from '../log-processing/LogRemovalManager';
 import CacheManager from '../cache/CacheManager';
 import CorruptionManager from '../cache/CorruptionManager';
+import UnmappedCacheManager from '../cache/UnmappedCacheManager';
 import GameCacheDetector from '../game-detection/GameCacheDetector';
 import {
   MANAGEMENT_STORAGE_KEYS,
@@ -795,6 +796,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
           {/* Corruption Detection */}
           <CorruptionManager authMode={authMode} mockMode={mockMode} onError={onError} />
+
+          {/* Unmapped Cache */}
+          <UnmappedCacheManager authMode={authMode} mockMode={mockMode} onError={onError} />
 
           {/* Game Detection */}
           <ImageCacheContext.Provider value={imageCacheVersion}>
