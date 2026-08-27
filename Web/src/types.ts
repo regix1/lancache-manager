@@ -386,6 +386,8 @@ export interface StatCardData {
   color: 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan' | 'teal';
   visible: boolean;
   tooltip?: ReactNode;
+  /** Control riding in the footer beside the note, for a card whose value can show more than one figure. */
+  footerControl?: ReactNode;
 }
 
 type CorruptionSliceKind = 'no_range' | 'noslice' | 'ranged';

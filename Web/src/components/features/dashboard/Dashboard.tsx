@@ -59,6 +59,7 @@ import BandwidthTrend from './widgets/BandwidthTrend';
 import Badge from '@components/ui/Badge';
 
 type CardLayout = 'balanced' | '4-column' | '3-column';
+type CacheFilesValue = 'files' | 'size';
 type CardVisibility = Record<string, boolean>;
 type AllStatCards = Record<string, StatCardData>;
 
@@ -220,6 +221,16 @@ const Dashboard: React.FC = () => {
   const handleCardLayoutChange = (value: string) => {
     setCardLayout(value as CardLayout);
     storage.setItem('dashboard-card-layout', value);
+  };
+
+  // Which figure the Cache Files card puts in its value. Persisted the same way the card layout
+  // above is, so the choice survives a reload without a new storage mechanism.
+  const [cacheFilesValue, setCacheFilesValue] = useState<CacheFilesValue>(() =>
+    storage.getItem('dashboard-cache-files-value') === 'size' ? 'size' : 'files'
+  );
+  const handleCacheFilesValueChange = (value: string) => {
+    setCacheFilesValue(value as CacheFilesValue);
+    storage.setItem('dashboard-cache-files-value', value);
   };
 
   const getStatCardsGridClass = useCallback((layout: CardLayout, visibleCount: number) => {
@@ -605,17 +616,51 @@ const Dashboard: React.FC = () => {
       cacheFiles: {
         key: 'cacheFiles',
         title: t('dashboard.cards.cacheFiles'),
-        value: cacheInfo && hasCacheScan ? formatCount(cacheInfo.totalFiles) : '—',
+        value:
+          cacheInfo && hasCacheScan
+            ? cacheFilesValue === 'size'
+              ? formatBytes(cacheInfo.cacheScanTotalBytes ?? 0)
+              : formatCount(cacheInfo.totalFiles)
+            : '—',
+        // Both figures come from one disk walk, so the card carries both: whichever one is not
+        // in the value stays in the subtitle. The segments go inert while cards are being
+        // rearranged, since a tap there is meant to pick the card up, not change what it reads.
+        footerControl: hasCacheScan ? (
+          <div role="group" aria-label={t('dashboard.cards.cacheFilesValueLabel')}>
+            <SegmentedControl
+              options={[
+                {
+                  value: 'files',
+                  label: t('dashboard.cards.cacheFilesValueFiles'),
+                  disabled: isEditMode
+                },
+                {
+                  value: 'size',
+                  label: t('dashboard.cards.cacheFilesValueSize'),
+                  disabled: isEditMode
+                }
+              ]}
+              value={cacheFilesValue}
+              onChange={handleCacheFilesValueChange}
+              size="sm"
+              activeColor="neutral"
+            />
+          </div>
+        ) : undefined,
         subtitle: failedSections.cache
           ? t('common.failedToLoad')
           : cacheInfo && !hasCacheScan
             ? t('dashboard.cards.noCacheScanData')
             : [
-                t('dashboard.cards.filesOnDisk'),
+                cacheFilesValue === 'size'
+                  ? t('dashboard.cards.scanTotalFiles', {
+                      files: formatCount(cacheInfo?.totalFiles ?? 0)
+                    })
+                  : t('dashboard.cards.filesOnDisk'),
                 // The byte total from the same walk that produced the file count. Games on Disk,
                 // Services on Disk and unmapped cache are shares of this figure, so without it
                 // on screen there is nothing for those three to be checked against.
-                cacheInfo?.cacheScanTotalBytes !== undefined
+                cacheFilesValue === 'files' && cacheInfo?.cacheScanTotalBytes !== undefined
                   ? t('dashboard.cards.scanTotalSize', {
                       size: formatBytes(cacheInfo.cacheScanTotalBytes)
                     })
@@ -719,6 +764,8 @@ const Dashboard: React.FC = () => {
       formattedLastDetectionTime,
       formattedCacheScanTime,
       hasCacheScan,
+      cacheFilesValue,
+      isEditMode,
       unmappedCacheBytes,
       failedSections,
       cacheSnapshotFailed,
@@ -1061,6 +1108,7 @@ const Dashboard: React.FC = () => {
                 icon={card.icon}
                 color={card.color}
                 tooltip={card.tooltip}
+                footerControl={card.footerControl}
                 loading={loading}
                 animateValue={!loading}
                 sparklineData={cardSparklineData}

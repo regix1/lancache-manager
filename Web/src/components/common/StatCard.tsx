@@ -31,6 +31,8 @@ interface StatCardProps {
   sparklineColor?: string;
   // Tooltip shown next to title (help icon)
   tooltip?: React.ReactNode;
+  // Control riding in the footer beside the note, for a card whose value can show more than one figure
+  footerControl?: React.ReactNode;
   // Animation props
   animateValue?: boolean;
   // Glassmorphism
@@ -64,6 +66,7 @@ const StatCard: React.FC<StatCardProps> = ({
   sparklineData,
   sparklineColor,
   tooltip,
+  footerControl,
   animateValue = false,
   glassmorphism = false,
   loading = false
@@ -129,7 +132,14 @@ const StatCard: React.FC<StatCardProps> = ({
             {loading ? (
               <div className="stat-card-skeleton-value skeleton-shimmer" />
             ) : animateValue ? (
-              <AnimatedValue value={value} className="text-2xl font-bold transition duration-300" />
+              /* Keyed on the value's unit rather than its digits: a card that swaps which figure
+                 it shows would otherwise spin 1,234,567 down to 396.98, reading as a collapse in
+                 the measurement instead of a change of unit. Same digits, same unit still spins. */
+              <AnimatedValue
+                key={String(value).replace(/[\d.,\s]/g, '')}
+                value={value}
+                className="text-2xl font-bold transition duration-300"
+              />
             ) : (
               <p className="text-2xl font-bold transition duration-300 text-[var(--theme-text-primary)]">
                 {value}
@@ -167,6 +177,10 @@ const StatCard: React.FC<StatCardProps> = ({
         ) : (
           <p className="stat-card-footer-note">{subtitle ?? chartNote}</p>
         )}
+        {/* The footer is where this card's secondary reading already lives, so a control that
+            picks which figure is primary belongs beside it rather than next to the headline.
+            Sitting below the value also keeps every card's number on the same baseline. */}
+        {footerControl}
         {badge}
       </div>
     </div>

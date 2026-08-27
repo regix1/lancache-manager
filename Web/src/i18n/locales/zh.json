@@ -524,6 +524,10 @@
       "snapshots_other": "{{count}} 个快照",
       "filesOnDisk": "磁盘上的文件",
       "scanTotalSize": "共 {{size}}",
+      "scanTotalFiles": "磁盘上有 {{files}} 个文件",
+      "cacheFilesValueLabel": "显示文件数或缓存大小",
+      "cacheFilesValueFiles": "文件数",
+      "cacheFilesValueSize": "大小",
       "onDiskNow": "当前磁盘上",
       "fullDiskLimit": "使用整个磁盘",
       "overConfiguredLimit": "已用配置上限的 {{percent}}",
@@ -542,47 +546,47 @@
     "statCards": {
       "totalCache": {
         "term": "总缓存",
-        "description": "您的缓存大小限制。通过 docker-compose 中的 CACHE_DISK_SIZE 设置，默认为完整磁盘大小。"
+        "description": "缓存容量上限。已设置 CACHE_DISK_SIZE 时取该值，否则取整个磁盘容量。"
       },
       "usedSpace": {
         "term": "已用空间",
-        "description": "缓存卷挂载点的实时使用情况（该磁盘上的所有内容）。它可能与磁盘上的游戏统计不同，后者仅统计与已知游戏匹配的缓存文件。如有缓存文件扫描结果，可与其总数进行对比。"
+        "description": "该磁盘已用的空间，统计磁盘上的所有内容，不只是缓存文件。"
       },
       "bandwidthSaved": {
         "term": "节省带宽",
-        "description": "您的客户端从缓存获取而不是再次从互联网下载的数据。"
+        "description": "客户端直接从缓存获取、无需再次下载的数据量。"
       },
       "addedToCache": {
         "term": "新增到缓存",
-        "description": "从互联网下载并首次保存到缓存的新内容。它统计的是历来写入的全部数据，因此会比当前磁盘上的数据多出此后被淘汰的那部分。当前的实际大小请参见“缓存文件”卡片上的大小。"
+        "description": "从互联网获取并写入缓存的新数据。它统计历来写入的全部数据，因此在文件被淘汰后会高于磁盘上的当前数据。"
       },
       "totalServed": {
         "term": "总服务量",
-        "description": "发送到您的客户端的所有内容，包括缓存文件和新下载。"
+        "description": "发送给客户端的全部数据，包括缓存命中和新下载。"
       },
       "activeDownloads": {
         "term": "活跃下载",
-        "description": "正在进行的下载。仅在实时模式下可见。"
+        "description": "当前正在进行的下载。仅在实时模式下显示。"
       },
       "activeClients": {
         "term": "活跃客户端",
-        "description": "当前正在下载的客户端。仅在实时模式下可见。"
+        "description": "当前正在下载的客户端。仅在实时模式下显示。"
       },
       "cacheHitRatio": {
         "term": "缓存命中率",
-        "description": "数据来自缓存与互联网的比例。100% 表示所有内容都已被缓存。"
+        "description": "来自缓存而非互联网的数据占比。100% 表示无需任何下载。"
       },
       "cacheFiles": {
         "term": "缓存文件",
-        "description": "上次全量缓存扫描的文件总数，以及这些文件占用的大小。“磁盘上的游戏”、“磁盘上的服务”和未映射缓存都是该大小的组成部分，三者相加即等于它。可在 管理 → 计划 → 缓存文件扫描 中设置自动扫描，或在 管理 → 缓存 中启动手动扫描。"
+        "description": "上次全量缓存扫描在磁盘上找到的文件数及其占用的大小。游戏、服务和未映射缓存都是该大小的组成部分。"
       },
       "gamesOnDisk": {
         "term": "磁盘上的游戏",
-        "description": "上次游戏缓存检测扫描中与已知游戏匹配的缓存文件大小。共享文件按扫描完成时计算出的实际文件大小只统计一次。服务级缓存（Windows 更新等）不计入此总数，它有自己的“磁盘上的服务”卡片。当有缓存文件扫描结果时，未被识别的缓存文件会显示在未映射缓存部分中。"
+        "description": "与已知游戏匹配的缓存，共享文件只统计一次。服务流量和无法识别的文件单独统计。"
       },
       "servicesOnDisk": {
         "term": "磁盘上的服务",
-        "description": "上次游戏缓存检测扫描中与服务（而非具体游戏）匹配的缓存文件大小，通常是 Windows 更新、Xbox、暴雪和 Epic 的内容。将它与“磁盘上的游戏”以及未映射缓存相加，即可对应整个缓存文件扫描总量。"
+        "description": "与服务（而非具体游戏）匹配的缓存，通常是 Windows 更新、Xbox、暴雪和 Epic 的内容。"
       },
       "unmappedCache": "{{size}} 未映射缓存"
     },

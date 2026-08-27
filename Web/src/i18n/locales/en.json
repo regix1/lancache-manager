@@ -524,6 +524,10 @@
       "snapshots_other": "{{count}} snapshots",
       "filesOnDisk": "files on disk",
       "scanTotalSize": "{{size}} total",
+      "scanTotalFiles": "{{files}} files on disk",
+      "cacheFilesValueLabel": "Show file count or cache size",
+      "cacheFilesValueFiles": "Files",
+      "cacheFilesValueSize": "Size",
       "onDiskNow": "on disk now",
       "fullDiskLimit": "Using full disk",
       "overConfiguredLimit": "{{percent}} of configured limit",
@@ -542,47 +546,47 @@
     "statCards": {
       "totalCache": {
         "term": "Total Cache",
-        "description": "Your cache size limit. Set via CACHE_DISK_SIZE in docker-compose, or defaults to full disk size."
+        "description": "Your cache size limit, from CACHE_DISK_SIZE when it is set, otherwise the full disk size."
       },
       "usedSpace": {
         "term": "Used Space",
-        "description": "Live usage of the cache volume mount point (everything on that disk). This can differ from Games on Disk, which only counts cache files matched to known games. Compare with the cache file scan total when available."
+        "description": "How much of the drive is used, counting everything on it, not just cache files."
       },
       "bandwidthSaved": {
         "term": "Bandwidth Saved",
-        "description": "Data your clients got from the cache instead of downloading it again from the internet."
+        "description": "Data your clients got from the cache instead of downloading it again."
       },
       "addedToCache": {
         "term": "Added to Cache",
-        "description": "New content that was downloaded from the internet and saved to your cache for the first time. This counts everything ever written, so it runs ahead of what is on disk now by whatever has since been evicted. Compare the Cache Files size for the current figure."
+        "description": "New data fetched from the internet and written to cache. This counts everything ever written, so eviction leaves it ahead of what is on disk now."
       },
       "totalServed": {
         "term": "Total Served",
-        "description": "Everything sent to your clients -- both cached files and fresh downloads combined."
+        "description": "Everything sent to your clients, cached files and fresh downloads together."
       },
       "activeDownloads": {
         "term": "Active Downloads",
-        "description": "Downloads happening right now. Only visible in Live mode."
+        "description": "Downloads running right now. Live mode only."
       },
       "activeClients": {
         "term": "Active Clients",
-        "description": "Clients currently downloading something. Only visible in Live mode."
+        "description": "Clients downloading something right now. Live mode only."
       },
       "cacheHitRatio": {
         "term": "Cache Hit Ratio",
-        "description": "How much of the data came from cache vs. the internet. 100% means everything was already cached."
+        "description": "Share of data served from cache rather than the internet. 100% means nothing was downloaded."
       },
       "cacheFiles": {
         "term": "Cache Files",
-        "description": "Total files from the last whole-cache scan, and the size those files take up. Games on Disk, Services on Disk and the unmapped cache figure are shares of that size and add up to it. Schedule automatic scans under Management → Schedules → Cache File Scan, or start a manual scan in Management → Cache."
+        "description": "Files the last whole-cache scan found on disk, and the size they take up. Game, service and unmapped cache are shares of that size."
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
-        "description": "Size of cache files matched to known games during the last Game Cache Detection scan. Shared files are counted once using actual file sizes computed when the scan completes. Service-level cache (Windows Update, etc.) is not counted here — it has its own Services on Disk card. Cache files nothing identified appear in the unmapped cache portion when a cache file scan is available."
+        "description": "Cache matched to a known game, with shared files counted once. Service traffic and unidentified files are counted separately."
       },
       "servicesOnDisk": {
         "term": "Services on Disk",
-        "description": "Size of cache files the last Game Cache Detection scan matched to a service rather than to a named game, typically Windows Update, Xbox, Blizzard and Epic content. Add this to Games on Disk and the unmapped cache figure to account for the whole cache file scan total."
+        "description": "Cache matched to a service rather than a game, typically Windows Update, Xbox, Blizzard and Epic."
       },
       "unmappedCache": "{{size}} unmapped cache"
     },
