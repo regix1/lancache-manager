@@ -516,6 +516,7 @@
       "activeClients": "活跃客户端",
       "cacheHitRatio": "缓存命中率",
       "cacheFiles": "缓存文件",
+      "cacheFilesSize": "缓存大小",
       "driveCapacityValue": "驱动器：{{size}}",
       "disabled": "已禁用",
       "liveDataOnly": "仅实时数据",

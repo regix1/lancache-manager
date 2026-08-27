@@ -615,7 +615,13 @@ const Dashboard: React.FC = () => {
       },
       cacheFiles: {
         key: 'cacheFiles',
-        title: t('dashboard.cards.cacheFiles'),
+        // The title names whichever figure the value is showing, so a card reading 396.98 GB is
+        // not headed "Cache Files". The card picker in edit mode reads the same title, which
+        // keeps the list matching what is on the dashboard.
+        title:
+          cacheFilesValue === 'size'
+            ? t('dashboard.cards.cacheFilesSize')
+            : t('dashboard.cards.cacheFiles'),
         value:
           cacheInfo && hasCacheScan
             ? cacheFilesValue === 'size'

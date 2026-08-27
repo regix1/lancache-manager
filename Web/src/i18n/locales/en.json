@@ -516,6 +516,7 @@
       "activeClients": "Active Clients",
       "cacheHitRatio": "Cache Hit Ratio",
       "cacheFiles": "Cache Files",
+      "cacheFilesSize": "Cache Size",
       "driveCapacityValue": "Drive: {{size}}",
       "disabled": "Disabled",
       "liveDataOnly": "Live data only",
