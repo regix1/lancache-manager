@@ -26,7 +26,8 @@ import type {
   GameDetectionStatusResponse,
   LogProcessingStatusResponse,
   LogRemovalStatusResponse,
-  ScheduledPrefillRunStatusResponse
+  ScheduledPrefillRunStatusResponse,
+  UnmappedCacheStatusResponse
 } from './recoveryStatusResponses';
 import { corruptionNotificationDetails, formatCorruptionProgress } from './corruptionProgress';
 import {
@@ -719,7 +720,35 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     storageKey: NOTIFICATION_STORAGE_KEYS.UNMAPPED_SCAN,
     eventPrefix: 'UnmappedScan',
     cancelTooltipKey: CANCEL_TOOLTIP.unmappedScan,
-    recovery: { kind: 'none' },
+    recovery: {
+      kind: 'simple',
+      translationValidation: {
+        kind: 'stageKey',
+        cases: [
+          { stageKey: 'signalr.unmappedScan.starting', context: {} },
+          { stageKey: 'signalr.unmappedScan.enumerating', context: { count: 0 } },
+          { stageKey: 'signalr.unmappedScan.readingKeys', context: {} }
+        ]
+      },
+      apiEndpoint: '/api/cache/unmapped/scan/status',
+      isProcessing: (data: UnmappedCacheStatusResponse) => data.isProcessing,
+      createNotification: (data: UnmappedCacheStatusResponse) => ({
+        message: translateRecoveryStage(
+          data.stageKey,
+          data.context,
+          'signalr.unmappedScan.starting'
+        ),
+        progress: data.percentComplete,
+        // The enumerate pass reports a live count and a deliberate 0 percent, so a bar recovered
+        // mid-enumerate would sit at zero for the rest of that pass. Sweep it, as the live card does.
+        progressMode:
+          data.stageKey === 'signalr.unmappedScan.enumerating' ? 'indeterminate' : 'determinate',
+        details: {
+          operationId: data.operationId
+        }
+      }),
+      staleMessageKey: 'signalr.unmappedScan.stale'
+    } satisfies SimpleRecoveryConfig<UnmappedCacheStatusResponse>,
     started: {
       defaultMessage: 'Scanning for unmapped cache files...',
       getMessage: stageKeyMessage<UnmappedScanStartedEvent>('signalr.unmappedScan.starting'),
@@ -765,7 +794,30 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     storageKey: NOTIFICATION_STORAGE_KEYS.UNMAPPED_REMOVAL,
     eventPrefix: 'UnmappedRemoval',
     cancelTooltipKey: CANCEL_TOOLTIP.unmappedRemoval,
-    recovery: { kind: 'none' },
+    recovery: {
+      kind: 'simple',
+      translationValidation: {
+        kind: 'stageKey',
+        cases: [
+          { stageKey: 'signalr.unmappedRemove.starting', context: {} },
+          { stageKey: 'signalr.unmappedRemove.removingCacheFiles', context: {} }
+        ]
+      },
+      apiEndpoint: '/api/cache/unmapped/removal/status',
+      isProcessing: (data: UnmappedCacheStatusResponse) => data.isProcessing,
+      createNotification: (data: UnmappedCacheStatusResponse) => ({
+        message: translateRecoveryStage(
+          data.stageKey,
+          data.context,
+          'signalr.unmappedRemove.starting'
+        ),
+        progress: data.percentComplete,
+        details: {
+          operationId: data.operationId
+        }
+      }),
+      staleMessageKey: 'signalr.unmappedRemove.stale'
+    } satisfies SimpleRecoveryConfig<UnmappedCacheStatusResponse>,
     started: {
       defaultMessage: 'Starting unmapped cache file deletion...',
       getMessage: stageKeyMessage<UnmappedRemovalStartedEvent>('signalr.unmappedRemove.starting')

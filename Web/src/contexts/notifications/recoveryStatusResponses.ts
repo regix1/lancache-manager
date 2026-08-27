@@ -156,6 +156,20 @@ export interface EvictionScanStatusResponse {
   context?: StageContext;
 }
 
+/**
+ * GET /api/cache/unmapped/scan/status and GET /api/cache/unmapped/removal/status - one C#
+ * UnmappedCacheStatusResponse serves both. An idle body is exactly
+ * `{ isProcessing: false, percentComplete: 0 }`: the API drops nulls globally
+ * (Program.cs DefaultIgnoreCondition), so the other three are absent rather than null.
+ */
+export interface UnmappedCacheStatusResponse {
+  isProcessing: boolean;
+  percentComplete: number;
+  operationId?: string;
+  stageKey?: string;
+  context?: StageContext;
+}
+
 export interface CacheSizeScanStatusResponse {
   isProcessing: boolean;
   /**

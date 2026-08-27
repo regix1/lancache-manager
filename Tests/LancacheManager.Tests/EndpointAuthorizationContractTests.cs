@@ -143,6 +143,8 @@ public sealed class EndpointAuthorizationContractTests
         "CacheController.RemoveAllCorruptedChunks",
         "CacheController.GetCachedUnmapped",
         "CacheController.StartUnmappedScan",
+        "CacheController.GetUnmappedScanStatus",
+        "CacheController.GetUnmappedRemovalStatus",
         "CacheController.GetServiceUnmappedFiles",
         "CacheController.RemoveUnmappedFiles",
         "CacheController.ClearServiceCache",

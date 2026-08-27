@@ -39,6 +39,15 @@ public class UnmappedCacheService
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
+    /// <summary>
+    /// Context dictionary of the most recent scan progress tick (same shape as the
+    /// UnmappedScanProgress SignalR payload's Context). The tracker stores only the stage key, so
+    /// the recovery endpoint (GET /api/cache/unmapped/scan/status) reads this to interpolate
+    /// placeholder-bearing keys like signalr.unmappedScan.enumerating after a page refresh.
+    /// Null while no scan is running or before its first tick.
+    /// </summary>
+    public IReadOnlyDictionary<string, object?>? CurrentScanProgressContext { get; private set; }
+
     public UnmappedCacheService(
         ILogger<UnmappedCacheService> logger,
         IPathResolver pathResolver,
@@ -619,6 +628,9 @@ public class UnmappedCacheService
         }
         finally
         {
+            // Cleared with the run so the status endpoint cannot pair a finished scan's last
+            // interpolation values with the next run's opening stage key.
+            CurrentScanProgressContext = null;
             await _rustProcessHelper.DeleteTempFileAsync(claimedFile);
         }
     }
@@ -658,6 +670,7 @@ public class UnmappedCacheService
                         Interlocked.Exchange(ref rustCancellationReported, 1);
                     }
 
+                    CurrentScanProgressContext = progressData.Context;
                     await ReportProgressAsync(
                         operationId,
                         SignalREvents.UnmappedScanProgress,

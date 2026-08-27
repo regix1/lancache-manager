@@ -14,6 +14,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         "cacheReconciliation",
         "cacheSizeScan",
+        "unmappedCacheScan",
         "gameDetection",
         "gameImageFetch",
         "cacheSnapshot",
@@ -36,6 +37,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         ["dashboardCacheWarmer"] = OperationType.DashboardCacheWarmer,
         ["cacheReconciliation"] = OperationType.EvictionScan,
         ["cacheSizeScan"] = OperationType.CacheSizeScan,
+        ["unmappedCacheScan"] = OperationType.UnmappedCacheScan,
         ["gameDetection"] = OperationType.GameDetection,
         ["depotMapping"] = OperationType.DepotMapping,
         ["epicMapping"] = OperationType.EpicMapping,

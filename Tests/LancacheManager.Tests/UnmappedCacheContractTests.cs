@@ -1,8 +1,17 @@
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using LancacheManager.Controllers;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -375,6 +384,174 @@ public sealed class UnmappedCacheContractTests
         Assert.Empty(empty.Services);
         Assert.Null(empty.ScanId);
         Assert.Null(empty.LastScanTime);
+    }
+
+    [Fact]
+    public void ScanStatus_CarriesTheStageKeyAndItsInterpolationValues()
+    {
+        var scan = ActiveOperation(OperationType.UnmappedCacheScan, "signalr.unmappedScan.enumerating", 41.5);
+        var service = NewService(InMemoryOptions());
+        SetProgressContext(service, new Dictionary<string, object?> { ["count"] = 391293L });
+        var controller = NewController(service, scan);
+
+        var body = OkBody<UnmappedCacheStatusResponse>(controller.GetUnmappedScanStatus());
+
+        Assert.True(body.IsProcessing);
+        Assert.Equal(scan.Id, body.OperationId);
+        Assert.Equal(41.5, body.PercentComplete);
+        Assert.Equal("signalr.unmappedScan.enumerating", body.StageKey);
+        // Without this the recovered card renders the key's raw {{count}} placeholder.
+        Assert.Equal(391293L, body.Context!["count"]);
+    }
+
+    [Fact]
+    public void ScanStatus_IsIdleWhileOnlyARemovalRuns()
+    {
+        var removal = ActiveOperation(OperationType.UnmappedCacheRemoval, "signalr.unmappedRemove.removingCacheFiles", 12);
+        var controller = NewController(NewService(InMemoryOptions()), removal);
+
+        var body = OkBody<UnmappedCacheStatusResponse>(controller.GetUnmappedScanStatus());
+
+        Assert.False(body.IsProcessing);
+        Assert.Null(body.OperationId);
+        Assert.Null(body.StageKey);
+
+        // The frontend types these three as optional because the API omits nulls rather than
+        // writing them (Program.cs sets DefaultIgnoreCondition = WhenWritingNull).
+        var json = JsonSerializer.Serialize(body, NullOmittingWireOptions);
+        Assert.Equal("{\"isProcessing\":false,\"percentComplete\":0}", json);
+    }
+
+    [Fact]
+    public void RemovalStatus_CarriesTheRunningRemoval()
+    {
+        var removal = ActiveOperation(OperationType.UnmappedCacheRemoval, "signalr.unmappedRemove.removingCacheFiles", 66);
+        var controller = NewController(NewService(InMemoryOptions()), removal);
+
+        var body = OkBody<UnmappedCacheStatusResponse>(controller.GetUnmappedRemovalStatus());
+
+        Assert.True(body.IsProcessing);
+        Assert.Equal(removal.Id, body.OperationId);
+        Assert.Equal(66, body.PercentComplete);
+        Assert.Equal("signalr.unmappedRemove.removingCacheFiles", body.StageKey);
+        // No removal stage key takes interpolation values.
+        Assert.Null(body.Context);
+    }
+
+    [Fact]
+    public void ScheduledScan_IsListedOnTheSchedulesSurface()
+    {
+        var scheduled = new UnmappedCacheScanScheduledService(
+            NewService(InMemoryOptions()),
+            operationQueue: null!,
+            NullState(),
+            NullLogger<UnmappedCacheScanScheduledService>.Instance,
+            new ConfigurationBuilder().Build());
+
+        // The registry drops any scheduled service whose key is not on its allowlist, which is what
+        // decides whether the Schedules page can configure this scan at all.
+        var registry = new ServiceScheduleRegistry(
+            new IHostedService[] { scheduled },
+            NullState(),
+            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>());
+
+        var row = registry.GetAll().Single(schedule => schedule.Key == "unmappedCacheScan");
+        Assert.Equal(24, row.IntervalHours);
+        Assert.False(row.RunOnStartup);
+    }
+
+    private static IStateService NullState() => DispatchProxy.Create<IStateService, NullReturningProxy>();
+
+    private static readonly JsonSerializerOptions NullOmittingWireOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
+    private static OperationInfo ActiveOperation(OperationType type, string stageKey, double percentComplete) => new()
+    {
+        Id = Guid.NewGuid(),
+        Type = type,
+        Name = "Unmapped Cache",
+        Status = OperationStatus.Running,
+        Message = stageKey,
+        PercentComplete = percentComplete
+    };
+
+    private static T OkBody<T>(IActionResult result)
+    {
+        var ok = Assert.IsType<OkObjectResult>(result);
+        return Assert.IsType<T>(ok.Value);
+    }
+
+    private static void SetProgressContext(UnmappedCacheService service, IReadOnlyDictionary<string, object?> context)
+    {
+        var field = typeof(UnmappedCacheService).GetField(
+            $"<{nameof(UnmappedCacheService.CurrentScanProgressContext)}>k__BackingField",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        field!.SetValue(service, context);
+    }
+
+    /// <summary>
+    /// Builds a <see cref="CacheController"/> without running its constructor: the two status
+    /// endpoints read only the operation tracker and the unmapped cache service, and the real
+    /// constructor takes a long list of collaborators neither of them touches.
+    /// </summary>
+    private static CacheController NewController(UnmappedCacheService service, params OperationInfo[] activeOperations)
+    {
+        var tracker = (StubOperationTracker)DispatchProxy.Create<IUnifiedOperationTracker, StubOperationTracker>();
+        tracker.ActiveOperations = activeOperations;
+
+        var controller = (CacheController)RuntimeHelpers.GetUninitializedObject(typeof(CacheController));
+        SetPrivateField(controller, "_unmappedCacheService", service);
+        SetPrivateField(controller, "_operationTracker", (IUnifiedOperationTracker)(object)tracker);
+        return controller;
+    }
+
+    private static void SetPrivateField(object target, string fieldName, object? value)
+    {
+        var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        field!.SetValue(target, value);
+    }
+
+    /// <summary>
+    /// Minimal <see cref="IUnifiedOperationTracker"/> stub honoring the type filter, so a running
+    /// removal cannot be read back as a running scan. Every other member returns its type default.
+    /// Not sealed for DispatchProxy.Create.
+    /// </summary>
+    private class StubOperationTracker : DispatchProxy
+    {
+        public OperationInfo[] ActiveOperations { get; set; } = [];
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(IUnifiedOperationTracker.GetActiveOperations))
+            {
+                var filterType = args?.Length > 0 ? args[0] as OperationType? : null;
+                return ActiveOperations
+                    .Where(operation => filterType is null || operation.Type == filterType)
+                    .ToArray();
+            }
+
+            var returnType = targetMethod?.ReturnType;
+            if (returnType is null || returnType == typeof(void))
+            {
+                return null;
+            }
+
+            if (returnType == typeof(Task))
+            {
+                return Task.CompletedTask;
+            }
+
+            if (returnType.IsValueType && Nullable.GetUnderlyingType(returnType) is null)
+            {
+                return Activator.CreateInstance(returnType);
+            }
+
+            return null;
+        }
     }
 
     private static CachedUnmappedDetection StoredGroup(

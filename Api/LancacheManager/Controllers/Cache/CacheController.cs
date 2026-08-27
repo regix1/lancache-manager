@@ -748,6 +748,61 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
+    /// Returns the status of the active unmapped cache scan.
+    /// </summary>
+    /// <remarks>
+    /// Page-refresh recovery polls this, mirroring GET /api/cache/corruption/detect/status for the
+    /// corruption scan.
+    /// </remarks>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpGet("unmapped/scan/status")]
+    [ProducesResponseType(typeof(UnmappedCacheStatusResponse), StatusCodes.Status200OK)]
+    public IActionResult GetUnmappedScanStatus()
+    {
+        var activeScan = _operationTracker.GetActiveOperations(OperationType.UnmappedCacheScan).FirstOrDefault();
+        if (activeScan == null)
+        {
+            return Ok(new UnmappedCacheStatusResponse { IsProcessing = false });
+        }
+
+        return Ok(new UnmappedCacheStatusResponse
+        {
+            IsProcessing = true,
+            OperationId = activeScan.Id,
+            PercentComplete = activeScan.PercentComplete,
+            // UpdateProgress stores the current stage key in Message (see the progress reporter in
+            // UnmappedCacheService), so it doubles as the i18n key the recovered card renders.
+            StageKey = string.IsNullOrWhiteSpace(activeScan.Message) ? null : activeScan.Message,
+            Context = _unmappedCacheService.CurrentScanProgressContext
+        });
+    }
+
+    /// <summary>
+    /// Returns the status of the active unmapped cache removal.
+    /// </summary>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpGet("unmapped/removal/status")]
+    [ProducesResponseType(typeof(UnmappedCacheStatusResponse), StatusCodes.Status200OK)]
+    public IActionResult GetUnmappedRemovalStatus()
+    {
+        var activeRemoval = _operationTracker.GetActiveOperations(OperationType.UnmappedCacheRemoval).FirstOrDefault();
+        if (activeRemoval == null)
+        {
+            return Ok(new UnmappedCacheStatusResponse { IsProcessing = false });
+        }
+
+        // No Context: every removal stage key renders without interpolation values, unlike the
+        // scan's signalr.unmappedScan.enumerating.
+        return Ok(new UnmappedCacheStatusResponse
+        {
+            IsProcessing = true,
+            OperationId = activeRemoval.Id,
+            PercentComplete = activeRemoval.PercentComplete,
+            StageKey = string.IsNullOrWhiteSpace(activeRemoval.Message) ? null : activeRemoval.Message
+        });
+    }
+
+    /// <summary>
     /// Returns the stored unmapped cache files for one service.
     /// </summary>
     [Authorize(Policy = "AccountHolder")]

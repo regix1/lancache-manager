@@ -182,6 +182,22 @@ public sealed class UnmappedFileResponse
     public long SizeBytes { get; set; }
 }
 
+/// <summary>Recovery response for a running unmapped-cache scan or removal.</summary>
+public sealed class UnmappedCacheStatusResponse
+{
+    public bool IsProcessing { get; set; }
+    public Guid? OperationId { get; set; }
+    public double PercentComplete { get; set; }
+    public string? StageKey { get; set; }
+
+    /// <summary>
+    /// Interpolation values for the stage key. The tracker stores only the key string, so a
+    /// placeholder-bearing key like signalr.unmappedScan.enumerating would otherwise render its
+    /// raw {{count}} on a card rebuilt after a page refresh. Null while nothing is running.
+    /// </summary>
+    public IReadOnlyDictionary<string, object?>? Context { get; set; }
+}
+
 /// <summary>Accepted response for an unmapped-cache scan or removal.</summary>
 public sealed class UnmappedCacheStartResponse
 {

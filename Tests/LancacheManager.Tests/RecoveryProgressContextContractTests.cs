@@ -32,6 +32,7 @@ public partial class RecoveryProgressContextContractTests
         { "signalr.evictionScan.progress", new() { ["totalProcessed"] = 4, ["totalEstimate"] = 8 } },
         { "signalr.evictionScan.scanningFiles", new() { ["filesFound"] = 4 } },
         { "signalr.evictionScan.refreshingSummaryCounted", new() { ["filesChecked"] = 4, ["filesTotal"] = 8 } },
+        { "signalr.unmappedScan.enumerating", new() { ["count"] = 12 } },
         { "signalr.cacheSizeScan.scanning", new() { ["directoriesScanned"] = 2, ["totalDirectories"] = 4, ["totalFiles"] = 8 } },
         { "signalr.cacheSizeScan.calibrating", new() { ["step"] = 1, ["totalSteps"] = 3 } },
         { "signalr.gameDetect.matching.starting", new() { ["totalGames"] = 10 } },
@@ -61,6 +62,8 @@ public partial class RecoveryProgressContextContractTests
 
         object response = stageKey.Contains("corruptionDetect", StringComparison.Ordinal)
             ? new CorruptionDetectionStatusResponse { StageKey = stageKey, Context = context }
+            : stageKey.Contains("unmappedScan", StringComparison.Ordinal)
+            ? new UnmappedCacheStatusResponse { StageKey = stageKey, Context = context }
             : stageKey.Contains("logRemoval", StringComparison.Ordinal)
                 ? new LogRemovalStatusResponse { StageKey = stageKey, Context = context }
                 : stageKey.Contains("dataImport", StringComparison.Ordinal)

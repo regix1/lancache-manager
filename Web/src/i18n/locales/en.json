@@ -4185,6 +4185,13 @@
           "gain": "File counts and unmapped-cache totals stay current without starting a manual scan in Management → Cache",
           "loss": "The Cache Files stat and unmapped-cache subtitle may stay outdated until the next scan runs"
         },
+        "unmappedCacheScan": {
+          "displayName": "Unmapped Cache Scan",
+          "description": "Walks the whole cache directory and reads the stored address out of every file that game detection does not already claim, so those files can be listed by service and removed. Every pass reads each cache file in turn, so it runs for several minutes on a large cache.",
+          "summary": "Finds cache files no game claims.",
+          "gain": "The unmapped cache list stays current without starting a scan by hand in Management → Logs & Cache",
+          "loss": "The unmapped file list and its totals stay as the last scan left them"
+        },
         "gameDetection": {
           "displayName": "Game Detection",
           "description": "Scans your cache directory and labels each chunk of cached data with the game it belongs to, using the Steam and Epic depot mappings. Incremental scans skip games already detected; previously 'Unknown' depots are resolved as new mappings arrive.",
@@ -7219,13 +7226,15 @@
       "enumerating": "Counting cache files... {{count}} found",
       "readingKeys": "Reading the stored address from each unmapped file...",
       "complete": "Unmapped cache scan complete",
-      "cancelled": "Unmapped cache scan cancelled"
+      "cancelled": "Unmapped cache scan cancelled",
+      "stale": "Unmapped cache scan finished"
     },
     "unmappedRemove": {
       "starting": "Starting unmapped cache file deletion...",
       "removingCacheFiles": "Deleting unmapped cache files...",
       "complete": "Unmapped cache files deleted",
-      "cancelled": "Unmapped cache file deletion cancelled"
+      "cancelled": "Unmapped cache file deletion cancelled",
+      "stale": "Unmapped cache file deletion finished"
     },
     "corruptionDetect": {
       "starting": "Starting corruption scan…",

@@ -514,7 +514,10 @@ const UnmappedCacheManager: React.FC<UnmappedCacheManagerProps> = ({
 
   const headerActions = (
     <SectionHeaderActions>
-      {totalFiles > 0 && (
+      {/* totalFiles holds the STORED scan's count and is not cleared when a new scan starts, so
+      while one runs this is the previous result. The "results from previous scan" caption that
+      says so is hidden during a scan, which would leave a bare number reading as a live total. */}
+      {totalFiles > 0 && !isScanBusy && (
         <SectionHeaderChip variant="neutral" className="badge-count badge-count-warning">
           {t('management.unmapped.fileCount', {
             count: totalFiles,

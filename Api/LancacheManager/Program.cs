@@ -854,6 +854,7 @@ builder.Services.AddDatabaseBackedHostedService<LiveLogMonitorService>(databaseA
 builder.Services.AddDatabaseBackedHostedService<DownloadCleanupService>(databaseAvailable);
 builder.Services.AddDatabaseBackedHostedService<CacheReconciliationService>(databaseAvailable);
 builder.Services.AddDatabaseBackedHostedService<CacheSizeScanScheduledService>(databaseAvailable);
+builder.Services.AddDatabaseBackedHostedService<UnmappedCacheScanScheduledService>(databaseAvailable);
 builder.Services.AddDatabaseBackedHostedService<GameImageFetchService>(databaseAvailable);
 builder.Services.AddHostedService<DirectoryPermissionMonitorService>();
 
