@@ -550,7 +550,7 @@
       },
       "usedSpace": {
         "term": "已用空间",
-        "description": "该磁盘已用的空间，统计磁盘上的所有内容，不只是缓存文件。"
+        "description": "该磁盘已用的空间，统计磁盘上的所有内容，不只是被缓存的文件。"
       },
       "bandwidthSaved": {
         "term": "节省带宽",
