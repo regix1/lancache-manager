@@ -563,7 +563,7 @@
       },
       "addedToCache": {
         "term": "新增到缓存",
-        "description": "从互联网获取并写入缓存的新数据。它统计历来写入的全部数据，因此在文件被淘汰后会高于磁盘上的当前数据。"
+        "description": "从互联网获取并写入缓存的新数据。在“已淘汰数据”设置为显示时，已淘汰的文件仍会计入，因此该数值可能高于磁盘上的当前数据；设为隐藏或删除后则不再计入。"
       },
       "totalServed": {
         "term": "总服务量",
@@ -2961,7 +2961,7 @@
       "subtitle": "扫描缓存以查找游戏以及未匹配到具体游戏的服务级文件",
       "quick": "快速扫描",
       "fullScanButton": "全面扫描",
-      "servicesSection": "未映射服务",
+      "servicesSection": "服务",
       "gamesSection": "游戏",
       "removeGameCache": "移除此游戏的所有缓存文件",
       "removeServiceCache": "移除此服务的所有缓存文件",
@@ -3001,35 +3001,35 @@
       "scanningNote": "对于大型数据库和缓存文件，可能需要几分钟",
       "collapseAll": "全部折叠",
       "expandAll": "全部展开",
-      "filteredBy": "按 <1>{{datasource}}</1> 筛选：{{gameCount}} 个游戏，{{serviceCount}} 个未映射服务",
+      "filteredBy": "按 <1>{{datasource}}</1> 筛选：{{gameCount}} 个游戏，{{serviceCount}} 个服务",
       "clearFilter": "清除筛选",
       "help": {
         "aboutTitle": "关于"
       },
       "emptyState": {
-        "noGamesServices": "未检测到具有缓存文件的游戏或未映射服务",
-        "noGamesServicesDatasource": "在 {{datasource}} 中未找到游戏或未映射服务",
+        "noGamesServices": "未检测到具有缓存文件的游戏或服务",
+        "noGamesServicesDatasource": "在 {{datasource}} 中未找到游戏或服务",
         "processLogsFirst": "先处理访问日志以填充数据库",
         "clickFullScan": "点击\"全面扫描\"以扫描您的缓存目录"
       },
       "serviceSteam": "Steam",
       "serviceEpicGames": "Epic Games",
-      "noServicesMatching": "未找到匹配\"{{query}}\"的未映射服务",
-      "servicesLabel": "个未映射服务",
+      "noServicesMatching": "未找到匹配\"{{query}}\"的服务",
+      "servicesLabel": "个服务",
       "errors": {
         "syncFailed": "刷新已缓存的结果失败"
       },
       "placeholders": {
         "allDatasources": "所有数据源",
         "searchGames": "按游戏名称、AppID 或服务搜索...",
-        "searchServices": "搜索未映射服务..."
+        "searchServices": "搜索服务..."
       },
       "appIdLabel": "AppID：",
       "summary": {
         "games_one": "{{count}} 个游戏",
         "games_other": "{{count}} 个游戏",
-        "services_one": "{{count}} 个未映射服务",
-        "services_other": "{{count}} 个未映射服务",
+        "services_one": "{{count}} 个服务",
+        "services_other": "{{count}} 个服务",
         "join": "和"
       }
     },
@@ -7439,9 +7439,9 @@
         "deleting": "正在删除数据库记录"
       },
       "cache": {
-        "removing": "正在移除 {{count}} 个URL的缓存文件",
+        "removing": "正在检查 {{count}} 个 URL 是否有可移除的缓存文件",
         "file": {
-          "progress": "正在移除文件 {{n}}/{{total}}"
+          "progress": "已检查 {{n}} / {{total}} 个文件"
         }
       },
       "dirs": {
@@ -7599,7 +7599,7 @@
         "removing": "正在移除 {{count}} 个URL的缓存文件",
         "skippedEvicted": "跳过缓存清理（游戏已被完全淘汰）",
         "file": {
-          "progress": "正在移除文件 {{n}}/{{total}}"
+          "progress": "已检查 {{n}} / {{total}} 个文件"
         }
       },
       "dirs": {
@@ -7694,9 +7694,9 @@
         "deleting": "正在删除数据库记录"
       },
       "cache": {
-        "removing": "正在移除 {{count}} 个URL的缓存文件",
+        "removing": "正在检查 {{count}} 个 URL 是否有可移除的缓存文件",
         "file": {
-          "progress": "正在移除文件 {{n}}/{{total}}"
+          "progress": "已检查 {{n}} / {{total}} 个文件"
         }
       },
       "logs": {
