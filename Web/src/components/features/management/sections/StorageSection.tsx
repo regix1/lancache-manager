@@ -731,6 +731,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       <HelpSection title={t('management.sections.data.help.evictedCacheTitle')}>
         {t('management.sections.data.evictedCacheSummary')}
       </HelpSection>
+      {/* This scan is download-driven, so a file nothing claims never enters its loop. Saying so
+          here stops it reading as a gap, and points at the scan that does cover that case. */}
+      <HelpSection title={t('management.sections.data.help.evictedVsOthersTitle')} variant="subtle">
+        {t('management.sections.data.help.evictedVsOthers')}
+      </HelpSection>
     </HelpPopover>
   );
 

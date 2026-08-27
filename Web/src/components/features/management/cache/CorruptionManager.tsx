@@ -1125,6 +1125,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       <HelpSection title={t('management.corruption.help.scanModesTitle')} variant="subtle">
         {t('management.corruption.structuralScanHelp')}
       </HelpSection>
+      {/* Three scans look at the same cache and answer different questions, so each one says what
+          it leaves to the other two. Damaged-but-owned here, owned-but-gone in eviction, and
+          present-but-unowned in the unmapped scan. */}
+      <HelpSection title={t('management.corruption.help.vsOthersTitle')} variant="subtle">
+        {t('management.corruption.help.vsOthers')}
+      </HelpSection>
       <HelpNote type="warning">{t('management.corruption.incrementalScanLimitation')}</HelpNote>
     </HelpPopover>
   );

@@ -611,6 +611,12 @@ const UnmappedCacheManager: React.FC<UnmappedCacheManagerProps> = ({
       <HelpSection title={t('management.unmapped.help.causesTitle')} variant="subtle">
         {t('management.unmapped.help.causes')}
       </HelpSection>
+      {/* The obvious question on seeing this section is why the older two scans never reported
+          these files. They cannot: one starts from a download row and one looks for damage, and
+          these files have no download row and no damage. */}
+      <HelpSection title={t('management.unmapped.help.vsOthersTitle')} variant="subtle">
+        {t('management.unmapped.help.vsOthers')}
+      </HelpSection>
       <HelpNote type="warning">{t('management.unmapped.help.removalNote')}</HelpNote>
     </HelpPopover>
   );

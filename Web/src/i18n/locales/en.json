@@ -2078,7 +2078,9 @@
       "guestModeDesc": "Management features are disabled in guest mode. Please authenticate to access full functionality.",
       "data": {
         "help": {
-          "evictedCacheTitle": "About"
+          "evictedCacheTitle": "About",
+          "evictedVsOthersTitle": "What this does not cover",
+          "evictedVsOthers": "This starts from a download and asks whether its cache files are still on disk. It cannot see a file that no download claims, because there is nothing to ask on its behalf, and that is what the Unmapped Cache scan finds. A file that is present but damaged is the Cache Integrity scan's job."
         },
         "title": "Data Configuration",
         "depotMapping": "Depot Mapping",
@@ -2716,7 +2718,9 @@
         "methodsTitle": "Which method to use",
         "structuralWhen": "Reads the files themselves and reports only damage it can prove. Use it when you want a definite answer.",
         "repeatedMissWhen": "Infers suspect files from downloads that keep missing the cache. Catches more, but it is evidence rather than proof.",
-        "scanModesTitle": "Structural scan modes"
+        "scanModesTitle": "Structural scan modes",
+        "vsOthersTitle": "What this does not cover",
+        "vsOthers": "This looks for damage. A file can be perfectly intact and still have no game or service claiming it, which is what the Unmapped Cache scan finds. A download whose files have gone missing is the Eviction scan's job."
       },
       "title": "Corruption Detection and Removal",
       "titleShort": "Corruption",
@@ -3075,6 +3079,8 @@
         "about": "Cache files on disk that no game and no service detection run claims. Each one is named after a hash, so the scan reads the upstream address stored inside the file to say what it holds.",
         "causesTitle": "Why files end up here",
         "causes": "A download that was never matched to a game, a service that stopped being detected, or content cached before detection covered it.",
+        "vsOthersTitle": "Why the other scans miss these",
+        "vsOthers": "These files are intact and present, so a Cache Integrity scan finds nothing wrong with them. The Eviction scan starts from a download and asks whether its files are still there, so it never asks about a file no download claims. This scan starts from the file instead and reads the address stored inside it, which is the only evidence left once the log entry is gone.",
         "removalNote": "Deleting these frees disk space and nothing else. Anything still wanted is downloaded again on the next request."
       },
       "modal": {
