@@ -23,8 +23,8 @@ use removal_core::{ProgressCadence, RemovalStageKeys};
 /// URL selection and the access.log purge are both narrowed to depots EXCLUSIVELY owned
 /// by the target game, so removing one game never strips another game's cache slices or
 /// HIT/MISS log lines (depots are many-to-one with AppId). The shared delete/cleanup/
-/// purge/permission tail lives in `removal_core`; this bin owns the depot head, the
-/// `--skip-file-probe` fast path, and the depot-bearing report.
+/// purge/permission tail lives in `removal_core`; this bin owns the depot head and the
+/// depot-bearing report.
 #[derive(clap::Parser, Debug)]
 #[command(name = "cache_steam_remove")]
 #[command(about = "Removes all cache files for a specific Steam game by scanning logs")]
@@ -44,13 +44,6 @@ struct Args {
     /// Path to progress JSON file
     progress_json: String,
 
-    /// Skip the cache-file disk probe (all game rows already evicted).
-    /// When set, no `path.exists()` scanning of candidate cache files occurs
-    /// and no directory cleanup runs, but the log rewrite and database
-    /// cleanup still execute normally.
-    #[arg(long)]
-    skip_file_probe: bool,
-
     /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
     #[arg(long = "key-scheme", default_value = "monolithic")]
     key_scheme: String,
@@ -58,6 +51,12 @@ struct Args {
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
+
+    /// Report how many cache files a removal would delete, then exit without deleting
+    /// anything. The confirmation the user answers needs the number the removal will
+    /// actually reach, not a detection scan's older snapshot.
+    #[arg(long = "count-only")]
+    count_only: bool,
 }
 
 /// Steam removal stage keys (`signalr.gameRemove.*`). Only the per-file cache progress
@@ -357,7 +356,14 @@ async fn main() -> Result<()> {
     let game_name = get_game_name_from_db(&pool, game_app_id).await?;
     eprintln!("Game: {}", game_name);
 
-    removal_core::write_progress(&progress_path, &reporter, "starting", "signalr.gameRemove.starting", json!({ "gameName": game_name, "gameAppId": game_app_id }), 0.0, 0, 0)?;
+    // A count run must not announce itself as a removal: the whole point of the number is that
+    // the user can trust what the confirmation says.
+    let starting_stage_key = if args.count_only {
+        "signalr.gameRemove.counting.starting"
+    } else {
+        "signalr.gameRemove.starting"
+    };
+    removal_core::write_progress(&progress_path, &reporter, "starting", starting_stage_key, json!({ "gameName": game_name, "gameAppId": game_app_id }), 0.0, 0, 0)?;
 
     // Get valid depot IDs for this game from database
     removal_core::write_progress(&progress_path, &reporter, "querying_database", "signalr.gameRemove.db.querying", json!({}), 5.0, 0, 0)?;
@@ -394,6 +400,34 @@ async fn main() -> Result<()> {
     // Query database directly for URLs - much faster than scanning logs!
     let url_data = get_game_urls_from_db(&pool, game_app_id).await?;
 
+    // A count run stops here. It walks the same list a removal would walk, reports how many of
+    // those files exist on disk, and returns before the cache sweep, the directory cleanup, the
+    // access.log purge and the database delete below are reachable. A game with no URLs reports
+    // zero rather than taking the no-URL exit, so the confirmation always has a number. [6][8]
+    if args.count_only {
+        // The same (service, bytes) projection the delete phase feeds to the shared tail; cache
+        // paths are purely (service, url), and the depot set plays no part in either.
+        let url_data_for_count: HashMap<String, (String, i64)> = url_data
+            .iter()
+            .map(|(url, (service, bytes, _depots))| (url.clone(), (service.clone(), *bytes)))
+            .collect();
+        let collection_progress = removal_core::CollectionProgress {
+            progress_path: &progress_path,
+            reporter: &reporter,
+            stage_key: "signalr.gameRemove.counting.progress",
+        };
+        let cache_files_found = removal_core::count_cache_files(
+            &cache_dir,
+            &url_data_for_count,
+            &output_json,
+            &game_name,
+            cache_utils::active_key_scheme(),
+            &collection_progress,
+        )?;
+        removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.gameRemove.counting.complete", json!({ "files": cache_files_found, "gameName": game_name }), 100.0, cache_files_found, cache_files_found)?;
+        return Ok(());
+    }
+
     if url_data.is_empty() {
         eprintln!("No URLs found in logs for game AppID {}", game_app_id);
 
@@ -417,22 +451,16 @@ async fn main() -> Result<()> {
 
     eprintln!("Found {} unique URLs for '{}'", url_data.len(), game_name);
 
-    // File-probe + directory cleanup phase.
-    // Skipped when `--skip-file-probe` is set (caller already knows every row for
-    // this game is IsEvicted, so the lancache has nothing to delete on disk).
-    // The log rewrite and DB cleanup below still run unconditionally.
+    // File-probe + directory cleanup phase. The disk is the only authority on what is
+    // still cached: a Downloads row flagged IsEvicted records what a past scan saw, and
+    // clients re-download into the cache without clearing it, so the sweep always runs.
     let (
         deleted_files,
         bytes_freed,
         empty_dirs_removed,
         cache_permission_errors,
         verification_skips,
-    ) = if args.skip_file_probe {
-        eprintln!("\nSkipping cache file probe for {} URLs (fully evicted game)", url_data.len());
-        removal_core::write_progress(&progress_path, &reporter, "removing_cache", "signalr.gameRemove.cache.skippedEvicted", json!({}), 10.0, 0, 0)?;
-        removal_core::write_progress(&progress_path, &reporter, "cleaning_directories", "signalr.gameRemove.dirs.skippedEvicted", json!({}), 70.0, 0, 0)?;
-        (0usize, 0u64, 0usize, 0usize, 0usize)
-    } else {
+    ) = {
         let count = url_data.len();
         removal_core::write_progress(&progress_path, &reporter, "removing_cache", "signalr.gameRemove.cache.removing", json!({ "count": count }), 10.0, 0, 0)?;
         eprintln!("\nRemoving cache files...");
@@ -491,7 +519,7 @@ async fn main() -> Result<()> {
     }
 
     // Remove log entries for this game. Per-file progress fills the 80-90% band
-    // so fast --skip-file-probe runs still surface visible stages.
+    // so a run over a game with few cache files still surfaces visible stages.
     removal_core::write_progress(&progress_path, &reporter, "removing_logs", "signalr.gameRemove.logs.removing", json!({}), 80.0, 0, 0)?;
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
@@ -509,9 +537,8 @@ async fn main() -> Result<()> {
         );
     };
     // Use the narrowed `safe_depot_ids` (exclusively-owned depots) for the log purge so shared-depot
-    // lines belonging to OTHER games are not stripped. This call runs for both the normal and the
-    // `--skip-file-probe` fast path, so the fast path inherits the same cross-game safety. This
-    // depot-scoped purge is the one tail divergence Steam carries; every other bin purges url-only
+    // lines belonging to OTHER games are not stripped. This depot-scoped purge is the one tail
+    // divergence Steam carries; every other bin purges url-only
     // (removal_core::LogScope::Urls). Steam calls log_purge directly so it can also pass the
     // per-file progress callback that fills the 80-90% band.
     let (log_entries_removed, log_permission_errors) = log_purge::remove_log_entries_for_game(

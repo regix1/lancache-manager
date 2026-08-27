@@ -720,6 +720,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     storageKey: NOTIFICATION_STORAGE_KEYS.UNMAPPED_SCAN,
     eventPrefix: 'UnmappedScan',
     cancelTooltipKey: CANCEL_TOOLTIP.unmappedScan,
+    silentRunGate: true,
     recovery: {
       kind: 'simple',
       translationValidation: {
@@ -731,7 +732,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         ]
       },
       apiEndpoint: '/api/cache/unmapped/scan/status',
-      isProcessing: (data: UnmappedCacheStatusResponse) => data.isProcessing,
+      isProcessing: (data: UnmappedCacheStatusResponse) =>
+        data.isProcessing && data.showNotification !== false,
+      // A silent scheduled scan still emits its terminal (display-gated). Skip recovery so a page
+      // reload mid-run does not resurrect a visible card that the silent terminal can never clear.
+      shouldSkip: (data: UnmappedCacheStatusResponse) =>
+        data.isProcessing && data.showNotification === false,
       createNotification: (data: UnmappedCacheStatusResponse) => ({
         message: translateRecoveryStage(
           data.stageKey,

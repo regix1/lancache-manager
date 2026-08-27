@@ -72,7 +72,10 @@ public partial class CacheManagementService
     /// interpolate placeholder-bearing keys like signalr.cacheSizeScan.scanning after a page refresh.
     /// Only one tracked full scan runs at a time (_scanCacheLock serializes them).
     /// </summary>
-    public Dictionary<string, object?>? CurrentCacheSizeScanProgressContext { get; private set; }
+    // Written on the scan worker thread, read on the request thread by the status endpoint.
+    // volatile publishes the write so a status read on another thread sees it. [26]
+    private volatile Dictionary<string, object?>? _currentCacheSizeScanProgressContext;
+    public Dictionary<string, object?>? CurrentCacheSizeScanProgressContext => _currentCacheSizeScanProgressContext;
 
     /// <summary>
     /// Run-stable display flag for the active tracked cache-file scan. Lifecycle events are always
@@ -863,7 +866,7 @@ public partial class CacheManagementService
 
             var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, cancellationToken);
 
-            result.EnsureSuccess("log_manager", datasourceName);
+            result.EnsureSuccess("log_manager", datasourceName, cancellationToken);
 
             // Read results from progress file
             var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogCountProgressData>(progressFile);
@@ -1242,7 +1245,7 @@ public partial class CacheManagementService
                 result.Error);
         }
 
-        result.EnsureSuccess(failedProcessDescription, execution.Datasource.Name);
+        result.EnsureSuccess(failedProcessDescription, execution.Datasource.Name, cancellationToken);
 
         return await buildReportAsync(new RustRemovalProcessResult(
             execution.Datasource,
@@ -1722,7 +1725,7 @@ public partial class CacheManagementService
             ["step"] = progress.CalibrationStep,
             ["totalSteps"] = progress.CalibrationTotalSteps
         };
-        CurrentCacheSizeScanProgressContext = context;
+        _currentCacheSizeScanProgressContext = context;
 
         _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey);
 
@@ -1797,7 +1800,7 @@ public partial class CacheManagementService
             cts,
             onTerminalCleanup: () =>
             {
-                CurrentCacheSizeScanProgressContext = null;
+                _currentCacheSizeScanProgressContext = null;
                 CurrentCacheSizeScanShowNotification = null;
             },
             onTerminalEmit: info =>

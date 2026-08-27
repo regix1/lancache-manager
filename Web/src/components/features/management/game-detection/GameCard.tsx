@@ -135,7 +135,7 @@ const GameCard: React.FC<GameCardProps> = ({
   );
 
   const removeTooltip = isEvictedVariant
-    ? t('management.gameDetection.removePartialEvictedTooltip')
+    ? t('management.gameDetection.removeEvictedTooltip')
     : t('management.gameDetection.removeGameCache');
 
   const depotIdsForExpansion = isEvictedVariant ? (game.evicted_depot_ids ?? []) : game.depot_ids;

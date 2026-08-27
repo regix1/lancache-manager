@@ -48,6 +48,12 @@ struct Args {
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
+
+    /// Report how many cache files a removal would delete, then exit without deleting
+    /// anything. The confirmation the user answers needs the number the removal will
+    /// actually reach, not a detection scan's older snapshot.
+    #[arg(long = "count-only")]
+    count_only: bool,
 }
 
 /// Epic removal stage keys (`signalr.epicRemove.*`). Only the per-file cache progress
@@ -201,11 +207,40 @@ async fn main() -> Result<()> {
 
     let pool = db::create_pool().await?;
 
-    removal_core::write_progress(&progress_path, &reporter, "starting", "signalr.epicRemove.starting", json!({ "gameName": game_name }), 0.0, 0, 0)?;
+    // A count run must not announce itself as a removal: the whole point of the number is that
+    // the user can trust what the confirmation says.
+    let starting_stage_key = if args.count_only {
+        "signalr.epicRemove.counting.starting"
+    } else {
+        "signalr.epicRemove.starting"
+    };
+    removal_core::write_progress(&progress_path, &reporter, "starting", starting_stage_key, json!({ "gameName": game_name }), 0.0, 0, 0)?;
 
     // Query database for URLs
     removal_core::write_progress(&progress_path, &reporter, "querying_database", "signalr.epicRemove.db.querying", json!({}), 5.0, 0, 0)?;
     let url_data = get_epic_game_urls_from_db(&pool, game_name).await?;
+
+    // A count run stops here. It walks the same list a removal would walk, reports how many of
+    // those files exist on disk, and returns before the cache sweep, the access.log purge and
+    // the database delete below are reachable. A game with no URLs reports zero rather than
+    // taking the no-URL exit, so the confirmation always has a number. [6][8]
+    if args.count_only {
+        let collection_progress = removal_core::CollectionProgress {
+            progress_path: &progress_path,
+            reporter: &reporter,
+            stage_key: "signalr.epicRemove.counting.progress",
+        };
+        let cache_files_found = removal_core::count_cache_files(
+            &cache_dir,
+            &url_data,
+            &output_json,
+            game_name,
+            cache_utils::active_key_scheme(),
+            &collection_progress,
+        )?;
+        removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.epicRemove.counting.complete", json!({ "files": cache_files_found, "gameName": game_name }), 100.0, cache_files_found, cache_files_found)?;
+        return Ok(());
+    }
 
     if url_data.is_empty() {
         eprintln!("No URLs found for Epic game '{}'", game_name);

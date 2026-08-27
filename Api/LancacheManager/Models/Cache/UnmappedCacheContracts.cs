@@ -186,6 +186,15 @@ public sealed class UnmappedFileResponse
 public sealed class UnmappedCacheStatusResponse
 {
     public bool IsProcessing { get; set; }
+
+    /// <summary>
+    /// Run-stable display flag for the active scan. A silent scheduled scan reports false so
+    /// recovery can skip resurrecting a card instead of leaving it stuck once the silent terminal
+    /// arrives. Null when nothing is running and on the removal status, which is always
+    /// user-initiated; the API omits nulls, so those bodies keep the shape they already had.
+    /// </summary>
+    public bool? ShowNotification { get; set; }
+
     public Guid? OperationId { get; set; }
     public double PercentComplete { get; set; }
     public string? StageKey { get; set; }

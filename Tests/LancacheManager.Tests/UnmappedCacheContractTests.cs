@@ -486,7 +486,7 @@ public sealed class UnmappedCacheContractTests
     private static void SetProgressContext(UnmappedCacheService service, IReadOnlyDictionary<string, object?> context)
     {
         var field = typeof(UnmappedCacheService).GetField(
-            $"<{nameof(UnmappedCacheService.CurrentScanProgressContext)}>k__BackingField",
+            "_currentScanProgressContext",
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         field!.SetValue(service, context);

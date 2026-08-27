@@ -164,6 +164,12 @@ export interface EvictionScanStatusResponse {
  */
 export interface UnmappedCacheStatusResponse {
   isProcessing: boolean;
+  /**
+   * Run-stable display flag for the active scan. A silent scheduled run reports false so recovery
+   * can skip resurrecting a card instead of leaving it stuck once the silent terminal arrives.
+   * Absent on the removal status, which is always user-initiated.
+   */
+  showNotification?: boolean;
   percentComplete: number;
   operationId?: string;
   stageKey?: string;

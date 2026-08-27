@@ -495,21 +495,7 @@ public class CacheClearingService : ScheduledBackgroundService
                     },
                     "cache_cleaner");
 
-                operation = _operationTracker.GetOperation(operationId);
-
-                // A force-kill (SIGKILL) makes the child exit with 137. If WaitForExitAsync wins the
-                // race against token cancellation it returns normally with ExitCode 137 instead of
-                // throwing OperationCanceledException. Treat that as cancellation (not a failed clear)
-                // so the op is labelled Cancelled, not Failed.
-                if (result.ExitCode == 137 &&
-                    (cancellationToken.IsCancellationRequested ||
-                     operation?.CancellationTokenSource?.Token.IsCancellationRequested == true ||
-                     operation?.Cancelled == true))
-                {
-                    throw new OperationCanceledException(cancellationToken);
-                }
-
-                result.EnsureSuccess("cache_cleaner", dsName);
+                result.EnsureSuccess("cache_cleaner", dsName, cancellationToken);
 
                 _logger.LogInformation($"[{GetDeleteModeDisplayName()}] Rust cache cleaner output: {result.Output}");
 

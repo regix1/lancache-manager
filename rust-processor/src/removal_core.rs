@@ -151,6 +151,129 @@ pub struct CacheRemovalOutcome {
     pub verification_skips: usize,
 }
 
+/// Where the collection walk reports its own progress, and under which stage key. A removal
+/// passes None, so its event volume is unchanged; a count run passes Some, because the walk
+/// IS the whole run and takes minutes on an entity with many logged URLs.
+///
+/// `#[allow(dead_code)]`: see the `LogScope` note above. Each removal bin compiles this module
+/// independently, and only the bins that offer a count construct this.
+#[allow(dead_code)]
+pub struct CollectionProgress<'a> {
+    pub progress_path: &'a Path,
+    pub reporter: &'a ProgressReporter,
+    pub stage_key: &'a str,
+}
+
+/// Emit one collection-phase tick. Shared by every collection walk so the count's progress
+/// shape is identical wherever it runs. The band is 5%-95%: the count's own run is the walk.
+#[allow(dead_code)]
+pub fn report_collection_progress(
+    progress: &CollectionProgress<'_>,
+    urls_walked: usize,
+    total_urls: usize,
+) {
+    let _ = write_progress(
+        progress.progress_path,
+        progress.reporter,
+        "counting_files",
+        progress.stage_key,
+        json!({ "n": urls_walked, "total": total_urls }),
+        5.0 + (urls_walked as f64 / total_urls as f64) * 90.0,
+        urls_walked,
+        total_urls,
+    );
+}
+
+/// Every on-disk cache slice the removal set covers, existence-filtered through the
+/// `cache_utils` chokepoint.
+///
+/// All-slice existence walk (matches detection coverage) instead of the size-derived
+/// candidate list, so range-served objects that log each ~1 MiB range as a separate row
+/// are fully enumerated rather than truncated to slice 0. The walk stat-probes every
+/// on-disk slice for the URL, so `total_bytes` is not needed here. Under the bare-metal
+/// scheme each candidate carries the literal key it must prove before deletion.
+///
+/// `remove_cache_files` deletes exactly this list, so `collect_cache_paths(..).len()` is
+/// the count of files a removal will delete and it reaches no delete loop. Deriving that
+/// number any other way would compute a cache key nginx never wrote. [6][7][8]
+pub fn collect_cache_paths(
+    cache_dir: &Path,
+    url_data: &HashMap<String, (String, i64)>,
+    scheme: cache_utils::CacheKeyScheme,
+    progress: Option<&CollectionProgress<'_>>,
+) -> Vec<(PathBuf, Option<String>)> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let total_urls = url_data.len();
+    let urls_walked = AtomicUsize::new(0);
+    let last_reported_percent = AtomicUsize::new(0);
+
+    url_data
+        .par_iter()
+        .flat_map(|(url, (service, _total_bytes))| {
+            let paths =
+                cache_utils::existing_keyed_paths_for_url_with_scheme(scheme, cache_dir, service, url);
+
+            if let Some(progress) = progress {
+                let walked = urls_walked.fetch_add(1, Ordering::Relaxed) + 1;
+                let current_pct = (walked * 100) / total_urls;
+                let prev_pct = last_reported_percent.load(Ordering::Relaxed);
+                if current_pct > prev_pct
+                    && last_reported_percent
+                        .compare_exchange(
+                            prev_pct,
+                            current_pct,
+                            Ordering::SeqCst,
+                            Ordering::Relaxed,
+                        )
+                        .is_ok()
+                {
+                    report_collection_progress(progress, walked, total_urls);
+                }
+            }
+
+            paths
+        })
+        .collect()
+}
+
+/// What a count run writes for the C# side to read. Deliberately not shaped like a removal
+/// report: nothing was deleted, so no field claims anything was.
+#[derive(Debug, Serialize)]
+pub struct CacheFileCount {
+    pub entity: String,
+    pub cache_files_found: usize,
+}
+
+/// A count-only pass: walk exactly the list `remove_cache_files` would delete, report how many
+/// of those files exist on disk, and write the count report. The delete loop lives in a
+/// different function, so it is unreachable from here, and no path is derived a second way. [6][7][8]
+///
+/// `#[allow(dead_code)]`: see the `LogScope` note above. Only the bins that offer a count call this.
+#[allow(dead_code)]
+pub fn count_cache_files(
+    cache_dir: &Path,
+    url_data: &HashMap<String, (String, i64)>,
+    output_json: &Path,
+    entity: &str,
+    scheme: cache_utils::CacheKeyScheme,
+    progress: &CollectionProgress<'_>,
+) -> Result<usize> {
+    let cache_files_found = collect_cache_paths(cache_dir, url_data, scheme, Some(progress)).len();
+
+    fs::write(
+        output_json,
+        serde_json::to_string_pretty(&CacheFileCount {
+            entity: entity.to_string(),
+            cache_files_found,
+        })?,
+    )?;
+
+    eprintln!("Cache files found: {}", cache_files_found);
+    Ok(cache_files_found)
+}
+
 /// Parallel cache-file deletion with progress reporting (the 10%-70% band).
 ///
 /// Identical to the prior per-bin `remove_cache_files_for_*` bodies: collect every
@@ -179,18 +302,9 @@ pub fn remove_cache_files(
 
     eprintln!("Collecting cache file paths for deletion...");
 
-    // Collect all paths to delete. All-slice existence walk (matches detection
-    // coverage) instead of the size-derived candidate list, so range-served objects
-    // that log each ~1 MiB range as a separate row are fully enumerated rather than
-    // truncated to slice 0. The walk stat-probes every on-disk slice for the URL, so
-    // `total_bytes` is no longer needed here. Under the bare-metal scheme each
-    // candidate carries the literal key it must prove before deletion.
-    let paths_to_check: Vec<(std::path::PathBuf, Option<String>)> = url_data
-        .par_iter()
-        .flat_map(|(url, (service, _total_bytes))| {
-            cache_utils::existing_keyed_paths_for_url_with_scheme(scheme, cache_dir, service, url)
-        })
-        .collect();
+    // Re-walked from disk here, inside the deleting process, so the set deleted is the set
+    // that exists now rather than one an earlier pass recorded.
+    let paths_to_check = collect_cache_paths(cache_dir, url_data, scheme, None);
 
     let total_paths = paths_to_check.len();
     eprintln!("Checking {} potential cache file locations...", total_paths);
@@ -469,6 +583,77 @@ mod tests {
             scheme,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn counting_leaves_every_file_in_place_and_matches_what_the_removal_deletes() {
+        let temp = tempfile::tempdir().unwrap();
+        let service = "steam";
+        // A query string is the case that made earlier probes disagree with nginx: the access
+        // log keeps it, the cache key does not. Both the count and the delete go through
+        // cache_utils, so they must agree on it.
+        let url = "/depot/1/chunk/abcdef?token=xyz";
+        let cache_path = cache_utils::calculate_cache_path_no_range(temp.path(), service, url);
+        write_cache_file(&cache_path, None);
+
+        let url_data = HashMap::from([(url.to_string(), (service.to_string(), 0_i64))]);
+        let output_json = temp.path().join("count.json");
+        let progress_path = temp.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+        let counted = count_cache_files(
+            temp.path(),
+            &url_data,
+            &output_json,
+            "Some Game",
+            cache_utils::CacheKeyScheme::Monolithic,
+            &CollectionProgress {
+                progress_path: &progress_path,
+                reporter: &reporter,
+                stage_key: "test.cache.counting",
+            },
+        )
+        .unwrap();
+
+        assert_eq!(counted, 1);
+        assert!(cache_path.exists(), "counting must not delete anything");
+
+        let report: serde_json::Value =
+            serde_json::from_slice(&fs::read(&output_json).unwrap()).unwrap();
+        assert_eq!(report["entity"], "Some Game");
+        assert_eq!(report["cache_files_found"], 1);
+
+        let outcome = remove_one(
+            temp.path(),
+            service,
+            url,
+            cache_utils::CacheKeyScheme::Monolithic,
+            &progress_path,
+        );
+
+        assert_eq!(outcome.deleted_files, counted);
+        assert!(!cache_path.exists());
+    }
+
+    #[test]
+    fn counting_an_entity_with_no_urls_reports_zero() {
+        let temp = tempfile::tempdir().unwrap();
+        let progress_path = temp.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+        let counted = count_cache_files(
+            temp.path(),
+            &HashMap::new(),
+            &temp.path().join("count.json"),
+            "Some Game",
+            cache_utils::CacheKeyScheme::Monolithic,
+            &CollectionProgress {
+                progress_path: &progress_path,
+                reporter: &reporter,
+                stage_key: "test.cache.counting",
+            },
+        )
+        .unwrap();
+
+        assert_eq!(counted, 0);
     }
 
     #[test]

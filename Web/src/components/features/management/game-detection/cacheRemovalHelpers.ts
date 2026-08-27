@@ -69,7 +69,7 @@ interface UseCompletedRemovalPruningArgs {
   notifications: UnifiedNotification[];
   setGames: Dispatch<SetStateAction<GameCacheInfo[]>>;
   setServices: Dispatch<SetStateAction<ServiceCacheInfo[]>>;
-  partialRemovalTargetRef?: MutableRefObject<CacheRemovalTarget | null>;
+  removalTargetRef?: MutableRefObject<CacheRemovalTarget | null>;
 }
 
 export function useScheduledRemovalRefresh(
@@ -93,13 +93,13 @@ export function useCompletedRemovalPruning({
   notifications,
   setGames,
   setServices,
-  partialRemovalTargetRef
+  removalTargetRef
 }: UseCompletedRemovalPruningArgs): void {
   useEffect(() => {
     setGames((prev) => pruneGamesByCompletedRemovalNotifications(prev, notifications));
     setServices((prev) => pruneServicesByCompletedRemovalNotifications(prev, notifications));
 
-    if (!partialRemovalTargetRef) {
+    if (!removalTargetRef) {
       return;
     }
 
@@ -108,13 +108,13 @@ export function useCompletedRemovalPruning({
         notification.type === 'eviction_removal' && notification.status === 'completed'
     );
 
-    if (evictionComplete && partialRemovalTargetRef.current) {
-      const removalTarget = partialRemovalTargetRef.current;
+    if (evictionComplete && removalTargetRef.current) {
+      const removalTarget = removalTargetRef.current;
       setGames((prev) => pruneGamesByRemovalTarget(prev, removalTarget));
       setServices((prev) => pruneServicesByRemovalTarget(prev, removalTarget));
-      partialRemovalTargetRef.current = null;
+      removalTargetRef.current = null;
     }
-  }, [notifications, partialRemovalTargetRef, setGames, setServices]);
+  }, [notifications, removalTargetRef, setGames, setServices]);
 }
 
 export async function runTrackedGameRemoval({

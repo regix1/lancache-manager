@@ -49,6 +49,12 @@ struct Args {
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
+
+    /// Report how many cache files a removal would delete, then exit without deleting
+    /// anything. The confirmation the user answers needs the number the removal will
+    /// actually reach, not a detection scan's older snapshot.
+    #[arg(long = "count-only")]
+    count_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -184,6 +190,77 @@ async fn get_service_urls_from_db(pool: &PgPool, service: &str) -> Result<HashMa
     Ok(urls)
 }
 
+/// Every on-disk cache slice the service's URLs cover, existence-filtered through the
+/// `cache_utils` chokepoint.
+///
+/// All-slice existence walk (matches detection coverage) instead of the size-derived
+/// candidate list, so range-served objects that log each ~1 MiB range as a separate row are
+/// fully enumerated rather than truncated to slice 0. Collected as 16-byte file-name digests -
+/// a steam-sized service is millions of slices, and holding a full PathBuf per slice peaked at
+/// hundreds of MB. The canonical path is rebuilt per digest at deletion time (the same layout
+/// the existence probe here uses).
+///
+/// `remove_cache_files_for_service` deletes exactly this list, so `.len()` is the count of
+/// files a removal will delete and it reaches no delete loop. Deriving that number any other
+/// way would compute a cache key nginx never wrote. [6][7][8]
+fn collect_cache_digests(
+    cache_dir: &Path,
+    service: &str,
+    urls: &HashMap<String, i64>,
+    scheme: cache_utils::CacheKeyScheme,
+    progress: Option<&removal_core::CollectionProgress<'_>>,
+) -> Vec<(u128, Option<String>)> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let total_urls = urls.len();
+    let urls_walked = AtomicUsize::new(0);
+    let last_reported_percent = AtomicUsize::new(0);
+
+    urls.par_iter()
+        .flat_map(|(url, _total_bytes)| {
+            let digests = match scheme {
+                cache_utils::CacheKeyScheme::Monolithic => {
+                    cache_utils::existing_cache_digests_for_url(service, url, |digest| {
+                        cache_utils::cache_path_for_digest(cache_dir, digest).exists()
+                    })
+                    .into_iter()
+                    .map(|digest| (digest, None))
+                    .collect::<Vec<_>>()
+                }
+                cache_utils::CacheKeyScheme::BareMetal => {
+                    cache_utils::existing_bare_metal_keyed_digests_for_url(service, url, |digest| {
+                        cache_utils::cache_path_for_digest(cache_dir, digest).exists()
+                    })
+                    .into_iter()
+                    .map(|(digest, key)| (digest, Some(key)))
+                    .collect::<Vec<_>>()
+                }
+            };
+
+            if let Some(progress) = progress {
+                let walked = urls_walked.fetch_add(1, Ordering::Relaxed) + 1;
+                let current_pct = (walked * 100) / total_urls;
+                let prev_pct = last_reported_percent.load(Ordering::Relaxed);
+                if current_pct > prev_pct
+                    && last_reported_percent
+                        .compare_exchange(
+                            prev_pct,
+                            current_pct,
+                            Ordering::SeqCst,
+                            Ordering::Relaxed,
+                        )
+                        .is_ok()
+                {
+                    removal_core::report_collection_progress(progress, walked, total_urls);
+                }
+            }
+
+            digests
+        })
+        .collect()
+}
+
 fn remove_cache_files_for_service(
     cache_dir: &Path,
     service: &str,
@@ -199,33 +276,9 @@ fn remove_cache_files_for_service(
     eprintln!("Removing cache files for service '{}'...", service);
     eprintln!("Collecting cache file paths for deletion...");
 
-    // All-slice existence walk (matches detection coverage) instead of the size-derived
-    // candidate list, so range-served objects that log each ~1 MiB range as a separate
-    // row are fully enumerated rather than truncated to slice 0. Collected as 16-byte
-    // file-name digests - a steam-sized service is millions of slices, and holding a full
-    // PathBuf per slice peaked at hundreds of MB. The canonical path is rebuilt per digest
-    // at deletion time (the same layout the existence probe below uses).
-    let digests_to_delete: Vec<(u128, Option<String>)> = urls
-        .par_iter()
-        .flat_map(|(url, _total_bytes)| match scheme {
-            cache_utils::CacheKeyScheme::Monolithic => {
-                cache_utils::existing_cache_digests_for_url(service, url, |digest| {
-                    cache_utils::cache_path_for_digest(cache_dir, digest).exists()
-                })
-                .into_iter()
-                .map(|digest| (digest, None))
-                .collect::<Vec<_>>()
-            }
-            cache_utils::CacheKeyScheme::BareMetal => {
-                cache_utils::existing_bare_metal_keyed_digests_for_url(service, url, |digest| {
-                    cache_utils::cache_path_for_digest(cache_dir, digest).exists()
-                })
-                .into_iter()
-                .map(|(digest, key)| (digest, Some(key)))
-                .collect::<Vec<_>>()
-            }
-        })
-        .collect();
+    // Re-walked from disk here, inside the deleting process, so the set deleted is the set
+    // that exists now rather than one an earlier pass recorded.
+    let digests_to_delete = collect_cache_digests(cache_dir, service, urls, scheme, None);
 
     let total_paths = digests_to_delete.len();
     eprintln!("Checking {} potential cache file locations...", total_paths);
@@ -405,11 +458,45 @@ async fn main() -> Result<()> {
 
     let pool = db::create_pool().await?;
 
-    write_progress(&progress_path, &reporter, "starting", "signalr.serviceRemove.starting.default", json!({ "service": service }), 0.0, 0, 0)?;
+    // A count run must not announce itself as a removal: the whole point of the number is
+    // that the user can trust what the confirmation says.
+    let starting_stage_key = if args.count_only {
+        "signalr.serviceRemove.counting.starting"
+    } else {
+        "signalr.serviceRemove.starting.default"
+    };
+    write_progress(&progress_path, &reporter, "starting", starting_stage_key, json!({ "service": service }), 0.0, 0, 0)?;
 
     // Step 1: Get all URLs for this service from database
     write_progress(&progress_path, &reporter, "querying_database", "signalr.serviceRemove.db.querying", json!({}), 5.0, 0, 0)?;
     let urls = get_service_urls_from_db(&pool, service).await?;
+
+    // A count run stops here. It walks the same list a removal would walk, reports how many of
+    // those files exist on disk, and returns before the delete loop, the log purge and the
+    // database delete below are reachable. A service with no URLs reports zero rather than
+    // taking the no-URL exit, so the confirmation always has a number to show. [6][8]
+    if args.count_only {
+        let collection_progress = removal_core::CollectionProgress {
+            progress_path: &progress_path,
+            reporter: &reporter,
+            stage_key: "signalr.serviceRemove.counting.progress",
+        };
+        let cache_files_found =
+            collect_cache_digests(&cache_dir, service, &urls, key_scheme, Some(&collection_progress))
+                .len();
+
+        fs::write(
+            &output_json,
+            serde_json::to_string_pretty(&removal_core::CacheFileCount {
+                entity: service.to_string(),
+                cache_files_found,
+            })?,
+        )?;
+        write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.counting.complete", json!({ "files": cache_files_found, "service": service }), 100.0, cache_files_found, cache_files_found)?;
+
+        eprintln!("Cache files found: {}", cache_files_found);
+        return Ok(());
+    }
 
     if urls.is_empty() {
         eprintln!("No URLs found for service '{}'", service);
@@ -593,6 +680,88 @@ mod tests {
         assert_eq!(report["total_bytes_freed"], 4096);
         assert_eq!(report["log_entries_removed"], 0);
         assert_eq!(report["database_entries_deleted"], 0);
+    }
+
+    #[test]
+    fn counting_leaves_every_file_in_place_and_matches_what_the_removal_deletes() {
+        let temp = tempfile::tempdir().unwrap();
+        let service = "steam";
+        // A query string is the case that made earlier probes disagree with nginx: the access
+        // log keeps it, the cache key does not. Both the count and the delete go through
+        // cache_utils, so they must agree on it.
+        let url = "/depot/1/chunk/abcdef?token=xyz";
+        let no_range = cache_utils::calculate_cache_path_no_range(temp.path(), service, url);
+        let noslice = cache_utils::calculate_cache_path_noslice(temp.path(), service, url);
+        write_cache_file(&no_range, None);
+        write_cache_file(&noslice, None);
+
+        let urls = HashMap::from([(url.to_string(), 0_i64)]);
+        let counted = collect_cache_digests(
+            temp.path(),
+            service,
+            &urls,
+            cache_utils::CacheKeyScheme::Monolithic,
+            None,
+        )
+        .len();
+
+        assert_eq!(counted, 2);
+        assert!(no_range.exists(), "counting must not delete anything");
+        assert!(noslice.exists(), "counting must not delete anything");
+
+        let (deleted, _bytes, permission_errors, verification_skips) =
+            remove_cache_files_for_service(
+                temp.path(),
+                service,
+                &urls,
+                &temp.path().join("progress.json"),
+                &ProgressReporter::new(false),
+                cache_utils::CacheKeyScheme::Monolithic,
+            )
+            .unwrap();
+
+        assert_eq!((deleted, permission_errors, verification_skips), (counted, 0, 0));
+        assert!(!no_range.exists());
+        assert!(!noslice.exists());
+    }
+
+    #[test]
+    fn counting_a_service_with_no_urls_reports_zero() {
+        let temp = tempfile::tempdir().unwrap();
+        let counted = collect_cache_digests(
+            temp.path(),
+            "steam",
+            &HashMap::new(),
+            cache_utils::CacheKeyScheme::Monolithic,
+            None,
+        )
+        .len();
+
+        assert_eq!(counted, 0);
+    }
+
+    #[test]
+    fn count_only_argument_parses_and_defaults_off() {
+        let base = [
+            "cache_service_remove",
+            "logs",
+            "cache",
+            "steam",
+            "report.json",
+            "progress.json",
+        ];
+        assert!(!Args::try_parse_from(base).unwrap().count_only);
+
+        let with_flag = [
+            "cache_service_remove",
+            "logs",
+            "cache",
+            "steam",
+            "report.json",
+            "progress.json",
+            "--count-only",
+        ];
+        assert!(Args::try_parse_from(with_flag).unwrap().count_only);
     }
 
     #[test]

@@ -50,7 +50,7 @@ import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { getActiveGames, getActiveServices } from './cacheEntityFilters';
 import { getGameUniqueId } from './gameUtils';
-import { shouldPinOperationIdFromResponse } from './gameRemovalEntity';
+import { classifyGameFromCacheInfo, shouldPinOperationIdFromResponse } from './gameRemovalEntity';
 import {
   buildLoadedResultsSummary,
   CACHED_DETECTION_RELOAD_DELAY_MS,
@@ -68,6 +68,7 @@ import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectory
 import { resolveDatasources } from '@utils/datasources';
 import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
 import { sessionStore } from '@utils/storage';
+import { translateRecoveryStage } from '@utils/stageKeyMessage';
 import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
 interface GameCacheDetectorProps {
@@ -76,6 +77,9 @@ interface GameCacheDetectorProps {
   onDataRefresh?: () => void;
   refreshKey?: number;
 }
+
+/** How often the removal confirmation asks the running cache-file count where it has got to. */
+const COUNT_POLL_INTERVAL_MS = 1000;
 
 const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   mockMode = false,
@@ -125,6 +129,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [services, setServices] = useState<ServiceCacheInfo[]>([]);
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
   const [serviceToRemove, setServiceToRemove] = useState<ServiceCacheInfo | null>(null);
+
+  // The removal confirmation states what the removal will actually delete, counted against the
+  // disk while the dialog is open. Null means there is no number to confirm against yet.
+  const [cacheFileCount, setCacheFileCount] = useState<number | null>(null);
+  const [countStage, setCountStage] = useState<{
+    key: string;
+    context: Record<string, string | number | boolean | null>;
+  } | null>(null);
+  const [countFailed, setCountFailed] = useState(false);
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [scanType, setScanType] = useState<'full' | 'incremental' | 'load' | null>(null);
   const datasources = resolveDatasources(config);
@@ -571,6 +584,102 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     }
     setServiceToRemove(service);
   };
+
+  // Counting walks every URL the service ever logged and stat-probes each slice, so it runs as a
+  // tracked operation with progress rather than a request that blocks. Closing the dialog cancels
+  // it, and the confirm button stays disabled until the real number lands, so the number a user
+  // answers is the number the removal will delete rather than the last scan's snapshot.
+  useEffect(() => {
+    if (!gameToRemove && !serviceToRemove) return;
+
+    // One start call per removal route, chosen the same way the removal itself is routed, so the
+    // count always walks the entity the confirm button will delete.
+    const startCount = (game: GameCacheInfo | null) => {
+      if (!game) {
+        return ApiService.startServiceCacheFileCount(serviceToRemove!.service_name);
+      }
+
+      const entity = classifyGameFromCacheInfo(game);
+      if (entity.kind === 'epicGame') {
+        return ApiService.startEpicGameCacheFileCount(game.game_name);
+      }
+      if (entity.kind === 'namedGame') {
+        return ApiService.startNamedGameCacheFileCount(entity.service, entity.gameName);
+      }
+      return ApiService.startGameCacheFileCount(entity.gameAppId);
+    };
+
+    let stopped = false;
+    let settled = false;
+    let startedOperationId: string | null = null;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    setCacheFileCount(null);
+    setCountStage(null);
+    setCountFailed(false);
+
+    const poll = async (operationId: string) => {
+      try {
+        const status = await ApiService.getCacheFileCountStatus(operationId);
+        if (stopped) return;
+
+        if (status.isProcessing) {
+          if (status.stageKey) {
+            setCountStage({ key: status.stageKey, context: status.context ?? {} });
+          }
+          pollTimer = setTimeout(() => void poll(operationId), COUNT_POLL_INTERVAL_MS);
+          return;
+        }
+
+        settled = true;
+        // Only the count this dialog started can answer for it. A number left behind by an
+        // earlier count is exactly the stale figure this whole change exists to stop showing.
+        if (status.operationId === operationId && status.cacheFilesFound !== undefined) {
+          setCacheFileCount(status.cacheFilesFound);
+        } else {
+          setCountFailed(true);
+        }
+      } catch (err) {
+        console.error('[GameCacheDetector] Cache file count failed:', err);
+        if (!stopped) {
+          settled = true;
+          setCountFailed(true);
+        }
+      }
+    };
+
+    void (async () => {
+      try {
+        const started = await startCount(gameToRemove);
+        startedOperationId = started.operationId;
+        if (stopped) {
+          void ApiService.cancelOperation(started.operationId);
+          return;
+        }
+        void poll(started.operationId);
+      } catch (err) {
+        console.error('[GameCacheDetector] Could not start the cache file count:', err);
+        if (!stopped) {
+          settled = true;
+          setCountFailed(true);
+        }
+      }
+    })();
+
+    return () => {
+      stopped = true;
+      if (pollTimer) clearTimeout(pollTimer);
+      if (startedOperationId && !settled) {
+        void ApiService.cancelOperation(startedOperationId);
+      }
+    };
+  }, [gameToRemove, serviceToRemove]);
+
+  // Translated at render rather than inside the effect, so switching language cannot restart a
+  // walk that has been running for minutes.
+  const countStatusMessage = countFailed
+    ? t('modals.cacheRemoval.countFailed')
+    : translateRecoveryStage(countStage?.key, countStage?.context, 'modals.cacheRemoval.counting');
 
   const confirmServiceRemoval = async () => {
     if (!serviceToRemove) return;
@@ -1114,6 +1223,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         target={gameToRemove ? { type: 'game', data: gameToRemove } : null}
         onClose={() => setGameToRemove(null)}
         onConfirm={confirmRemoval}
+        fileCount={cacheFileCount ?? undefined}
+        statusMessage={countStatusMessage}
+        confirmDisabled={cacheFileCount === null}
       />
 
       {/* Service Removal Confirmation Modal */}
@@ -1121,6 +1233,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         target={serviceToRemove ? { type: 'service', data: serviceToRemove } : null}
         onClose={() => setServiceToRemove(null)}
         onConfirm={confirmServiceRemoval}
+        fileCount={cacheFileCount ?? undefined}
+        statusMessage={countStatusMessage}
+        confirmDisabled={cacheFileCount === null}
       />
 
       {/* Remove All Cached Games/Services Confirmation Modal */}
@@ -1160,7 +1275,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         confirmColor="red"
       >
         <p className="text-themed-secondary">
-          {t('management.batchSelect.confirmBody', { count: selectedCombinedCount })}
+          {t('management.batchSelect.confirmBodyCacheFiles', { count: selectedCombinedCount })}
         </p>
       </ConfirmationModal>
     </>

@@ -2706,6 +2706,8 @@
       "removeSelectedLabel": "移除所选",
       "confirmTitle": "移除所选项目",
       "confirmBody": "这将移除 {{count}} 个所选项目。此操作无法撤销。",
+      "confirmBodyCacheFiles": "将删除 {{count}} 个所选项目的全部缓存文件，以及它们的日志条目和下载记录。此操作无法撤销。",
+      "confirmBodyEvicted": "将移除 {{count}} 个所选项目的下载记录及其日志条目。不会删除任何缓存文件。",
       "selectItem": "选择 {{name}}",
       "batchComplete": "已移除 {{total}} 个服务日志中的 {{count}} 个",
       "batchCompleteWithFailures": "已移除 {{count}} 个服务日志，但有 {{failed}} 个失败",
@@ -2979,7 +2981,7 @@
       "showingPaths": "显示 {{total}} 个路径中的 {{showing}} 个",
       "unknownGameBadge": "未知",
       "partialEvictedBadge": "{{count}} 个已淘汰",
-      "removePartialEvictedTooltip": "移除被淘汰的下载记录和日志条目。活跃的缓存文件不会被删除。",
+      "removeEvictedTooltip": "移除被淘汰的下载记录和日志条目。活跃的缓存文件不会被删除。",
       "noEvictedItems": "没有已淘汰的项目",
       "loadingEvictedGames": "正在加载被淘汰的游戏...",
       "noGamesMatching": "未找到匹配\"{{query}}\"的游戏",
@@ -5369,17 +5371,19 @@
       "titleService": "从缓存中移除服务",
       "confirmGame": "您确定要从缓存中移除 {{name}} 吗？",
       "confirmService": "您确定要从缓存中移除 {{name}} 服务吗？",
-      "summaryGame": "将删除约 {{formattedCount}} 个缓存文件，释放约 {{size}} 空间。此操作无法撤销。",
-      "summaryService": "将删除约 {{formattedCount}} 个缓存文件并释放约 {{size}} 空间，同时删除此服务的所有日志条目和下载记录。此操作无法撤销。",
-      "summaryEvicted": "将移除 {{count}} 条已淘汰的下载记录及其日志条目，释放约 {{size}} 空间。此操作无法撤销。",
+      "summaryGame": "将删除此游戏的全部缓存文件，而不仅是上次扫描统计到的 {{formattedCount}} 个文件（{{size}}）。此后新缓存的文件也会一并删除。此操作无法撤销。",
+      "summaryService": "将删除此服务的全部缓存文件，而不仅是上次扫描统计到的 {{formattedCount}} 个文件（{{size}}），同时删除此服务的所有日志条目和下载记录。此后新缓存的文件也会一并删除。此操作无法撤销。",
+      "summaryGameCounted": "将删除 {{formattedCount}} 个缓存文件，即此游戏当前在磁盘上的全部文件，同时删除其日志条目和下载记录。此操作无法撤销。",
+      "summaryServiceCounted": "将删除 {{formattedCount}} 个缓存文件，即此服务当前在磁盘上的全部文件，同时删除此服务的所有日志条目和下载记录。此操作无法撤销。",
+      "counting": "正在统计将要删除的缓存文件。对于较大的服务，这需要几分钟。",
+      "countFailed": "无法统计缓存文件，因此没有可供确认的数字。请关闭此窗口后重试。",
+      "summaryEvicted": "将移除 {{count}} 条下载记录及其日志条目，涉及约 {{size}} 的历史下载。不会删除任何缓存文件，也不会检查这些文件是否仍在磁盘上。此操作无法撤销。",
       "depotScope": "涉及 {{count}} 个仓库。",
       "depotScope_other": "涉及 {{count}} 个仓库。",
       "removeButton": "从缓存中移除",
       "removeEvictedButton": "移除已淘汰的数据",
-      "titlePartialEvictedGame": "移除已淘汰的数据",
-      "titlePartialEvictedService": "移除已淘汰的数据",
-      "confirmPartialEvictedGame": "移除 {{name}} 的 {{count}} 条已淘汰下载记录及其日志条目。活跃的缓存文件不会被删除。",
-      "confirmPartialEvictedService": "移除 {{name}} 的 {{count}} 条已淘汰下载记录及其日志条目。活跃的缓存文件不会被删除。"
+      "titleEvicted": "移除已淘汰的数据",
+      "confirmEvicted": "移除 {{name}} 的 {{count}} 条已淘汰下载记录及其日志条目。活跃的缓存文件不会被删除。"
     },
     "fullScan": {
       "stats": {
@@ -7428,6 +7432,11 @@
     },
     "epicRemove": {
       "starting": "开始移除 Epic 游戏 '{{gameName}}'",
+      "counting": {
+        "starting": "正在统计 Epic 游戏 '{{gameName}}' 的缓存文件",
+        "progress": "已检查 {{n}} / {{total}} 个 URL",
+        "complete": "Epic 游戏 '{{gameName}}' 共有 {{files}} 个缓存文件"
+      },
       "noUrls": "未找到此游戏的URL",
       "complete": "已为 Epic 游戏 '{{gameName}}' 移除 {{files}} 个缓存文件 ({{gb}} GB)、{{logEntries}} 条日志条目",
       "cancelled": "Epic 游戏 '{{gameName}}' 的移除已被取消。",
@@ -7584,6 +7593,11 @@
     },
     "gameRemove": {
       "starting": "开始移除游戏 '{{gameName}}'（AppID {{gameAppId}}）",
+      "counting": {
+        "starting": "正在统计游戏 '{{gameName}}' 的缓存文件",
+        "progress": "已检查 {{n}} / {{total}} 个 URL",
+        "complete": "游戏 '{{gameName}}' 共有 {{files}} 个缓存文件"
+      },
       "finalizing": "正在完成移除...",
       "noUrls": "未找到此游戏的URL",
       "complete": "已为游戏 '{{gameName}}'（AppID {{gameAppId}}）移除 {{files}} 个缓存文件 ({{gb}} GB)、{{logEntries}} 条日志条目",
@@ -7597,14 +7611,12 @@
       },
       "cache": {
         "removing": "正在移除 {{count}} 个URL的缓存文件",
-        "skippedEvicted": "跳过缓存清理（游戏已被完全淘汰）",
         "file": {
           "progress": "已检查 {{n}} / {{total}} 个文件"
         }
       },
       "dirs": {
-        "cleaning": "正在清理空目录",
-        "skippedEvicted": "跳过目录清理（游戏已被完全淘汰）"
+        "cleaning": "正在清理空目录"
       },
       "logs": {
         "removing": "正在移除日志条目",
@@ -7698,6 +7710,11 @@
         "file": {
           "progress": "已检查 {{n}} / {{total}} 个文件"
         }
+      },
+      "counting": {
+        "starting": "正在统计服务 '{{service}}' 的缓存文件",
+        "progress": "已检查 {{n}} / {{total}} 个 URL",
+        "complete": "服务 '{{service}}' 共有 {{files}} 个缓存文件"
       },
       "logs": {
         "removing": "正在移除日志条目"

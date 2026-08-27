@@ -1460,6 +1460,7 @@ public sealed partial class GameCacheDetectionDataService
 
     public async Task SaveServicesAsync(
         List<ServiceCacheInfo> services,
+        bool incremental = false,
         CancellationToken cancellationToken = default)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
@@ -1545,43 +1546,51 @@ public sealed partial class GameCacheDetectionDataService
             }
         }
 
-        foreach (var kvp in existingDict)
+        // An incremental save carries only the services the run actually reached - a cancelled
+        // scan stops mid-way and hands over whatever it had. Absence from a list that was never
+        // finished is not evidence of anything, so the whole absence pass below is skipped and the
+        // rows the run never looked at keep the counts and the badge they already had. Only a full
+        // scan, which enumerates every service, may read absence as eviction evidence [13].
+        if (!incremental)
         {
-            if (!incomingByName.ContainsKey(kvp.Key))
+            foreach (var kvp in existingDict)
             {
-                var existing = kvp.Value;
-
-                existing.LastDetectedUtc = now;
-
-                // Only flip the Evicted badge when there is POSITIVE eviction evidence: the service
-                // has no live (non-evicted) Download. If any service-scoped Download is still
-                // !IsEvicted, the files are believed present on disk and this absence is a scan
-                // false-negative (hash mismatch / lagged ingest / partial datasource) - leave the
-                // badge untouched. The Downloads-keyed self-heal (UnevictCachedServiceDetectionsAsync
-                // → GetServicesToUnevictAsync) recovers any that legitimately re-cache later.
-                if (!servicesWithLiveDownloads.Contains(kvp.Key))
+                if (!incomingByName.ContainsKey(kvp.Key))
                 {
-                    // Positive eviction evidence: zero the snapshot columns and badge it Evicted so
-                    // it moves to the Evicted list (CacheFilesFound=0 + IsEvicted=true are consistent).
-                    existing.CacheFilesFound = 0;
-                    existing.TotalSizeBytes = 0;
-                    existing.IsEvicted = true;
-                    _logger.LogInformation(
-                        "[ServiceDetection] Marked {Name} as evicted - absent from latest scan and all Downloads already evicted",
-                        existing.ServiceName);
-                }
-                else
-                {
-                    // Scan false-negative: the service is absent from this scan's Rust report but
-                    // still has non-evicted Downloads, so the files are believed present on disk.
-                    // PRESERVE the last-known CacheFilesFound/TotalSizeBytes - zeroing them would drop
-                    // the row below the frontend's active-list filter (getActiveServices requires
-                    // cache_files_found > 0) and make the service silently vanish until the next full
-                    // rescan re-detects it. Leave the badge and counts untouched; the Downloads-keyed
-                    // self-heal reconciles any that legitimately change later.
-                    _logger.LogDebug(
-                        "[ServiceDetection] {Name} absent from latest scan but has non-evicted Downloads - preserving last-known counts (likely scan false-negative)",
-                        existing.ServiceName);
+                    var existing = kvp.Value;
+
+                    existing.LastDetectedUtc = now;
+
+                    // Only flip the Evicted badge when there is POSITIVE eviction evidence: the service
+                    // has no live (non-evicted) Download. If any service-scoped Download is still
+                    // !IsEvicted, the files are believed present on disk and this absence is a scan
+                    // false-negative (hash mismatch / lagged ingest / partial datasource) - leave the
+                    // badge untouched. The Downloads-keyed self-heal (UnevictCachedServiceDetectionsAsync
+                    // → GetServicesToUnevictAsync) recovers any that legitimately re-cache later.
+                    if (!servicesWithLiveDownloads.Contains(kvp.Key))
+                    {
+                        // Positive eviction evidence: zero the snapshot columns and badge it Evicted so
+                        // it moves to the Evicted list (CacheFilesFound=0 + IsEvicted=true are consistent).
+                        existing.CacheFilesFound = 0;
+                        existing.TotalSizeBytes = 0;
+                        existing.IsEvicted = true;
+                        _logger.LogInformation(
+                            "[ServiceDetection] Marked {Name} as evicted - absent from latest scan and all Downloads already evicted",
+                            existing.ServiceName);
+                    }
+                    else
+                    {
+                        // Scan false-negative: the service is absent from this scan's Rust report but
+                        // still has non-evicted Downloads, so the files are believed present on disk.
+                        // PRESERVE the last-known CacheFilesFound/TotalSizeBytes - zeroing them would drop
+                        // the row below the frontend's active-list filter (getActiveServices requires
+                        // cache_files_found > 0) and make the service silently vanish until the next full
+                        // rescan re-detects it. Leave the badge and counts untouched; the Downloads-keyed
+                        // self-heal reconciles any that legitimately change later.
+                        _logger.LogDebug(
+                            "[ServiceDetection] {Name} absent from latest scan but has non-evicted Downloads - preserving last-known counts (likely scan false-negative)",
+                            existing.ServiceName);
+                    }
                 }
             }
         }

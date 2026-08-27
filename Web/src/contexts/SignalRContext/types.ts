@@ -619,6 +619,7 @@ export interface CorruptionDetectionCompleteEvent {
 export interface UnmappedScanStartedEvent {
   operationId: string;
   stageKey?: string;
+  showNotification: boolean;
 }
 
 export interface UnmappedScanProgressEvent {
@@ -627,6 +628,7 @@ export interface UnmappedScanProgressEvent {
   status: OperationStatus;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
+  showNotification: boolean;
 }
 
 /** `stageKey` is absent on a failed or cancelled run, which is why `error` and `cancelled`
@@ -637,11 +639,13 @@ export interface UnmappedScanCompleteEvent {
   stageKey?: string;
   cancelled?: boolean;
   error?: string;
+  showNotification: boolean;
 }
 
 export interface UnmappedRemovalStartedEvent {
   operationId: string;
   stageKey?: string;
+  showNotification: boolean;
 }
 
 export interface UnmappedRemovalProgressEvent {
@@ -650,6 +654,7 @@ export interface UnmappedRemovalProgressEvent {
   status: OperationStatus;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
+  showNotification: boolean;
 }
 
 export interface UnmappedRemovalCompleteEvent {
@@ -658,6 +663,7 @@ export interface UnmappedRemovalCompleteEvent {
   stageKey?: string;
   cancelled?: boolean;
   error?: string;
+  showNotification: boolean;
 }
 
 export interface GameDetectionStartedEvent {

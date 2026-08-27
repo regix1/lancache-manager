@@ -17,6 +17,15 @@ interface CacheRemovalModalProps {
   descriptionOverride?: string;
   evictedCount?: number;
   evictedBytes?: number;
+  /**
+   * Files the removal will actually delete, counted against the disk when this dialog opened.
+   * Replaces the detection snapshot's number, which describes a different set: the snapshot
+   * counts what the last scan saw, the removal reaches every URL the service ever logged.
+   */
+  fileCount?: number;
+  /** What the count is doing, or why it produced no number. Shown until `fileCount` arrives. */
+  statusMessage?: string;
+  confirmDisabled?: boolean;
 }
 
 const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
@@ -26,7 +35,10 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
   titleOverride,
   descriptionOverride,
   evictedCount,
-  evictedBytes
+  evictedBytes,
+  fileCount,
+  statusMessage,
+  confirmDisabled
 }) => {
   const { t } = useTranslation();
 
@@ -50,12 +62,38 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
       ? t('modals.cacheRemoval.confirmGame', { name })
       : t('modals.cacheRemoval.confirmService', { name }));
 
+  // A counted number describes exactly what the removal will delete, so it replaces the
+  // detection snapshot rather than sitting beside it. Until the count returns there is no
+  // honest number to show, only what the count is doing.
+  let summary: string;
+  if (isEvictedRemoval) {
+    summary = t('modals.cacheRemoval.summaryEvicted', {
+      count: evictedCount,
+      size: formatBytes(evictedBytes ?? 0)
+    });
+  } else if (fileCount !== undefined) {
+    summary = t(
+      isGame
+        ? 'modals.cacheRemoval.summaryGameCounted'
+        : 'modals.cacheRemoval.summaryServiceCounted',
+      { formattedCount: formatCount(fileCount) }
+    );
+  } else if (statusMessage !== undefined) {
+    summary = statusMessage;
+  } else {
+    summary = t(isGame ? 'modals.cacheRemoval.summaryGame' : 'modals.cacheRemoval.summaryService', {
+      formattedCount: formatCount(filesCount),
+      size: formatBytes(totalSize)
+    });
+  }
+
   return (
     <ConfirmationModal
       opened={target !== null}
       onClose={onClose}
       onConfirm={onConfirm}
       title={modalTitle}
+      confirmDisabled={confirmDisabled}
       confirmLabel={
         titleOverride !== undefined && evictedCount !== undefined
           ? t('modals.cacheRemoval.removeEvictedButton')
@@ -68,15 +106,7 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
           record tables and where progress appears, which is not what the reader is deciding. */}
       <Alert color="yellow">
         <p className="text-xs">
-          {isEvictedRemoval
-            ? t('modals.cacheRemoval.summaryEvicted', {
-                count: evictedCount,
-                size: formatBytes(evictedBytes ?? 0)
-              })
-            : t(isGame ? 'modals.cacheRemoval.summaryGame' : 'modals.cacheRemoval.summaryService', {
-                formattedCount: formatCount(filesCount),
-                size: formatBytes(totalSize)
-              })}
+          {summary}
           {!isEvictedRemoval && isGame && depotCount > 0
             ? ` ${t('modals.cacheRemoval.depotScope', { count: depotCount })}`
             : null}

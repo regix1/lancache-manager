@@ -6,6 +6,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Mvc;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
+using static LancacheManager.Controllers.CacheRouteGuards;
 using Microsoft.AspNetCore.Authorization;
 
 namespace LancacheManager.Controllers;
@@ -29,16 +30,6 @@ public class GamesController : ControllerBase
     private readonly IOperationQueue _operationQueue;
     private readonly DatasourceCapabilityService _capabilityService;
 
-    /// <summary>
-    /// Presentation-side duplicate of the capability guard: per-game cache removal is
-    /// key-recipe-dependent, and the removal services revalidate again at execution time.
-    /// </summary>
-    private BadRequestObjectResult? DenyIfKeyDependentUnavailable()
-    {
-        var denial = _capabilityService.CheckAllCanMapLogicalObjects();
-        return denial == null ? null : BadRequest(ApiResponse.Error(denial));
-    }
-
     public GamesController(
         GameCacheDetectionService gameCacheDetectionService,
         CacheManagementService cacheManagementService,
@@ -59,29 +50,6 @@ public class GamesController : ControllerBase
         _operationTracker = operationTracker;
         _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
-    }
-
-    /// <summary>
-    /// Checks cache and logs directory write permissions.
-    /// Returns a BadRequest IActionResult with PUID/PGID error message if not writable, or null if writable.
-    /// </summary>
-    private BadRequestObjectResult? EnsureDirectoriesWritable(string operationDescription)
-    {
-        var cacheWritable = _pathResolver.IsCacheWritable();
-        var logsWritable = _pathResolver.IsLogsWritable();
-
-        if (cacheWritable && logsWritable)
-            return null;
-
-        var errors = new List<string>();
-        if (!cacheWritable) errors.Add("cache directory is read-only");
-        if (!logsWritable) errors.Add("logs directory is read-only");
-
-        var errorMessage = $"Cannot {operationDescription}: {string.Join(" and ", errors)}. " +
-            "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-            $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
-
-        return BadRequest(ApiResponse.Error(errorMessage));
     }
 
     private static Dictionary<string, object?> RemovalContext(
@@ -136,24 +104,32 @@ public class GamesController : ControllerBase
     /// Removes a game from the cache.
     /// </summary>
     /// <remarks>
-    /// DELETE is the proper method for removing resources.
+    /// DELETE is the proper method for removing resources. Deletes every cached file the game
+    /// owns, so the caller must declare <see cref="CacheRemovalScope.CacheFiles"/>.
     /// </remarks>
+    /// <param name="scope">Must be <see cref="CacheRemovalScope.CacheFiles"/>; any other value is refused.</param>
     [HttpDelete("{appId}")]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(GameRemovalStartResponse), StatusCodes.Status202Accepted)]
-    public async Task<IActionResult> RemoveGameFromCacheAsync(long appId, CancellationToken cancellationToken)
+    public async Task<IActionResult> RemoveGameFromCacheAsync(long appId, CancellationToken cancellationToken, [FromQuery] string? scope = null)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var scopeError = EnsureCacheFileScopeDeclared(_logger, scope, $"[RemoveGameFromCache] AppId {appId}:");
+        if (scopeError != null)
+        {
+            return scopeError;
+        }
+
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;
         }
 
         // CRITICAL: Check write permissions BEFORE starting the operation
-        var permissionError = EnsureDirectoriesWritable("remove game from cache");
+        var permissionError = EnsureDirectoriesWritable(
+            _pathResolver, _logger, "remove game from cache", $"[RemoveGameFromCache] AppId {appId}:");
         if (permissionError != null)
         {
-            _logger.LogWarning("[RemoveGameFromCache] Permission check failed for AppId {AppId}", appId);
             return permissionError;
         }
 
@@ -204,24 +180,32 @@ public class GamesController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Uses the Rust cache_epic_remove binary to delete cache files, log entries, and database
-    /// records, the same three-step process as Steam game removal.
+    /// records, the same three-step process as Steam game removal, so the caller must declare
+    /// <see cref="CacheRemovalScope.CacheFiles"/>.
     /// </remarks>
+    /// <param name="scope">Must be <see cref="CacheRemovalScope.CacheFiles"/>; any other value is refused.</param>
     [HttpDelete("epic/{gameName}")]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(GameRemovalStartResponse), StatusCodes.Status202Accepted)]
-    public async Task<IActionResult> RemoveEpicGameFromCacheAsync(string gameName, CancellationToken cancellationToken)
+    public async Task<IActionResult> RemoveEpicGameFromCacheAsync(string gameName, CancellationToken cancellationToken, [FromQuery] string? scope = null)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var scopeError = EnsureCacheFileScopeDeclared(_logger, scope, $"[RemoveEpicGame] '{gameName}':");
+        if (scopeError != null)
+        {
+            return scopeError;
+        }
+
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;
         }
 
         // Check write permissions before starting
-        var permissionError = EnsureDirectoriesWritable("remove Epic game from cache");
+        var permissionError = EnsureDirectoriesWritable(
+            _pathResolver, _logger, "remove Epic game from cache", $"[RemoveEpicGame] '{gameName}':");
         if (permissionError != null)
         {
-            _logger.LogWarning("[RemoveEpicGame] Permission check failed for '{GameName}'", gameName);
             return permissionError;
         }
 
@@ -276,24 +260,32 @@ public class GamesController : ControllerBase
     /// <remarks>
     /// These games have no Steam AppId and no Epic AppId; their identity is (Service, GameName).
     /// Dispatches to the per-service Rust binary (cache_{service}_remove) to delete cache files,
-    /// log entries, and database records, the same three-step process as Epic game removal.
+    /// log entries, and database records, the same three-step process as Epic game removal, so the
+    /// caller must declare <see cref="CacheRemovalScope.CacheFiles"/>.
     /// </remarks>
+    /// <param name="scope">Must be <see cref="CacheRemovalScope.CacheFiles"/>; any other value is refused.</param>
     [HttpDelete("named/{service}/{gameName}")]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(GameRemovalStartResponse), StatusCodes.Status202Accepted)]
-    public async Task<IActionResult> RemoveNamedGameFromCacheAsync(string service, string gameName, CancellationToken cancellationToken)
+    public async Task<IActionResult> RemoveNamedGameFromCacheAsync(string service, string gameName, CancellationToken cancellationToken, [FromQuery] string? scope = null)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var scopeError = EnsureCacheFileScopeDeclared(_logger, scope, $"[RemoveNamedGame] '{service}' / '{gameName}':");
+        if (scopeError != null)
+        {
+            return scopeError;
+        }
+
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;
         }
 
         // Check write permissions before starting
-        var permissionError = EnsureDirectoriesWritable("remove game from cache");
+        var permissionError = EnsureDirectoriesWritable(
+            _pathResolver, _logger, "remove game from cache", $"[RemoveNamedGame] '{service}' / '{gameName}':");
         if (permissionError != null)
         {
-            _logger.LogWarning("[RemoveNamedGame] Permission check failed for '{Service}' / '{GameName}'", service, gameName);
             return permissionError;
         }
 
@@ -546,7 +538,7 @@ public class GamesController : ControllerBase
     [ProducesResponseType(typeof(GameDetectionStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> DetectGamesAsync([FromQuery] bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;

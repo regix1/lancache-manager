@@ -37,34 +37,6 @@ public partial class CacheManagementService
                 gameAppId.ToString(),
                 requireWritableLogs: false);
 
-            // Fast-path optimization: if every Downloads row for this game is already
-            // flagged IsEvicted, the lancache has nothing to delete on disk. Append
-            // --skip-file-probe so the Rust binary skips the path.exists() sweep but
-            // still rewrites the access logs and deletes the DB rows.
-            bool skipFileProbe = false;
-            await using (var probeContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
-            {
-                int totalRows = await probeContext.Downloads
-                    .Where(download => download.GameAppId == gameAppId)
-                    .CountAsync(cancellationToken);
-
-                if (totalRows > 0)
-                {
-                    int evictedRows = await probeContext.Downloads
-                        .Where(download => download.GameAppId == gameAppId && download.IsEvicted)
-                        .CountAsync(cancellationToken);
-
-                    if (totalRows == evictedRows)
-                    {
-                        skipFileProbe = true;
-                        _logger.LogInformation(
-                            "[GameRemoval] Fully evicted game {AppId} - using --skip-file-probe optimization ({Evicted}/{Total} rows evicted)",
-                            gameAppId, evictedRows, totalRows);
-                    }
-                }
-            }
-            string skipFileProbeArg = skipFileProbe ? " --skip-file-probe" : string.Empty;
-
             var aggregatedReport = new GameCacheRemovalReport
             {
                 GameAppId = gameAppId
@@ -82,7 +54,7 @@ public partial class CacheManagementService
                     {
                         var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                             rustBinaryPath,
-                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" {gameAppId} \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\"{skipFileProbeArg} --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}");
+                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" {gameAppId} \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}");
                         _logger.LogInformation("[GameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                             datasource.Name, rustBinaryPath, startInfo.Arguments);
                         return startInfo;
@@ -159,8 +131,9 @@ public partial class CacheManagementService
 
             // The Rust phase is done but the operation is not: detection-entry delete,
             // disk-summary refresh, service-counts invalidation, and the nginx log reopen
-            // below can take noticeably longer than a --skip-file-probe Rust run. Surface
-            // that phase instead of leaving the notification on its last Rust message.
+            // below can take noticeably longer than the Rust run itself on a game with few
+            // cache files. Surface that phase instead of leaving the notification on its
+            // last Rust message.
             if (onProgress != null)
             {
                 await onProgress(100.0, "signalr.gameRemove.finalizing", null, aggregatedReport.CacheFilesDeleted, (long)aggregatedReport.TotalBytesFreed);

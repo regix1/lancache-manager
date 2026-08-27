@@ -274,6 +274,34 @@ export interface RetroDownloadQueryParams {
  */
 type JsonFetchOptions = Omit<RequestInit, 'body'>;
 
+/**
+ * Declared removal scope the backend requires on every route that unlinks cache files. Sending it
+ * is what separates a full cache wipe from an evicted-records removal, which uses the
+ * /cache/evicted routes and never touches a file on disk.
+ */
+const CACHE_FILE_REMOVAL_SCOPE = 'scope=cacheFiles';
+
+/** What starting a cache-file count returns. The id is what the caller polls and can cancel. */
+interface CacheFileCountStart {
+  operationId: string;
+  queued?: boolean;
+  alreadyRunning?: boolean;
+}
+
+/**
+ * One count's progress, and its answer once it has one. `cacheFilesFound` arrives only when the
+ * count has walked every datasource, because a partial walk reports fewer files than the removal
+ * will delete.
+ */
+interface CacheFileCountStatus {
+  isProcessing: boolean;
+  operationId?: string;
+  percentComplete: number;
+  stageKey?: string;
+  context?: Record<string, string | number | boolean | null>;
+  cacheFilesFound?: number;
+}
+
 class ApiService {
   static async handleResponse<T>(response: Response): Promise<T> {
     // Cancellation (499 / client-closed request) is a distinct terminal outcome, NOT a failure:
@@ -1590,7 +1618,7 @@ class ApiService {
   }> {
     try {
       const res = await fetch(
-        `${API_BASE}/games/${gameAppId}`,
+        `${API_BASE}/games/${gameAppId}?${CACHE_FILE_REMOVAL_SCOPE}`,
         this.getFetchOptions({
           method: 'DELETE'
           // Returns immediately with 202 Accepted - removal happens in background
@@ -1623,7 +1651,7 @@ class ApiService {
   }> {
     try {
       const res = await fetch(
-        `${API_BASE}/games/epic/${encodeURIComponent(gameName)}`,
+        `${API_BASE}/games/epic/${encodeURIComponent(gameName)}?${CACHE_FILE_REMOVAL_SCOPE}`,
         this.getFetchOptions({
           method: 'DELETE'
           // Returns immediately with 202 Accepted - removal happens in background
@@ -1659,7 +1687,7 @@ class ApiService {
   }> {
     try {
       const res = await fetch(
-        `${API_BASE}/games/named/${encodeURIComponent(service)}/${encodeURIComponent(gameName)}`,
+        `${API_BASE}/games/named/${encodeURIComponent(service)}/${encodeURIComponent(gameName)}?${CACHE_FILE_REMOVAL_SCOPE}`,
         this.getFetchOptions({
           method: 'DELETE'
           // Returns immediately with 202 Accepted - removal happens in background
@@ -1691,7 +1719,7 @@ class ApiService {
   }> {
     try {
       const res = await fetch(
-        `${API_BASE}/cache/services/${encodeURIComponent(serviceName)}`,
+        `${API_BASE}/cache/services/${encodeURIComponent(serviceName)}?${CACHE_FILE_REMOVAL_SCOPE}`,
         this.getFetchOptions({
           method: 'DELETE'
           // Returns immediately with 202 Accepted - removal happens in background
@@ -1707,6 +1735,76 @@ class ApiService {
       }>(res);
     } catch (error: unknown) {
       console.error('removeServiceFromCache error:', error);
+      throw error;
+    }
+  }
+
+  // Start the background count of the cache files a removal would delete (requires auth). The
+  // count walks the same URLs and probes the same slices the removal walks, so it costs minutes
+  // on a large entity, which is why it is a tracked operation the caller can cancel rather than
+  // a plain request. One method per removal route, because the identity differs.
+  static async startServiceCacheFileCount(serviceName: string): Promise<CacheFileCountStart> {
+    return this.startCacheFileCount(
+      `${API_BASE}/cache/count/service/${encodeURIComponent(serviceName)}`,
+      'startServiceCacheFileCount'
+    );
+  }
+
+  static async startGameCacheFileCount(gameAppId: number): Promise<CacheFileCountStart> {
+    return this.startCacheFileCount(
+      `${API_BASE}/cache/count/game/${gameAppId}`,
+      'startGameCacheFileCount'
+    );
+  }
+
+  static async startEpicGameCacheFileCount(gameName: string): Promise<CacheFileCountStart> {
+    return this.startCacheFileCount(
+      `${API_BASE}/cache/count/game/epic/${encodeURIComponent(gameName)}`,
+      'startEpicGameCacheFileCount'
+    );
+  }
+
+  static async startNamedGameCacheFileCount(
+    service: string,
+    gameName: string
+  ): Promise<CacheFileCountStart> {
+    return this.startCacheFileCount(
+      `${API_BASE}/cache/count/game/named/${encodeURIComponent(service)}/${encodeURIComponent(gameName)}`,
+      'startNamedGameCacheFileCount'
+    );
+  }
+
+  private static async startCacheFileCount(
+    url: string,
+    label: string
+  ): Promise<CacheFileCountStart> {
+    try {
+      const res = await fetch(
+        url,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      return await this.handleResponse<CacheFileCountStart>(res);
+    } catch (error: unknown) {
+      console.error(`${label} error:`, error);
+      throw error;
+    }
+  }
+
+  // Poll one running count by the id its start returned. `cacheFilesFound` is present only once
+  // the count finished; while it runs, `stageKey` and `context` carry the progress line the
+  // confirmation shows.
+  static async getCacheFileCountStatus(operationId: string): Promise<CacheFileCountStatus> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/count/${encodeURIComponent(operationId)}/status`,
+        this.getFetchOptions({})
+      );
+      return await this.handleResponse<CacheFileCountStatus>(res);
+    } catch (error: unknown) {
+      console.error('getCacheFileCountStatus error:', error);
       throw error;
     }
   }

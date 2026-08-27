@@ -578,7 +578,7 @@ public partial class GameCacheDetectionService : IDisposable
                 // exit code and stderr (result.Error, already logged above regardless of outcome).
                 // The outer catch (Exception ex) logs it with the exception object and completes
                 // the detection operation as a failure.
-                result.EnsureSuccess("cache_game_detect", datasource.Name);
+                result.EnsureSuccess("cache_game_detect", datasource.Name, cancellationToken);
 
                 // Read results from JSON
                 if (!File.Exists(outputJson))
@@ -818,7 +818,7 @@ public partial class GameCacheDetectionService : IDisposable
             // Always run on full scan even with zero services - zero incoming means everything should be evicted
             if (!incremental)
             {
-                await SaveServicesToDatabaseAsync(aggregatedServices, cancellationToken);
+                await SaveServicesToDatabaseAsync(aggregatedServices, incremental: false, cancellationToken);
                 _logger.LogInformation("[GameDetection] Services saved to database - {Count} services total", aggregatedServices.Count);
             }
 
@@ -866,6 +866,25 @@ public partial class GameCacheDetectionService : IDisposable
                     catch (Exception saveEx)
                     {
                         _logger.LogWarning(saveEx, "[GameDetection] Failed to save partial game detection results");
+                    }
+                }
+
+                // Services the run reached are saved the same way. incremental=true skips the
+                // absence-to-evict pass: a cancelled scan's list is partial, and reading absence
+                // as eviction would zero and badge services whose files are still on disk.
+                if (aggregatedServices.Count > 0)
+                {
+                    try
+                    {
+                        await SaveServicesToDatabaseAsync(
+                            aggregatedServices,
+                            incremental: true,
+                            CancellationToken.None);
+                        _logger.LogInformation("[GameDetection] Saved {Count} partial service detection results before cancellation", aggregatedServices.Count);
+                    }
+                    catch (Exception saveEx)
+                    {
+                        _logger.LogWarning(saveEx, "[GameDetection] Failed to save partial service detection results");
                     }
                 }
 
@@ -1351,8 +1370,9 @@ public partial class GameCacheDetectionService : IDisposable
 
     private Task SaveServicesToDatabaseAsync(
         List<ServiceCacheInfo> services,
+        bool incremental,
         CancellationToken cancellationToken = default) =>
-        _detectionDataService.SaveServicesAsync(services, cancellationToken);
+        _detectionDataService.SaveServicesAsync(services, incremental, cancellationToken);
 
     private static async Task<List<CachedGameDetection>> GetUnknownGamesCachedAsync(AppDbContext dbContext)
     {

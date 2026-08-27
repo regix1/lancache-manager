@@ -18,6 +18,10 @@ public class UnmappedCacheScanScheduledService : ScheduledBackgroundService
     protected override string ServiceName => "UnmappedCacheScan";
     protected override TimeSpan Interval => _defaultInterval;
 
+    // The tracked scan already emits Started/Progress/Complete lifecycle events; opting in lets the
+    // Schedules UI expose the Notifications control and lets a run be gated to silent per the mode.
+    protected override bool SupportsNotifications => true;
+
     public override bool DefaultRunOnStartup => false;
     public override string ServiceKey => "unmappedCacheScan";
 
@@ -51,9 +55,14 @@ public class UnmappedCacheScanScheduledService : ScheduledBackgroundService
 
         try
         {
+            // Stamp the run-stable display flag from the effective mode + this run's trigger. The
+            // lifecycle events are always emitted (recovery/state stay accurate); the frontend gates
+            // whether the card is shown.
+            var showNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+
             // Deliberately no stopping token in the delegate: it may run at queue promotion, long
             // after this call returned (the operation owns its own CTS via the tracker).
-            async Task<Guid?> StartScanAsync() => await _unmappedCacheService.StartScanAsync();
+            async Task<Guid?> StartScanAsync() => await _unmappedCacheService.StartScanAsync(showNotification);
 
             // Enqueueing rather than starting directly is what runs this walk through the same
             // conflict checker the manual trigger uses: the queue re-checks under its gate and

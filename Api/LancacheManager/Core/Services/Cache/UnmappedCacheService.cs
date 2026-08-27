@@ -46,7 +46,20 @@ public class UnmappedCacheService
     /// placeholder-bearing keys like signalr.unmappedScan.enumerating after a page refresh.
     /// Null while no scan is running or before its first tick.
     /// </summary>
-    public IReadOnlyDictionary<string, object?>? CurrentScanProgressContext { get; private set; }
+    // Written on the scan worker thread, read on the request thread by the status endpoint.
+    // volatile publishes the write so a status read on another thread sees it. [26]
+    private volatile IReadOnlyDictionary<string, object?>? _currentScanProgressContext;
+    public IReadOnlyDictionary<string, object?>? CurrentScanProgressContext => _currentScanProgressContext;
+
+    /// <summary>
+    /// Run-stable display flag for the active scan. Lifecycle events are always emitted so recovery
+    /// stays accurate, but a silent scheduled scan reports false so the recovery endpoint
+    /// (GET /api/cache/unmapped/scan/status) can decline to resurrect a card on page reload instead
+    /// of leaving it stuck once the silent terminal arrives. Stamped before the operation registers,
+    /// so a status read that sees an active scan always sees that run's flag.
+    /// </summary>
+    private volatile bool _currentScanShowNotification = true;
+    public bool CurrentScanShowNotification => _currentScanShowNotification;
 
     public UnmappedCacheService(
         ILogger<UnmappedCacheService> logger,
@@ -69,7 +82,7 @@ public class UnmappedCacheService
     }
 
     /// <summary>Starts the background scan for cache files no detection row claims.</summary>
-    public async Task<Guid> StartScanAsync(CancellationToken cancellationToken = default)
+    public async Task<Guid> StartScanAsync(bool showNotification = true, CancellationToken cancellationToken = default)
     {
         // Recovering a file's service needs one unambiguous key scheme, so refuse here as well as
         // at the controller gate: this is the check the queue replays at promotion time.
@@ -89,6 +102,10 @@ public class UnmappedCacheService
                 return activeOp.Id;
             }
 
+            // Stamp the run's visibility before the operation registers, so a status read that sees
+            // an active scan can never pair it with the previous run's flag.
+            _currentScanShowNotification = showNotification;
+
             var cts = new CancellationTokenSource();
             Guid operationId = Guid.Empty;
             operationId = _operationTracker.RegisterOperation(
@@ -99,13 +116,15 @@ public class UnmappedCacheService
                     SignalREvents.UnmappedScanComplete,
                     ScanCompleteStageKey,
                     info,
-                    operationId));
+                    operationId,
+                    showNotification));
             _operationTracker.UpdateProgress(operationId, 0, ScanStartingStageKey);
 
             await _notifications.NotifyAllAsync(SignalREvents.UnmappedScanStarted, new
             {
                 OperationId = operationId,
-                StageKey = ScanStartingStageKey
+                StageKey = ScanStartingStageKey,
+                ShowNotification = showNotification
             });
 
             var startedAt = CaptureScanStartedUtc();
@@ -167,7 +186,10 @@ public class UnmappedCacheService
             await _notifications.NotifyAllAsync(SignalREvents.UnmappedRemovalStarted, new
             {
                 OperationId = operationId,
-                StageKey = RemoveStartingStageKey
+                StageKey = RemoveStartingStageKey,
+                // The removal is always user-initiated, so its card always shows. Carried on all
+                // three removal phases so the payloads stay one shape.
+                ShowNotification = true
             });
 
             var token = cts.Token;
@@ -630,7 +652,7 @@ public class UnmappedCacheService
         {
             // Cleared with the run so the status endpoint cannot pair a finished scan's last
             // interpolation values with the next run's opening stage key.
-            CurrentScanProgressContext = null;
+            _currentScanProgressContext = null;
             await _rustProcessHelper.DeleteTempFileAsync(claimedFile);
         }
     }
@@ -670,16 +692,17 @@ public class UnmappedCacheService
                         Interlocked.Exchange(ref rustCancellationReported, 1);
                     }
 
-                    CurrentScanProgressContext = progressData.Context;
+                    _currentScanProgressContext = progressData.Context;
                     await ReportProgressAsync(
                         operationId,
                         SignalREvents.UnmappedScanProgress,
                         ScanStartingStageKey,
-                        progressData);
+                        progressData,
+                        _currentScanShowNotification);
                 },
                 "unmapped_scan");
 
-            result.EnsureSuccess("unmapped_scan", datasource.Name);
+            result.EnsureSuccess("unmapped_scan", datasource.Name, cancellationToken);
             if (Volatile.Read(ref rustCancellationReported) != 0)
             {
                 // Classified from the progress checkpoint even when the stdout report is missing,
@@ -824,7 +847,7 @@ public class UnmappedCacheService
                     progressData),
                 "unmapped_remove");
 
-            result.EnsureSuccess("unmapped_remove", datasource.Name);
+            result.EnsureSuccess("unmapped_remove", datasource.Name, cancellationToken);
             var report = JsonSerializer.Deserialize<UnmappedRemovalReport>(result.Output, _reportJsonOptions)
                 ?? throw new InvalidDataException(
                     $"The unmapped removal returned an empty report for datasource '{datasource.Name}'");
@@ -889,11 +912,14 @@ public class UnmappedCacheService
             .ExecuteDeleteAsync(cancellationToken);
     }
 
+    // showNotification defaults to visible for the removal, which is always user-initiated; only
+    // the scan can be configured to run silent and passes its run-stable flag.
     private async Task ReportProgressAsync(
         Guid operationId,
         string eventName,
         string fallbackStageKey,
-        CorruptionDetectionProgressData progressData)
+        CorruptionDetectionProgressData progressData,
+        bool showNotification = true)
     {
         var stageKey = string.IsNullOrWhiteSpace(progressData.StageKey)
             ? fallbackStageKey
@@ -905,7 +931,8 @@ public class UnmappedCacheService
             StageKey = stageKey,
             progressData.Context,
             progressData.PercentComplete,
-            Status = OperationStatus.Running
+            Status = OperationStatus.Running,
+            ShowNotification = showNotification
         });
     }
 
@@ -913,7 +940,8 @@ public class UnmappedCacheService
         string eventName,
         string completeStageKey,
         OperationTerminalInfo info,
-        Guid operationId) =>
+        Guid operationId,
+        bool showNotification = true) =>
         _notifications.NotifyAllAsync(eventName, new
         {
             OperationId = operationId,
@@ -926,7 +954,8 @@ public class UnmappedCacheService
                 : info.Success
                     ? OperationStatus.Completed
                     : OperationStatus.Failed,
-            PercentComplete = 100
+            PercentComplete = 100,
+            ShowNotification = showNotification
         });
 
     private void LogRustFailure(Exception exception, Guid operationId)

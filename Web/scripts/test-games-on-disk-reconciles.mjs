@@ -37,6 +37,26 @@ test('reports the service bucket straight from the payload', () => {
   assert.equal(stats.serviceSize, 330000);
 });
 
+// A cleared cache still carries a cached detection result, so every figure comes back zero. Zero is
+// falsy, so the cards have to keep reading a size instead of vanishing, and the remainder has to
+// land on zero rather than a negative number or NaN.
+test('an empty cache reads as zero and leaves no unmapped remainder', () => {
+  const payload = detection({
+    games_on_disk_bytes: 0,
+    games_on_disk_count: 0,
+    identified_cache_bytes: 0,
+    identified_service_bytes: 0
+  });
+  const stats = buildGamesOnDiskDisplayStats(payload);
+  // The cache scan total is zero too when there is nothing on disk.
+  const unmapped = 0 - payload.identified_cache_bytes;
+
+  assert.equal(stats.totalSize, 0);
+  assert.equal(stats.serviceSize, 0);
+  assert.equal(stats.gameCount, 0);
+  assert.equal(stats.totalSize + stats.serviceSize + unmapped, 0);
+});
+
 test('treats a missing service figure as zero so the services card still reads a size', () => {
   const payload = detection({
     identified_service_bytes: undefined,

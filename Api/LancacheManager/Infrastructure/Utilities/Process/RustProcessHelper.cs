@@ -934,7 +934,7 @@ public partial class RustProcessHelper
                 },
                 processLabel: "log_service_manager:scan-content");
 
-            result.EnsureSuccess("log_service_manager", "scan-content");
+            result.EnsureSuccess("log_service_manager", "scan-content", timeoutCts.Token);
             timeoutCts.Token.ThrowIfCancellationRequested();
 
             return await ReadOutputJsonAsync<RustContentScanResult>(
@@ -995,7 +995,7 @@ public partial class RustProcessHelper
                 },
                 processLabel: $"log_service_manager:{command}");
 
-            result.EnsureSuccess("log_service_manager", command);
+            result.EnsureSuccess("log_service_manager", command, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
 
             var progress = await ReadOutputJsonAsync<LogManagerFileProgress>(
@@ -1344,12 +1344,20 @@ public class ProcessExecutionResult
     /// </summary>
     /// <param name="tool">The Rust binary/tool name for the message (e.g. "cache_cleaner").</param>
     /// <param name="context">Optional user-safe descriptor (e.g. datasource/service name); never stderr.</param>
-    public void EnsureSuccess(string tool, string? context = null)
+    /// <param name="cancellationToken">
+    /// The token the run was launched with. A killed child and a crashed one both exit non-zero, so
+    /// the exit code cannot tell them apart; the token can, and cancelling it is what stops the run.
+    /// </param>
+    public void EnsureSuccess(string tool, string? context = null, CancellationToken cancellationToken = default)
     {
         if (ExitCode == 0)
         {
             return;
         }
+
+        // A cancelled run is not a failed run. The child can die and WaitForExit return normally
+        // before the next token check, so classify here rather than reporting a process failure.
+        cancellationToken.ThrowIfCancellationRequested();
 
         throw new RustProcessException(tool, ExitCode, Error, context);
     }

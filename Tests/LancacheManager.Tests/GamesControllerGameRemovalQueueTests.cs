@@ -89,7 +89,10 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
     [Fact]
     public async Task RemoveGameFromCache_WhenConflict_EnqueuesSteamGameRemovalAsync()
     {
-        var result = await _controller.RemoveGameFromCacheAsync(570, CancellationToken.None);
+        var result = await _controller.RemoveGameFromCacheAsync(
+            570,
+            CancellationToken.None,
+            CacheRemovalScope.CacheFiles);
 
         AssertQueuedGameRemoval(result, ConflictScope.SteamGame(570));
     }
@@ -97,7 +100,10 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
     [Fact]
     public async Task RemoveEpicGameFromCache_WhenConflict_EnqueuesEpicGameRemovalAsync()
     {
-        var result = await _controller.RemoveEpicGameFromCacheAsync("Fortnite", CancellationToken.None);
+        var result = await _controller.RemoveEpicGameFromCacheAsync(
+            "Fortnite",
+            CancellationToken.None,
+            CacheRemovalScope.CacheFiles);
 
         AssertQueuedGameRemoval(result, ConflictScope.EpicGame("cat-fortnite", "Fortnite"));
     }
@@ -105,7 +111,11 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
     [Fact]
     public async Task RemoveNamedGameFromCache_WhenConflict_EnqueuesNamedGameRemovalAsync()
     {
-        var result = await _controller.RemoveNamedGameFromCacheAsync("blizzard", "Diablo IV", CancellationToken.None);
+        var result = await _controller.RemoveNamedGameFromCacheAsync(
+            "blizzard",
+            "Diablo IV",
+            CancellationToken.None,
+            CacheRemovalScope.CacheFiles);
 
         AssertQueuedGameRemoval(result, ConflictScope.NamedGame("blizzard", "Diablo IV"));
     }

@@ -7,9 +7,11 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Hubs;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
+using static LancacheManager.Controllers.CacheRouteGuards;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -45,18 +47,6 @@ public class CacheController : ControllerBase
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
     private readonly DatasourceCapabilityService _capabilityService;
-
-    /// <summary>
-    /// Duplicate of the service-level capability guard for UX: key-dependent endpoints
-    /// (corruption detection/removal, service cache removal, eviction removal) reject with
-    /// a clear message instead of failing deep inside the operation. The mutating services
-    /// revalidate again at execution time — this check is presentation, not the safety net.
-    /// </summary>
-    private BadRequestObjectResult? DenyIfKeyDependentUnavailable()
-    {
-        var denial = _capabilityService.CheckAllCanMapLogicalObjects();
-        return denial == null ? null : BadRequest(ApiResponse.Error(denial));
-    }
 
     public CacheController(
         CacheManagementService cacheService,
@@ -584,7 +574,7 @@ public class CacheController : ControllerBase
         [FromQuery] string? scanMode = null,
         CancellationToken cancellationToken = default)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;
@@ -714,7 +704,7 @@ public class CacheController : ControllerBase
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> StartUnmappedScanAsync(CancellationToken cancellationToken = default)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;
@@ -759,6 +749,10 @@ public class CacheController : ControllerBase
     [ProducesResponseType(typeof(UnmappedCacheStatusResponse), StatusCodes.Status200OK)]
     public IActionResult GetUnmappedScanStatus()
     {
+        // Snapshot the run-stable display flag BEFORE the active-operation guard. The flag is
+        // stamped before the operation registers, so snapshot-then-guard can never pair
+        // isProcessing=true with the visible default at a silent scan's first instant.
+        var showNotification = _unmappedCacheService.CurrentScanShowNotification;
         var activeScan = _operationTracker.GetActiveOperations(OperationType.UnmappedCacheScan).FirstOrDefault();
         if (activeScan == null)
         {
@@ -768,6 +762,7 @@ public class CacheController : ControllerBase
         return Ok(new UnmappedCacheStatusResponse
         {
             IsProcessing = true,
+            ShowNotification = showNotification,
             OperationId = activeScan.Id,
             PercentComplete = activeScan.PercentComplete,
             // UpdateProgress stores the current stage key in Message (see the progress reporter in
@@ -843,7 +838,7 @@ public class CacheController : ControllerBase
         [FromQuery] Guid scanId,
         [FromQuery] string? services)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;
@@ -939,7 +934,7 @@ public class CacheController : ControllerBase
         [FromQuery] Guid scanId,
         [FromQuery] string? candidateIds = null)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;
@@ -1078,7 +1073,7 @@ public class CacheController : ControllerBase
         [FromQuery] Guid scanId,
         [FromQuery] string? services = null)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;
@@ -1974,45 +1969,28 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// Checks cache and logs directory write permissions (mirrors GamesController's helper).
-    /// Returns a BadRequest IActionResult with the PUID/PGID error message if either directory
-    /// is read-only, or null when both are writable. Logs a warning with the given context.
-    /// </summary>
-    private BadRequestObjectResult? EnsureDirectoriesWritable(string operationDescription, string logContext)
-    {
-        var cacheWritable = _pathResolver.IsCacheWritable();
-        var logsWritable = _pathResolver.IsLogsWritable();
-
-        if (cacheWritable && logsWritable)
-            return null;
-
-        var errors = new List<string>();
-        if (!cacheWritable) errors.Add("cache directory is read-only");
-        if (!logsWritable) errors.Add("logs directory is read-only");
-
-        var errorMessage = $"Cannot {operationDescription}: {string.Join(" and ", errors)}. " +
-            "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-            $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
-
-        _logger.LogWarning("{Context} Permission check failed: {Error}", logContext, errorMessage);
-        return BadRequest(ApiResponse.Error(errorMessage));
-    }
-
-    /// <summary>
     /// Removes every cached file for one service across all datasources.
     /// </summary>
     /// <remarks>
     /// Also removes its access-log entries and database rows. Unlike the corruption-removal
     /// endpoints this is not scan-bound, it deletes everything currently cached for the service,
-    /// corrupted or not.
+    /// corrupted or not, which is why the caller must declare
+    /// <see cref="CacheRemovalScope.CacheFiles"/>.
     /// </remarks>
+    /// <param name="scope">Must be <see cref="CacheRemovalScope.CacheFiles"/>; any other value is refused.</param>
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("services/{name}")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
-    public async Task<IActionResult> ClearServiceCacheAsync(string name, CancellationToken requestCt)
+    public async Task<IActionResult> ClearServiceCacheAsync(string name, CancellationToken requestCt, [FromQuery] string? scope = null)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var scopeError = EnsureCacheFileScopeDeclared(_logger, scope, $"[ClearServiceCache] service '{name}':");
+        if (scopeError != null)
+        {
+            return scopeError;
+        }
+
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;
@@ -2021,7 +1999,7 @@ public class CacheController : ControllerBase
         // CRITICAL: Check write permissions BEFORE starting the operation
         // This prevents operations from failing partway through due to permission issues
         var permissionError = EnsureDirectoriesWritable(
-            "remove service from cache", $"[ClearServiceCache] service '{name}':");
+            _pathResolver, _logger, "remove service from cache", $"[ClearServiceCache] service '{name}':");
         if (permissionError != null)
         {
             return permissionError;
@@ -2176,6 +2154,234 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
+    /// Starts a background count of the cache files a removal of this service would delete.
+    /// </summary>
+    /// <remarks>
+    /// Deletes nothing. The confirmation needs the number the removal will actually reach: the
+    /// detection snapshot it used to show counts what the last scan saw, while the removal reaches
+    /// every URL the entity ever logged. Counting probes the same slices the removal probes, so it
+    /// costs minutes on a large entity. That is why it is a tracked operation the caller can stop
+    /// through POST /api/operations/{id}/cancel rather than a request that blocks.
+    /// </remarks>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpPost("count/service/{name}")]
+    [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    public Task<IActionResult> StartServiceCacheFileCountAsync(string name, CancellationToken requestCt) =>
+        StartCacheFileCountAsync(
+            ConflictScope.Service(name),
+            "service",
+            name.ToLowerInvariant(),
+            name,
+            "signalr.serviceRemove.counting.starting",
+            (operationId, onProgress, ct) =>
+                _cacheService.CountServiceCacheFilesAsync(name, operationId, onProgress, ct),
+            requestCt);
+
+    /// <summary>
+    /// Starts a background count of the cache files a removal of this Steam game would delete.
+    /// </summary>
+    /// <remarks>See <see cref="StartServiceCacheFileCountAsync"/>. Deletes nothing.</remarks>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpPost("count/game/{appId:long}")]
+    [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    public Task<IActionResult> StartGameCacheFileCountAsync(long appId, CancellationToken requestCt) =>
+        StartCacheFileCountAsync(
+            ConflictScope.SteamGame(appId),
+            "steam",
+            appId.ToString(CultureInfo.InvariantCulture),
+            appId.ToString(CultureInfo.InvariantCulture),
+            "signalr.gameRemove.counting.starting",
+            (operationId, onProgress, ct) =>
+                _cacheService.CountGameCacheFilesAsync(appId, operationId, onProgress, ct),
+            requestCt);
+
+    /// <summary>
+    /// Starts a background count of the cache files a removal of this Epic game would delete.
+    /// </summary>
+    /// <remarks>See <see cref="StartServiceCacheFileCountAsync"/>. Deletes nothing.</remarks>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpPost("count/game/epic/{gameName}")]
+    [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    public Task<IActionResult> StartEpicGameCacheFileCountAsync(string gameName, CancellationToken requestCt) =>
+        StartCacheFileCountAsync(
+            ConflictScope.EpicGame(null, gameName),
+            "epic",
+            gameName,
+            gameName,
+            "signalr.epicRemove.counting.starting",
+            (operationId, onProgress, ct) =>
+                _cacheService.CountEpicGameCacheFilesAsync(gameName, operationId, onProgress, ct),
+            requestCt);
+
+    /// <summary>
+    /// Starts a background count of the cache files a removal of this named game would delete.
+    /// </summary>
+    /// <remarks>See <see cref="StartServiceCacheFileCountAsync"/>. Deletes nothing.</remarks>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpPost("count/game/named/{service}/{gameName}")]
+    [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    public Task<IActionResult> StartNamedGameCacheFileCountAsync(
+        string service,
+        string gameName,
+        CancellationToken requestCt) =>
+        StartCacheFileCountAsync(
+            ConflictScope.NamedGame(service, gameName),
+            "named",
+            $"{service.ToLowerInvariant()}:{gameName}",
+            gameName,
+            "signalr.gameRemove.counting.starting",
+            (operationId, onProgress, ct) =>
+                _cacheService.CountNamedGameCacheFilesAsync(service, gameName, operationId, onProgress, ct),
+            requestCt);
+
+    /// <summary>
+    /// Registers one cache-file count, runs it on a worker, and returns its operation id.
+    /// </summary>
+    /// <remarks>
+    /// Shared by all four count routes. The start path lives in a local function so the wait-queue
+    /// can run it verbatim at promotion time, matching the removal endpoints, and a count that
+    /// collides with a removal of the same entity is parked rather than refused: it must not walk
+    /// the disk while that removal is deleting from it.
+    /// </remarks>
+    private async Task<IActionResult> StartCacheFileCountAsync(
+        ConflictScope scope,
+        string entityKind,
+        string entityKey,
+        string entityName,
+        string startingStageKey,
+        Func<Guid, Func<double, string, Task>, CancellationToken, Task<int>> countAsync,
+        CancellationToken requestCt)
+    {
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
+        Task<Guid?> StartCountAsync()
+        {
+            var cts = new CancellationTokenSource();
+            var countOperationId = _operationTracker.RegisterOperation(
+                OperationType.CacheFileCount,
+                $"Cache file count: {entityName}",
+                cts,
+                // EntityKind must be set explicitly: the tracker's index only infers a kind for the
+                // removal operation kinds, so without it every count would be filed under "bulk".
+                new RemovalMetrics
+                {
+                    EntityKey = entityKey,
+                    EntityName = entityName,
+                    EntityKind = entityKind
+                });
+            _operationTracker.UpdateProgress(countOperationId, 0, startingStageKey);
+
+            var countToken = cts.Token;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var cacheFilesFound = await countAsync(
+                        countOperationId,
+                        (percentComplete, stageKey) =>
+                        {
+                            _operationTracker.UpdateProgress(countOperationId, percentComplete, stageKey);
+                            return Task.CompletedTask;
+                        },
+                        countToken);
+
+                    _logger.LogInformation(
+                        "Cache file count completed for {Entity}: {Files} file(s)", entityName, cacheFilesFound);
+                    _operationTracker.CompleteOperation(countOperationId, true);
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger.LogInformation("Cache file count cancelled for: {Entity}", entityName);
+                    _operationTracker.CompleteOperation(countOperationId, false, cancelled: true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error counting cache files for: {Entity}", entityName);
+                    _operationTracker.CompleteOperation(countOperationId, false, ex.Message);
+                }
+            }, CancellationToken.None);
+
+            return Task.FromResult<Guid?>(countOperationId);
+        }
+
+        var conflict = await _conflictChecker.CheckAsync(OperationType.CacheFileCount, scope, requestCt);
+        if (conflict != null)
+        {
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.CacheFileCount, scope,
+                $"Cache File Count ({entityName})", StartCountAsync, requestCt));
+        }
+
+        var operationId = await StartCountAsync();
+
+        return Accepted(new CacheOperationResponse
+        {
+            Message = $"Started counting cache files for {entityName}",
+            OperationId = operationId,
+            Status = OperationStatus.Running
+        });
+    }
+
+    /// <summary>
+    /// Returns the status of one cache-file count, whatever it is counting.
+    /// </summary>
+    /// <remarks>
+    /// Keyed by the operation id rather than by the entity, so the same endpoint serves a service,
+    /// a Steam game, an Epic game and a named game, and so the number can never be read as an
+    /// answer to a different count than the one the caller started. While the count runs this
+    /// carries the progress line the confirmation shows; the number appears only once the count
+    /// has walked every datasource.
+    /// </remarks>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpGet("count/{operationId:guid}/status")]
+    [ProducesResponseType(typeof(CacheFileCountStatusResponse), StatusCodes.Status200OK)]
+    public IActionResult GetCacheFileCountStatus(Guid operationId)
+    {
+        // Looked up by the caller's own id, so another count starting cannot answer for this one.
+        var published = _cacheService.GetCacheFileCount(operationId);
+
+        // The finished answer wins: the operation may already be terminal, and the count it
+        // produced is what the caller is waiting for.
+        if (published?.CacheFilesFound != null)
+        {
+            return Ok(new CacheFileCountStatusResponse
+            {
+                IsProcessing = false,
+                OperationId = operationId,
+                PercentComplete = 100,
+                CacheFilesFound = published.CacheFilesFound
+            });
+        }
+
+        var operation = _operationTracker.GetOperation(operationId);
+        if (operation != null
+            && operation.Type == OperationType.CacheFileCount
+            && operation.CompletedAt == null)
+        {
+            return Ok(new CacheFileCountStatusResponse
+            {
+                IsProcessing = true,
+                OperationId = operationId,
+                PercentComplete = operation.PercentComplete,
+                // UpdateProgress stores the current stage key in Message, so it doubles as the
+                // i18n key the confirmation renders.
+                StageKey = string.IsNullOrWhiteSpace(operation.Message) ? null : operation.Message,
+                Context = published?.Context
+            });
+        }
+
+        return Ok(new CacheFileCountStatusResponse { IsProcessing = false });
+    }
+
+    /// <summary>
     /// Returns all active removal operations.
     /// </summary>
     /// <remarks>
@@ -2307,13 +2513,14 @@ public class CacheController : ControllerBase
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveAllEvictedAsync(CancellationToken cancellationToken = default)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;
         }
 
-        var permissionError = EnsureDirectoriesWritable("remove evicted data", "[EvictedRemoval] bulk:");
+        var permissionError = EnsureDirectoriesWritable(
+            _pathResolver, _logger, "remove evicted data", "[EvictedRemoval] bulk:");
         if (permissionError != null)
         {
             return permissionError;
@@ -2356,7 +2563,7 @@ public class CacheController : ControllerBase
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveEvictedForEntityAsync(string scope, [FromQuery] string? key, CancellationToken cancellationToken = default)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;
@@ -2396,7 +2603,7 @@ public class CacheController : ControllerBase
         }
 
         var permissionError = EnsureDirectoriesWritable(
-            "remove evicted data", $"[EvictedRemoval] {scope} '{key}':");
+            _pathResolver, _logger, "remove evicted data", $"[EvictedRemoval] {scope} '{key}':");
         if (permissionError != null)
         {
             return permissionError;
@@ -2497,7 +2704,7 @@ public class CacheController : ControllerBase
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveEvictedForNamedGameAsync(string service, string gameName, CancellationToken cancellationToken = default)
     {
-        var capabilityError = DenyIfKeyDependentUnavailable();
+        var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
         {
             return capabilityError;
@@ -2517,7 +2724,7 @@ public class CacheController : ControllerBase
         var serviceLower = service.ToLowerInvariant();
 
         var permissionError = EnsureDirectoriesWritable(
-            "remove evicted data", $"[EvictedRemoval] named '{serviceLower}:{gameName}':");
+            _pathResolver, _logger, "remove evicted data", $"[EvictedRemoval] named '{serviceLower}:{gameName}':");
         if (permissionError != null)
         {
             return permissionError;

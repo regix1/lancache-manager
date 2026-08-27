@@ -603,7 +603,7 @@ public class CorruptionDetectionService
                     result.Error);
             }
 
-            result.EnsureSuccess("corruption_manager", datasourceName);
+            result.EnsureSuccess("corruption_manager", datasourceName, cancellationToken);
             if (Volatile.Read(ref rustCancellationReported) != 0)
             {
                 // Preserve cancellation classification even if the redundant stdout report is

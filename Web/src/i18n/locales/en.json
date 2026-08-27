@@ -2706,6 +2706,8 @@
       "removeSelectedLabel": "Remove Selected",
       "confirmTitle": "Remove selected items",
       "confirmBody": "This will remove {{count}} selected item(s). This cannot be undone.",
+      "confirmBodyCacheFiles": "Deletes ALL cached files for {{count}} selected item(s), along with their log entries and download records. This cannot be undone.",
+      "confirmBodyEvicted": "Removes the download records and log entries for {{count}} selected item(s). No cached files are deleted.",
       "selectItem": "Select {{name}}",
       "batchComplete": "Removed {{count}} of {{total}} service logs",
       "batchCompleteWithFailures": "Removed {{count}} service logs, but {{failed}} failed",
@@ -2979,7 +2981,7 @@
       "showingPaths": "Showing {{showing}} of {{total}} paths",
       "unknownGameBadge": "Unknown",
       "partialEvictedBadge": "{{count}} evicted",
-      "removePartialEvictedTooltip": "Remove evicted download records and log entries. Active cached files will not be deleted.",
+      "removeEvictedTooltip": "Remove evicted download records and log entries. Active cached files will not be deleted.",
       "noEvictedItems": "No evicted items",
       "loadingEvictedGames": "Loading evicted games...",
       "noGamesMatching": "No games found matching \"{{query}}\"",
@@ -5369,17 +5371,19 @@
       "titleService": "Remove Service from Cache",
       "confirmGame": "Are you sure you want to remove {{name}} from cache?",
       "confirmService": "Are you sure you want to remove {{name}} service from cache?",
-      "summaryGame": "Deletes about {{formattedCount}} cache files and frees about {{size}}. This cannot be undone.",
-      "summaryService": "Deletes about {{formattedCount}} cache files and frees about {{size}}, along with every log entry and download record for this service. This cannot be undone.",
-      "summaryEvicted": "Removes {{count}} evicted download records and their log entries, freeing about {{size}}. This cannot be undone.",
+      "summaryGame": "Deletes ALL cached files for this game, not only the {{formattedCount}} files ({{size}}) the last scan counted. Anything cached since is deleted too. This cannot be undone.",
+      "summaryService": "Deletes ALL cached files for this service, not only the {{formattedCount}} files ({{size}}) the last scan counted, along with every log entry and download record for it. Anything cached since is deleted too. This cannot be undone.",
+      "summaryGameCounted": "Deletes {{formattedCount}} cache files, every one on disk for this game right now, along with its log entries and download records. This cannot be undone.",
+      "summaryServiceCounted": "Deletes {{formattedCount}} cache files, every one on disk for this service right now, along with every log entry and download record for it. This cannot be undone.",
+      "counting": "Counting the cache files this will delete. On a large service this takes several minutes.",
+      "countFailed": "The cache files could not be counted, so there is no number to confirm against. Close this and try again.",
+      "summaryEvicted": "Removes {{count}} download records and their log entries, covering about {{size}} of past downloads. No cached files are deleted, and this does not check whether those files are still on disk. This cannot be undone.",
       "depotScope": "Covers {{count}} depot.",
       "depotScope_other": "Covers {{count}} depots.",
       "removeButton": "Remove from Cache",
       "removeEvictedButton": "Remove Evicted Data",
-      "titlePartialEvictedGame": "Remove Evicted Data",
-      "titlePartialEvictedService": "Remove Evicted Data",
-      "confirmPartialEvictedGame": "Remove {{count}} evicted download record(s) and their log entries for {{name}}. Active cache files will not be deleted.",
-      "confirmPartialEvictedService": "Remove {{count}} evicted download record(s) and their log entries for {{name}}. Active cache files will not be deleted."
+      "titleEvicted": "Remove Evicted Data",
+      "confirmEvicted": "Remove {{count}} evicted download record(s) and their log entries for {{name}}. Active cache files will not be deleted."
     },
     "fullScan": {
       "stats": {
@@ -7462,6 +7466,11 @@
     },
     "epicRemove": {
       "starting": "Starting removal for Epic game '{{gameName}}'",
+      "counting": {
+        "starting": "Counting the cache files for Epic game '{{gameName}}'",
+        "progress": "Checked {{n}} of {{total}} URLs",
+        "complete": "Found {{files}} cache files for Epic game '{{gameName}}'"
+      },
       "noUrls": "No URLs found for this game",
       "complete": "Removed {{files}} cache files ({{gb}} GB), {{logEntries}} log entries for Epic game '{{gameName}}'",
       "cancelled": "Epic game removal for '{{gameName}}' was cancelled.",
@@ -7618,6 +7627,11 @@
     },
     "gameRemove": {
       "starting": "Starting removal for game '{{gameName}}' (AppID {{gameAppId}})",
+      "counting": {
+        "starting": "Counting the cache files for game '{{gameName}}'",
+        "progress": "Checked {{n}} of {{total}} URLs",
+        "complete": "Found {{files}} cache files for game '{{gameName}}'"
+      },
       "finalizing": "Finalizing removal...",
       "noUrls": "No URLs found for this game",
       "complete": "Removed {{files}} cache files ({{gb}} GB), {{logEntries}} log entries for game '{{gameName}}' (AppID {{gameAppId}})",
@@ -7631,14 +7645,12 @@
       },
       "cache": {
         "removing": "Checking {{count}} URLs for cache files to remove",
-        "skippedEvicted": "Skipping cache cleanup (fully evicted game)",
         "file": {
           "progress": "Checked {{n}} of {{total}} files"
         }
       },
       "dirs": {
-        "cleaning": "Cleaning up empty directories",
-        "skippedEvicted": "Skipping directory cleanup (fully evicted game)"
+        "cleaning": "Cleaning up empty directories"
       },
       "logs": {
         "removing": "Removing log entries",
@@ -7732,6 +7744,11 @@
         "file": {
           "progress": "Checked {{n}} of {{total}} files"
         }
+      },
+      "counting": {
+        "starting": "Counting the cache files for service '{{service}}'",
+        "progress": "Checked {{n}} of {{total}} URLs",
+        "complete": "Found {{files}} cache files for service '{{service}}'"
       },
       "logs": {
         "removing": "Removing log entries"

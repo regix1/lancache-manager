@@ -42,7 +42,8 @@ public enum OperationType
     RiotMapping,
     PrefillLogin,
     UnmappedCacheScan,
-    UnmappedCacheRemoval
+    UnmappedCacheRemoval,
+    CacheFileCount
 }
 
 /// <summary>
@@ -115,6 +116,7 @@ public static class OperationTypeExtensions
         OperationType.PrefillLogin => "prefillLogin",
         OperationType.UnmappedCacheScan => "unmappedCacheScan",
         OperationType.UnmappedCacheRemoval => "unmappedCacheRemoval",
+        OperationType.CacheFileCount => "cacheFileCount",
         _ => JsonNamingPolicy.CamelCase.ConvertName(type.ToString())
     };
 

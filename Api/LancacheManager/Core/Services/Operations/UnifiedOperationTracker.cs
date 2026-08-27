@@ -202,8 +202,12 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.Cancelled = true;
             operation.Message = "Cancellation requested...";
 
-            TryKillAssociatedProcess(operation, operationId);
+            // Cancel before killing so the token is already signaled by the time the child dies.
+            // Killing first leaves a window where the run sees a non-zero exit with a live token and
+            // reports a process failure. Cancel() itself kills through the token-cancel registration
+            // every tracked run installs, and the explicit kill below covers a run without one.
             cts.Cancel();
+            TryKillAssociatedProcess(operation, operationId);
         }
         catch (ObjectDisposedException)
         {

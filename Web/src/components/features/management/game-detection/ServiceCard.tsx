@@ -76,7 +76,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
     ) : undefined;
 
   const removeTooltip = isEvictedVariant
-    ? t('management.gameDetection.removePartialEvictedTooltip')
+    ? t('management.gameDetection.removeEvictedTooltip')
     : t('management.gameDetection.removeServiceCache');
 
   const urlsForExpansion = isEvictedVariant

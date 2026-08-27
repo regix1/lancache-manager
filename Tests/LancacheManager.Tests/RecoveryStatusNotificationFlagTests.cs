@@ -136,7 +136,7 @@ public class RecoveryStatusNotificationFlagTests
     {
         var cacheService = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(typeof(CacheManagementService));
         SetBackingField(cacheService, nameof(CacheManagementService.CurrentCacheSizeScanShowNotification), showNotification);
-        SetBackingField(cacheService, nameof(CacheManagementService.CurrentCacheSizeScanProgressContext), null);
+        SetPrivateField(cacheService, "_currentCacheSizeScanProgressContext", null);
 
         var tracker = (StubOperationTracker)DispatchProxy.Create<IUnifiedOperationTracker, StubOperationTracker>();
         tracker.ActiveOperations = activeScans;
