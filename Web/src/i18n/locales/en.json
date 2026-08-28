@@ -7211,6 +7211,7 @@
       "noChunksFoundService": "No suspect cache files were found for {{service}}; nothing to remove",
       "filteringLogs": "Filtering log files",
       "filteringFile": "Filtering file {{fileIndex}}/{{totalFiles}}",
+      "logsPartial": "Log cleanup for {{service}} was partial: {{logLines}} lines removed before {{permissionErrors}} file(s) could not be modified. Database evidence was kept for a retry.",
       "removingCacheFiles": "Removing {{totalFiles}} suspect cache files",
       "removingCacheFile": "Removing verified cache file {{fileIndex}}/{{totalFiles}}",
       "deletingDb": "Deleting database records attached to removed suspects",
