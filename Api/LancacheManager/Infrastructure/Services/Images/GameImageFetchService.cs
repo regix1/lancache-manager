@@ -258,6 +258,42 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
     }
 
+    // Progress runs over four equal-weight bands in phase order: Steam, Epic, name-keyed, stale
+    // refresh. Each phase reports its own 0-to-1 fraction and the run maps that into the phase's
+    // band, so no phase has to know where its slice of the bar starts.
+    private const double PhaseBandPercent = 25;
+    private const int SteamBand = 0;
+    private const int EpicBand = 1;
+    private const int NameKeyedBand = 2;
+    private const int StaleBand = 3;
+
+    /// <summary>
+    /// How a phase reports itself: <paramref name="fraction"/> runs 0 to 1 within that phase.
+    /// </summary>
+    private delegate Task ReportPhaseProgress(double fraction, int processed, int total);
+
+    private static async Task ReportBandAsync(
+        ScheduledRunReporter? reporter,
+        int band,
+        double fraction,
+        int processed,
+        int total)
+    {
+        if (reporter == null)
+        {
+            return;
+        }
+
+        await reporter.ReportAsync(
+            band * PhaseBandPercent + fraction * PhaseBandPercent,
+            $"{StageBase}.running",
+            new Dictionary<string, object?>
+            {
+                ["processed"] = processed,
+                ["total"] = total
+            });
+    }
+
     private async Task FetchImagesAsync(
         IServiceProvider scopedServices,
         ScheduledRunReporter? reporter,
@@ -267,7 +303,6 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         var httpClientFactory = scopedServices.GetRequiredService<IHttpClientFactory>();
         var client = httpClientFactory.CreateClient("SteamImages");
 
-        // 1. STEAM: Get all unique GameAppIds that don't have a GameImage yet
         var totalDownloads = await db.Downloads.CountAsync(stoppingToken);
         if (totalDownloads == 0)
         {
@@ -276,40 +311,75 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
 
         // There is work to do (downloads exist): start the run now so the "no downloads yet" retry never
-        // surfaces a card. Progress is real and monotonic across four equal-weight bands (Steam 0-25,
-        // Epic 25-50, name-keyed 50-75, stale refresh 75-100), reported per batch within each band.
+        // surfaces a card.
         if (reporter != null)
         {
             await reporter.StartAsync($"{StageBase}.starting");
         }
 
-        async Task ReportPhaseAsync(double percent, int processed, int total)
-        {
-            if (reporter == null)
-            {
-                return;
-            }
+        ReportPhaseProgress InBand(int band) =>
+            (fraction, processed, total) => ReportBandAsync(reporter, band, fraction, processed, total);
 
-            await reporter.ReportAsync(percent, $"{StageBase}.running", new Dictionary<string, object?>
+        var nameKeyedDownloads = await LoadNameKeyedDownloadsAsync(db, stoppingToken);
+        var (steamMappedAppIds, steamCoveredSlugs) = ResolveNameKeyedSteamApps(nameKeyedDownloads);
+
+        // A phase answers null when cancellation stopped it partway. The run ends there: no summary
+        // log, no cache-generation bump, no completion.
+        var missingSteamCount = await FetchMissingSteamImagesAsync(
+            db, client, steamMappedAppIds, InBand(SteamBand), stoppingToken);
+        if (missingSteamCount == null) return;
+        await ReportBandAsync(reporter, SteamBand, 1, missingSteamCount.Value, missingSteamCount.Value);
+
+        var missingEpicCount = await FetchMissingEpicImagesAsync(
+            db, client, InBand(EpicBand), stoppingToken);
+        if (missingEpicCount == null) return;
+        await ReportBandAsync(reporter, EpicBand, 1, missingEpicCount.Value, missingEpicCount.Value);
+
+        var nameKeyed = await FetchMissingNameKeyedImagesAsync(
+            scopedServices, db, client, nameKeyedDownloads, steamCoveredSlugs, InBand(NameKeyedBand), stoppingToken);
+        if (nameKeyed == null) return;
+        await ReportBandAsync(reporter, NameKeyedBand, 1, nameKeyed.Value.Attempted, nameKeyed.Value.Attempted);
+
+        var staleRefreshed = await RefreshStaleImagesAsync(db, client, InBand(StaleBand), stoppingToken);
+        if (staleRefreshed == null) return;
+
+        _logger.LogInformation(
+            "[GameImageFetch] Complete: {NewSteam} new Steam, {NewEpic} new Epic, {NewNameKeyed} new Blizzard/Riot, {Stale} refreshed",
+            missingSteamCount.Value, missingEpicCount.Value, nameKeyed.Value.Stored, staleRefreshed.Value);
+
+        // A stale refresh replaces the bytes behind an unchanged app id, so it has to move the
+        // generation like every other art change - otherwise the only way a browser could notice is
+        // by revalidating every banner on every page load. Counted on images actually re-stored, not
+        // on candidates: an image whose source URL is permanently dead never updates FetchedAtUtc, so
+        // it stays in the candidate list forever and would bump the generation on every pass.
+        if (missingSteamCount > 0 || missingEpicCount > 0 || nameKeyed.Value.Stored > 0 || staleRefreshed > 0)
+        {
+            GameImagesController.IncrementCacheGeneration();
+            _imageCacheService.EvictMemoryCache();
+            await _notifications.NotifyAllAsync(SignalREvents.GameImagesUpdated, new
             {
-                ["processed"] = processed,
-                ["total"] = total
+                newSteamImages = missingSteamCount.Value,
+                newEpicImages = missingEpicCount.Value,
+                newNameKeyedImages = nameKeyed.Value.Stored,
+                cacheGeneration = GameImagesController.CacheGeneration
             });
         }
 
-        var steamAppIds = await db.Downloads
-            .AsNoTracking()
-            .Where(d => d.GameAppId != null && d.GameAppId != 0 && !string.IsNullOrEmpty(d.GameName))
-            .Select(d => d.GameAppId!.Value)
-            .Distinct()
-            .ToListAsync(stoppingToken);
+        if (reporter != null)
+        {
+            await reporter.CompleteAsync(success: true);
+        }
+    }
 
-        // Name-keyed (Blizzard/Riot) downloads have GameAppId == null but some of those games ALSO
-        // exist on Steam. Resolve those to a Steam appId up front so they ride the SAME Steam fetch
-        // path below ("Steam-first"): the row lands under Service="steam", AppId=<steamAppId> and
-        // reuses all the Steam CDN/store URL logic. Pass 3 then SKIPS the curated embedded banner
-        // for these games (only unmapped name-keyed games fall back to the curated path).
-        var nameKeyedDownloads = await db.Downloads
+    /// <summary>
+    /// Reads the name-keyed (Blizzard/Riot/Xbox) downloads once for the whole run: the Steam phase
+    /// needs the ones that also exist on Steam, and the name-keyed phase needs all of them.
+    /// </summary>
+    private static async Task<List<(string Service, string GameName)>> LoadNameKeyedDownloadsAsync(
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        var rows = await db.Downloads
             .AsNoTracking()
             .Where(d => d.GameAppId == null
                 && !string.IsNullOrEmpty(d.GameName)
@@ -318,11 +388,25 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                     || d.Service == "xbox" || d.Service == "xboxlive" || d.Service == "microsoft"))
             .Select(d => new { d.Service, d.GameName })
             .Distinct()
-            .ToListAsync(stoppingToken);
+            .ToListAsync(ct);
 
-        // (canonical service, slug) of name-keyed games that mapped to a Steam appId - used below to
-        // skip the curated embedded fetch for exactly those games.
-        var steamMappedNameKeyedSlugs = new HashSet<(string Service, string Slug)>();
+        return rows.Select(r => (r.Service, GameName: r.GameName!)).ToList();
+    }
+
+    /// <summary>
+    /// Name-keyed downloads have GameAppId == null but some of those games ALSO exist on Steam.
+    /// Resolving them up front lets them ride the SAME Steam fetch path ("Steam-first"): the row lands
+    /// under Service="steam", AppId=&lt;steamAppId&gt; and reuses all the Steam CDN/store URL logic.
+    /// </summary>
+    /// <returns>
+    /// The Steam appIds to fetch on top of the ones the Downloads table already carries, and the
+    /// (canonical service, slug) pairs the name-keyed phase must skip because Steam now covers them.
+    /// </returns>
+    private static (List<long> SteamAppIds, HashSet<(string Service, string Slug)> CoveredSlugs) ResolveNameKeyedSteamApps(
+        IReadOnlyList<(string Service, string GameName)> nameKeyedDownloads)
+    {
+        var steamAppIds = new List<long>();
+        var coveredSlugs = new HashSet<(string Service, string Slug)>();
 
         foreach (var t in nameKeyedDownloads)
         {
@@ -333,15 +417,39 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             var canonicalService = NameKeyedBannerSource.NormalizeService(t.Service);
             if (canonicalService != null)
             {
-                steamMappedNameKeyedSlugs.Add((canonicalService, NameKeyedBannerSource.Slug(t.GameName!)));
+                coveredSlugs.Add((canonicalService, NameKeyedBannerSource.Slug(t.GameName)));
             }
         }
+
+        return (steamAppIds, coveredSlugs);
+    }
+
+    /// <summary>
+    /// Fetches a banner for every Steam appId in the Downloads table that has no GameImage row yet,
+    /// plus the name-keyed games that resolved to a Steam appId.
+    /// </summary>
+    /// <returns>How many images the phase set out to fetch, or null when cancellation stopped it.</returns>
+    private async Task<int?> FetchMissingSteamImagesAsync(
+        AppDbContext db,
+        HttpClient client,
+        IReadOnlyList<long> nameKeyedSteamAppIds,
+        ReportPhaseProgress report,
+        CancellationToken ct)
+    {
+        var steamAppIds = await db.Downloads
+            .AsNoTracking()
+            .Where(d => d.GameAppId != null && d.GameAppId != 0 && !string.IsNullOrEmpty(d.GameName))
+            .Select(d => d.GameAppId!.Value)
+            .Distinct()
+            .ToListAsync(ct);
+
+        steamAppIds.AddRange(nameKeyedSteamAppIds);
 
         var existingSteamIds = await db.GameImages
             .AsNoTracking()
             .Where(g => g.Service == "steam")
             .Select(g => g.AppId)
-            .ToListAsync(stoppingToken);
+            .ToListAsync(ct);
 
         var missingSteamIds = steamAppIds
             .Distinct()
@@ -349,178 +457,154 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             .Except(existingSteamIds)
             .ToList();
 
-        if (missingSteamIds.Count > 0)
+        if (missingSteamIds.Count == 0)
         {
-            // Pre-load PICS URLs for all missing Steam apps in a single batch query (eliminates N+1)
-            var missingAppIdLongs = missingSteamIds
-                .Select(id => long.TryParse(id, out var v) ? v : (long?)null)
-                .Where(v => v.HasValue)
-                .Select(v => v!.Value)
-                .ToList();
-
-            var picsUrlMap = await DownloadGameImageUrlQueries.GetLatestUrlsForSteamAppsAsync(
-                db, missingAppIdLongs, stoppingToken);
-
-            // Pre-load SteamDepotMappings for parent app lookup (eliminates N+1 in FindParentAppIdAsync)
-            // Candidate depot IDs include appId, appId+1, appId-1 for each missing app
-            var candidateDepotIds = missingAppIdLongs
-                .SelectMany(id => new[]
-                {
-                    id,
-                    id + 1 <= uint.MaxValue ? id + 1 : id,
-                    id - 1 > 0 ? id - 1 : id
-                })
-                .Distinct()
-                .ToList();
-
-            var depotOwnerMap = await db.SteamDepotMappings
-                .AsNoTracking()
-                .Where(m => candidateDepotIds.Contains(m.DepotId) && m.IsOwner)
-                .Select(m => new { m.DepotId, m.AppId })
-                .ToListAsync(stoppingToken);
-
-            var depotOwnerLookup = depotOwnerMap
-                .GroupBy(m => m.DepotId)
-                .ToDictionary(g => g.Key, g => g.Select(m => m.AppId).ToList());
-
-            // Pre-load download depot IDs per app (for Strategy 2 fallback)
-            var downloadDepotMap = await db.Downloads
-                .AsNoTracking()
-                .Where(d => d.GameAppId != null && missingAppIdLongs.Contains(d.GameAppId.Value) && d.DepotId.HasValue)
-                .Select(d => new { AppId = d.GameAppId!.Value, DepotId = d.DepotId!.Value })
-                .Distinct()
-                .ToListAsync(stoppingToken);
-
-            var downloadDepotLookup = downloadDepotMap
-                .GroupBy(x => x.AppId)
-                .ToDictionary(g => g.Key, g => g.Select(x => x.DepotId).ToList());
-
-            var steamDone = 0;
-            foreach (var batch in missingSteamIds.Chunk(50))
-            {
-                if (stoppingToken.IsCancellationRequested) return;
-
-                var tasks = batch.Select(appId =>
-                    FetchSteamImageAsync(db, client, appId, picsUrlMap, depotOwnerLookup, downloadDepotLookup, stoppingToken));
-
-                await Task.WhenAll(tasks);
-                await db.SaveChangesAsync(stoppingToken);
-                db.ChangeTracker.Clear();
-
-                steamDone += batch.Length;
-                await ReportPhaseAsync(steamDone / (double)missingSteamIds.Count * 25, steamDone, missingSteamIds.Count);
-            }
+            return 0;
         }
 
-        // Steam phase done - advance the band even when there was nothing to fetch.
-        await ReportPhaseAsync(25, missingSteamIds.Count, missingSteamIds.Count);
+        // Pre-load PICS URLs for all missing Steam apps in a single batch query (eliminates N+1)
+        var missingAppIdLongs = missingSteamIds
+            .Select(id => long.TryParse(id, out var v) ? v : (long?)null)
+            .Where(v => v.HasValue)
+            .Select(v => v!.Value)
+            .ToList();
 
-        // 2. EPIC: Get all EpicGameMappings with ImageUrl that don't have a GameImage yet
+        var picsUrlMap = await DownloadGameImageUrlQueries.GetLatestUrlsForSteamAppsAsync(
+            db, missingAppIdLongs, ct);
+
+        // Pre-load SteamDepotMappings for parent app lookup (eliminates N+1 in FindParentAppId)
+        var candidateDepotIds = missingAppIdLongs
+            .SelectMany(id => new[]
+            {
+                id,
+                id + 1 <= uint.MaxValue ? id + 1 : id,
+                id - 1 > 0 ? id - 1 : id
+            })
+            .Distinct()
+            .ToList();
+
+        var depotOwnerMap = await db.SteamDepotMappings
+            .AsNoTracking()
+            .Where(m => candidateDepotIds.Contains(m.DepotId) && m.IsOwner)
+            .Select(m => new { m.DepotId, m.AppId })
+            .ToListAsync(ct);
+
+        var depotOwnerLookup = depotOwnerMap
+            .GroupBy(m => m.DepotId)
+            .ToDictionary(g => g.Key, g => g.Select(m => m.AppId).ToList());
+
+        // Pre-load download depot IDs per app (for Strategy 2 fallback)
+        var downloadDepotMap = await db.Downloads
+            .AsNoTracking()
+            .Where(d => d.GameAppId != null && missingAppIdLongs.Contains(d.GameAppId.Value) && d.DepotId.HasValue)
+            .Select(d => new { AppId = d.GameAppId!.Value, DepotId = d.DepotId!.Value })
+            .Distinct()
+            .ToListAsync(ct);
+
+        var downloadDepotLookup = downloadDepotMap
+            .GroupBy(x => x.AppId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.DepotId).ToList());
+
+        var done = 0;
+        foreach (var batch in missingSteamIds.Chunk(50))
+        {
+            if (ct.IsCancellationRequested) return null;
+
+            var tasks = batch.Select(appId =>
+                FetchSteamImageAsync(db, client, appId, picsUrlMap, depotOwnerLookup, downloadDepotLookup, ct));
+
+            await Task.WhenAll(tasks);
+            await db.SaveChangesAsync(ct);
+            db.ChangeTracker.Clear();
+
+            done += batch.Length;
+            await report(done / (double)missingSteamIds.Count, done, missingSteamIds.Count);
+        }
+
+        return missingSteamIds.Count;
+    }
+
+    /// <summary>
+    /// Fetches a banner for every EpicGameMapping that carries an ImageUrl and has no GameImage row
+    /// yet.
+    /// </summary>
+    /// <returns>How many images the phase set out to fetch, or null when cancellation stopped it.</returns>
+    private async Task<int?> FetchMissingEpicImagesAsync(
+        AppDbContext db,
+        HttpClient client,
+        ReportPhaseProgress report,
+        CancellationToken ct)
+    {
         var epicMappings = await db.EpicGameMappings
             .AsNoTracking()
             .Where(m => m.ImageUrl != null)
-            .ToListAsync(stoppingToken);
+            .ToListAsync(ct);
 
         var existingEpicIds = await db.GameImages
             .AsNoTracking()
             .Where(g => g.Service == "epicgames")
             .Select(g => g.AppId)
-            .ToListAsync(stoppingToken);
+            .ToListAsync(ct);
 
         var missingEpicMappings = epicMappings
             .Where(m => !existingEpicIds.Contains(m.AppId))
             .ToList();
 
-        var epicDone = 0;
+        var done = 0;
         foreach (var batch in missingEpicMappings.Chunk(50))
         {
-            if (stoppingToken.IsCancellationRequested) return;
+            if (ct.IsCancellationRequested) return null;
 
             var tasks = batch.Select(mapping =>
-                FetchEpicImageAsync(db, client, mapping, stoppingToken));
+                FetchEpicImageAsync(db, client, mapping, ct));
 
             await Task.WhenAll(tasks);
-            await db.SaveChangesAsync(stoppingToken);
+            await db.SaveChangesAsync(ct);
             db.ChangeTracker.Clear();
 
-            epicDone += batch.Length;
-            await ReportPhaseAsync(25 + epicDone / (double)missingEpicMappings.Count * 25, epicDone, missingEpicMappings.Count);
+            done += batch.Length;
+            await report(done / (double)missingEpicMappings.Count, done, missingEpicMappings.Count);
         }
 
-        // Epic phase done - advance the band even when there was nothing to fetch.
-        await ReportPhaseAsync(50, missingEpicMappings.Count, missingEpicMappings.Count);
+        return missingEpicMappings.Count;
+    }
 
-        // Backfill DisplayCatalog banner URLs for any XboxGameMapping that still has none before we
-        // read the ImageUrl map below. The per-resolve fetch (EnsureBannerArtAsync) only runs for the
-        // products resolved in a single pass and never retries a transient miss, so without this an
-        // art-less title (e.g. Minecraft Dungeons) would never get its banner here. Best-effort: a
-        // backfill failure must never abort the image run. Covers both the 30-min schedule and the
-        // Downloads "Run Now" button (StartFetchInBackground routes through here).
-        try
-        {
-            var xboxMappingService = scopedServices.GetRequiredService<LancacheManager.Core.Services.Xbox.XboxMappingService>();
-            await xboxMappingService.BackfillMissingBannerArtAsync(stoppingToken);
-        }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            // Shutdown - let cancellation propagate rather than logging it as a non-fatal failure.
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[GameImageFetch] Xbox banner URL backfill failed (non-fatal)");
-        }
+    /// <summary>
+    /// Fetches banners for downloads identified only by GameName (Blizzard/Riot/Xbox), stored under
+    /// (AppId = slug(GameName), Service = "blizzard"|"riot"|"xbox"). Source URLs come from the curated
+    /// official-CDN banner map keyed on the exact GameName (Blizzard/Riot) or from the DisplayCatalog
+    /// ImageUrl (Xbox). Games in <paramref name="steamCoveredSlugs"/> are SKIPPED - they render
+    /// Steam's header.jpg (Steam-first), so only unmapped name-keyed games fall back to the curated
+    /// or DisplayCatalog banner.
+    /// </summary>
+    /// <returns>
+    /// How many images the phase set out to fetch and how many it stored, or null when cancelled.
+    /// </returns>
+    private async Task<(int Attempted, int Stored)?> FetchMissingNameKeyedImagesAsync(
+        IServiceProvider scopedServices,
+        AppDbContext db,
+        HttpClient client,
+        IReadOnlyList<(string Service, string GameName)> nameKeyedDownloads,
+        HashSet<(string Service, string Slug)> steamCoveredSlugs,
+        ReportPhaseProgress report,
+        CancellationToken ct)
+    {
+        await BackfillXboxBannerUrlsAsync(scopedServices, ct);
 
-        // Xbox banners are NOT curated/embedded - they are fetched from the Microsoft Store
-        // DisplayCatalog at mapping time and stored on XboxGameMapping.ImageUrl. Pre-load that
-        // GameName-slug -> ImageUrl map so the name-keyed pass below can fetch + store an Xbox
-        // GameImage under (Service = "xbox", AppId = slug), the same way it does for Blizzard/Riot.
-        var xboxImageUrlBySlug = new Dictionary<string, string>(StringComparer.Ordinal);
-        var xboxGameNames = nameKeyedDownloads
-            .Where(t => NameKeyedBannerSource.NormalizeService(t.Service) == NameKeyedBannerSource.XboxService
-                        && !string.IsNullOrEmpty(t.GameName))
-            .Select(t => t.GameName!)
-            .Distinct()
-            .ToList();
-        if (xboxGameNames.Count > 0)
-        {
-            var xboxMappings = await db.XboxGameMappings
-                .AsNoTracking()
-                .Where(m => m.ImageUrl != null && m.ImageUrl != "" && xboxGameNames.Contains(m.Title))
-                .Select(m => new { m.Title, m.ImageUrl })
-                .ToListAsync(stoppingToken);
+        var xboxImageUrlBySlug = await LoadXboxBannerUrlsBySlugAsync(db, nameKeyedDownloads, ct);
 
-            foreach (var m in xboxMappings)
-            {
-                var slug = NameKeyedBannerSource.Slug(m.Title);
-                if (!xboxImageUrlBySlug.ContainsKey(slug))
-                {
-                    xboxImageUrlBySlug[slug] = m.ImageUrl!;
-                }
-            }
-        }
-
-        // 3. NAME-KEYED (Blizzard/Riot/Xbox): Downloads identified only by GameName (no Steam appId,
-        // no Epic catalog id). Source URLs come from the curated official-CDN banner map keyed on the
-        // exact GameName (Blizzard/Riot) or the DisplayCatalog ImageUrl (Xbox). Stored under
-        // (AppId = slug(GameName), Service = "blizzard"|"riot"|"xbox"). Games that mapped to a Steam
-        // appId above are SKIPPED here - they render Steam's header.jpg (Steam-first); only unmapped
-        // name-keyed games fall back to the curated/DisplayCatalog banner.
-        // Reuses nameKeyedDownloads resolved before the Steam pass (no second query).
         var nameKeyedJobs = nameKeyedDownloads
             .Select(t =>
             {
                 var service = NameKeyedBannerSource.NormalizeService(t.Service);
-                var slug = NameKeyedBannerSource.Slug(t.GameName!);
-                // Xbox draws its URL from the DisplayCatalog ImageUrl map; the others from the
-                // curated banner source.
+                var slug = NameKeyedBannerSource.Slug(t.GameName);
                 var url = service == NameKeyedBannerSource.XboxService
                     ? (xboxImageUrlBySlug.TryGetValue(slug, out var xboxUrl) ? xboxUrl : null)
                     : NameKeyedBannerSource.TryGetUrl(t.Service, t.GameName);
                 return new { Service = service, Slug = slug, Url = url };
             })
             .Where(j => j.Service != null && j.Url != null
-                && !steamMappedNameKeyedSlugs.Contains((j.Service!, j.Slug)))
+                && !steamCoveredSlugs.Contains((j.Service!, j.Slug)))
             .GroupBy(j => (j.Service!, j.Slug))
             .Select(g => g.First())
             .ToList();
@@ -531,7 +615,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 || g.Service == NameKeyedBannerSource.RiotService
                 || g.Service == NameKeyedBannerSource.XboxService)
             .Select(g => new { g.Service, g.AppId })
-            .ToListAsync(stoppingToken);
+            .ToListAsync(ct);
 
         var existingNameKeyedSet = existingNameKeyedIds
             .Select(g => (g.Service, g.AppId))
@@ -541,42 +625,117 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             .Where(j => !existingNameKeyedSet.Contains((j.Service!, j.Slug)))
             .ToList();
 
-        var newNameKeyedImages = 0;
-        var nameKeyedDone = 0;
+        var stored = 0;
+        var done = 0;
         foreach (var batch in missingNameKeyedJobs.Chunk(50))
         {
-            if (stoppingToken.IsCancellationRequested) return;
+            if (ct.IsCancellationRequested) return null;
 
             var tasks = batch.Select(job =>
-                FetchNameKeyedImageAsync(db, client, job.Service!, job.Slug, job.Url!, stoppingToken));
+                FetchNameKeyedImageAsync(db, client, job.Service!, job.Slug, job.Url!, ct));
 
             var added = await Task.WhenAll(tasks);
-            newNameKeyedImages += added.Count(a => a);
-            await db.SaveChangesAsync(stoppingToken);
+            stored += added.Count(a => a);
+            await db.SaveChangesAsync(ct);
             db.ChangeTracker.Clear();
 
-            nameKeyedDone += batch.Length;
-            await ReportPhaseAsync(50 + nameKeyedDone / (double)missingNameKeyedJobs.Count * 25, nameKeyedDone, missingNameKeyedJobs.Count);
+            done += batch.Length;
+            await report(done / (double)missingNameKeyedJobs.Count, done, missingNameKeyedJobs.Count);
         }
 
-        // Name-keyed phase done - advance the band even when there was nothing to fetch.
-        await ReportPhaseAsync(75, missingNameKeyedJobs.Count, missingNameKeyedJobs.Count);
+        return (missingNameKeyedJobs.Count, stored);
+    }
 
-        // 4. Re-fetch stale images (older than 7 days)
+    /// <summary>
+    /// Fills in DisplayCatalog banner URLs for any XboxGameMapping that still has none, before the
+    /// ImageUrl map is read. The per-resolve fetch (EnsureBannerArtAsync) only runs for the products
+    /// resolved in a single pass and never retries a transient miss, so without this an art-less title
+    /// (e.g. Minecraft Dungeons) would never get its banner here. Best-effort: a backfill failure must
+    /// never abort the image run.
+    /// </summary>
+    private async Task BackfillXboxBannerUrlsAsync(IServiceProvider scopedServices, CancellationToken ct)
+    {
+        try
+        {
+            var xboxMappingService = scopedServices.GetRequiredService<LancacheManager.Core.Services.Xbox.XboxMappingService>();
+            await xboxMappingService.BackfillMissingBannerArtAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Shutdown - let cancellation propagate rather than logging it as a non-fatal failure.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[GameImageFetch] Xbox banner URL backfill failed (non-fatal)");
+        }
+    }
+
+    /// <summary>
+    /// Xbox banners are NOT curated/embedded - they are fetched from the Microsoft Store
+    /// DisplayCatalog at mapping time and stored on XboxGameMapping.ImageUrl. This reads that
+    /// GameName-slug -> ImageUrl map so the name-keyed phase can fetch + store an Xbox GameImage under
+    /// (Service = "xbox", AppId = slug), the same way it does for Blizzard/Riot.
+    /// </summary>
+    private static async Task<Dictionary<string, string>> LoadXboxBannerUrlsBySlugAsync(
+        AppDbContext db,
+        IReadOnlyList<(string Service, string GameName)> nameKeyedDownloads,
+        CancellationToken ct)
+    {
+        var xboxImageUrlBySlug = new Dictionary<string, string>(StringComparer.Ordinal);
+        var xboxGameNames = nameKeyedDownloads
+            .Where(t => NameKeyedBannerSource.NormalizeService(t.Service) == NameKeyedBannerSource.XboxService
+                        && !string.IsNullOrEmpty(t.GameName))
+            .Select(t => t.GameName)
+            .Distinct()
+            .ToList();
+        if (xboxGameNames.Count == 0)
+        {
+            return xboxImageUrlBySlug;
+        }
+
+        var xboxMappings = await db.XboxGameMappings
+            .AsNoTracking()
+            .Where(m => m.ImageUrl != null && m.ImageUrl != "" && xboxGameNames.Contains(m.Title))
+            .Select(m => new { m.Title, m.ImageUrl })
+            .ToListAsync(ct);
+
+        foreach (var m in xboxMappings)
+        {
+            var slug = NameKeyedBannerSource.Slug(m.Title);
+            if (!xboxImageUrlBySlug.ContainsKey(slug))
+            {
+                xboxImageUrlBySlug[slug] = m.ImageUrl!;
+            }
+        }
+
+        return xboxImageUrlBySlug;
+    }
+
+    /// <summary>
+    /// Re-fetches stored images older than seven days.
+    /// </summary>
+    /// <returns>How many images were actually re-stored, or null when cancellation stopped it.</returns>
+    private async Task<int?> RefreshStaleImagesAsync(
+        AppDbContext db,
+        HttpClient client,
+        ReportPhaseProgress report,
+        CancellationToken ct)
+    {
         var staleImages = await db.GameImages
             .Where(g => g.FetchedAtUtc < DateTime.UtcNow.AddDays(-7))
-            .ToListAsync(stoppingToken);
+            .ToListAsync(ct);
 
-        var staleDone = 0;
-        var staleRefreshed = 0;
+        var done = 0;
+        var refreshed = 0;
         foreach (var batch in staleImages.Chunk(50))
         {
-            if (stoppingToken.IsCancellationRequested) return;
+            if (ct.IsCancellationRequested) return null;
 
             var tasks = batch.Select(image =>
-                RefreshImageAsync(client, image, stoppingToken));
+                RefreshImageAsync(client, image, ct));
 
-            staleRefreshed += (await Task.WhenAll(tasks)).Count(stored => stored);
+            refreshed += (await Task.WhenAll(tasks)).Count(stored => stored);
 
             // Committed per batch, and the in-memory image cache is deliberately NOT evicted here.
             // From this commit until the eviction at the end of the pass, /available reports the new
@@ -591,39 +750,14 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             // forty batches, and each one would send every banner on every open page back to the
             // database. This phase re-fetches art older than seven days, which has usually not
             // changed at all, so the payoff for that is close to nothing.
-            await db.SaveChangesAsync(stoppingToken);
+            await db.SaveChangesAsync(ct);
             db.ChangeTracker.Clear();
 
-            staleDone += batch.Length;
-            await ReportPhaseAsync(75 + staleDone / (double)staleImages.Count * 25, staleDone, staleImages.Count);
+            done += batch.Length;
+            await report(done / (double)staleImages.Count, done, staleImages.Count);
         }
 
-        _logger.LogInformation(
-            "[GameImageFetch] Complete: {NewSteam} new Steam, {NewEpic} new Epic, {NewNameKeyed} new Blizzard/Riot, {Stale} refreshed",
-            missingSteamIds.Count, missingEpicMappings.Count, newNameKeyedImages, staleRefreshed);
-
-        // A stale refresh replaces the bytes behind an unchanged app id, so it has to move the
-        // generation like every other art change - otherwise the only way a browser could notice is
-        // by revalidating every banner on every page load. Counted on images actually re-stored, not
-        // on candidates: an image whose source URL is permanently dead never updates FetchedAtUtc, so
-        // it stays in the candidate list forever and would bump the generation on every pass.
-        if (missingSteamIds.Count > 0 || missingEpicMappings.Count > 0 || newNameKeyedImages > 0 || staleRefreshed > 0)
-        {
-            GameImagesController.IncrementCacheGeneration();
-            _imageCacheService.EvictMemoryCache();
-            await _notifications.NotifyAllAsync(SignalREvents.GameImagesUpdated, new
-            {
-                newSteamImages = missingSteamIds.Count,
-                newEpicImages = missingEpicMappings.Count,
-                newNameKeyedImages,
-                cacheGeneration = GameImagesController.CacheGeneration
-            });
-        }
-
-        if (reporter != null)
-        {
-            await reporter.CompleteAsync(success: true);
-        }
+        return refreshed;
     }
 
     /// <summary>
@@ -763,7 +897,6 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         Dictionary<long, List<long>> downloadDepotLookup,
         CancellationToken ct)
     {
-        // Try fetching the image using the given appId
         var imageBytes = await TryGetSteamImageAsync(client, appId, picsUrlMap, ct);
 
         if (imageBytes != null)
@@ -783,7 +916,6 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             return;
         }
 
-        // Try to find a parent app ID via pre-loaded depot mappings
         var parentAppId = FindParentAppId(appId, depotOwnerLookup, downloadDepotLookup);
         if (parentAppId == null)
         {
@@ -793,7 +925,6 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
         _logger.LogInformation("[GameImageFetch] No image for app {AppId}, trying parent app {ParentAppId}", appId, parentAppId);
 
-        // Try fetching using the parent's app ID
         var parentBytes = await TryGetSteamImageAsync(client, parentAppId, picsUrlMap, ct);
         if (parentBytes != null)
         {
@@ -818,11 +949,6 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
     }
 
-    /// <summary>
-    /// Tries to fetch a Steam game header image from multiple CDN domains.
-    /// Returns the image bytes from the first domain that responds successfully,
-    /// or null if all domains fail.
-    /// </summary>
     /// <summary>
     /// Tries to fetch a Steam game header image from multiple CDN domains.
     /// Returns the image bytes from the first domain that responds successfully,
