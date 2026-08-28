@@ -23,6 +23,12 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     private readonly IUnifiedOperationTracker _operationTracker;
     private static readonly SemaphoreSlim _executionLock = new(1, 1);
 
+    // A pass reads the list of games it will fetch art for when it starts, so rows written after
+    // that are invisible to it. Set before every attempt to take the execution lock and cleared by
+    // the attempt that takes it, so a caller refused the lock leaves exactly one follow-up pass
+    // behind instead of leaving its banners for the next scheduled tick half an hour later.
+    private static int _followUpPassWanted;
+
     // Max concurrent HTTP requests for image fetching
     private static readonly SemaphoreSlim _httpThrottle = new(5, 5);
 
@@ -74,15 +80,133 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// Public trigger so other services can request an immediate image fetch
-    /// after ALL game detection, mapping, and DB saves are complete. This is a programmatic trigger
-    /// (not a scheduled run), so it does not surface a Schedules progress card.
+    /// Public trigger so other services can request an immediate image fetch after ALL game
+    /// detection, mapping, and DB saves are complete. Starts a fetch pass on a background task owned
+    /// by this singleton and returns its tracked operation id, or null when a pass is already
+    /// running. This is a programmatic trigger (not a scheduled run), so it does not surface a
+    /// Schedules progress card.
     /// </summary>
-    public async Task FetchImagesNowAsync(CancellationToken ct = default)
+    /// <returns>
+    /// The tracked operation id of the pass this call started, or null when a pass was already
+    /// holding the execution lock.
+    ///
+    /// A null is not a dropped request, and callers may rely on that. Every call records that a pass
+    /// is wanted before it attempts the lock, and whichever pass holds the lock starts one more on
+    /// its way out, so a caller answered with null needs no fallback of its own. There is one
+    /// null-returning path and it is after that record, so no null can mean "refused and forgotten".
+    ///
+    /// Two limits on what the follow-up carries. It runs with <paramref name="refreshEpicImageUrls"/>
+    /// false whatever the refused caller asked for, so a refused request for a fresh Epic catalog
+    /// read is served from the stored URLs instead. And however many requests were refused, one
+    /// follow-up pass runs, which is right because a pass reads the whole outstanding work list. The
+    /// record is in memory and does not survive a restart.
+    /// </returns>
+    /// <remarks>
+    /// The request is recorded before the lock is attempted rather than after a refusal because a
+    /// record written after a failed acquire can land in the moment the running pass is releasing
+    /// the lock and reading that record, and would then be seen by nobody. Recording first means a
+    /// caller whose acquire fails has already published its request, and a caller that arrives after
+    /// the release takes the lock itself. The acquire clears the record before the pass reads its
+    /// work list, so anything erased there is covered by that pass.
+    ///
+    /// The execution lock is taken here rather than inside the background task so the caller learns
+    /// straight away whether a run actually began. The run's lifetime belongs to this singleton, so
+    /// an HTTP caller can report it and return.
+    /// </remarks>
+    /// <param name="refreshEpicImageUrls">
+    /// Re-reads the Epic catalog before the pass so the Epic phase downloads current art. It is a
+    /// network call to Epic, so it belongs to this background task rather than to the request that
+    /// starts it, and only the "clear the cache and fetch everything again" path asks for it. The
+    /// scheduled cadence leaves it off: Epic's own catalog refresh runs on its own interval, which
+    /// the user sets in hours, and re-polling it every half hour would ignore that setting.
+    /// </param>
+    public Guid? StartFetchInBackground(bool refreshEpicImageUrls)
     {
-        _logger.LogInformation("[GameImageFetch] Triggered by external service");
-        using var scope = _serviceProvider.CreateScope();
-        await RunFetchAsync(scope.ServiceProvider, reporter: null, ct);
+        // Announced before the attempt rather than after a refusal: a request announced after a
+        // failed acquire can land in the moment a finishing pass is releasing the lock and reading
+        // the flag, and would then be seen by nobody.
+        Interlocked.Exchange(ref _followUpPassWanted, 1);
+
+        if (!_executionLock.Wait(0))
+        {
+            _logger.LogDebug("[GameImageFetch] Not starting - another fetch is already running");
+            return null;
+        }
+
+        // This pass reads its work list below, after this point, so it covers everything announced
+        // so far.
+        Interlocked.Exchange(ref _followUpPassWanted, 0);
+
+        var cts = new CancellationTokenSource();
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.GameImageFetch, "Game Image Fetch", cts);
+
+        _ = Task.Run(async () =>
+        {
+            string? error = null;
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+
+                if (refreshEpicImageUrls)
+                {
+                    // Epic stores the URL the Epic phase downloads from, so re-read the catalog
+                    // before the pass gets there. Do it after and a just-cleared cache is refilled
+                    // from exactly the art the user pressed the button to replace.
+                    var epicMapping = scope.ServiceProvider.GetService<EpicMappingService>();
+                    if (epicMapping is { IsAuthenticated: true })
+                    {
+                        try
+                        {
+                            var refreshedUrls = await epicMapping.RefreshImagesAsync(cts.Token);
+                            _logger.LogInformation(
+                                "[GameImageFetch] Refreshed {Count} Epic image URLs", refreshedUrls);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Epic's catalog call fails on an expired session or a bad response.
+                            // The stored URLs still fetch, so the pass carries on.
+                            _logger.LogWarning(ex, "[GameImageFetch] Epic image URL refresh failed");
+                        }
+                    }
+                }
+
+                await FetchImagesAsync(scope.ServiceProvider, reporter: null, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                _logger.LogWarning(ex, "[GameImageFetch] Background fetch failed");
+            }
+            finally
+            {
+                // Release the service-local gate before completing the operation, so a queued waiter
+                // promoted by the completion can acquire it.
+                _executionLock.Release();
+                _operationTracker.CompleteOperation(operationId, success: error == null, error: error);
+                StartFollowUpPass();
+            }
+        }, CancellationToken.None);
+
+        return operationId;
+    }
+
+    /// <summary>
+    /// Starts one more pass when a start was refused the execution lock while this one held it. That
+    /// caller had just written rows this pass read past, so without the follow-up their banners wait
+    /// for the next scheduled tick.
+    /// </summary>
+    /// <remarks>
+    /// Called after the lock is released, so the pass it starts can take it. Epic's catalog is not
+    /// re-read: that belongs to the clear-the-cache path and to Epic's own refresh interval, and the
+    /// stored URLs are what this pass needs to fetch the art the previous one missed.
+    /// </remarks>
+    private void StartFollowUpPass()
+    {
+        if (Interlocked.Exchange(ref _followUpPassWanted, 0) == 1)
+        {
+            StartFetchInBackground(refreshEpicImageUrls: false);
+        }
     }
 
     protected override async Task ExecuteWorkAsync(
@@ -111,13 +235,17 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         ScheduledRunReporter? reporter,
         CancellationToken stoppingToken)
     {
-        // Prevent concurrent execution - FetchImagesNowAsync and scheduled runs can overlap. A run that
+        // Prevent concurrent execution - a programmatic trigger and a scheduled run can overlap. A run that
         // loses this race did no work, so it returns before starting the reporter (no card).
         if (!await _executionLock.WaitAsync(0, stoppingToken))
         {
             _logger.LogDebug("[GameImageFetch] Skipping - another fetch is already running");
             return;
         }
+
+        // Same as the background start: this pass reads its work list below, so it covers every
+        // request announced up to here.
+        Interlocked.Exchange(ref _followUpPassWanted, 0);
 
         try
         {
@@ -126,6 +254,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         finally
         {
             _executionLock.Release();
+            StartFollowUpPass();
         }
     }
 
@@ -326,7 +455,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         // products resolved in a single pass and never retries a transient miss, so without this an
         // art-less title (e.g. Minecraft Dungeons) would never get its banner here. Best-effort: a
         // backfill failure must never abort the image run. Covers both the 30-min schedule and the
-        // Downloads "Run Now" button (FetchImagesNowAsync routes through here).
+        // Downloads "Run Now" button (StartFetchInBackground routes through here).
         try
         {
             var xboxMappingService = scopedServices.GetRequiredService<LancacheManager.Core.Services.Xbox.XboxMappingService>();
@@ -439,6 +568,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             .ToListAsync(stoppingToken);
 
         var staleDone = 0;
+        var staleRefreshed = 0;
         foreach (var batch in staleImages.Chunk(50))
         {
             if (stoppingToken.IsCancellationRequested) return;
@@ -446,7 +576,21 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             var tasks = batch.Select(image =>
                 RefreshImageAsync(client, image, stoppingToken));
 
-            await Task.WhenAll(tasks);
+            staleRefreshed += (await Task.WhenAll(tasks)).Count(stored => stored);
+
+            // Committed per batch, and the in-memory image cache is deliberately NOT evicted here.
+            // From this commit until the eviction at the end of the pass, /available reports the new
+            // version while the image route still answers the previous bytes out of memory. That
+            // reads as a bug and is not one: the two versions differ, so the response carries
+            // no-cache rather than the immutable header, nothing stale is pinned, and the next
+            // request after the pass ends picks up the new bytes.
+            //
+            // Evicting per batch would close a window nobody can act on and cost real work for it.
+            // EvictMemoryCache cancels the token every cached entry is linked to, so it drops EVERY
+            // banner rather than the fifty just refreshed; a pass over two thousand stale images runs
+            // forty batches, and each one would send every banner on every open page back to the
+            // database. This phase re-fetches art older than seven days, which has usually not
+            // changed at all, so the payoff for that is close to nothing.
             await db.SaveChangesAsync(stoppingToken);
             db.ChangeTracker.Clear();
 
@@ -456,9 +600,14 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
         _logger.LogInformation(
             "[GameImageFetch] Complete: {NewSteam} new Steam, {NewEpic} new Epic, {NewNameKeyed} new Blizzard/Riot, {Stale} refreshed",
-            missingSteamIds.Count, missingEpicMappings.Count, newNameKeyedImages, staleImages.Count);
+            missingSteamIds.Count, missingEpicMappings.Count, newNameKeyedImages, staleRefreshed);
 
-        if (missingSteamIds.Count > 0 || missingEpicMappings.Count > 0 || newNameKeyedImages > 0)
+        // A stale refresh replaces the bytes behind an unchanged app id, so it has to move the
+        // generation like every other art change - otherwise the only way a browser could notice is
+        // by revalidating every banner on every page load. Counted on images actually re-stored, not
+        // on candidates: an image whose source URL is permanently dead never updates FetchedAtUtc, so
+        // it stays in the candidate list forever and would bump the generation on every pass.
+        if (missingSteamIds.Count > 0 || missingEpicMappings.Count > 0 || newNameKeyedImages > 0 || staleRefreshed > 0)
         {
             GameImagesController.IncrementCacheGeneration();
             _imageCacheService.EvictMemoryCache();
@@ -977,12 +1126,16 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
     }
 
-    private async Task RefreshImageAsync(
+    /// <summary>
+    /// Re-fetches one stored image. Returns true when new bytes were stored, which is what tells the
+    /// caller the cache generation has to move.
+    /// </summary>
+    private async Task<bool> RefreshImageAsync(
         HttpClient client,
         GameImage image,
         CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(image.SourceUrl)) return;
+        if (string.IsNullOrEmpty(image.SourceUrl)) return false;
 
         // Hard-coded embedded banners (embedded://{slug}): re-seed from the embedded JPEG bytes,
         // never the network. These name-keyed banners are NEVER auto-updated over HTTP.
@@ -991,14 +1144,14 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             if (embeddedBytes.Length < MinImageBytes)
             {
                 _logger.LogDebug("[GameImageFetch] Skipping tiny embedded image ({Size} bytes) during refresh for {AppId}", embeddedBytes.Length, image.AppId);
-                return;
+                return false;
             }
 
             image.ImageData = embeddedBytes;
             image.ContentType = embeddedContentType;
             image.FetchedAtUtc = DateTime.UtcNow;
             image.UpdatedAtUtc = DateTime.UtcNow;
-            return;
+            return true;
         }
 
         try
@@ -1034,7 +1187,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                         image.ContentType = "image/jpeg";
                         image.FetchedAtUtc = DateTime.UtcNow;
                         image.UpdatedAtUtc = DateTime.UtcNow;
-                        return;
+                        return true;
                     }
                 }
 
@@ -1058,23 +1211,25 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 }
             }
 
-            if (!response.IsSuccessStatusCode) return;
+            if (!response.IsSuccessStatusCode) return false;
 
             var bytes = await response.Content.ReadAsByteArrayAsync(ct);
             if (bytes.Length < MinImageBytes)
             {
                 _logger.LogDebug("[GameImageFetch] Skipping tiny image ({Size} bytes) during refresh for {AppId}", bytes.Length, image.AppId);
-                return;
+                return false;
             }
 
             image.ImageData = bytes;
             image.ContentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
             image.FetchedAtUtc = DateTime.UtcNow;
             image.UpdatedAtUtc = DateTime.UtcNow;
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "[GameImageFetch] Failed to refresh image {AppId}", image.AppId);
+            return false;
         }
     }
 }

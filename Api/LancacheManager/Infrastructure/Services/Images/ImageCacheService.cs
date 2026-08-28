@@ -35,14 +35,14 @@ public class ImageCacheService : IImageCacheService
         _memoryCache = memoryCache;
     }
 
-    public async Task<(byte[] imageBytes, string contentType)?> GetImageAsync(
+    public async Task<(byte[] imageBytes, string contentType, DateTime storedAtUtc)?> GetImageAsync(
         string appId,
         string platform,
         CancellationToken cancellationToken = default)
     {
         var cacheKey = BuildCacheKey(appId, platform);
 
-        if (_memoryCache.TryGetValue(cacheKey, out (byte[] imageBytes, string contentType) cached))
+        if (_memoryCache.TryGetValue(cacheKey, out (byte[] imageBytes, string contentType, DateTime storedAtUtc) cached))
         {
             return cached;
         }
@@ -58,7 +58,9 @@ public class ImageCacheService : IImageCacheService
             if (image == null || image.ImageData.Length == 0)
                 return null;
 
-            var result = (image.ImageData, image.ContentType);
+            // UpdatedAtUtc is written only by a refresh that replaced the bytes, so it is the stored-at
+            // time whenever one has happened and FetchedAtUtc is it for artwork still on its first copy.
+            var result = (image.ImageData, image.ContentType, image.UpdatedAtUtc ?? image.FetchedAtUtc);
 
             var entryOptions = new MemoryCacheEntryOptions()
                 .SetSlidingExpiration(_slidingExpiration)

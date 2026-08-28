@@ -15,8 +15,11 @@ import { GitCompare } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useEvents } from '@contexts/useEvents';
 import { useMockMode } from '@contexts/useMockMode';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useErrorHandler } from '@hooks/useErrorHandler';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
@@ -32,6 +35,7 @@ import { storage } from '@utils/storage';
 import { STORAGE_KEYS } from '@utils/constants';
 import { pruneMissingEventIds } from '@contexts/TimeFilterContext.utils';
 import { isAbortError } from '@utils/error';
+import type { SignalREventName } from '@contexts/SignalRContext/types';
 import type { EventCompareResponse } from '@/types';
 import {
   defaultCompareEventIds,
@@ -51,6 +55,21 @@ type CompareMetric = 'served' | 'saved' | 'missed';
 // this chart's line width, short enough that a brief event still shows more than one segment.
 const EVENT_REPEAT_DASH = [6, 4];
 
+// A log processing run raises several of these within a moment of each other, so the burst
+// collapses into one fetch of the aggregates.
+const REFRESH_DEBOUNCE_MS = 1000;
+
+// The first four redefine what is being compared; the last two move a running event's totals. The
+// aggregates come from their own endpoint, so nothing else on the dashboard refreshes them.
+const EVENT_COMPARE_EVENTS: readonly SignalREventName[] = [
+  'EventCreated',
+  'EventUpdated',
+  'EventDeleted',
+  'EventsCleared',
+  'DownloadsRefresh',
+  'LogProcessingComplete'
+];
+
 const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tabControl }) => {
   const { t } = useTranslation();
   const themeRevision = useThemeRevision();
@@ -58,6 +77,8 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
   const { mockMode } = useMockMode();
   const { getTimeRangeInHours } = useTimeFilter();
   const { notifyError } = useErrorHandler();
+  const { on, off, isConnected } = useSignalR();
+  const scheduleReload = useTimeoutCallback(REFRESH_DEBOUNCE_MS);
   const knownIds = useMemo(() => events.map((event) => event.id), [events]);
   const [selectedIds, setSelectedIds] = useState<number[]>(() => {
     const stored = readCompareEventIds(
@@ -69,7 +90,31 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
   const [metric, setMetric] = useState<CompareMetric>('served');
   const [compare, setCompare] = useState<EventCompareResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  // Bumped to ask for the same comparison again, the way useRetroDownloads re-asks for its page.
+  // The previous chart stays on screen while the fetch runs.
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const { hiddenSeries, toggleSeries, seriesKey } = useHiddenSeries();
+
+  // Stable, so the subscription below re-runs only when the connection's own callbacks change.
+  const reload = useCallback(() => {
+    setRefreshVersion((version) => version + 1);
+  }, []);
+
+  // Events raised while the socket was down are never delivered, so a genuine reconnect refetches
+  // rather than leaving the figures the chart was drawing when the connection dropped.
+  useReconnectRefetch(isConnected, reload);
+
+  useEffect(() => {
+    const handleCompareChanged = () => {
+      scheduleReload(reload);
+    };
+
+    EVENT_COMPARE_EVENTS.forEach((eventName) => on(eventName, handleCompareChanged));
+
+    return () => {
+      EVENT_COMPARE_EVENTS.forEach((eventName) => off(eventName, handleCompareChanged));
+    };
+  }, [on, off, reload, scheduleReload]);
 
   useEffect(() => {
     // Sign-in, sign-out and a failed fetch all empty `events`, and pruning against nothing would
@@ -119,7 +164,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
       });
 
     return () => controller.abort();
-  }, [mockMode, notifyError, selectedIds, t]);
+  }, [mockMode, notifyError, refreshVersion, selectedIds, t]);
 
   const visibleCompare = useMemo(
     () => (compare ? clipCompareToHours(compare, getTimeRangeInHours()) : null),

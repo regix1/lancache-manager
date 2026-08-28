@@ -6,6 +6,7 @@ import { EMPTY_CACHED_DETECTION, buildDetectionLookupMaps } from '@utils/gameDet
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../useTimeFilter';
 import { useRefreshRate } from '../useRefreshRate';
+import { useRefreshThrottle } from '@hooks/useRefreshThrottle';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import { useAuth } from '../useAuth';
 import {
@@ -117,8 +118,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const fetchInProgress = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
-  const refreshDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastRefreshFetchRef = useRef<number>(0);
+  const scheduleLiveRefresh = useRefreshThrottle(getRefreshInterval);
   // Separate timer for dedicated always-refresh events (eviction scan/removal):
   // they bypass the live-only gate but still coalesce bursts into one fetch.
   const forcedRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -157,7 +157,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // This ensures that any function reading from these refs gets the current value
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
-  const getRefreshIntervalRef = useRef(getRefreshInterval);
   const mockModeRef = useRef(mockMode);
   const selectedEventIdsRef = useRef<number[]>(selectedEventIds);
   const setSelectedEventIdsRef = useRef(setSelectedEventIds);
@@ -178,7 +177,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // Update refs synchronously on every render
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
-  getRefreshIntervalRef.current = getRefreshInterval;
   mockModeRef.current = mockMode;
   selectedEventIdsRef.current = selectedEventIds;
   setSelectedEventIdsRef.current = setSelectedEventIds;
@@ -455,23 +453,16 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     // For historical ranges (not 'live'), skip SignalR refreshes to prevent flickering.
     const handleRefreshEvent = (eventName?: string) => {
       if (currentTimeRangeRef.current !== 'live') return;
-      const interval = getRefreshIntervalRef.current() || 500;
-      const runFetch = () => {
-        lastRefreshFetchRef.current = Date.now();
+      // Shared with the Retro list through useRefreshThrottle, so every live surface answers on the
+      // one refresh-rate setting and a finished download reaches them all at the same moment.
+      scheduleLiveRefresh(() => {
         // Force the fetch: a server refresh event means committed rows exist, so this
         // request must supersede any in-flight batch that may have started before the
         // commit (the requestId guard then discards the superseded response). A non-forced
         // call here could be swallowed by the 250ms debounce or the in-progress guard and
         // leave a pre-commit response as the final state.
         fetchAllData({ forceRefresh: true, trigger: `signalr:${eventName || 'unknown'}` });
-      };
-      const elapsed = Date.now() - lastRefreshFetchRef.current;
-      if (refreshDebounceTimerRef.current) clearTimeout(refreshDebounceTimerRef.current);
-      if (elapsed >= interval) {
-        runFetch();
-      } else {
-        refreshDebounceTimerRef.current = setTimeout(runFetch, interval - elapsed);
-      }
+      });
     };
 
     // Handler for database reset — clear stale dashboard slices as tables are wiped
@@ -562,7 +553,17 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       ClientGroupCreated: () => handleForcedRefreshEvent('ClientGroupCreated'),
       ClientGroupUpdated: () => handleForcedRefreshEvent('ClientGroupUpdated'),
       ClientGroupDeleted: () => handleForcedRefreshEvent('ClientGroupDeleted'),
-      ClientGroupsCleared: () => handleForcedRefreshEvent('ClientGroupsCleared')
+      ClientGroupsCleared: () => handleForcedRefreshEvent('ClientGroupsCleared'),
+      // A depot mapping or a removal fires once, right after an action the user just took, and
+      // changes which rows exist in every time range — a removed game stays on screen on 24h or
+      // 7d otherwise. handleRefreshEvent's live-only gate exists to stop a continuous download
+      // repainting a historical range, which a single completion cannot do. They still coalesce
+      // through handleForcedRefreshEvent's shared debounce.
+      DepotMappingComplete: () => handleForcedRefreshEvent('DepotMappingComplete'),
+      LogRemovalComplete: () => handleForcedRefreshEvent('LogRemovalComplete'),
+      CorruptionRemovalComplete: () => handleForcedRefreshEvent('CorruptionRemovalComplete'),
+      ServiceRemovalComplete: () => handleForcedRefreshEvent('ServiceRemovalComplete'),
+      GameRemovalComplete: () => handleForcedRefreshEvent('GameRemovalComplete')
     };
     const throttledEvents = SIGNALR_REFRESH_EVENTS.filter((event) => !(event in dedicatedHandlers));
     const eventHandlers: Record<string, () => void> = {};
@@ -588,13 +589,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         clearTimeout(forcedRefreshTimerRef.current);
         forcedRefreshTimerRef.current = null;
       }
-      // Clear any pending debounce timer on unmount
-      if (refreshDebounceTimerRef.current) {
-        clearTimeout(refreshDebounceTimerRef.current);
-        refreshDebounceTimerRef.current = null;
-      }
     };
-  }, [mockMode, signalR, fetchAllData, clearDetectionState]);
+  }, [mockMode, signalR, fetchAllData, clearDetectionState, scheduleLiveRefresh]);
 
   // Load mock data when mock mode is enabled
   useEffect(() => {

@@ -18,6 +18,7 @@ import { GameImage } from '@components/common/GameImage';
 import EvictedBadge from '@components/common/EvictedBadge';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
+import { useImageErrors } from '@hooks/useImageErrors';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import { useGroupPagination } from '@hooks/useGroupPagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
@@ -659,13 +660,9 @@ const CompactView = React.memo(function CompactView({
 }: CompactViewProps) {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
-  const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
+  const { imageErrors, handleImageError } = useImageErrors();
   const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
   const { startHoldTimer, stopHoldTimer } = useHoldTimer();
-
-  const handleImageError = (gameAppId: string) => {
-    setImageErrors((prev) => new Set(prev).add(gameAppId));
-  };
 
   const renderGroupRow = (group: DownloadGroup) => (
     <GroupRow

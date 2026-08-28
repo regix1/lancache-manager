@@ -15,8 +15,6 @@ interface TimeFilterContextType {
   getTimeRangeParams: () => { startTime?: number; endTime?: number };
   // Anchor time for rolling time ranges - prevents time drift between fetches
   rangeAnchorTime: number | null;
-  // Extends the anchor forward by re-anchoring to current time (for SignalR updates)
-  extendTimeAnchor: () => void;
   // Event filter: optional filter to show only downloads tagged to specific events
   // This is independent of time range - you can combine any time range with an event filter
   selectedEventIds: number[];

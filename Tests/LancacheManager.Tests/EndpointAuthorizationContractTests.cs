@@ -13,6 +13,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using System.Reflection;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
@@ -62,6 +64,21 @@ public sealed class EndpointAuthorizationContractTests
             ["/scalar/favicon.svg"] = EndpointAccess.Admin,
             ["/openapi/{documentName}.json"] = EndpointAccess.Admin,
             ["{*path:nonfile}"] = EndpointAccess.Public
+        };
+
+    /// <summary>
+    /// Actions that answer on more than one route, with how many. The banner routes each take an
+    /// optional trailing version segment as a second template, and the versionless one stays because
+    /// it is anonymous and documented for callers outside this repo. Every registration is still
+    /// checked for its access level individually; this only records how many there are, so a third
+    /// route on one of these methods has to be declared here deliberately instead of passing unseen.
+    /// </summary>
+    private static readonly Dictionary<string, int> MultiRouteActions =
+        new(StringComparer.Ordinal)
+        {
+            ["GameImagesController.GetHeaderImage"] = 2,
+            ["GameImagesController.GetEpicHeaderImage"] = 2,
+            ["GameImagesController.GetNameKeyedHeaderImage"] = 2
         };
 
     private static readonly HashSet<string> PublicActions = new(StringComparer.Ordinal)
@@ -868,17 +885,42 @@ public sealed class EndpointAuthorizationContractTests
         Assert.DoesNotContain("\"lastPrefillStatus\"", json, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Kept on purpose, and this test is where that decision lives rather than in a note somebody has
+    /// to find. Nothing inside this repo calls <c>/api/downloads/with-associations</c>: not
+    /// <c>Web/src</c>, not <c>Web/scripts</c>, not <c>Tests</c>, not the metrics surface. That makes
+    /// it unused here, not dead. It is documented for callers outside this repo, it is reachable by
+    /// any signed-in user including a guest, and it is the only route that returns a download joined
+    /// to its event tags, so removing it would remove a capability rather than a duplicate. Deleting
+    /// a documented outward-facing endpoint is not reversible for whoever is already calling it.
+    /// </summary>
+    [Fact]
+    public void TheDownloadsWithAssociationsRouteIsKeptForCallersOutsideThisRepo()
+    {
+        var templates = typeof(DownloadsController)
+            .GetMethod(nameof(DownloadsController.GetWithEventsAsync))!
+            .GetCustomAttributes<HttpGetAttribute>()
+            .Select(attribute => attribute.Template)
+            .ToList();
+
+        Assert.Contains("with-associations", templates);
+    }
+
     private static void AssertExpectedAccessContract(
         IReadOnlyList<Endpoint> endpoints,
         IReadOnlyDictionary<Endpoint, EndpointAccess> accessByEndpoint)
     {
         var expected = new HashSet<string>(StringComparer.Ordinal);
+        var registrations = new Dictionary<string, int>(StringComparer.Ordinal);
 
         foreach (var endpoint in endpoints)
         {
             var endpointAccess = ExpectedAccess(endpoint);
             var identity = IdentityFor(endpoint);
 
+            // Checked per endpoint, so an action answering on several routes has every one of them
+            // held to the same access. This is the assertion that keeps the second banner route's
+            // authorization covered rather than folded into the first.
             Assert.True(
                 endpointAccess == accessByEndpoint[endpoint],
                 $"Endpoint '{identity}' is expected to be {endpointAccess}, but runtime metadata is {accessByEndpoint[endpoint]}.");
@@ -888,7 +930,8 @@ public sealed class EndpointAuthorizationContractTests
                 continue;
             }
 
-            Assert.True(expected.Add(identity), $"Authorization contract contains duplicate endpoint identity '{identity}'.");
+            registrations[identity] = registrations.GetValueOrDefault(identity) + 1;
+            expected.Add(identity);
 
             if (endpointAccess is EndpointAccess.Prefill or EndpointAccess.AdminPrefill)
             {
@@ -897,6 +940,15 @@ public sealed class EndpointAuthorizationContractTests
                 var policy = PrefillControllers[controller];
                 Assert.Contains(policy, endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Select(item => item.Policy));
             }
+        }
+
+        foreach (var (identity, count) in registrations)
+        {
+            var declared = MultiRouteActions.GetValueOrDefault(identity, 1);
+            Assert.True(
+                count == declared,
+                $"Endpoint identity '{identity}' answers on {count} routes; the contract declares {declared}. "
+                    + "Add it to MultiRouteActions with its route count, or remove the extra route.");
         }
 
         Assert.Equal(ExpectedContractIdentities(), expected);

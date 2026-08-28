@@ -876,6 +876,7 @@ public sealed class AccountManagementTests : IDisposable
             auditService ?? new IdentityAuditService(factory, NullLogger<IdentityAuditService>.Instance),
             lockout ?? new AccountLockout(NullLogger<AccountLockout>.Instance),
             claimWindow ?? new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
+            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
             NullLogger<AccountsController>.Instance);
 
         var httpContext = new DefaultHttpContext();

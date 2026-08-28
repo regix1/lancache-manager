@@ -22,6 +22,7 @@ import type {
 } from './RetroView.types';
 import { useIsDesktop } from '@hooks/useMediaQuery';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
+import { useImageErrors } from '@hooks/useImageErrors';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
 import type { ColumnWidths } from '@utils/textMeasurement';
 import { storage } from '@utils/storage';
@@ -251,7 +252,7 @@ const RetroView = memo(
       ref
     ) => {
       const { t } = useTranslation();
-      const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+      const { imageErrors, handleImageError } = useImageErrors();
       const availableImages = useAvailableGameImages();
       const { getGroupForIp } = useClientGroups();
       const { getHostnameForIp } = useClientHostnames();
@@ -655,10 +656,6 @@ const RetroView = memo(
         if (!serverMode) return;
         setPageFading(serverRetro.isFetching && !serverRetro.isLoading);
       }, [serverMode, serverRetro.isFetching, serverRetro.isLoading, setPageFading]);
-
-      const handleImageError = useCallback((gameAppId: string) => {
-        setImageErrors((prev) => new Set(prev).add(gameAppId));
-      }, []);
 
       // Fetch event associations for visible downloads
       // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)

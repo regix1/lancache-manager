@@ -13,7 +13,6 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { useDownloads, useGameDetection } from '@contexts/DashboardDataContext/hooks';
-import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useClientHostnames } from '@contexts/useClientHostnames';
@@ -41,7 +40,6 @@ import { Pagination } from '@components/ui/Pagination';
 import { SearchInput } from '@components/ui/SearchInput';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
-import { ImageCacheContext } from '@components/common/ImageCacheContext';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 
@@ -383,7 +381,6 @@ const DownloadsTab: React.FC = () => {
   const { getHostnameForIp } = useClientHostnames();
   const { authMode } = useAuth();
   const isGuest = authMode === 'guest';
-  const { on, off } = useSignalR();
   // The view labels are added and removed from the DOM rather than hidden with a class: a hidden
   // label still counts as the trigger's text, and the shared Tooltip suppresses a box that repeats
   // it, which would leave the icon-only segments with no hover explanation below this width.
@@ -482,13 +479,6 @@ const DownloadsTab: React.FC = () => {
     };
   }, []);
 
-  // Load the backend cache generation so image URLs are cache-busted correctly
-  useEffect(() => {
-    ApiService.getImageCacheVersion().then((v) => {
-      if (v > 0) setImageCacheVersion(v);
-    });
-  }, []);
-
   // Compute whether to show datasource labels (show if any datasources are configured)
   const hasMultipleDatasources = config.dataSources.length >= 1;
 
@@ -497,18 +487,6 @@ const DownloadsTab: React.FC = () => {
   const [settingsOpened, setSettingsOpened] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [imageCacheClearing, setImageCacheClearing] = useState(false);
-  const [imageCacheVersion, setImageCacheVersion] = useState(0);
-
-  // Subscribe to GameImagesUpdated SignalR event to auto-refresh game images when backend finishes fetching them
-  useEffect(() => {
-    const handleGameImagesUpdated = () => {
-      setImageCacheVersion((prev) => prev + 1);
-    };
-    on('GameImagesUpdated', handleGameImagesUpdated);
-    return () => {
-      off('GameImagesUpdated', handleGameImagesUpdated);
-    };
-  }, [on, off]);
 
   // Page number is component state. It used to live in the URL, which meant the page and the page
   // size each had two owners; the size pair fought the retro cap below and rewrote each other
@@ -1411,20 +1389,10 @@ const DownloadsTab: React.FC = () => {
   const handleClearImageCache = async () => {
     setImageCacheClearing(true);
     try {
-      const result = await ApiService.clearImageCache();
-      // Use backend generation so the version survives page reload / SPA navigation
-      setImageCacheVersion(result.cacheGeneration);
-
-      // If Epic URLs weren't refreshed (auth may still be in progress),
-      // do a delayed second bump to catch URLs populated by auto-reconnect
-      if (result.epicImageUrlsRefreshed === 0) {
-        console.warn(
-          '[handleClearImageCache] Epic URLs not refreshed yet - scheduling delayed retry'
-        );
-        setTimeout(() => {
-          setImageCacheVersion((v) => v + 1);
-        }, 6000);
-      }
+      // The request only starts the re-fetch. Epic's URL refresh and every download now happen on
+      // that background pass, and GameImagesUpdated bumps the version when it finishes, so this
+      // handler has nothing left to wait for or to bump itself.
+      await ApiService.clearImageCache();
     } catch (error) {
       notifyError(t('downloads.tab.errors.clearImageCacheFailed'), error, {
         logLabel: '[handleClearImageCache] Failed to clear image cache'
@@ -2128,129 +2096,127 @@ const DownloadsTab: React.FC = () => {
           <LiveDownloadRows previews={visibleLivePreviews} variant="downloads" />
 
           {/* Downloads list */}
-          <ImageCacheContext.Provider value={imageCacheVersion}>
-            {/* Retro stays mounted behind display:none like the other views, so
-                switching back is instant (previous rows + background refetch)
-                instead of a full remount that refetches from scratch. */}
-            <div
-              className="space-y-4"
-              style={{ display: settings.viewMode === 'retro' ? 'block' : 'none' }}
-            >
-              {showRetroView && (
-                <Suspense
-                  fallback={
-                    <div className="py-4">
-                      <LoadingState shape="table" rows={5} />
-                    </div>
+          {/* Retro stays mounted behind display:none like the other views, so
+              switching back is instant (previous rows + background refetch)
+              instead of a full remount that refetches from scratch. */}
+          <div
+            className="space-y-4"
+            style={{ display: settings.viewMode === 'retro' ? 'block' : 'none' }}
+          >
+            {showRetroView && (
+              <Suspense
+                fallback={
+                  <div className="py-4">
+                    <LoadingState shape="table" rows={5} />
+                  </div>
+                }
+              >
+                <RetroView
+                  ref={retroViewRef}
+                  sortOrder={settings.sortOrder}
+                  itemsPerPage={
+                    typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 100
                   }
-                >
-                  <RetroView
-                    ref={retroViewRef}
-                    sortOrder={settings.sortOrder}
-                    itemsPerPage={
-                      typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 100
-                    }
-                    currentPage={currentPage}
-                    onPageChange={handlePageChange}
-                    showTimestamps={settings.showTimestamps}
-                    showBannerColumn={settings.showBannerColumn}
-                    aestheticMode={settings.aestheticMode}
-                    showDatasourceLabels={showDatasourceLabels}
-                    hasMultipleDatasources={hasMultipleDatasources}
-                    groupByGame={settings.groupByGameRetro}
-                    groupByService={settings.groupByServiceRetro}
-                    detectionLookup={detectionLookup}
-                    detectionByName={detectionByName}
-                    detectionByService={detectionByService}
-                    serverMode={settings.viewMode === 'retro'}
-                    filterService={settings.selectedService}
-                    filterClient={settings.selectedClient}
-                    filterSearch={debouncedSearchQuery}
-                    filterHideLocalhost={settings.hideLocalhost}
-                    filterHideMetadata={settings.hideMetadata}
-                    filterHideUnknown={settings.hideUnknownGames}
-                    filterHitMiss={settings.hitMissFilter}
-                    filterStartTime={retroTimeParams.startTime}
-                    filterEndTime={retroTimeParams.endTime}
-                    filterEventId={retroEventId}
-                  />
-                </Suspense>
+                  currentPage={currentPage}
+                  onPageChange={handlePageChange}
+                  showTimestamps={settings.showTimestamps}
+                  showBannerColumn={settings.showBannerColumn}
+                  aestheticMode={settings.aestheticMode}
+                  showDatasourceLabels={showDatasourceLabels}
+                  hasMultipleDatasources={hasMultipleDatasources}
+                  groupByGame={settings.groupByGameRetro}
+                  groupByService={settings.groupByServiceRetro}
+                  detectionLookup={detectionLookup}
+                  detectionByName={detectionByName}
+                  detectionByService={detectionByService}
+                  serverMode={settings.viewMode === 'retro'}
+                  filterService={settings.selectedService}
+                  filterClient={settings.selectedClient}
+                  filterSearch={debouncedSearchQuery}
+                  filterHideLocalhost={settings.hideLocalhost}
+                  filterHideMetadata={settings.hideMetadata}
+                  filterHideUnknown={settings.hideUnknownGames}
+                  filterHitMiss={settings.hitMissFilter}
+                  filterStartTime={retroTimeParams.startTime}
+                  filterEndTime={retroTimeParams.endTime}
+                  filterEventId={retroEventId}
+                />
+              </Suspense>
+            )}
+          </div>
+
+          <div
+            className="relative overflow-x-hidden page-content-transition"
+            ref={nonRetroContentRef}
+            style={{ display: settings.viewMode === 'retro' ? 'none' : 'block' }}
+          >
+            {/* Content based on view mode with display:none pattern for instant switching */}
+            <div style={{ display: settings.viewMode === 'compact' ? 'block' : 'none' }}>
+              {showCompactView && (
+                <CompactView
+                  items={itemsToDisplay as (Download | DownloadGroup)[]}
+                  expandedItem={expandedItem}
+                  onItemClick={handleItemClick}
+                  aestheticMode={settings.aestheticMode}
+                  groupByFrequency={settings.groupByFrequency}
+                  enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
+                  showDatasourceLabels={showDatasourceLabels}
+                  hasMultipleDatasources={hasMultipleDatasources}
+                  detectionLookup={detectionLookup}
+                  detectionByName={detectionByName}
+                  detectionByService={detectionByService}
+                />
               )}
             </div>
 
-            <div
-              className="relative overflow-x-hidden page-content-transition"
-              ref={nonRetroContentRef}
-              style={{ display: settings.viewMode === 'retro' ? 'none' : 'block' }}
-            >
-              {/* Content based on view mode with display:none pattern for instant switching */}
-              <div style={{ display: settings.viewMode === 'compact' ? 'block' : 'none' }}>
-                {showCompactView && (
-                  <CompactView
-                    items={itemsToDisplay as (Download | DownloadGroup)[]}
-                    expandedItem={expandedItem}
-                    onItemClick={handleItemClick}
-                    aestheticMode={settings.aestheticMode}
-                    groupByFrequency={settings.groupByFrequency}
-                    enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
-                    showDatasourceLabels={showDatasourceLabels}
-                    hasMultipleDatasources={hasMultipleDatasources}
-                    detectionLookup={detectionLookup}
-                    detectionByName={detectionByName}
-                    detectionByService={detectionByService}
-                  />
-                )}
-              </div>
-
-              <div style={{ display: settings.viewMode === 'card' ? 'block' : 'none' }}>
-                {showCardView && (
-                  <NormalView
-                    items={itemsToDisplay as (Download | DownloadGroup)[]}
-                    expandedItem={expandedItem}
-                    onItemClick={handleItemClick}
-                    aestheticMode={false}
-                    fullHeightBanners={false}
-                    groupByFrequency={false}
-                    enableScrollIntoView={false}
-                    showDatasourceLabels={showDatasourceLabels}
-                    hasMultipleDatasources={hasMultipleDatasources}
-                    cardGridLayout={true}
-                    cardSize={settings.cardSize}
-                    showCacheHitBar={settings.showCacheHitBar}
-                    showEventBadges={settings.showEventBadges}
-                    bannerOnly={settings.bannerOnly}
-                    detectionLookup={detectionLookup}
-                    detectionByName={detectionByName}
-                    detectionByService={detectionByService}
-                  />
-                )}
-              </div>
-
-              <div style={{ display: settings.viewMode === 'normal' ? 'block' : 'none' }}>
-                {showNormalView && (
-                  <NormalView
-                    items={itemsToDisplay as (Download | DownloadGroup)[]}
-                    expandedItem={expandedItem}
-                    onItemClick={handleItemClick}
-                    aestheticMode={settings.aestheticMode}
-                    fullHeightBanners={settings.fullHeightBanners}
-                    groupByFrequency={settings.groupByFrequency}
-                    enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
-                    showDatasourceLabels={showDatasourceLabels}
-                    hasMultipleDatasources={hasMultipleDatasources}
-                    cardGridLayout={false}
-                    cardSize={settings.cardSize}
-                    showCacheHitBar={settings.showCacheHitBar}
-                    showEventBadges={settings.showEventBadges}
-                    bannerOnly={settings.bannerOnly}
-                    detectionLookup={detectionLookup}
-                    detectionByName={detectionByName}
-                    detectionByService={detectionByService}
-                  />
-                )}
-              </div>
+            <div style={{ display: settings.viewMode === 'card' ? 'block' : 'none' }}>
+              {showCardView && (
+                <NormalView
+                  items={itemsToDisplay as (Download | DownloadGroup)[]}
+                  expandedItem={expandedItem}
+                  onItemClick={handleItemClick}
+                  aestheticMode={false}
+                  fullHeightBanners={false}
+                  groupByFrequency={false}
+                  enableScrollIntoView={false}
+                  showDatasourceLabels={showDatasourceLabels}
+                  hasMultipleDatasources={hasMultipleDatasources}
+                  cardGridLayout={true}
+                  cardSize={settings.cardSize}
+                  showCacheHitBar={settings.showCacheHitBar}
+                  showEventBadges={settings.showEventBadges}
+                  bannerOnly={settings.bannerOnly}
+                  detectionLookup={detectionLookup}
+                  detectionByName={detectionByName}
+                  detectionByService={detectionByService}
+                />
+              )}
             </div>
-          </ImageCacheContext.Provider>
+
+            <div style={{ display: settings.viewMode === 'normal' ? 'block' : 'none' }}>
+              {showNormalView && (
+                <NormalView
+                  items={itemsToDisplay as (Download | DownloadGroup)[]}
+                  expandedItem={expandedItem}
+                  onItemClick={handleItemClick}
+                  aestheticMode={settings.aestheticMode}
+                  fullHeightBanners={settings.fullHeightBanners}
+                  groupByFrequency={settings.groupByFrequency}
+                  enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
+                  showDatasourceLabels={showDatasourceLabels}
+                  hasMultipleDatasources={hasMultipleDatasources}
+                  cardGridLayout={false}
+                  cardSize={settings.cardSize}
+                  showCacheHitBar={settings.showCacheHitBar}
+                  showEventBadges={settings.showEventBadges}
+                  bannerOnly={settings.bannerOnly}
+                  detectionLookup={detectionLookup}
+                  detectionByName={detectionByName}
+                  detectionByService={detectionByService}
+                />
+              )}
+            </div>
+          </div>
 
           {/* Performance warning */}
           {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (

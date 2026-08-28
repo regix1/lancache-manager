@@ -29,7 +29,6 @@ import { DirectoryPermissionsProvider } from '@contexts/DirectoryPermissionsProv
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useConfig } from '@contexts/useConfig';
-import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
@@ -130,10 +129,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const { config } = useConfig();
   const datasources = resolveDatasources(config);
   const [isRechecking, setIsRechecking] = useState(false);
-
-  // Image cache busting for GameCacheDetector's GameImage components
-  const [imageCacheVersion, setImageCacheVersion] = useState(() => Date.now());
-  const invalidateImageCache = useCallback(() => setImageCacheVersion(Date.now()), []);
 
   // Eviction Settings State
   const [evictionMode, setEvictionMode] = useState<string>('show');
@@ -760,16 +755,12 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
           <CorruptionManager authMode={authMode} mockMode={mockMode} onError={onError} />
 
           {/* Game Detection */}
-          <ImageCacheContext.Provider value={imageCacheVersion}>
-            <ImageInvalidateContext.Provider value={invalidateImageCache}>
-              <GameCacheDetector
-                mockMode={mockMode}
-                isAdmin={isAdmin}
-                onDataRefresh={onDataRefresh}
-                refreshKey={gameCacheRefreshKey}
-              />
-            </ImageInvalidateContext.Provider>
-          </ImageCacheContext.Provider>
+          <GameCacheDetector
+            mockMode={mockMode}
+            isAdmin={isAdmin}
+            onDataRefresh={onDataRefresh}
+            refreshKey={gameCacheRefreshKey}
+          />
 
           {/* Eviction Detection and Removal (outer card with two inner sub-accordions: settings + items).
             HighlightGlow scrolls to and glows this card when the user jumps here from the

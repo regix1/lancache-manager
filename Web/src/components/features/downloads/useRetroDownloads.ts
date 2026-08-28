@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import ApiService, {
   type RetroDownloadDto,
@@ -6,6 +6,12 @@ import ApiService, {
   type RetroDownloadQueryParams
 } from '@services/api.service';
 import { ApiError } from '@services/apiError';
+import { SIGNALR_REFRESH_EVENTS, type SignalREventName } from '@contexts/SignalRContext/types';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useTimeFilter } from '@contexts/useTimeFilter';
+import { useRefreshRate } from '@contexts/useRefreshRate';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useRefreshThrottle } from '@hooks/useRefreshThrottle';
 import type { HitMissFilter } from './RetroView.types';
 
 interface RetroDownloadsHookOptions {
@@ -63,6 +69,26 @@ const EMPTY_RESPONSE: RetroDownloadResponse = {
 };
 
 /**
+ * Fired while a download or a log run is still in progress. The card, normal and compact views and
+ * the Dashboard answer these only on the Live range (`DashboardDataContext` gates them in
+ * `handleRefreshEvent`), and Retro shares the header's range with all of them, so Retro has to make
+ * the same distinction or a bounded range leaves it listing rows the other views do not show.
+ */
+const RETRO_LIVE_ONLY_EVENTS: readonly SignalREventName[] = [
+  'DownloadsRefresh',
+  'LogProcessingComplete'
+];
+
+/**
+ * The rest: completions that fire once, after an action, and that the other views answer on every
+ * range. Checked against the event union here because `on`/`off` take a plain string and would
+ * accept a name that no longer exists.
+ */
+const RETRO_REFRESH_EVENTS: readonly SignalREventName[] = SIGNALR_REFRESH_EVENTS.filter(
+  (eventName) => !RETRO_LIVE_ONLY_EVENTS.includes(eventName)
+);
+
+/**
  * Fetch the server-paginated `/api/downloads/retro` endpoint.
  *
  * Strongly-typed self-contained data hook. Previous-response data stays
@@ -89,13 +115,54 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     eventId
   } = options;
 
+  const { on, off, isConnected } = useSignalR();
+  const { timeRange } = useTimeFilter();
+  const { getRefreshInterval } = useRefreshRate();
+  // The same cadence the card, normal and compact views and the Dashboard answer on, read from the
+  // one refresh-rate setting, so a finished download reaches every view at the same moment.
+  const scheduleReload = useRefreshThrottle(getRefreshInterval);
   const [data, setData] = useState<RetroDownloadResponse>(EMPTY_RESPONSE);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isFetching, setIsFetching] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
+  // Bumped to ask the fetch below for the same page again, the way DownloadAssociationsContext
+  // re-asks for its rows. The previous response stays on screen while it runs.
+  const [refreshVersion, setRefreshVersion] = useState<number>(0);
 
   // Preserve previous data across fetches (placeholderData: keepPreviousData semantics).
   const hasInitialDataRef = useRef<boolean>(false);
+
+  // Stable, so the subscription below re-runs only when the connection's own callbacks change.
+  const reload = useCallback((): void => {
+    setRefreshVersion((version) => version + 1);
+  }, []);
+
+  // Events raised while the socket was down are never delivered, so a genuine reconnect refetches
+  // rather than leaving whatever was on screen when the connection dropped.
+  useReconnectRefetch(isConnected, reload);
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      // The retro view stays mounted behind display:none once it has been opened, so a hook that is
+      // switched off still receives every event. Bumping the version there re-renders the whole
+      // list for a fetch that will not run; switching back on refetches by itself.
+      if (!enabled) return;
+      scheduleReload(reload);
+    };
+
+    const handleLiveRefresh = () => {
+      if (!enabled || timeRange !== 'live') return;
+      scheduleReload(reload);
+    };
+
+    RETRO_REFRESH_EVENTS.forEach((eventName) => on(eventName, handleRefresh));
+    RETRO_LIVE_ONLY_EVENTS.forEach((eventName) => on(eventName, handleLiveRefresh));
+
+    return () => {
+      RETRO_REFRESH_EVENTS.forEach((eventName) => off(eventName, handleRefresh));
+      RETRO_LIVE_ONLY_EVENTS.forEach((eventName) => off(eventName, handleLiveRefresh));
+    };
+  }, [enabled, on, off, reload, scheduleReload, timeRange]);
 
   useEffect(() => {
     if (!enabled) {
@@ -178,7 +245,8 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     groupByService,
     startTime,
     endTime,
-    eventId
+    eventId,
+    refreshVersion
   ]);
 
   return {

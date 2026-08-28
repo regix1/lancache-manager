@@ -81,7 +81,6 @@ export const SIGNALR_EVENTS = [
   'CorruptionRemovalStarted',
   'CorruptionRemovalProgress',
   'CorruptionRemovalComplete',
-  'EvictionRemovalComplete',
 
   // Games
   'GameDetectionStarted',
@@ -119,6 +118,9 @@ export const SIGNALR_EVENTS = [
   'UserSessionsCleared',
   'SessionLastSeenUpdated',
   'GuestRefreshRateUpdated',
+
+  // Accounts
+  'AccountsChanged',
 
   // User Preferences
   'UserPreferencesUpdated',

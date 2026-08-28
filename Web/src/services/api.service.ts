@@ -725,11 +725,13 @@ class ApiService {
     }
   }
 
-  // Surfaces failures (throws ApiError) rather than masking them as an empty list - a network/500
-  // error is not the same as "no images available". The caller decides how to react.
-  static async getAvailableGameImages(): Promise<string[]> {
+  // Every image the server can serve, keyed by the id the rows look up, with the version its bytes
+  // were stored at. Surfaces failures (throws ApiError) rather than masking them as an empty list -
+  // a network/500 error is not the same as "no images available". The caller decides how to react.
+  static async getAvailableGameImages(): Promise<Record<string, number>> {
     const res = await fetch(`${API_BASE}/game-images/available`, this.getFetchOptions({}));
-    return await this.handleResponse<string[]>(res);
+    const result = await this.handleResponse<{ images: Record<string, number> }>(res);
+    return result.images;
   }
 
   // Get the backend's image cache generation (used as cache-bust param on image URLs). Surfaces
@@ -740,13 +742,10 @@ class ApiService {
     return result.version;
   }
 
-  // Clear the game image cache (disk + in-memory failed-fetch cache)
-  static async clearImageCache(): Promise<{
-    message: string;
-    failedCacheEntriesCleared: number;
-    epicImageUrlsRefreshed: number;
-    cacheGeneration: number;
-  }> {
+  // Clear the game image cache (disk + in-memory failed-fetch cache). The server answers 202 as
+  // soon as the re-fetch has started, and GameImagesUpdated tells the UI when banners are ready,
+  // so there is nothing in the body left for a caller to act on.
+  static async clearImageCache(): Promise<void> {
     try {
       const res = await fetch(
         `${API_BASE}/game-images/cache`,
@@ -754,13 +753,7 @@ class ApiService {
           method: 'DELETE'
         })
       );
-      const result = await this.handleResponse<{
-        message: string;
-        failedCacheEntriesCleared: number;
-        epicImageUrlsRefreshed: number;
-        cacheGeneration: number;
-      }>(res);
-      return result;
+      await assertOk(res);
     } catch (error: unknown) {
       console.error('clearImageCache error:', error);
       throw error;

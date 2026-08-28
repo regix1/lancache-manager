@@ -12,8 +12,11 @@ public interface IImageCacheService
     /// <param name="appId">The app ID (Steam app ID or Epic app ID)</param>
     /// <param name="platform">The platform ("steam" or "epicgames")</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Image bytes and content type, or null if not cached</returns>
-    Task<(byte[] imageBytes, string contentType)?> GetImageAsync(
+    /// <returns>
+    /// Image bytes, content type, and the time those bytes were stored, or null if not cached.
+    /// The stored-at time is what makes a banner URL change exactly when its artwork does.
+    /// </returns>
+    Task<(byte[] imageBytes, string contentType, DateTime storedAtUtc)?> GetImageAsync(
         string appId,
         string platform,
         CancellationToken cancellationToken = default);

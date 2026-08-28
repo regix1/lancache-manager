@@ -18,8 +18,11 @@ import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import { useErrorHandler } from '@hooks/useErrorHandler';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import { getErrorMessage } from '@utils/error';
 import { API_BASE } from '@utils/constants';
 import WipeAccountsButton from './WipeAccountsButton';
@@ -27,6 +30,10 @@ import type { AccountConfirmation, AccountEditor, AccountRole, UserAccount } fro
 
 // Not exported - a .tsx file exports components only, and Fast Refresh needs it that way.
 const PAGE_SIZE = 10;
+
+// An administrator working through several accounts sends one event per row, close together, and
+// the list is reloaded whole either way, so the burst collapses into one reload.
+const RELOAD_DEBOUNCE_MS = 1000;
 
 /**
  * Reads and writes the accounts people sign in with, as the third segment of the user tab.
@@ -42,6 +49,7 @@ const UserAccounts: React.FC = () => {
   const { t } = useTranslation();
   const { notifyError } = useErrorHandler();
   const { isMainAdmin, accountId } = useAuth();
+  const { on, off, isConnected } = useSignalR();
   // The six-column table needs 772px of column minimums, so on a phone it can only be reached by
   // scrolling sideways and the badges and the row menu sit off the edge. Below the sm breakpoint the
   // same rows are shown as three columns instead, which fits without any sideways scrolling.
@@ -59,25 +67,61 @@ const UserAccounts: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const loadAccounts = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await fetch(`${API_BASE}/accounts`, ApiService.getFetchOptions({}));
-      setAccounts(await ApiService.handleResponse<UserAccount[]>(response));
-      setLoadFailed(false);
-    } catch (err: unknown) {
-      // The list stays empty on a failure, so without this the screen would show the empty state
-      // and report "no accounts" for what is actually a request that never arrived.
-      setLoadFailed(true);
-      notifyError(t('user.accounts.errors.load'), err, { logLabel: 'Failed to load accounts' });
-    } finally {
-      setLoading(false);
-    }
-  }, [notifyError, t]);
+  const scheduleReload = useTimeoutCallback(RELOAD_DEBOUNCE_MS);
+
+  /**
+   * @param firstLoad True for the load that fills an empty screen: it shows the loading state while
+   * the request is out and the failure state if it never arrives. A reload behind somebody else's
+   * change passes false, because rows that are still correct are worse blanked than left a moment
+   * stale, and a failure there is reported as a notification with the table left standing.
+   */
+  const loadAccounts = useCallback(
+    async (firstLoad: boolean) => {
+      try {
+        if (firstLoad) {
+          setLoading(true);
+        }
+        const response = await fetch(`${API_BASE}/accounts`, ApiService.getFetchOptions({}));
+        setAccounts(await ApiService.handleResponse<UserAccount[]>(response));
+        setLoadFailed(false);
+      } catch (err: unknown) {
+        // The list stays empty on a failure, so without this the screen would show the empty state
+        // and report "no accounts" for what is actually a request that never arrived.
+        if (firstLoad) {
+          setLoadFailed(true);
+        }
+        notifyError(t('user.accounts.errors.load'), err, { logLabel: 'Failed to load accounts' });
+      } finally {
+        if (firstLoad) {
+          setLoading(false);
+        }
+      }
+    },
+    [notifyError, t]
+  );
 
   useEffect(() => {
-    loadAccounts();
+    loadAccounts(true);
   }, [loadAccounts]);
+
+  // Changes made while the socket was down are never delivered, so a genuine reconnect reloads.
+  useReconnectRefetch(isConnected, () => {
+    void loadAccounts(false);
+  });
+
+  useEffect(() => {
+    const handleAccountsChanged = () => {
+      scheduleReload(() => {
+        void loadAccounts(false);
+      });
+    };
+
+    on('AccountsChanged', handleAccountsChanged);
+
+    return () => {
+      off('AccountsChanged', handleAccountsChanged);
+    };
+  }, [on, off, loadAccounts, scheduleReload]);
 
   const submitEditor = async (open: AccountEditor) => {
     try {

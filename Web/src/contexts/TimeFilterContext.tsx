@@ -118,14 +118,6 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     setSelectedEventIdsState([]);
   }, []);
 
-  // Extend the time anchor forward (re-anchor to now)
-  // Called by StatsContext/DownloadsContext when receiving SignalR events
-  const extendTimeAnchor = useCallback(() => {
-    if (timeRange !== 'live' && timeRange !== 'custom') {
-      setRangeAnchorTime(Date.now());
-    }
-  }, [timeRange]);
-
   const getTimeRangeParams = useCallback((): { startTime?: number; endTime?: number } => {
     // Quantize to minute buckets so mousedown-prefetch and click-fetch
     // (often <500ms apart) produce identical cache keys → cache hit.
@@ -169,7 +161,6 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       getTimeRangeInHours,
       getTimeRangeParams,
       rangeAnchorTime,
-      extendTimeAnchor,
       selectedEventIds,
       setSelectedEventIds,
       toggleEventId,
@@ -185,7 +176,6 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       getTimeRangeInHours,
       getTimeRangeParams,
       rangeAnchorTime,
-      extendTimeAnchor,
       selectedEventIds,
       setSelectedEventIds,
       toggleEventId,

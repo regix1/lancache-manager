@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
@@ -23,9 +23,12 @@ import { SettingRow } from '@components/ui/SettingRow';
 import { ClientAddressChip } from '@components/ui/ClientAddressChip';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import { usePaginatedList } from '@hooks/usePaginatedList';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSelectionSet } from '@hooks/useSelectionSet';
+import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useClientHostnames } from '@contexts/useClientHostnames';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
@@ -36,6 +39,7 @@ import { useKnownClientIps } from '@/hooks/useKnownClientIps';
 import { Users, EyeOff, Trash2, Edit2, ChevronDown, Network } from 'lucide-react';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
+import type { SignalREventName } from '@contexts/SignalRContext/types';
 import type { ClientGroup, ClientExclusionRule, ClientExclusionMode } from '../../../../types';
 import '../managementSectionContent.css';
 import './ClientsSection.css';
@@ -60,6 +64,14 @@ const HOSTNAME_SWITCHES = [
 
 // Eight rows keeps the raw address list from out-weighing the nicknames it feeds.
 const UNGROUPED_IPS_PER_PAGE = 8;
+
+// A saved exclusion change raises this, and so does a log processing run, the end-of-activity edge
+// and an eviction reset. The reload is one small request and it declines to run while the panel is
+// being edited, so it answers the name rather than filtering on a reason.
+const CLIENT_EXCLUSION_EVENTS: readonly SignalREventName[] = ['DownloadsRefresh'];
+
+// The events above can land within a moment of each other, so the burst collapses into one load.
+const REFRESH_DEBOUNCE_MS = 1000;
 
 interface ClientsSectionProps {
   isAdmin: boolean;
@@ -89,6 +101,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     hostnamesReason === 'someUnnamed' && someUnnamedDismissed ? null : hostnamesReasonKey;
   const { refreshStats } = useStats();
   const { refreshDownloads } = useDownloads();
+  const { on, off, isConnected } = useSignalR();
+  const scheduleReload = useTimeoutCallback(REFRESH_DEBOUNCE_MS);
 
   const [nicknamesExpanded, setNicknamesExpanded] = useState(false);
   useAccordionGroupItem('clients-nicknames', nicknamesExpanded, () =>
@@ -151,25 +165,62 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     [excludedRules, savedExcludedRules, serializeRules]
   );
 
-  const loadExcludedIps = useCallback(async () => {
-    if (!isAdmin) return;
-    setLoadingExcluded(true);
-    try {
-      const response = await ApiService.getStatsExclusions();
-      const rules = response.rules ?? [];
-      setExcludedRules(rules);
-      setSavedExcludedRules(rules);
-    } catch (err) {
-      onError(getErrorMessage(err) || t('management.sections.clients.errors.failedToLoadExcluded'));
-    } finally {
-      setLoadingExcluded(false);
-    }
+  // Read through a ref rather than a dependency so the check below sees what is on screen when the
+  // reply lands, not what was on screen when the request went out.
+  const hasExcludedChangesRef = useRef(hasExcludedChanges);
+  hasExcludedChangesRef.current = hasExcludedChanges;
+
+  const loadExcludedIps = useCallback(
+    async (showLoading: boolean) => {
+      if (!isAdmin) return;
+      if (showLoading) setLoadingExcluded(true);
+      try {
+        const response = await ApiService.getStatsExclusions();
+        // A reply is a whole request old, and the user can have started editing inside that window.
+        // What they typed is what they can see, so the server's copy waits for their next save.
+        if (hasExcludedChangesRef.current) return;
+        const rules = response.rules ?? [];
+        setExcludedRules(rules);
+        setSavedExcludedRules(rules);
+      } catch (err) {
+        onError(
+          getErrorMessage(err) || t('management.sections.clients.errors.failedToLoadExcluded')
+        );
+      } finally {
+        if (showLoading) setLoadingExcluded(false);
+      }
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin, onError]);
+    [isAdmin, onError]
+  );
 
   useEffect(() => {
-    loadExcludedIps();
+    loadExcludedIps(true);
   }, [loadExcludedIps]);
+
+  // Another admin saving the list changes what this panel is showing, and the panel had no way of
+  // hearing about it: it read its rules once, on mount, and the next save here wrote the old ones
+  // back over the new. A draft is never replaced, and a background reload never raises the loading
+  // flag, so it neither blanks the list nor disables the controls the user is holding. [21] [22]
+  const reloadExclusions = useCallback(() => {
+    if (hasExcludedChangesRef.current) return;
+    void loadExcludedIps(false);
+  }, [loadExcludedIps]);
+
+  // Events raised while the socket was down are never delivered, so a genuine reconnect reloads.
+  useReconnectRefetch(isConnected, reloadExclusions);
+
+  useEffect(() => {
+    const handleExclusionsChanged = () => {
+      scheduleReload(reloadExclusions);
+    };
+
+    CLIENT_EXCLUSION_EVENTS.forEach((eventName) => on(eventName, handleExclusionsChanged));
+
+    return () => {
+      CLIENT_EXCLUSION_EVENTS.forEach((eventName) => off(eventName, handleExclusionsChanged));
+    };
+  }, [on, off, reloadExclusions, scheduleReload]);
 
   const invalidInputIps = useMemo(
     () => parseIpCandidates(excludeInput).filter((ip) => !isValidIpAddress(ip)),

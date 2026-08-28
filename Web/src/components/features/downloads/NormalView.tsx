@@ -23,6 +23,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { GameImage } from '@components/common/GameImage';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
+import { useImageErrors } from '@hooks/useImageErrors';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import { useGroupPagination } from '@hooks/useGroupPagination';
 import { useGroupDownloadAssociations } from '@hooks/useGroupDownloadAssociations';
@@ -1241,7 +1242,7 @@ const NormalView: React.FC<NormalViewProps> = ({
 }) => {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
-  const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
+  const { imageErrors, handleImageError } = useImageErrors();
   const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
   const [drawerItem, setDrawerItem] = useState<DownloadGroup | null>(null);
   const { startHoldTimer, stopHoldTimer } = useHoldTimer();
@@ -1391,10 +1392,6 @@ const NormalView: React.FC<NormalViewProps> = ({
         </div>
       </div>
     );
-  };
-
-  const handleImageError = (gameAppId: string) => {
-    setImageErrors((prev) => new Set(prev).add(gameAppId));
   };
 
   const renderGroupCard = (group: DownloadGroup) => (

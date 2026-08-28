@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { NotificationsProvider } from '@contexts/notifications';
 import { BulkRemovalProvider } from '@contexts/BulkRemovalContext';
 import { CacheSizeProvider } from '@contexts/CacheSizeContext';
@@ -28,7 +28,10 @@ import { TimezoneProvider } from '@contexts/TimezoneContext';
 import { SessionPreferencesProvider } from '@contexts/SessionPreferencesContext';
 import { DockerSocketProvider } from '@contexts/DockerSocketContext';
 import { GameServiceProvider } from '@contexts/GameServiceContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import ErrorBoundary from '@components/common/ErrorBoundary';
+import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
+import ApiService from '@services/api.service';
 
 // Wrapper components that inject mockMode from context into providers that require it.
 // These must live here (inside MockModeProvider) so the useMockMode hook is available.
@@ -49,6 +52,47 @@ const PicsProgressProviderWithMockMode: React.FC<{ children: React.ReactNode }> 
 const EventProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { mockMode } = useMockMode();
   return <EventProvider mockMode={mockMode}>{children}</EventProvider>;
+};
+
+// The image cache version spans the whole app: the Downloads page renders banners and the
+// Management page's game detection bumps the version, and each used to own its own provider with a
+// value the other could not compare against. One provider here means GameImagesUpdated is still
+// handled while the Downloads tab is unmounted, and every banner reads the same number.
+const ImageCacheProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { on, off } = useSignalR();
+  const [imageCacheVersion, setImageCacheVersion] = useState(0);
+  const invalidateImageCache = useCallback(() => {
+    setImageCacheVersion((prev) => prev + 1);
+  }, []);
+
+  // Seed from the backend generation so the version survives a page reload.
+  useEffect(() => {
+    ApiService.getImageCacheVersion()
+      .then((v) => {
+        if (v > 0) setImageCacheVersion(v);
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to read the image cache version, banner URLs stay unversioned:', err);
+      });
+  }, []);
+
+  useEffect(() => {
+    const handleGameImagesUpdated = () => {
+      setImageCacheVersion((prev) => prev + 1);
+    };
+    on('GameImagesUpdated', handleGameImagesUpdated);
+    return () => {
+      off('GameImagesUpdated', handleGameImagesUpdated);
+    };
+  }, [on, off]);
+
+  return (
+    <ImageCacheContext.Provider value={imageCacheVersion}>
+      <ImageInvalidateContext.Provider value={invalidateImageCache}>
+        {children}
+      </ImageInvalidateContext.Provider>
+    </ImageCacheContext.Provider>
+  );
 };
 
 const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -95,7 +139,9 @@ const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => 
                                                         <ClientGroupProvider>
                                                           <ClientHostnameProvider>
                                                             <DownloadAssociationsProvider>
-                                                              {children}
+                                                              <ImageCacheProvider>
+                                                                {children}
+                                                              </ImageCacheProvider>
                                                             </DownloadAssociationsProvider>
                                                           </ClientHostnameProvider>
                                                         </ClientGroupProvider>

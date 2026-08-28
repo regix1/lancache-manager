@@ -498,6 +498,14 @@ public partial class SteamKit2Service
                 await scopedDb.DbContext.SaveChangesAsync(cancellationToken);
                 scopedDb.DbContext.ChangeTracker.Clear();
                 _logger.LogInformation($"Updated {updated} downloads with game information, {notFound} not found");
+
+                // These downloads only just got their game identity, so fetch their banners now
+                // rather than leaving them blank until the next scheduled pass. It starts detached so
+                // mapping does not wait on it, and a pass already holding the execution lock has read
+                // past these names, so a refusal here starts one more pass when that one ends.
+                using var imageFetchScope = _scopeFactory.CreateScope();
+                var imageFetchService = imageFetchScope.ServiceProvider.GetRequiredService<GameImageFetchService>();
+                imageFetchService.StartFetchInBackground(refreshEpicImageUrls: false);
             }
             else
             {

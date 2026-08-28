@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, Trash2 } from 'lucide-react';
 import '../managementSectionContent.css';
@@ -8,6 +8,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import Badge from '@components/ui/Badge';
 import { GameImage } from '../../../common/GameImage';
+import { ImageCacheContext } from '@components/common/ImageCacheContext';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
@@ -84,7 +85,14 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   const { available: diskObjectsAvailable, denialReason: diskObjectDenialReason } =
     useDiskObjectCapability();
   const [imageError, setImageError] = useState(false);
+  const imageCacheVersion = useContext(ImageCacheContext);
   const availableImages = useAvailableGameImages();
+
+  // A new version means the stored images changed, so an earlier failure stops being evidence that
+  // this card has no artwork. Without this the card shows its placeholder until the page reloads.
+  useEffect(() => {
+    setImageError(false);
+  }, [imageCacheVersion]);
 
   const handleImageFinalError = (_gameAppId: string) => {
     setImageError(true);

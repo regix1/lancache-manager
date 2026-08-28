@@ -1,4 +1,6 @@
 using FluentValidation;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -41,6 +43,7 @@ public class AccountsController : ControllerBase
     private readonly IdentityAuditService _identityAuditService;
     private readonly AccountLockout _accountLockout;
     private readonly AccountClaimWindow _claimWindow;
+    private readonly ISignalRNotificationService _notifications;
     private readonly ILogger<AccountsController> _logger;
 
     public AccountsController(
@@ -50,6 +53,7 @@ public class AccountsController : ControllerBase
         IdentityAuditService identityAuditService,
         AccountLockout accountLockout,
         AccountClaimWindow claimWindow,
+        ISignalRNotificationService notifications,
         ILogger<AccountsController> logger)
     {
         _dbContextFactory = dbContextFactory;
@@ -58,6 +62,7 @@ public class AccountsController : ControllerBase
         _identityAuditService = identityAuditService;
         _accountLockout = accountLockout;
         _claimWindow = claimWindow;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -181,6 +186,10 @@ public class AccountsController : ControllerBase
 
         _logger.LogInformation("Account {Username} created with the {Role} role", account.Username, account.Role);
 
+        // Another account holder's accounts table is loaded once and never asked again, so without
+        // this it shows the list as it was before this write until that person reloads the page.
+        await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
+
         return Created($"/api/accounts/{account.Id}", ToResponse(account));
     }
 
@@ -280,6 +289,8 @@ public class AccountsController : ControllerBase
 
         _logger.LogInformation("Account {AccountId} edited", account.Id);
 
+        await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
+
         return Ok(ToResponse(account));
     }
 
@@ -340,6 +351,8 @@ public class AccountsController : ControllerBase
 
         _logger.LogInformation("Account {AccountId} moved to the {Role} role", account.Id, account.Role);
 
+        await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
+
         return Ok(ToResponse(account));
     }
 
@@ -395,6 +408,8 @@ public class AccountsController : ControllerBase
         _logger.LogInformation(
             "Account {AccountId} was {State}", account.Id, request.Disabled ? "disabled" : "enabled");
 
+        await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
+
         return Ok(ToResponse(account));
     }
 
@@ -438,6 +453,8 @@ public class AccountsController : ControllerBase
         await RecordAsync(IdentityAuditEvent.AccountDeleted, caller, session, account.Id);
 
         _logger.LogInformation("Account {AccountId} deleted", account.Id);
+
+        await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
 
         return Ok(MessageResponse.Ok("Account deleted"));
     }
@@ -493,6 +510,10 @@ public class AccountsController : ControllerBase
         await _sessionService.ClearAllSessionsAsync();
 
         _logger.LogWarning("Every account was deleted, including the one that owns the installation");
+
+        // One broadcast for the whole table rather than one per removed row: the list is reloaded
+        // whole, and the rows all went in a single write.
+        await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
 
         return Ok(MessageResponse.Ok("Accounts deleted"));
     }

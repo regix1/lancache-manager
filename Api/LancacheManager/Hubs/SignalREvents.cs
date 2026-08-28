@@ -34,6 +34,14 @@ public static class SignalREvents
     public const string SessionLastSeenUpdated = "SessionLastSeenUpdated";
     public const string GuestRefreshRateUpdated = "GuestRefreshRateUpdated";
 
+    // Accounts
+    /// <summary>
+    /// Broadcast whenever an account row changes: created, renamed or given a new password, moved to
+    /// another role, disabled or enabled, deleted, or every row wiped. One name for all of them
+    /// because the accounts table reloads the whole list either way.
+    /// </summary>
+    public const string AccountsChanged = "AccountsChanged";
+
     // User Preferences
     public const string UserPreferencesUpdated = "UserPreferencesUpdated";
     public const string UserPreferencesReset = "UserPreferencesReset";
