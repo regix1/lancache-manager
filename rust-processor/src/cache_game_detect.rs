@@ -227,6 +227,53 @@ fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<u128, u64>> {
     Ok(cache_files)
 }
 
+/// Identity of the detection row a late-attributed cache file belongs to. Values in
+/// `LateAttribution::bases` index into its `owners` list.
+enum LateOwner {
+    Service { service_name: String },
+    NamedGame { service: String, game_name: String },
+}
+
+/// Phase 5's late-attribution inputs: md5 digest of each registered URL's unsliced key
+/// base -> index into `owners`.
+#[derive(Default)]
+struct LateAttribution {
+    bases: HashMap<u128, u32>,
+    owners: Vec<LateOwner>,
+}
+
+/// Register one owner's URLs in the late-attribution map: the md5 digest of each URL's
+/// unsliced key base -> owner index. Phase 5 recovers the same base from an unclaimed
+/// file's `KEY:` header, so a slice the walk never reached still finds its owner here.
+///
+/// Only the named-game and service buckets register. Their content is range-served
+/// (Blizzard TACT archives, Riot bundles, wsus GUID objects): one URL spans many 1 MiB
+/// slices, and a partial-eviction hole wider than CONSECUTIVE_MISS_LIMIT stops the
+/// matcher's walk short of every slice behind it. Steam and Epic URLs name ~1 MiB chunk
+/// objects of at most two slices, which a walk from slice 0 cannot miss - registering
+/// their millions of URLs would grow this map for no reachable hit.
+fn register_late_owner(
+    late: &mut LateAttribution,
+    owner: LateOwner,
+    service_urls: &[(String, String, i64)],
+) {
+    let owner_idx = late.owners.len() as u32;
+    let mut registered = false;
+    for (service, url, _bytes_served) in service_urls {
+        if let Some(base) = cache_utils::object_key_base(service, url) {
+            // First owner wins a shared base, matching the claimed-set union where a file
+            // shared across owners counts once under whichever matcher reached it first.
+            late.bases
+                .entry(cache_utils::calculate_md5_digest(&base))
+                .or_insert(owner_idx);
+            registered = true;
+        }
+    }
+    if registered {
+        late.owners.push(owner);
+    }
+}
+
 /// The cache files no detected game and no detected service claimed, grouped by the service
 /// named in each file's `KEY:` header.
 ///
@@ -241,8 +288,9 @@ fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<u128, u64>> {
 fn detect_unmapped_services(
     cache_dir: &Path,
     cache_files_index: Option<&HashMap<u128, u64>>,
-    detected_games: &[GameCacheInfo],
-    detected_services: &[ServiceCacheInfo],
+    detected_games: &mut Vec<GameCacheInfo>,
+    detected_services: &mut Vec<ServiceCacheInfo>,
+    late: &LateAttribution,
     progress_path: Option<&Path>,
     reporter: &ProgressReporter,
 ) -> Result<Option<Vec<UnmappedService>>> {
@@ -276,6 +324,8 @@ fn detect_unmapped_services(
 
     let mut processed = 0usize;
     let mut by_service: BTreeMap<String, UnmappedService> = BTreeMap::new();
+    // (path, size) per late owner, applied to the detection rows after the loop.
+    let mut late_hits: HashMap<u32, Vec<(String, u64)>> = HashMap::new();
     for (digest, size_bytes) in unmapped {
         // Cooperative cancel: check between key reads, one disk read each
         if cancel::is_cancelled() {
@@ -293,8 +343,42 @@ fn detect_unmapped_services(
         }
 
         processed += 1;
+
+        if processed % 500 == 0 || processed == total {
+            let percent = 90.0 + (processed as f64 / total.max(1) as f64) * 2.0;
+            let context = json!({ "processed": processed, "total": total });
+            write_progress(
+                progress_path,
+                "unmapped",
+                "signalr.gameDetect.unmapped.progress",
+                context.clone(),
+                percent,
+                processed,
+                total,
+            )?;
+            reporter.emit_progress(percent, "signalr.gameDetect.unmapped.progress", context);
+        }
+
         let path = cache_utils::cache_path_for_digest(cache_dir, digest);
         let url = cache_utils::read_cache_file_key(&path);
+
+        // Late attribution: the key header carries the exact literal nginx hashed, so
+        // stripping its slice suffix and hashing the base finds the owner whose walk
+        // stopped short of this slice (a partial-eviction hole wider than the
+        // consecutive-miss bound). Claimed this way, the file joins the owner's row
+        // instead of the unmapped bucket.
+        if let Some(key) = url.as_deref() {
+            let base_digest =
+                cache_utils::calculate_md5_digest(cache_utils::cache_key_base_of(key));
+            if let Some(&owner_idx) = late.bases.get(&base_digest) {
+                late_hits
+                    .entry(owner_idx)
+                    .or_default()
+                    .push((path.display().to_string(), size_bytes));
+                continue;
+            }
+        }
+
         let service = cache_utils::service_from_key(url.as_deref());
         let group = by_service
             .entry(service.clone())
@@ -313,21 +397,81 @@ fn detect_unmapped_services(
             sample_urls.push(url);
             group.sample_urls = cache_utils::sorted_sample_urls(sample_urls, 5);
         }
+    }
 
-        if processed % 500 == 0 || processed == total {
-            let percent = 90.0 + (processed as f64 / total.max(1) as f64) * 2.0;
-            let context = json!({ "processed": processed, "total": total });
-            write_progress(
-                progress_path,
-                "unmapped",
-                "signalr.gameDetect.unmapped.progress",
-                context.clone(),
-                percent,
-                processed,
-                total,
-            )?;
-            reporter.emit_progress(percent, "signalr.gameDetect.unmapped.progress", context);
+    // Fold the late-attributed files into their owners' rows. A row absent from the
+    // detection results (its walk claimed nothing) is created here, so an object whose
+    // every present slice sits behind an eviction hole still surfaces as its owner.
+    if !late_hits.is_empty() {
+        let mut attributed_files = 0usize;
+        let mut attributed_bytes = 0u64;
+        for (owner_idx, files) in late_hits {
+            match &late.owners[owner_idx as usize] {
+                LateOwner::Service { service_name } => {
+                    let row = match detected_services
+                        .iter_mut()
+                        .find(|s| s.service_name.eq_ignore_ascii_case(service_name))
+                    {
+                        Some(row) => row,
+                        None => {
+                            detected_services.push(ServiceCacheInfo {
+                                service_name: service_name.clone(),
+                                cache_files_found: 0,
+                                total_size_bytes: 0,
+                                sample_urls: Vec::new(),
+                                cache_file_paths: Vec::new(),
+                            });
+                            detected_services.last_mut().unwrap()
+                        }
+                    };
+                    for (path, size_bytes) in files {
+                        row.cache_files_found += 1;
+                        row.total_size_bytes = row.total_size_bytes.saturating_add(size_bytes);
+                        attributed_files += 1;
+                        attributed_bytes = attributed_bytes.saturating_add(size_bytes);
+                        row.cache_file_paths.push(path);
+                    }
+                }
+                LateOwner::NamedGame { service, game_name } => {
+                    let row = match detected_games.iter_mut().find(|g| {
+                        g.epic_app_id.is_none()
+                            && g.game_app_id == 0
+                            && g.game_name == *game_name
+                            && g.service
+                                .as_deref()
+                                .is_some_and(|s| s.eq_ignore_ascii_case(service))
+                    }) {
+                        Some(row) => row,
+                        None => {
+                            detected_games.push(GameCacheInfo {
+                                game_app_id: 0,
+                                game_name: game_name.clone(),
+                                cache_files_found: 0,
+                                total_size_bytes: 0,
+                                depot_ids: Vec::new(),
+                                sample_urls: Vec::new(),
+                                cache_file_paths: Vec::new(),
+                                service: Some(service.to_lowercase()),
+                                epic_app_id: None,
+                            });
+                            detected_games.last_mut().unwrap()
+                        }
+                    };
+                    for (path, size_bytes) in files {
+                        row.cache_files_found += 1;
+                        row.total_size_bytes = row.total_size_bytes.saturating_add(size_bytes);
+                        attributed_files += 1;
+                        attributed_bytes = attributed_bytes.saturating_add(size_bytes);
+                        row.cache_file_paths.push(path);
+                    }
+                }
+            }
         }
+        eprintln!(
+            "Attributed {} unclaimed file(s) ({:.2} MB) to their owners via KEY headers",
+            attributed_files,
+            attributed_bytes as f64 / 1_048_576.0
+        );
     }
 
     Ok(Some(by_service.into_values().collect()))
@@ -637,6 +781,10 @@ async fn main() -> Result<()> {
     write_progress(progress_path.as_deref(), "matching", "signalr.gameDetect.named.detecting", json!({}), 75.0, 0, 0)?;
     reporter.emit_progress(75.0, "signalr.gameDetect.named.detecting", json!({}));
 
+    // Late-attribution map for Phase 5, fed by the named-game and service buckets below.
+    // Built on full scans only: incremental runs skip Phase 5 entirely.
+    let mut late = LateAttribution::default();
+
     let named_records = query_named_game_downloads(&pool).await?;
 
     if !named_records.is_empty() {
@@ -687,6 +835,14 @@ async fn main() -> Result<()> {
             let result = if incremental_mode {
                 detect_named_game_cache_info_incremental(service, game_name, service_urls, &cache_dir)
             } else {
+                register_late_owner(
+                    &mut late,
+                    LateOwner::NamedGame {
+                        service: service.clone(),
+                        game_name: game_name.clone(),
+                    },
+                    service_urls,
+                );
                 let cache_index = cache_files_index
                     .as_ref()
                     .context("Cache file index missing during full named game scan")?;
@@ -893,6 +1049,13 @@ async fn main() -> Result<()> {
                     &url_counter,
                 )
             } else {
+                register_late_owner(
+                    &mut late,
+                    LateOwner::Service {
+                        service_name: service_name.clone(),
+                    },
+                    &service_urls,
+                );
                 let cache_index = cache_files_index
                     .as_ref()
                     .context("Cache file index missing during service scan")?;
@@ -963,12 +1126,14 @@ async fn main() -> Result<()> {
         eprintln!("Total service cache size: {:.2} GB", service_bytes_found as f64 / 1_073_741_824.0);
     }
 
-    // PHASE 5: Group the cache files nothing above claimed
+    // PHASE 5: Group the cache files nothing above claimed, attributing the ones whose
+    // KEY header names an owner the slice walk stopped short of.
     let unmapped_services = detect_unmapped_services(
         &cache_dir,
         cache_files_index.as_ref(),
-        &detected_games,
-        &detected_services,
+        &mut detected_games,
+        &mut detected_services,
+        &late,
         progress_path.as_deref(),
         &reporter,
     )?;
@@ -1071,11 +1236,14 @@ mod tests {
         write_cache_file(&root, 2, "epicgames/Builds/b", "body-bb");
         let index = HashMap::from([(1u128, 6u64), (2u128, 7u64)]);
 
+        let mut games = Vec::new();
+        let mut services = vec![claimed_service(vec![claimed_path])];
         let bucket = detect_unmapped_services(
             &root,
             Some(&index),
-            &[],
-            &[claimed_service(vec![claimed_path])],
+            &mut games,
+            &mut services,
+            &LateAttribution::default(),
             None,
             &ProgressReporter::new(false),
         )
@@ -1101,8 +1269,9 @@ mod tests {
         let bucket = detect_unmapped_services(
             &root,
             Some(&index),
-            &[],
-            &[],
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &LateAttribution::default(),
             None,
             &ProgressReporter::new(false),
         )
@@ -1128,8 +1297,9 @@ mod tests {
         let bucket = detect_unmapped_services(
             &root,
             Some(&index),
-            &[],
-            &[],
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &LateAttribution::default(),
             None,
             &ProgressReporter::new(false),
         )
@@ -1142,14 +1312,128 @@ mod tests {
     }
 
     #[test]
+    fn an_unclaimed_slice_behind_a_wide_hole_joins_its_owner_row() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        fs::create_dir_all(&root).unwrap();
+        // A mid-object slice (chunk 493) the consecutive-miss walk can never reach.
+        let base = cache_utils::object_key_base("wsus", "/filestreamingservice/files/guid").unwrap();
+        let key = format!("{base}bytes=517996544-519045119");
+        write_cache_file(&root, 7, &key, "slice-body");
+        let index = HashMap::from([(7u128, 41u64)]);
+
+        let mut late = LateAttribution::default();
+        register_late_owner(
+            &mut late,
+            LateOwner::Service {
+                service_name: "wsus".to_string(),
+            },
+            &[(
+                "wsus".to_string(),
+                "/filestreamingservice/files/guid".to_string(),
+                0,
+            )],
+        );
+
+        let mut games = Vec::new();
+        let mut services = Vec::new();
+        let bucket = detect_unmapped_services(
+            &root,
+            Some(&index),
+            &mut games,
+            &mut services,
+            &late,
+            None,
+            &ProgressReporter::new(false),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert!(bucket.is_empty(), "{bucket:?}");
+        assert!(games.is_empty());
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0].service_name, "wsus");
+        assert_eq!(services[0].cache_files_found, 1);
+        assert_eq!(services[0].total_size_bytes, 41);
+        assert_eq!(
+            services[0].cache_file_paths,
+            vec![cache_utils::cache_path_for_digest(&root, 7).display().to_string()]
+        );
+    }
+
+    #[test]
+    fn a_late_attributed_named_game_gets_a_row_created_when_its_walk_claimed_nothing() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        fs::create_dir_all(&root).unwrap();
+        let base = cache_utils::object_key_base("blizzard", "/tpr/osi/data/aa/bb/archive").unwrap();
+        write_cache_file(&root, 9, &format!("{base}bytes=52428800-53477375"), "slice");
+        let index = HashMap::from([(9u128, 12u64)]);
+
+        let mut late = LateAttribution::default();
+        register_late_owner(
+            &mut late,
+            LateOwner::NamedGame {
+                service: "blizzard".to_string(),
+                game_name: "Overwatch".to_string(),
+            },
+            &[(
+                "blizzard".to_string(),
+                "/tpr/osi/data/aa/bb/archive".to_string(),
+                0,
+            )],
+        );
+
+        let mut games = Vec::new();
+        let mut services = Vec::new();
+        let bucket = detect_unmapped_services(
+            &root,
+            Some(&index),
+            &mut games,
+            &mut services,
+            &late,
+            None,
+            &ProgressReporter::new(false),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert!(bucket.is_empty(), "{bucket:?}");
+        assert_eq!(games.len(), 1);
+        assert_eq!(games[0].game_app_id, 0);
+        assert_eq!(games[0].game_name, "Overwatch");
+        assert_eq!(games[0].service.as_deref(), Some("blizzard"));
+        assert!(games[0].epic_app_id.is_none());
+        assert_eq!(games[0].cache_files_found, 1);
+        assert_eq!(games[0].total_size_bytes, 12);
+    }
+
+    #[test]
+    fn cache_key_base_recovery_strips_only_real_slice_suffixes() {
+        assert_eq!(
+            cache_utils::cache_key_base_of("wsus/files/abytes=0-1048575"),
+            "wsus/files/a"
+        );
+        assert_eq!(cache_utils::cache_key_base_of("steam/depot/1::noslice"), "steam/depot/1");
+        assert_eq!(cache_utils::cache_key_base_of("steam/depot/1"), "steam/depot/1");
+        // A URL genuinely ending in a bytes= lookalike without a digits-dash-digits tail
+        // must NOT be truncated.
+        assert_eq!(
+            cache_utils::cache_key_base_of("steam/depot/bytes=broken"),
+            "steam/depot/bytes=broken"
+        );
+    }
+
+    #[test]
     fn an_incremental_run_reports_no_unmapped_bucket() {
         let temp = tempfile::tempdir().unwrap();
 
         let bucket = detect_unmapped_services(
             temp.path(),
             None,
-            &[],
-            &[],
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &LateAttribution::default(),
             None,
             &ProgressReporter::new(false),
         )

@@ -821,6 +821,45 @@ pub fn bare_metal_object_key_base(service: &str, url: &str) -> Option<String> {
     Some(format!("{}{}", prefix, identifier))
 }
 
+/// The unsliced cache-key base for (service, url) under the ACTIVE key scheme — the exact
+/// string every probe candidate is built on (`{base}`, `{base}::noslice`, `{base}bytes=N-M`).
+/// Monolithic mirrors the candidate builders: lowercased service + `nginx_cache_uri`.
+/// `None` only for a bare-metal service without a stock vhost.
+pub fn object_key_base(service: &str, url: &str) -> Option<String> {
+    match active_key_scheme() {
+        CacheKeyScheme::BareMetal => bare_metal_object_key_base(service, url),
+        CacheKeyScheme::Monolithic => Some(format!(
+            "{}{}",
+            service_name_lowercase(service),
+            nginx_cache_uri(url)
+        )),
+    }
+}
+
+/// Recover the base `object_key_base` produced from a literal cache key read off a file's
+/// `KEY:` header: strips a trailing `::noslice` or `bytes=<digits>-<digits>` slice suffix;
+/// an unsliced key IS the base and passes through. The range suffix is appended to the URL
+/// with no separator, so only a strict digits-dash-digits tail is stripped — a URL that
+/// itself ends in a `bytes=` lookalike stays intact.
+pub fn cache_key_base_of(key: &str) -> &str {
+    if let Some(stripped) = key.strip_suffix("::noslice") {
+        return stripped;
+    }
+    if let Some(idx) = key.rfind("bytes=") {
+        let range = &key[idx + "bytes=".len()..];
+        if let Some((start, end)) = range.split_once('-') {
+            if !start.is_empty()
+                && !end.is_empty()
+                && start.bytes().all(|byte| byte.is_ascii_digit())
+                && end.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                return &key[..idx];
+            }
+        }
+    }
+    key
+}
+
 /// Enumerate every EXISTING bare-metal cache file for (service, url), with its
 /// expected literal key. Mirrors the monolithic walk shape: the unsliced key is
 /// probed first, then (for sliced vhosts) 1 MiB slice keys with the same
