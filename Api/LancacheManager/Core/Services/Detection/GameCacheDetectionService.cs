@@ -263,9 +263,12 @@ public partial class GameCacheDetectionService : IDisposable
                 .Select(g => g.GameAppId) // For unknown games, depot ID is stored as game_app_id
                 .ToHashSet();
 
-            // Check how many of these depot IDs now have mappings in SteamDepotMappings
+            // Check how many of these depot IDs now have mappings in SteamDepotMappings.
+            // IsOwner matches what the scan itself accepts: the Rust game query only names a depot
+            // from a row carrying IsOwner = true. Counting reference rows here reports mappings the
+            // rescan cannot use, and the same unknown depots then invalidate the cache on every run.
             var mappedCount = await dbContext.SteamDepotMappings
-                .Where(m => unknownDepotIds.Contains(m.DepotId))
+                .Where(m => unknownDepotIds.Contains(m.DepotId) && m.IsOwner)
                 .Select(m => m.DepotId)
                 .Distinct()
                 .CountAsync();
@@ -823,9 +826,13 @@ public partial class GameCacheDetectionService : IDisposable
                 "[GameDetection] === Detection Summary === Steam games: {SteamCount} | Epic games: {EpicCount} | Total games: {TotalCount} | Evicted (recovered): {EvictedCount}",
                 steamGameCount, epicGameCount, totalGamesDetected, evictedCount);
 
-            // For incremental scans, resolve any unknown games that now have depot mappings
-            // Full scans already query fresh mappings, so this is only needed for incremental
-            if (incremental)
+            // Name any depot the scan could not name, on full scans as well as incremental ones.
+            // A full scan does query fresh mappings, but the Rust game query only takes a depot's
+            // mapping when a row carries IsOwner = true; a depot whose rows are all IsOwner = false
+            // falls to the unknown branch and comes back as "Unknown Game (Depot N)" no matter how
+            // fresh the scan is. The resolver reads the depot's game straight off the Downloads
+            // table, which is the same already-resolved name the downloads list renders, so running
+            // it here keeps the two lists showing one name for one depot.
             {
                 // Apply a timeout so a DB deadlock cannot stall the operation indefinitely.
                 // If the timeout fires, the OperationCanceledException is NOT caught by
@@ -838,7 +845,7 @@ public partial class GameCacheDetectionService : IDisposable
                 var resolvedCount = await ResolveUnknownGamesInCacheAsync(resolveCts.Token);
                 if (resolvedCount > 0)
                 {
-                    _logger.LogInformation("[GameDetection] Resolved {Count} unknown games after incremental scan", resolvedCount);
+                    _logger.LogInformation("[GameDetection] Resolved {Count} unknown games after scan", resolvedCount);
                     completionContext["resolvedCount"] = resolvedCount;
                     _operationTracker.UpdateProgress(operationId, 95, completionStageKey);
                 }

@@ -149,9 +149,9 @@ public partial class SteamKit2Service
 
     /// <summary>
     /// Resolve orphan depots by querying PICS for candidate parent app IDs.
-    /// Orphan depots are those present in the Downloads table with a DepotId but no GameAppId,
-    /// and not already mapped via _depotOwners or the database. This handles delisted/removed
-    /// games whose depots never appear in Steam's GetAppList API.
+    /// Orphan depots are those present in the Downloads table that no app owns: not in
+    /// _depotOwners and carrying no IsOwner mapping row in the database. This handles
+    /// delisted/removed games whose depots never appear in Steam's GetAppList API.
     /// </summary>
     private async Task<List<uint>> ResolveOrphanDepotsAsync(CancellationToken ct)
     {
@@ -166,14 +166,20 @@ public partial class SteamKit2Service
 
             using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
-            // Find depot IDs that have no GameAppId, are not in _depotOwners, and have no DB mapping with IsOwner=true
-            var unmappedDepotIdsLong = await scopedDb.DbContext.Downloads
-                .Where(d => d.DepotId.HasValue && d.GameAppId == null)
+            // Every depot the logs have seen. Ownership, not the download's GameAppId, decides what
+            // needs resolving: a download keeps the name it was given at ingest even after the
+            // mapping behind it loses its owner row, and the queries that name a depot later - the
+            // Rust cache-detection game query, lookup_depot_mapping - all require IsOwner, so such a
+            // depot reads as an Unknown Game forever while its download still shows a title.
+            // Selecting on GameAppId == null skipped exactly those depots. The owner filter below
+            // is what narrows this list, and it runs in the database over the same depot ids.
+            var downloadDepotIdsLong = await scopedDb.DbContext.Downloads
+                .Where(d => d.DepotId.HasValue)
                 .Select(d => d.DepotId!.Value)
                 .Distinct()
                 .ToListAsync(ct);
 
-            if (unmappedDepotIdsLong.Count == 0)
+            if (downloadDepotIdsLong.Count == 0)
             {
                 _logger.LogDebug("No orphan depots to resolve");
                 return new List<uint>();
@@ -181,13 +187,13 @@ public partial class SteamKit2Service
 
             // Filter out depots that are already mapped in memory or database
             var dbMappedDepotsList = await scopedDb.DbContext.SteamDepotMappings
-                .Where(m => unmappedDepotIdsLong.Contains(m.DepotId) && m.IsOwner)
+                .Where(m => downloadDepotIdsLong.Contains(m.DepotId) && m.IsOwner)
                 .Select(m => m.DepotId)
                 .ToListAsync(ct);
             var dbMappedDepots = new HashSet<uint>(dbMappedDepotsList.Select(id => (uint)id));
 
-            var unmappedDepotIds = unmappedDepotIdsLong.Select(id => (uint)id).ToList();
-            var orphanDepotIds = unmappedDepotIds
+            var downloadDepotIds = downloadDepotIdsLong.Select(id => (uint)id).ToList();
+            var orphanDepotIds = downloadDepotIds
                 .Where(depotId => !_depotOwners.ContainsKey(depotId) && !dbMappedDepots.Contains(depotId))
                 .ToList();
 
