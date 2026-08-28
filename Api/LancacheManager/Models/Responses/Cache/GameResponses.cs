@@ -110,6 +110,14 @@ public class CachedDetectionResponse
     /// </summary>
     [JsonPropertyName("detection_stale")]
     public bool DetectionStale { get; set; }
+
+    /// <summary>
+    /// Per-service totals for cache files no detection row claims, measured by the last full
+    /// detection scan. Null when the last scan was incremental, and on the dashboard-slim shape,
+    /// which derives its own unmapped figure by subtraction instead.
+    /// </summary>
+    [JsonPropertyName("unmapped_services")]
+    public IReadOnlyList<UnmappedService>? UnmappedServices { get; set; }
 }
 
 /// <summary>

@@ -1127,7 +1127,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       </HelpSection>
       {/* Three scans look at the same cache and answer different questions, so each one says what
           it leaves to the other two. Damaged-but-owned here, owned-but-gone in eviction, and
-          present-but-unowned in the unmapped scan. */}
+          present-but-unclaimed in game detection. */}
       <HelpSection title={t('management.corruption.help.vsOthersTitle')} variant="subtle">
         {t('management.corruption.help.vsOthers')}
       </HelpSection>

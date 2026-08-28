@@ -16,8 +16,6 @@ public class AppDbContext : DbContext
     public DbSet<CachedDetectionSummary> CachedDetectionSummaries { get; set; }
     public DbSet<CachedCorruptionScan> CachedCorruptionScans { get; set; }
     public DbSet<CachedCorruptionDetection> CachedCorruptionDetections { get; set; }
-    public DbSet<CachedUnmappedScan> CachedUnmappedScans { get; set; }
-    public DbSet<CachedUnmappedDetection> CachedUnmappedDetections { get; set; }
     public DbSet<UserAccount> UserAccounts { get; set; }
     public DbSet<UserSession> UserSessions { get; set; }
     public DbSet<UserPreferences> UserPreferences { get; set; }

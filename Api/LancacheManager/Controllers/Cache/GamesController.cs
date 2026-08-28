@@ -639,7 +639,8 @@ public class GamesController : ControllerBase
             slimForDashboard: false,
             diskSummary: cachedResults.DiskSummary,
             summaryComputedAtUtc: cachedResults.SummaryComputedAtUtc,
-            detectionStale: await _cacheManagementService.IsDetectionSummaryStaleAsync()));
+            detectionStale: await _cacheManagementService.IsDetectionSummaryStaleAsync(),
+            unmappedServices: cachedResults.UnmappedServices));
     }
 
 

@@ -4,7 +4,7 @@ use jwalk::WalkDir;
 use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -143,6 +143,14 @@ struct ServiceCacheInfo {
 }
 
 #[derive(Debug, Serialize)]
+struct UnmappedService {
+    service: String,
+    file_count: u64,
+    total_bytes: u64,
+    sample_urls: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
 struct DetectionReport {
     total_games_detected: usize,
     total_services_detected: usize,
@@ -153,6 +161,10 @@ struct DetectionReport {
     indexed_cache_files: Option<usize>,
     games: Vec<GameCacheInfo>,
     services: Vec<ServiceCacheInfo>,
+    /// Full-scan only: the cache files no game and no service claimed, grouped by the
+    /// service named in each file's `KEY:` header.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unmapped_services: Option<Vec<UnmappedService>>,
 }
 
 /// Scan cache directory and build in-memory index of all cache files
@@ -213,6 +225,112 @@ fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<u128, u64>> {
     }
 
     Ok(cache_files)
+}
+
+/// The cache files no detected game and no detected service claimed, grouped by the service
+/// named in each file's `KEY:` header.
+///
+/// `None` on an incremental run: that mode never builds an index (`cache_files_index` is
+/// `None`), and carrying the last full scan's bucket forward would age it against the games
+/// and services reported beside it.
+///
+/// Must run before the index is dropped. Every matcher takes the index by shared reference
+/// and its matched set dies on return, so the only record of what was claimed is the path
+/// strings on the reported rows. Those were built by `cache_utils::cache_path_for_digest`,
+/// so mapping them back through `strict_cache_file_digest` is exact.
+fn detect_unmapped_services(
+    cache_dir: &Path,
+    cache_files_index: Option<&HashMap<u128, u64>>,
+    detected_games: &[GameCacheInfo],
+    detected_services: &[ServiceCacheInfo],
+    progress_path: Option<&Path>,
+    reporter: &ProgressReporter,
+) -> Result<Option<Vec<UnmappedService>>> {
+    let Some(index) = cache_files_index else {
+        return Ok(None);
+    };
+
+    let mut claimed: HashSet<u128> = HashSet::new();
+    for path in detected_games
+        .iter()
+        .flat_map(|game| &game.cache_file_paths)
+        .chain(
+            detected_services
+                .iter()
+                .flat_map(|service| &service.cache_file_paths),
+        )
+    {
+        if let Some(digest) = cache_utils::strict_cache_file_digest(cache_dir, Path::new(path)) {
+            claimed.insert(digest);
+        }
+    }
+
+    let unmapped: Vec<(u128, u64)> = index
+        .iter()
+        .filter(|(digest, _)| !claimed.contains(digest))
+        .map(|(digest, size_bytes)| (*digest, *size_bytes))
+        .collect();
+
+    let total = unmapped.len();
+    eprintln!("\n=== Phase 5: Grouping {} Unclaimed Cache Files ===", total);
+
+    let mut processed = 0usize;
+    let mut by_service: BTreeMap<String, UnmappedService> = BTreeMap::new();
+    for (digest, size_bytes) in unmapped {
+        // Cooperative cancel: check between key reads, one disk read each
+        if cancel::is_cancelled() {
+            eprintln!("\nCancel requested — stopping unclaimed file grouping after {}/{} files", processed, total);
+            write_progress(
+                progress_path,
+                "cancelled",
+                "signalr.gameDetect.unmapped.progress",
+                json!({ "processed": processed, "total": total }),
+                90.0 + (processed as f64 / total.max(1) as f64) * 2.0,
+                processed,
+                total,
+            )?;
+            std::process::exit(0);
+        }
+
+        processed += 1;
+        let path = cache_utils::cache_path_for_digest(cache_dir, digest);
+        let url = cache_utils::read_cache_file_key(&path);
+        let service = cache_utils::service_from_key(url.as_deref());
+        let group = by_service
+            .entry(service.clone())
+            .or_insert_with(|| UnmappedService {
+                service,
+                file_count: 0,
+                total_bytes: 0,
+                sample_urls: Vec::new(),
+            });
+        group.file_count += 1;
+        group.total_bytes = group.total_bytes.saturating_add(size_bytes);
+        if let Some(url) = url {
+            // Re-cap on every hit so the sample is the same lowest-5 the matched services
+            // report, and does not depend on the index's iteration order.
+            let mut sample_urls = std::mem::take(&mut group.sample_urls);
+            sample_urls.push(url);
+            group.sample_urls = cache_utils::sorted_sample_urls(sample_urls, 5);
+        }
+
+        if processed % 500 == 0 || processed == total {
+            let percent = 90.0 + (processed as f64 / total.max(1) as f64) * 2.0;
+            let context = json!({ "processed": processed, "total": total });
+            write_progress(
+                progress_path,
+                "unmapped",
+                "signalr.gameDetect.unmapped.progress",
+                context.clone(),
+                percent,
+                processed,
+                total,
+            )?;
+            reporter.emit_progress(percent, "signalr.gameDetect.unmapped.progress", context);
+        }
+    }
+
+    Ok(Some(by_service.into_values().collect()))
 }
 
 #[tokio::main]
@@ -845,7 +963,17 @@ async fn main() -> Result<()> {
         eprintln!("Total service cache size: {:.2} GB", service_bytes_found as f64 / 1_073_741_824.0);
     }
 
-    // Phase 4 was the last consumer of the on-disk index; on a multi-million-file cache it
+    // PHASE 5: Group the cache files nothing above claimed
+    let unmapped_services = detect_unmapped_services(
+        &cache_dir,
+        cache_files_index.as_ref(),
+        &detected_games,
+        &detected_services,
+        progress_path.as_deref(),
+        &reporter,
+    )?;
+
+    // Phase 5 was the last consumer of the on-disk index; on a multi-million-file cache it
     // holds hundreds of MB, so it must be gone before the report (which carries its own copy
     // of every matched path) is serialized on top of it.
     drop(cache_files_index);
@@ -856,11 +984,12 @@ async fn main() -> Result<()> {
         indexed_cache_files,
         games: detected_games,
         services: detected_services,
+        unmapped_services,
     };
 
-    // Writing output (90-100%)
-    write_progress(progress_path.as_deref(), "writing", "signalr.gameDetect.writing", json!({}), 90.0, 0, 0)?;
-    reporter.emit_progress(90.0, "signalr.gameDetect.writing", json!({}));
+    // Writing output (92-100%)
+    write_progress(progress_path.as_deref(), "writing", "signalr.gameDetect.writing", json!({}), 92.0, 0, 0)?;
+    reporter.emit_progress(92.0, "signalr.gameDetect.writing", json!({}));
 
     // Stream the report straight to the file: to_string_pretty would materialize the whole
     // JSON (all cache_file_paths again) as one giant String before writing.
@@ -909,4 +1038,139 @@ async fn main() -> Result<()> {
     }.await;
     progress_events::finish_or_exit(&reporter, "signalr.gameDetect.error.fatal", result);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_cache_file(root: &Path, digest: u128, key: &str, body: &str) -> String {
+        let path = cache_utils::cache_path_for_digest(root, digest);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut file = fs::File::create(&path).unwrap();
+        write!(file, "KEY: {key}\n{body}").unwrap();
+        path.display().to_string()
+    }
+
+    fn claimed_service(cache_file_paths: Vec<String>) -> ServiceCacheInfo {
+        ServiceCacheInfo {
+            service_name: "steam".to_string(),
+            cache_files_found: cache_file_paths.len(),
+            total_size_bytes: 0,
+            sample_urls: Vec::new(),
+            cache_file_paths,
+        }
+    }
+
+    #[test]
+    fn unmapped_bucket_holds_the_cache_files_no_detection_row_claimed() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        fs::create_dir_all(&root).unwrap();
+        let claimed_path = write_cache_file(&root, 1, "steam/depot/1/chunk/a", "body-a");
+        write_cache_file(&root, 2, "epicgames/Builds/b", "body-bb");
+        let index = HashMap::from([(1u128, 6u64), (2u128, 7u64)]);
+
+        let bucket = detect_unmapped_services(
+            &root,
+            Some(&index),
+            &[],
+            &[claimed_service(vec![claimed_path])],
+            None,
+            &ProgressReporter::new(false),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(bucket.len(), 1);
+        assert_eq!(bucket[0].service, "epicgames");
+        assert_eq!(bucket[0].file_count, 1);
+        assert_eq!(bucket[0].total_bytes, 7);
+        assert_eq!(bucket[0].sample_urls, vec!["epicgames/Builds/b"]);
+    }
+
+    #[test]
+    fn unmapped_bucket_groups_an_unreadable_key_under_unknown() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let path = cache_utils::cache_path_for_digest(&root, 1);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "no key header here").unwrap();
+        let index = HashMap::from([(1u128, 18u64)]);
+
+        let bucket = detect_unmapped_services(
+            &root,
+            Some(&index),
+            &[],
+            &[],
+            None,
+            &ProgressReporter::new(false),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(bucket.len(), 1);
+        assert_eq!(bucket[0].service, "unknown");
+        assert!(bucket[0].sample_urls.is_empty());
+    }
+
+    #[test]
+    fn unmapped_bucket_keeps_at_most_five_sample_urls_per_service() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        fs::create_dir_all(&root).unwrap();
+        let mut index = HashMap::new();
+        for digest in 1u128..=6 {
+            write_cache_file(&root, digest, &format!("steam/depot/{digest}"), "body");
+            index.insert(digest, 10u64);
+        }
+
+        let bucket = detect_unmapped_services(
+            &root,
+            Some(&index),
+            &[],
+            &[],
+            None,
+            &ProgressReporter::new(false),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(bucket.len(), 1);
+        assert_eq!(bucket[0].file_count, 6);
+        assert_eq!(bucket[0].sample_urls.len(), 5);
+    }
+
+    #[test]
+    fn an_incremental_run_reports_no_unmapped_bucket() {
+        let temp = tempfile::tempdir().unwrap();
+
+        let bucket = detect_unmapped_services(
+            temp.path(),
+            None,
+            &[],
+            &[],
+            None,
+            &ProgressReporter::new(false),
+        )
+        .unwrap();
+
+        assert!(bucket.is_none());
+    }
+
+    #[test]
+    fn an_unmapped_bucket_is_omitted_from_an_incremental_report() {
+        let report = DetectionReport {
+            total_games_detected: 0,
+            total_services_detected: 0,
+            indexed_cache_files: None,
+            games: Vec::new(),
+            services: Vec::new(),
+            unmapped_services: None,
+        };
+
+        let json = serde_json::to_string(&report).unwrap();
+
+        assert!(!json.contains("unmapped_services"), "{json}");
+    }
 }

@@ -23,5 +23,11 @@ public class CachedDetectionSummary
 
     public int IdentifiedServiceCount { get; set; }
 
+    /// <summary>
+    /// Per-service totals for cache files no detection row claims, serialized from the last full
+    /// detection scan. Null after an incremental scan, which has no cache index to measure.
+    /// </summary>
+    public string? UnmappedServicesJson { get; set; }
+
     public DateTime ComputedAtUtc { get; set; } = DateTime.UtcNow;
 }

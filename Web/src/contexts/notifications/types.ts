@@ -23,8 +23,6 @@ export type NotificationType =
   | 'game_removal'
   | 'corruption_removal'
   | 'corruption_detection'
-  | 'unmapped_scan'
-  | 'unmapped_removal'
   | 'database_reset'
   | 'depot_mapping'
   | 'game_detection'

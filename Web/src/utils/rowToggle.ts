@@ -15,7 +15,11 @@ interface RowToggleHandlers {
  */
 export const rowToggleHandlers = (onToggle: () => void): RowToggleHandlers => {
   const fromNestedControl = (target: EventTarget | null, currentTarget: EventTarget) => {
-    if (!(target instanceof HTMLElement) || !(currentTarget instanceof HTMLElement)) return false;
+    // Element, not HTMLElement: an icon inside a nested control is an SVGElement, which inherits
+    // from Element and not from HTMLElement. Narrowing to HTMLElement here made every click that
+    // landed on an icon look like a click on bare row background, so the row toggled underneath
+    // the control the user actually pressed.
+    if (!(target instanceof Element) || !(currentTarget instanceof HTMLElement)) return false;
     const control = target.closest(
       'button, input, a, label, [role="button"], [role="checkbox"], [role="listbox"], [role="combobox"]'
     );

@@ -11,11 +11,7 @@
  * in one config surface per type.
  */
 
-import type {
-  NotificationProgressMode,
-  NotificationRegistryEntry,
-  SimpleRecoveryConfig
-} from './types';
+import type { NotificationRegistryEntry, SimpleRecoveryConfig } from './types';
 import type {
   CacheOperationsResponse,
   CacheSizeScanStatusResponse,
@@ -26,8 +22,7 @@ import type {
   GameDetectionStatusResponse,
   LogProcessingStatusResponse,
   LogRemovalStatusResponse,
-  ScheduledPrefillRunStatusResponse,
-  UnmappedCacheStatusResponse
+  ScheduledPrefillRunStatusResponse
 } from './recoveryStatusResponses';
 import { corruptionNotificationDetails, formatCorruptionProgress } from './corruptionProgress';
 import {
@@ -112,12 +107,6 @@ import type {
   CorruptionDetectionStartedEvent,
   CorruptionDetectionProgressEvent,
   CorruptionDetectionCompleteEvent,
-  UnmappedScanStartedEvent,
-  UnmappedScanProgressEvent,
-  UnmappedScanCompleteEvent,
-  UnmappedRemovalStartedEvent,
-  UnmappedRemovalProgressEvent,
-  UnmappedRemovalCompleteEvent,
   DatabaseResetStartedEvent,
   DatabaseResetProgressEvent,
   CacheClearingStartedEvent,
@@ -212,8 +201,6 @@ const CANCEL_TOOLTIP = {
   corruptionRemoval: 'common.notifications.cancelCorruptionRemoval',
   gameDetection: 'common.notifications.cancelGameDetection',
   corruptionDetection: 'common.notifications.cancelCorruptionDetection',
-  unmappedScan: 'common.notifications.cancelUnmappedScan',
-  unmappedRemoval: 'common.notifications.cancelUnmappedRemoval',
   cacheClearing: 'common.notifications.cancelCacheClearing',
   dataImport: 'common.notifications.cancelDataImport',
   evictionScan: 'common.notifications.cancelEvictionScan',
@@ -706,148 +693,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }),
       getFailureMessage: (event: CorruptionDetectionCompleteEvent) =>
         formatCorruptionDetectionFailureMessage(event)
-    }
-  }),
-
-  // ========== Unmapped Cache Scan ==========
-  buildStandardOperationEntry<
-    UnmappedScanStartedEvent,
-    UnmappedScanProgressEvent,
-    UnmappedScanCompleteEvent
-  >({
-    type: 'unmapped_scan',
-    id: NOTIFICATION_IDS.UNMAPPED_SCAN,
-    storageKey: NOTIFICATION_STORAGE_KEYS.UNMAPPED_SCAN,
-    eventPrefix: 'UnmappedScan',
-    cancelTooltipKey: CANCEL_TOOLTIP.unmappedScan,
-    silentRunGate: true,
-    recovery: {
-      kind: 'simple',
-      translationValidation: {
-        kind: 'stageKey',
-        cases: [
-          { stageKey: 'signalr.unmappedScan.starting', context: {} },
-          { stageKey: 'signalr.unmappedScan.enumerating', context: { count: 0 } },
-          { stageKey: 'signalr.unmappedScan.readingKeys', context: {} }
-        ]
-      },
-      apiEndpoint: '/api/cache/unmapped/scan/status',
-      isProcessing: (data: UnmappedCacheStatusResponse) =>
-        data.isProcessing && data.showNotification !== false,
-      // A silent scheduled scan still emits its terminal (display-gated). Skip recovery so a page
-      // reload mid-run does not resurrect a visible card that the silent terminal can never clear.
-      shouldSkip: (data: UnmappedCacheStatusResponse) =>
-        data.isProcessing && data.showNotification === false,
-      createNotification: (data: UnmappedCacheStatusResponse) => ({
-        message: translateRecoveryStage(
-          data.stageKey,
-          data.context,
-          'signalr.unmappedScan.starting'
-        ),
-        progress: data.percentComplete,
-        // The enumerate pass reports a live count and a deliberate 0 percent, so a bar recovered
-        // mid-enumerate would sit at zero for the rest of that pass. Sweep it, as the live card does.
-        progressMode:
-          data.stageKey === 'signalr.unmappedScan.enumerating' ? 'indeterminate' : 'determinate',
-        details: {
-          operationId: data.operationId
-        }
-      }),
-      staleMessageKey: 'signalr.unmappedScan.stale'
-    } satisfies SimpleRecoveryConfig<UnmappedCacheStatusResponse>,
-    started: {
-      defaultMessage: 'Scanning for unmapped cache files...',
-      getMessage: stageKeyMessage<UnmappedScanStartedEvent>('signalr.unmappedScan.starting'),
-      // The walk counts files before it can know how many there are, so a bar pinned at 0
-      // would sit there for the whole first pass; sweep until real progress arrives.
-      progressMode: 'indeterminate'
-    },
-    progress: {
-      getMessage: stageKeyMessage<UnmappedScanProgressEvent>('signalr.unmappedScan.starting'),
-      getProgress: cappedProgress,
-      // The enumerate pass has no total to divide by, so it reports a live count and a
-      // deliberate 0 percent. Keep the bar sweeping until a pass with a real total starts.
-      getProgressMode: (event: UnmappedScanProgressEvent): NotificationProgressMode =>
-        event.stageKey === 'signalr.unmappedScan.enumerating' ? 'indeterminate' : 'determinate',
-      getCompletedMessage: stageKeyMessage<UnmappedScanProgressEvent>(
-        'signalr.unmappedScan.complete'
-      ),
-      getErrorMessage: errorOrStageKeyMessage<UnmappedScanProgressEvent>(GENERIC_FAILURE_I18N_KEY)
-    },
-    complete: {
-      getSuccessMessage: stageKeyMessage<UnmappedScanCompleteEvent>(
-        'signalr.unmappedScan.complete'
-      ),
-      // C# sends a null stageKey on a failed or cancelled run and fills `error` only on the
-      // failure path, so failure falls through to the shared generic string and cancellation
-      // is the one terminal state that needs a stage key of its own.
-      getFailureMessage:
-        errorOrStageKeyMessage<UnmappedScanCompleteEvent>(GENERIC_FAILURE_I18N_KEY),
-      getCancelledMessage: stageKeyMessage<UnmappedScanCompleteEvent>(
-        'signalr.unmappedScan.cancelled'
-      )
-    }
-  }),
-
-  // ========== Unmapped Cache Removal ==========
-  buildStandardOperationEntry<
-    UnmappedRemovalStartedEvent,
-    UnmappedRemovalProgressEvent,
-    UnmappedRemovalCompleteEvent
-  >({
-    type: 'unmapped_removal',
-    id: NOTIFICATION_IDS.UNMAPPED_REMOVAL,
-    storageKey: NOTIFICATION_STORAGE_KEYS.UNMAPPED_REMOVAL,
-    eventPrefix: 'UnmappedRemoval',
-    cancelTooltipKey: CANCEL_TOOLTIP.unmappedRemoval,
-    recovery: {
-      kind: 'simple',
-      translationValidation: {
-        kind: 'stageKey',
-        cases: [
-          { stageKey: 'signalr.unmappedRemove.starting', context: {} },
-          { stageKey: 'signalr.unmappedRemove.removingCacheFiles', context: {} }
-        ]
-      },
-      apiEndpoint: '/api/cache/unmapped/removal/status',
-      isProcessing: (data: UnmappedCacheStatusResponse) => data.isProcessing,
-      createNotification: (data: UnmappedCacheStatusResponse) => ({
-        message: translateRecoveryStage(
-          data.stageKey,
-          data.context,
-          'signalr.unmappedRemove.starting'
-        ),
-        progress: data.percentComplete,
-        details: {
-          operationId: data.operationId
-        }
-      }),
-      staleMessageKey: 'signalr.unmappedRemove.stale'
-    } satisfies SimpleRecoveryConfig<UnmappedCacheStatusResponse>,
-    started: {
-      defaultMessage: 'Starting unmapped cache file deletion...',
-      getMessage: stageKeyMessage<UnmappedRemovalStartedEvent>('signalr.unmappedRemove.starting')
-    },
-    progress: {
-      getMessage: stageKeyMessage<UnmappedRemovalProgressEvent>(
-        'signalr.unmappedRemove.removingCacheFiles'
-      ),
-      getProgress: cappedProgress,
-      getCompletedMessage: stageKeyMessage<UnmappedRemovalProgressEvent>(
-        'signalr.unmappedRemove.complete'
-      ),
-      getErrorMessage:
-        errorOrStageKeyMessage<UnmappedRemovalProgressEvent>(GENERIC_FAILURE_I18N_KEY)
-    },
-    complete: {
-      getSuccessMessage: stageKeyMessage<UnmappedRemovalCompleteEvent>(
-        'signalr.unmappedRemove.complete'
-      ),
-      getFailureMessage:
-        errorOrStageKeyMessage<UnmappedRemovalCompleteEvent>(GENERIC_FAILURE_I18N_KEY),
-      getCancelledMessage: stageKeyMessage<UnmappedRemovalCompleteEvent>(
-        'signalr.unmappedRemove.cancelled'
-      )
     }
   }),
 

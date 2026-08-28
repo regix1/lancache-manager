@@ -169,8 +169,6 @@
         "gameRemoval": "游戏缓存移除",
         "corruptionRemoval": "可疑缓存文件移除",
         "corruptionDetection": "损坏扫描",
-        "unmappedScan": "未映射缓存扫描",
-        "unmappedRemoval": "未映射缓存删除",
         "databaseReset": "数据库重置",
         "depotMapping": "仓库映射",
         "gameDetection": "游戏检测",
@@ -199,8 +197,6 @@
       "cancelCacheClearing": "取消缓存清理",
       "cancelCorruptionRemoval": "取消可疑缓存文件移除",
       "cancelCorruptionDetection": "取消损坏扫描",
-      "cancelUnmappedScan": "取消未映射缓存扫描",
-      "cancelUnmappedRemoval": "取消未映射缓存删除",
       "cancelDepotMapping": "取消仓库映射",
       "cancelGameDetection": "取消游戏检测",
       "cancelGameRemoval": "取消游戏移除",
@@ -2080,7 +2076,7 @@
         "help": {
           "evictedCacheTitle": "关于",
           "evictedVsOthersTitle": "此扫描不涵盖的内容",
-          "evictedVsOthers": "此扫描从一条下载记录出发，检查它的缓存文件是否仍在磁盘上。如果没有任何下载记录认领某个文件，此扫描就无从查起，那种情况由未映射缓存扫描负责。文件存在但已损坏，则由缓存完整性扫描负责。"
+          "evictedVsOthers": "此扫描从一条下载记录出发，检查它的缓存文件是否仍在磁盘上。如果没有任何下载记录认领某个文件，此扫描就无从查起，那种情况由游戏缓存检测扫描的“未映射”部分列出。文件存在但已损坏，则由缓存完整性扫描负责。"
         },
         "title": "数据配置",
         "depotMapping": "仓库映射",
@@ -2722,7 +2718,7 @@
         "repeatedMissWhen": "根据反复未命中缓存的下载来推断可疑文件。覆盖更广，但属于线索而非证据。",
         "scanModesTitle": "结构扫描模式",
         "vsOthersTitle": "此扫描不涵盖的内容",
-        "vsOthers": "此扫描查找的是损坏。一个文件可能完好无损，却没有任何游戏或服务认领它，那种情况由未映射缓存扫描负责。下载记录的文件已经丢失，则由驱逐扫描负责。"
+        "vsOthers": "此扫描查找的是损坏。一个文件可能完好无损，却没有任何游戏或服务认领它，那种情况由游戏缓存检测扫描的“未映射”部分列出。下载记录的文件已经丢失，则由驱逐扫描负责。"
       },
       "title": "损坏检测与移除",
       "titleShort": "损坏检测与移除",
@@ -2965,6 +2961,7 @@
       "fullScanButton": "全面扫描",
       "servicesSection": "服务",
       "gamesSection": "游戏",
+      "unmappedSection": "未映射",
       "removeGameCache": "移除此游戏的所有缓存文件",
       "removeServiceCache": "移除此服务的所有缓存文件",
       "removing": "正在移除...",
@@ -3012,19 +3009,27 @@
         "noGamesServices": "未检测到具有缓存文件的游戏或服务",
         "noGamesServicesDatasource": "在 {{datasource}} 中未找到游戏或服务",
         "processLogsFirst": "先处理访问日志以填充数据库",
-        "clickFullScan": "点击\"全面扫描\"以扫描您的缓存目录"
+        "clickFullScan": "点击\"全面扫描\"以扫描您的缓存目录",
+        "nothingUnmapped": "每个缓存文件都已被认领",
+        "nothingUnmappedSubtitle": "上次全面检测扫描已把缓存目录中的每个文件都匹配到某个游戏或服务。"
       },
       "serviceSteam": "Steam",
       "serviceEpicGames": "Epic Games",
       "noServicesMatching": "未找到匹配\"{{query}}\"的服务",
       "servicesLabel": "个服务",
+      "noUnmappedMatching": "未找到匹配\"{{query}}\"的未映射服务",
+      "unmappedLabel": "个未映射服务",
+      "unmappedFileCount_one": "{{formattedCount}} 个文件",
+      "unmappedFileCount_other": "{{formattedCount}} 个文件",
+      "unmappedFromScan": "由上次全面检测扫描统计得出。仪表板的缓存大小卡片是根据另一次缓存扫描算出未映射数值的，因此两者可能不同。",
       "errors": {
         "syncFailed": "刷新已缓存的结果失败"
       },
       "placeholders": {
         "allDatasources": "所有数据源",
         "searchGames": "按游戏名称、AppID 或服务搜索...",
-        "searchServices": "搜索服务..."
+        "searchServices": "搜索服务...",
+        "searchUnmapped": "搜索未映射服务..."
       },
       "appIdLabel": "AppID：",
       "summary": {
@@ -3033,85 +3038,6 @@
         "services_one": "{{count}} 个服务",
         "services_other": "{{count}} 个服务",
         "join": "和"
-      }
-    },
-    "unmapped": {
-      "title": "未映射缓存",
-      "titleShort": "未映射",
-      "fileCount": "{{formattedCount}} 个文件",
-      "fileCount_other": "{{formattedCount}} 个文件",
-      "scanTotals": "{{files}} 个文件 · {{size}}",
-      "scanningMessage": "正在读取每个缓存文件，并与检测已认领的内容进行比对。缓存较大时需要几分钟。",
-      "removeSelected": "删除所选服务的文件",
-      "removeAll": "删除全部未映射文件",
-      "removing": "正在删除...",
-      "loadingCachedScan": "正在加载上次未映射缓存扫描",
-      "loadingFiles": "正在加载文件...",
-      "noFilesAvailable": "该服务没有保存任何文件。",
-      "expandDetails": "显示 {{service}} 的未映射文件",
-      "collapseDetails": "隐藏 {{service}} 的未映射文件",
-      "searchLabel": "搜索文件",
-      "searchPlaceholder": "按地址搜索",
-      "searchResultCount": "{{total}} 个文件中的 {{count}} 个",
-      "noSearchMatch": "没有文件地址匹配 \"{{query}}\"。",
-      "clearSearch": "清除搜索",
-      "fileLabel": "个文件",
-      "serviceSearchPlaceholder": "搜索服务",
-      "noServiceMatch": "没有服务匹配 \"{{query}}\"。",
-      "serviceLabel": "个服务",
-      "emptyStates": {
-        "nothingUnmapped": {
-          "title": "每个缓存文件都有归属",
-          "subtitle": "上次扫描没有发现检测尚未认领的缓存文件。"
-        },
-        "noScan": {
-          "title": "尚未扫描",
-          "subtitle": "从菜单运行扫描，查找没有任何游戏或服务认领的缓存文件。"
-        }
-      },
-      "errors": {
-        "loadCachedScan": "无法加载上次未映射缓存扫描",
-        "loadCachedRetry": "请重试，或从菜单运行一次新扫描。",
-        "startScan": "启动未映射缓存扫描失败：{{error}}",
-        "loadFiles": "无法加载 {{service}} 的文件",
-        "removeFiles": "删除未映射缓存文件失败：{{error}}",
-        "startDetection": "启动游戏检测失败：{{error}}"
-      },
-      "help": {
-        "aboutTitle": "此功能查找什么",
-        "about": "磁盘上没有任何游戏或服务检测认领的缓存文件。每个文件都以哈希值命名，因此扫描会读取文件内部存储的上游地址，以说明其内容。",
-        "causesTitle": "文件为何会出现在这里",
-        "causes": "从未与游戏匹配的下载、不再被检测到的服务，或在检测覆盖之前就已缓存的内容。",
-        "vsOthersTitle": "其他扫描为何发现不了这些文件",
-        "vsOthers": "这些文件完好且存在，因此缓存完整性扫描不会认为它们有任何问题。驱逐扫描从一条下载记录出发，检查它的文件是否还在，因此从不会过问没有下载记录认领的文件。此扫描则从文件本身出发，读取文件内部存储的地址，那是日志记录消失之后仅存的线索。",
-        "removalNote": "删除这些文件只会释放磁盘空间。仍需要的内容会在下次请求时重新下载。"
-      },
-      "modal": {
-        "removeAllTitle": "删除全部未映射文件？",
-        "removeAllConfirm": "全部删除",
-        "confirmRemoveAll": "这将删除 {{files}} 个文件并释放 {{size}}。",
-        "removeSelectedTitle": "删除所选服务的文件？",
-        "removeSelectedConfirm": "删除所选",
-        "confirmRemoveSelected": "这将从 {{count}} 个服务中删除 {{files}} 个文件并释放 {{size}}。",
-        "confirmRemoveSelected_other": "这将从 {{count}} 个服务中删除 {{files}} 个文件并释放 {{size}}。",
-        "removalWarning": "已删除的缓存文件无法恢复。下次请求该内容时会重新下载。",
-        "checkTitle": "此列表可能包含游戏文件",
-        "checkRisk": "文件出现在此列表中，是因为还没有任何检测运行认领它。其中可能包含属于游戏、但检测尚未编入目录的文件。删除这类文件就是删除真实的游戏数据，且无法撤销。",
-        "checkScanTime": "此列表来自 {{time}} 的扫描。",
-        "checkDetectionLastRun": "检测上次运行于 {{time}}。",
-        "checkDetectionOlder": "检测上次运行早于本次扫描，因此这期间缓存的内容都会出现在此列表中，无论它是否属于某个游戏。",
-        "checkDetectionNever": "检测从未完成过一次运行，因此没有任何文件被认领，磁盘上的每个缓存文件都在此列表中。此时删除会清空整个缓存，服务器会拒绝该操作。",
-        "checkRecommend": "现在先运行检测再重新扫描，才能把游戏文件和真正未映射的文件区分开。",
-        "checkRunDetection": "先运行检测",
-        "checkDeleteAnyway": "不运行检测直接删除",
-        "checkDetecting": "正在运行检测...",
-        "checkRescanning": "正在重新扫描未映射文件...",
-        "checkWaitNote": "取消只会关闭此窗口。扫描会继续运行，结束后可以重新开始删除。",
-        "detectionDoneTitle": "检测已完成",
-        "detectionDoneReclaimed": "在此列表原有的 {{beforeFiles}} 个文件中，检测认领了 {{reclaimed}} 个。它们属于游戏，删除会破坏真实的游戏数据。还剩 {{files}} 个文件（{{size}}）。",
-        "detectionDoneUnchanged": "检测没有认领其中任何一个。仍有 {{files}} 个未映射文件（{{size}}）。",
-        "detectionDoneGrew": "检测运行前，此列表有 {{beforeFiles}} 个文件（{{beforeSize}}）。现在有 {{files}} 个（{{size}}）。",
-        "detectionDoneNothingLeft": "检测认领了全部 {{beforeFiles}} 个文件。它们都属于游戏，没有一个是未映射的，没有需要删除的内容了。"
       }
     },
     "capability": {
@@ -4210,13 +4136,6 @@
           "summary": "统计磁盘上所有缓存文件的总量。",
           "gain": "文件数量和未映射缓存总量保持最新，无需在管理 → 缓存中启动手动扫描",
           "loss": "缓存文件统计和未映射缓存副标题可能保持过期，直到下次扫描运行"
-        },
-        "unmappedCacheScan": {
-          "displayName": "未映射缓存扫描",
-          "description": "遍历整个缓存目录，并读取游戏检测尚未认领的每个文件中存储的地址，以便按服务列出并删除这些文件。每次扫描都会逐个读取所有缓存文件，因此在大型缓存上会运行数分钟。",
-          "summary": "查找没有游戏认领的缓存文件。",
-          "gain": "未映射缓存列表保持最新，无需在管理 → 日志与缓存中手动启动扫描",
-          "loss": "未映射文件列表及其总量将保持上次扫描时的状态"
         },
         "gameDetection": {
           "displayName": "游戏检测",
@@ -7215,21 +7134,6 @@
       "progressDirectories": "{{base}}（{{processed}}/{{total}} 个目录）",
       "stale": "缓存清理完成"
     },
-    "unmappedScan": {
-      "starting": "正在启动未映射缓存扫描...",
-      "enumerating": "正在统计缓存文件... 已找到 {{count}} 个",
-      "readingKeys": "正在读取每个未映射文件中存储的地址...",
-      "complete": "未映射缓存扫描完成",
-      "cancelled": "未映射缓存扫描已取消",
-      "stale": "未映射缓存扫描已结束"
-    },
-    "unmappedRemove": {
-      "starting": "正在启动未映射缓存文件删除...",
-      "removingCacheFiles": "正在删除未映射缓存文件...",
-      "complete": "未映射缓存文件已删除",
-      "cancelled": "未映射缓存文件删除已取消",
-      "stale": "未映射缓存文件删除已结束"
-    },
     "corruptionDetect": {
       "starting": "正在开始损坏扫描…",
       "startingRepeatedMiss": "正在开始重复 MISS 扫描…",
@@ -7598,6 +7502,9 @@
       "services": {
         "detecting": "正在检测非游戏服务",
         "progress": "正在处理服务 {{processed}}/{{total}}"
+      },
+      "unmapped": {
+        "progress": "正在检查无归属的缓存文件 {{processed}}/{{total}}"
       },
       "writing": "正在写入检测报告",
       "loaded": {

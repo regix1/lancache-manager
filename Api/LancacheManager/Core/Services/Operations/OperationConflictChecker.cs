@@ -549,8 +549,6 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         OperationType.CacheSizeScan => true,
         OperationType.EvictionScan => true,
         OperationType.CorruptionDetection => scope.Kind == "bulk",
-        OperationType.UnmappedCacheScan => true,
-        OperationType.UnmappedCacheRemoval => true,
         _ => false
     };
 
@@ -570,8 +568,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         type is OperationType.GameRemoval
             or OperationType.ServiceRemoval
             or OperationType.CorruptionRemoval
-            or OperationType.EvictionRemoval
-            or OperationType.UnmappedCacheRemoval;
+            or OperationType.EvictionRemoval;
 
     private static string? GetGameName(OperationInfo op) => op.Metadata switch
     {

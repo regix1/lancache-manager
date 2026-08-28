@@ -606,6 +606,15 @@ export interface ServiceCacheInfo {
   evicted_sample_urls?: string[];
 }
 
+// Cache files the detection walk found on disk that no game and no service claimed.
+// Absent from an incremental detection response, which has no cache index to measure against.
+export interface UnmappedService {
+  service: string;
+  file_count: number;
+  total_bytes: number;
+  sample_urls: string[];
+}
+
 // Event Types
 export interface Event {
   id: number;

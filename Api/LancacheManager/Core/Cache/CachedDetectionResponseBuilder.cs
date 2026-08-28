@@ -20,6 +20,11 @@ public static class CachedDetectionResponseBuilder
     /// <param name="diskSummary">
     /// Persisted deduplicated on-disk totals from the last detection scan refresh.
     /// </param>
+    /// <param name="unmappedServices">
+    /// Per-service totals for cache files no detection row claims. Dropped on the slim shape: the
+    /// dashboard derives its own unmapped figure by subtraction, and the two are different
+    /// quantities that legitimately disagree.
+    /// </param>
     public static CachedDetectionResponse Build(
         IReadOnlyList<GameCacheInfo> games,
         IReadOnlyList<ServiceCacheInfo>? services,
@@ -28,7 +33,8 @@ public static class CachedDetectionResponseBuilder
         bool slimForDashboard,
         IdentifiedCacheAggregate? diskSummary,
         DateTime? summaryComputedAtUtc = null,
-        bool detectionStale = false)
+        bool detectionStale = false,
+        IReadOnlyList<UnmappedService>? unmappedServices = null)
     {
         var activeGamesCount = games.Count(g => !g.IsEvicted && g.CacheFilesFound > 0);
         // Synthetics-only LoadDetectionAsync supplies an explicit zero aggregate. A null here
@@ -75,7 +81,8 @@ public static class CachedDetectionResponseBuilder
             IdentifiedCacheBytes = summary.TotalBytes,
             IdentifiedServiceBytes = summary.ServiceBytes,
             DetectionSummaryComputedAt = summaryComputedAtUtc?.ToString("o"),
-            DetectionStale = detectionStale
+            DetectionStale = detectionStale,
+            UnmappedServices = slimForDashboard ? null : unmappedServices
         };
     }
 }

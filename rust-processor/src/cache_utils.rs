@@ -727,6 +727,38 @@ pub fn bare_metal_prefix(service: &str) -> Option<&'static str> {
     }
 }
 
+/// Grouping label for a file whose `KEY:` header is unreadable or does not start with a
+/// service prefix.
+const UNKNOWN_SERVICE: &str = "unknown";
+
+/// The service a cache key belongs to: the segment before its first `/`.
+#[allow(dead_code)]
+pub fn service_from_key(key: Option<&str>) -> String {
+    let Some(key) = key else {
+        return UNKNOWN_SERVICE.to_string();
+    };
+    let prefix = key.split('/').next().unwrap_or_default();
+    if prefix.is_empty()
+        || !prefix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return UNKNOWN_SERVICE.to_string();
+    }
+    let prefix = prefix.to_ascii_lowercase();
+    if active_key_scheme() != CacheKeyScheme::BareMetal {
+        return prefix;
+    }
+    // Bare metal keys carry the nginx vhost, not the name this app files the traffic under.
+    let Some(vhost) = prefix.strip_prefix("lancache-") else {
+        return prefix;
+    };
+    if vhost == "windows-update" {
+        return "wsus".to_string();
+    }
+    vhost.to_string()
+}
+
 /// True when the service's bare-metal vhost uses the slice module (1 MiB slices,
 /// `$slice_range` in the key). Verified against the stock caches-available tree:
 /// only blizzard.conf and windows-update.conf slice.
@@ -2172,6 +2204,14 @@ mod bare_metal_key_tests {
         assert_eq!(bare_metal_prefix("xbox"), Some("lancache-windows-update"));
         assert_eq!(bare_metal_prefix("nintendo"), None);
         assert_eq!(bare_metal_prefix(""), None);
+    }
+
+    #[test]
+    fn service_from_key_falls_back_to_unknown_for_an_unusable_prefix() {
+        assert_eq!(service_from_key(None), UNKNOWN_SERVICE);
+        assert_eq!(service_from_key(Some("/leading-slash")), UNKNOWN_SERVICE);
+        assert_eq!(service_from_key(Some("bad prefix/x")), UNKNOWN_SERVICE);
+        assert_eq!(service_from_key(Some("STEAM/depot/1")), "steam");
     }
 
     #[test]

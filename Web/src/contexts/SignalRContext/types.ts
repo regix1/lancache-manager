@@ -81,12 +81,6 @@ export const SIGNALR_EVENTS = [
   'CorruptionRemovalStarted',
   'CorruptionRemovalProgress',
   'CorruptionRemovalComplete',
-  'UnmappedScanStarted',
-  'UnmappedScanProgress',
-  'UnmappedScanComplete',
-  'UnmappedRemovalStarted',
-  'UnmappedRemovalProgress',
-  'UnmappedRemovalComplete',
   'EvictionRemovalComplete',
 
   // Games
@@ -327,7 +321,6 @@ export const SIGNALR_REFRESH_EVENTS = [
   'DepotMappingComplete',
   'LogRemovalComplete',
   'CorruptionRemovalComplete',
-  'UnmappedRemovalComplete',
   'ServiceRemovalComplete',
   'GameDetectionComplete',
   'GameRemovalComplete',
@@ -610,60 +603,6 @@ export interface CorruptionDetectionCompleteEvent {
   corruptionCounts?: Record<string, number>;
   detectionCounts?: Record<string, number>;
   coverage?: CorruptionScanCoverage | null;
-}
-
-/* The unmapped-cache lifecycle carries no legacy `message` field: it was written after stage
-   keys replaced server-formatted strings, so every one of these payloads is exactly what
-   `UnmappedCacheService` emits and nothing more. Only the progress phase carries `context`;
-   `enumerating` puts the live file count there while the walk has no total to divide by. */
-export interface UnmappedScanStartedEvent {
-  operationId: string;
-  stageKey?: string;
-  showNotification: boolean;
-}
-
-export interface UnmappedScanProgressEvent {
-  operationId: string;
-  percentComplete: number;
-  status: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
-  showNotification: boolean;
-}
-
-/** `stageKey` is absent on a failed or cancelled run, which is why `error` and `cancelled`
-    decide the terminal message rather than the stage. */
-export interface UnmappedScanCompleteEvent {
-  operationId: string;
-  success: boolean;
-  stageKey?: string;
-  cancelled?: boolean;
-  error?: string;
-  showNotification: boolean;
-}
-
-export interface UnmappedRemovalStartedEvent {
-  operationId: string;
-  stageKey?: string;
-  showNotification: boolean;
-}
-
-export interface UnmappedRemovalProgressEvent {
-  operationId: string;
-  percentComplete: number;
-  status: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
-  showNotification: boolean;
-}
-
-export interface UnmappedRemovalCompleteEvent {
-  operationId: string;
-  success: boolean;
-  stageKey?: string;
-  cancelled?: boolean;
-  error?: string;
-  showNotification: boolean;
 }
 
 export interface GameDetectionStartedEvent {

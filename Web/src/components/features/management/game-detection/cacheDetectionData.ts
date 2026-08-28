@@ -1,12 +1,16 @@
 import i18n from '@/i18n';
 import ApiService from '@services/api.service';
 import type { UnifiedNotification } from '@contexts/notifications/types';
-import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
+import type { GameCacheInfo, ServiceCacheInfo, UnmappedService } from '../../../../types';
 
 interface CachedDetectionSnapshot {
   hasCachedResults: boolean;
   games: GameCacheInfo[];
   services: ServiceCacheInfo[];
+  // null when the last scan was incremental: that run has no cache index, so it measured no
+  // unmapped set and the response omits the field. Distinct from an empty array, which means
+  // a full scan found nothing unclaimed.
+  unmappedServices: UnmappedService[] | null;
   lastDetectionTime: string | null;
   totalGamesDetected: number;
   totalServicesDetected: number;
@@ -29,6 +33,7 @@ export const loadCachedDetectionSnapshot = async (): Promise<CachedDetectionSnap
     hasCachedResults: result.hasCachedResults,
     games: result.games ?? [],
     services: result.services ?? [],
+    unmappedServices: result.unmapped_services ?? null,
     lastDetectionTime: result.lastDetectionTime ?? null,
     totalGamesDetected: result.totalGamesDetected ?? 0,
     totalServicesDetected: result.totalServicesDetected ?? 0

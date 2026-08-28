@@ -41,8 +41,6 @@ public enum OperationType
     BattleNetMapping,
     RiotMapping,
     PrefillLogin,
-    UnmappedCacheScan,
-    UnmappedCacheRemoval,
     CacheFileCount
 }
 
@@ -114,8 +112,6 @@ public static class OperationTypeExtensions
         OperationType.BattleNetMapping => "battleNetMapping",
         OperationType.RiotMapping => "riotMapping",
         OperationType.PrefillLogin => "prefillLogin",
-        OperationType.UnmappedCacheScan => "unmappedCacheScan",
-        OperationType.UnmappedCacheRemoval => "unmappedCacheRemoval",
         OperationType.CacheFileCount => "cacheFileCount",
         _ => JsonNamingPolicy.CamelCase.ConvertName(type.ToString())
     };

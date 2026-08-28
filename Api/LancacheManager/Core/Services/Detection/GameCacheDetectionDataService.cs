@@ -395,7 +395,12 @@ public sealed partial class GameCacheDetectionDataService
 
         await EnrichImageUrlsAsync(dbContext, games, cancellationToken);
 
-        if (games.Count == 0 && services.Count == 0)
+        var (diskSummary, summaryComputedAt, unmappedServices) = await LoadDetectionSummaryAsync(dbContext, cancellationToken);
+
+        // A full scan that claimed nothing still measured what is unclaimed, and that is the run
+        // whose remainder covers the whole cache. Returning null on the row counts alone would
+        // leave that bucket in the database with no way to reach the panel. [6]
+        if (games.Count == 0 && services.Count == 0 && unmappedServices == null)
         {
             return null;
         }
@@ -444,7 +449,6 @@ public sealed partial class GameCacheDetectionDataService
             steamCount + epicCount,
             evictedCount);
 
-        var (diskSummary, summaryComputedAt) = await LoadDetectionSummaryAsync(dbContext, cancellationToken);
         // Synthetics-only (no persisted detection rows) never produces a CachedDetectionSummary —
         // supply honest zeros so Build can succeed. Persisted rows without a summary remain an
         // integrity fault: leave diskSummary null and let CachedDetectionResponseBuilder throw.
@@ -464,7 +468,8 @@ public sealed partial class GameCacheDetectionDataService
             TotalGamesDetected = activeGames,
             TotalServicesDetected = activeServices,
             DiskSummary = diskSummary,
-            SummaryComputedAtUtc = summaryComputedAt
+            SummaryComputedAtUtc = summaryComputedAt,
+            UnmappedServices = unmappedServices
         };
     }
 
@@ -831,6 +836,40 @@ public sealed partial class GameCacheDetectionDataService
         }
     }
 
+    /// <summary>
+    /// Stores the per-service totals for cache files no detection row claims on the singleton
+    /// summary row. Pass null for an incremental scan: it measures no cache index, and keeping the
+    /// previous full scan's figures beside freshly saved detection rows would report a stale
+    /// remainder as if it had just been measured.
+    /// </summary>
+    public async Task SaveUnmappedServicesAsync(
+        IReadOnlyList<UnmappedService>? unmappedServices,
+        CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var summary = await dbContext.CachedDetectionSummaries
+            .FirstOrDefaultAsync(s => s.Id == CachedDetectionSummary.SingletonId, cancellationToken);
+
+        if (summary == null)
+        {
+            // A full scan that matched nothing leaves no summary row (RefreshDiskSummaryCoreAsync
+            // clears it), and that scan is exactly the one with unmapped totals worth reporting.
+            if (unmappedServices == null)
+            {
+                return;
+            }
+
+            summary = new CachedDetectionSummary { Id = CachedDetectionSummary.SingletonId };
+            dbContext.CachedDetectionSummaries.Add(summary);
+        }
+
+        summary.UnmappedServicesJson = unmappedServices == null
+            ? null
+            : JsonSerializer.Serialize(unmappedServices);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     private async Task RefreshDiskSummaryCoreAsync(
         CancellationToken cancellationToken,
         Action<int, int>? onPathProgress = null)
@@ -941,7 +980,7 @@ public sealed partial class GameCacheDetectionDataService
             aggregate.TotalBytes / 1_073_741_824.0);
     }
 
-    private static async Task<(IdentifiedCacheAggregate? Aggregate, DateTime? ComputedAtUtc)> LoadDetectionSummaryAsync(
+    private static async Task<(IdentifiedCacheAggregate? Aggregate, DateTime? ComputedAtUtc, List<UnmappedService>? UnmappedServices)> LoadDetectionSummaryAsync(
         AppDbContext dbContext,
         CancellationToken cancellationToken)
     {
@@ -951,7 +990,7 @@ public sealed partial class GameCacheDetectionDataService
 
         if (summary == null)
         {
-            return (null, null);
+            return (null, null, null);
         }
 
         return (
@@ -961,7 +1000,10 @@ public sealed partial class GameCacheDetectionDataService
                 summary.IdentifiedServiceBytes,
                 summary.GamesOnDiskCount,
                 summary.IdentifiedServiceCount),
-            summary.ComputedAtUtc);
+            summary.ComputedAtUtc,
+            string.IsNullOrEmpty(summary.UnmappedServicesJson)
+                ? null
+                : JsonSerializer.Deserialize<List<UnmappedService>>(summary.UnmappedServicesJson));
     }
 
     private static async Task UpsertDetectionSummaryAsync(

@@ -95,6 +95,12 @@ public partial class GameCacheDetectionService : IDisposable
         /// UTC timestamp when <see cref="DiskSummary"/> was last computed.
         /// </summary>
         public DateTime? SummaryComputedAtUtc { get; set; }
+
+        /// <summary>
+        /// Per-service totals for cache files no detection row claims, from the last full scan.
+        /// Null when the last scan was incremental, which measures no cache index.
+        /// </summary>
+        public List<UnmappedService>? UnmappedServices { get; set; }
     }
 
     public GameCacheDetectionService(
@@ -455,6 +461,10 @@ public partial class GameCacheDetectionService : IDisposable
             var gameIdentityMap = new Dictionary<string, GameCacheInfo>(StringComparer.Ordinal); // identity -> aggregated game
             var serviceNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // Track unique services
 
+            // Stays null until a report actually carries the section, so an incremental scan
+            // persists "not measured" rather than an empty bucket the panel would read as zero.
+            Dictionary<string, UnmappedService>? unmappedByService = null;
+
             // Full-scan reports that indexed zero cache files prove nothing about the disk
             // (wrong mount or path); count them so an all-empty scan can refuse to replace a
             // non-empty snapshot instead of silently wiping it.
@@ -682,6 +692,26 @@ public partial class GameCacheDetectionService : IDisposable
                     }
                 }
 
+                // Unmapped totals sum across datasources: each report measures its own cache
+                // directory, so the same service can appear once per datasource.
+                if (detectionResult.UnmappedServices is { } reportedUnmapped)
+                {
+                    unmappedByService ??= new Dictionary<string, UnmappedService>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var unmapped in reportedUnmapped)
+                    {
+                        if (!unmappedByService.TryGetValue(unmapped.Service, out var existingUnmapped))
+                        {
+                            unmappedByService[unmapped.Service] = unmapped;
+                            continue;
+                        }
+
+                        existingUnmapped.FileCount += unmapped.FileCount;
+                        existingUnmapped.TotalSizeBytes += unmapped.TotalSizeBytes;
+                        existingUnmapped.SampleUrls.AddRange(
+                            unmapped.SampleUrls.Take(5 - existingUnmapped.SampleUrls.Count));
+                    }
+                }
+
                 _logger.LogInformation("[GameDetection] Datasource '{DatasourceName}' found {GameCount} games, {ServiceCount} services",
                     datasource.Name, detectionResult.Games.Count, detectionResult.Services.Count);
 
@@ -829,6 +859,12 @@ public partial class GameCacheDetectionService : IDisposable
 
             await _detectionDataService.RefreshDiskSummaryAsync(cancellationToken);
 
+            // Written after the refresh because that call owns the summary row this rides on, and
+            // recreates or deletes it depending on what the scan persisted.
+            await _detectionDataService.SaveUnmappedServicesAsync(
+                unmappedByService?.Values.ToList(),
+                cancellationToken);
+
             // Game detection owns only its own on-disk summary. The cache-file scan (files/size and
             // its own staleness) is a separate scheduled scan and is left untouched here, so a
             // detection run never changes the Cache Files card or clears the cache-file scan.
@@ -888,6 +924,8 @@ public partial class GameCacheDetectionService : IDisposable
                     }
                 }
 
+                await ClearUnmappedTotalsAsync(aggregatedGames.Count, aggregatedServices.Count);
+
                 await FinalizeDetectionAsync(operationId, success: false,
                     status: OperationStatus.Cancelled, stageKey: "signalr.gameDetect.cancelled", cancelled: true);
             }
@@ -900,6 +938,8 @@ public partial class GameCacheDetectionService : IDisposable
                     var metrics = (GameDetectionMetrics)m;
                     metrics.Error = oce.Message;
                 });
+
+                await ClearUnmappedTotalsAsync(aggregatedGames.Count, aggregatedServices.Count);
 
                 await FinalizeDetectionAsync(operationId, success: false,
                     status: OperationStatus.Failed, stageKey: "signalr.generic.failed", cancelled: false,
@@ -916,6 +956,8 @@ public partial class GameCacheDetectionService : IDisposable
                 var metrics = (GameDetectionMetrics)m;
                 metrics.Error = ex.Message;
             });
+
+            await ClearUnmappedTotalsAsync(aggregatedGames.Count, aggregatedServices.Count);
 
             await FinalizeDetectionAsync(operationId, success: false,
                 status: OperationStatus.Failed, stageKey: "signalr.generic.failed", cancelled: false,
@@ -936,6 +978,32 @@ public partial class GameCacheDetectionService : IDisposable
             {
                 await _rustProcessHelper.DeleteTempFileAsync(progressFilePath);
             }
+        }
+    }
+
+    /// <summary>
+    /// Drops the stored unmapped totals for a run that ended before it saved its own. Such a run
+    /// never finished walking the cache, so once it has written detection rows the stored totals
+    /// describe a cache those rows have moved past, and nothing else clears that column. A run
+    /// that wrote no rows leaves the totals still matching what is stored beside them, so they
+    /// stay: clearing there would discard a measurement that is still true. [4]
+    /// </summary>
+    private async Task ClearUnmappedTotalsAsync(int savedGameCount, int savedServiceCount)
+    {
+        if (savedGameCount == 0 && savedServiceCount == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            // CancellationToken.None: on the path that needs this most the run's own token is
+            // already cancelled.
+            await _detectionDataService.SaveUnmappedServicesAsync(null, CancellationToken.None);
+        }
+        catch (Exception saveEx)
+        {
+            _logger.LogWarning(saveEx, "[GameDetection] Failed to clear unmapped totals for an unfinished run");
         }
     }
 
@@ -1437,6 +1505,13 @@ public partial class GameCacheDetectionService : IDisposable
         /// </summary>
         [System.Text.Json.Serialization.JsonPropertyName("indexed_cache_files")]
         public long? IndexedCacheFiles { get; set; }
+
+        /// <summary>
+        /// Full-scan only (null for incremental reports): indexed cache files no matcher claimed,
+        /// grouped by the service in each file's cache key.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("unmapped_services")]
+        public List<UnmappedService>? UnmappedServices { get; set; }
 
         [System.Text.Json.Serialization.JsonPropertyName("games")]
         public List<GameCacheInfo> Games { get; set; } = new();

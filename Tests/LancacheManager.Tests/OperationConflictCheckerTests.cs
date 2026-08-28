@@ -61,29 +61,10 @@ public class OperationConflictCheckerTests
     }
 
     [Fact]
-    public async Task Blocks_UnmappedCacheScan_When_AnotherFullTreeScan_IsActiveAsync()
+    public async Task Blocks_CorruptionDetection_When_ServiceRemoval_IsActiveAsync()
     {
         using var tracker = new TrackerHarness();
-        RegisterBulkOperation(tracker.Tracker, OperationType.EvictionScan, "Eviction Scan");
-
-        var response = await tracker.Checker.CheckAsync(
-            OperationType.UnmappedCacheScan,
-            ConflictScope.Bulk(),
-            CancellationToken.None);
-
-        Assert.NotNull(response);
-        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
-        Assert.Equal(nameof(OperationType.EvictionScan), response.ActiveOperationType);
-    }
-
-    [Fact]
-    public async Task Blocks_CorruptionDetection_When_UnmappedCacheRemoval_IsActiveAsync()
-    {
-        using var tracker = new TrackerHarness();
-        RegisterBulkOperation(
-            tracker.Tracker,
-            OperationType.UnmappedCacheRemoval,
-            "Unmapped Cache Removal");
+        RegisterServiceRemoval(tracker.Tracker, serviceName: "steam");
 
         var response = await tracker.Checker.CheckAsync(
             OperationType.CorruptionDetection,
@@ -92,26 +73,7 @@ public class OperationConflictCheckerTests
 
         Assert.NotNull(response);
         Assert.Equal("errors.conflict.overlappingEntity", response!.StageKey);
-        Assert.Equal(nameof(OperationType.UnmappedCacheRemoval), response.ActiveOperationType);
-    }
-
-    [Fact]
-    public async Task Blocks_UnmappedCacheRemoval_When_CorruptionDetection_IsActiveAsync()
-    {
-        using var tracker = new TrackerHarness();
-        RegisterBulkOperation(
-            tracker.Tracker,
-            OperationType.CorruptionDetection,
-            "Corruption Detection");
-
-        var response = await tracker.Checker.CheckAsync(
-            OperationType.UnmappedCacheRemoval,
-            ConflictScope.Bulk(),
-            CancellationToken.None);
-
-        Assert.NotNull(response);
-        Assert.Equal("errors.conflict.overlappingEntity", response!.StageKey);
-        Assert.Equal(nameof(OperationType.CorruptionDetection), response.ActiveOperationType);
+        Assert.Equal(nameof(OperationType.ServiceRemoval), response.ActiveOperationType);
     }
 
     [Fact]

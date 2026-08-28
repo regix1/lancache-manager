@@ -169,8 +169,6 @@
         "gameRemoval": "Game Cache Removal",
         "corruptionRemoval": "Suspect Cache File Removal",
         "corruptionDetection": "Corruption Scan",
-        "unmappedScan": "Unmapped Cache Scan",
-        "unmappedRemoval": "Unmapped Cache Deletion",
         "databaseReset": "Database Reset",
         "depotMapping": "Depot Mapping",
         "gameDetection": "Game Detection",
@@ -199,8 +197,6 @@
       "cancelCacheClearing": "Cancel cache clearing",
       "cancelCorruptionRemoval": "Cancel suspect cache file removal",
       "cancelCorruptionDetection": "Cancel corruption scan",
-      "cancelUnmappedScan": "Cancel unmapped cache scan",
-      "cancelUnmappedRemoval": "Cancel unmapped cache deletion",
       "cancelDepotMapping": "Cancel depot mapping",
       "cancelGameDetection": "Cancel game detection",
       "cancelGameRemoval": "Cancel game removal",
@@ -2080,7 +2076,7 @@
         "help": {
           "evictedCacheTitle": "About",
           "evictedVsOthersTitle": "What this does not cover",
-          "evictedVsOthers": "This starts from a download and asks whether its cache files are still on disk. It cannot see a file that no download claims, because there is nothing to ask on its behalf, and that is what the Unmapped Cache scan finds. A file that is present but damaged is the Cache Integrity scan's job."
+          "evictedVsOthers": "This starts from a download and asks whether its cache files are still on disk. It cannot see a file that no download claims, because there is nothing to ask on its behalf, and that is what the Unmapped section of the Game Cache Detection scan lists. A file that is present but damaged is the Cache Integrity scan's job."
         },
         "title": "Data Configuration",
         "depotMapping": "Depot Mapping",
@@ -2722,7 +2718,7 @@
         "repeatedMissWhen": "Infers suspect files from downloads that keep missing the cache. Catches more, but it is evidence rather than proof.",
         "scanModesTitle": "Structural scan modes",
         "vsOthersTitle": "What this does not cover",
-        "vsOthers": "This looks for damage. A file can be perfectly intact and still have no game or service claiming it, which is what the Unmapped Cache scan finds. A download whose files have gone missing is the Eviction scan's job."
+        "vsOthers": "This looks for damage. A file can be perfectly intact and still have no game or service claiming it, which is what the Unmapped section of the Game Cache Detection scan lists. A download whose files have gone missing is the Eviction scan's job."
       },
       "title": "Corruption Detection and Removal",
       "titleShort": "Corruption",
@@ -2965,6 +2961,7 @@
       "fullScanButton": "Full Scan",
       "servicesSection": "Services",
       "gamesSection": "Games",
+      "unmappedSection": "Unmapped",
       "removeGameCache": "Remove all cache files for this game",
       "removeServiceCache": "Remove all cache files for this service",
       "removing": "Removing...",
@@ -3012,19 +3009,27 @@
         "noGamesServices": "No games or services with cache files detected",
         "noGamesServicesDatasource": "No games or services found in {{datasource}}",
         "processLogsFirst": "Process access logs to populate the database first",
-        "clickFullScan": "Click \"Full Scan\" to scan your cache directory"
+        "clickFullScan": "Click \"Full Scan\" to scan your cache directory",
+        "nothingUnmapped": "Every cached file was claimed",
+        "nothingUnmappedSubtitle": "The last full detection scan matched every file in the cache directory to a game or a service."
       },
       "serviceSteam": "Steam",
       "serviceEpicGames": "Epic Games",
       "noServicesMatching": "No services found matching \"{{query}}\"",
       "servicesLabel": "services",
+      "noUnmappedMatching": "No unmapped services found matching \"{{query}}\"",
+      "unmappedLabel": "unmapped services",
+      "unmappedFileCount_one": "{{formattedCount}} file",
+      "unmappedFileCount_other": "{{formattedCount}} files",
+      "unmappedFromScan": "Counted by the last full detection scan. The dashboard's Cache Size card works its unmapped figure out from a separate cache scan, so the two can differ.",
       "errors": {
         "syncFailed": "Failed to refresh cached results"
       },
       "placeholders": {
         "allDatasources": "All datasources",
         "searchGames": "Search by game name, AppID, or service...",
-        "searchServices": "Search services..."
+        "searchServices": "Search services...",
+        "searchUnmapped": "Search unmapped services..."
       },
       "appIdLabel": "AppID:",
       "summary": {
@@ -3033,85 +3038,6 @@
         "services_one": "{{count}} service",
         "services_other": "{{count}} services",
         "join": " and "
-      }
-    },
-    "unmapped": {
-      "title": "Unmapped Cache",
-      "titleShort": "Unmapped",
-      "fileCount": "{{formattedCount}} file",
-      "fileCount_other": "{{formattedCount}} files",
-      "scanTotals": "{{files}} files · {{size}}",
-      "scanningMessage": "Reading every cache file and matching it against what detection already claims. This takes a few minutes on a large cache.",
-      "removeSelected": "Delete files for selected services",
-      "removeAll": "Delete every unmapped file",
-      "removing": "Deleting...",
-      "loadingCachedScan": "Loading the last unmapped cache scan",
-      "loadingFiles": "Loading files...",
-      "noFilesAvailable": "No files were saved for this service.",
-      "expandDetails": "Show unmapped files for {{service}}",
-      "collapseDetails": "Hide unmapped files for {{service}}",
-      "searchLabel": "Search files",
-      "searchPlaceholder": "Search by address",
-      "searchResultCount": "{{count}} of {{total}} files",
-      "noSearchMatch": "No file address matches \"{{query}}\".",
-      "clearSearch": "Clear search",
-      "fileLabel": "files",
-      "serviceSearchPlaceholder": "Search services",
-      "noServiceMatch": "No service matches \"{{query}}\".",
-      "serviceLabel": "services",
-      "emptyStates": {
-        "nothingUnmapped": {
-          "title": "Every cache file is accounted for",
-          "subtitle": "The last scan found no cache file that detection does not already claim."
-        },
-        "noScan": {
-          "title": "No scan yet",
-          "subtitle": "Run a scan from the menu to find cache files that no game and no service claims."
-        }
-      },
-      "errors": {
-        "loadCachedScan": "Could not load the last unmapped cache scan",
-        "loadCachedRetry": "Try again, or run a new scan from the menu.",
-        "startScan": "Failed to start the unmapped cache scan: {{error}}",
-        "loadFiles": "Could not load the files for {{service}}",
-        "removeFiles": "Failed to delete unmapped cache files: {{error}}",
-        "startDetection": "Failed to start game detection: {{error}}"
-      },
-      "help": {
-        "aboutTitle": "What this finds",
-        "about": "Cache files on disk that no game and no service detection run claims. Each one is named after a hash, so the scan reads the upstream address stored inside the file to say what it holds.",
-        "causesTitle": "Why files end up here",
-        "causes": "A download that was never matched to a game, a service that stopped being detected, or content cached before detection covered it.",
-        "vsOthersTitle": "Why the other scans miss these",
-        "vsOthers": "These files are intact and present, so a Cache Integrity scan finds nothing wrong with them. The Eviction scan starts from a download and asks whether its files are still there, so it never asks about a file no download claims. This scan starts from the file instead and reads the address stored inside it, which is the only evidence left once the log entry is gone.",
-        "removalNote": "Deleting these frees disk space and nothing else. Anything still wanted is downloaded again on the next request."
-      },
-      "modal": {
-        "removeAllTitle": "Delete every unmapped file?",
-        "removeAllConfirm": "Delete all",
-        "confirmRemoveAll": "This deletes {{files}} files and frees {{size}}.",
-        "removeSelectedTitle": "Delete the selected services' files?",
-        "removeSelectedConfirm": "Delete selected",
-        "confirmRemoveSelected": "This deletes {{files}} files from {{count}} service and frees {{size}}.",
-        "confirmRemoveSelected_other": "This deletes {{files}} files from {{count}} services and frees {{size}}.",
-        "removalWarning": "Deleted cache files cannot be restored. The next request for that content downloads it again.",
-        "checkTitle": "This list may include game files",
-        "checkRisk": "A file is on this list because no detection run claims it. That includes files belonging to games detection has not catalogued yet. Deleting one deletes real game data, and it cannot be undone.",
-        "checkScanTime": "This list comes from a scan on {{time}}.",
-        "checkDetectionLastRun": "Detection last ran on {{time}}.",
-        "checkDetectionOlder": "Detection last ran before this scan, so anything cached in between is on this list whether or not it belongs to a game.",
-        "checkDetectionNever": "Detection has never finished a run, so nothing is claimed and every cached file is on this list. Deleting now would empty the cache, and the server refuses it.",
-        "checkRecommend": "Running detection now, then rescanning, is what tells game files apart from files that really are unmapped.",
-        "checkRunDetection": "Run detection first",
-        "checkDeleteAnyway": "Delete without running detection",
-        "checkDetecting": "Running detection...",
-        "checkRescanning": "Rescanning for unmapped files...",
-        "checkWaitNote": "Cancel closes this window. The scan keeps running, and you can start the delete again once it finishes.",
-        "detectionDoneTitle": "Detection has finished",
-        "detectionDoneReclaimed": "Detection claimed {{reclaimed}} of the {{beforeFiles}} files that were on this list. Those belong to games, and deleting them would have destroyed real game data. {{files}} files ({{size}}) are left.",
-        "detectionDoneUnchanged": "Detection claimed none of them. {{files}} files ({{size}}) are still unmapped.",
-        "detectionDoneGrew": "Before detection ran, {{beforeFiles}} files ({{beforeSize}}) were on this list. Now {{files}} files ({{size}}) are.",
-        "detectionDoneNothingLeft": "Detection claimed all {{beforeFiles}} of them. Every one belongs to a game, none were unmapped, and there is nothing left to delete."
       }
     },
     "capability": {
@@ -4210,13 +4136,6 @@
           "summary": "Totals every cached file on disk.",
           "gain": "File counts and unmapped-cache totals stay current without starting a manual scan in Management → Cache",
           "loss": "The Cache Files stat and unmapped-cache subtitle may stay outdated until the next scan runs"
-        },
-        "unmappedCacheScan": {
-          "displayName": "Unmapped Cache Scan",
-          "description": "Walks the whole cache directory and reads the stored address out of every file that game detection does not already claim, so those files can be listed by service and removed. Every pass reads each cache file in turn, so it runs for several minutes on a large cache.",
-          "summary": "Finds cache files no game claims.",
-          "gain": "The unmapped cache list stays current without starting a scan by hand in Management → Logs & Cache",
-          "loss": "The unmapped file list and its totals stay as the last scan left them"
         },
         "gameDetection": {
           "displayName": "Game Detection",
@@ -7249,21 +7168,6 @@
       "progressDirectories": "{{base}} ({{processed}}/{{total}} directories)",
       "stale": "Cache clearing completed"
     },
-    "unmappedScan": {
-      "starting": "Starting the unmapped cache scan...",
-      "enumerating": "Counting cache files... {{count}} found",
-      "readingKeys": "Reading the stored address from each unmapped file...",
-      "complete": "Unmapped cache scan complete",
-      "cancelled": "Unmapped cache scan cancelled",
-      "stale": "Unmapped cache scan finished"
-    },
-    "unmappedRemove": {
-      "starting": "Starting unmapped cache file deletion...",
-      "removingCacheFiles": "Deleting unmapped cache files...",
-      "complete": "Unmapped cache files deleted",
-      "cancelled": "Unmapped cache file deletion cancelled",
-      "stale": "Unmapped cache file deletion finished"
-    },
     "corruptionDetect": {
       "starting": "Starting corruption scan…",
       "startingRepeatedMiss": "Starting repeated-MISS scan…",
@@ -7632,6 +7536,9 @@
       "services": {
         "detecting": "Detecting non-game services",
         "progress": "Processing service {{processed}}/{{total}}"
+      },
+      "unmapped": {
+        "progress": "Checking unclaimed cache file {{processed}}/{{total}}"
       },
       "writing": "Writing detection report",
       "loaded": {

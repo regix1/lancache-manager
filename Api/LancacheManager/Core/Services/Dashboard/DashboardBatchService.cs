@@ -607,13 +607,15 @@ public partial class DashboardBatchService : IDashboardBatchService
     private async Task<object> GetCachedDetectionAsync(long usedCacheSizeBytes)
     {
         var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
+        var games = cachedResults?.Games ?? [];
 
-        if (cachedResults == null)
+        // A response carrying only the unmapped bucket has no detection rows behind it, so its
+        // StartTime is the load time rather than a scan time. The Games on Disk card would print
+        // that as the moment the last scan ran. The bucket belongs to the detection panel. [9]
+        if (cachedResults == null || (games.Count == 0 && (cachedResults.Services?.Count ?? 0) == 0))
         {
             return CachedDetectionResponseBuilder.BuildEmpty();
         }
-
-        var games = cachedResults.Games ?? [];
 
         // Live usage is already fetched for this batch; reuse it so the games-on-disk
         // staleness flag reflects the same snapshot the rest of the response was built from.

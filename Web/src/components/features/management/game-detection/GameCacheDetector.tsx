@@ -9,7 +9,8 @@ import {
   Zap,
   ChevronsDownUp,
   ChevronsUpDown,
-  Trash2
+  Trash2,
+  FileQuestion
 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
@@ -45,6 +46,7 @@ import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import '../managementSectionContent.css';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
+import UnmappedServicesList from './UnmappedServicesList';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
@@ -63,7 +65,7 @@ import {
   useCompletedRemovalPruning,
   useScheduledRemovalRefresh
 } from './cacheRemovalHelpers';
-import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
+import type { GameCacheInfo, ServiceCacheInfo, UnmappedService } from '../../../../types';
 import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { resolveDatasources } from '@utils/datasources';
 import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
@@ -127,6 +129,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const loading = isDetectionFromNotification || isStartingDetection || isLoadingData;
   const [games, setGames] = useState<GameCacheInfo[]>([]);
   const [services, setServices] = useState<ServiceCacheInfo[]>([]);
+  // null until a full detection scan reports a bucket. An incremental scan never sends one, so
+  // there is nothing to show rather than a total to carry forward from an older full scan.
+  const [unmappedServices, setUnmappedServices] = useState<UnmappedService[] | null>(null);
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
   const [serviceToRemove, setServiceToRemove] = useState<ServiceCacheInfo | null>(null);
 
@@ -158,6 +163,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [gamesExpanded, setGamesExpanded] = useState(true);
   useAccordionGroupItem('storage-game-detection-games', gamesExpanded, () =>
     setGamesExpanded(!gamesExpanded)
+  );
+  const [unmappedExpanded, setUnmappedExpanded] = useState(true);
+  useAccordionGroupItem('storage-game-detection-unmapped', unmappedExpanded, () =>
+    setUnmappedExpanded(!unmappedExpanded)
   );
 
   // "Remove All" state - sequential full-removal of every cached game and
@@ -213,10 +222,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     (snapshot: {
       games: GameCacheInfo[];
       services: ServiceCacheInfo[];
+      unmappedServices: UnmappedService[] | null;
       lastDetectionTime: string | null;
     }) => {
       setGames(snapshot.games);
       setServices(snapshot.services);
+      setUnmappedServices(snapshot.unmappedServices);
       setLastDetectionTime(snapshot.lastDetectionTime);
     },
     []
@@ -225,6 +236,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const clearCachedDetectionSnapshot = useCallback(() => {
     setGames([]);
     setServices([]);
+    setUnmappedServices(null);
     setLastDetectionTime(null);
   }, []);
 
@@ -337,6 +349,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     if (databaseResetNotifs.length > 0) {
       setGames([]);
       setServices([]);
+      setUnmappedServices(null);
       refreshSetupStatus();
     }
 
@@ -699,16 +712,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   // Expand/Collapse all handler
   const handleExpandCollapseAll = () => {
-    const allExpanded = servicesExpanded && gamesExpanded;
+    const allExpanded = servicesExpanded && gamesExpanded && unmappedExpanded;
     setServicesExpanded(!allExpanded);
     setGamesExpanded(!allExpanded);
+    setUnmappedExpanded(!allExpanded);
   };
 
   const hasResults = filteredGames.length > 0 || filteredServices.length > 0;
   const actionsPending = isLoadingInitialCache || !hasResults;
   const showBlockingLoader =
     isDetectionFromNotification || isStartingDetection || (isLoadingData && !hasResults);
-  const allExpanded = servicesExpanded && gamesExpanded;
+  const allExpanded = servicesExpanded && gamesExpanded && unmappedExpanded;
 
   // Sequential per-item cache-removal queue. The app-root BulkRemovalProvider
   // owns the run loop, per-item API/SignalR pipeline (capturing each op's id for
@@ -1181,6 +1195,21 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     diskActionBlocked={diskActionBlocked}
                     selection={gamesSelectionProp}
                   />
+                </AccordionSection>
+              )}
+
+              {/* Unmapped Section (Accordion) - read-only. Absent means the last scan was
+                  incremental and measured no unmapped set, so there is nothing to show. */}
+              {unmappedServices !== null && (
+                <AccordionSection
+                  title={t('management.gameDetection.unmappedSection')}
+                  count={unmappedServices.length}
+                  icon={FileQuestion}
+                  isExpanded={unmappedExpanded}
+                  onToggle={() => setUnmappedExpanded(!unmappedExpanded)}
+                  surface="well"
+                >
+                  <UnmappedServicesList services={unmappedServices} />
                 </AccordionSection>
               )}
 

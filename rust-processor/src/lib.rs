@@ -7,7 +7,6 @@
 pub mod cache_corruption_detector;
 pub mod cache_structural_scanner;
 pub mod cache_structural_state;
-pub mod cache_unmapped;
 pub mod cache_utils;
 pub mod cancel;
 pub mod content_scan;

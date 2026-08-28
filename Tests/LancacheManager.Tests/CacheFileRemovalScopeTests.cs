@@ -19,7 +19,6 @@ public sealed partial class CacheFileRemovalScopeTests
         cacheService: null!,
         cacheClearingService: null!,
         corruptionDetectionService: null!,
-        unmappedCacheService: null!,
         logger: NullLogger<CacheController>.Instance,
         pathResolver: null!,
         notifications: null!,

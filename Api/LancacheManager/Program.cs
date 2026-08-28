@@ -760,9 +760,6 @@ builder.Services.AddSingleton<GameCacheDetectionService>();
 // Register CorruptionDetectionService
 builder.Services.AddSingleton<CorruptionDetectionService>();
 
-// Register UnmappedCacheService
-builder.Services.AddSingleton<UnmappedCacheService>();
-
 // Register PrefillSessionService for ban management and session persistence
 builder.Services.AddSingleton<PrefillSessionService>();
 
@@ -854,7 +851,6 @@ builder.Services.AddDatabaseBackedHostedService<LiveLogMonitorService>(databaseA
 builder.Services.AddDatabaseBackedHostedService<DownloadCleanupService>(databaseAvailable);
 builder.Services.AddDatabaseBackedHostedService<CacheReconciliationService>(databaseAvailable);
 builder.Services.AddDatabaseBackedHostedService<CacheSizeScanScheduledService>(databaseAvailable);
-builder.Services.AddDatabaseBackedHostedService<UnmappedCacheScanScheduledService>(databaseAvailable);
 builder.Services.AddDatabaseBackedHostedService<GameImageFetchService>(databaseAvailable);
 builder.Services.AddHostedService<DirectoryPermissionMonitorService>();
 
