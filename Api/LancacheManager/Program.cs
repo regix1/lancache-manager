@@ -736,9 +736,6 @@ builder.Services.AddDatabaseBackedHostedService<LancacheMetricsService>(database
 // Register Rust log processor service (replaces old C# LogProcessingService and LogWatcherService)
 builder.Services.AddSingleton<RustLogProcessorService>();
 
-// Register Rust database reset service
-builder.Services.AddSingleton<RustDatabaseResetService>();
-
 // Register Rust log removal service
 builder.Services.AddSingleton<RustLogRemovalService>();
 

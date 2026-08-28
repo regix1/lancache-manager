@@ -422,34 +422,6 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("ClientGroupMembers");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.ClientStats", b =>
-                {
-                    b.Property<string>("ClientIp")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("LastActivityUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("TotalCacheHitBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("TotalCacheMissBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("TotalDownloads")
-                        .HasColumnType("integer");
-
-                    b.Property<double>("TotalDurationSeconds")
-                        .HasColumnType("double precision");
-
-                    b.HasKey("ClientIp");
-
-                    b.HasIndex("LastActivityUtc")
-                        .HasDatabaseName("IX_ClientStats_LastActivityUtc");
-
-                    b.ToTable("ClientStats");
-                });
-
             modelBuilder.Entity("LancacheManager.Models.Download", b =>
                 {
                     b.Property<long>("Id")
@@ -1050,31 +1022,6 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_PrefillSessions_Status");
 
                     b.ToTable("PrefillSessions");
-                });
-
-            modelBuilder.Entity("LancacheManager.Models.ServiceStats", b =>
-                {
-                    b.Property<string>("Service")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("LastActivityUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("TotalCacheHitBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("TotalCacheMissBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("TotalDownloads")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Service");
-
-                    b.HasIndex("LastActivityUtc")
-                        .HasDatabaseName("IX_ServiceStats_LastActivityUtc");
-
-                    b.ToTable("ServiceStats");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.SteamDepotMapping", b =>

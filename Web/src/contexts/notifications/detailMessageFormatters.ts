@@ -407,7 +407,20 @@ export const formatDatabaseResetProgressMessage = (event: DatabaseResetProgressE
  * @param event - The database reset progress event from SignalR
  * @returns Formatted completion message string
  */
-export const formatDatabaseResetCompleteMessage = (event: DatabaseResetProgressEvent): string => {
+export const formatDatabaseResetCompleteMessage = (
+  event: Pick<DatabaseResetProgressEvent, 'stageKey' | 'context'>
+): string => {
+  // The reset names the prefill daemons whose login outlived it. Without this the card
+  // reports success while those services are still signed in. The value arrives as a JSON
+  // array of platform names, which the declared context type does not cover. [61]
+  const context: Record<string, unknown> = event.context ?? {};
+  const activeLogins = context.persistentLoginFailures;
+  if (Array.isArray(activeLogins) && activeLogins.length > 0) {
+    return i18n.t('signalr.dbReset.completeWithActiveLogins', {
+      services: activeLogins.join(', ')
+    });
+  }
+
   return event.stageKey
     ? i18n.t(event.stageKey, event.context ?? {})
     : i18n.t('signalr.dbReset.complete');

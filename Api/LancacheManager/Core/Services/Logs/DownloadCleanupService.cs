@@ -269,7 +269,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// Detects orphaned services and removes their data (LogEntries / Downloads / ServiceStats)
+    /// Detects orphaned services and removes their data (LogEntries / Downloads)
     /// inside the caller's transaction. Returns the number of orphaned services removed. Child
     /// LogEntries are re-pointed off the Downloads being removed (by DownloadId) BEFORE the parent
     /// Downloads are deleted, so the FK_LogEntries_Downloads_DownloadId constraint is never violated.
@@ -344,16 +344,11 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
                 .Where(d => d.Service.ToLower() == serviceLower)
                 .ExecuteDeleteAsync(stoppingToken);
 
-            // Delete ServiceStats
-            var serviceStatsDeleted = await context.ServiceStats
-                .Where(s => s.Service.ToLower() == serviceLower)
-                .ExecuteDeleteAsync(stoppingToken);
-
-            var serviceTotal = logEntriesDeleted + downloadsDeleted + serviceStatsDeleted;
+            var serviceTotal = logEntriesDeleted + downloadsDeleted;
             totalDeleted += serviceTotal;
 
-            logger.LogInformation("Cleaned up orphaned service '{Service}': {Downloads} downloads, {LogEntries} log entries, {ServiceStats} service stats",
-                service, downloadsDeleted, logEntriesDeleted, serviceStatsDeleted);
+            logger.LogInformation("Cleaned up orphaned service '{Service}': {Downloads} downloads, {LogEntries} log entries",
+                service, downloadsDeleted, logEntriesDeleted);
         }
 
         logger.LogInformation("Orphaned service cleanup complete: removed {Total} total records from {Count} services",

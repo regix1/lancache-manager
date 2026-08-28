@@ -30,7 +30,8 @@ const TABLE_CLEAR_CONSEQUENCES = [
   { table: 'EpicGameMappings', key: 'epicGameMappings' },
   { table: 'EpicCdnPatterns', key: 'epicCdnPatterns' },
   { table: 'XboxGameMappings', key: 'xboxGameMappings' },
-  { table: 'XboxCdnPatterns', key: 'xboxCdnPatterns' }
+  { table: 'XboxCdnPatterns', key: 'xboxCdnPatterns' },
+  { table: 'IdentityAuditEntries', key: 'identityAuditEntries' }
 ] as const;
 
 interface DataSectionProps {
@@ -82,25 +83,18 @@ const DataSection: React.FC<DataSectionProps> = ({
       affectedPages: t('management.sections.data.tables.downloads.affectedPages')
     },
     {
-      name: 'ClientStats',
-      label: t('management.sections.data.tables.clientStats.label'),
-      description: t('management.sections.data.tables.clientStats.description'),
-      details: t('management.sections.data.tables.clientStats.details'),
-      affectedPages: t('management.sections.data.tables.clientStats.affectedPages')
-    },
-    {
-      name: 'ServiceStats',
-      label: t('management.sections.data.tables.serviceStats.label'),
-      description: t('management.sections.data.tables.serviceStats.description'),
-      details: t('management.sections.data.tables.serviceStats.details'),
-      affectedPages: t('management.sections.data.tables.serviceStats.affectedPages')
-    },
-    {
       name: 'SteamDepotMappings',
       label: t('management.sections.data.tables.steamDepotMappings.label'),
       description: t('management.sections.data.tables.steamDepotMappings.description'),
       details: t('management.sections.data.tables.steamDepotMappings.details'),
       affectedPages: t('management.sections.data.tables.steamDepotMappings.affectedPages')
+    },
+    {
+      name: 'GameImages',
+      label: t('management.sections.data.tables.gameImages.label'),
+      description: t('management.sections.data.tables.gameImages.description'),
+      details: t('management.sections.data.tables.gameImages.details'),
+      affectedPages: t('management.sections.data.tables.gameImages.affectedPages')
     },
     {
       name: 'CachedGameDetections',
@@ -115,6 +109,13 @@ const DataSection: React.FC<DataSectionProps> = ({
       description: t('management.sections.data.tables.cachedServiceDetections.description'),
       details: t('management.sections.data.tables.cachedServiceDetections.details'),
       affectedPages: t('management.sections.data.tables.cachedServiceDetections.affectedPages')
+    },
+    {
+      name: 'CachedDetectionSummaries',
+      label: t('management.sections.data.tables.cachedDetectionSummaries.label'),
+      description: t('management.sections.data.tables.cachedDetectionSummaries.description'),
+      details: t('management.sections.data.tables.cachedDetectionSummaries.details'),
+      affectedPages: t('management.sections.data.tables.cachedDetectionSummaries.affectedPages')
     },
     {
       name: 'CachedCorruptionDetections',
@@ -185,6 +186,13 @@ const DataSection: React.FC<DataSectionProps> = ({
       description: t('management.sections.data.tables.userPreferences.description'),
       details: t('management.sections.data.tables.userPreferences.details'),
       affectedPages: t('management.sections.data.tables.userPreferences.affectedPages')
+    },
+    {
+      name: 'IdentityAuditEntries',
+      label: t('management.sections.data.tables.identityAuditEntries.label'),
+      description: t('management.sections.data.tables.identityAuditEntries.description'),
+      details: t('management.sections.data.tables.identityAuditEntries.details'),
+      affectedPages: t('management.sections.data.tables.identityAuditEntries.affectedPages')
     },
     {
       name: 'CacheSnapshots',

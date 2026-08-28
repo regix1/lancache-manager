@@ -1292,12 +1292,11 @@ public class RustLogRemovalService
         public int TotalDeleted { get; set; }
         public int LogEntriesDeleted { get; set; }
         public int DownloadsDeleted { get; set; }
-        public int ServiceStatsDeleted { get; set; }
     }
 
     /// <summary>
     /// Cleans up database records for a removed service.
-    /// Deletes LogEntries, Downloads, and ServiceStats for the specified service.
+    /// Deletes LogEntries and Downloads for the specified service.
     /// </summary>
     private async Task<DatabaseCleanupResult> CleanupDbRecordsAsync(
         string service,
@@ -1340,15 +1339,9 @@ public class RustLogRemovalService
                 .ExecuteDeleteAsync();
             _logger.LogInformation("Deleted {Count} Downloads for service {Service}", result.DownloadsDeleted, service);
 
-            // Delete ServiceStats for this service
-            result.ServiceStatsDeleted = await context.ServiceStats
-                .Where(s => s.Service.ToLower() == serviceLower)
-                .ExecuteDeleteAsync();
-            _logger.LogInformation("Deleted {Count} ServiceStats for service {Service}", result.ServiceStatsDeleted, service);
-
-            result.TotalDeleted = result.LogEntriesDeleted + result.DownloadsDeleted + result.ServiceStatsDeleted;
+            result.TotalDeleted = result.LogEntriesDeleted + result.DownloadsDeleted;
             result.Success = true;
-            result.Message = $"Deleted {result.DownloadsDeleted} downloads, {result.LogEntriesDeleted} log entries, {result.ServiceStatsDeleted} service stats";
+            result.Message = $"Deleted {result.DownloadsDeleted} downloads, {result.LogEntriesDeleted} log entries";
 
             _logger.LogInformation("Database cleanup completed for service {Service}: {Message}", service, result.Message);
         }

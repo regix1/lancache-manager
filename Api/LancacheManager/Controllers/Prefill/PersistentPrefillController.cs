@@ -821,52 +821,10 @@ public class PersistentPrefillController : ControllerBase
     [ProducesResponseType(typeof(ClearPersistentLoginsResponseDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<ClearPersistentLoginsResponseDto>> ClearLoginsAsync(CancellationToken cancellationToken)
     {
-        var results = new List<ClearPersistentLoginServiceResultDto>();
-
-        foreach (var service in Enum.GetValues<PrefillPlatform>())
+        return Ok(new ClearPersistentLoginsResponseDto
         {
-            var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, service);
-            if (daemon is null)
-            {
-                continue;
-            }
-
-            var session = daemon.GetActivePersistentSession();
-            if (session is not null)
-            {
-                // Hard guarantee for a RUNNING container (see ForgetRunningPersistentLoginAsync): the
-                // daemon's in-place logout is tried first, verified against its LIVE status, and - only
-                // when it did not verifiably forget the login (old image that lies about success, or a
-                // reported failure) - escalated to terminate the container + delete its named auth
-                // volume. Report the honest outcome so the UI never celebrates a login that survived.
-                var outcome = await daemon.ForgetRunningPersistentLoginAsync(session.Id, cancellationToken);
-                results.Add(new ClearPersistentLoginServiceResultDto
-                {
-                    Service = service,
-                    WasRunning = true,
-                    Success = outcome is PersistentRunningLoginClearOutcome.LoggedOut
-                        or PersistentRunningLoginClearOutcome.HardRemoved,
-                    Detail = outcome switch
-                    {
-                        PersistentRunningLoginClearOutcome.LoggedOut => "logged-out",
-                        PersistentRunningLoginClearOutcome.HardRemoved => "hard-removed",
-                        _ => "hard-remove-failed"
-                    }
-                });
-                continue;
-            }
-
-            var volumeResult = await daemon.ClearPersistentAuthVolumeAsync(cancellationToken);
-            results.Add(new ClearPersistentLoginServiceResultDto
-            {
-                Service = service,
-                WasRunning = false,
-                Success = volumeResult is PersistentVolumeClearResult.Removed or PersistentVolumeClearResult.NotFound,
-                Detail = volumeResult.ToString()
-            });
-        }
-
-        return Ok(new ClearPersistentLoginsResponseDto { Services = results });
+            Services = await PrefillDaemonServiceBase.ClearAllPersistentLoginsAsync(_serviceProvider, cancellationToken)
+        });
     }
 
     /// <summary>
@@ -1490,38 +1448,4 @@ public sealed class PersistentPrefillGamesDto
 
     /// <summary>App ids whose cached content is up to date for the session.</summary>
     public required List<string> CachedAppIds { get; init; }
-}
-
-/// <summary>Response for the admin "clear all persistent logins" action.</summary>
-public sealed class ClearPersistentLoginsResponseDto
-{
-    /// <summary>Per-service outcome, one entry per registered daemon.</summary>
-    public required List<ClearPersistentLoginServiceResultDto> Services { get; init; }
-}
-
-/// <summary>Per-service outcome of a "clear all logins" action.</summary>
-public sealed class ClearPersistentLoginServiceResultDto
-{
-    /// <summary>Platform this result applies to.</summary>
-    public required PrefillPlatform Service { get; init; }
-
-    /// <summary>
-    /// True when a persistent session was running for this service and was logged out in place;
-    /// false when there was no running session and its auth volume was targeted instead.
-    /// </summary>
-    public required bool WasRunning { get; init; }
-
-    /// <summary>
-    /// True when the login was actually forgotten - the daemon acknowledged the logout (running case),
-    /// or the auth volume was removed / was already absent (stopped case).
-    /// </summary>
-    public required bool Success { get; init; }
-
-    /// <summary>
-    /// Outcome detail. Running session: "logged-out" (in-place logout verified clean, container still
-    /// running), "hard-removed" (escalated - container terminated and its named auth volume deleted),
-    /// or "hard-remove-failed" (escalation ran but the volume could not be removed). Stopped/volume
-    /// path: the raw <see cref="PersistentVolumeClearResult"/> name (e.g. "InUse").
-    /// </summary>
-    public string? Detail { get; init; }
 }

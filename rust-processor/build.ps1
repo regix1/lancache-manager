@@ -26,8 +26,7 @@ $Binaries = @(
     "cache_xbox_remove",       # Remove Xbox named game from cache by name (thin wrapper over named core)
     "cache_service_remove",    # Remove service from cache (was service_remover)
     "cache_eviction_scan",     # Scan cache and mark evicted downloads
-    "cache_purge_log_entries", # Bulk-purge access.log entries for evicted games
-    "db_reset"                 # Reset database (was database_reset)
+    "cache_purge_log_entries"  # Bulk-purge access.log entries for evicted games
 )
 
 function Build-ForTarget {

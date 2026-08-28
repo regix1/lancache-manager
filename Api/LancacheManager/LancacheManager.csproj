@@ -114,7 +114,6 @@
     Binary naming convention (consistent prefix-based):
       - log_*           : Log file operations (log_processor, log_service_manager)
       - cache_*         : Cache file operations (cache_clear, cache_corruption, cache_game_detect, cache_steam_remove, cache_epic_remove, cache_blizzard_remove, cache_riot_remove, cache_xbox_remove, cache_service_remove)
-      - db_*            : Database operations (db_reset)
   -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == '' And '$(SkipRustBuild)' != 'true'">
     <!-- Development build on Windows - copy from target/release -->
@@ -153,10 +152,6 @@
     <None Include="..\..\rust-processor\target\release\cache_service_remove.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_service_remove.exe</Link>
-    </None>
-    <None Include="..\..\rust-processor\target\release\db_reset.exe">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\db_reset.exe</Link>
     </None>
     <None Include="..\..\rust-processor\target\release\cache_eviction_scan.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -222,10 +217,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_service_remove.exe</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\win-x64\db_reset.exe">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\db_reset.exe</Link>
-    </None>
     <None Include="..\..\rust-processor\bin\win-x64\cache_eviction_scan.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_eviction_scan.exe</Link>
@@ -289,10 +280,6 @@
     <None Include="..\..\rust-processor\bin\linux-x64\cache_service_remove">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_service_remove</Link>
-    </None>
-    <None Include="..\..\rust-processor\bin\linux-x64\db_reset">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\db_reset</Link>
     </None>
     <None Include="..\..\rust-processor\bin\linux-x64\cache_eviction_scan">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -358,10 +345,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_service_remove</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\linux-arm64\db_reset">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\db_reset</Link>
-    </None>
     <None Include="..\..\rust-processor\bin\linux-arm64\cache_eviction_scan">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_eviction_scan</Link>
@@ -425,10 +408,6 @@
     <None Include="../../rust-processor/target/release/cache_service_remove">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor/cache_service_remove</Link>
-    </None>
-    <None Include="../../rust-processor/target/release/db_reset">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor/db_reset</Link>
     </None>
     <None Include="../../rust-processor/target/release/cache_eviction_scan">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

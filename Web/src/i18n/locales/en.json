@@ -2145,14 +2145,15 @@
           "clearSummary": "Export anything you need first. This cannot be undone, and historical reports may be affected.",
           "depotMappings": "Games will show as \"Unknown\" until mappings are rebuilt.",
           "events": "All events and their download associations are deleted.",
-          "userSessions": "All devices are logged out and cleared, so everyone has to authenticate again.",
+          "userSessions": "All devices are logged out and cleared, and the Steam, Epic, Xbox and prefill sign-ins go with them, so everyone has to authenticate again.",
           "clientGroups": "All client groups and their members are deleted.",
           "prefillSessions": "All prefill sessions are deleted.",
           "bannedPrefillUsers": "Banned prefill users are unblocked and can prefill again.",
           "epicGameMappings": "Epic games will show as \"Unknown\" until mappings are rebuilt.",
           "epicCdnPatterns": "Epic game detection may not work until CDN patterns are re-fetched.",
           "xboxGameMappings": "Xbox games will show as \"Unknown\" until mappings are rebuilt.",
-          "xboxCdnPatterns": "Xbox game detection may not work until CDN patterns are re-fetched."
+          "xboxCdnPatterns": "Xbox game detection may not work until CDN patterns are re-fetched.",
+          "identityAuditEntries": "The security audit log cannot be recovered. It is the only record of who changed which account."
         },
         "clearTables": "Clear {{count}} Table",
         "clearTables_other": "Clear {{count}} Tables",
@@ -2169,23 +2170,17 @@
             "details": "Tracked downloads with game names, sizes, and timestamps",
             "affectedPages": "Dashboard • Downloads • Clients • Analytics"
           },
-          "clientStats": {
-            "label": "Client Statistics",
-            "description": "Per-client download statistics and metrics",
-            "details": "Bandwidth and download counts grouped by IP address",
-            "affectedPages": "Dashboard • Clients tab"
-          },
-          "serviceStats": {
-            "label": "Service Statistics",
-            "description": "Per-service (Steam, Epic, etc.) download statistics",
-            "details": "Total downloads and bandwidth usage by CDN service",
-            "affectedPages": "Dashboard service cards • Charts"
-          },
           "steamDepotMappings": {
             "label": "Steam Depot Mappings",
             "description": "Depot ID to game name associations from SteamKit",
             "details": "Mappings used to identify which game a depot belongs to. Also clears game names from existing downloads.",
             "affectedPages": "Dashboard • Downloads • All game name displays"
+          },
+          "gameImages": {
+            "label": "Game Images",
+            "description": "Cached game artwork and banner images",
+            "details": "Stored artwork and banners for detected games. Images are re-fetched automatically the next time a game is shown.",
+            "affectedPages": "Downloads • Dashboard game banners"
           },
           "cachedGameDetections": {
             "label": "Cache Detection Results",
@@ -2247,11 +2242,23 @@
             "details": "Theme selections and UI customization settings linked to sessions",
             "affectedPages": "Theme and UI settings reset to defaults"
           },
+          "identityAuditEntries": {
+            "label": "Security Audit Log",
+            "description": "Security audit records for account and API key changes",
+            "details": "Records of logins, password and role changes, account creation and deletion, and API key rotation",
+            "affectedPages": "No page changes • The only record of who changed which account"
+          },
           "cachedServiceDetections": {
             "label": "Service Detection Cache",
             "description": "Cached results from service detection scans",
             "details": "Pre-computed service detections (Steam, Epic, etc.) from cache files",
             "affectedPages": "Cache tab • Service detection cards"
+          },
+          "cachedDetectionSummaries": {
+            "label": "Detection Scan Summaries",
+            "description": "Summary headers for game and service detection scans",
+            "details": "Scan totals and the last detection time that head the game and service detection caches. Clearing the detections without this leaves a stale last-detection reading.",
+            "affectedPages": "Cache tab • Detection summary counts"
           },
           "prefillCachedDepots": {
             "label": "Prefill Cache Status",
@@ -7248,7 +7255,7 @@
     "dbReset": {
       "starting": "Starting database reset...",
       "complete": "Database reset completed successfully",
-      "failedExitCode": "Database reset failed with exit code {{exitCode}}",
+      "completeWithActiveLogins": "Database reset completed, but the prefill login is still active for: {{services}}",
       "cancelled": "Database reset was cancelled",
       "failed": "Database reset failed: {{errorDetail}}",
       "startingTables": "Starting reset of {{count}} table(s)...",
@@ -7256,22 +7263,15 @@
       "clearingLogEntries": "Clearing log entries... {{deleted}}/{{total}} ({{percent}}%)",
       "clearedLogEntries": "Cleared log entries ({{count}} rows)",
       "clearedDownloads": "Cleared downloads ({{count}} rows)",
-      "clearedClientStats": "Cleared client stats ({{count}} rows)",
-      "clearedServiceStats": "Cleared service stats ({{count}} rows)",
       "clearedDepotMappings": "Cleared depot mappings ({{count}} rows) and unmapped all downloads",
       "clearedGameDetections": "Cleared cached game detections ({{count}} rows)",
       "clearedUserPreferences": "Cleared user preferences ({{count}} rows)",
-      "clearedUserSessions": "Cleared user sessions ({{count}} rows) and Steam auth data",
+      "clearedUserSessions": "Cleared user sessions ({{count}} rows) and platform auth data",
       "clearedTable": "Cleared {{tableName}} ({{count}} rows)",
       "sessionsCleared": {
         "logout": "All user sessions have been cleared - logging out immediately"
       },
-      "deleting": "Clearing {{tableName}}... ({{deletedRows}}/{{totalRows}} rows)",
-      "optimizing": "Optimizing database...",
       "cleanup": "Cleaning up files...",
-      "error": {
-        "fatal": "Database reset failed: {{errorDetail}}"
-      },
       "stale": "Database reset completed"
     },
     "dataImport": {

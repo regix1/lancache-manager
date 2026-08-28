@@ -6,7 +6,9 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
+using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Core.Services.SteamKit2;
+using LancacheManager.Core.Services.Xbox;
 using System.Data;
 
 
@@ -20,25 +22,35 @@ public class DatabaseService
     private readonly IPathResolver _pathResolver;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly SteamKit2Service _steamKit2Service;
+    private readonly XboxCatalogMappingService _xboxCatalogMappingService;
+    private readonly EpicMappingService _epicMappingService;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly CacheManagementService _cacheManagementService;
     private readonly StateService _stateRepository;
     private readonly DatasourceService _datasourceService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private const string CachedCorruptionDetectionsTable = "CachedCorruptionDetections";
     private const string CachedCorruptionScansTable = "CachedCorruptionScans";
+    /// <summary>
+    /// Every table a reset may empty. It carries one entry per mapped table that a full wipe is
+    /// allowed to touch, so a table added to the model later needs an entry here and a switch arm
+    /// in <c>DoResetAsync</c> or both reset paths skip it in silence.
+    /// </summary>
     private static readonly HashSet<string> _validResetTables =
     [
         "LogEntries",
         "Downloads",
-        "ClientStats",
-        "ServiceStats",
         "SteamDepotMappings",
         "CachedGameDetections",
         "CachedServiceDetections",
+        "CachedDetectionSummaries",
         CachedCorruptionDetectionsTable,
         CachedCorruptionScansTable,
         "ClientGroups",
+        "ClientGroupMembers",
         "UserSessions",
         "UserPreferences",
+        "IdentityAuditEntries",
         "Events",
         "EventDownloads",
         "PrefillSessions",
@@ -47,7 +59,22 @@ public class DatabaseService
         "BannedPrefillUsers",
         "CacheSnapshots",
         "EpicGameMappings",
-        "EpicCdnPatterns"
+        "EpicCdnPatterns",
+        "XboxGameMappings",
+        "XboxCdnPatterns",
+        "GameImages"
+    ];
+
+    /// <summary>
+    /// The mapped tables a full wipe leaves alone. Deleting the accounts rows locks every user out
+    /// of the application permanently, and the migration history is Entity Framework's own
+    /// bookkeeping. The corruption scanner's structural_state_version is spared for the same reason
+    /// as the migration history, but it is not listed here because it is not a mapped entity.
+    /// </summary>
+    private static readonly HashSet<string> _fullResetExcludedTables =
+    [
+        "UserAccounts",
+        "__EFMigrationsHistory"
     ];
     private static readonly ConcurrentDictionary<Guid, bool> _activeResetOperations = new();
     private static Guid? _currentResetOperationId;
@@ -75,6 +102,10 @@ public class DatabaseService
         IPathResolver pathResolver,
         IDbContextFactory<AppDbContext> dbContextFactory,
         SteamKit2Service steamKit2Service,
+        XboxCatalogMappingService xboxCatalogMappingService,
+        EpicMappingService epicMappingService,
+        IServiceProvider serviceProvider,
+        CacheManagementService cacheManagementService,
         StateService stateRepository,
         DatasourceService datasourceService,
         IUnifiedOperationTracker operationTracker)
@@ -85,6 +116,10 @@ public class DatabaseService
         _pathResolver = pathResolver;
         _dbContextFactory = dbContextFactory;
         _steamKit2Service = steamKit2Service;
+        _xboxCatalogMappingService = xboxCatalogMappingService;
+        _epicMappingService = epicMappingService;
+        _serviceProvider = serviceProvider;
+        _cacheManagementService = cacheManagementService;
         _stateRepository = stateRepository;
         _datasourceService = datasourceService;
         _operationTracker = operationTracker;
@@ -104,6 +139,21 @@ public class DatabaseService
     /// Starts a background task to reset selected tables and returns immediately
     /// </summary>
     public Guid StartResetAsync(List<string> tableNames)
+    {
+        return StartResetAsync(tableNames, fullReset: false);
+    }
+
+    /// <summary>
+    /// Starts a background task that empties every mapped table except the ones in
+    /// <see cref="_fullResetExcludedTables"/>, plus the corruption scanner's structural baseline,
+    /// and returns immediately.
+    /// </summary>
+    public Guid StartFullResetAsync()
+    {
+        return StartResetAsync(ResolveFullResetTables(_context), fullReset: true);
+    }
+
+    private Guid StartResetAsync(List<string> tableNames, bool fullReset)
     {
         // Create cancellation support
         var cts = new CancellationTokenSource();
@@ -198,8 +248,47 @@ public class DatabaseService
                 startingSnapshot.Context
             });
 
-            // Start background task with cancellation token
-            _ = Task.Run(async () => await DoResetAsync(operationId, tableNames, cts.Token));
+            // Start background task with cancellation token.
+            // A full wipe empties every table at once, so it holds the cache lock for its whole run:
+            // a cache or log operation writing rows into a table the wipe already emptied would
+            // leave the database half-cleared. [23]
+            if (fullReset)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _cacheManagementService.ExecuteWithLockAsync(
+                            async () =>
+                            {
+                                await DoResetAsync(operationId, tableNames, fullReset: true, cts.Token);
+                                return true;
+                            },
+                            cts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Cancelled while a cache operation still held the lock, so DoResetAsync never
+                        // ran and never released the operation. Without this the wipe stays in progress
+                        // forever and every later reset is refused. [23]
+                        await ReportProgressAsync(
+                            operationId,
+                            false,
+                            0,
+                            OperationStatus.Cancelled,
+                            "signalr.dbReset.cancelled",
+                            new Dictionary<string, object?>(),
+                            "Database reset was cancelled");
+
+                        _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
+                        ReleaseResetOperation(operationId);
+                    }
+                });
+            }
+            else
+            {
+                _ = Task.Run(async () => await DoResetAsync(operationId, tableNames, fullReset: false, cts.Token));
+            }
         }
         else
         {
@@ -212,7 +301,7 @@ public class DatabaseService
     /// <summary>
     /// Internal method that performs the actual reset operation
     /// </summary>
-    private async Task DoResetAsync(Guid operationId, List<string> tableNames, CancellationToken cancellationToken)
+    private async Task DoResetAsync(Guid operationId, List<string> tableNames, bool fullReset, CancellationToken cancellationToken)
     {
         var terminalOutcome = OperationStatus.Failed;
 
@@ -295,6 +384,10 @@ public class DatabaseService
             // Track which preference reset event needs to be broadcast AFTER operation completes
             bool shouldBroadcastPreferencesReset = false;
 
+            // Prefill daemons whose persistent login outlived the reset. Carried out of the table
+            // loop so the completion report can name them instead of claiming a clean sweep. [22]
+            var failedPersistentLogins = new List<string>();
+
             // Temporarily disable foreign key triggers for bulk deletion (PostgreSQL)
             // This prevents FK constraint errors during table deletions
             _logger.LogInformation("Disabling foreign key triggers for bulk deletion");
@@ -304,6 +397,15 @@ public class DatabaseService
             var deleteStrategy = context.Database.CreateExecutionStrategy();
             await deleteStrategy.ExecuteAsync(async () =>
             {
+                // The connection is configured with EnableRetryOnFailure, so a transient failure
+                // re-runs this whole lambda. All three accumulators live outside it and would
+                // otherwise carry the abandoned attempt's values into the next one: a doubled row
+                // total, the same platform named twice in the completion message, and a progress
+                // bar that resumes from where the failed attempt stopped instead of restarting.
+                deletedRows = 0;
+                failedPersistentLogins.Clear();
+                currentProgress = 0;
+
                 using var deleteTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
                 try
                 {
@@ -436,32 +538,6 @@ public class DatabaseService
                                 $"Cleared downloads ({downloadsCount:N0} rows)");
                             break;
 
-                        case "ClientStats":
-                            // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
-                            var clientStatsCount = await context.ClientStats.ExecuteDeleteAsync(cancellationToken);
-                            _logger.LogInformation($"Cleared {clientStatsCount:N0} client stats");
-                            deletedRows += clientStatsCount;
-
-                            await ReportProgressAsync(operationId, true,
-                                Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
-                                "signalr.dbReset.clearedClientStats",
-                                new Dictionary<string, object?> { ["count"] = clientStatsCount },
-                                $"Cleared client stats ({clientStatsCount:N0} rows)");
-                            break;
-
-                        case "ServiceStats":
-                            // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
-                            var serviceStatsCount = await context.ServiceStats.ExecuteDeleteAsync(cancellationToken);
-                            _logger.LogInformation($"Cleared {serviceStatsCount:N0} service stats");
-                            deletedRows += serviceStatsCount;
-
-                            await ReportProgressAsync(operationId, true,
-                                Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
-                                "signalr.dbReset.clearedServiceStats",
-                                new Dictionary<string, object?> { ["count"] = serviceStatsCount },
-                                $"Cleared service stats ({serviceStatsCount:N0} rows)");
-                            break;
-
                         case "SteamDepotMappings":
                             // Use ExecuteDeleteAsync for direct deletion (more efficient for this table)
                             var mappingCount = await context.SteamDepotMappings.ExecuteDeleteAsync(cancellationToken);
@@ -533,9 +609,10 @@ public class DatabaseService
                             // CRITICAL: UserSessions is always processed FIRST (priority 0)
                             // This ensures all users are logged out immediately before any other tables are cleared
 
-                            // SECURITY: Clear Steam auth FIRST, before clearing user sessions
-                            // This ensures Steam is fully logged out before frontend receives the event
-                            _logger.LogInformation("Clearing Steam authentication data first...");
+                            // SECURITY: Clear Steam, Xbox and Epic auth FIRST, before clearing user sessions
+                            // This ensures every platform is fully logged out before frontend receives the event.
+                            // Each clear is best-effort so a failure on one cannot leave the sessions table intact.
+                            _logger.LogInformation("Clearing platform authentication data first...");
                             try
                             {
                                 await _steamKit2Service.ClearAllSteamAuthAsync();
@@ -543,6 +620,48 @@ public class DatabaseService
                             catch (Exception steamEx)
                             {
                                 _logger.LogWarning(steamEx, "Error clearing Steam auth during session reset");
+                            }
+
+                            try
+                            {
+                                await _xboxCatalogMappingService.LogoutAsync();
+                            }
+                            catch (Exception xboxEx)
+                            {
+                                _logger.LogWarning(xboxEx, "Error clearing Xbox auth during session reset");
+                            }
+
+                            try
+                            {
+                                await _epicMappingService.LogoutAsync();
+                            }
+                            catch (Exception epicEx)
+                            {
+                                _logger.LogWarning(epicEx, "Error clearing Epic auth during session reset");
+                            }
+
+                            // The prefill daemons keep their own persistent logins in named Docker volumes,
+                            // outside the database, so clearing sessions has to reach them explicitly.
+                            try
+                            {
+                                var persistentLoginResults = await PrefillDaemonServiceBase.ClearAllPersistentLoginsAsync(
+                                    _serviceProvider, cancellationToken);
+                                failedPersistentLogins.AddRange(persistentLoginResults
+                                    .Where(result => !result.Success)
+                                    .Select(result => result.Service.ToString()));
+                                if (failedPersistentLogins.Count > 0)
+                                {
+                                    _logger.LogWarning("Prefill persistent login survived for: {Services}",
+                                        string.Join(", ", failedPersistentLogins));
+                                }
+                            }
+                            catch (Exception prefillEx)
+                            {
+                                // The sweep threw before any daemon reported an outcome, so nothing is
+                                // known to be logged out. An empty list here would let the completion
+                                // message call the reset clean. [22]
+                                failedPersistentLogins.AddRange(Enum.GetNames<PrefillPlatform>());
+                                _logger.LogWarning(prefillEx, "Error clearing prefill persistent logins during session reset");
                             }
 
                             _logger.LogInformation($"[PRIORITY] Clearing UserSessions table to invalidate all active sessions");
@@ -555,7 +674,11 @@ public class DatabaseService
                             await ReportProgressAsync(operationId, true,
                                 Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
                                 "signalr.dbReset.clearedUserSessions",
-                                new Dictionary<string, object?> { ["count"] = userSessionsCount },
+                                new Dictionary<string, object?>
+                                {
+                                    ["count"] = userSessionsCount,
+                                    ["persistentLoginFailures"] = failedPersistentLogins
+                                },
                                 $"Cleared user sessions ({userSessionsCount:N0} rows)");
 
                             // IMMEDIATELY broadcast UserSessionsCleared event to log out all connected users
@@ -752,9 +875,116 @@ public class DatabaseService
                                 "EpicCdnPatterns", epicCdnCount,
                                 $"Cleared Epic CDN patterns ({epicCdnCount:N0} rows)");
                             break;
+
+                        case "XboxGameMappings":
+                            var xboxMappingCount = await context.XboxGameMappings.ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation($"Cleared {xboxMappingCount:N0} Xbox game mappings");
+                            deletedRows += xboxMappingCount;
+
+                            _logger.LogInformation("Clearing Xbox product ID from Downloads table");
+                            await context.Downloads
+                                .Where(d => d.XboxProductId != null)
+                                .ExecuteUpdateAsync(s => s
+                                    .SetProperty(d => d.XboxProductId, (string?)null), cancellationToken);
+                            _logger.LogInformation("Cleared Xbox product ID from all downloads");
+
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "XboxGameMappings", xboxMappingCount,
+                                $"Cleared Xbox game mappings ({xboxMappingCount:N0} rows) and unmapped all Xbox downloads");
+                            break;
+
+                        case "XboxCdnPatterns":
+                            var xboxCdnCount = await context.XboxCdnPatterns.ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation($"Cleared {xboxCdnCount:N0} Xbox CDN patterns");
+                            deletedRows += xboxCdnCount;
+
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "XboxCdnPatterns", xboxCdnCount,
+                                $"Cleared Xbox CDN patterns ({xboxCdnCount:N0} rows)");
+                            break;
+
+                        case "CachedDetectionSummaries":
+                            var detectionSummaryCount = await context.CachedDetectionSummaries.ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation($"Cleared {detectionSummaryCount:N0} cached detection summaries");
+                            deletedRows += detectionSummaryCount;
+
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "CachedDetectionSummaries", detectionSummaryCount,
+                                $"Cleared detection summary headers ({detectionSummaryCount:N0} rows)");
+                            break;
+
+                        case "GameImages":
+                            var gameImageCount = await context.GameImages.ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation($"Cleared {gameImageCount:N0} cached game images");
+                            deletedRows += gameImageCount;
+
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "GameImages", gameImageCount,
+                                $"Cleared cached game artwork ({gameImageCount:N0} rows)");
+                            break;
+
+                        case "IdentityAuditEntries":
+                            var identityAuditCount = await context.IdentityAuditEntries.ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation($"Cleared {identityAuditCount:N0} identity audit entries");
+                            deletedRows += identityAuditCount;
+
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "IdentityAuditEntries", identityAuditCount,
+                                $"Cleared account audit records ({identityAuditCount:N0} rows)");
+                            break;
+
+                        case "ClientGroupMembers":
+                            // Foreign key triggers are disabled for the bulk delete above, so the cascade
+                            // from ClientGroups does not fire and the member rows need their own delete.
+                            var clientGroupMembersCount = await context.ClientGroupMembers.ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation($"Cleared {clientGroupMembersCount:N0} client group members");
+                            deletedRows += clientGroupMembersCount;
+
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "ClientGroupMembers", clientGroupMembersCount,
+                                $"Cleared client group members ({clientGroupMembersCount:N0} rows)");
+                            break;
                     }
 
                     currentProgress += progressPerTable;
+                }
+
+                // A full wipe reaches the corruption scanner's baseline too. Leaving it behind makes
+                // the next Incremental scan skip every file it considers unchanged, so the Cache tab
+                // stays empty until someone forces a Full scan. The scanner creates these tables with
+                // raw SQL on its first run, so on an install that has never scanned they do not exist
+                // and the wipe still has to succeed.
+                // The three deletes are explicit and child-first because foreign key triggers are
+                // disabled for this whole block, which also disables the ON DELETE CASCADE from
+                // structural_namespaces down through structural_runs into structural_file_state.
+                // structural_state_version records the scanner's schema version rather than data, so
+                // it stays, like the migration history.
+                if (fullReset)
+                {
+                    var structuralStateExists = await context.Database
+                        .SqlQueryRaw<bool>(
+                            "SELECT to_regclass('structural_file_state') IS NOT NULL " +
+                            "AND to_regclass('structural_runs') IS NOT NULL " +
+                            "AND to_regclass('structural_namespaces') IS NOT NULL AS \"Value\"")
+                        .SingleAsync(cancellationToken);
+                    if (structuralStateExists)
+                    {
+                        await context.Database.ExecuteSqlRawAsync(
+                            "DELETE FROM structural_file_state", cancellationToken);
+                        await context.Database.ExecuteSqlRawAsync(
+                            "DELETE FROM structural_runs", cancellationToken);
+                        var structuralNamespacesDeleted = await context.Database.ExecuteSqlRawAsync(
+                            "DELETE FROM structural_namespaces", cancellationToken);
+                        _logger.LogInformation(
+                            "Cleared {Count:N0} structural corruption baseline namespace(s) and their runs and file state",
+                            structuralNamespacesDeleted);
+                    }
                 }
 
                 // Cleared log entries were the evidence behind the current Repeated-MISS scan:
@@ -790,7 +1020,7 @@ public class DatabaseService
                     var dataDirectory = _pathResolver.GetDataDirectory();
                     if (Directory.Exists(dataDirectory))
                     {
-                        var filesToDelete = new[] { "position.txt", "performance_data.json", "processing.marker" };
+                        var filesToDelete = new[] { "position.txt", "performance_data.json", "processing.marker", "rust_progress.json" };
                         foreach (var file in filesToDelete)
                         {
                             var filePath = Path.Combine(dataDirectory, file);
@@ -854,8 +1084,10 @@ public class DatabaseService
                 100.0,
                 OperationStatus.Completed,
                 "signalr.dbReset.complete",
-                new Dictionary<string, object?>(),
-                $"Successfully cleared {tablesToClear.Count} table(s): {string.Join(", ", tablesToClear)}",
+                new Dictionary<string, object?> { ["persistentLoginFailures"] = failedPersistentLogins },
+                failedPersistentLogins.Count == 0
+                    ? $"Successfully cleared {tablesToClear.Count} table(s): {string.Join(", ", tablesToClear)}"
+                    : $"Cleared {tablesToClear.Count} table(s): {string.Join(", ", tablesToClear)}. Prefill login still active for: {string.Join(", ", failedPersistentLogins)}",
                 tablesCleared: tablesToClear.Count,
                 totalTables: tablesToClear.Count);
 
@@ -897,20 +1129,27 @@ public class DatabaseService
         }
         finally
         {
-            // Clean up operation tracking
-            _activeResetOperations.TryRemove(operationId, out _);
-            if (_currentResetOperationId == operationId)
-            {
-                _currentResetOperationId = null;
-            }
-
-            var progress = Volatile.Read(ref _currentResetProgress);
-            if (progress?.OperationId == operationId)
-            {
-                Volatile.Write(ref _currentResetProgress, null);
-            }
+            ReleaseResetOperation(operationId);
 
             _logger.LogInformation("Reset operation {OperationId} ended with {Outcome}", operationId, terminalOutcome);
+        }
+    }
+
+    /// <summary>
+    /// Drops the operation's tracking state so the next reset can start.
+    /// </summary>
+    private void ReleaseResetOperation(Guid operationId)
+    {
+        _activeResetOperations.TryRemove(operationId, out _);
+        if (_currentResetOperationId == operationId)
+        {
+            _currentResetOperationId = null;
+        }
+
+        var progress = Volatile.Read(ref _currentResetProgress);
+        if (progress?.OperationId == operationId)
+        {
+            Volatile.Write(ref _currentResetProgress, null);
         }
     }
 
@@ -985,7 +1224,9 @@ public class DatabaseService
 
     /// <summary>
     /// Validates reset-table input and expands an explicit corruption-table selection to the
-    /// candidate/header pair (the rows are only meaningful together). Clearing log entries no
+    /// candidate/header pair (the rows are only meaningful together), and a game or service
+    /// detection selection to its summary header, which would otherwise keep reporting a last
+    /// detection time for detections that are gone. Clearing log entries no
     /// longer deletes corruption snapshots: retained scans are view-only history, so a log
     /// clear merely demotes the current Repeated-MISS scan after the table loop.
     /// </summary>
@@ -1010,7 +1251,33 @@ public class DatabaseService
             }
         }
 
+        if (tables.Contains("CachedGameDetections", StringComparer.Ordinal) ||
+            tables.Contains("CachedServiceDetections", StringComparer.Ordinal))
+        {
+            if (!tables.Contains("CachedDetectionSummaries", StringComparer.Ordinal))
+            {
+                tables.Add("CachedDetectionSummaries");
+            }
+        }
+
         return tables;
+    }
+
+    /// <summary>
+    /// Builds the full-wipe table list from the mapped model. That list is not the last word:
+    /// <c>DoResetAsync</c> intersects it with <c>_validResetTables</c> and empties each survivor
+    /// through the table switch, so a newly mapped entity that is not added to both is dropped from
+    /// the wipe silently. Adding a <c>DbSet</c> is therefore three edits, not one. The Rust-owned
+    /// structural tables are not mapped entities and never appear here.
+    /// </summary>
+    internal static List<string> ResolveFullResetTables(AppDbContext context)
+    {
+        return context.Model.GetEntityTypes()
+            .Select(entityType => entityType.GetTableName())
+            .Where(tableName => !string.IsNullOrEmpty(tableName) && !_fullResetExcludedTables.Contains(tableName))
+            .Select(tableName => tableName!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 
     /// <summary>
@@ -1027,16 +1294,17 @@ public class DatabaseService
         {
             "LogEntries" => await context.LogEntries.CountAsync(cancellationToken),
             "Downloads" => await context.Downloads.CountAsync(cancellationToken),
-            "ClientStats" => await context.ClientStats.CountAsync(cancellationToken),
-            "ServiceStats" => await context.ServiceStats.CountAsync(cancellationToken),
             "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(cancellationToken),
             "CachedGameDetections" => await context.CachedGameDetections.CountAsync(cancellationToken),
             "CachedServiceDetections" => await context.CachedServiceDetections.CountAsync(cancellationToken),
+            "CachedDetectionSummaries" => await context.CachedDetectionSummaries.CountAsync(cancellationToken),
             CachedCorruptionDetectionsTable => await context.CachedCorruptionDetections.CountAsync(cancellationToken),
             CachedCorruptionScansTable => await context.CachedCorruptionScans.CountAsync(cancellationToken),
             "ClientGroups" => await context.ClientGroups.CountAsync(cancellationToken),
+            "ClientGroupMembers" => await context.ClientGroupMembers.CountAsync(cancellationToken),
             "UserSessions" => await context.UserSessions.CountAsync(cancellationToken),
             "UserPreferences" => await context.UserPreferences.CountAsync(cancellationToken),
+            "IdentityAuditEntries" => await context.IdentityAuditEntries.CountAsync(cancellationToken),
             "Events" => await context.Events.CountAsync(cancellationToken),
             "EventDownloads" => await context.EventDownloads.CountAsync(cancellationToken),
             "PrefillSessions" => await context.PrefillSessions.CountAsync(cancellationToken),
@@ -1046,6 +1314,9 @@ public class DatabaseService
             "CacheSnapshots" => await context.CacheSnapshots.CountAsync(cancellationToken),
             "EpicGameMappings" => await context.EpicGameMappings.CountAsync(cancellationToken),
             "EpicCdnPatterns" => await context.EpicCdnPatterns.CountAsync(cancellationToken),
+            "XboxGameMappings" => await context.XboxGameMappings.CountAsync(cancellationToken),
+            "XboxCdnPatterns" => await context.XboxCdnPatterns.CountAsync(cancellationToken),
+            "GameImages" => await context.GameImages.CountAsync(cancellationToken),
             _ => 0
         };
     }

@@ -12,38 +12,6 @@ namespace LancacheManager.Tests;
 public class DatabaseResetProgressContractTests
 {
     [Fact]
-    public void RustProgressFileSchemaRoundTripsStageAndCompleteContext()
-    {
-        const string json = """
-            {
-              "isProcessing": true,
-              "percentComplete": 25.5,
-              "status": "deleting",
-              "message": "Clearing Downloads",
-              "stageKey": "signalr.dbReset.deleting",
-              "context": {
-                "tableName": "Downloads",
-                "deletedRows": 25,
-                "totalRows": 100,
-                "tablesCleared": 1,
-                "totalTables": 4,
-                "filesDeleted": 0
-              },
-              "tablesCleared": 1,
-              "totalTables": 4,
-              "filesDeleted": 0,
-              "timestamp": "2026-07-12T12:00:00Z"
-            }
-            """;
-
-        var progress = JsonSerializer.Deserialize<RustDatabaseResetService.ProgressData>(json)!;
-        Assert.Equal("signalr.dbReset.deleting", progress.StageKey);
-        Assert.Equal("Downloads", ((JsonElement)progress.Context["tableName"]!).GetString());
-        Assert.Equal(25, ((JsonElement)progress.Context["deletedRows"]!).GetInt32());
-        Assert.Equal(100, ((JsonElement)progress.Context["totalRows"]!).GetInt32());
-    }
-
-    [Fact]
     public void SharedStatusContractPreservesFractionalPercentAndContext()
     {
         var response = new DatabaseResetStatusResponse
@@ -74,6 +42,10 @@ public class DatabaseResetProgressContractTests
             pathResolver: null!,
             new ThrowingDbContextFactory(),
             steamKit2Service: null!,
+            xboxCatalogMappingService: null!,
+            epicMappingService: null!,
+            serviceProvider: null!,
+            cacheManagementService: null!,
             stateRepository: null!,
             datasourceService: null!,
             tracker);
@@ -87,6 +59,64 @@ public class DatabaseResetProgressContractTests
         Assert.False(service.IsResetOperationRunning);
         Assert.Null(DatabaseService.CurrentResetOperationId);
         Assert.Null(DatabaseService.CurrentResetProgress);
+    }
+
+    /// <summary>
+    /// Clearing UserSessions has to sign the account out of Epic and Xbox too, or the Integrations
+    /// page still shows both connected after the sessions table was emptied. Neither LogoutAsync is
+    /// virtual and DatabaseService holds both services by their concrete type, so nothing can stand
+    /// in for them; leaving both out makes each call throw where the reset already catches it, and
+    /// the warning that follows is written from that catch and from nowhere else. [13][14]
+    /// </summary>
+    [Fact]
+    public async Task ClearingUserSessionsSignsOutEpicAndXboxAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            seed.UserSessions.Add(new UserSession
+            {
+                Id = Guid.NewGuid(),
+                SessionTokenHash = "hash",
+                SessionType = SessionType.Admin,
+                CreatedAtUtc = DateTime.UtcNow,
+                ExpiresAtUtc = DateTime.UtcNow.AddDays(1),
+                LastSeenAtUtc = DateTime.UtcNow
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var logger = new CapturingLogger<DatabaseService>();
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RecordingTrackerProxy>();
+        var trackerState = (RecordingTrackerProxy)(object)tracker;
+        var service = new DatabaseService(
+            context: null!,
+            DispatchProxy.Create<ISignalRNotificationService, NoopSignalRProxy>(),
+            logger,
+            pathResolver: null!,
+            database.Factory,
+            steamKit2Service: null!,
+            xboxCatalogMappingService: null!,
+            epicMappingService: null!,
+            serviceProvider: null!,
+            cacheManagementService: null!,
+            stateRepository: null!,
+            datasourceService: null!,
+            tracker);
+
+        _ = service.StartResetAsync(["UserSessions"]);
+        var terminal = await trackerState.Terminal.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.True(terminal.Success, terminal.Error);
+        Assert.Contains(
+            logger.Entries,
+            entry => entry.Message.Contains("Xbox auth", StringComparison.Ordinal));
+        Assert.Contains(
+            logger.Entries,
+            entry => entry.Message.Contains("Epic auth", StringComparison.Ordinal));
+
+        await using var cleared = database.Factory.CreateDbContext();
+        Assert.Empty(await cleared.UserSessions.ToListAsync());
     }
 
     [Fact]

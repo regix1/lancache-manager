@@ -479,7 +479,7 @@ public partial class RustProcessHelper
     /// (progress_events.rs's started/progress/complete NDJSON protocol) instead of polling a
     /// progress file. Only a binary that actually emits this protocol (every migrated binary now
     /// does: cache_clear, cache_game_detect, log_processor, cache_size, cache_eviction_scan,
-    /// corruption_manager, db_reset, log_manager, and cache-removal binaries) should use
+    /// corruption_manager, log_manager, and cache-removal binaries) should use
     /// this; a binary that only writes a progress file without emitting events must keep using
     /// <see cref="ExecuteTrackedProcessWithProgressAsync{TProgress}"/>.
     /// The Rust side keeps writing its progress file unchanged (crash-recovery checkpoint); this

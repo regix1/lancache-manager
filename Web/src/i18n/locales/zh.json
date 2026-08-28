@@ -2145,14 +2145,15 @@
           "clearSummary": "请先导出您需要的数据。此操作无法撤销，历史报告可能受影响。",
           "depotMappings": "游戏将显示为\"未知\"，直到重新建立映射。",
           "events": "所有事件及其下载关联都会被删除。",
-          "userSessions": "所有设备都会被登出并清除，每个人都需要重新认证。",
+          "userSessions": "所有设备都会被登出并清除，Steam、Epic、Xbox 和预填充登录也会一并清除，每个人都需要重新认证。",
           "clientGroups": "所有客户端组及其成员都会被删除。",
           "prefillSessions": "所有预填充会话都会被删除。",
           "bannedPrefillUsers": "被封禁的预填充用户会被解封，可以再次预填充。",
           "epicGameMappings": "Epic 游戏将显示为\"未知\"，直到重新建立映射。",
           "epicCdnPatterns": "在重新获取 CDN 模式之前，Epic 游戏检测可能无法工作。",
           "xboxGameMappings": "Xbox 游戏将显示为\"未知\"，直到重新建立映射。",
-          "xboxCdnPatterns": "在重新获取 CDN 模式之前，Xbox 游戏检测可能无法工作。"
+          "xboxCdnPatterns": "在重新获取 CDN 模式之前，Xbox 游戏检测可能无法工作。",
+          "identityAuditEntries": "安全审计日志无法恢复。这是谁更改了哪个账户的唯一记录。"
         },
         "clearTables": "清除 {{count}} 个表",
         "clearTables_other": "清除 {{count}} 个表",
@@ -2169,23 +2170,17 @@
             "details": "带有游戏名称、大小和时间戳的跟踪下载",
             "affectedPages": "仪表板 • 下载 • 客户端 • 分析"
           },
-          "clientStats": {
-            "label": "客户端统计",
-            "description": "每个客户端的下载统计和指标",
-            "details": "按 IP 地址分组的带宽和下载次数",
-            "affectedPages": "仪表板 • 客户端标签页"
-          },
-          "serviceStats": {
-            "label": "服务统计",
-            "description": "每个服务（Steam、Epic 等）的下载统计",
-            "details": "按 CDN 服务的总下载量和带宽使用量",
-            "affectedPages": "仪表板服务卡片 • 图表"
-          },
           "steamDepotMappings": {
             "label": "Steam 仓库映射",
             "description": "来自 SteamKit 的仓库 ID 到游戏名称的关联",
             "details": "用于识别仓库属于哪个游戏的映射。同时清除现有下载中的游戏名称。",
             "affectedPages": "仪表板 • 下载 • 所有游戏名称显示"
+          },
+          "gameImages": {
+            "label": "游戏图片",
+            "description": "缓存的游戏封面和横幅图片",
+            "details": "已检测游戏的封面和横幅图片。下次显示该游戏时会自动重新获取。",
+            "affectedPages": "下载 • 仪表板游戏横幅"
           },
           "cachedGameDetections": {
             "label": "缓存检测结果",
@@ -2247,11 +2242,23 @@
             "details": "与会话关联的主题选择和界面自定义设置",
             "affectedPages": "主题和界面设置重置为默认值"
           },
+          "identityAuditEntries": {
+            "label": "安全审计日志",
+            "description": "账户和 API 密钥变更的安全审计记录",
+            "details": "登录、密码和角色变更、账户创建和删除以及 API 密钥轮换的记录",
+            "affectedPages": "不影响任何页面 • 这是谁更改了哪个账户的唯一记录"
+          },
           "cachedServiceDetections": {
             "label": "服务检测缓存",
             "description": "来自服务检测扫描的缓存结果",
             "details": "从缓存文件预先计算的服务检测（Steam、Epic 等）",
             "affectedPages": "缓存标签页 • 服务检测卡片"
+          },
+          "cachedDetectionSummaries": {
+            "label": "检测扫描摘要",
+            "description": "游戏和服务检测扫描的摘要头信息",
+            "details": "游戏和服务检测缓存的扫描总数和上次检测时间。清除检测结果时不清除本表会留下过时的上次检测时间。",
+            "affectedPages": "缓存标签页 • 检测摘要计数"
           },
           "prefillCachedDepots": {
             "label": "预填充缓存状态",
@@ -7214,7 +7221,7 @@
     "dbReset": {
       "starting": "开始数据库重置...",
       "complete": "数据库重置成功完成",
-      "failedExitCode": "数据库重置失败，退出码 {{exitCode}}",
+      "completeWithActiveLogins": "数据库重置已完成，但以下服务的预填充登录仍然有效：{{services}}",
       "cancelled": "数据库重置已被取消",
       "failed": "数据库重置失败: {{errorDetail}}",
       "startingTables": "开始重置 {{count}} 个表...",
@@ -7222,22 +7229,15 @@
       "clearingLogEntries": "正在清除日志条目... {{deleted}}/{{total}} ({{percent}}%)",
       "clearedLogEntries": "已清除日志条目（{{count}} 行）",
       "clearedDownloads": "已清除下载记录（{{count}} 行）",
-      "clearedClientStats": "已清除客户端统计（{{count}} 行）",
-      "clearedServiceStats": "已清除服务统计（{{count}} 行）",
       "clearedDepotMappings": "已清除仓库映射（{{count}} 行）并取消所有下载的映射",
       "clearedGameDetections": "已清除缓存的游戏检测结果（{{count}} 行）",
       "clearedUserPreferences": "已清除用户偏好设置（{{count}} 行）",
-      "clearedUserSessions": "已清除用户会话（{{count}} 行）和 Steam 认证数据",
+      "clearedUserSessions": "已清除用户会话（{{count}} 行）和平台认证数据",
       "clearedTable": "已清除 {{tableName}}（{{count}} 行）",
       "sessionsCleared": {
         "logout": "所有用户会话已被清除 - 立即登出"
       },
-      "deleting": "正在清除 {{tableName}}...（{{deletedRows}}/{{totalRows}} 行）",
-      "optimizing": "正在优化数据库...",
       "cleanup": "正在清理文件...",
-      "error": {
-        "fatal": "数据库重置失败: {{errorDetail}}"
-      },
       "stale": "数据库重置完成"
     },
     "dataImport": {

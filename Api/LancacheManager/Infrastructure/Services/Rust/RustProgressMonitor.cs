@@ -5,7 +5,7 @@ namespace LancacheManager.Infrastructure.Services;
 /// <summary>
 /// Generic progress monitor that polls a JSON progress file written by a Rust process
 /// and sends updates via a callback. Consolidates the identical polling loops found
-/// across RustLogProcessorService, RustLogRemovalService, and RustDatabaseResetService.
+/// across RustLogProcessorService and RustLogRemovalService.
 /// </summary>
 public class RustProgressMonitor<T> where T : class
 {

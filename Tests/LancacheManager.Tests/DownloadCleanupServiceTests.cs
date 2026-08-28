@@ -192,11 +192,6 @@ public class DownloadCleanupServiceTests
             await seed.SaveChangesAsync();
 
             seed.LogEntries.Add(NewLogEntry("origin", origin.Id));
-            seed.ServiceStats.Add(new ServiceStats
-            {
-                Service = "origin",
-                LastActivityUtc = DateTime.UtcNow
-            });
             await seed.SaveChangesAsync();
         }
 
@@ -214,7 +209,6 @@ public class DownloadCleanupServiceTests
         {
             Assert.False(await assert.Downloads.AnyAsync(d => d.Service == "origin"));
             Assert.False(await assert.LogEntries.AnyAsync(le => le.Service == "origin"));
-            Assert.False(await assert.ServiceStats.AnyAsync(s => s.Service == "origin"));
             Assert.True(await assert.Downloads.AnyAsync(d => d.Service == "steam"));
         }
     }

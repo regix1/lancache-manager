@@ -4509,6 +4509,68 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
+    /// Forgets every registered service's persistent login with a HARD guarantee, one result row per
+    /// resolvable daemon. A RUNNING session goes through <see cref="ForgetRunningPersistentLoginAsync"/>,
+    /// which logs out in place, verifies that against the daemon's live status, and escalates to
+    /// terminating the container + deleting its named auth volume when the logout did not verifiably
+    /// take. With no session running, the service's persistent auth volume is removed outright so a
+    /// STOPPED service's stored login is forgotten too. Never throws for a failed logout: the honest
+    /// per-service outcome rides in <see cref="ClearPersistentLoginServiceResultDto.Success"/> and
+    /// <see cref="ClearPersistentLoginServiceResultDto.Detail"/> so a caller can report what survived.
+    /// </summary>
+    public static async Task<List<ClearPersistentLoginServiceResultDto>> ClearAllPersistentLoginsAsync(
+        IServiceProvider provider,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<ClearPersistentLoginServiceResultDto>();
+
+        foreach (var service in Enum.GetValues<PrefillPlatform>())
+        {
+            var daemon = ResolveDaemon(provider, service);
+            if (daemon is null)
+            {
+                continue;
+            }
+
+            var session = daemon.GetActivePersistentSession();
+            if (session is not null)
+            {
+                // Hard guarantee for a RUNNING container (see ForgetRunningPersistentLoginAsync): the
+                // daemon's in-place logout is tried first, verified against its LIVE status, and - only
+                // when it did not verifiably forget the login (old image that lies about success, or a
+                // reported failure) - escalated to terminate the container + delete its named auth
+                // volume. Report the honest outcome so the UI never celebrates a login that survived.
+                var outcome = await daemon.ForgetRunningPersistentLoginAsync(session.Id, cancellationToken);
+                results.Add(new ClearPersistentLoginServiceResultDto
+                {
+                    Service = service,
+                    WasRunning = true,
+                    Success = outcome is PersistentRunningLoginClearOutcome.LoggedOut
+                        or PersistentRunningLoginClearOutcome.HardRemoved,
+                    Detail = outcome switch
+                    {
+                        PersistentRunningLoginClearOutcome.LoggedOut => "logged-out",
+                        PersistentRunningLoginClearOutcome.HardRemoved => "hard-removed",
+                        _ => "hard-remove-failed"
+                    }
+                });
+                continue;
+            }
+
+            var volumeResult = await daemon.ClearPersistentAuthVolumeAsync(cancellationToken);
+            results.Add(new ClearPersistentLoginServiceResultDto
+            {
+                Service = service,
+                WasRunning = false,
+                Success = volumeResult is PersistentVolumeClearResult.Removed or PersistentVolumeClearResult.NotFound,
+                Detail = volumeResult.ToString()
+            });
+        }
+
+        return results;
+    }
+
+    /// <summary>
     /// Resolves all platform daemon singletons. The single canonical copy of a generator previously
     /// duplicated verbatim in <c>PersistentPrefillController</c>. Enumerates <see cref="PrefillPlatform"/>
     /// itself rather than a hand-duplicated platform list, so a future platform added to the enum is

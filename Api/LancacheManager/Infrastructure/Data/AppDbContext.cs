@@ -7,8 +7,6 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
     public DbSet<Download> Downloads { get; set; }
-    public DbSet<ClientStats> ClientStats { get; set; }
-    public DbSet<ServiceStats> ServiceStats { get; set; }
     public DbSet<SteamDepotMapping> SteamDepotMappings { get; set; }
     public DbSet<LogEntryRecord> LogEntries { get; set; }
     public DbSet<CachedGameDetection> CachedGameDetections { get; set; }
@@ -37,10 +35,6 @@ public class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // Primary keys
-        modelBuilder.Entity<ClientStats>().HasKey(c => c.ClientIp);
-        modelBuilder.Entity<ServiceStats>().HasKey(s => s.Service);
-
         // Downloads indexes for fast queries
         modelBuilder.Entity<Download>()
             .HasIndex(d => new { d.ClientIp, d.Service, d.IsActive })
@@ -86,16 +80,6 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Download>()
             .HasIndex(d => new { d.IsEvicted, d.StartTimeUtc, d.ClientIp })
             .HasDatabaseName("IX_Downloads_IsEvicted_StartTimeUtc_ClientIp");
-
-        // ClientStats indexes
-        modelBuilder.Entity<ClientStats>()
-            .HasIndex(c => c.LastActivityUtc)
-            .HasDatabaseName("IX_ClientStats_LastActivityUtc");
-
-        // ServiceStats indexes
-        modelBuilder.Entity<ServiceStats>()
-            .HasIndex(s => s.LastActivityUtc)
-            .HasDatabaseName("IX_ServiceStats_LastActivityUtc");
 
         // SteamDepotMapping indexes. DepotId-only lookups (the depot -> app JOINs in cache
         // detection and removal) are served by the leading column of the unique

@@ -92,13 +92,6 @@ path = "src/cache_eviction_scan.rs"
 name = "cache_purge_log_entries"
 path = "src/cache_purge_log_entries.rs"
 
-# --- Database Operations ---
-
-# Reset database tables (clear all data)
-[[bin]]
-name = "db_reset"
-path = "src/db_reset.rs"
-
 
 [dependencies]
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "macros", "chrono"] }

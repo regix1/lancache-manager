@@ -103,11 +103,6 @@ public interface IPathResolver
     string GetRustLogProcessorPath();
 
     /// <summary>
-    /// Gets the path to the Rust database reset executable
-    /// </summary>
-    string GetRustDatabaseResetPath();
-
-    /// <summary>
     /// Gets the path to the Rust log manager executable
     /// </summary>
     string GetRustLogManagerPath();

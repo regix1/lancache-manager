@@ -484,11 +484,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           clearDetectionState();
         }
 
-        if (
-          stageKey === 'signalr.dbReset.clearedDownloads' ||
-          stageKey === 'signalr.dbReset.clearedServiceStats' ||
-          stageKey === 'signalr.dbReset.clearedClientStats'
-        ) {
+        if (stageKey === 'signalr.dbReset.clearedDownloads') {
           // The dataset is being wiped from under the current range key; the next apply must treat every section as fresh, not "keep previous" filler from the pre-reset session.
           appliedRangeKeyRef.current = null;
           setDataStale(false);

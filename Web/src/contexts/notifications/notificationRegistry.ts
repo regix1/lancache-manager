@@ -1397,17 +1397,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           { stageKey: 'signalr.dbReset.starting', context: {} },
           { stageKey: 'signalr.dbReset.startingTables', context: { count: 2 } },
           {
-            stageKey: 'signalr.dbReset.deleting',
-            context: { tableName: 'Downloads', deletedRows: 10, totalRows: 100 }
-          },
-          {
             stageKey: 'signalr.dbReset.clearingLogEntries',
             context: { deleted: 10, total: 100, percent: 10 }
           },
           { stageKey: 'signalr.dbReset.clearedLogEntries', context: { count: 10 } },
           { stageKey: 'signalr.dbReset.clearedDownloads', context: { count: 10 } },
-          { stageKey: 'signalr.dbReset.clearedClientStats', context: { count: 10 } },
-          { stageKey: 'signalr.dbReset.clearedServiceStats', context: { count: 10 } },
           { stageKey: 'signalr.dbReset.clearedDepotMappings', context: { count: 10 } },
           { stageKey: 'signalr.dbReset.clearedGameDetections', context: { count: 10 } },
           { stageKey: 'signalr.dbReset.clearedUserPreferences', context: { count: 10 } },
@@ -1416,11 +1410,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
             stageKey: 'signalr.dbReset.clearedTable',
             context: { tableName: 'Events', count: 10 }
           },
-          { stageKey: 'signalr.dbReset.optimizing', context: {} },
           { stageKey: 'signalr.dbReset.cleanup', context: {} },
-          { stageKey: 'signalr.dbReset.failedExitCode', context: { exitCode: 1 } },
-          { stageKey: 'signalr.dbReset.failed', context: { errorDetail: 'error' } },
-          { stageKey: 'signalr.dbReset.error.fatal', context: { errorDetail: 'error' } }
+          { stageKey: 'signalr.dbReset.failed', context: { errorDetail: 'error' } }
         ]
       },
       apiEndpoint: '/api/database/reset-status',
@@ -1454,10 +1445,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     // progress-status completion: whichever arrives first wins and the other is a
     // no-op, because the completion handler only acts on a still-running card.
     complete: {
-      getSuccessMessage: (event: DatabaseResetCompleteEvent) =>
-        event.stageKey
-          ? i18n.t(event.stageKey, event.context ?? {})
-          : i18n.t('signalr.dbReset.complete'),
+      getSuccessMessage: formatDatabaseResetCompleteMessage,
       getSuccessDetails: operationIdDetails,
       getFailureMessage: (event: DatabaseResetCompleteEvent) =>
         event.stageKey

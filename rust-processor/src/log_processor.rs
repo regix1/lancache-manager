@@ -1506,7 +1506,7 @@ impl Processor {
 
         // Xbox canonicalization (INGEST-PRIMARY, active-session-safe). When this batch of `wsus`
         // traffic matches a stored Xbox fragment, the Downloads-side IDENTITY service becomes `xbox`
-        // and GameName becomes the resolved title — while LogEntries.Service / ServiceStats stay
+        // and GameName becomes the resolved title — while LogEntries.Service stays
         // `wsus` (the cache-hash service). Every Downloads lookup/insert/deactivate below keys on
         // `download_service`, so an Xbox download is consistently looked up under `xbox` across
         // batches (deterministic per-URL resolution → no mid-session split). Unmatched `wsus` keeps
@@ -1666,40 +1666,6 @@ impl Processor {
             .await?;
 
             let download_id: i64 = row.get("Id");
-
-            // Upsert client stats - no pre-check SELECT needed
-            sqlx::query(
-                r#"INSERT INTO "ClientStats" ("ClientIp", "TotalCacheHitBytes", "TotalCacheMissBytes", "LastActivityUtc", "TotalDownloads", "TotalDurationSeconds")
-                   VALUES ($1, $2, $3, $4, 1, 0.0)
-                   ON CONFLICT ("ClientIp") DO UPDATE SET
-                       "TotalCacheHitBytes" = "ClientStats"."TotalCacheHitBytes" + EXCLUDED."TotalCacheHitBytes",
-                       "TotalCacheMissBytes" = "ClientStats"."TotalCacheMissBytes" + EXCLUDED."TotalCacheMissBytes",
-                       "LastActivityUtc" = EXCLUDED."LastActivityUtc",
-                       "TotalDownloads" = "ClientStats"."TotalDownloads" + 1"#
-            )
-            .bind(client_ip)
-            .bind(total_hit_bytes)
-            .bind(total_miss_bytes)
-            .bind(last_utc_dt)
-            .execute(&mut **tx)
-            .await?;
-
-            // Upsert service stats - no pre-check SELECT needed
-            sqlx::query(
-                r#"INSERT INTO "ServiceStats" ("Service", "TotalCacheHitBytes", "TotalCacheMissBytes", "LastActivityUtc", "TotalDownloads")
-                   VALUES ($1, $2, $3, $4, 1)
-                   ON CONFLICT ("Service") DO UPDATE SET
-                       "TotalCacheHitBytes" = "ServiceStats"."TotalCacheHitBytes" + EXCLUDED."TotalCacheHitBytes",
-                       "TotalCacheMissBytes" = "ServiceStats"."TotalCacheMissBytes" + EXCLUDED."TotalCacheMissBytes",
-                       "LastActivityUtc" = EXCLUDED."LastActivityUtc",
-                       "TotalDownloads" = "ServiceStats"."TotalDownloads" + 1"#
-            )
-            .bind(service)
-            .bind(total_hit_bytes)
-            .bind(total_miss_bytes)
-            .bind(last_utc_dt)
-            .execute(&mut **tx)
-            .await?;
 
             download_id
         } else {
@@ -1888,27 +1854,6 @@ impl Processor {
                 .execute(&mut **tx)
                 .await?;
             }
-
-            // Update client and service stats (for both new and existing downloads)
-            sqlx::query(
-                "UPDATE \"ClientStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3 WHERE \"ClientIp\" = $4"
-            )
-            .bind(total_hit_bytes)
-            .bind(total_miss_bytes)
-            .bind(last_utc_dt)
-            .bind(client_ip)
-            .execute(&mut **tx)
-            .await?;
-
-            sqlx::query(
-                "UPDATE \"ServiceStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3 WHERE \"Service\" = $4"
-            )
-            .bind(total_hit_bytes)
-            .bind(total_miss_bytes)
-            .bind(last_utc_dt)
-            .bind(service)
-            .execute(&mut **tx)
-            .await?;
 
             download_id
         };

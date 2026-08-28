@@ -17,29 +17,33 @@ namespace LancacheManager.Controllers;
 public class DatabaseController : ControllerBase
 {
     private readonly DatabaseService _dbService;
-    private readonly RustDatabaseResetService _rustDatabaseResetService;
     private readonly ILogger<DatabaseController> _logger;
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
 
     public DatabaseController(
         DatabaseService dbService,
-        RustDatabaseResetService rustDatabaseResetService,
         ILogger<DatabaseController> logger,
         IOperationConflictChecker conflictChecker,
         IOperationQueue operationQueue)
     {
         _dbService = dbService;
-        _rustDatabaseResetService = rustDatabaseResetService;
         _logger = logger;
         _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
     }
 
     /// <summary>
-    /// Wipes every table in the database.
+    /// Empties every table the application stores data in, including the sessions table, so this
+    /// call signs the caller out and every other user with it.
     /// </summary>
     /// <remarks>
+    /// The accounts themselves survive, so everyone can sign back in; the platform logins do not,
+    /// because clearing sessions also signs out Steam, Xbox, Epic and the prefill daemons. The
+    /// corruption scanner's structural baseline is cleared too, so its next scan re-reads every
+    /// file instead of skipping unchanged ones. Left untouched: Entity Framework's migration
+    /// history and the scanner's own schema version marker, neither of which holds user data.
+    ///
     /// A conflicting bulk operation does not reject the request; it is parked on the wait queue
     /// and started automatically once the conflict clears, so the caller always gets back an
     /// operation to track rather than a 409.
@@ -50,11 +54,7 @@ public class DatabaseController : ControllerBase
     public async Task<IActionResult> ResetDatabaseAsync(CancellationToken cancellationToken)
     {
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        async Task<Guid?> StartDatabaseResetAsync()
-        {
-            var ok = await _rustDatabaseResetService.StartResetAsync();
-            return ok ? _rustDatabaseResetService.CurrentOperationId ?? Guid.NewGuid() : null;
-        }
+        Task<Guid?> StartDatabaseResetAsync() => Task.FromResult<Guid?>(_dbService.StartFullResetAsync());
 
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.DatabaseReset,
@@ -67,16 +67,7 @@ public class DatabaseController : ControllerBase
                 StartDatabaseResetAsync, cancellationToken));
         }
 
-        var startedId = await StartDatabaseResetAsync();
-        if (startedId == null)
-        {
-            // Race: reset began between our check and StartDatabaseResetAsync - park it.
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.DatabaseReset, ConflictScope.Bulk(), "Database Reset",
-                StartDatabaseResetAsync, cancellationToken));
-        }
-
-        var operationId = startedId.Value;
+        var operationId = (await StartDatabaseResetAsync())!.Value;
         _logger.LogInformation("Started full database reset operation: {OperationId}, Started: {Started}", operationId, true);
 
         return Accepted(new DatabaseResetStartResponse
@@ -140,46 +131,42 @@ public class DatabaseController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Recovery endpoint for the database reset notification card, covering both full and
-    /// selected-tables resets. Checks both the Rust-based reset path and the older C#
-    /// <see cref="DatabaseService"/> reset path so a page refresh mid-reset always finds the
-    /// operation regardless of which one started it.
+    /// selected-tables resets. Both run through <see cref="DatabaseService"/>, so a page refresh
+    /// mid-reset finds the operation regardless of which one started it.
     /// </remarks>
     [HttpGet("reset-status")]
     [ProducesResponseType(typeof(DatabaseResetStatusResponse), StatusCodes.Status200OK)]
     public ActionResult<DatabaseResetStatusResponse> GetDatabaseResetStatus()
     {
-        // Check C# DatabaseService reset operations first
-        if (_dbService.IsResetOperationRunning)
+        if (!_dbService.IsResetOperationRunning)
         {
-            var progress = DatabaseService.CurrentResetProgress;
-            if (progress == null)
-            {
-                return Ok(new DatabaseResetStatusResponse
-                {
-                    IsProcessing = true,
-                    Status = OperationStatus.Pending,
-                    OperationId = DatabaseService.CurrentResetOperationId
-                });
-            }
+            return Ok(new DatabaseResetStatusResponse { IsProcessing = false });
+        }
 
+        var progress = DatabaseService.CurrentResetProgress;
+        if (progress == null)
+        {
             return Ok(new DatabaseResetStatusResponse
             {
-                IsProcessing = progress.IsProcessing,
-                Status = progress.Status,
-                Message = progress.Message,
-                PercentComplete = progress.Snapshot.PercentComplete,
-                OperationId = progress.OperationId,
-                StageKey = progress.Snapshot.StageKey,
-                Context = progress.Snapshot.Context,
-                TablesCleared = progress.TablesCleared,
-                TotalTables = progress.TotalTables,
-                FilesDeleted = progress.FilesDeleted
+                IsProcessing = true,
+                Status = OperationStatus.Pending,
+                OperationId = DatabaseService.CurrentResetOperationId
             });
         }
 
-        // Fall back to Rust-based reset service status
-        var status = _rustDatabaseResetService.GetResetStatus();
-        return Ok(status);
+        return Ok(new DatabaseResetStatusResponse
+        {
+            IsProcessing = progress.IsProcessing,
+            Status = progress.Status,
+            Message = progress.Message,
+            PercentComplete = progress.Snapshot.PercentComplete,
+            OperationId = progress.OperationId,
+            StageKey = progress.Snapshot.StageKey,
+            Context = progress.Snapshot.Context,
+            TablesCleared = progress.TablesCleared,
+            TotalTables = progress.TotalTables,
+            FilesDeleted = progress.FilesDeleted
+        });
     }
 
     /// <summary>

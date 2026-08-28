@@ -210,9 +210,6 @@ public abstract class PathResolverBase : IPathResolver
     public string GetRustLogProcessorPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", $"log_processor{RustExecutableExtension}");
 
-    public string GetRustDatabaseResetPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", $"db_reset{RustExecutableExtension}");
-
     public string GetRustLogManagerPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", $"log_service_manager{RustExecutableExtension}");
 
