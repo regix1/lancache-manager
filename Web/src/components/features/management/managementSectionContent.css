@@ -51,6 +51,14 @@
   overflow-wrap: anywhere;
 }
 
+/* Muted second line under a stat value (e.g. the bucket's total size beneath its count). */
+.mgmt-stat__sub {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Inset configuration panel (e.g. the deletion-method selector). A bordered
    tertiary surface that reads as a distinct block without a second card frame. */
 .mgmt-panel {

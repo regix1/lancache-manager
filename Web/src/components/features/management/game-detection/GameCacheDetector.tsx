@@ -40,6 +40,7 @@ import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { formatBytes } from '@utils/formatters';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { MANAGEMENT_STORAGE_KEYS } from '../sections/managementStorageKeys';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
@@ -1122,13 +1123,32 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         {t('management.gameDetection.servicesSection')}
                       </p>
                       <p className="mgmt-stat__value">{filteredServices.length}</p>
+                      <p className="mgmt-stat__sub">
+                        {formatBytes(
+                          filteredServices.reduce((sum, s) => sum + s.total_size_bytes, 0)
+                        )}
+                      </p>
                     </div>
                     <div className="mgmt-stat">
                       <p className="mgmt-stat__label caps-label caps-label--sm">
                         {t('management.gameDetection.gamesSection')}
                       </p>
                       <p className="mgmt-stat__value">{filteredGames.length}</p>
+                      <p className="mgmt-stat__sub">
+                        {formatBytes(filteredGames.reduce((sum, g) => sum + g.total_size_bytes, 0))}
+                      </p>
                     </div>
+                    {unmappedServices !== null && (
+                      <div className="mgmt-stat">
+                        <p className="mgmt-stat__label caps-label caps-label--sm">
+                          {t('management.gameDetection.unmappedSection')}
+                        </p>
+                        <p className="mgmt-stat__value">{unmappedServices.length}</p>
+                        <p className="mgmt-stat__sub">
+                          {formatBytes(unmappedServices.reduce((sum, u) => sum + u.total_bytes, 0))}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

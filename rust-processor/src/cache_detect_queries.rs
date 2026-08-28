@@ -64,6 +64,12 @@ pub async fn query_game_downloads(
         );
     }
 
+    // No name filter: an unknown-depot row starts as "Unknown Game (Depot D)" with the depot
+    // id in GameAppId, but the post-scan resolver renames it in place (depot 4000 becomes
+    // "Garry's Mod", GameAppId still 4000). Matching on the name meant a renamed row stopped
+    // excluding its depot, so every incremental scan re-detected it and reported one phantom
+    // "new game". Any detection row whose GameAppId equals the depot id already carries that
+    // depot's bytes, whatever it is currently named.
     let excluded_unknown_depot_ids: Vec<i64> = if excluded_game_ids.is_empty() {
         Vec::new()
     } else {
@@ -71,8 +77,7 @@ pub async fn query_game_downloads(
             r#"
             SELECT "GameAppId"
             FROM "CachedGameDetections"
-            WHERE "GameName" LIKE 'Unknown Game (Depot %)'
-              AND "GameAppId" IN (
+            WHERE "GameAppId" IN (
             "#,
         );
 

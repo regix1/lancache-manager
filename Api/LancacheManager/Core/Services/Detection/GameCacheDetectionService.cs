@@ -867,10 +867,16 @@ public partial class GameCacheDetectionService : IDisposable
             await _detectionDataService.RefreshDiskSummaryAsync(cancellationToken);
 
             // Written after the refresh because that call owns the summary row this rides on, and
-            // recreates or deletes it depending on what the scan persisted.
-            await _detectionDataService.SaveUnmappedServicesAsync(
-                unmappedByService?.Values.ToList(),
-                cancellationToken);
+            // recreates or deletes it depending on what the scan persisted. Full scans only: an
+            // incremental run builds no file index and measures no unmapped set, so writing its
+            // null here would erase the last full scan's bucket and drop the Unmapped section
+            // from the UI until the next full scan.
+            if (!incremental)
+            {
+                await _detectionDataService.SaveUnmappedServicesAsync(
+                    unmappedByService?.Values.ToList(),
+                    cancellationToken);
+            }
 
             // Game detection owns only its own on-disk summary. The cache-file scan (files/size and
             // its own staleness) is a separate scheduled scan and is left untouched here, so a
@@ -931,7 +937,7 @@ public partial class GameCacheDetectionService : IDisposable
                     }
                 }
 
-                await ClearUnmappedTotalsAsync(aggregatedGames.Count, aggregatedServices.Count);
+                await ClearUnmappedTotalsAsync(incremental, aggregatedGames.Count, aggregatedServices.Count);
 
                 await FinalizeDetectionAsync(operationId, success: false,
                     status: OperationStatus.Cancelled, stageKey: "signalr.gameDetect.cancelled", cancelled: true);
@@ -946,7 +952,7 @@ public partial class GameCacheDetectionService : IDisposable
                     metrics.Error = oce.Message;
                 });
 
-                await ClearUnmappedTotalsAsync(aggregatedGames.Count, aggregatedServices.Count);
+                await ClearUnmappedTotalsAsync(incremental, aggregatedGames.Count, aggregatedServices.Count);
 
                 await FinalizeDetectionAsync(operationId, success: false,
                     status: OperationStatus.Failed, stageKey: "signalr.generic.failed", cancelled: false,
@@ -964,7 +970,7 @@ public partial class GameCacheDetectionService : IDisposable
                 metrics.Error = ex.Message;
             });
 
-            await ClearUnmappedTotalsAsync(aggregatedGames.Count, aggregatedServices.Count);
+            await ClearUnmappedTotalsAsync(incremental, aggregatedGames.Count, aggregatedServices.Count);
 
             await FinalizeDetectionAsync(operationId, success: false,
                 status: OperationStatus.Failed, stageKey: "signalr.generic.failed", cancelled: false,
@@ -989,15 +995,17 @@ public partial class GameCacheDetectionService : IDisposable
     }
 
     /// <summary>
-    /// Drops the stored unmapped totals for a run that ended before it saved its own. Such a run
-    /// never finished walking the cache, so once it has written detection rows the stored totals
-    /// describe a cache those rows have moved past, and nothing else clears that column. A run
-    /// that wrote no rows leaves the totals still matching what is stored beside them, so they
-    /// stay: clearing there would discard a measurement that is still true. [4]
+    /// Drops the stored unmapped totals for a FULL run that ended before it saved its own. Such a
+    /// run never finished walking the cache, so once it has written detection rows the stored
+    /// totals describe a cache those rows have moved past, and nothing else clears that column.
+    /// A run that wrote no rows leaves the totals still matching what is stored beside them, so
+    /// they stay: clearing there would discard a measurement that is still true. [4]
+    /// An incremental run never clears: it measures no unmapped set even when it succeeds, so its
+    /// failure says nothing about the last full scan's bucket.
     /// </summary>
-    private async Task ClearUnmappedTotalsAsync(int savedGameCount, int savedServiceCount)
+    private async Task ClearUnmappedTotalsAsync(bool incremental, int savedGameCount, int savedServiceCount)
     {
-        if (savedGameCount == 0 && savedServiceCount == 0)
+        if (incremental || (savedGameCount == 0 && savedServiceCount == 0))
         {
             return;
         }
