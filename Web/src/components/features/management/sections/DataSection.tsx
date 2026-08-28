@@ -34,6 +34,22 @@ const TABLE_CLEAR_CONSEQUENCES = [
   { table: 'IdentityAuditEntries', key: 'identityAuditEntries' }
 ] as const;
 
+/**
+ * Tables holding something a person entered or a record of something that happened. Clearing these
+ * is one way: nothing regenerates them. Every other table is derived from the logs, the cache on
+ * disk, or a store catalog, so it refills on the next scan, reprocess or refresh.
+ */
+const PERMANENT_TABLES = new Set([
+  'ClientGroups',
+  'Events',
+  'EventDownloads',
+  'PrefillSessions',
+  'PrefillHistoryEntries',
+  'BannedPrefillUsers',
+  'IdentityAuditEntries',
+  'CacheSnapshots'
+]);
+
 interface DataSectionProps {
   isAdmin: boolean;
   authMode: AuthMode;
@@ -391,12 +407,22 @@ const DataSection: React.FC<DataSectionProps> = ({
                     className="mt-1"
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-themed-primary">{table.label}</div>
-                    <div className="text-sm text-themed-secondary mt-1 line-clamp-1">
-                      {table.description}
+                    <div className="db-table-item-head">
+                      <span className="font-medium text-themed-primary">{table.label}</span>
+                      <span
+                        className={`db-table-recovery themed-border-radius-sm${PERMANENT_TABLES.has(table.name) ? ' db-table-recovery-permanent' : ''}`}
+                      >
+                        {PERMANENT_TABLES.has(table.name)
+                          ? t('management.sections.data.recovery.permanent')
+                          : t('management.sections.data.recovery.rebuilds')}
+                      </span>
                     </div>
-                    <div className="text-xs text-themed-muted mt-1.5 flex items-center gap-1">
-                      <span className="opacity-70">{t('management.sections.data.affects')}</span>
+                    <div className="text-sm text-themed-secondary mt-1">{table.description}</div>
+                    <div className="text-xs text-themed-muted mt-1.5">{table.details}</div>
+                    <div className="text-xs text-themed-muted mt-1.5 flex items-start gap-1">
+                      <span className="opacity-70 shrink-0">
+                        {t('management.sections.data.affects')}
+                      </span>
                       <span className="text-themed-warning">{table.affectedPages}</span>
                     </div>
                   </div>

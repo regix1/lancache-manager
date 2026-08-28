@@ -2157,144 +2157,148 @@
         },
         "clearTables": "清除 {{count}} 个表",
         "clearTables_other": "清除 {{count}} 个表",
+        "recovery": {
+          "rebuilds": "可重建",
+          "permanent": "无法恢复"
+        },
         "tables": {
           "logEntries": {
             "label": "日志条目",
-            "description": "来自 nginx 缓存日志的原始访问日志条目",
-            "details": "用于分析和报告的单个日志行记录",
-            "affectedPages": "仪表板 • 下载 • 分析 • 图表"
+            "description": "从 nginx 缓存日志读取的原始访问日志行",
+            "details": "每条缓存请求一行，所有下载和客户端数据都由它统计而来。重新处理日志即可恢复，磁盘上的日志文件不受影响。",
+            "affectedPages": "仪表板 • 下载 • 客户端"
           },
           "downloads": {
             "label": "下载",
-            "description": "具有游戏关联和统计信息的下载记录",
-            "details": "带有游戏名称、大小和时间戳的跟踪下载",
-            "affectedPages": "仪表板 • 下载 • 客户端 • 分析"
+            "description": "包含游戏名称、大小和命中率的下载记录",
+            "details": "每条已记录的下载，含游戏名称与缓存命中和未命中总数。重新处理日志即可重建。",
+            "affectedPages": "仪表板 • 下载 • 客户端 • 事件"
           },
           "steamDepotMappings": {
             "label": "Steam 仓库映射",
-            "description": "来自 SteamKit 的仓库 ID 到游戏名称的关联",
-            "details": "用于识别仓库属于哪个游戏的映射。同时清除现有下载中的游戏名称。",
+            "description": "Steam 仓库 ID 与游戏名称的对应关系",
+            "details": "仓库到游戏的对照表，以及现有下载记录上的游戏名称也会一并清除。在“管理 → 数据”中运行仓库扫描即可重建。",
             "affectedPages": "仪表板 • 下载 • 所有游戏名称显示"
           },
           "gameImages": {
             "label": "游戏图片",
             "description": "缓存的游戏封面和横幅图片",
-            "details": "已检测游戏的封面和横幅图片。下次显示该游戏时会自动重新获取。",
-            "affectedPages": "下载 • 仪表板游戏横幅"
+            "details": "仅清除已存储的图片文件。下次显示该游戏时会自动重新获取。",
+            "affectedPages": "仪表板 • 下载"
           },
           "cachedGameDetections": {
             "label": "缓存检测结果",
-            "description": "来自游戏和服务检测扫描的缓存结果",
-            "details": "从缓存文件预先计算的游戏和服务检测，以加快仪表板加载速度",
-            "affectedPages": "缓存标签页 • 游戏检测卡片"
+            "description": "上次缓存扫描在磁盘上找到的游戏",
+            "details": "仅清除扫描结果，不会删除缓存的游戏文件。重新运行游戏检测即可重建。",
+            "affectedPages": "管理 → 日志和缓存"
           },
           "cachedCorruptionDetections": {
             "label": "损坏扫描结果",
-            "description": "两种扫描方式保存的损坏扫描结果",
-            "details": "已完成的结构扫描与重复 MISS 扫描、其标记的缓存路径及保存的证据。清除时也会删除扫描历史。",
-            "affectedPages": "缓存标签页 • 损坏检测与移除"
+            "description": "已保存的损坏扫描结果与历史记录",
+            "details": "被标记的文件以及以往扫描的记录。标记会在下次扫描时重新出现，但历史记录不会。",
+            "affectedPages": "管理 → 日志和缓存"
           },
           "clientGroups": {
             "label": "客户端组",
-            "description": "用于组织客户端的命名组",
-            "details": "用户定义的带有昵称和颜色的组。同时清除组成员关联。",
-            "affectedPages": "客户端标签页 • 客户端组标签"
+            "description": "你为多个客户端 IP 命名的分组",
+            "details": "分组名称、颜色及其成员 IP。这些是你手动创建的，清除后客户端将重新显示原始 IP 地址。",
+            "affectedPages": "客户端 • 下载 • 管理 → 客户端"
           },
           "events": {
             "label": "事件",
-            "description": "用于跟踪 LAN 聚会和游戏会话的自定义事件",
-            "details": "用户创建的带有日期范围的事件。通过级联清除相关的下载链接。",
-            "affectedPages": "事件标签页 • 下载事件筛选器"
+            "description": "你为局域网聚会和游戏时段创建的事件",
+            "details": "每个事件及其关联的下载链接。这些是你手动创建的。",
+            "affectedPages": "事件 • 下载"
           },
           "eventDownloads": {
             "label": "事件下载链接",
-            "description": "事件与下载之间的关联",
-            "details": "将下载连接到事件的链接（自动标记和手动）",
-            "affectedPages": "事件标签页 • 下载事件标签"
+            "description": "把下载记录关联到事件的链接",
+            "details": "仅清除链接，事件和下载记录都会保留。自动关联会在事件重新标记时恢复，手动添加的不会。",
+            "affectedPages": "事件 • 下载"
           },
           "prefillSessions": {
             "label": "预填充会话",
-            "description": "预填充会话跟踪",
-            "details": "带有状态和配置的活动和历史预填充会话",
-            "affectedPages": "管理 → 预填充会话部分"
+            "description": "以往预填充运行及其设置的记录",
+            "details": "会话历史以及其下的每个游戏条目。这是已发生事情的记录，无法自动重建。",
+            "affectedPages": "管理 → 预填充会话"
           },
           "prefillHistoryEntries": {
             "label": "预填充历史",
-            "description": "会话中的每个游戏预填充下载历史",
-            "details": "单个游戏预填充操作的记录，包括进度和状态",
-            "affectedPages": "管理 → 预填充会话部分"
+            "description": "每次预填充运行中各游戏的结果",
+            "details": "预填充期间每个游戏的进度和结果。属于历史记录，无法自动重建。",
+            "affectedPages": "管理 → 预填充会话"
           },
           "bannedPrefillUsers": {
             "label": "被封禁的预填充用户",
-            "description": "被阻止进行预填充操作的游戏账户和设备",
-            "details": "因 Steam、Epic、Xbox、战网或 Riot 预填充会话被封禁的用户",
-            "affectedPages": "管理 → 预填充会话部分"
+            "description": "你禁止参与预填充的账号和设备",
+            "details": "你在 Steam、Epic、Xbox、战网和 Riot 上设置的所有封禁。清除会一次性全部解除。",
+            "affectedPages": "管理 → 预填充会话"
           },
           "userSessions": {
             "label": "用户会话",
-            "description": "活动和历史用户会话记录",
-            "details": "带有设备信息、IP 地址和认证状态的会话跟踪",
-            "affectedPages": "所有用户将被登出"
+            "description": "当前和历史的 LANCache Manager 登录会话",
+            "details": "会立即让所有人退出登录，包括你自己，同时退出 Steam、Epic、Xbox 和预填充守护进程。账号和密码不受影响，所有人都可以重新登录。",
+            "affectedPages": "所有人退出登录 • Steam、Epic 和 Xbox 登录"
           },
           "userPreferences": {
             "label": "用户首选项",
-            "description": "每个会话的用户界面首选项",
-            "details": "与会话关联的主题选择和界面自定义设置",
-            "affectedPages": "主题和界面设置重置为默认值"
+            "description": "按会话保存的主题和界面选择",
+            "details": "与每个会话关联的主题和布局选择。所有人都会回到默认主题。",
+            "affectedPages": "管理 → 主题"
           },
           "identityAuditEntries": {
             "label": "安全审计日志",
-            "description": "账户和 API 密钥变更的安全审计记录",
-            "details": "登录、密码和角色变更、账户创建和删除以及 API 密钥轮换的记录",
-            "affectedPages": "不影响任何页面 • 这是谁更改了哪个账户的唯一记录"
+            "description": "账号和 API 密钥变更的安全记录",
+            "details": "每次登录、密码变更、角色变更、账号创建或删除以及 API 密钥轮换。应用中没有任何界面会读取它，而且这是唯一的副本。",
+            "affectedPages": "界面无变化 • 唯一记录谁改动了什么的地方"
           },
           "cachedServiceDetections": {
             "label": "服务检测缓存",
-            "description": "来自服务检测扫描的缓存结果",
-            "details": "从缓存文件预先计算的服务检测（Steam、Epic 等）",
-            "affectedPages": "缓存标签页 • 服务检测卡片"
+            "description": "上次缓存扫描在磁盘上找到的服务",
+            "details": "仅清除扫描结果，不会删除缓存文件。重新运行服务检测即可重建。",
+            "affectedPages": "管理 → 日志和缓存"
           },
           "cachedDetectionSummaries": {
             "label": "检测扫描摘要",
-            "description": "游戏和服务检测扫描的摘要头信息",
-            "details": "游戏和服务检测缓存的扫描总数和上次检测时间。清除检测结果时不清除本表会留下过时的上次检测时间。",
-            "affectedPages": "缓存标签页 • 检测摘要计数"
+            "description": "检测扫描的总计和上次运行时间",
+            "details": "位于游戏和服务检测结果上方的汇总行。只清除检测结果而保留它，会留下一个没有内容的上次运行时间。",
+            "affectedPages": "管理 → 日志和缓存"
           },
           "prefillCachedDepots": {
             "label": "预填充缓存状态",
-            "description": "跟踪哪些游戏仓库已被缓存",
-            "details": "存储经 Steam 清单验证的仓库 ID，以跳过重新下载已缓存的游戏",
-            "affectedPages": "预填充 • 游戏选择徽章"
+            "description": "哪些游戏仓库已在缓存中",
+            "details": "让预填充跳过游戏的“已缓存”标记。下次缓存检查时会重建，在此之前游戏可能显示为未缓存。",
+            "affectedPages": "预填充 • 游戏选择"
           },
           "cacheSnapshots": {
             "label": "缓存大小历史",
-            "description": "缓存存储使用的历史快照",
-            "details": "用于增长图表和分析的定期缓存大小记录",
-            "affectedPages": "仪表板 • 缓存增长图表"
+            "description": "随时间记录的缓存大小",
+            "details": "缓存增长图表背后的历史数据。新的数据点会立即重新开始收集，但过去的已经消失。",
+            "affectedPages": "仪表板"
           },
           "epicGameMappings": {
             "label": "Epic 游戏映射",
-            "description": "Epic Games 商店游戏名称关联",
-            "details": "Epic 应用 ID 与游戏名称、图片和元数据之间的映射",
-            "affectedPages": "仪表板 • 下载 • Epic 游戏名称显示"
+            "description": "Epic 应用 ID 与游戏名称的对应关系",
+            "details": "Epic 游戏名称、图片和元数据。刷新 Epic 映射即可重建，需要登录 Epic。",
+            "affectedPages": "仪表板 • 下载"
           },
           "epicCdnPatterns": {
             "label": "Epic CDN 模式",
-            "description": "用于游戏检测的 Epic Games CDN URL 模式",
-            "details": "用于识别 Epic 游戏下载的 CDN 主机和块 URL 模式",
-            "affectedPages": "Epic 游戏检测 • 缓存标签页"
+            "description": "用于识别 Epic 下载的 URL 模式",
+            "details": "识别 Epic 流量的模式。在刷新之前，新的 Epic 下载可能显示为未知。",
+            "affectedPages": "下载 • 管理 → 日志和缓存"
           },
           "xboxGameMappings": {
             "label": "Xbox 游戏映射",
-            "description": "Xbox / Microsoft Store 游戏名称关联",
-            "details": "Microsoft Store 产品 ID 与游戏名称、图片和元数据之间的映射",
-            "affectedPages": "仪表板 • 下载 • Xbox 游戏名称显示"
+            "description": "微软商店产品 ID 与游戏名称的对应关系",
+            "details": "Xbox 游戏名称、图片和元数据，以及现有下载记录上的产品 ID 也会一并清除。刷新 Xbox 映射即可重建，需要登录。",
+            "affectedPages": "仪表板 • 下载"
           },
           "xboxCdnPatterns": {
             "label": "Xbox CDN 模式",
-            "description": "用于游戏检测的 Xbox / Microsoft Store CDN URL 模式",
-            "details": "用于识别 Xbox 游戏下载的 CDN 主机和文件 URL 模式",
-            "affectedPages": "Xbox 游戏检测 • 缓存标签页"
+            "description": "用于识别 Xbox 下载的 URL 模式",
+            "details": "识别 Xbox 流量的模式。在刷新之前，新的 Xbox 下载可能显示为未知。",
+            "affectedPages": "下载 • 管理 → 日志和缓存"
           }
         }
       },

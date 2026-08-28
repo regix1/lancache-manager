@@ -470,6 +470,34 @@
   border-color: var(--theme-primary);
 }
 
+/* Label and recovery tag share a row so the tag reads as part of the title rather than another
+   line of prose. It wraps rather than shrinking the label on a narrow card. */
+.db-table-item-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Whether the data comes back on its own. Scannable across a grid of 23 cards, which the sentence
+   in the details line cannot be. */
+.db-table-recovery {
+  flex-shrink: 0;
+  padding: 0.0625rem 0.375rem;
+  border: 1px solid var(--theme-border-well);
+  background-color: var(--theme-bg-secondary);
+  color: var(--theme-text-muted);
+  font-size: 0.6875rem;
+  line-height: 1.25;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.db-table-recovery-permanent {
+  border-color: var(--theme-warning);
+  color: var(--theme-warning);
+}
+
 /* ===== Storage section - cache eviction mode picker ===== */
 
 .eviction-mode-option {
