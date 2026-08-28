@@ -198,6 +198,7 @@ const ManagementTab: React.FC = () => {
             onSuccess={setSuccess}
             onDataRefresh={refreshStatsAndGameCache}
             onNavigateToBattleNetLogin={handleNavigateToBattleNetLogin}
+            onNavigateToSection={setActiveSection}
           />
         );
 

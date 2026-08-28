@@ -14,6 +14,8 @@ import { TabPanel } from '@components/features/management/TabPanel';
 import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
+import { APP_EVENTS } from '@utils/constants';
+import { type ManagementSection } from '../ManagementNav';
 import DataImporter from '../data/DataImporter';
 
 /**
@@ -33,6 +35,58 @@ const TABLE_CLEAR_CONSEQUENCES = [
   { table: 'XboxCdnPatterns', key: 'xboxCdnPatterns' },
   { table: 'IdentityAuditEntries', key: 'identityAuditEntries' }
 ] as const;
+
+/**
+ * Where each table's data is actually visible, as somewhere the reader can be sent rather than a
+ * sentence naming a screen. Labels come from the navigation's own translations, so a tab or section
+ * that gets renamed carries its new name here automatically. Hand-written screen names were wrong
+ * twice: they named an Analytics tab and a Charts tab that never existed, and they sent the theme
+ * preferences to Theme when half of them live under Settings.
+ *
+ * A table whose loss shows up nowhere on screen has no entry. Its details line says what is lost.
+ */
+type TableDestination = { tab: string } | { section: ManagementSection };
+
+const TABLE_DESTINATIONS: Record<string, readonly TableDestination[]> = {
+  LogEntries: [{ tab: 'dashboard' }, { tab: 'downloads' }, { tab: 'clients' }],
+  Downloads: [{ tab: 'dashboard' }, { tab: 'downloads' }, { tab: 'clients' }, { tab: 'events' }],
+  SteamDepotMappings: [{ tab: 'dashboard' }, { tab: 'downloads' }],
+  GameImages: [{ tab: 'downloads' }],
+  CachedGameDetections: [{ section: 'storage' }],
+  CachedServiceDetections: [{ section: 'storage' }],
+  CachedDetectionSummaries: [{ section: 'storage' }],
+  CachedCorruptionDetections: [{ section: 'storage' }],
+  ClientGroups: [{ tab: 'clients' }, { tab: 'downloads' }, { section: 'clients' }],
+  Events: [{ tab: 'events' }, { tab: 'downloads' }],
+  EventDownloads: [{ tab: 'events' }, { tab: 'downloads' }],
+  PrefillSessions: [{ section: 'prefill-sessions' }],
+  PrefillHistoryEntries: [{ section: 'prefill-sessions' }],
+  PrefillCachedDepots: [{ tab: 'prefill' }],
+  BannedPrefillUsers: [{ section: 'prefill-sessions' }],
+  UserPreferences: [{ section: 'settings' }, { section: 'preferences' }],
+  CacheSnapshots: [{ tab: 'dashboard' }],
+  EpicGameMappings: [{ tab: 'dashboard' }, { tab: 'downloads' }],
+  EpicCdnPatterns: [{ tab: 'downloads' }, { section: 'storage' }],
+  XboxGameMappings: [{ tab: 'dashboard' }, { tab: 'downloads' }],
+  XboxCdnPatterns: [{ tab: 'downloads' }, { section: 'storage' }]
+};
+
+/**
+ * Section ids are kebab-case; their translations are camelCase. Only the two multi-word sections
+ * differ, but the map covers every section this file links to so a new destination cannot silently
+ * render a raw key.
+ */
+const MANAGEMENT_SECTION_KEYS: Record<ManagementSection, string> = {
+  settings: 'settings',
+  integrations: 'integrations',
+  storage: 'storage',
+  data: 'data',
+  schedules: 'schedules',
+  preferences: 'preferences',
+  clients: 'clients',
+  'prefill-sessions': 'prefillSessions',
+  'status-check': 'statusCheck'
+};
 
 /**
  * Tables holding something a person entered or a record of something that happened. Clearing these
@@ -60,6 +114,9 @@ interface DataSectionProps {
   // Battle.net is anonymous (no login); this navigates to / highlights the
   // Battle.net daemon status card in the Integrations section.
   onNavigateToBattleNetLogin?: () => void;
+  // Jump to another Management section from a table's destination buttons. Other tabs go through
+  // the NAVIGATE_TO_TAB event instead, which App already listens for.
+  onNavigateToSection?: (section: ManagementSection) => void;
 }
 
 const DataSection: React.FC<DataSectionProps> = ({
@@ -68,9 +125,29 @@ const DataSection: React.FC<DataSectionProps> = ({
   mockMode,
   onError,
   onSuccess,
-  onDataRefresh
+  onDataRefresh,
+  onNavigateToSection
 }) => {
   const { t } = useTranslation();
+
+  // A destination is either another top-level tab or another Management section. Both routes
+  // already exist: App listens for NAVIGATE_TO_TAB, and ManagementTab owns the section state.
+  const goToDestination = (destination: TableDestination) => {
+    if ('tab' in destination) {
+      window.dispatchEvent(
+        new CustomEvent(APP_EVENTS.NAVIGATE_TO_TAB, { detail: { tab: destination.tab } })
+      );
+      return;
+    }
+    onNavigateToSection?.(destination.section);
+  };
+
+  const destinationLabel = (destination: TableDestination) =>
+    'tab' in destination
+      ? t(`nav.${destination.tab}`)
+      : t('management.sections.data.inManagement', {
+          section: t(`management.nav.${MANAGEMENT_SECTION_KEYS[destination.section]}`)
+        });
 
   // Database Manager State
   const [loading, setLoading] = useState(false);
@@ -88,162 +165,139 @@ const DataSection: React.FC<DataSectionProps> = ({
       name: 'LogEntries',
       label: t('management.sections.data.tables.logEntries.label'),
       description: t('management.sections.data.tables.logEntries.description'),
-      details: t('management.sections.data.tables.logEntries.details'),
-      affectedPages: t('management.sections.data.tables.logEntries.affectedPages')
+      details: t('management.sections.data.tables.logEntries.details')
     },
     {
       name: 'Downloads',
       label: t('management.sections.data.tables.downloads.label'),
       description: t('management.sections.data.tables.downloads.description'),
-      details: t('management.sections.data.tables.downloads.details'),
-      affectedPages: t('management.sections.data.tables.downloads.affectedPages')
+      details: t('management.sections.data.tables.downloads.details')
     },
     {
       name: 'SteamDepotMappings',
       label: t('management.sections.data.tables.steamDepotMappings.label'),
       description: t('management.sections.data.tables.steamDepotMappings.description'),
-      details: t('management.sections.data.tables.steamDepotMappings.details'),
-      affectedPages: t('management.sections.data.tables.steamDepotMappings.affectedPages')
+      details: t('management.sections.data.tables.steamDepotMappings.details')
     },
     {
       name: 'GameImages',
       label: t('management.sections.data.tables.gameImages.label'),
       description: t('management.sections.data.tables.gameImages.description'),
-      details: t('management.sections.data.tables.gameImages.details'),
-      affectedPages: t('management.sections.data.tables.gameImages.affectedPages')
+      details: t('management.sections.data.tables.gameImages.details')
     },
     {
       name: 'CachedGameDetections',
       label: t('management.sections.data.tables.cachedGameDetections.label'),
       description: t('management.sections.data.tables.cachedGameDetections.description'),
-      details: t('management.sections.data.tables.cachedGameDetections.details'),
-      affectedPages: t('management.sections.data.tables.cachedGameDetections.affectedPages')
+      details: t('management.sections.data.tables.cachedGameDetections.details')
     },
     {
       name: 'CachedServiceDetections',
       label: t('management.sections.data.tables.cachedServiceDetections.label'),
       description: t('management.sections.data.tables.cachedServiceDetections.description'),
-      details: t('management.sections.data.tables.cachedServiceDetections.details'),
-      affectedPages: t('management.sections.data.tables.cachedServiceDetections.affectedPages')
+      details: t('management.sections.data.tables.cachedServiceDetections.details')
     },
     {
       name: 'CachedDetectionSummaries',
       label: t('management.sections.data.tables.cachedDetectionSummaries.label'),
       description: t('management.sections.data.tables.cachedDetectionSummaries.description'),
-      details: t('management.sections.data.tables.cachedDetectionSummaries.details'),
-      affectedPages: t('management.sections.data.tables.cachedDetectionSummaries.affectedPages')
+      details: t('management.sections.data.tables.cachedDetectionSummaries.details')
     },
     {
       name: 'CachedCorruptionDetections',
       label: t('management.sections.data.tables.cachedCorruptionDetections.label'),
       description: t('management.sections.data.tables.cachedCorruptionDetections.description'),
-      details: t('management.sections.data.tables.cachedCorruptionDetections.details'),
-      affectedPages: t('management.sections.data.tables.cachedCorruptionDetections.affectedPages')
+      details: t('management.sections.data.tables.cachedCorruptionDetections.details')
     },
     {
       name: 'ClientGroups',
       label: t('management.sections.data.tables.clientGroups.label'),
       description: t('management.sections.data.tables.clientGroups.description'),
-      details: t('management.sections.data.tables.clientGroups.details'),
-      affectedPages: t('management.sections.data.tables.clientGroups.affectedPages')
+      details: t('management.sections.data.tables.clientGroups.details')
     },
     {
       name: 'Events',
       label: t('management.sections.data.tables.events.label'),
       description: t('management.sections.data.tables.events.description'),
-      details: t('management.sections.data.tables.events.details'),
-      affectedPages: t('management.sections.data.tables.events.affectedPages')
+      details: t('management.sections.data.tables.events.details')
     },
     {
       name: 'EventDownloads',
       label: t('management.sections.data.tables.eventDownloads.label'),
       description: t('management.sections.data.tables.eventDownloads.description'),
-      details: t('management.sections.data.tables.eventDownloads.details'),
-      affectedPages: t('management.sections.data.tables.eventDownloads.affectedPages')
+      details: t('management.sections.data.tables.eventDownloads.details')
     },
     {
       name: 'PrefillSessions',
       label: t('management.sections.data.tables.prefillSessions.label'),
       description: t('management.sections.data.tables.prefillSessions.description'),
-      details: t('management.sections.data.tables.prefillSessions.details'),
-      affectedPages: t('management.sections.data.tables.prefillSessions.affectedPages')
+      details: t('management.sections.data.tables.prefillSessions.details')
     },
     {
       name: 'PrefillHistoryEntries',
       label: t('management.sections.data.tables.prefillHistoryEntries.label'),
       description: t('management.sections.data.tables.prefillHistoryEntries.description'),
-      details: t('management.sections.data.tables.prefillHistoryEntries.details'),
-      affectedPages: t('management.sections.data.tables.prefillHistoryEntries.affectedPages')
+      details: t('management.sections.data.tables.prefillHistoryEntries.details')
     },
     {
       name: 'PrefillCachedDepots',
       label: t('management.sections.data.tables.prefillCachedDepots.label'),
       description: t('management.sections.data.tables.prefillCachedDepots.description'),
-      details: t('management.sections.data.tables.prefillCachedDepots.details'),
-      affectedPages: t('management.sections.data.tables.prefillCachedDepots.affectedPages')
+      details: t('management.sections.data.tables.prefillCachedDepots.details')
     },
     {
       name: 'BannedPrefillUsers',
       label: t('management.sections.data.tables.bannedPrefillUsers.label'),
       description: t('management.sections.data.tables.bannedPrefillUsers.description'),
-      details: t('management.sections.data.tables.bannedPrefillUsers.details'),
-      affectedPages: t('management.sections.data.tables.bannedPrefillUsers.affectedPages')
+      details: t('management.sections.data.tables.bannedPrefillUsers.details')
     },
     {
       name: 'UserSessions',
       label: t('management.sections.data.tables.userSessions.label'),
       description: t('management.sections.data.tables.userSessions.description'),
-      details: t('management.sections.data.tables.userSessions.details'),
-      affectedPages: t('management.sections.data.tables.userSessions.affectedPages')
+      details: t('management.sections.data.tables.userSessions.details')
     },
     {
       name: 'UserPreferences',
       label: t('management.sections.data.tables.userPreferences.label'),
       description: t('management.sections.data.tables.userPreferences.description'),
-      details: t('management.sections.data.tables.userPreferences.details'),
-      affectedPages: t('management.sections.data.tables.userPreferences.affectedPages')
+      details: t('management.sections.data.tables.userPreferences.details')
     },
     {
       name: 'IdentityAuditEntries',
       label: t('management.sections.data.tables.identityAuditEntries.label'),
       description: t('management.sections.data.tables.identityAuditEntries.description'),
-      details: t('management.sections.data.tables.identityAuditEntries.details'),
-      affectedPages: t('management.sections.data.tables.identityAuditEntries.affectedPages')
+      details: t('management.sections.data.tables.identityAuditEntries.details')
     },
     {
       name: 'CacheSnapshots',
       label: t('management.sections.data.tables.cacheSnapshots.label'),
       description: t('management.sections.data.tables.cacheSnapshots.description'),
-      details: t('management.sections.data.tables.cacheSnapshots.details'),
-      affectedPages: t('management.sections.data.tables.cacheSnapshots.affectedPages')
+      details: t('management.sections.data.tables.cacheSnapshots.details')
     },
     {
       name: 'EpicGameMappings',
       label: t('management.sections.data.tables.epicGameMappings.label'),
       description: t('management.sections.data.tables.epicGameMappings.description'),
-      details: t('management.sections.data.tables.epicGameMappings.details'),
-      affectedPages: t('management.sections.data.tables.epicGameMappings.affectedPages')
+      details: t('management.sections.data.tables.epicGameMappings.details')
     },
     {
       name: 'EpicCdnPatterns',
       label: t('management.sections.data.tables.epicCdnPatterns.label'),
       description: t('management.sections.data.tables.epicCdnPatterns.description'),
-      details: t('management.sections.data.tables.epicCdnPatterns.details'),
-      affectedPages: t('management.sections.data.tables.epicCdnPatterns.affectedPages')
+      details: t('management.sections.data.tables.epicCdnPatterns.details')
     },
     {
       name: 'XboxGameMappings',
       label: t('management.sections.data.tables.xboxGameMappings.label'),
       description: t('management.sections.data.tables.xboxGameMappings.description'),
-      details: t('management.sections.data.tables.xboxGameMappings.details'),
-      affectedPages: t('management.sections.data.tables.xboxGameMappings.affectedPages')
+      details: t('management.sections.data.tables.xboxGameMappings.details')
     },
     {
       name: 'XboxCdnPatterns',
       label: t('management.sections.data.tables.xboxCdnPatterns.label'),
       description: t('management.sections.data.tables.xboxCdnPatterns.description'),
-      details: t('management.sections.data.tables.xboxCdnPatterns.details'),
-      affectedPages: t('management.sections.data.tables.xboxCdnPatterns.affectedPages')
+      details: t('management.sections.data.tables.xboxCdnPatterns.details')
     }
   ];
 
@@ -419,12 +473,32 @@ const DataSection: React.FC<DataSectionProps> = ({
                     </div>
                     <div className="text-sm text-themed-secondary mt-1">{table.description}</div>
                     <div className="text-xs text-themed-muted mt-1.5">{table.details}</div>
-                    <div className="text-xs text-themed-muted mt-1.5 flex items-start gap-1">
-                      <span className="opacity-70 shrink-0">
-                        {t('management.sections.data.affects')}
-                      </span>
-                      <span className="text-themed-warning">{table.affectedPages}</span>
-                    </div>
+                    {TABLE_DESTINATIONS[table.name]?.length ? (
+                      <div className="db-table-destinations">
+                        <span className="db-table-destinations-label">
+                          {t('management.sections.data.affects')}
+                        </span>
+                        {TABLE_DESTINATIONS[table.name].map((destination) => {
+                          const label = destinationLabel(destination);
+                          return (
+                            <button
+                              key={label}
+                              type="button"
+                              className="db-table-destination themed-border-radius-sm"
+                              // The card is a label wrapping a checkbox, so a click here would
+                              // otherwise also toggle the table's selection.
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                goToDestination(destination);
+                              }}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 </label>
               ))}
@@ -479,10 +553,18 @@ const DataSection: React.FC<DataSectionProps> = ({
             >
               <div className="font-medium text-themed-primary">{table.label}</div>
               <div className="text-sm text-themed-secondary mt-1">{table.description}</div>
-              <div className="text-xs mt-2 flex items-center gap-1.5">
-                <span className="text-themed-muted">{t('management.sections.data.affects')}</span>
-                <span className="text-themed-warning font-medium">{table.affectedPages}</span>
-              </div>
+              {TABLE_DESTINATIONS[table.name]?.length ? (
+                <div className="text-xs mt-2 flex items-start gap-1.5">
+                  <span className="text-themed-muted shrink-0">
+                    {t('management.sections.data.affects')}
+                  </span>
+                  {/* Read-only here on purpose: leaving the page mid-confirmation would drop the
+                      selection the reader is about to act on. */}
+                  <span className="text-themed-warning font-medium">
+                    {TABLE_DESTINATIONS[table.name].map(destinationLabel).join(' • ')}
+                  </span>
+                </div>
+              ) : null}
             </div>
           ))}
         </div>

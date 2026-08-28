@@ -2157,6 +2157,7 @@
         },
         "clearTables": "Clear {{count}} Table",
         "clearTables_other": "Clear {{count}} Tables",
+        "inManagement": "Management → {{section}}",
         "recovery": {
           "rebuilds": "Rebuilds",
           "permanent": "Not recoverable"
@@ -2165,140 +2166,117 @@
           "logEntries": {
             "label": "Log Entries",
             "description": "Raw access log lines read from the nginx cache logs",
-            "details": "One row per cache request, and the source every download and client figure is built from. Comes back if you reprocess the logs; the log files on disk are not touched.",
-            "affectedPages": "Dashboard • Downloads • Clients"
+            "details": "One row per cache request, and the source every download and client figure is built from. Comes back if you reprocess the logs; the log files on disk are not touched."
           },
           "downloads": {
             "label": "Downloads",
             "description": "Download records with game names, sizes and hit rates",
-            "details": "Every recorded download, including its game name and cache hit and miss totals. Rebuilt by reprocessing the logs.",
-            "affectedPages": "Dashboard • Downloads • Clients • Events"
+            "details": "Every recorded download, including its game name and cache hit and miss totals. Rebuilt by reprocessing the logs."
           },
           "steamDepotMappings": {
             "label": "Steam Depot Mappings",
             "description": "Steam depot IDs matched to game names",
-            "details": "The depot to game lookup, and the game name on every existing download along with it. Rebuilt by running a depot scan from Management, Data.",
-            "affectedPages": "Dashboard • Downloads • game names everywhere"
+            "details": "The depot to game lookup, and the game name on every existing download along with it. Rebuilt by running a depot scan from Management, Data."
           },
           "gameImages": {
             "label": "Game Images",
             "description": "Cached game artwork and banner images",
-            "details": "The stored image files only. Each one is fetched again the next time that game appears.",
-            "affectedPages": "Dashboard • Downloads"
+            "details": "The stored image files only. Each one is fetched again the next time that game appears."
           },
           "cachedGameDetections": {
             "label": "Cache Detection Results",
             "description": "Which games the last cache scan found on disk",
-            "details": "Scan results only, never the cached game files themselves. Rebuilt by running game detection again.",
-            "affectedPages": "Management → Logs & Cache"
+            "details": "Scan results only, never the cached game files themselves. Rebuilt by running game detection again."
           },
           "cachedCorruptionDetections": {
             "label": "Corruption Scan Results",
             "description": "Saved corruption scan results and past scan history",
-            "details": "Flagged files plus the record of previous scans. Flags come back on the next scan, but the history does not.",
-            "affectedPages": "Management → Logs & Cache"
+            "details": "Flagged files plus the record of previous scans. Flags come back on the next scan, but the history does not."
           },
           "clientGroups": {
             "label": "Client Groups",
             "description": "Groups you named to combine several client IPs",
-            "details": "Group names, colors and their member IPs. You entered these by hand, so clients go back to showing raw IP addresses.",
-            "affectedPages": "Clients • Downloads • Management → Clients"
+            "details": "Group names, colors and their member IPs. You entered these by hand, so clients go back to showing raw IP addresses."
           },
           "events": {
             "label": "Events",
             "description": "Events you created for LAN parties and sessions",
-            "details": "Every event and the download links belonging to it. You entered these by hand.",
-            "affectedPages": "Events • Downloads"
+            "details": "Every event and the download links belonging to it. You entered these by hand."
           },
           "eventDownloads": {
             "label": "Event Download Links",
             "description": "The links tying downloads to an event",
-            "details": "Only the links; the events and the downloads both stay. Automatic links return when an event re-tags, links you added by hand do not.",
-            "affectedPages": "Events • Downloads"
+            "details": "Only the links; the events and the downloads both stay. Automatic links return when an event re-tags, links you added by hand do not."
           },
           "prefillSessions": {
             "label": "Prefill Sessions",
             "description": "Record of past prefill runs and their settings",
-            "details": "Session history including the per-game entries beneath it. This is a record of what already happened, so nothing regenerates it.",
-            "affectedPages": "Management → Prefill Sessions"
+            "details": "Session history including the per-game entries beneath it. This is a record of what already happened, so nothing regenerates it."
           },
           "prefillHistoryEntries": {
             "label": "Prefill History",
             "description": "Per-game results inside each prefill run",
-            "details": "What each game did during a prefill, with its progress and outcome. A record of past runs, so nothing regenerates it.",
-            "affectedPages": "Management → Prefill Sessions"
+            "details": "What each game did during a prefill, with its progress and outcome. A record of past runs, so nothing regenerates it."
           },
           "bannedPrefillUsers": {
             "label": "Banned Prefill Users",
             "description": "Accounts and devices you blocked from prefill",
-            "details": "Every block you set across Steam, Epic, Xbox, Battle.net and Riot. Clearing lifts all of them at once.",
-            "affectedPages": "Management → Prefill Sessions"
+            "details": "Every block you set across Steam, Epic, Xbox, Battle.net and Riot. Clearing lifts all of them at once."
           },
           "userSessions": {
             "label": "User Sessions",
             "description": "Active and past sign-ins to LANCache Manager",
-            "details": "Signs everyone out at once, you included, and signs out Steam, Epic, Xbox and the prefill daemons with them. Accounts and passwords are untouched, so everyone can sign back in.",
-            "affectedPages": "Everyone signed out • Steam, Epic and Xbox logins"
+            "details": "Signs everyone out at once, you included, and signs out Steam, Epic, Xbox and the prefill daemons with them. Accounts and passwords are untouched, so everyone can sign back in."
           },
           "userPreferences": {
             "label": "User Preferences",
             "description": "Theme and interface choices saved per session",
-            "details": "Theme picks and layout choices tied to each session. Everyone returns to the default theme.",
-            "affectedPages": "Management → Theme"
+            "details": "Theme picks and layout choices tied to each session. Everyone returns to the default theme."
           },
           "identityAuditEntries": {
             "label": "Security Audit Log",
             "description": "Security record of account and API key changes",
-            "details": "Every sign-in, password change, role change, account created or deleted, and API key rotation. Nothing in the app reads this back, and it is the only copy.",
-            "affectedPages": "Nothing on screen • the only record of who changed what"
+            "details": "Every sign-in, password change, role change, account created or deleted, and API key rotation. Nothing in the app reads this back, and it is the only copy."
           },
           "cachedServiceDetections": {
             "label": "Service Detection Cache",
             "description": "Which services the last cache scan found on disk",
-            "details": "Scan results only, never the cached files themselves. Rebuilt by running service detection again.",
-            "affectedPages": "Management → Logs & Cache"
+            "details": "Scan results only, never the cached files themselves. Rebuilt by running service detection again."
           },
           "cachedDetectionSummaries": {
             "label": "Detection Scan Summaries",
             "description": "Totals and last-run time for the detection scans",
-            "details": "The header above the game and service results. Clearing the detections without this leaves a last-run time with nothing under it.",
-            "affectedPages": "Management → Logs & Cache"
+            "details": "The header above the game and service results. Clearing the detections without this leaves a last-run time with nothing under it."
           },
           "prefillCachedDepots": {
             "label": "Prefill Cache Status",
             "description": "Which game depots are already in the cache",
-            "details": "The already-cached marks that let prefill skip a game. Rebuilt on the next cache check; until then games may look uncached.",
-            "affectedPages": "Prefill • game selection"
+            "details": "The already-cached marks that let prefill skip a game. Rebuilt on the next cache check; until then games may look uncached."
           },
           "cacheSnapshots": {
             "label": "Cache Size History",
             "description": "Cache size measured over time",
-            "details": "The history behind the cache growth chart. New points start collecting immediately, but the past ones are gone.",
-            "affectedPages": "Dashboard"
+            "details": "The history behind the cache growth chart. New points start collecting immediately, but the past ones are gone."
           },
           "epicGameMappings": {
             "label": "Epic Game Mappings",
             "description": "Epic app IDs matched to game names",
-            "details": "Epic game names, images and metadata. Rebuilt by refreshing Epic mappings, which needs an Epic sign-in.",
-            "affectedPages": "Dashboard • Downloads"
+            "details": "Epic game names, images and metadata. Rebuilt by refreshing Epic mappings, which needs an Epic sign-in."
           },
           "epicCdnPatterns": {
             "label": "Epic CDN Patterns",
             "description": "URL patterns that identify an Epic download",
-            "details": "The patterns that recognize Epic traffic. Until they are refreshed, new Epic downloads can show as unknown.",
-            "affectedPages": "Downloads • Management → Logs & Cache"
+            "details": "The patterns that recognize Epic traffic. Until they are refreshed, new Epic downloads can show as unknown."
           },
           "xboxGameMappings": {
             "label": "Xbox Game Mappings",
             "description": "Microsoft Store product IDs matched to game names",
-            "details": "Xbox game names, images and metadata, and the product ID on existing downloads along with them. Rebuilt by refreshing Xbox mappings, which needs a sign-in.",
-            "affectedPages": "Dashboard • Downloads"
+            "details": "Xbox game names, images and metadata, and the product ID on existing downloads along with them. Rebuilt by refreshing Xbox mappings, which needs a sign-in."
           },
           "xboxCdnPatterns": {
             "label": "Xbox CDN Patterns",
             "description": "URL patterns that identify an Xbox download",
-            "details": "The patterns that recognize Xbox traffic. Until they are refreshed, new Xbox downloads can show as unknown.",
-            "affectedPages": "Downloads • Management → Logs & Cache"
+            "details": "The patterns that recognize Xbox traffic. Until they are refreshed, new Xbox downloads can show as unknown."
           }
         }
       },

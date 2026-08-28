@@ -2157,6 +2157,7 @@
         },
         "clearTables": "清除 {{count}} 个表",
         "clearTables_other": "清除 {{count}} 个表",
+        "inManagement": "管理 → {{section}}",
         "recovery": {
           "rebuilds": "可重建",
           "permanent": "无法恢复"
@@ -2165,140 +2166,117 @@
           "logEntries": {
             "label": "日志条目",
             "description": "从 nginx 缓存日志读取的原始访问日志行",
-            "details": "每条缓存请求一行，所有下载和客户端数据都由它统计而来。重新处理日志即可恢复，磁盘上的日志文件不受影响。",
-            "affectedPages": "仪表板 • 下载 • 客户端"
+            "details": "每条缓存请求一行，所有下载和客户端数据都由它统计而来。重新处理日志即可恢复，磁盘上的日志文件不受影响。"
           },
           "downloads": {
             "label": "下载",
             "description": "包含游戏名称、大小和命中率的下载记录",
-            "details": "每条已记录的下载，含游戏名称与缓存命中和未命中总数。重新处理日志即可重建。",
-            "affectedPages": "仪表板 • 下载 • 客户端 • 事件"
+            "details": "每条已记录的下载，含游戏名称与缓存命中和未命中总数。重新处理日志即可重建。"
           },
           "steamDepotMappings": {
             "label": "Steam 仓库映射",
             "description": "Steam 仓库 ID 与游戏名称的对应关系",
-            "details": "仓库到游戏的对照表，以及现有下载记录上的游戏名称也会一并清除。在“管理 → 数据”中运行仓库扫描即可重建。",
-            "affectedPages": "仪表板 • 下载 • 所有游戏名称显示"
+            "details": "仓库到游戏的对照表，以及现有下载记录上的游戏名称也会一并清除。在“管理 → 数据”中运行仓库扫描即可重建。"
           },
           "gameImages": {
             "label": "游戏图片",
             "description": "缓存的游戏封面和横幅图片",
-            "details": "仅清除已存储的图片文件。下次显示该游戏时会自动重新获取。",
-            "affectedPages": "仪表板 • 下载"
+            "details": "仅清除已存储的图片文件。下次显示该游戏时会自动重新获取。"
           },
           "cachedGameDetections": {
             "label": "缓存检测结果",
             "description": "上次缓存扫描在磁盘上找到的游戏",
-            "details": "仅清除扫描结果，不会删除缓存的游戏文件。重新运行游戏检测即可重建。",
-            "affectedPages": "管理 → 日志和缓存"
+            "details": "仅清除扫描结果，不会删除缓存的游戏文件。重新运行游戏检测即可重建。"
           },
           "cachedCorruptionDetections": {
             "label": "损坏扫描结果",
             "description": "已保存的损坏扫描结果与历史记录",
-            "details": "被标记的文件以及以往扫描的记录。标记会在下次扫描时重新出现，但历史记录不会。",
-            "affectedPages": "管理 → 日志和缓存"
+            "details": "被标记的文件以及以往扫描的记录。标记会在下次扫描时重新出现，但历史记录不会。"
           },
           "clientGroups": {
             "label": "客户端组",
             "description": "你为多个客户端 IP 命名的分组",
-            "details": "分组名称、颜色及其成员 IP。这些是你手动创建的，清除后客户端将重新显示原始 IP 地址。",
-            "affectedPages": "客户端 • 下载 • 管理 → 客户端"
+            "details": "分组名称、颜色及其成员 IP。这些是你手动创建的，清除后客户端将重新显示原始 IP 地址。"
           },
           "events": {
             "label": "事件",
             "description": "你为局域网聚会和游戏时段创建的事件",
-            "details": "每个事件及其关联的下载链接。这些是你手动创建的。",
-            "affectedPages": "事件 • 下载"
+            "details": "每个事件及其关联的下载链接。这些是你手动创建的。"
           },
           "eventDownloads": {
             "label": "事件下载链接",
             "description": "把下载记录关联到事件的链接",
-            "details": "仅清除链接，事件和下载记录都会保留。自动关联会在事件重新标记时恢复，手动添加的不会。",
-            "affectedPages": "事件 • 下载"
+            "details": "仅清除链接，事件和下载记录都会保留。自动关联会在事件重新标记时恢复，手动添加的不会。"
           },
           "prefillSessions": {
             "label": "预填充会话",
             "description": "以往预填充运行及其设置的记录",
-            "details": "会话历史以及其下的每个游戏条目。这是已发生事情的记录，无法自动重建。",
-            "affectedPages": "管理 → 预填充会话"
+            "details": "会话历史以及其下的每个游戏条目。这是已发生事情的记录，无法自动重建。"
           },
           "prefillHistoryEntries": {
             "label": "预填充历史",
             "description": "每次预填充运行中各游戏的结果",
-            "details": "预填充期间每个游戏的进度和结果。属于历史记录，无法自动重建。",
-            "affectedPages": "管理 → 预填充会话"
+            "details": "预填充期间每个游戏的进度和结果。属于历史记录，无法自动重建。"
           },
           "bannedPrefillUsers": {
             "label": "被封禁的预填充用户",
             "description": "你禁止参与预填充的账号和设备",
-            "details": "你在 Steam、Epic、Xbox、战网和 Riot 上设置的所有封禁。清除会一次性全部解除。",
-            "affectedPages": "管理 → 预填充会话"
+            "details": "你在 Steam、Epic、Xbox、战网和 Riot 上设置的所有封禁。清除会一次性全部解除。"
           },
           "userSessions": {
             "label": "用户会话",
             "description": "当前和历史的 LANCache Manager 登录会话",
-            "details": "会立即让所有人退出登录，包括你自己，同时退出 Steam、Epic、Xbox 和预填充守护进程。账号和密码不受影响，所有人都可以重新登录。",
-            "affectedPages": "所有人退出登录 • Steam、Epic 和 Xbox 登录"
+            "details": "会立即让所有人退出登录，包括你自己，同时退出 Steam、Epic、Xbox 和预填充守护进程。账号和密码不受影响，所有人都可以重新登录。"
           },
           "userPreferences": {
             "label": "用户首选项",
             "description": "按会话保存的主题和界面选择",
-            "details": "与每个会话关联的主题和布局选择。所有人都会回到默认主题。",
-            "affectedPages": "管理 → 主题"
+            "details": "与每个会话关联的主题和布局选择。所有人都会回到默认主题。"
           },
           "identityAuditEntries": {
             "label": "安全审计日志",
             "description": "账号和 API 密钥变更的安全记录",
-            "details": "每次登录、密码变更、角色变更、账号创建或删除以及 API 密钥轮换。应用中没有任何界面会读取它，而且这是唯一的副本。",
-            "affectedPages": "界面无变化 • 唯一记录谁改动了什么的地方"
+            "details": "每次登录、密码变更、角色变更、账号创建或删除以及 API 密钥轮换。应用中没有任何界面会读取它，而且这是唯一的副本。"
           },
           "cachedServiceDetections": {
             "label": "服务检测缓存",
             "description": "上次缓存扫描在磁盘上找到的服务",
-            "details": "仅清除扫描结果，不会删除缓存文件。重新运行服务检测即可重建。",
-            "affectedPages": "管理 → 日志和缓存"
+            "details": "仅清除扫描结果，不会删除缓存文件。重新运行服务检测即可重建。"
           },
           "cachedDetectionSummaries": {
             "label": "检测扫描摘要",
             "description": "检测扫描的总计和上次运行时间",
-            "details": "位于游戏和服务检测结果上方的汇总行。只清除检测结果而保留它，会留下一个没有内容的上次运行时间。",
-            "affectedPages": "管理 → 日志和缓存"
+            "details": "位于游戏和服务检测结果上方的汇总行。只清除检测结果而保留它，会留下一个没有内容的上次运行时间。"
           },
           "prefillCachedDepots": {
             "label": "预填充缓存状态",
             "description": "哪些游戏仓库已在缓存中",
-            "details": "让预填充跳过游戏的“已缓存”标记。下次缓存检查时会重建，在此之前游戏可能显示为未缓存。",
-            "affectedPages": "预填充 • 游戏选择"
+            "details": "让预填充跳过游戏的“已缓存”标记。下次缓存检查时会重建，在此之前游戏可能显示为未缓存。"
           },
           "cacheSnapshots": {
             "label": "缓存大小历史",
             "description": "随时间记录的缓存大小",
-            "details": "缓存增长图表背后的历史数据。新的数据点会立即重新开始收集，但过去的已经消失。",
-            "affectedPages": "仪表板"
+            "details": "缓存增长图表背后的历史数据。新的数据点会立即重新开始收集，但过去的已经消失。"
           },
           "epicGameMappings": {
             "label": "Epic 游戏映射",
             "description": "Epic 应用 ID 与游戏名称的对应关系",
-            "details": "Epic 游戏名称、图片和元数据。刷新 Epic 映射即可重建，需要登录 Epic。",
-            "affectedPages": "仪表板 • 下载"
+            "details": "Epic 游戏名称、图片和元数据。刷新 Epic 映射即可重建，需要登录 Epic。"
           },
           "epicCdnPatterns": {
             "label": "Epic CDN 模式",
             "description": "用于识别 Epic 下载的 URL 模式",
-            "details": "识别 Epic 流量的模式。在刷新之前，新的 Epic 下载可能显示为未知。",
-            "affectedPages": "下载 • 管理 → 日志和缓存"
+            "details": "识别 Epic 流量的模式。在刷新之前，新的 Epic 下载可能显示为未知。"
           },
           "xboxGameMappings": {
             "label": "Xbox 游戏映射",
             "description": "微软商店产品 ID 与游戏名称的对应关系",
-            "details": "Xbox 游戏名称、图片和元数据，以及现有下载记录上的产品 ID 也会一并清除。刷新 Xbox 映射即可重建，需要登录。",
-            "affectedPages": "仪表板 • 下载"
+            "details": "Xbox 游戏名称、图片和元数据，以及现有下载记录上的产品 ID 也会一并清除。刷新 Xbox 映射即可重建，需要登录。"
           },
           "xboxCdnPatterns": {
             "label": "Xbox CDN 模式",
             "description": "用于识别 Xbox 下载的 URL 模式",
-            "details": "识别 Xbox 流量的模式。在刷新之前，新的 Xbox 下载可能显示为未知。",
-            "affectedPages": "下载 • 管理 → 日志和缓存"
+            "details": "识别 Xbox 流量的模式。在刷新之前，新的 Xbox 下载可能显示为未知。"
           }
         }
       },
