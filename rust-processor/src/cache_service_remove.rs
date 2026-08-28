@@ -38,6 +38,11 @@ struct Args {
     /// Path to progress JSON file
     progress_json: String,
 
+    /// Per-stem saved ingestion positions (JSON object of stem name to line index). Lets the
+    /// log purge split removed lines at the read position so the position adjustment is exact.
+    #[arg(long = "stem-positions")]
+    stem_positions: Option<String>,
+
     /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
     #[arg(
         long = "key-scheme",
@@ -78,6 +83,12 @@ struct RemovalReport {
     cache_files_deleted: usize,
     total_bytes_freed: u64,
     log_entries_removed: u64,
+    /// Removed-line count per log-source stem, series-wide - the caller subtracts these
+    /// from the saved ingestion positions so a purge cannot shift them past unread lines.
+    log_lines_removed_by_source: std::collections::HashMap<String, u64>,
+    /// The already-read subset of the map above (series index below the saved position);
+    /// the amount the position itself comes back by.
+    log_lines_removed_before_position_by_source: std::collections::HashMap<String, u64>,
     database_entries_deleted: u64,
 }
 
@@ -88,6 +99,8 @@ impl RemovalReport {
             cache_files_deleted,
             total_bytes_freed,
             log_entries_removed: 0,
+            log_lines_removed_by_source: Default::default(),
+            log_lines_removed_before_position_by_source: Default::default(),
             database_entries_deleted: 0,
         }
     }
@@ -550,7 +563,16 @@ async fn main() -> Result<()> {
     // Step 3: Remove log entries
     write_progress(&progress_path, &reporter, "removing_logs", "signalr.serviceRemove.logs.removing", json!({}), 70.0, cache_files_deleted, url_count)?;
     let url_set: HashSet<String> = urls.keys().cloned().collect();
-    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_service(&log_dir, service, &url_set)?;
+    let stem_positions = args
+        .stem_positions
+        .as_deref()
+        .and_then(log_purge::read_stem_positions);
+    let log_outcome = remove_log_entries_for_service(&log_dir, service, &url_set, stem_positions.as_ref())?;
+    let log_entries_removed = log_outcome.lines_removed;
+    let log_permission_errors = log_outcome.permission_errors;
+    let log_lines_removed_by_source = log_outcome.lines_removed_by_stem;
+    let log_lines_removed_before_position_by_source =
+        log_outcome.lines_removed_before_position_by_stem;
 
     // CRITICAL: Check for permission errors before deleting database records
     let total_permission_errors = cache_permission_errors + log_permission_errors;
@@ -565,12 +587,40 @@ async fn main() -> Result<()> {
             total_permission_errors, puid, pgid, cache_permission_errors, log_permission_errors
         );
         eprintln!("\n{}", error_msg);
+        // The log purge already ran, so its counts must reach the host even though this run
+        // aborts: without them the saved read position stays ahead of the shortened log and
+        // the next incremental run skips that many unread lines. Mirrors the sibling
+        // removal binaries, which write their report on this same path.
+        let report = RemovalReport {
+            service_name: service.to_string(),
+            cache_files_deleted,
+            total_bytes_freed,
+            log_entries_removed,
+            log_lines_removed_by_source: log_lines_removed_by_source.clone(),
+            log_lines_removed_before_position_by_source:
+                log_lines_removed_before_position_by_source.clone(),
+            database_entries_deleted: 0,
+        };
+        write_removal_report(&output_json, &report)?;
         anyhow::bail!("{}", error_msg);
     }
 
     // Step 4: Delete database records (only if no permission errors)
     write_progress(&progress_path, &reporter, "removing_database", "signalr.serviceRemove.db.deleting", json!({}), 90.0, cache_files_deleted, url_count)?;
     let database_entries_deleted = delete_service_from_database(&pool, service).await?;
+
+    // Success report for the C# host. The stderr summary below stays as its fallback parse,
+    // but only this JSON carries the per-stem purge counts the position adjustment needs.
+    let report = RemovalReport {
+        service_name: service.to_string(),
+        cache_files_deleted,
+        total_bytes_freed,
+        log_entries_removed,
+        log_lines_removed_by_source,
+        log_lines_removed_before_position_by_source,
+        database_entries_deleted,
+    };
+    write_removal_report(&output_json, &report)?;
 
     write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.complete", json!({ "files": cache_files_deleted, "gb": total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": log_entries_removed, "dbRecords": database_entries_deleted, "service": service }), 100.0, cache_files_deleted, url_count)?;
 

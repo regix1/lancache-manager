@@ -44,6 +44,11 @@ struct Args {
     /// Path to progress JSON file
     progress_json: String,
 
+    /// Per-stem saved ingestion positions (JSON object of stem name to line index). Lets the
+    /// log purge split removed lines at the read position so the position adjustment is exact.
+    #[arg(long = "stem-positions")]
+    stem_positions: Option<String>,
+
     /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
     #[arg(long = "key-scheme", default_value = "monolithic")]
     key_scheme: String,
@@ -74,6 +79,13 @@ struct RemovalReport {
     total_bytes_freed: u64,
     empty_dirs_removed: usize,
     log_entries_removed: u64,
+    /// Removed-line count per log-source stem, series-wide - the caller subtracts these
+    /// from the saved ingestion positions so a purge cannot shift them past unread lines.
+    log_lines_removed_by_source: std::collections::HashMap<String, u64>,
+    /// The already-read subset of `log_lines_removed_by_source` (series index below the saved
+    /// position). This is the amount the position itself comes back by; the full map above is
+    /// what the on-disk total-line count comes down by.
+    log_lines_removed_before_position_by_source: std::collections::HashMap<String, u64>,
     depot_ids: Vec<u32>,
 }
 
@@ -438,6 +450,8 @@ async fn main() -> Result<()> {
             total_bytes_freed: 0,
             empty_dirs_removed: 0,
             log_entries_removed: 0,
+            log_lines_removed_by_source: Default::default(),
+            log_lines_removed_before_position_by_source: Default::default(),
             depot_ids: vec![],
         };
 
@@ -511,6 +525,8 @@ async fn main() -> Result<()> {
             total_bytes_freed: bytes_freed,
             empty_dirs_removed,
             log_entries_removed: 0,
+            log_lines_removed_by_source: Default::default(),
+            log_lines_removed_before_position_by_source: Default::default(),
             depot_ids: vec![],
         };
         let json = serde_json::to_string_pretty(&report)?;
@@ -541,12 +557,22 @@ async fn main() -> Result<()> {
     // divergence Steam carries; every other bin purges url-only
     // (removal_core::LogScope::Urls). Steam calls log_purge directly so it can also pass the
     // per-file progress callback that fills the 80-90% band.
-    let (log_entries_removed, log_permission_errors) = log_purge::remove_log_entries_for_game(
+    let stem_positions = args
+        .stem_positions
+        .as_deref()
+        .and_then(log_purge::read_stem_positions);
+    let log_outcome = log_purge::remove_log_entries_for_game(
         &log_dir,
         &urls_to_remove,
         &safe_depot_ids,
         Some(&log_file_progress),
+        stem_positions.as_ref(),
     )?;
+    let log_entries_removed = log_outcome.lines_removed;
+    let log_permission_errors = log_outcome.permission_errors;
+    let log_lines_removed_by_source = log_outcome.lines_removed_by_stem;
+    let log_lines_removed_before_position_by_source =
+        log_outcome.lines_removed_before_position_by_stem;
 
     // CRITICAL: Check for permission errors before deleting database records
     let total_permission_errors = cache_permission_errors + log_permission_errors;
@@ -566,6 +592,9 @@ async fn main() -> Result<()> {
             total_bytes_freed: bytes_freed,
             empty_dirs_removed,
             log_entries_removed,
+            log_lines_removed_by_source: log_lines_removed_by_source.clone(),
+            log_lines_removed_before_position_by_source:
+                log_lines_removed_before_position_by_source.clone(),
             depot_ids: vec![],
         };
         let json = serde_json::to_string_pretty(&report)?;
@@ -592,6 +621,8 @@ async fn main() -> Result<()> {
         total_bytes_freed: bytes_freed,
         empty_dirs_removed,
         log_entries_removed,
+        log_lines_removed_by_source,
+        log_lines_removed_before_position_by_source,
         depot_ids: all_depot_ids.into_iter().collect(),
     };
 

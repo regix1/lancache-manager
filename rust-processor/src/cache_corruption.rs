@@ -127,6 +127,10 @@ enum Commands {
         progress_json: String,
         #[arg(long)]
         evidence_file: String,
+        /// Per-stem saved ingestion positions (JSON object of stem name to line index). Lets
+        /// the log purge split removed lines at the read position so the adjustment is exact.
+        #[arg(long = "stem-positions")]
+        stem_positions: Option<String>,
         #[arg(short, long)]
         progress: bool,
     },
@@ -1169,6 +1173,7 @@ async fn run_remove(
     service: &str,
     progress_path: &Path,
     evidence_path: &Path,
+    stem_positions: Option<&std::collections::HashMap<String, u64>>,
     reporter: &ProgressReporter,
 ) -> Result<()> {
     write_progress(
@@ -1244,8 +1249,31 @@ async fn run_remove(
         &prefilter,
         |entry| matcher.matches(entry),
         Some(&filter_callback),
+        stem_positions,
     )?;
     if log_outcome.permission_errors > 0 || log_outcome.other_errors > 0 {
+        // The strict rewrite succeeds file by file, so lines are already gone from the files
+        // it finished before the one that failed. Flush the removed-line counts into a
+        // checkpoint BEFORE bailing: the host reads them from here to pull the saved read
+        // positions back, and skipping this write is how a partial cleanup silently skips
+        // unread lines on the next incremental run.
+        write_progress(
+            progress_path,
+            reporter,
+            "failed",
+            "signalr.corruptionRemove.logsPartial",
+            json!({
+                "service": service,
+                "logLines": log_outcome.lines_removed,
+                "logLinesBySource": log_outcome.lines_removed_by_stem,
+                "logLinesBeforePositionBySource": log_outcome.lines_removed_before_position_by_stem,
+                "permissionErrors": log_outcome.permission_errors,
+                "otherErrors": log_outcome.other_errors
+            }),
+            80.0,
+            0,
+            0,
+        )?;
         bail!(
             "access-log cleanup was partial ({} permission errors, {} other errors); database evidence was retained",
             log_outcome.permission_errors,
@@ -1279,6 +1307,10 @@ async fn run_remove(
             "keyVerificationSkipped": cache_outcome.key_verification_skipped,
             "bytesFreed": cache_outcome.bytes_freed,
             "logLines": log_outcome.lines_removed,
+            // Per-stem removed-line counts; the C# harvester subtracts them from the saved
+            // ingestion positions so this purge cannot shift them past unread lines.
+            "logLinesBySource": log_outcome.lines_removed_by_stem,
+            "logLinesBeforePositionBySource": log_outcome.lines_removed_before_position_by_stem,
             "downloads": downloads_deleted,
             "logEntries": log_entries_deleted
         }),
@@ -1486,15 +1518,20 @@ async fn main() -> Result<()> {
             service,
             progress_json,
             evidence_file,
+            stem_positions,
             progress,
         } => {
             let reporter = ProgressReporter::new(progress);
+            let stem_positions = stem_positions
+                .as_deref()
+                .and_then(log_purge::read_stem_positions);
             let result = run_remove(
                 Path::new(&log_dir),
                 Path::new(&cache_dir),
                 &service,
                 Path::new(&progress_json),
                 Path::new(&evidence_file),
+                stem_positions.as_ref(),
                 &reporter,
             )
             .await;

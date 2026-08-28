@@ -46,6 +46,11 @@ struct Args {
     /// Path to progress JSON file
     progress_json: String,
 
+    /// Per-stem saved ingestion positions (JSON object of stem name to line index). Lets the
+    /// log purge split removed lines at the read position so the position adjustment is exact.
+    #[arg(long = "stem-positions")]
+    stem_positions: Option<String>,
+
     /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
     #[arg(long = "key-scheme", default_value = "monolithic")]
     key_scheme: String,
@@ -68,6 +73,13 @@ struct RemovalReport {
     total_bytes_freed: u64,
     empty_dirs_removed: usize,
     log_entries_removed: u64,
+    /// Removed-line count per log-source stem, series-wide - the caller subtracts these
+    /// from the saved ingestion positions so a purge cannot shift them past unread lines.
+    log_lines_removed_by_source: std::collections::HashMap<String, u64>,
+    /// The already-read subset of `log_lines_removed_by_source` (series index below the saved
+    /// position). This is the amount the position itself comes back by; the full map above is
+    /// what the on-disk total-line count comes down by.
+    log_lines_removed_before_position_by_source: std::collections::HashMap<String, u64>,
 }
 
 /// Name-keyed services reuse the Steam removal stage keys (`signalr.gameRemove.*`)
@@ -366,6 +378,8 @@ pub async fn run(service: &str) -> Result<()> {
             total_bytes_freed: 0,
             empty_dirs_removed: 0,
             log_entries_removed: 0,
+            log_lines_removed_by_source: Default::default(),
+            log_lines_removed_before_position_by_source: Default::default(),
         };
 
         let json = serde_json::to_string_pretty(&report)?;
@@ -413,6 +427,8 @@ pub async fn run(service: &str) -> Result<()> {
             total_bytes_freed: outcome.bytes_freed,
             empty_dirs_removed,
             log_entries_removed: 0,
+            log_lines_removed_by_source: Default::default(),
+            log_lines_removed_before_position_by_source: Default::default(),
         };
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
@@ -423,8 +439,21 @@ pub async fn run(service: &str) -> Result<()> {
     removal_core::write_progress(&progress_path, &reporter, "removing_logs", "signalr.gameRemove.logs.removing", json!({}), 80.0, 0, 0)?;
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
-    let (log_entries_removed, log_permission_errors) =
-        removal_core::purge_log_entries(&log_dir, &urls_to_remove, &LogScope::Urls)?;
+    let stem_positions = args
+        .stem_positions
+        .as_deref()
+        .and_then(crate::log_purge::read_stem_positions);
+    let log_outcome = removal_core::purge_log_entries(
+        &log_dir,
+        &urls_to_remove,
+        &LogScope::Urls,
+        stem_positions.as_ref(),
+    )?;
+    let log_entries_removed = log_outcome.lines_removed;
+    let log_permission_errors = log_outcome.permission_errors;
+    let log_lines_removed_by_source = log_outcome.lines_removed_by_stem;
+    let log_lines_removed_before_position_by_source =
+        log_outcome.lines_removed_before_position_by_stem;
 
     // Step 4: Check for permission errors before touching database
     let total_permission_errors = outcome.permission_errors + log_permission_errors;
@@ -442,6 +471,9 @@ pub async fn run(service: &str) -> Result<()> {
             total_bytes_freed: outcome.bytes_freed,
             empty_dirs_removed,
             log_entries_removed,
+            log_lines_removed_by_source: log_lines_removed_by_source.clone(),
+            log_lines_removed_before_position_by_source:
+                log_lines_removed_before_position_by_source.clone(),
         };
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
@@ -461,6 +493,8 @@ pub async fn run(service: &str) -> Result<()> {
         total_bytes_freed: outcome.bytes_freed,
         empty_dirs_removed,
         log_entries_removed,
+        log_lines_removed_by_source,
+        log_lines_removed_before_position_by_source,
     };
 
     let json = serde_json::to_string_pretty(&report)?;

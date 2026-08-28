@@ -30,7 +30,8 @@ public sealed partial class CacheFileRemovalScopeTests
         reconciliationService: null!,
         conflictChecker: null!,
         operationQueue: null!,
-        capabilityService: null!);
+        capabilityService: null!,
+        stateService: null!);
 
     private static GamesController NewGamesController() => new GamesController(
         gameCacheDetectionService: null!,

@@ -91,9 +91,20 @@ public partial class CacheManagementService
                                 0);
                         }
                     },
-                    result => _rustProcessHelper.ReadOutputJsonAsync<GameCacheRemovalReport>(
-                        result.OutputJsonPath,
-                        "NamedGameRemoval"));
+                    async result =>
+                    {
+                        var report = await _rustProcessHelper.ReadOutputJsonAsync<GameCacheRemovalReport>(
+                            result.OutputJsonPath,
+                            "NamedGameRemoval");
+                        // Runs on failed exits too (the binaries write the report on their
+                        // abort paths): the purge already shortened the log, so the saved
+                        // positions must come back regardless of how the run ended.
+                        _stateService.ReduceLogPositionsAfterPurge(
+                            datasource.Name,
+                            report.LogLinesRemovedBeforePositionBySource,
+                            report.LogLinesRemovedBySource);
+                        return report;
+                    });
 
                 if (onProgress != null)
                 {

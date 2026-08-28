@@ -557,6 +557,109 @@ public class StateService : IStateService
     }
 
     /// <summary>
+    /// Subtracts purge-removed line counts (per source stem) from a datasource's saved log
+    /// positions and total-line count. A log purge rewrites the access log in place, so every
+    /// line index past the removed lines shifts down by the removed count; left unadjusted,
+    /// the position points that many lines into never-ingested content and the next
+    /// incremental run silently skips it - the skipped lines' cache files then surface as
+    /// permanently unmapped. Clamped at zero: over-subtraction merely replays lines, which
+    /// ingestion dedupe absorbs, while under-reading loses data forever.
+    /// </summary>
+    public void ReduceLogPositionsAfterPurge(
+        string datasourceName,
+        IReadOnlyDictionary<string, long> linesRemovedBeforePositionByStem,
+        IReadOnlyDictionary<string, long> linesRemovedByStem)
+    {
+        // The position comes back only by lines removed BELOW it (lines it had read); the
+        // on-disk total-line count comes down by ALL removed lines. Lines purged ahead of
+        // the position were never read, so moving the position for them would replay
+        // already-ingested lines (harmless via dedupe, but imprecise).
+        long positionReduction = 0;
+        foreach (var removed in linesRemovedBeforePositionByStem.Values)
+        {
+            if (removed > 0)
+            {
+                positionReduction += removed;
+            }
+        }
+
+        long totalReduction = 0;
+        foreach (var removed in linesRemovedByStem.Values)
+        {
+            if (removed > 0)
+            {
+                totalReduction += removed;
+            }
+        }
+
+        if (positionReduction == 0 && totalReduction == 0)
+        {
+            return;
+        }
+
+        // One UpdateState so a concurrent reducer (a cache removal and the eviction purge
+        // run under different locks) subtracts from the value the other one wrote instead
+        // of overwriting it - the read and the write must sit under the same lock hold.
+        UpdateState(state =>
+        {
+            var logProcessing = state.LogProcessing;
+
+            if (logProcessing.DatasourceSourcePositions.TryGetValue(datasourceName, out var positions))
+            {
+                foreach (var (stem, removed) in linesRemovedBeforePositionByStem)
+                {
+                    if (removed <= 0)
+                    {
+                        continue;
+                    }
+
+                    if (positions.TryGetValue(stem, out var current))
+                    {
+                        positions[stem] = Math.Max(0, current - removed);
+                    }
+                }
+
+                logProcessing.DatasourcePositions[datasourceName] = positions.Values.Sum();
+                if (datasourceName == "default")
+                {
+                    logProcessing.Position = positions.Values.Sum();
+                }
+            }
+
+            if (totalReduction > 0 &&
+                logProcessing.DatasourceTotalLines.TryGetValue(datasourceName, out var totalLines))
+            {
+                logProcessing.DatasourceTotalLines[datasourceName] = Math.Max(0, totalLines - totalReduction);
+            }
+
+            logProcessing.LastUpdated = DateTime.UtcNow;
+        });
+
+        _logger.LogInformation(
+            "Reduced log positions for datasource '{Datasource}' by {PositionReduction} already-read purged line(s) ({TotalReduction} removed in total)",
+            datasourceName, positionReduction, totalReduction);
+    }
+
+    /// <summary>
+    /// Snapshots a datasource's per-stem positions into a temp JSON file for a Rust log
+    /// purge's <c>--stem-positions</c> argument, so the purge can split removed lines at
+    /// each stem's read position. Null when no positions exist (the purge then treats every
+    /// removed line as already read, the replay-safe fallback). Caller deletes the file.
+    /// </summary>
+    public async Task<string?> WriteStemPositionsTempFileAsync(string datasourceName)
+    {
+        var positions = GetLogSourcePositions(datasourceName);
+        if (positions.Count == 0)
+        {
+            return null;
+        }
+
+        var path = Path.Combine(Path.GetTempPath(), $"stem-positions-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(path, System.Text.Json.JsonSerializer.Serialize(positions));
+        return path;
+    }
+
+    /// <summary>
     /// Clears the checkpoints for specific stems of a datasource (after a per-service
     /// log removal deletes those file series). Missing stems are ignored.
     /// </summary>

@@ -504,12 +504,19 @@ pub fn purge_log_entries(
     log_dir: &Path,
     urls_to_remove: &HashSet<String>,
     scope: &LogScope,
-) -> Result<(u64, usize)> {
+    stem_positions: Option<&std::collections::HashMap<String, u64>>,
+) -> Result<log_purge::LogRewriteOutcome> {
     match scope {
-        LogScope::Urls => log_purge::remove_log_entries_for_urls(log_dir, urls_to_remove),
-        LogScope::UrlsAndDepots(safe_depot_ids) => {
-            log_purge::remove_log_entries_for_game(log_dir, urls_to_remove, safe_depot_ids, None)
+        LogScope::Urls => {
+            log_purge::remove_log_entries_for_urls(log_dir, urls_to_remove, stem_positions)
         }
+        LogScope::UrlsAndDepots(safe_depot_ids) => log_purge::remove_log_entries_for_game(
+            log_dir,
+            urls_to_remove,
+            safe_depot_ids,
+            None,
+            stem_positions,
+        ),
     }
 }
 

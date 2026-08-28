@@ -78,15 +78,38 @@ public partial class CacheManagementService
                                 0);
                         }
                     },
-                    result =>
+                    async result =>
                     {
-                        var report = new ServiceCacheRemovalReport { ServiceName = serviceName };
-                        if (!string.IsNullOrEmpty(result.StdErr))
+                        // The success report JSON is authoritative - only it carries the per-stem
+                        // purge counts the log-position adjustment needs. The stderr parse remains
+                        // as the fallback for a run that died before writing the report.
+                        try
                         {
-                            ExtractServiceRemovalStats(result.StdErr, report);
+                            var report = await _rustProcessHelper.ReadOutputJsonAsync<ServiceCacheRemovalReport>(
+                                result.OutputJsonPath,
+                                "ServiceRemoval");
+                            // Runs on failed exits too: the binary writes its report on the
+                            // permission-abort path, and the purge behind it already
+                            // shortened the log.
+                            _stateService.ReduceLogPositionsAfterPurge(
+                                datasource.Name,
+                                report.LogLinesRemovedBeforePositionBySource,
+                                report.LogLinesRemovedBySource);
+                            return report;
                         }
+                        catch (Exception readEx)
+                        {
+                            _logger.LogWarning(readEx,
+                                "[ServiceRemoval] Output JSON unreadable for '{Service}'; falling back to stderr summary parse",
+                                serviceName);
+                            var report = new ServiceCacheRemovalReport { ServiceName = serviceName };
+                            if (!string.IsNullOrEmpty(result.StdErr))
+                            {
+                                ExtractServiceRemovalStats(result.StdErr, report);
+                            }
 
-                        return Task.FromResult(report);
+                            return report;
+                        }
                     });
 
                 // Send final progress update from the report

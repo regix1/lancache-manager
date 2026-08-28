@@ -22,6 +22,18 @@ public interface IStateService
     // Per-datasource, per-source-stem series offsets (bare-metal / mixed layouts)
     Dictionary<string, long> GetLogSourcePositions(string datasourceName);
     void SetLogSourcePositions(string datasourceName, Dictionary<string, long> positions);
+    // Subtract purge-removed line counts from the saved positions. A log purge rewrites the
+    // access log in place, so every line index past the removed lines shifts down; an
+    // unadjusted position points that many lines into never-ingested content and the next
+    // incremental run silently skips it. The position moves back by the already-read subset
+    // (first map); the on-disk total-line count moves down by all removals (second map).
+    void ReduceLogPositionsAfterPurge(
+        string datasourceName,
+        IReadOnlyDictionary<string, long> linesRemovedBeforePositionByStem,
+        IReadOnlyDictionary<string, long> linesRemovedByStem);
+    // Snapshot a datasource's per-stem positions to a temp JSON file for a purge's
+    // --stem-positions argument. Null when no positions exist; caller deletes the file.
+    Task<string?> WriteStemPositionsTempFileAsync(string datasourceName);
     void ClearLogSourcePositions(string datasourceName, IEnumerable<string> stems);
     // Per-datasource ingestion diagnostics (typed counters + missing-source warning)
     LogIngestDiagnostics? GetLogIngestDiagnostics(string datasourceName);

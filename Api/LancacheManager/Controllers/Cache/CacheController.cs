@@ -46,6 +46,7 @@ public class CacheController : ControllerBase
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
     private readonly DatasourceCapabilityService _capabilityService;
+    private readonly IStateService _stateService;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -62,9 +63,11 @@ public class CacheController : ControllerBase
         CacheReconciliationService reconciliationService,
         IOperationConflictChecker conflictChecker,
         IOperationQueue operationQueue,
-        DatasourceCapabilityService capabilityService)
+        DatasourceCapabilityService capabilityService,
+        IStateService stateService)
     {
         _capabilityService = capabilityService;
+        _stateService = stateService;
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
         _corruptionDetectionService = corruptionDetectionService;
@@ -1295,6 +1298,34 @@ public class CacheController : ControllerBase
         };
     }
 
+    /// <summary>
+    /// Reads a per-stem count map (e.g. <c>logLinesBySource</c>) out of a Rust progress-checkpoint
+    /// context. The context round-trips through JSON, so the map arrives as a JsonElement object;
+    /// anything absent or malformed reads as empty, which makes the position adjustment a no-op.
+    /// </summary>
+    internal static Dictionary<string, long> ReadContextStemCounts(
+        Dictionary<string, object?>? context, string key)
+    {
+        var counts = new Dictionary<string, long>();
+        if (context == null || !context.TryGetValue(key, out var value) ||
+            value is not System.Text.Json.JsonElement element ||
+            element.ValueKind != System.Text.Json.JsonValueKind.Object)
+        {
+            return counts;
+        }
+
+        foreach (var property in element.EnumerateObject())
+        {
+            if (property.Value.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                property.Value.TryGetInt64(out var removed))
+            {
+                counts[property.Name] = removed;
+            }
+        }
+
+        return counts;
+    }
+
     internal static StructuralRemovalCompletion ValidateStructuralRemovalCompletion(
         Dictionary<string, object?> context,
         int expectedCandidateCount)
@@ -1541,6 +1572,7 @@ public class CacheController : ControllerBase
                 _logger.LogInformation("[CorruptionRemoval] Processing datasource '{Datasource}' (logs: {LogsPath}, cache: {CachePath})",
                     datasource.Name, logsPath, cachePath);
 
+                string? stemPositionsPath = null;
                 try
                 {
                     var evidence = new CorruptionRemovalEvidence
@@ -1573,6 +1605,11 @@ public class CacheController : ControllerBase
                     // from corruption_manager is a zero-latency wake-up that triggers exactly one
                     // read of the (Rust-side-unchanged) progress file, replacing the previous
                     // standalone Task.Run poll-every-500ms loop.
+                    // Structural removal never touches logs, so it gets no positions file.
+                    stemPositionsPath = selection.DetectionMethod == CorruptionDetectionMethod.Structural
+                        ? null
+                        : await _stateService.WriteStemPositionsTempFileAsync(datasource.Name);
+
                     var result = await _rustProcessHelper.RunCorruptionManagerAsync(
                         selection.DetectionMethod == CorruptionDetectionMethod.Structural
                             ? "remove-structural"
@@ -1582,6 +1619,7 @@ public class CacheController : ControllerBase
                         service: service,
                         evidenceFile: evidenceFilePath,
                         progressFile: progressFilePath,
+                        stemPositionsFile: stemPositionsPath,
                         keyScheme: _capabilityService.GetKeySchemeWireValue(datasource),
                         cancellationToken: cts.Token,
                         operationId: operationId,
@@ -1673,6 +1711,13 @@ public class CacheController : ControllerBase
                             totals.LogLinesRemoved += ReadContextCount(finalProgress.Context, "logLines");
                             totals.DownloadsDeleted += ReadContextCount(finalProgress.Context, "downloads");
                             totals.LogEntriesDeleted += ReadContextCount(finalProgress.Context, "logEntries");
+                            // This purge rewrote the access log; pull the saved ingestion
+                            // positions back by the removed-line counts so the next incremental
+                            // run does not skip that many unread lines.
+                            _stateService.ReduceLogPositionsAfterPurge(
+                                datasource.Name,
+                                ReadContextStemCounts(finalProgress.Context, "logLinesBeforePositionBySource"),
+                                ReadContextStemCounts(finalProgress.Context, "logLinesBySource"));
                         }
                     }
 
@@ -1687,12 +1732,29 @@ public class CacheController : ControllerBase
                             service, datasource.Name, result.Error);
                         allSucceeded = false;
                         lastError = result.Error;
+
+                        // A partial log rewrite already removed lines from the files it
+                        // finished before failing; the Rust side flushes those counts into a
+                        // checkpoint before bailing, so the saved positions still come back.
+                        var failedProgress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
+                        var failedRemoved = ReadContextStemCounts(failedProgress?.Context, "logLinesBySource");
+                        if (failedRemoved.Count > 0)
+                        {
+                            _stateService.ReduceLogPositionsAfterPurge(
+                                datasource.Name,
+                                ReadContextStemCounts(failedProgress?.Context, "logLinesBeforePositionBySource"),
+                                failedRemoved);
+                        }
                     }
                 }
                 finally
                 {
                     await _rustProcessHelper.DeleteTempFileAsync(progressFilePath);
                     await _rustProcessHelper.DeleteTempFileAsync(evidenceFilePath);
+                    if (stemPositionsPath != null)
+                    {
+                        await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
+                    }
                 }
             }
 

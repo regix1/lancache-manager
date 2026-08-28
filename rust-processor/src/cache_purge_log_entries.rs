@@ -46,6 +46,11 @@ struct Args {
     #[arg(long)]
     progress_json: Option<String>,
 
+    /// Per-stem saved ingestion positions (JSON object of stem name to line index). Lets the
+    /// log purge split removed lines at the read position so the position adjustment is exact.
+    #[arg(long = "stem-positions")]
+    stem_positions: Option<String>,
+
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
@@ -63,6 +68,12 @@ struct PurgeRequest {
 struct PurgeReport {
     success: bool,
     lines_removed: u64,
+    /// Removed-line count per log-source stem, series-wide - the caller subtracts these
+    /// from the saved ingestion positions so a purge cannot shift them past unread lines.
+    log_lines_removed_by_source: std::collections::HashMap<String, u64>,
+    /// The already-read subset of the map above (series index below the saved position);
+    /// the amount the position itself comes back by.
+    log_lines_removed_before_position_by_source: std::collections::HashMap<String, u64>,
     permission_errors: usize,
     url_count: usize,
     depot_count: usize,
@@ -172,6 +183,8 @@ fn main() -> Result<()> {
                 let failure = PurgeReport {
                     success: false,
                     lines_removed: 0,
+                    log_lines_removed_by_source: Default::default(),
+                    log_lines_removed_before_position_by_source: Default::default(),
                     permission_errors: 0,
                     url_count: 0,
                     depot_count: 0,
@@ -206,6 +219,8 @@ fn run_purge(args: &Args, progress_path: Option<&Path>, reporter: &ProgressRepor
         return Ok(PurgeReport {
             success: true,
             lines_removed: 0,
+            log_lines_removed_by_source: Default::default(),
+            log_lines_removed_before_position_by_source: Default::default(),
             permission_errors: 0,
             url_count: 0,
             depot_count: 0,
@@ -259,9 +274,23 @@ fn run_purge(args: &Args, progress_path: Option<&Path>, reporter: &ProgressRepor
             );
         }
     };
-    let (lines_removed, permission_errors) =
-        remove_log_entries_for_game(log_dir_path, &urls, &depot_ids, Some(&progress_cb))
-            .context("remove_log_entries_for_game failed")?;
+    let stem_positions = args
+        .stem_positions
+        .as_deref()
+        .and_then(log_purge::read_stem_positions);
+    let purge_outcome = remove_log_entries_for_game(
+        log_dir_path,
+        &urls,
+        &depot_ids,
+        Some(&progress_cb),
+        stem_positions.as_ref(),
+    )
+    .context("remove_log_entries_for_game failed")?;
+    let lines_removed = purge_outcome.lines_removed;
+    let permission_errors = purge_outcome.permission_errors;
+    let log_lines_removed_by_source = purge_outcome.lines_removed_by_stem;
+    let log_lines_removed_before_position_by_source =
+        purge_outcome.lines_removed_before_position_by_stem;
 
     // Cooperative cancellation: if cancel arrived during the purge, flush partial progress
     // with real counts and return Ok so main() exits 0 without writing a failed status.
@@ -280,6 +309,9 @@ fn run_purge(args: &Args, progress_path: Option<&Path>, reporter: &ProgressRepor
         return Ok(PurgeReport {
             success: true,
             lines_removed,
+            log_lines_removed_by_source: log_lines_removed_by_source.clone(),
+            log_lines_removed_before_position_by_source:
+                log_lines_removed_before_position_by_source.clone(),
             permission_errors,
             url_count,
             depot_count,
@@ -301,6 +333,8 @@ fn run_purge(args: &Args, progress_path: Option<&Path>, reporter: &ProgressRepor
     Ok(PurgeReport {
         success: true,
         lines_removed,
+        log_lines_removed_by_source,
+        log_lines_removed_before_position_by_source,
         permission_errors,
         url_count,
         depot_count,

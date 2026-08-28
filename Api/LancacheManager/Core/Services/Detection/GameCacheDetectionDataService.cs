@@ -887,7 +887,12 @@ public sealed partial class GameCacheDetectionDataService
 
         if (cachedGames.Count == 0 && cachedServices.Count == 0)
         {
-            await ClearDetectionSummaryAsync(dbContext, cancellationToken);
+            // The singleton summary row also carries UnmappedServicesJson - the Unmapped
+            // bucket the last FULL scan measured. A cache holding only unrecognized content
+            // legitimately has zero games and services while that bucket is non-empty, and
+            // deleting the row here (this refresh runs on every scan, incremental included)
+            // wiped the Unmapped section. Zero the aggregates and keep the bucket instead.
+            await ClearDetectionSummaryPreservingUnmappedAsync(dbContext, cancellationToken);
             return;
         }
 
@@ -1035,6 +1040,37 @@ public sealed partial class GameCacheDetectionDataService
         await dbContext.CachedDetectionSummaries
             .Where(s => s.Id == CachedDetectionSummary.SingletonId)
             .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Zero-rows variant of <see cref="ClearDetectionSummaryAsync"/>: keeps the summary row
+    /// alive when it still holds a measured unmapped bucket, zeroing only the aggregates.
+    /// A row with no bucket is deleted exactly as before.
+    /// </summary>
+    private static async Task ClearDetectionSummaryPreservingUnmappedAsync(
+        AppDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        var summary = await dbContext.CachedDetectionSummaries
+            .FirstOrDefaultAsync(s => s.Id == CachedDetectionSummary.SingletonId, cancellationToken);
+        if (summary == null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(summary.UnmappedServicesJson))
+        {
+            await ClearDetectionSummaryAsync(dbContext, cancellationToken);
+            return;
+        }
+
+        summary.GamesOnDiskBytes = 0;
+        summary.GamesOnDiskCount = 0;
+        summary.IdentifiedCacheBytes = 0;
+        summary.IdentifiedServiceBytes = 0;
+        summary.IdentifiedServiceCount = 0;
+        summary.ComputedAtUtc = DateTime.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task InvalidateCacheAsync(CancellationToken cancellationToken = default)

@@ -1010,6 +1010,20 @@ public partial class CacheManagementService
         [System.Text.Json.Serialization.JsonPropertyName("log_entries_removed")]
         public ulong LogEntriesRemoved { get; set; }
 
+        /// <summary>
+        /// Removed-line count per log-source stem; subtracted from saved ingestion positions
+        /// so the purge cannot shift them past unread lines.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("log_lines_removed_by_source")]
+        public Dictionary<string, long> LogLinesRemovedBySource { get; set; } = new();
+
+        /// <summary>
+        /// The already-read subset of the map above (series index below the saved read
+        /// position); the amount the saved position itself comes back by.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("log_lines_removed_before_position_by_source")]
+        public Dictionary<string, long> LogLinesRemovedBeforePositionBySource { get; set; } = new();
+
         [System.Text.Json.Serialization.JsonPropertyName("depot_ids")]
         public List<long> DepotIds { get; set; } = new List<long>();
     }
@@ -1027,6 +1041,20 @@ public partial class CacheManagementService
 
         [System.Text.Json.Serialization.JsonPropertyName("log_entries_removed")]
         public ulong LogEntriesRemoved { get; set; }
+
+        /// <summary>
+        /// Removed-line count per log-source stem; subtracted from saved ingestion positions
+        /// so the purge cannot shift them past unread lines.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("log_lines_removed_by_source")]
+        public Dictionary<string, long> LogLinesRemovedBySource { get; set; } = new();
+
+        /// <summary>
+        /// The already-read subset of the map above (series index below the saved read
+        /// position); the amount the saved position itself comes back by.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("log_lines_removed_before_position_by_source")]
+        public Dictionary<string, long> LogLinesRemovedBeforePositionBySource { get; set; } = new();
 
         [System.Text.Json.Serialization.JsonPropertyName("database_entries_deleted")]
         public int DatabaseEntriesDeleted { get; set; }
@@ -1188,6 +1216,15 @@ public partial class CacheManagementService
         // before ProcessStartInfo is handed to the process helper.
         var startInfo = createStartInfo();
 
+        // Per-stem read positions for the purge's exact-subtraction split. A missing file
+        // makes the binary treat every removed line as already read, which over-subtracts
+        // and replays lines the ingestion dedupe discards - the safe fallback direction.
+        var stemPositionsPath = await _stateService.WriteStemPositionsTempFileAsync(execution.Datasource.Name);
+        if (stemPositionsPath != null)
+        {
+            startInfo.Arguments += $" --stem-positions \"{stemPositionsPath}\"";
+        }
+
         var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
             startInfo,
             operationId,
@@ -1210,6 +1247,11 @@ public partial class CacheManagementService
                     await onProgress(progressData);
                 },
             failedProcessDescription);
+
+        if (stemPositionsPath != null)
+        {
+            await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
+        }
 
         _logger.LogInformation(
             "{LogPrefix} Process exit code for datasource '{DatasourceName}': {Code}",
@@ -1245,14 +1287,48 @@ public partial class CacheManagementService
                 result.Error);
         }
 
+        // The report is read BEFORE the exit code is enforced: the removal binaries write it
+        // even on their permission-abort paths, and it carries the purged-line counts the
+        // caller's report handler uses to pull the saved log positions back. Enforcing the
+        // exit code first threw past the read, which left the positions pointing into a log
+        // the purge had already shortened - the skip-unread-lines bug on every failed removal.
+        TReport? report = default;
+        Exception? reportError = null;
+        try
+        {
+            report = await buildReportAsync(new RustRemovalProcessResult(
+                execution.Datasource,
+                execution.OutputJsonPath,
+                execution.ProgressJsonPath,
+                result.Output,
+                result.Error));
+        }
+        catch (Exception ex)
+        {
+            reportError = ex;
+            if (result.ExitCode == 0)
+            {
+                throw;
+            }
+
+            _logger.LogWarning(ex,
+                "{LogPrefix} Report unreadable after nonzero exit for datasource '{DatasourceName}'; " +
+                "any log purge this run performed could not adjust the saved log positions",
+                logPrefix,
+                execution.Datasource.Name);
+        }
+
         result.EnsureSuccess(failedProcessDescription, execution.Datasource.Name, cancellationToken);
 
-        return await buildReportAsync(new RustRemovalProcessResult(
-            execution.Datasource,
-            execution.OutputJsonPath,
-            execution.ProgressJsonPath,
-            result.Output,
-            result.Error));
+        if (report == null)
+        {
+            // Exit code 0 with a null (not thrown) report result - surface it rather than
+            // returning null into callers that aggregate from it.
+            throw reportError ?? new InvalidDataException(
+                $"{failedProcessDescription} produced no readable report for datasource '{execution.Datasource.Name}'");
+        }
+
+        return report;
     }
 
     // -------------------------------------------------------------------------

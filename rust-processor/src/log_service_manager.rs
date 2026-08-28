@@ -49,6 +49,15 @@ struct ProgressData {
     /// than authoritative. Omitted (and treated as zero) when every source read cleanly.
     #[serde(skip_serializing_if = "Option::is_none")]
     files_with_errors: Option<u64>,
+    /// Removed-line counts per stem for the REWRITTEN (monolithic) sources only; deleted
+    /// per-service series report nothing here because the host clears those stems outright.
+    /// The host subtracts the on-disk total-line count by this map.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lines_removed_by_stem: Option<HashMap<String, u64>>,
+    /// The already-read subset of `lines_removed_by_stem` (series index below the saved
+    /// ingestion position); the amount the host pulls each stem's position back by.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lines_removed_before_position_by_stem: Option<HashMap<String, u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     datasource_name: Option<String>,
     // i18n stage key consumed by C# RustLogRemovalService.ProgressData.StageKey
@@ -81,12 +90,24 @@ impl ProgressData {
             bytes_deleted: 0,
             service_counts,
             source_line_counts: None,
+            lines_removed_by_stem: None,
+            lines_removed_before_position_by_stem: None,
             fallback_lines: None,
             files_with_errors: None,
             datasource_name,
             stage_key: String::new(),
             timestamp: progress_utils::current_timestamp(),
         }
+    }
+
+    fn with_lines_removed_by_stem(
+        mut self,
+        removed: HashMap<String, u64>,
+        removed_before_position: HashMap<String, u64>,
+    ) -> Self {
+        self.lines_removed_by_stem = Some(removed);
+        self.lines_removed_before_position_by_stem = Some(removed_before_position);
+        self
     }
 
     fn with_source_line_counts(mut self, counts: HashMap<String, u64>) -> Self {
@@ -919,6 +940,7 @@ fn remove_service_from_logs(
     progress_path: &Path,
     reporter: &ProgressReporter,
     datasource_name: Option<&str>,
+    stem_positions: Option<&HashMap<String, u64>>,
 ) -> Result<()> {
     let start_time = Instant::now();
     let ds_name = datasource_name.map(|s| s.to_string());
@@ -963,18 +985,27 @@ fn remove_service_from_logs(
         .iter()
         .filter(|s| matches!(&s.kind, SourceKind::Service(svc) if *svc == service_lower))
         .collect();
-    let log_files: Vec<LogFile> = sources
+    // Monolithic files keep their stem so removals can be split at each stem's saved read
+    // position. Files stay in series order (oldest -> newest) within each source, which is
+    // what makes the running series offset meaningful.
+    let log_files: Vec<(LogFile, String)> = sources
         .iter()
         .filter(|s| s.kind == SourceKind::Monolithic)
-        .flat_map(|s| s.files.clone())
+        .flat_map(|s| {
+            let stem = s.stem.clone();
+            s.files.iter().cloned().map(move |f| (f, stem.clone()))
+        })
         .collect();
+    let mut series_offsets: HashMap<String, u64> = HashMap::new();
+    let mut removed_by_stem: HashMap<String, u64> = HashMap::new();
+    let mut removed_before_by_stem: HashMap<String, u64> = HashMap::new();
 
     eprintln!(
         "Found {} tagged log file(s) to rewrite and {} per-service source(s) to delete:",
         log_files.len(),
         delete_sources.len()
     );
-    for log_file in &log_files {
+    for (log_file, _stem) in &log_files {
         eprintln!("  - {}", log_file.path.display());
     }
     for source in &delete_sources {
@@ -1059,7 +1090,12 @@ fn remove_service_from_logs(
     }
 
     // Process each log file
-    for (file_index, log_file) in log_files.iter().enumerate() {
+    for (file_index, (log_file, stem)) in log_files.iter().enumerate() {
+        // None = no positions supplied -> every removed line counts as already read (the
+        // replay-safe fallback). Some(0) = stem never ingested -> nothing counts.
+        let stem_position: Option<u64> =
+            stem_positions.map(|m| m.get(stem).copied().unwrap_or(0));
+        let series_offset: u64 = series_offsets.get(stem).copied().unwrap_or(0);
         // Cooperative cancel: check between file iterations (each file uses NamedTempFile+rename, so
         // stopping between files is safe — completed files are already atomically rewritten)
         if cancel::is_cancelled() {
@@ -1102,7 +1138,7 @@ fn remove_service_from_logs(
         );
 
         // Try to process the file, but skip if it's corrupted (e.g., invalid gzip header)
-        let file_result = (|| -> Result<(u64, u64)> {
+        let file_result = (|| -> Result<(u64, u64, u64)> {
             let file_size = std::fs::metadata(&log_file.path)?.len();
 
             // Progress update for this file
@@ -1203,7 +1239,7 @@ fn remove_service_from_logs(
                     "  No {} entries in this file - leaving it untouched",
                     service_to_remove
                 );
-                return Ok((scan_lines, 0));
+                return Ok((scan_lines, 0, 0));
             }
 
             // Allow removing all lines - user may want to clear all entries for a service
@@ -1215,7 +1251,13 @@ fn remove_service_from_logs(
                 );
                 eprintln!("    Deleting the log file entirely");
                 remove_log_file_if_present(&log_file.path)?;
-                return Ok((scan_lines, scan_matches));
+                // The file occupied series indices offset..offset+scan_lines; the
+                // already-read share is whatever of that range lies below the position.
+                let removed_before = match stem_position {
+                    Some(p) => p.saturating_sub(series_offset).min(scan_lines),
+                    None => scan_matches,
+                };
+                return Ok((scan_lines, scan_matches, removed_before));
             }
 
             // PASS 2: rewrite the file without this service's lines.
@@ -1233,6 +1275,7 @@ fn remove_service_from_logs(
 
             let mut lines_processed: u64 = 0;
             let mut lines_removed: u64 = 0;
+            let mut removed_before: u64 = 0;
 
             // Scope the file operations so handles are closed before deletion
             {
@@ -1281,6 +1324,12 @@ fn remove_service_from_logs(
 
                     if line_matches_service(&line, &service_lower) {
                         lines_removed += 1;
+                        // An unterminated final record naturally lands in the not-read
+                        // bucket: the saved position only ever counts complete records.
+                        match stem_position {
+                            Some(p) if series_offset + (lines_processed - 1) >= p => {}
+                            _ => removed_before += 1,
+                        }
                         if lines_removed.is_multiple_of(10000) {
                             eprintln!(
                                 "Removed {} {} entries from this file",
@@ -1327,7 +1376,7 @@ fn remove_service_from_logs(
                 // temp_file automatically deleted when it goes out of scope
                 // Delete the original log file
                 remove_log_file_if_present(&log_file.path)?;
-                return Ok((lines_processed, lines_removed));
+                return Ok((lines_processed, lines_removed, removed_before));
             }
 
             // Atomically replace original with filtered version
@@ -1344,17 +1393,22 @@ fn remove_service_from_logs(
                 fs::remove_file(&persist_err.path).ok();
             }
 
-            Ok((lines_processed, lines_removed))
+            Ok((lines_processed, lines_removed, removed_before))
         })();
 
         // If this file failed, check if it's a permission error
         match file_result {
-            Ok((lines_processed, lines_removed)) => {
+            Ok((lines_processed, lines_removed, removed_before)) => {
                 eprintln!("  Lines processed: {}", lines_processed);
                 eprintln!("  Lines removed: {}", lines_removed);
 
                 total_lines_processed += lines_processed;
                 total_lines_removed += lines_removed;
+                *series_offsets.entry(stem.clone()).or_insert(0) += lines_processed;
+                if lines_removed > 0 {
+                    *removed_by_stem.entry(stem.clone()).or_insert(0) += lines_removed;
+                    *removed_before_by_stem.entry(stem.clone()).or_insert(0) += removed_before;
+                }
             }
             Err(e) => {
                 // Check if this is a permission error
@@ -1394,6 +1448,8 @@ fn remove_service_from_logs(
         );
         eprintln!("\n{}", error_msg);
 
+        // Files that completed before the failing one already lost their lines; the counts
+        // must still reach the host so the saved positions come back for them.
         let progress = ProgressData::new(
             false,
             0.0,
@@ -1404,7 +1460,8 @@ fn remove_service_from_logs(
             log_files.len() + deleted_files,
             None,
             ds_name,
-        );
+        )
+        .with_lines_removed_by_stem(removed_by_stem.clone(), removed_before_by_stem.clone());
         write_progress(progress_path, reporter, &progress)?;
 
         anyhow::bail!("{}", error_msg);
@@ -1460,6 +1517,7 @@ fn remove_service_from_logs(
         None,
         ds_name,
     )
+    .with_lines_removed_by_stem(removed_by_stem, removed_before_by_stem)
     .with_stage_key("signalr.logRemoval.complete");
     write_progress(progress_path, reporter, &progress)?;
 
@@ -1544,7 +1602,11 @@ fn write_error_progress(progress_path: &Path, message: String, datasource_name: 
     }
 }
 
-fn run(args: &[String], reporter: &ProgressReporter) -> Result<()> {
+fn run(
+    args: &[String],
+    reporter: &ProgressReporter,
+    stem_positions: Option<&HashMap<String, u64>>,
+) -> Result<()> {
     if args.len() < 4 {
         eprintln!("Usage:");
         eprintln!(
@@ -1701,6 +1763,7 @@ fn run(args: &[String], reporter: &ProgressReporter) -> Result<()> {
                 progress_path,
                 reporter,
                 datasource_name,
+                stem_positions,
             ) {
                 let error = error.context("Service removal failed");
                 write_error_progress(progress_path, format!("{error:#}"), datasource_name);
@@ -1813,6 +1876,20 @@ fn main() -> anyhow::Result<()> {
     } else {
         false
     };
+    let stem_positions: Option<HashMap<String, u64>> = if let Some(position) =
+        args.iter().position(|arg| arg == "--stem-positions")
+    {
+        args.remove(position);
+        if position < args.len() {
+            let path = args.remove(position);
+            lancache_processor::log_purge::read_stem_positions(&path)
+        } else {
+            eprintln!("Warning: --stem-positions given without a path; ignoring");
+            None
+        }
+    } else {
+        None
+    };
     let reporter = ProgressReporter::new(progress_enabled);
     let failure_stage_key = match args.get(1).map(String::as_str) {
         Some("remove") => "signalr.logRemoval.error.fatal",
@@ -1821,7 +1898,9 @@ fn main() -> anyhow::Result<()> {
         _ => "signalr.logService.error.fatal",
     };
 
-    progress_events::run_or_exit(&reporter, failure_stage_key, || run(&args, &reporter));
+    progress_events::run_or_exit(&reporter, failure_stage_key, || {
+        run(&args, &reporter, stem_positions.as_ref())
+    });
     Ok(())
 }
 
@@ -1991,6 +2070,7 @@ mod tests {
             "steam",
             &progress_path,
             &reporter,
+            None,
             None,
         )
         .expect("remove steam");

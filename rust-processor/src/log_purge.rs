@@ -26,7 +26,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Write as IoWrite};
 use std::path::Path;
@@ -110,11 +110,26 @@ impl ExactLogMatcher {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogRewriteOutcome {
     pub lines_removed: u64,
     pub permission_errors: usize,
     pub other_errors: usize,
+    /// Removed-line count per source stem (`access.log`, `steam-access.log`, ...), summed
+    /// across the stem's whole rotation series - the same series the stored ingestion
+    /// positions count. The caller must subtract these from the saved positions: a purge
+    /// deletes lines the position has already counted past, so an unadjusted position
+    /// points that many lines into not-yet-ingested content and the next incremental run
+    /// silently skips it.
+    pub lines_removed_by_stem: HashMap<String, u64>,
+    /// The subset of `lines_removed_by_stem` whose series index (position within the stem's
+    /// rotation series, oldest file first) sits BELOW the stem's saved ingestion position -
+    /// the lines the reader had already consumed. Only these move the position back; a line
+    /// removed ahead of the position was never read, so the position must not move for it.
+    /// When no positions were supplied to the rewrite, this equals `lines_removed_by_stem`
+    /// (treat everything as read; the resulting over-subtraction only replays lines, which
+    /// ingestion dedupe discards, while under-subtraction skips unread lines for good).
+    pub lines_removed_before_position_by_stem: HashMap<String, u64>,
 }
 
 /// Owns the concrete output encoder so compressed streams can be finalized before the
@@ -257,6 +272,7 @@ fn rewrite_matching_log_entries_outcome<F>(
     prefilter: &RemovalPrefilter,
     should_remove_entry: F,
     on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+    stem_positions: Option<&HashMap<String, u64>>,
 ) -> Result<LogRewriteOutcome>
 where
     F: Fn(&LogEntry) -> bool + Send + Sync,
@@ -269,36 +285,36 @@ where
     let cachelog = LogParser::new(chrono_tz::UTC);
     let detailed = HttpDetailedParser::new(chrono_tz::UTC);
     let source_set = discover_log_sources(log_dir)?;
-    let log_files: Vec<_> = source_set
-        .sources
-        .into_iter()
-        .flat_map(|source| {
-            let source_kind = source.kind;
-            source
-                .files
-                .into_iter()
-                .map(move |file| (file, source_kind.clone()))
-        })
-        .collect();
-    let total_files = log_files.len();
+    // Each stem's rotation series is processed OLDEST -> NEWEST sequentially, so a removed
+    // line's series index (running offset + in-file index) is known the moment it is removed.
+    // Comparing that index against the stem's saved ingestion position splits the removals
+    // into already-read (the position must come back by these) and not-yet-read (it must
+    // not). Parallelism runs across stems; a stem's members are ordered by definition.
+    let total_files: usize = source_set.sources.iter().map(|s| s.files.len()).sum();
 
     let total_lines_removed = AtomicU64::new(0);
     let permission_errors = AtomicUsize::new(0);
     let other_errors = AtomicUsize::new(0);
     let files_done = AtomicUsize::new(0);
+    let lines_removed_by_stem: std::sync::Mutex<HashMap<String, u64>> =
+        std::sync::Mutex::new(HashMap::new());
+    let lines_removed_before_position_by_stem: std::sync::Mutex<HashMap<String, u64>> =
+        std::sync::Mutex::new(HashMap::new());
 
-    log_files
-        .par_iter()
-        .enumerate()
-        .for_each(|(file_index, (log_file, source_kind))| {
-            eprintln!(
-                "  Processing file {}/{}: {}",
-                file_index + 1,
-                log_files.len(),
-                log_file.path.display()
-            );
+    source_set.sources.into_par_iter().for_each(|source| {
+        // None = no positions supplied at all -> every removed line counts as already read.
+        // Some(0) = positions supplied but this stem has never been ingested -> nothing was
+        // read, so nothing is subtracted from the (zero) position.
+        let stem_position: Option<u64> =
+            stem_positions.map(|m| m.get(&source.stem).copied().unwrap_or(0));
+        let mut series_offset: u64 = 0;
+        let mut stem_removed: u64 = 0;
+        let mut stem_removed_before: u64 = 0;
 
-            let file_result = (|| -> Result<u64> {
+        for log_file in &source.files {
+            eprintln!("  Processing file: {}", log_file.path.display());
+
+            let file_result = (|| -> Result<(u64, u64, u64)> {
                 // Pass 1: read-only scan. Files with zero confirmed matches are left
                 // completely untouched (no temp file, no recompression).
                 let (lines_total, lines_matched) = scan_file_for_matches(
@@ -306,15 +322,15 @@ where
                     prefilter,
                     &cachelog,
                     &detailed,
-                    source_kind,
+                    &source.kind,
                     &should_remove_entry,
                 )?;
 
                 if lines_matched == 0 {
-                    return Ok(0);
+                    return Ok((lines_total, 0, 0));
                 }
 
-                if lines_matched == lines_total && source_kind == &SourceKind::Monolithic {
+                if lines_matched == lines_total && source.kind == SourceKind::Monolithic {
                     // Every line matched: delete the file entirely (same semantics as
                     // the previous monolithic implementation, minus the wasted temp write).
                     eprintln!(
@@ -331,7 +347,13 @@ where
                             });
                         }
                     }
-                    return Ok(lines_matched);
+                    // The file occupied series indices offset..offset+lines_total; the
+                    // already-read share is whatever of that range lies below the position.
+                    let removed_before = match stem_position {
+                        Some(p) => p.saturating_sub(series_offset).min(lines_total),
+                        None => lines_matched,
+                    };
+                    return Ok((lines_total, lines_matched, removed_before));
                 }
 
                 // Pass 2: rewrite the file without the matching lines.
@@ -341,7 +363,9 @@ where
                     .context("Failed to get file directory")?;
                 let temp_file = NamedTempFile::new_in(file_dir)?;
 
+                let mut lines_total_rewrite: u64 = 0;
                 let mut lines_removed: u64 = 0;
+                let mut removed_before: u64 = 0;
 
                 {
                     let mut log_reader = LogFileReader::open(&log_file.path)?;
@@ -391,13 +415,21 @@ where
                             prefilter,
                             &cachelog,
                             &detailed,
-                            source_kind,
+                            &source.kind,
                             &should_remove_entry,
                         ) {
                             lines_removed += 1;
+                            // An unterminated final record naturally lands in the not-read
+                            // bucket: the saved position only ever counts complete records,
+                            // so that line's series index is always at or past it.
+                            match stem_position {
+                                Some(p) if series_offset + lines_total_rewrite >= p => {}
+                                _ => removed_before += 1,
+                            }
                         } else {
                             writer.write_all(&line)?;
                         }
+                        lines_total_rewrite += 1;
                     }
 
                     writer.finish()?;
@@ -421,15 +453,22 @@ where
                     }
                 }
 
-                Ok(lines_removed)
+                Ok((lines_total_rewrite, lines_removed, removed_before))
             })();
 
             match file_result {
-                Ok(lines_removed) => {
+                Ok((lines_total, lines_removed, removed_before)) => {
                     eprintln!("    Removed {} log lines from this file", lines_removed);
+                    series_offset += lines_total;
+                    stem_removed += lines_removed;
+                    stem_removed_before += removed_before;
                     total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
                 }
                 Err(e) => {
+                    // The file's length is unknown, so the series offset stays put. Later
+                    // removed lines in this stem then compare against a too-low offset and
+                    // over-count as already-read, which only pulls the position further
+                    // back - the replay-safe direction.
                     let error_str = e.to_string();
                     if error_str.contains("Permission denied") || error_str.contains("os error 13")
                     {
@@ -454,7 +493,20 @@ where
                 let done = files_done.fetch_add(1, Ordering::Relaxed) + 1;
                 cb(done, total_files);
             }
-        });
+        }
+
+        if stem_removed > 0 {
+            let mut by_stem = lines_removed_by_stem
+                .lock()
+                .expect("lines_removed_by_stem mutex poisoned");
+            *by_stem.entry(source.stem.clone()).or_insert(0) += stem_removed;
+            drop(by_stem);
+            let mut before_by_stem = lines_removed_before_position_by_stem
+                .lock()
+                .expect("lines_removed_before_position_by_stem mutex poisoned");
+            *before_by_stem.entry(source.stem.clone()).or_insert(0) += stem_removed_before;
+        }
+    });
 
     let final_removed = total_lines_removed.load(Ordering::Relaxed);
     let final_permission_errors = permission_errors.load(Ordering::Relaxed);
@@ -467,8 +519,15 @@ where
         lines_removed: final_removed,
         permission_errors: final_permission_errors,
         other_errors: final_other_errors,
+        lines_removed_by_stem: lines_removed_by_stem
+            .into_inner()
+            .expect("lines_removed_by_stem mutex poisoned"),
+        lines_removed_before_position_by_stem: lines_removed_before_position_by_stem
+            .into_inner()
+            .expect("lines_removed_before_position_by_stem mutex poisoned"),
     })
 }
+
 
 pub(crate) fn rewrite_matching_log_entries<F>(
     log_dir: &Path,
@@ -476,28 +535,7 @@ pub(crate) fn rewrite_matching_log_entries<F>(
     prefilter: &RemovalPrefilter,
     should_remove_entry: F,
     on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
-) -> Result<(u64, usize)>
-where
-    F: Fn(&LogEntry) -> bool + Send + Sync,
-{
-    let outcome = rewrite_matching_log_entries_outcome(
-        log_dir,
-        description,
-        prefilter,
-        should_remove_entry,
-        on_file_processed,
-    )?;
-    Ok((outcome.lines_removed, outcome.permission_errors))
-}
-
-/// Strict exact-evidence variant: reports both permission and non-permission file failures so the
-/// caller can retain database/persisted evidence after any partial log rewrite.
-pub fn rewrite_matching_log_entries_strict<F>(
-    log_dir: &Path,
-    description: &str,
-    prefilter: &RemovalPrefilter,
-    should_remove_entry: F,
-    on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+    stem_positions: Option<&HashMap<String, u64>>,
 ) -> Result<LogRewriteOutcome>
 where
     F: Fn(&LogEntry) -> bool + Send + Sync,
@@ -508,13 +546,38 @@ where
         prefilter,
         should_remove_entry,
         on_file_processed,
+        stem_positions,
+    )
+}
+
+/// Strict exact-evidence variant: reports both permission and non-permission file failures so the
+/// caller can retain database/persisted evidence after any partial log rewrite.
+pub fn rewrite_matching_log_entries_strict<F>(
+    log_dir: &Path,
+    description: &str,
+    prefilter: &RemovalPrefilter,
+    should_remove_entry: F,
+    on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+    stem_positions: Option<&HashMap<String, u64>>,
+) -> Result<LogRewriteOutcome>
+where
+    F: Fn(&LogEntry) -> bool + Send + Sync,
+{
+    rewrite_matching_log_entries_outcome(
+        log_dir,
+        description,
+        prefilter,
+        should_remove_entry,
+        on_file_processed,
+        stem_positions,
     )
 }
 
 /// Rewrite every discovered nginx access-log file under `log_dir` to drop entries whose
 /// URL is in `urls_to_remove` OR whose parsed depot_id is in `valid_depot_ids`.
 ///
-/// Returns `(lines_removed, permission_errors)`.
+/// Returns the full rewrite outcome, including per-stem removed-line counts the caller
+/// must report so saved ingestion positions can be reduced.
 ///
 /// An optional `on_file_processed` callback is invoked after each file completes
 /// (including scan-only files that needed no rewrite), receiving
@@ -531,7 +594,8 @@ pub fn remove_log_entries_for_game(
     urls_to_remove: &HashSet<String>,
     valid_depot_ids: &HashSet<u32>,
     on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
-) -> Result<(u64, usize)> {
+    stem_positions: Option<&HashMap<String, u64>>,
+) -> Result<LogRewriteOutcome> {
     let patterns = urls_to_remove
         .iter()
         .map(|url| Cow::<[u8]>::Borrowed(url.as_bytes()))
@@ -556,6 +620,7 @@ pub fn remove_log_entries_for_game(
                 .unwrap_or(false)
         },
         on_file_processed,
+        stem_positions,
     )
 }
 
@@ -563,7 +628,8 @@ pub fn remove_log_entries_for_game(
 pub(crate) fn remove_log_entries_for_urls(
     log_dir: &Path,
     urls_to_remove: &HashSet<String>,
-) -> Result<(u64, usize)> {
+    stem_positions: Option<&HashMap<String, u64>>,
+) -> Result<LogRewriteOutcome> {
     let prefilter = RemovalPrefilter::new(urls_to_remove.iter().map(|url| url.as_bytes()))?;
     rewrite_matching_log_entries(
         log_dir,
@@ -571,6 +637,7 @@ pub(crate) fn remove_log_entries_for_urls(
         &prefilter,
         |entry| urls_to_remove.contains(&entry.url),
         None,
+        stem_positions,
     )
 }
 
@@ -579,7 +646,8 @@ pub fn remove_log_entries_for_service(
     log_dir: &Path,
     service: &str,
     urls_to_remove: &HashSet<String>,
-) -> Result<(u64, usize)> {
+    stem_positions: Option<&HashMap<String, u64>>,
+) -> Result<LogRewriteOutcome> {
     let normalized_service = service_utils::normalize_service_name(service);
     let description = format!("service '{}'", service);
     let prefilter = RemovalPrefilter::new(urls_to_remove.iter().map(|url| url.as_bytes()))?;
@@ -590,7 +658,27 @@ pub fn remove_log_entries_for_service(
         &prefilter,
         |entry| entry.service == normalized_service && urls_to_remove.contains(&entry.url),
         None,
+        stem_positions,
     )
+}
+
+/// Read a per-stem ingestion-positions file (a JSON object of stem name to line index) for
+/// the exact-subtraction split. `None` on any failure: the rewrite then treats every removed
+/// line as already read, the direction whose worst case is a replay the dedupe discards.
+pub fn read_stem_positions(path: &str) -> Option<HashMap<String, u64>> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => match serde_json::from_str::<HashMap<String, u64>>(&text) {
+            Ok(map) => Some(map),
+            Err(e) => {
+                eprintln!("Warning: stem-positions file {} unparseable ({}); treating all removed lines as read", path, e);
+                None
+            }
+        },
+        Err(e) => {
+            eprintln!("Warning: stem-positions file {} unreadable ({}); treating all removed lines as read", path, e);
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -599,6 +687,117 @@ mod tests {
     use chrono::DateTime;
     use std::fs;
     use std::io::Write;
+
+    #[test]
+    fn purge_counts_split_per_stem_and_sum_across_a_rotation_series() {
+        let dir = tempfile::tempdir().unwrap();
+        // One rotation series for the monolithic stem: 1 match in the live file,
+        // 3 matches in the rotated member. Plus a separate per-service stem with 2 matches.
+        fs::write(
+            dir.path().join("access.log.1"),
+            format!(
+                "{}
+{}
+{}
+{}
+",
+                log_line("/depot/9/chunk/x1", "HIT"),
+                log_line("/depot/9/chunk/x2", "HIT"),
+                log_line("/depot/9/chunk/x3", "HIT"),
+                log_line("/depot/7/chunk/keep", "HIT"),
+            ),
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("access.log"),
+            format!(
+                "{}
+{}
+",
+                log_line("/depot/7/chunk/keep2", "HIT"),
+                log_line("/depot/9/chunk/x4", "MISS"),
+            ),
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("steam-access.log"),
+            format!(
+                "{}
+{}
+",
+                log_line("/depot/9/chunk/x5", "HIT"),
+                log_line("/depot/9/chunk/x6", "HIT"),
+            ),
+        )
+        .unwrap();
+
+        let urls: HashSet<String> = [
+            "/depot/9/chunk/x1",
+            "/depot/9/chunk/x2",
+            "/depot/9/chunk/x3",
+            "/depot/9/chunk/x4",
+            "/depot/9/chunk/x5",
+            "/depot/9/chunk/x6",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+        let outcome = remove_log_entries_for_urls(dir.path(), &urls, None).unwrap();
+
+        assert_eq!(outcome.lines_removed, 6);
+        // The rotation series sums under ONE stem key; the per-service stem keeps its own.
+        assert_eq!(
+            outcome.lines_removed_by_stem,
+            HashMap::from([
+                ("access.log".to_string(), 4u64),
+                ("steam-access.log".to_string(), 2u64)
+            ])
+        );
+        // No positions supplied: everything counts as already read.
+        assert_eq!(
+            outcome.lines_removed_before_position_by_stem,
+            outcome.lines_removed_by_stem
+        );
+    }
+
+    #[test]
+    fn removals_ahead_of_the_saved_position_do_not_count_as_already_read() {
+        let dir = tempfile::tempdir().unwrap();
+        // Series: access.log.1 holds indices 0..4, access.log holds 5..9. Position 6 means
+        // indices 0..5 were read. Removals at series indices 2 (read) and 7 (not read).
+        let mut rotated = String::new();
+        for i in 0..5 {
+            let url = if i == 2 { "/depot/9/chunk/gone-a".to_string() } else { format!("/depot/7/chunk/keep{i}") };
+            rotated.push_str(&log_line(&url, "HIT"));
+            rotated.push('\n');
+        }
+        fs::write(dir.path().join("access.log.1"), rotated).unwrap();
+        let mut live = String::new();
+        for i in 5..10 {
+            let url = if i == 7 { "/depot/9/chunk/gone-b".to_string() } else { format!("/depot/7/chunk/keep{i}") };
+            live.push_str(&log_line(&url, "HIT"));
+            live.push('\n');
+        }
+        fs::write(dir.path().join("access.log"), live).unwrap();
+
+        let urls: HashSet<String> = ["/depot/9/chunk/gone-a", "/depot/9/chunk/gone-b"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        let positions = HashMap::from([("access.log".to_string(), 6u64)]);
+        let outcome = remove_log_entries_for_urls(dir.path(), &urls, Some(&positions)).unwrap();
+
+        assert_eq!(outcome.lines_removed, 2);
+        assert_eq!(
+            outcome.lines_removed_by_stem,
+            HashMap::from([("access.log".to_string(), 2u64)])
+        );
+        // Only the removal at series index 2 sat below position 6.
+        assert_eq!(
+            outcome.lines_removed_before_position_by_stem,
+            HashMap::from([("access.log".to_string(), 1u64)])
+        );
+    }
 
     fn log_line(url: &str, cache_status: &str) -> String {
         format!(
@@ -728,6 +927,7 @@ mod tests {
             &prefilter,
             |entry| matcher.matches(entry),
             None,
+            None,
         )
         .unwrap();
 
@@ -795,6 +995,7 @@ mod tests {
             &prefilter,
             |entry| matcher.matches(entry),
             None,
+            None,
         )
         .unwrap();
 
@@ -834,6 +1035,7 @@ mod tests {
             &prefilter,
             |entry| matcher.matches(entry),
             None,
+            None,
         )
         .unwrap();
         let second = rewrite_matching_log_entries_strict(
@@ -841,6 +1043,7 @@ mod tests {
             "idempotent exact evidence retry",
             &prefilter,
             |entry| matcher.matches(entry),
+            None,
             None,
         )
         .unwrap();
@@ -883,6 +1086,7 @@ mod tests {
             "partial exact evidence",
             &prefilter,
             |entry| matcher.matches(entry),
+            None,
             None,
         )
         .unwrap();
@@ -929,11 +1133,15 @@ mod tests {
         fs::write(&log_path, &contents).unwrap();
 
         let urls: HashSet<String> = [target_url.to_string()].into_iter().collect();
-        let (lines_removed, permission_errors) =
-            remove_log_entries_for_urls(dir.path(), &urls).unwrap();
+        let outcome = remove_log_entries_for_urls(dir.path(), &urls, None).unwrap();
 
-        assert_eq!(lines_removed, 2);
-        assert_eq!(permission_errors, 0);
+        assert_eq!(outcome.lines_removed, 2);
+        assert_eq!(outcome.permission_errors, 0);
+        // The per-stem map carries the position adjustment: 2 lines out of access.log's series.
+        assert_eq!(
+            outcome.lines_removed_by_stem,
+            HashMap::from([("access.log".to_string(), 2u64)])
+        );
 
         let remaining = fs::read_to_string(&log_path).unwrap();
         assert!(remaining.contains(keep_url));
@@ -956,11 +1164,10 @@ mod tests {
 
         let urls: HashSet<String> = HashSet::new();
         let depot_ids: HashSet<u32> = [424242].into_iter().collect();
-        let (lines_removed, permission_errors) =
-            remove_log_entries_for_game(dir.path(), &urls, &depot_ids, None).unwrap();
+        let outcome = remove_log_entries_for_game(dir.path(), &urls, &depot_ids, None, None).unwrap();
 
-        assert_eq!(lines_removed, 2);
-        assert_eq!(permission_errors, 0);
+        assert_eq!(outcome.lines_removed, 2);
+        assert_eq!(outcome.permission_errors, 0);
         assert!(log_path.exists());
         assert_eq!(
             fs::read(&log_path).unwrap(),
@@ -991,9 +1198,9 @@ mod tests {
             assert_eq!(done, 1);
             calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         };
-        let (lines_removed, _) =
-            remove_log_entries_for_game(dir.path(), &urls, &depot_ids, Some(&cb)).unwrap();
-        assert_eq!(lines_removed, 0);
+        let outcome =
+            remove_log_entries_for_game(dir.path(), &urls, &depot_ids, Some(&cb), None).unwrap();
+        assert_eq!(outcome.lines_removed, 0);
         assert_eq!(
             calls.load(std::sync::atomic::Ordering::Relaxed),
             1,
@@ -1025,9 +1232,9 @@ mod tests {
         .unwrap();
 
         let urls: HashSet<String> = [target_url.to_string()].into_iter().collect();
-        let (lines_removed, _) = remove_log_entries_for_urls(dir.path(), &urls).unwrap();
+        let outcome = remove_log_entries_for_urls(dir.path(), &urls, None).unwrap();
 
-        assert_eq!(lines_removed, 2);
+        assert_eq!(outcome.lines_removed, 2);
         assert!(!log_path.exists(), "fully-matched file must be deleted");
     }
 
@@ -1048,10 +1255,9 @@ mod tests {
 
         let urls: HashSet<String> = HashSet::new();
         let depot_ids: HashSet<u32> = [424242].into_iter().collect();
-        let (lines_removed, _) =
-            remove_log_entries_for_game(dir.path(), &urls, &depot_ids, None).unwrap();
+        let outcome = remove_log_entries_for_game(dir.path(), &urls, &depot_ids, None, None).unwrap();
 
-        assert_eq!(lines_removed, 1);
+        assert_eq!(outcome.lines_removed, 1);
         let remaining = fs::read_to_string(&log_path).unwrap();
         assert!(remaining.contains("/depot/555555/"));
         assert!(!remaining.contains("/depot/424242/"));

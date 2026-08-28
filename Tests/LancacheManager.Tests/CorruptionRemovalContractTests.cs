@@ -11,6 +11,33 @@ namespace LancacheManager.Tests;
 public sealed class CorruptionRemovalContractTests
 {
     [Fact]
+    public void ReadContextStemCounts_reads_the_map_a_rust_checkpoint_round_trips()
+    {
+        var json = JsonSerializer.Deserialize<Dictionary<string, object?>>(
+            "{\"logLines\":41,\"logLinesBySource\":{\"access.log\":40,\"steam-access.log\":1},\"logLinesBeforePositionBySource\":{\"access.log\":39}}")!;
+
+        var counts = CacheController.ReadContextStemCounts(json, "logLinesBySource");
+
+        Assert.Equal(2, counts.Count);
+        Assert.Equal(40, counts["access.log"]);
+        Assert.Equal(1, counts["steam-access.log"]);
+
+        var before = CacheController.ReadContextStemCounts(json, "logLinesBeforePositionBySource");
+        Assert.Equal(39, before["access.log"]);
+    }
+
+    [Fact]
+    public void ReadContextStemCounts_is_empty_for_a_missing_or_malformed_map()
+    {
+        Assert.Empty(CacheController.ReadContextStemCounts(null, "logLinesBySource"));
+        Assert.Empty(CacheController.ReadContextStemCounts(
+            new Dictionary<string, object?>(), "logLinesBySource"));
+        var notAMap = JsonSerializer.Deserialize<Dictionary<string, object?>>(
+            "{\"logLinesBySource\":\"41\"}")!;
+        Assert.Empty(CacheController.ReadContextStemCounts(notAMap, "logLinesBySource"));
+    }
+
+    [Fact]
     public void StructuralSelection_DoesNotRequireLogMutation()
     {
         var selection = Selection(

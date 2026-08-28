@@ -1246,6 +1246,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 var outputJsonPath = Path.Combine(operationsDir, $"{options.OutputFilePrefix}_{datasource.Name}_{timestamp}.json");
                 var progressJsonPath = Path.Combine(operationsDir, $"{options.OutputFilePrefix}_progress_{datasource.Name}_{timestamp}.json");
                 var args = $"\"{dsLogPath}\" \"{inputJsonPath}\" \"{outputJsonPath}\" --progress-json \"{progressJsonPath}\" --progress";
+                var stemPositionsPath = await _stateService.WriteStemPositionsTempFileAsync(datasource.Name);
+                if (stemPositionsPath != null)
+                {
+                    args += $" --stem-positions \"{stemPositionsPath}\"";
+                }
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, args);
 
                 _logger.LogInformation(
@@ -1300,6 +1305,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         "cache_purge_log_entries");
 
                     await _rustProcessHelper.DeleteTempFileAsync(progressJsonPath);
+                    if (stemPositionsPath != null)
+                    {
+                        await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
+                    }
 
                     if (purgeResult.ExitCode != 0)
                     {
@@ -1309,6 +1318,26 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             purgeResult.ExitCode,
                             datasource.Name,
                             purgeResult.Error);
+                        // The binary may still have written its report before failing, and a
+                        // purge that ran shortened the log: harvest the counts so the saved
+                        // positions come back even on a failed run.
+                        try
+                        {
+                            var failedReport = await _rustProcessHelper.ReadAndCleanupOutputJsonAsync<PurgeLogEntriesReport>(
+                                outputJsonPath,
+                                $"cache_purge_log_entries/{datasource.Name}");
+                            _stateService.ReduceLogPositionsAfterPurge(
+                                datasource.Name,
+                                failedReport.LogLinesRemovedBeforePositionBySource,
+                                failedReport.LogLinesRemovedBySource);
+                        }
+                        catch (Exception failedReportEx)
+                        {
+                            _logger.LogWarning(failedReportEx,
+                                "[EvictedLogPurge] No readable report after failed run for datasource '{Datasource}'; " +
+                                "any purged lines could not adjust the saved log positions",
+                                datasource.Name);
+                        }
                         dsIndex++;
                         continue;
                     }
@@ -1319,6 +1348,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             outputJsonPath,
                             $"cache_purge_log_entries/{datasource.Name}");
                         totalLinesRemoved += report.LinesRemoved;
+                        _stateService.ReduceLogPositionsAfterPurge(
+                            datasource.Name,
+                            report.LogLinesRemovedBeforePositionBySource,
+                            report.LogLinesRemovedBySource);
                         datasourcesProcessed++;
                         _logger.LogInformation(
                             "[EvictedRemoval] {SuccessDescription} removed {Lines} lines from access.log* in datasource '{Datasource}' ({Perms} permission errors)",
@@ -1332,7 +1365,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         datasourcesProcessed++;
                         _logger.LogWarning(
                             reportEx,
-                            "[EvictedRemoval] {SuccessDescription} succeeded (exit 0) for datasource '{Datasource}' but output JSON was unreadable",
+                            "[EvictedRemoval] {SuccessDescription} succeeded (exit 0) for datasource '{Datasource}' but output JSON was unreadable; " +
+                            "any purged lines could not adjust the saved log positions",
                             options.SuccessDescription,
                             datasource.Name);
                     }
@@ -2677,6 +2711,19 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         [System.Text.Json.Serialization.JsonPropertyName("lines_removed")]
         public long LinesRemoved { get; set; }
+
+        /// <summary>
+        /// Removed-line count per log-source stem; subtracted from saved ingestion positions
+        /// so the purge cannot shift them past unread lines.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("log_lines_removed_by_source")]
+        public Dictionary<string, long> LogLinesRemovedBySource { get; set; } = new();
+
+        /// <summary>
+        /// The already-read subset of the map above; the amount the saved position comes back by.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("log_lines_removed_before_position_by_source")]
+        public Dictionary<string, long> LogLinesRemovedBeforePositionBySource { get; set; } = new();
 
         [System.Text.Json.Serialization.JsonPropertyName("permission_errors")]
         public int PermissionErrors { get; set; }

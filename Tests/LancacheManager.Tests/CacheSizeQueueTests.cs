@@ -33,7 +33,8 @@ public sealed class CacheSizeQueueTests
             reconciliationService: null!,
             conflictChecker: null!,
             operationQueue: queue,
-            capabilityService: null!);
+            capabilityService: null!,
+        stateService: null!);
 
         var result = await controller.GetCacheSizeAsync(
             datasource: null,

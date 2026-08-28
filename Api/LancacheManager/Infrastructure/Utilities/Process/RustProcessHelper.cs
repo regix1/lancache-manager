@@ -1065,6 +1065,7 @@ public partial class RustProcessHelper
         string? service = null,
         string? evidenceFile = null,
         string? progressFile = null,
+        string? stemPositionsFile = null,
         CancellationToken cancellationToken = default,
         Guid? operationId = null,
         Func<RustProgressEvent, Task>? onProgressEvent = null) =>
@@ -1076,6 +1077,7 @@ public partial class RustProcessHelper
             service,
             evidenceFile,
             progressFile,
+            stemPositionsFile,
             cancellationToken,
             operationId,
             onProgressEvent);
@@ -1088,6 +1090,7 @@ public partial class RustProcessHelper
         string? service,
         string? evidenceFile,
         string? progressFile,
+        string? stemPositionsFile,
         CancellationToken cancellationToken,
         Guid? operationId,
         Func<RustProgressEvent, Task>? onProgressEvent)
@@ -1122,7 +1125,8 @@ public partial class RustProcessHelper
                 service,
                 evidenceFile,
                 progressArg,
-                keyScheme);
+                keyScheme,
+                stemPositionsFile);
 
             _logger.LogInformation("[corruption_manager] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
@@ -1210,14 +1214,16 @@ public partial class RustProcessHelper
         string? service,
         string? evidenceFile,
         string? progressFile,
-        string keyScheme) => command switch
+        string keyScheme,
+        string? stemPositionsFile = null) => command switch
         {
             "remove" when !string.IsNullOrEmpty(service)
                 && !string.IsNullOrEmpty(cachePath)
                 && !string.IsNullOrEmpty(evidenceFile)
                 && !string.IsNullOrEmpty(progressFile)
                 && !string.IsNullOrEmpty(keyScheme) =>
-                $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme}",
+                $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme}"
+                    + (string.IsNullOrEmpty(stemPositionsFile) ? "" : $" --stem-positions \"{stemPositionsFile}\""),
             "remove-structural" when !string.IsNullOrEmpty(cachePath)
                 && !string.IsNullOrEmpty(evidenceFile)
                 && !string.IsNullOrEmpty(progressFile)

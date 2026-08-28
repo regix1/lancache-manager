@@ -222,6 +222,20 @@ public class RustLogRemovalService
         [System.Text.Json.Serialization.JsonPropertyName("lines_removed")]
         public long LinesRemoved { get; set; }
 
+        /// <summary>
+        /// Removed-line counts per stem for the REWRITTEN (monolithic) sources. Deleted
+        /// per-service series report nothing here; their stems are cleared outright.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("lines_removed_by_stem")]
+        public Dictionary<string, long>? LinesRemovedByStem { get; set; }
+
+        /// <summary>
+        /// The already-read subset of <see cref="LinesRemovedByStem"/>; the amount each
+        /// stem's saved position comes back by.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("lines_removed_before_position_by_stem")]
+        public Dictionary<string, long>? LinesRemovedBeforePositionByStem { get; set; }
+
         [System.Text.Json.Serialization.JsonPropertyName("percent_complete")]
         public double PercentComplete { get; set; }
 
@@ -416,6 +430,11 @@ public class RustLogRemovalService
                 {
                     // Start Rust process for this datasource
                     var arguments = $"remove \"{logDir}\" \"{service}\" \"{dsProgressPath}\" --progress";
+                    var stemPositionsPath = await _stateService.WriteStemPositionsTempFileAsync(datasource.Name);
+                    if (stemPositionsPath != null)
+                    {
+                        arguments += $" --stem-positions \"{stemPositionsPath}\"";
+                    }
                     _logger.LogInformation("Rust arguments for datasource '{DatasourceName}': {Arguments}",
                         datasource.Name, arguments);
 
@@ -499,6 +518,22 @@ public class RustLogRemovalService
                         {
                             lastStageKey = dsProgress.StageKey;
                         }
+                    }
+
+                    if (stemPositionsPath != null)
+                    {
+                        await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
+                    }
+
+                    // Monolithic sources are REWRITTEN in place (not deleted), so their saved
+                    // positions must come back by the removed already-read lines - including
+                    // on a failed exit, where completed files already lost their lines.
+                    if (dsProgress?.LinesRemovedByStem is { Count: > 0 } dsRemovedMap)
+                    {
+                        _stateService.ReduceLogPositionsAfterPurge(
+                            datasource.Name,
+                            dsProgress.LinesRemovedBeforePositionByStem ?? dsRemovedMap,
+                            dsRemovedMap);
                     }
 
                     if (exitCode != 0)
@@ -813,6 +848,11 @@ public class RustLogRemovalService
             return await _cacheManagementService.ExecuteWithLockAsync(async () =>
             {
                 var arguments = $"remove \"{logDir}\" \"{service}\" \"{progressPath}\" --progress";
+                var stemPositionsPath = await _stateService.WriteStemPositionsTempFileAsync(datasourceName);
+                if (stemPositionsPath != null)
+                {
+                    arguments += $" --stem-positions \"{stemPositionsPath}\"";
+                }
                 _logger.LogInformation("Rust arguments: {Arguments}", arguments);
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
@@ -883,6 +923,23 @@ public class RustLogRemovalService
                 if (!string.IsNullOrWhiteSpace(result.Error))
                 {
                     _logger.LogInformation("[Rust log removal stderr] {Error}", result.Error);
+                }
+
+                if (stemPositionsPath != null)
+                {
+                    await _rustProcessHelper.DeleteTempFileAsync(stemPositionsPath);
+                }
+
+                // Monolithic sources are REWRITTEN in place (not deleted), so their saved
+                // positions must come back by the removed already-read lines - including on
+                // a failed exit, where completed files already lost their lines.
+                var removalProgress = await ReadProgressFileAsync(progressPath);
+                if (removalProgress?.LinesRemovedByStem is { Count: > 0 } removedMap)
+                {
+                    _stateService.ReduceLogPositionsAfterPurge(
+                        datasourceName,
+                        removalProgress.LinesRemovedBeforePositionByStem ?? removedMap,
+                        removedMap);
                 }
 
                 if (exitCode == 0)
