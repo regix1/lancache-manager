@@ -428,32 +428,10 @@ export function GameSelectionModal({
           </div>
         </CollapsibleRegion>
 
-        {/* Selection count. "Already cached" is muted rather than green: those games are the ones
-            the daemon will skip, which is neutral news, not good news. */}
+        {/* Library/filter facts only. The selected count lives once, in the Selected section
+            header below, so it is not repeated here. */}
         <div className="text-sm mb-2 text-[var(--theme-text-muted)] flex flex-wrap items-center gap-2">
-          {selectedInLibrary.length > 0 ? (
-            <>
-              <span className="font-semibold text-[var(--theme-text-primary)] tabular-nums">
-                {t('prefill.gameSelection.willDownload', {
-                  count: selectedInLibrary.length - cachedSelectedCount
-                })}
-              </span>
-              {cachedSelectedCount > 0 && (
-                <span className="tabular-nums">
-                  · {t('prefill.gameSelection.alreadyCachedCount', { count: cachedSelectedCount })}
-                </span>
-              )}
-              {shownGamesCount !== games.length && (
-                <span className="tabular-nums">
-                  ·{' '}
-                  {t('prefill.gameSelection.showingOfTotal', {
-                    count: shownGamesCount,
-                    total: games.length
-                  })}
-                </span>
-              )}
-            </>
-          ) : shownGamesCount !== games.length ? (
+          {shownGamesCount !== games.length ? (
             <span className="tabular-nums">
               {t('prefill.gameSelection.showingOfTotal', {
                 count: shownGamesCount,
@@ -506,6 +484,20 @@ export function GameSelectionModal({
                     <Badge variant="neutral" className="badge-count">
                       {selectedInLibrary.length}
                     </Badge>
+                    {/* Only worth stating when the counts diverge; with nothing cached the badge
+                        already says how many will download. "Already cached" stays muted: those
+                        are the games the daemon will skip, neutral news rather than good news. */}
+                    {cachedSelectedCount > 0 && (
+                      <span className="normal-case font-normal tracking-normal tabular-nums text-[var(--theme-text-muted)]">
+                        {t('prefill.gameSelection.willDownload', {
+                          count: selectedInLibrary.length - cachedSelectedCount
+                        })}{' '}
+                        ·{' '}
+                        {t('prefill.gameSelection.alreadyCachedCount', {
+                          count: cachedSelectedCount
+                        })}
+                      </span>
+                    )}
                   </div>
                   <CustomScrollbar
                     maxHeight="100%"

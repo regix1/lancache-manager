@@ -4697,9 +4697,8 @@
       "mayTakeMoment": "This may take a moment"
     },
     "auth": {
-      "loggedIn": "Logged In to {{service}}",
+      "loggedIn": "Logged in to {{service}}",
       "loginRequired": "{{service}} Login Required",
-      "canUsePrefill": "You can now use prefill commands",
       "authenticateToAccess": "Authenticate to access your game library",
       "loginToService": "Login to {{service}}",
       "waitingForSignIn": "Waiting for {{service}} sign-in",
@@ -4820,7 +4819,6 @@
     "settings": {
       "targetPlatforms": "Target Platforms",
       "downloadThreads": "Connections",
-      "estimatedSize": "Estimated size",
       "os": {
         "windows": {
           "label": "Windows",
@@ -4917,14 +4915,10 @@
       },
       "prefillSelectedCount": "Prefill Selected ({{count}})",
       "selectGamesFirst": "Select games first",
-      "gamesReady": "{{count}} game ready",
-      "gamesReady_other": "{{count}} games ready",
-      "gamesReadyLabel": "game ready",
-      "gamesReadyLabel_other": "games ready"
-    },
-    "loginNotice": {
-      "title": "Login Required to Use Commands",
-      "message": "All prefill commands require {{service}} authentication. Click \"Login to {{service}}\" above to enable commands. Your credentials are sent directly to the container and never stored by this application."
+      "calculatingSize": "Calculating download size...",
+      "estimatedSizeValue": "Estimated size: {{size}}",
+      "gamesSelectedLabel": "game selected",
+      "gamesSelectedLabel_other": "games selected"
     },
     "confirm": {
       "downloadTitle": "Confirm Download",
@@ -5011,6 +5005,13 @@
       "selectedGames": "Selected {{count}} game for prefill",
       "selectedGames_other": "Selected {{count}} games for prefill",
       "failedSaveSelection": "Failed to save game selection",
+      "estimatedSizeReady": "Estimated download size: {{size}}",
+      "platformsChanged": "Target platforms set to {{platforms}}",
+      "connectionsChanged": "Download connections set to {{count}}",
+      "endingSession": "Ending session...",
+      "loginCancelled": "Login cancelled",
+      "removedFromCache": "Removed {{game}} from the cached list",
+      "removeFromCacheFailed": "Failed to remove {{game}} from the cached list",
       "sessionEnded": "Session ended: {{reason}}",
       "sessionTerminated": "Session terminated: {{reason}}",
       "statusMessage": "Status: {{message}}",

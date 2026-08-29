@@ -3,7 +3,6 @@ import { ExternalLink } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { XboxIcon } from '@components/ui/XboxIcon';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import { LoginSteps } from './LoginSteps';
 import { LoginAttemptStatus } from './LoginAttemptStatus';
 import { cancelAuthModalLogin } from './authModalCancel';
@@ -245,7 +244,7 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
               disabled={loading || isSubmitting}
               className="flex-1"
             >
-              {(loading || isSubmitting) && <LoadingSpinner inline size="sm" className="mr-2" />}
+              {/* No spinner here: the LoginAttemptStatus row above already carries one. */}
               {loading || isSubmitting
                 ? t('modals.xboxAuth.actions.connecting')
                 : t('modals.xboxAuth.actions.continue')}

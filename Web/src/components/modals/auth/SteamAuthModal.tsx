@@ -3,7 +3,6 @@ import { Key } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import FormField from '@components/ui/FormField';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import { cancelAuthModalLogin } from './authModalCancel';
 import { LoginSteps } from './LoginSteps';
 import { LoginAttemptStatus } from './LoginAttemptStatus';
@@ -366,7 +365,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
               }
               className="flex-1"
             >
-              {(loading || isSubmitting) && <LoadingSpinner inline size="sm" className="mr-2" />}
+              {/* No spinner here: the "Waiting for Steam" status row above already carries one. */}
               {loading || isSubmitting
                 ? t('modals.steamAuth.actions.authenticating')
                 : needsEmailCode

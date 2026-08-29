@@ -24,7 +24,7 @@ import { sessionStore } from '@utils/storage';
 import { getErrorMessage } from '@utils/error';
 import { parseUtcDate } from '@utils/timezone';
 
-import { ScrollText, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ScrollText, Timer, LogIn, AlertCircle } from 'lucide-react';
 
 import { useGameService } from '@contexts/useGameService';
 import type { GameServiceId } from '@/types/gameService';
@@ -235,16 +235,23 @@ function ServicePrefillPanel({
     (newOS: string[]) => {
       setSelectedOS(newOS);
       savePrefillDefaults(newOS, undefined);
+      addLog(
+        'info',
+        t('prefill.log.platformsChanged', {
+          platforms: newOS.map((v) => t(`prefill.settings.os.${v}.label`)).join(', ')
+        })
+      );
     },
-    [savePrefillDefaults]
+    [savePrefillDefaults, addLog, t]
   );
 
   const handleConcurrencyChange = useCallback(
     (newConcurrency: string) => {
       setMaxConcurrency(newConcurrency);
       savePrefillDefaults(undefined, newConcurrency);
+      addLog('info', t('prefill.log.connectionsChanged', { count: newConcurrency }));
     },
-    [savePrefillDefaults]
+    [savePrefillDefaults, addLog, t]
   );
 
   // Confirmation dialog state
@@ -257,6 +264,9 @@ function ServicePrefillPanel({
   // in-flight request whose id is no longer current (the selection changed, or a newer retry
   // started) must not commit its result over the newer state.
   const estimateRequestIdRef = useRef(0);
+  // Selection+OS+bytes of the last estimate written to the activity log, so refetches of the
+  // same answer (reconnects, resolve polling) do not repeat the entry.
+  const estimateLoggedRef = useRef<string | null>(null);
 
   // Handle auth state changes from backend SignalR events
   const handleAuthStateChanged = useCallback(
@@ -568,8 +578,10 @@ function ServicePrefillPanel({
   const handleRemoveFromCache = useCallback(
     async (appId: string) => {
       setRemovingAppId(appId);
+      const gameName = ownedGames.find((g) => g.appId === appId)?.name ?? `#${appId}`;
       try {
         const removal = await ApiService.deletePrefillCachedApp(appId);
+        addLog('info', t('prefill.log.removedFromCache', { game: gameName }));
         if (removal.removedDepots === 0) {
           // Cached status is read per depot and manifest with no app term, so a game whose files
           // were all downloaded under another game owns no rows and keeps its badge after this.
@@ -579,6 +591,7 @@ function ServicePrefillPanel({
         // socket down, the row the user just acted on would otherwise keep its Cached badge.
         await loadGames(true);
       } catch (err) {
+        addLog('error', t('prefill.log.removeFromCacheFailed', { game: gameName }));
         notifyError(t('prefill.errors.removeFromCacheFailed'), err, {
           logLabel: 'Failed to remove app from prefill cache'
         });
@@ -586,7 +599,7 @@ function ServicePrefillPanel({
         setRemovingAppId(null);
       }
     },
-    [loadGames, notifyError, t]
+    [loadGames, notifyError, t, ownedGames, addLog]
   );
 
   const executeCommand = useCallback(
@@ -740,12 +753,13 @@ function ServicePrefillPanel({
   const handleEndSession = useCallback(async () => {
     if (!signalR.session || !signalR.hubConnection.current) return;
 
+    addLog('info', t('prefill.log.endingSession'));
     try {
       await signalR.hubConnection.current.invoke('EndSessionAsync', signalR.session.id);
     } catch {
       // Session end failed - will be cleaned up by timeout
     }
-  }, [signalR.session, signalR.hubConnection]);
+  }, [signalR.session, signalR.hubConnection, addLog, t]);
 
   const handleCancelLogin = useCallback(async () => {
     if (!signalR.session || !signalR.hubConnection.current) return;
@@ -754,10 +768,11 @@ function ServicePrefillPanel({
       await signalR.hubConnection.current.invoke('CancelLoginAsync', signalR.session.id);
       setShowAuthModal(false);
       authActions.resetAuthForm();
+      addLog('info', t('prefill.log.loginCancelled'));
     } catch {
       // Cancel login failed
     }
-  }, [signalR.session, signalR.hubConnection, authActions]);
+  }, [signalR.session, signalR.hubConnection, authActions, addLog, t]);
 
   const handleCancelPrefill = useCallback(() => {
     // Full cancel orchestration (hard-stop animations + reactive "Cancelling..." state + watchdog
@@ -849,6 +864,13 @@ function ServicePrefillPanel({
       const ready = (status.apps?.length ?? 0) > 0;
 
       if (ready) {
+        // The estimate refetches on reconnect and while the daemon is still resolving, so
+        // key the log entry on what was estimated to avoid repeating the same line.
+        const signature = `${selectedAppIds.join(',')}|${selectedOS.join(',')}|${bytes}`;
+        if (estimateLoggedRef.current !== signature) {
+          estimateLoggedRef.current = signature;
+          addLog('info', t('prefill.log.estimatedSizeReady', { size: formatBytes(bytes) }));
+        }
         commit({
           bytes,
           loading: false,
@@ -878,7 +900,7 @@ function ServicePrefillPanel({
       });
       return null;
     }
-  }, [estimateSessionId, signalR.hubConnection, selectedAppIds, selectedOS, t]);
+  }, [estimateSessionId, signalR.hubConnection, selectedAppIds, selectedOS, addLog, t]);
 
   const getConfirmationMessage = useCallback(
     (command: CommandType): { title: string; message: string } => {
@@ -1332,6 +1354,14 @@ function ServicePrefillPanel({
                       ? t('prefill.titleXbox')
                       : t('prefill.title')}
             </h1>
+            {/* Login state moves into the header once authenticated; the standalone auth card
+                only renders while a login is still required. */}
+            {!isAnonymousService && signalR.isLoggedIn && (
+              <p className="flex items-center gap-2 text-sm text-themed-muted">
+                <span className="status-dot active" aria-hidden="true" />
+                {t('prefill.auth.loggedIn', { service: serviceName })}
+              </p>
+            )}
           </div>
         </div>
 
@@ -1395,40 +1425,27 @@ function ServicePrefillPanel({
       >
         {/* Left Column - Controls */}
         <div className="xl:col-span-2 space-y-4 prefill-col-controls">
-          {/* Authentication Card - Battle.net and Riot are anonymous (no login), so this is hidden */}
-          {serviceId !== 'battlenet' && serviceId !== 'riot' && (
+          {/* Authentication Card - only while a login is still required. Battle.net and Riot are
+              anonymous (no login) and a completed login reports through the header status line. */}
+          {!isAnonymousService && !signalR.isLoggedIn && (
             <div className="prefill-sec-auth">
               <Card padding="md">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div
-                      className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                        signalR.isLoggedIn
-                          ? 'bg-[var(--theme-success-subtle)]'
-                          : 'bg-[var(--theme-warning-subtle)]'
-                      }`}
-                    >
-                      {signalR.isLoggedIn ? (
-                        <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
-                      ) : (
-                        <LogIn className="h-5 w-5 text-[var(--theme-warning)]" />
-                      )}
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-warning-subtle)]">
+                      <LogIn className="h-5 w-5 text-[var(--theme-warning)]" />
                     </div>
                     <div>
                       <p className="font-medium text-themed-primary">
-                        {signalR.isLoggedIn
-                          ? t('prefill.auth.loggedIn', { service: serviceName })
-                          : t('prefill.auth.loginRequired', { service: serviceName })}
+                        {t('prefill.auth.loginRequired', { service: serviceName })}
                       </p>
                       <p className="text-sm text-themed-muted">
-                        {signalR.isLoggedIn
-                          ? t('prefill.auth.canUsePrefill')
-                          : t('prefill.auth.authenticateToAccess')}
+                        {t('prefill.auth.authenticateToAccess')}
                       </p>
                     </div>
                   </div>
 
-                  {!signalR.isLoggedIn && !isSessionExpired && (
+                  {!isSessionExpired && (
                     <Button
                       variant="filled"
                       color="primary"
@@ -1478,7 +1495,6 @@ function ServicePrefillPanel({
               isPrefillActive={signalR.isPrefillActive}
               isSessionActive={isSessionActive}
               isUserAuthenticated={isAdmin}
-              serviceName={serviceName}
               selectedAppIds={selectedAppIds}
               selectedOS={selectedOS}
               maxConcurrency={maxConcurrency}

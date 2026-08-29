@@ -4,7 +4,6 @@ import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import FormField from '@components/ui/FormField';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import { LoginSteps } from './LoginSteps';
 import { LoginAttemptStatus } from './LoginAttemptStatus';
 import { cancelAuthModalLogin } from './authModalCancel';
@@ -235,7 +234,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
               disabled={loading || isSubmitting}
               className="flex-1"
             >
-              {(loading || isSubmitting) && <LoadingSpinner inline size="sm" className="mr-2" />}
+              {/* No spinner here: the LoginAttemptStatus row above already carries one. */}
               {loading || isSubmitting
                 ? t('modals.epicAuth.actions.connecting')
                 : t('modals.epicAuth.actions.continue')}

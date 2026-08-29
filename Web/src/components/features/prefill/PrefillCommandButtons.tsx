@@ -25,8 +25,6 @@ interface PrefillCommandButtonsProps {
   isPrefillActive: boolean;
   isSessionActive: boolean;
   isUserAuthenticated: boolean;
-  /** Localized display name of this service, interpolated into the login-notice copy. */
-  serviceName: string;
   selectedAppIds: string[];
   selectedOS: string[];
   maxConcurrency: string;
@@ -59,7 +57,6 @@ export function PrefillCommandButtons({
   isPrefillActive,
   isSessionActive,
   isUserAuthenticated,
-  serviceName,
   selectedAppIds,
   selectedOS,
   maxConcurrency,
@@ -125,11 +122,16 @@ export function PrefillCommandButtons({
     return t(`prefill.commands.${cmd.id}.label`);
   };
 
+  // The primary tile owns the size readout (the selection count lives in the left half's
+  // summary), so each fact appears exactly once on the split card.
   const getCommandDescription = (cmd: CommandButton): string => {
     if (cmd.id === 'prefill') {
-      return selectedAppIds.length === 0
-        ? t('prefill.commands.selectGamesFirst')
-        : t('prefill.commands.gamesReady', { count: selectedAppIds.length });
+      if (selectedAppIds.length === 0) return t('prefill.commands.selectGamesFirst');
+      if (estimatedSize.loading) return t('prefill.commands.calculatingSize');
+      if (estimatedSize.error) return estimatedSize.error;
+      return t('prefill.commands.estimatedSizeValue', {
+        size: formatBytes(estimatedSize.bytes)
+      });
     }
     return t(`prefill.commands.${cmd.id}.description`);
   };
@@ -202,9 +204,9 @@ export function PrefillCommandButtons({
                     {selectedAppIds.length}
                   </Badge>
                   {/* The count already lives in the badge, so the label only carries the
-                      pluralized noun ("game ready" / "games ready") to avoid repeating it. */}
+                      pluralized noun ("game selected" / "games selected") to avoid repeating it. */}
                   <span>
-                    {t('prefill.commands.gamesReadyLabel', { count: selectedAppIds.length })}
+                    {t('prefill.commands.gamesSelectedLabel', { count: selectedAppIds.length })}
                   </span>
                   {cachedSelectedCount > 0 && (
                     <span className="text-themed-muted">
@@ -215,22 +217,6 @@ export function PrefillCommandButtons({
               ) : (
                 <span className="text-themed-muted">{t('prefill.commands.selectGamesFirst')}</span>
               )}
-            </div>
-            <div className="cmd-split-estimate">
-              <span className="caps-label">{t('prefill.settings.estimatedSize')}</span>
-              <span className="tabular-nums">
-                {!hasSelection ? (
-                  <span className="text-themed-muted">—</span>
-                ) : estimatedSize.loading ? (
-                  <LoadingSpinner inline size="sm" className="text-themed-accent" />
-                ) : estimatedSize.error ? (
-                  <span className="text-xs text-warning-text">{estimatedSize.error}</span>
-                ) : (
-                  <span className="font-medium text-themed-accent">
-                    {formatBytes(estimatedSize.bytes)}
-                  </span>
-                )}
-              </span>
             </div>
           </div>
 
@@ -309,18 +295,6 @@ export function PrefillCommandButtons({
             {utilityTileCommands.map((cmd) => renderCommandTile(cmd))}
           </div>
         </div>
-
-        {/* Login Required Notice */}
-        {!isLoggedIn && (
-          <div className="cmd-login-notice p-4">
-            <p className="font-medium text-sm text-warning-text">
-              {t('prefill.loginNotice.title')}
-            </p>
-            <p className="text-sm text-themed-muted mt-1">
-              {t('prefill.loginNotice.message', { service: serviceName })}
-            </p>
-          </div>
-        )}
       </div>
     </Card>
   );

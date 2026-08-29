@@ -173,14 +173,6 @@
     line-height: 1.4;
   }
 
-  /* Estimated-size readout: label left, value right on one baseline. */
-  .cmd-split-estimate {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-
   /* Command button tile - the individual action buttons */
   .cmd-tile {
     position: relative;
@@ -254,13 +246,6 @@
   .caps-label.cmd-settings-label {
     font-size: var(--font-size-sm);
     letter-spacing: 0.025em;
-  }
-
-  /* Login notice bar */
-  .cmd-login-notice {
-    background: var(--theme-warning-faint);
-    border: 1px solid var(--theme-warning-muted);
-    border-radius: var(--theme-border-radius-lg);
   }
 
   /* Command tiles settle in with the same quiet opacity fade the rest of the app

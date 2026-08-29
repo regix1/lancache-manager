@@ -4699,7 +4699,6 @@
     "auth": {
       "loggedIn": "已登录 {{service}}",
       "loginRequired": "需要登录 {{service}}",
-      "canUsePrefill": "您现在可以使用预填充命令",
       "authenticateToAccess": "验证身份以访问您的游戏库",
       "loginToService": "登录 {{service}}",
       "waitingForSignIn": "正在等待 {{service}} 登录",
@@ -4820,7 +4819,6 @@
     "settings": {
       "targetPlatforms": "目标平台",
       "downloadThreads": "连接数",
-      "estimatedSize": "预计大小",
       "os": {
         "windows": {
           "label": "Windows",
@@ -4917,14 +4915,10 @@
       },
       "prefillSelectedCount": "预填充已选 ({{count}})",
       "selectGamesFirst": "请先选择游戏",
-      "gamesReady": "{{count}} 个游戏已就绪",
-      "gamesReady_other": "{{count}} 个游戏已就绪",
-      "gamesReadyLabel": "个游戏已就绪",
-      "gamesReadyLabel_other": "个游戏已就绪"
-    },
-    "loginNotice": {
-      "title": "需要登录才能使用命令",
-      "message": "所有预填充命令都需要 {{service}} 身份验证。点击上方的\"登录 {{service}}\"以启用命令。您的凭据将直接发送到容器，本应用程序不会存储。"
+      "calculatingSize": "正在计算下载大小...",
+      "estimatedSizeValue": "预计大小：{{size}}",
+      "gamesSelectedLabel": "个游戏已选择",
+      "gamesSelectedLabel_other": "个游戏已选择"
     },
     "confirm": {
       "downloadTitle": "确认下载",
@@ -5011,6 +5005,13 @@
       "selectedGames": "已选择 {{count}} 个游戏进行预填充",
       "selectedGames_other": "已选择 {{count}} 个游戏进行预填充",
       "failedSaveSelection": "保存游戏选择失败",
+      "estimatedSizeReady": "预计下载大小：{{size}}",
+      "platformsChanged": "目标平台已设为 {{platforms}}",
+      "connectionsChanged": "下载连接数已设为 {{count}}",
+      "endingSession": "正在结束会话...",
+      "loginCancelled": "登录已取消",
+      "removedFromCache": "已将 {{game}} 从已缓存列表中移除",
+      "removeFromCacheFailed": "无法将 {{game}} 从已缓存列表中移除",
       "sessionEnded": "会话已结束：{{reason}}",
       "sessionTerminated": "会话已终止：{{reason}}",
       "statusMessage": "状态：{{message}}",
