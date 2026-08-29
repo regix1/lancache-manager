@@ -296,12 +296,12 @@ public class GameImagesController : ControllerBase
         Task<Guid?> StartImageFetchAsync() =>
             Task.FromResult(_gameImageFetchService.StartFetchInBackground(refreshEpicImageUrls: true));
 
-        // Every row is gone from here on, so no path out of this method may leave without a re-fetch
-        // either running or on its way. Clearing takes no cancellation token, so it completes even
-        // when the caller has already gone away - somebody pressing this and closing the tab. What
-        // runs next does not: the conflict check throws on an aborted request as it walks the active
-        // operations, and the queue throws on its gate. Uncovered, that deletes every banner and
-        // leaves nothing to bring them back until the next scheduled pass.
+        // Every row is marked for re-fetch from here on, so no path out of this method may leave
+        // without a re-fetch either running or on its way. Clearing takes no cancellation token, so
+        // it completes even when the caller has already gone away - somebody pressing this and
+        // closing the tab. What runs next does not: the conflict check throws on an aborted request
+        // as it walks the active operations, and the queue throws on its gate. Uncovered, that
+        // leaves every banner stale until the next scheduled pass.
         OperationConflictResponse? conflict;
         try
         {
@@ -336,8 +336,8 @@ public class GameImagesController : ControllerBase
         {
             // A pass already holds the execution lock. StartFetchInBackground announced this request
             // before trying to take it, and the running pass starts one more on its way out, so the
-            // work is armed rather than lost. That follow-up reads the table this request just
-            // emptied, which the running pass had already read past.
+            // work is armed rather than lost. That follow-up reads the rows this request just
+            // backdated, which the running pass had already read past.
             _logger.LogInformation(
                 "=== ClearImageCache END === re-fetch armed behind the running pass");
 

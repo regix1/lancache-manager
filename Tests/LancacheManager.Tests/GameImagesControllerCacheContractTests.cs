@@ -452,19 +452,20 @@ public sealed class GameImagesControllerCacheContractTests
     }
 
     [Fact]
-    public void StaleRefresh_MovesTheCacheGeneration_CountingImagesActuallyRestored()
+    public void PassEnd_AlwaysMovesTheCacheGeneration_RegardlessOfOutcome()
     {
         var source = ReadSource("Infrastructure", "Services", "Images", "GameImageFetchService.cs");
 
-        // A stale refresh replaces the bytes behind an unchanged app id. If it does not move the
-        // generation, the browser has no way to notice short of revalidating every banner on every
-        // page load, which is the cost the hour of caching exists to avoid.
-        Assert.Contains("|| staleRefreshed > 0", source, StringComparison.Ordinal);
-
-        // Counted on images actually re-stored. An image whose source URL is permanently dead never
-        // updates FetchedAtUtc, so it stays a stale CANDIDATE forever: guarding on the candidate
-        // count would bump the generation on every pass and re-download every banner each time.
-        Assert.DoesNotContain("|| staleImages.Count > 0", source, StringComparison.Ordinal);
+        // The generation bump used to be guarded on at least one phase having actually stored or
+        // restored something. A force refresh deletes every row before the pass starts, so a pass
+        // that stores nothing (every upstream fetch failed) or is canceled partway used to leave
+        // the browser with no banners and no way to notice short of a reload. The bump is
+        // unconditional now, so every pass ending - stored something, stored nothing, canceled -
+        // still tells clients to look again.
+        Assert.DoesNotContain("staleRefreshed > 0", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("staleImages.Count > 0", source, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "missingSteamCount > 0 || missingEpicCount > 0", source, StringComparison.Ordinal);
     }
 
     private static string ReadSource(params string[] pathSegments)

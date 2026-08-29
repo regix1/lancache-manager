@@ -4,6 +4,7 @@ using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,6 +32,22 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
     // Max concurrent HTTP requests for image fetching
     private static readonly SemaphoreSlim _httpThrottle = new(5, 5);
+
+    // Every GameImagesUpdated costs each connected client one forced /available refetch
+    // (useAvailableGameImages bypasses its own freshness window and in-flight dedupe on a
+    // version change), so a long pass storing hundreds of banners cannot emit on every batch.
+    // 2000 ms keeps that refetch to at most one every two seconds per client even during the
+    // densest run of stores, while still letting banners fill in before the pass ends. This is
+    // not a value that should scale with the machine, the disk or the network the way concurrency
+    // or scan timeouts do: it bounds how often a BROWSER is forced to hit an endpoint, and a
+    // browser's own request budget is the same number on every deployment, fast box or slow.
+    private readonly ProgressEmitGate _bannerEmitGate = new(2000);
+
+    // Cumulative count of images stored or refreshed so far in the pass currently running - the
+    // revision _bannerEmitGate compares to decide whether new work is worth telling clients
+    // about. Reset at the top of FetchImagesAsync so a new pass does not inherit the last one's
+    // count.
+    private long _bannerRevision;
 
     private const string StageBase = "signalr.scheduledRun.gameImageFetch";
     private static readonly ScheduledRunEventNames _eventNames = new(
@@ -294,6 +311,33 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             });
     }
 
+    /// <summary>
+    /// Makes newly stored banners visible while a pass is still running. Called after every batch
+    /// in every phase; skips entirely when the batch stored nothing, so a stretch of failed fetches
+    /// never touches the gate, and <see cref="_bannerEmitGate"/> holds the rest to at most one
+    /// broadcast every two seconds.
+    /// </summary>
+    private async Task EmitIncrementalBannerUpdateAsync(int storedInBatch)
+    {
+        if (storedInBatch <= 0)
+        {
+            return;
+        }
+
+        _bannerRevision += storedInBatch;
+        if (!_bannerEmitGate.ShouldEmit(StageBase, _bannerRevision))
+        {
+            return;
+        }
+
+        GameImagesController.IncrementCacheGeneration();
+        _imageCacheService.EvictMemoryCache();
+        await _notifications.NotifyAllAsync(SignalREvents.GameImagesUpdated, new
+        {
+            cacheGeneration = GameImagesController.CacheGeneration
+        });
+    }
+
     private async Task FetchImagesAsync(
         IServiceProvider scopedServices,
         ScheduledRunReporter? reporter,
@@ -320,54 +364,57 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         ReportPhaseProgress InBand(int band) =>
             (fraction, processed, total) => ReportBandAsync(reporter, band, fraction, processed, total);
 
-        var nameKeyedDownloads = await LoadNameKeyedDownloadsAsync(db, stoppingToken);
-        var (steamMappedAppIds, steamCoveredSlugs) = ResolveNameKeyedSteamApps(nameKeyedDownloads);
+        _bannerRevision = 0;
+        _bannerEmitGate.Reset();
 
-        // A phase answers null when cancellation stopped it partway. The run ends there: no summary
-        // log, no cache-generation bump, no completion.
-        var missingSteamCount = await FetchMissingSteamImagesAsync(
-            db, client, steamMappedAppIds, InBand(SteamBand), stoppingToken);
-        if (missingSteamCount == null) return;
-        await ReportBandAsync(reporter, SteamBand, 1, missingSteamCount.Value, missingSteamCount.Value);
-
-        var missingEpicCount = await FetchMissingEpicImagesAsync(
-            db, client, InBand(EpicBand), stoppingToken);
-        if (missingEpicCount == null) return;
-        await ReportBandAsync(reporter, EpicBand, 1, missingEpicCount.Value, missingEpicCount.Value);
-
-        var nameKeyed = await FetchMissingNameKeyedImagesAsync(
-            scopedServices, db, client, nameKeyedDownloads, steamCoveredSlugs, InBand(NameKeyedBand), stoppingToken);
-        if (nameKeyed == null) return;
-        await ReportBandAsync(reporter, NameKeyedBand, 1, nameKeyed.Value.Attempted, nameKeyed.Value.Attempted);
-
-        var staleRefreshed = await RefreshStaleImagesAsync(db, client, InBand(StaleBand), stoppingToken);
-        if (staleRefreshed == null) return;
-
-        _logger.LogInformation(
-            "[GameImageFetch] Complete: {NewSteam} new Steam, {NewEpic} new Epic, {NewNameKeyed} new Blizzard/Riot, {Stale} refreshed",
-            missingSteamCount.Value, missingEpicCount.Value, nameKeyed.Value.Stored, staleRefreshed.Value);
-
-        // A stale refresh replaces the bytes behind an unchanged app id, so it has to move the
-        // generation like every other art change - otherwise the only way a browser could notice is
-        // by revalidating every banner on every page load. Counted on images actually re-stored, not
-        // on candidates: an image whose source URL is permanently dead never updates FetchedAtUtc, so
-        // it stays in the candidate list forever and would bump the generation on every pass.
-        if (missingSteamCount > 0 || missingEpicCount > 0 || nameKeyed.Value.Stored > 0 || staleRefreshed > 0)
+        try
         {
+            var nameKeyedDownloads = await LoadNameKeyedDownloadsAsync(db, stoppingToken);
+            var (steamMappedAppIds, steamCoveredSlugs) = ResolveNameKeyedSteamApps(nameKeyedDownloads);
+
+            // A phase answers null when cancellation stopped it partway. The run ends there: no
+            // summary log and no reporter completion, but the finally below still emits once so a
+            // pass that ends early still tells clients it is over.
+            var missingSteamCount = await FetchMissingSteamImagesAsync(
+                db, client, steamMappedAppIds, InBand(SteamBand), stoppingToken);
+            if (missingSteamCount == null) return;
+            await ReportBandAsync(reporter, SteamBand, 1, missingSteamCount.Value, missingSteamCount.Value);
+
+            var missingEpicCount = await FetchMissingEpicImagesAsync(
+                db, client, InBand(EpicBand), stoppingToken);
+            if (missingEpicCount == null) return;
+            await ReportBandAsync(reporter, EpicBand, 1, missingEpicCount.Value, missingEpicCount.Value);
+
+            var nameKeyed = await FetchMissingNameKeyedImagesAsync(
+                scopedServices, db, client, nameKeyedDownloads, steamCoveredSlugs, InBand(NameKeyedBand), stoppingToken);
+            if (nameKeyed == null) return;
+            await ReportBandAsync(reporter, NameKeyedBand, 1, nameKeyed.Value.Attempted, nameKeyed.Value.Attempted);
+
+            var staleRefreshed = await RefreshStaleImagesAsync(db, client, InBand(StaleBand), stoppingToken);
+            if (staleRefreshed == null) return;
+
+            _logger.LogInformation(
+                "[GameImageFetch] Complete: {NewSteam} new Steam, {NewEpic} new Epic, {NewNameKeyed} new Blizzard/Riot, {Stale} refreshed",
+                missingSteamCount.Value, missingEpicCount.Value, nameKeyed.Value.Stored, staleRefreshed.Value);
+
+            if (reporter != null)
+            {
+                await reporter.CompleteAsync(success: true);
+            }
+        }
+        finally
+        {
+            // Ungated and unconditional: this is the only way a pass that stored nothing (every
+            // upstream fetch failed) or was canceled partway still tells clients it ended. The
+            // version bump is the only thing that clears the image-error sets the parent views keep,
+            // so a banner that failed once and gave up gets its next attempt from here. Runs exactly
+            // once per pass regardless of which return above was taken.
             GameImagesController.IncrementCacheGeneration();
             _imageCacheService.EvictMemoryCache();
             await _notifications.NotifyAllAsync(SignalREvents.GameImagesUpdated, new
             {
-                newSteamImages = missingSteamCount.Value,
-                newEpicImages = missingEpicCount.Value,
-                newNameKeyedImages = nameKeyed.Value.Stored,
                 cacheGeneration = GameImagesController.CacheGeneration
             });
-        }
-
-        if (reporter != null)
-        {
-            await reporter.CompleteAsync(success: true);
         }
     }
 
@@ -513,9 +560,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             var tasks = batch.Select(appId =>
                 FetchSteamImageAsync(db, client, appId, picsUrlMap, depotOwnerLookup, downloadDepotLookup, ct));
 
-            await Task.WhenAll(tasks);
+            var stored = await Task.WhenAll(tasks);
+            var storedInBatch = stored.Count(wasStored => wasStored);
             await db.SaveChangesAsync(ct);
             db.ChangeTracker.Clear();
+            await EmitIncrementalBannerUpdateAsync(storedInBatch);
 
             done += batch.Length;
             await report(done / (double)missingSteamIds.Count, done, missingSteamIds.Count);
@@ -558,9 +607,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             var tasks = batch.Select(mapping =>
                 FetchEpicImageAsync(db, client, mapping, ct));
 
-            await Task.WhenAll(tasks);
+            var stored = await Task.WhenAll(tasks);
+            var storedInBatch = stored.Count(wasStored => wasStored);
             await db.SaveChangesAsync(ct);
             db.ChangeTracker.Clear();
+            await EmitIncrementalBannerUpdateAsync(storedInBatch);
 
             done += batch.Length;
             await report(done / (double)missingEpicMappings.Count, done, missingEpicMappings.Count);
@@ -635,9 +686,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 FetchNameKeyedImageAsync(db, client, job.Service!, job.Slug, job.Url!, ct));
 
             var added = await Task.WhenAll(tasks);
-            stored += added.Count(a => a);
+            var storedInBatch = added.Count(a => a);
+            stored += storedInBatch;
             await db.SaveChangesAsync(ct);
             db.ChangeTracker.Clear();
+            await EmitIncrementalBannerUpdateAsync(storedInBatch);
 
             done += batch.Length;
             await report(done / (double)missingNameKeyedJobs.Count, done, missingNameKeyedJobs.Count);
@@ -735,23 +788,23 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             var tasks = batch.Select(image =>
                 RefreshImageAsync(client, image, ct));
 
-            refreshed += (await Task.WhenAll(tasks)).Count(stored => stored);
+            var changedInBatch = (await Task.WhenAll(tasks)).Count(changed => changed);
+            refreshed += changedInBatch;
 
-            // Committed per batch, and the in-memory image cache is deliberately NOT evicted here.
-            // From this commit until the eviction at the end of the pass, /available reports the new
-            // version while the image route still answers the previous bytes out of memory. That
-            // reads as a bug and is not one: the two versions differ, so the response carries
-            // no-cache rather than the immutable header, nothing stale is pinned, and the next
-            // request after the pass ends picks up the new bytes.
-            //
-            // Evicting per batch would close a window nobody can act on and cost real work for it.
-            // EvictMemoryCache cancels the token every cached entry is linked to, so it drops EVERY
-            // banner rather than the fifty just refreshed; a pass over two thousand stale images runs
-            // forty batches, and each one would send every banner on every open page back to the
-            // database. This phase re-fetches art older than seven days, which has usually not
-            // changed at all, so the payoff for that is close to nothing.
             await db.SaveChangesAsync(ct);
             db.ChangeTracker.Clear();
+
+            // Published only when a batch actually produced different bytes, which is what keeps the
+            // routine sweep quiet. EvictMemoryCache cancels the token every cached entry is linked
+            // to, so it drops EVERY banner rather than the fifty just handled; a pass over two
+            // thousand stale images runs forty batches, and announcing all of them would send every
+            // banner on every open page back to the database. Art older than seven days has usually
+            // not changed at all, so on a scheduled sweep this stays silent and costs nothing.
+            //
+            // Clearing the image cache backdates every row into this phase, so that path lands here
+            // too, and there an announcement is the whole point: it is what puts genuinely new art on
+            // screen while the pass is still running rather than only at the end.
+            await EmitIncrementalBannerUpdateAsync(changedInBatch);
 
             done += batch.Length;
             await report(done / (double)staleImages.Count, done, staleImages.Count);
@@ -888,7 +941,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             ? GetSteamHeaderImageUrl(steamAppId.Value)
             : EpicApiDirectClient.EnsureResizeParams(epicImageUrl);
 
-    private async Task FetchSteamImageAsync(
+    private async Task<bool> FetchSteamImageAsync(
         AppDbContext db,
         HttpClient client,
         string appId,
@@ -913,14 +966,14 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                     FetchedAtUtc = DateTime.UtcNow
                 });
             }
-            return;
+            return true;
         }
 
         var parentAppId = FindParentAppId(appId, depotOwnerLookup, downloadDepotLookup);
         if (parentAppId == null)
         {
             _logger.LogDebug("[GameImageFetch] No valid image found for Steam app {AppId} and no parent app found", appId);
-            return;
+            return false;
         }
 
         _logger.LogInformation("[GameImageFetch] No image for app {AppId}, trying parent app {ParentAppId}", appId, parentAppId);
@@ -942,11 +995,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 });
             }
             _logger.LogInformation("[GameImageFetch] Successfully fetched image for app {AppId} using parent app {ParentAppId}", appId, parentAppId);
+            return true;
         }
-        else
-        {
-            _logger.LogDebug("[GameImageFetch] No valid image found for app {AppId} or parent app {ParentAppId}", appId, parentAppId);
-        }
+
+        _logger.LogDebug("[GameImageFetch] No valid image found for app {AppId} or parent app {ParentAppId}", appId, parentAppId);
+        return false;
     }
 
     /// <summary>
@@ -1198,13 +1251,13 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         return null;
     }
 
-    private async Task FetchEpicImageAsync(
+    private async Task<bool> FetchEpicImageAsync(
         AppDbContext db,
         HttpClient client,
         EpicGameMapping mapping,
         CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(mapping.ImageUrl)) return;
+        if (string.IsNullOrEmpty(mapping.ImageUrl)) return false;
 
         // Steam-first: a curated Steam appId for this Epic game's name wins over Epic's own art.
         // The GameImage row below still keys off the Epic appId/service - only the fetched bytes'
@@ -1219,13 +1272,13 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             try
             {
                 var response = await client.GetAsync(url, ct);
-                if (!response.IsSuccessStatusCode) return;
+                if (!response.IsSuccessStatusCode) return false;
 
                 var bytes = await response.Content.ReadAsByteArrayAsync(ct);
                 if (bytes.Length < MinImageBytes)
                 {
                     _logger.LogDebug("[GameImageFetch] Skipping tiny image ({Size} bytes) for Epic {AppId} from {Url}", bytes.Length, mapping.AppId, url);
-                    return;
+                    return false;
                 }
 
                 lock (db)
@@ -1240,6 +1293,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                         FetchedAtUtc = DateTime.UtcNow
                     });
                 }
+                return true;
             }
             finally
             {
@@ -1249,6 +1303,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "[GameImageFetch] Failed to fetch Epic image {AppId} from {Url}", mapping.AppId, url);
+            return false;
         }
     }
 
@@ -1256,6 +1311,32 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// Re-fetches one stored image. Returns true when new bytes were stored, which is what tells the
     /// caller the cache generation has to move.
     /// </summary>
+    // Overwrites a row's art in place and answers whether the bytes actually changed.
+    //
+    // FetchedAtUtc always moves, so a row that came back identical is not picked up as stale again on
+    // the next pass. UpdatedAtUtc moves only on a real change, because the banner URL is versioned by
+    // it: bumping it re-downloads that banner on every open page, and a re-fetch of unchanged art
+    // would otherwise cost every client a download per pass for nothing. A row that has never changed
+    // has a null UpdatedAtUtc and would fall back to FetchedAtUtc, so pin it before the clock moves.
+    private static bool StoreRefreshedImage(GameImage image, byte[] bytes, string contentType)
+    {
+        var changed = !image.ImageData.AsSpan().SequenceEqual(bytes);
+
+        if (changed)
+        {
+            image.ImageData = bytes;
+            image.ContentType = contentType;
+            image.UpdatedAtUtc = DateTime.UtcNow;
+        }
+        else
+        {
+            image.UpdatedAtUtc ??= image.FetchedAtUtc;
+        }
+
+        image.FetchedAtUtc = DateTime.UtcNow;
+        return changed;
+    }
+
     private async Task<bool> RefreshImageAsync(
         HttpClient client,
         GameImage image,
@@ -1273,11 +1354,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 return false;
             }
 
-            image.ImageData = embeddedBytes;
-            image.ContentType = embeddedContentType;
-            image.FetchedAtUtc = DateTime.UtcNow;
-            image.UpdatedAtUtc = DateTime.UtcNow;
-            return true;
+            return StoreRefreshedImage(image, embeddedBytes, embeddedContentType);
         }
 
         try
@@ -1307,13 +1384,8 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                     var cdnBytes = await TryFetchFromSteamCdnAsync(client, appIdLong, ct);
                     if (cdnBytes != null)
                     {
-                        var cdnUrl = GetSteamHeaderImageUrl(appIdLong);
-                        image.SourceUrl = cdnUrl;
-                        image.ImageData = cdnBytes;
-                        image.ContentType = "image/jpeg";
-                        image.FetchedAtUtc = DateTime.UtcNow;
-                        image.UpdatedAtUtc = DateTime.UtcNow;
-                        return true;
+                        image.SourceUrl = GetSteamHeaderImageUrl(appIdLong);
+                        return StoreRefreshedImage(image, cdnBytes, "image/jpeg");
                     }
                 }
 
@@ -1346,11 +1418,8 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 return false;
             }
 
-            image.ImageData = bytes;
-            image.ContentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
-            image.FetchedAtUtc = DateTime.UtcNow;
-            image.UpdatedAtUtc = DateTime.UtcNow;
-            return true;
+            return StoreRefreshedImage(
+                image, bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg");
         }
         catch (Exception ex)
         {
