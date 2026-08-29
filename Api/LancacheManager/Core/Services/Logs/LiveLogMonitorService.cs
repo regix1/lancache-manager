@@ -43,6 +43,11 @@ public class LiveLogMonitorService : ScheduledBackgroundService
     private DateTime _lastProcessTime = DateTime.MinValue;
     private readonly int _minSecondsBetweenProcessing = 1; // Minimum 1 second between processing runs (near-instant updates)
 
+    // Time half of the size-or-time flush pair: pending growth below the 10 KB threshold is
+    // ingested once it is this old. Must clear nginx's own access_log flush (5s in the stock
+    // lancache config) with margin, so a wakeup never races an unflushed nginx buffer.
+    private readonly int _maxSecondsBeforeTrickleFlush = 15;
+
     protected override string ServiceName => "LiveLogMonitor";
     protected override TimeSpan Interval => TimeSpan.FromSeconds(1);
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
@@ -305,11 +310,20 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                     : currentFileSize;
             }
 
-            // Only process if the source set has grown by at least the threshold
-            if (sizeIncrease >= _minFileSizeIncrease)
+            // Two triggers, whichever fires first (the standard size-or-time flush pair):
+            // the size threshold keeps busy periods batched, and the time flush stops a
+            // sub-threshold trickle from sitting un-ingested until 10 KB of traffic
+            // accumulates - on a quiet cache that wait was unbounded, and it is why a few
+            // log lines could take arbitrarily long to reach the database. The flush window
+            // must exceed nginx's own access_log buffering (lancache ships buffer=128k
+            // flush=5s, so a line can sit inside nginx up to 5s); anything shorter burns
+            // ingest runs racing a buffer that has not flushed yet.
+            var timeSinceLastProcess = (DateTime.UtcNow - _lastProcessTime).TotalSeconds;
+            var trickleFlushDue = sizeIncrease > 0
+                && timeSinceLastProcess >= _maxSecondsBeforeTrickleFlush;
+            if (sizeIncrease >= _minFileSizeIncrease || trickleFlushDue)
             {
                 // Rate limiting: Don't process if we just processed recently
-                var timeSinceLastProcess = (DateTime.UtcNow - _lastProcessTime).TotalSeconds;
                 if (timeSinceLastProcess < _minSecondsBetweenProcessing)
                 {
                     return;
