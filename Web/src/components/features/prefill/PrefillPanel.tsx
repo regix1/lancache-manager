@@ -249,7 +249,7 @@ function ServicePrefillPanel({
     (newConcurrency: string) => {
       setMaxConcurrency(newConcurrency);
       savePrefillDefaults(undefined, newConcurrency);
-      addLog('info', t('prefill.log.connectionsChanged', { count: newConcurrency }));
+      addLog('info', t('prefill.log.connectionsChanged', { value: newConcurrency }));
     },
     [savePrefillDefaults, addLog, t]
   );
@@ -581,11 +581,13 @@ function ServicePrefillPanel({
       const gameName = ownedGames.find((g) => g.appId === appId)?.name ?? `#${appId}`;
       try {
         const removal = await ApiService.deletePrefillCachedApp(appId);
-        addLog('info', t('prefill.log.removedFromCache', { game: gameName }));
         if (removal.removedDepots === 0) {
           // Cached status is read per depot and manifest with no app term, so a game whose files
           // were all downloaded under another game owns no rows and keeps its badge after this.
+          addLog('warning', t('prefill.log.removeFromCacheSharedFiles', { game: gameName }));
           notifyError(t('prefill.errors.removeFromCacheSharedFiles'));
+        } else {
+          addLog('info', t('prefill.log.removedFromCache', { game: gameName }));
         }
         // Re-read rather than trusting the broadcast to come back to this browser: with the
         // socket down, the row the user just acted on would otherwise keep its Cached badge.
@@ -1038,6 +1040,13 @@ function ServicePrefillPanel({
     signalR.setTimeRemaining(0);
     signalR.createSession(clearLogs);
   }, [signalR, clearLogs]);
+
+  // Re-arm the estimate log for a new selection. Keyed on the selection alone, so the estimate
+  // logs again after deselecting and re-picking the same games, while the reconnect and
+  // readiness re-runs of the effect below still share one log line per estimate.
+  useEffect(() => {
+    estimateLoggedRef.current = null;
+  }, [selectedAppIds, selectedOS]);
 
   // Warm the size estimate as the selection changes so the split card can show it without
   // waiting for the confirm modal (which reads this live state). Debounced. On mobile the hub

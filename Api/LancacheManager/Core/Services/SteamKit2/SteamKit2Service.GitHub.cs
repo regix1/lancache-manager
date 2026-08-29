@@ -38,21 +38,7 @@ public partial class SteamKit2Service
         }
 
         _currentRebuildCts = runCts;
-        await using var reporter = CreateDepotMappingReporter(
-            runCts.Token,
-            () =>
-            {
-                if (ReferenceEquals(_currentRebuildCts, runCts))
-                {
-                    _currentRebuildCts = null;
-                    _currentMappingReporter = null;
-                    _currentPicsOperationId = null;
-                }
-
-                Interlocked.Exchange(ref _rebuildActive, 0);
-                RaiseExecutionStateChanged();
-            });
-        _currentMappingReporter = reporter;
+        await using var reporter = CreateTrackedRebuildReporter(runCts);
 
         async Task<bool> FailAsync(string message)
         {

@@ -6,7 +6,7 @@ namespace LancacheManager.Core.Interfaces;
 /// Thin wait-queue gate in front of the existing operation start paths.
 ///
 /// Callers may enter the queue directly to atomically check-and-start, or after their own
-/// <see cref="Services.IOperationConflictChecker"/> pre-check. The queue re-checks under its
+/// <see cref="IOperationConflictChecker"/> pre-check. The queue re-checks under its
 /// promotion mutex (the blocker may have finished before the enqueue committed), deduplicates
 /// identical requests, or parks the operation as a
 /// tracker-registered <see cref="OperationStatus.Waiting"/> op. When any operation reaches

@@ -81,28 +81,12 @@ struct PurgeReport {
     error: Option<String>,
 }
 
-/// Progress-file schema. Identical shape to the other cache_* binaries so the C#
-/// host reads every binary through the same progress-file polling path (this
-/// binary previously emitted stdout JSON lines - the lone outlier).
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProgressData {
-    status: String,
-    stage_key: String,
-    context: serde_json::Value,
-    #[serde(rename = "percentComplete")]
-    percent_complete: f64,
-    #[serde(rename = "filesProcessed")]
-    files_processed: usize,
-    #[serde(rename = "totalFiles")]
-    total_files: usize,
-    timestamp: String,
-}
-
 /// Writes the (optional) progress file exactly as before, THEN emits the matching stdout event
 /// via `reporter` (file write always happens first when a path is supplied; the reporter itself
 /// is independently gated by the `--progress` flag). No-ops the file write when no progress path
-/// was supplied (silent runs) but still emits stdout when `--progress` is set.
+/// was supplied (silent runs) but still emits stdout when `--progress` is set. The struct and the
+/// file-write-then-emit body live once in `progress_utils`; this wrapper only adapts the `Option`
+/// this binary's silent-run mode needs.
 fn write_progress(
     progress_path: Option<&Path>,
     reporter: &ProgressReporter,
@@ -113,31 +97,22 @@ fn write_progress(
     files_processed: usize,
     total_files: usize,
 ) -> Result<()> {
-    if let Some(path) = progress_path {
-        let progress = ProgressData {
-            status: status.to_string(),
-            stage_key: stage_key.to_string(),
-            context: context.clone(),
+    match progress_path {
+        Some(path) => progress_utils::write_progress(
+            path,
+            reporter,
+            status,
+            stage_key,
+            context,
             percent_complete,
             files_processed,
             total_files,
-            timestamp: progress_utils::current_timestamp(),
-        };
-
-        progress_utils::write_progress_json(path, &progress)?;
-    }
-
-    match status {
-        "starting" => reporter.emit_started(stage_key, context),
-        "completed" => reporter.emit_complete(stage_key, context),
-        "failed" => {
-            let error_detail = context.get("errorDetail").and_then(|v| v.as_str()).map(|s| s.to_string());
-            reporter.emit_failed(stage_key, context, error_detail);
+        ),
+        None => {
+            progress_utils::emit_progress_event(reporter, status, stage_key, context, percent_complete);
+            Ok(())
         }
-        _ => reporter.emit_progress(percent_complete, stage_key, context),
     }
-
-    Ok(())
 }
 
 fn main() -> Result<()> {

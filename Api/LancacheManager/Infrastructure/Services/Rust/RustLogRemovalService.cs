@@ -211,44 +211,6 @@ public class RustLogRemovalService
         };
     }
 
-    public class ProgressData
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("files_processed")]
-        public int FilesProcessed { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("lines_processed")]
-        public long LinesProcessed { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("lines_removed")]
-        public long LinesRemoved { get; set; }
-
-        /// <summary>
-        /// Removed-line counts per stem for the REWRITTEN (monolithic) sources. Deleted
-        /// per-service series report nothing here; their stems are cleared outright.
-        /// </summary>
-        [System.Text.Json.Serialization.JsonPropertyName("lines_removed_by_stem")]
-        public Dictionary<string, long>? LinesRemovedByStem { get; set; }
-
-        /// <summary>
-        /// The already-read subset of <see cref="LinesRemovedByStem"/>; the amount each
-        /// stem's saved position comes back by.
-        /// </summary>
-        [System.Text.Json.Serialization.JsonPropertyName("lines_removed_before_position_by_stem")]
-        public Dictionary<string, long>? LinesRemovedBeforePositionByStem { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("percent_complete")]
-        public double PercentComplete { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("status")]
-        public string Status { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("stage_key")]
-        public string StageKey { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("context")]
-        public Dictionary<string, object?> Context { get; set; } = new();
-    }
-
     private async Task<bool> StartRemovalAsync(string service)
     {
         // Sanitize user-provided service name to prevent process argument injection
@@ -466,7 +428,7 @@ public class RustLogRemovalService
                         _cancellationTokenSource.Token,
                         async _ =>
                         {
-                            var progressData = await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(dsProgressPath);
+                            var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogRemovalProgress>(dsProgressPath);
                             if (progressData == null)
                             {
                                 return;
@@ -890,7 +852,7 @@ public class RustLogRemovalService
                     _cancellationTokenSource.Token,
                     async _ =>
                     {
-                        var progressData = await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(progressPath);
+                        var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogRemovalProgress>(progressPath);
                         if (progressData == null)
                         {
                             return;
@@ -1066,7 +1028,7 @@ public class RustLogRemovalService
 
     /// <summary>
     /// Forwards a per-datasource Rust progress tick to the UI. The Rust log_manager reports
-    /// <see cref="ProgressData.PercentComplete"/> as 0-100 for the CURRENT datasource only, so when
+    /// <see cref="LogRemovalProgress.PercentComplete"/> as 0-100 for the CURRENT datasource only, so when
     /// removing across multiple datasources the raw value would reset to a low number at every
     /// datasource boundary (a visible jump). To keep the outer card moving smoothly we scale the inner
     /// percent into this datasource's band: datasource <paramref name="datasourceIndex"/> of
@@ -1076,7 +1038,7 @@ public class RustLogRemovalService
     /// through unchanged.
     /// </summary>
     private Task SendProgressAsync(
-        ProgressData progress,
+        LogRemovalProgress progress,
         string service,
         string datasourceName,
         int completedFiles,
@@ -1321,12 +1283,12 @@ public class RustLogRemovalService
         return Task.CompletedTask;
     }
 
-    private async Task<ProgressData?> ReadProgressFileAsync(string progressPath)
+    private async Task<LogRemovalProgress?> ReadProgressFileAsync(string progressPath)
     {
-        return await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(progressPath);
+        return await _rustProcessHelper.ReadProgressFileAsync<LogRemovalProgress>(progressPath);
     }
 
-    public async Task<ProgressData?> GetProgressAsync()
+    public async Task<LogRemovalProgress?> GetProgressAsync()
     {
         var datasourceName = CurrentDatasource;
         if (datasourceName == null)

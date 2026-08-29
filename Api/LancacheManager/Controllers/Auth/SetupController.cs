@@ -1,3 +1,4 @@
+using LancacheManager.Validators;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -496,22 +497,16 @@ public class SetupController : ControllerBase
             return existing;
         }
 
-        if (password.Length < 12)
-            return "Password must be at least 12 characters";
+        if (password.Length < PasswordRules.AccountMinimumLength)
+            return PasswordRules.MinimumLengthMessage;
 
-        if (!UsesThreeCharacterClasses(password))
+        if (!PasswordRules.UsesThreeCharacterClasses(password))
         {
-            return "Password must use at least three of: lowercase letters, uppercase letters, digits, and other characters";
+            return PasswordRules.CharacterClassesMessage;
         }
 
         return null;
     }
-
-    private static bool UsesThreeCharacterClasses(string password) =>
-        (password.Any(char.IsLower) ? 1 : 0)
-        + (password.Any(char.IsUpper) ? 1 : 0)
-        + (password.Any(char.IsDigit) ? 1 : 0)
-        + (password.Any(character => !char.IsLetterOrDigit(character)) ? 1 : 0) >= 3;
 
     /// <summary>
     /// The username rule both setup endpoints apply. Returns the sentence to send back, or null when

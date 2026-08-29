@@ -31,17 +31,11 @@ public class AccountCredentialsRequestValidator : AbstractValidator<AccountCrede
         RuleFor(x => x.Password)
             .Cascade(CascadeMode.Stop)
             .NotEmpty().WithMessage("Password is required")
-            .MinimumLength(12).WithMessage("Password must be at least 12 characters")
+            .MinimumLength(PasswordRules.AccountMinimumLength).WithMessage(PasswordRules.MinimumLengthMessage)
             .MaximumLength(256).WithMessage("Password cannot exceed 256 characters")
-            .Must(UsesThreeCharacterClasses)
-            .WithMessage("Password must use at least three of: lowercase letters, uppercase letters, digits, and other characters")
+            .Must(PasswordRules.UsesThreeCharacterClasses)
+            .WithMessage(PasswordRules.CharacterClassesMessage)
             .NotEqual(x => x.Username, StringComparer.OrdinalIgnoreCase)
             .WithMessage("Password cannot be the same as the username");
     }
-
-    private static bool UsesThreeCharacterClasses(string password) =>
-        (password.Any(char.IsLower) ? 1 : 0)
-        + (password.Any(char.IsUpper) ? 1 : 0)
-        + (password.Any(char.IsDigit) ? 1 : 0)
-        + (password.Any(character => !char.IsLetterOrDigit(character)) ? 1 : 0) >= 3;
 }

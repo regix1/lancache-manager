@@ -367,7 +367,7 @@ public class RustLogProcessorService
             ?? Path.Combine(operationsDir, $"rust_progress_{_currentDatasourceName ?? (_datasourceService.GetDefaultDatasource()?.Name ?? "default")}.json");
         var legacyProgressPath = Path.Combine(operationsDir, "rust_progress.json");
 
-        ProgressData? progress = null;
+        LogProcessingProgress? progress = null;
         try
         {
             if (!File.Exists(progressPath) && File.Exists(legacyProgressPath))
@@ -378,7 +378,7 @@ public class RustLogProcessorService
             if (File.Exists(progressPath))
             {
                 var json = File.ReadAllText(progressPath);
-                progress = System.Text.Json.JsonSerializer.Deserialize<ProgressData>(json);
+                progress = System.Text.Json.JsonSerializer.Deserialize<LogProcessingProgress>(json);
             }
         }
         catch
@@ -437,101 +437,6 @@ public class RustLogProcessorService
         _operationTracker = operationTracker;
     }
 
-    public class ProgressData
-    {
-        /// <summary>
-        /// Only meaningful on the final "completed" write: the Rust processor no longer
-        /// runs a line-counting pre-pass, so the total is unknown (0) while running.
-        /// </summary>
-        [System.Text.Json.Serialization.JsonPropertyName("total_lines")]
-        public long TotalLines { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("lines_parsed")]
-        public long LinesParsed { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("entries_saved")]
-        public long EntriesSaved { get; set; }
-
-        /// <summary>Raw (compressed) log bytes consumed so far across all files.</summary>
-        [System.Text.Json.Serialization.JsonPropertyName("bytes_processed")]
-        public long BytesProcessed { get; set; }
-
-        /// <summary>Sum of on-disk sizes of every discovered log file.</summary>
-        [System.Text.Json.Serialization.JsonPropertyName("total_bytes")]
-        public long TotalBytes { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("percent_complete")]
-        public double PercentComplete { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("status")]
-        public string Status { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("stage_key")]
-        public string StageKey { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("context")]
-        public Dictionary<string, object?> Context { get; set; } = new();
-
-        [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
-        public DateTime Timestamp { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("warnings")]
-        public List<string> Warnings { get; set; } = new();
-
-        [System.Text.Json.Serialization.JsonPropertyName("errors")]
-        public List<string> Errors { get; set; } = new();
-
-        /// <summary>Contract version of the polled progress file (0 = pre-contract writer).</summary>
-        [System.Text.Json.Serialization.JsonPropertyName("schema_version")]
-        public int SchemaVersion { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("run_id")]
-        public string RunId { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Empty while running; on the final write one of completed | completed_with_warnings |
-        /// partial | failed | cancelled. This polled file is the single authority: exit code 0
-        /// without a valid terminal checkpoint is treated as a failure.
-        /// </summary>
-        [System.Text.Json.Serialization.JsonPropertyName("terminal_status")]
-        public string TerminalStatus { get; set; } = string.Empty;
-
-        /// <summary>Presentation-only source layout: monolithic | bare_metal | mixed.</summary>
-        [System.Text.Json.Serialization.JsonPropertyName("layout")]
-        public string Layout { get; set; } = string.Empty;
-
-        /// <summary>Per-source-stem series line counts as consumed by this run.</summary>
-        [System.Text.Json.Serialization.JsonPropertyName("source_positions")]
-        public Dictionary<string, long> SourcePositions { get; set; } = new();
-
-        [System.Text.Json.Serialization.JsonPropertyName("unparsed_lines")]
-        public long UnparsedLines { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("hintless_http_detailed_lines")]
-        public long HintlessHttpDetailedLines { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("skipped_fallback_lines")]
-        public long SkippedFallbackLines { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("invalid_encoding_lines")]
-        public long InvalidEncodingLines { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("recognized_ignored_lines")]
-        public long RecognizedIgnoredLines { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("incomplete_final_records")]
-        public long IncompleteFinalRecords { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("riot_hosts_processed")]
-        public long RiotHostsProcessed { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("riot_hosts_mapped")]
-        public long RiotHostsMapped { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("files_with_errors")]
-        public List<string> FilesWithErrors { get; set; } = new();
-    }
-
     private static readonly string[] _validTerminalStatuses =
     {
         "completed", "completed_with_warnings", "partial", "failed", "cancelled"
@@ -541,7 +446,7 @@ public class RustLogProcessorService
     /// True when the final progress file is a valid terminal checkpoint from the new
     /// contract writer: known schema version and a recognized terminal status.
     /// </summary>
-    private static bool IsValidTerminalCheckpoint(ProgressData? progress) =>
+    private static bool IsValidTerminalCheckpoint(LogProcessingProgress? progress) =>
         progress is { SchemaVersion: 1 } &&
         _validTerminalStatuses.Contains(progress.TerminalStatus);
 
@@ -552,7 +457,7 @@ public class RustLogProcessorService
     /// the rows it announces. Partial and cancelled runs with committed batches qualify; a
     /// missing or invalid checkpoint never does (its entry count cannot be trusted).
     /// </summary>
-    public static bool HasCommittedDownloads(ProgressData? progress) =>
+    public static bool HasCommittedDownloads(LogProcessingProgress? progress) =>
         IsValidTerminalCheckpoint(progress) && progress!.EntriesSaved > 0;
 
     /// <summary>
@@ -564,7 +469,7 @@ public class RustLogProcessorService
     /// never be served a stale cached batch. The payload is diagnostic only; the frontend must
     /// not depend on any of its fields.
     /// </summary>
-    private async Task NotifyCommittedDownloadsAsync(ProgressData? finalProgress)
+    private async Task NotifyCommittedDownloadsAsync(LogProcessingProgress? finalProgress)
     {
         if (!HasCommittedDownloads(finalProgress))
         {
@@ -1352,8 +1257,8 @@ public class RustLogProcessorService
         var loggedWarnings = new HashSet<string>();
         var loggedErrors = new HashSet<string>();
 
-        var monitor = new RustProgressMonitor<ProgressData>(_rustProcessHelper, _logger);
-        return monitor.MonitorAsync(progressPath, async (ProgressData progress) =>
+        var monitor = new RustProgressMonitor<LogProcessingProgress>(_rustProcessHelper, _logger);
+        return monitor.MonitorAsync(progressPath, async (LogProcessingProgress progress) =>
         {
             await riotMappingRun.ReportAsync(
                 progress.RiotHostsProcessed,
@@ -1410,9 +1315,9 @@ public class RustLogProcessorService
         }, cancellationToken);
     }
 
-    private async Task<ProgressData?> ReadProgressFileAsync(string progressPath)
+    private async Task<LogProcessingProgress?> ReadProgressFileAsync(string progressPath)
     {
-        return await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(progressPath);
+        return await _rustProcessHelper.ReadProgressFileAsync<LogProcessingProgress>(progressPath);
     }
 
     /// <summary>
@@ -1423,7 +1328,7 @@ public class RustLogProcessorService
     /// incomplete final record is a real observation worth recording too.
     /// </summary>
     private void PersistIngestDiagnostics(
-        string datasourceName, ProgressData progress, Dictionary<string, long> startPositions)
+        string datasourceName, LogProcessingProgress progress, Dictionary<string, long> startPositions)
     {
         var examinedNewInput = progress.SourcePositions.Count > 0
             ? progress.SourcePositions.Any(kvp =>

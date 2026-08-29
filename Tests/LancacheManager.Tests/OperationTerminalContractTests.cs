@@ -1,3 +1,4 @@
+using LancacheManager.Core.Interfaces;
 using System.Reflection;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;

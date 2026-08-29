@@ -853,13 +853,9 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         List<string> hiddenClientIps,
         List<string> statsExcludedOnlyIps)
     {
-        var downloads = context.Downloads.ApplyHiddenClientFilter(hiddenClientIps);
-        if (statsExcludedOnlyIps.Count > 0)
-        {
-            downloads = downloads.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
-        }
-
-        return downloads;
+        return context.Downloads
+            .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
     }
 
     /// <summary>

@@ -4,7 +4,7 @@ using LancacheManager.Infrastructure.Utilities;
 
 namespace LancacheManager.Models;
 
-public class Download : IUtcMarkable
+public class Download : IUtcMarkable, IGameNameRow
 {
     public long Id { get; set; }
     public string Service { get; set; } = string.Empty;

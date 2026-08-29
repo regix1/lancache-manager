@@ -66,11 +66,8 @@ public partial class DashboardBatchService
             // bytes belong to every bucket it was active in, not to the one it started in.
             var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode)
                 .ApplyEventFilter([evt.Id], taggedIds)
-                .Where(d => (d.EndTimeUtc >= start || d.StartTimeUtc >= start) && d.StartTimeUtc <= end);
-            if (statsExcludedOnlyIps.Count > 0)
-            {
-                query = query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
-            }
+                .Where(d => (d.EndTimeUtc >= start || d.StartTimeUtc >= start) && d.StartTimeUtc <= end)
+                .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
 
             var spans = await query
                 .Select(d => new HourOfDayBuckets.Span(d.StartTimeUtc, d.EndTimeUtc, d.CacheHitBytes, d.CacheMissBytes))

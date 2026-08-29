@@ -59,21 +59,7 @@ public partial class SteamKit2Service
 
         async Task RunAsync()
         {
-            await using var reporter = CreateDepotMappingReporter(
-                runCts.Token,
-                () =>
-                {
-                    if (ReferenceEquals(_currentRebuildCts, runCts))
-                    {
-                        _currentRebuildCts = null;
-                        _currentMappingReporter = null;
-                        _currentPicsOperationId = null;
-                    }
-
-                    Interlocked.Exchange(ref _rebuildActive, 0);
-                    RaiseExecutionStateChanged();
-                });
-            _currentMappingReporter = reporter;
+            await using var reporter = CreateTrackedRebuildReporter(runCts);
 
             try
             {
@@ -206,6 +192,32 @@ public partial class SteamKit2Service
             _logger,
             CreateDepotPayloadFactories(),
             onTerminalCleanup);
+
+    /// <summary>
+    /// The reporter every rebuild-style depot run uses (PICS, GitHub, apply-to-downloads): its
+    /// terminal cleanup releases the run's tracking fields only when this run still owns them,
+    /// then clears the rebuild flag and re-publishes execution state. One home for the closure
+    /// the three run entry points used to carry as identical copies.
+    /// </summary>
+    private MappingOperationReporter CreateTrackedRebuildReporter(CancellationTokenSource runCts)
+    {
+        var reporter = CreateDepotMappingReporter(
+            runCts.Token,
+            () =>
+            {
+                if (ReferenceEquals(_currentRebuildCts, runCts))
+                {
+                    _currentRebuildCts = null;
+                    _currentMappingReporter = null;
+                    _currentPicsOperationId = null;
+                }
+
+                Interlocked.Exchange(ref _rebuildActive, 0);
+                RaiseExecutionStateChanged();
+            });
+        _currentMappingReporter = reporter;
+        return reporter;
+    }
 
     private ScheduledRunPayloadFactories CreateDepotPayloadFactories() =>
         new(

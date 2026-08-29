@@ -54,7 +54,9 @@ public class AppState
     public int? GuestSessionDurationHours { get; set; } // null = no UI override; merged via SessionService.GetGuestDurationHours()
     public bool GuestModeLocked { get; set; } = false; // When true, guest mode login is disabled
     public string? DefaultGuestTheme { get; set; } = "dark-default"; // Default theme for guest users
+    [JsonConverter(typeof(RefreshRateWireConverter))]
     public RefreshRate RefreshRate { get; set; } = RefreshRate.Standard; // Default to 10 seconds (LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW)
+    [JsonConverter(typeof(RefreshRateWireConverter))]
     public RefreshRate DefaultGuestRefreshRate { get; set; } = RefreshRate.Standard; // Default refresh rate for guest users
     public bool GuestRefreshRateLocked { get; set; } = true; // When true, guests cannot change their refresh rate
 
@@ -123,7 +125,9 @@ public class AppState
     // Client IP exclusion rules (mode controls stats-only vs hide)
     public List<ClientExclusionRule> ExcludedClientRules { get; set; } = new();
 
-    // Evicted data display mode
+    // Evicted data display mode. Stored as the wire string ("show"/"hide"/"showClean"/"remove")
+    // for backward compatibility with older state.json files.
+    [JsonConverter(typeof(EvictedDataModeWireConverter))]
     public EvictedDataMode EvictedDataMode { get; set; } = EvictedDataMode.Show;
 
     // Whether the eviction scan shows the universal notification bar (false = silent/no notification)
@@ -154,12 +158,17 @@ public class AppState
     public bool ClientHostnameDockerLookup { get; set; } = true;
 
     // Setup wizard state (persisted for resumption across page refreshes)
+    [JsonConverter(typeof(SetupStepWireConverter))]
     public SetupStep? CurrentSetupStep { get; set; }
+    [JsonConverter(typeof(DataSourceChoiceWireConverter))]
     public DataSourceChoice? DataSourceChoice { get; set; }
     public string? CompletedPlatforms { get; set; } // JSON string: {"steam":"github"|"steam"|null,"epic":true|false}
 
     // LEGACY: SteamAuth has been migrated to separate file (data/security/steam_auth/credentials.json)
-    // This property is kept temporarily for backward compatibility during migration
+    // This property is kept temporarily for backward compatibility during migration.
+    // Excluded from state.json once null (always, after migration); RefreshToken is encrypted on
+    // disk - StateService swaps in an encrypted copy before serializing and decrypts on load.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public SteamAuthState? SteamAuth { get; set; }
 
     // Per-service interval overrides (keyed by ServiceKey, value in hours)
@@ -217,6 +226,13 @@ public class AppState
     // anchoring or a skip/needs-login attempt - so the schedule view shows "Never" until a service has
     // truly run at least once. Durable across restart.
     public Dictionary<string, DateTime> ScheduledPrefillServiceLastActualRunUtc { get; set; } = new();
+
+    /// <summary>
+    /// Member-for-member copy for StateService's save path: the wire form differs from the cached
+    /// in-memory state in a few fields (encrypted SteamAuth token, rebuilt legacy IP list,
+    /// normalized overrides), so serialization works on a copy and never mutates the live state.
+    /// </summary>
+    public AppState ShallowClone() => (AppState)MemberwiseClone();
 }
 
 /// <summary>

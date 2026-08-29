@@ -1,3 +1,4 @@
+using LancacheManager.Infrastructure.Utilities;
 using System.Net;
 using LancacheManager.Controllers.Base;
 using LancacheManager.Core.Interfaces;
@@ -125,7 +126,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         // Add initial IPs if provided
         if (request.InitialIps?.Count > 0)
         {
-            var desiredIps = NormalizeMemberIps(request.InitialIps, out _);
+            var desiredIps = ClientIpList.Normalize(request.InitialIps, out _);
             await _clientGroupsRepository.SetMembersAsync(entity.Id, desiredIps, ct);
 
             // Refresh to get updated members
@@ -231,7 +232,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
             });
         }
 
-        var desiredIps = NormalizeMemberIps(request.ClientIps, out var invalidIps);
+        var desiredIps = ClientIpList.Normalize(request.ClientIps, out var invalidIps);
         if (invalidIps.Count > 0)
         {
             return BadRequest(new InvalidClientIpsResponse
@@ -345,45 +346,6 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
             : expectedUpdatedAt;
 
         return currentUpdatedAt.Ticks == expectedUtc.Ticks;
-    }
-
-    /// <summary>
-    /// Trims, parses and de-duplicates a requested address list, collecting the entries that are not
-    /// addresses into <paramref name="invalidIps"/> rather than discarding them. Blank entries are
-    /// dropped silently - an empty row in the payload is not something to report back.
-    /// </summary>
-    private static List<string> NormalizeMemberIps(IEnumerable<string>? clientIps, out List<string> invalidIps)
-    {
-        invalidIps = new List<string>();
-        var normalized = new List<string>();
-
-        if (clientIps == null)
-        {
-            return normalized;
-        }
-
-        foreach (var rawIp in clientIps)
-        {
-            var trimmed = rawIp?.Trim();
-            if (string.IsNullOrWhiteSpace(trimmed))
-            {
-                continue;
-            }
-
-            if (!IPAddress.TryParse(trimmed, out var parsed))
-            {
-                invalidIps.Add(trimmed);
-                continue;
-            }
-
-            var normalizedIp = parsed.ToString();
-            if (!normalized.Contains(normalizedIp, StringComparer.Ordinal))
-            {
-                normalized.Add(normalizedIp);
-            }
-        }
-
-        return normalized;
     }
 
     /// <summary>

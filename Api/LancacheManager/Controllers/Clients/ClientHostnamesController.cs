@@ -86,11 +86,8 @@ public class ClientHostnamesController : ControllerBase
         var statsExcludedOnlyIps = _stateService.GetStatsExcludedOnlyClientIps();
         var query = _context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(_stateService.GetHiddenClientIps())
-            .ApplyEvictedFilter(_stateService.GetEvictedDataMode());
-        if (statsExcludedOnlyIps.Count > 0)
-        {
-            query = query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
-        }
+            .ApplyEvictedFilter(_stateService.GetEvictedDataMode())
+            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
 
         // The recency cut is part of the query so the database returns at most MaxClientsResolved
         // rows, the same shape the top-clients grouping already uses.

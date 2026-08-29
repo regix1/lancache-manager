@@ -19,7 +19,7 @@ use lancache_processor::db;
 use lancache_processor::log_layout;
 use lancache_processor::log_purge;
 use lancache_processor::progress_events;
-use lancache_processor::progress_utils;
+use lancache_processor::progress_utils::{self, write_progress, ProgressData};
 use cache_corruption_detector::{
     CorruptionCandidate, CorruptionDetector, CorruptionEvidence, DetectionMethod,
     CORRUPTION_CONTRACT_VERSION, DEFAULT_LOOKBACK_DAYS,
@@ -145,21 +145,6 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProgressData {
-    status: String,
-    stage_key: String,
-    context: serde_json::Value,
-    #[serde(rename = "percentComplete")]
-    percent_complete: f64,
-    #[serde(rename = "filesProcessed")]
-    files_processed: usize,
-    #[serde(rename = "totalFiles")]
-    total_files: usize,
-    timestamp: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RemovalEvidenceEnvelope {
@@ -247,43 +232,6 @@ fn write_pretty_json<T: Serialize + ?Sized>(output_path: &Path, value: &T) -> Re
     serde_json::to_writer_pretty(&mut output_writer, value)
         .context("failed to serialize corruption report")?;
     output_writer.flush()?;
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn write_progress(
-    progress_path: &Path,
-    reporter: &ProgressReporter,
-    status: &str,
-    stage_key: &str,
-    context: serde_json::Value,
-    percent_complete: f64,
-    files_processed: usize,
-    total_files: usize,
-) -> Result<()> {
-    let progress = ProgressData {
-        status: status.to_string(),
-        stage_key: stage_key.to_string(),
-        context: context.clone(),
-        percent_complete,
-        files_processed,
-        total_files,
-        timestamp: progress_utils::current_timestamp(),
-    };
-    progress_utils::write_progress_json(progress_path, &progress)?;
-
-    match status {
-        "starting" => reporter.emit_started(stage_key, context),
-        "completed" => reporter.emit_complete(stage_key, context),
-        "failed" => {
-            let detail = context
-                .get("errorDetail")
-                .and_then(|value| value.as_str())
-                .map(str::to_string);
-            reporter.emit_failed(stage_key, context, detail);
-        }
-        _ => reporter.emit_progress(percent_complete, stage_key, context),
-    }
     Ok(())
 }
 

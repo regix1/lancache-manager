@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using System.Net;
 
 namespace LancacheManager.Controllers;
 
@@ -124,42 +123,8 @@ public class StatsController : ControllerBase
 
         // Single atomic query - filter out excluded IPs directly
         // This prevents race conditions where data changes between queries
-        var filtered = query.Where(d => !statsExcludedIps.Contains(d.ClientIp));
+        var filtered = query.ApplyStatsExcludedClientFilter(statsExcludedIps);
         return await aggregator(filtered);
-    }
-
-    private static List<string> NormalizeClientIps(IEnumerable<string>? ips, out List<string> invalidIps)
-    {
-        invalidIps = new List<string>();
-        var normalized = new List<string>();
-
-        if (ips == null)
-        {
-            return normalized;
-        }
-
-        foreach (var rawIp in ips)
-        {
-            var trimmed = rawIp?.Trim();
-            if (string.IsNullOrWhiteSpace(trimmed))
-            {
-                continue;
-            }
-
-            if (!IPAddress.TryParse(trimmed, out var parsed))
-            {
-                invalidIps.Add(trimmed);
-                continue;
-            }
-
-            var normalizedIp = parsed.ToString();
-            if (!normalized.Contains(normalizedIp))
-            {
-                normalized.Add(normalizedIp);
-            }
-        }
-
-        return normalized;
     }
 
     private static List<ClientExclusionRule> NormalizeClientRules(
@@ -182,13 +147,12 @@ public class StatsController : ControllerBase
                 continue;
             }
 
-            if (!IPAddress.TryParse(trimmed, out var parsed))
+            if (!ClientIpList.TryNormalize(trimmed, out var normalizedIp))
             {
                 invalidIps.Add(trimmed);
                 continue;
             }
 
-            var normalizedIp = parsed.ToString();
             if (normalized.Any(r => r.Ip == normalizedIp))
             {
                 continue;
@@ -256,22 +220,11 @@ public class StatsController : ControllerBase
         var hiddenClientIps = includeExcluded ? new List<string>() : _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = includeExcluded ? new List<string>() : _stateRepository.GetStatsExcludedOnlyClientIps();
         query = query.ApplyHiddenClientFilter(hiddenClientIps);
-        if (statsExcludedOnlyIps.Count > 0)
-            query = query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
+        query = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
 
         var evictedMode = _stateRepository.GetEvictedDataMode();
         query = query.ApplyEvictedFilter(evictedMode);
-
-        if (startTime.HasValue)
-        {
-            var startDate = startTime.Value.FromUnixSeconds();
-            query = query.Where(d => d.StartTimeUtc >= startDate);
-        }
-        if (endTime.HasValue)
-        {
-            var endDate = endTime.Value.FromUnixSeconds();
-            query = query.Where(d => d.StartTimeUtc <= endDate);
-        }
+        query = query.ApplyTimeRange(startTime, endTime);
 
         // The GROUP BY and its client-side duration fold are shared with the dashboard batch, so
         // the two surfaces cannot drift at the step above the shared ranking helper.
@@ -341,7 +294,7 @@ public class StatsController : ControllerBase
         }
         else
         {
-            var normalizedIps = NormalizeClientIps(request.Ips, out var invalidIps);
+            var normalizedIps = ClientIpList.Normalize(request.Ips, out var invalidIps);
             if (invalidIps.Count > 0)
             {
                 return BadRequest(new
@@ -651,17 +604,8 @@ public class StatsController : ControllerBase
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
 
         // Apply time filtering if provided
-        if (startTime.HasValue)
-        {
-            var startDate = startTime.Value.FromUnixSeconds();
-            query = query.Where(d => d.StartTimeUtc >= startDate);
-        }
-        if (endTime.HasValue)
-        {
-            var endDate = endTime.Value.FromUnixSeconds();
-            query = query.Where(d => d.StartTimeUtc <= endDate);
-        }
-        else if (!string.IsNullOrEmpty(since) && since != "all")
+        query = query.ApplyTimeRange(startTime, endTime);
+        if (!endTime.HasValue && !string.IsNullOrEmpty(since) && since != "all")
         {
             // Parse time period string for backwards compatibility
             var cutoffTime = TimeUtils.ParseTimePeriod(since);
@@ -673,9 +617,7 @@ public class StatsController : ControllerBase
         // No filter = all data (consistent with dashboard)
 
         // Aggregate by service from Downloads table (exclude stats-excluded IPs from calculations)
-        var serviceStatsQuery = statsExcludedOnlyIps.Count > 0
-            ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
-            : query;
+        var serviceStatsQuery = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
         var serviceStats = await DashboardBatchService
             .ServiceStatsQuery(serviceStatsQuery)
             .ToListAsync();
@@ -740,14 +682,7 @@ public class StatsController : ControllerBase
         HashSet<long>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
         downloadsQuery = downloadsQuery.ApplyEventFilter(eventIdList, eventDownloadIds);
 
-        if (cutoffTime.HasValue)
-        {
-            downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
-        }
-        if (endDateTime.HasValue)
-        {
-            downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc <= endDateTime.Value);
-        }
+        downloadsQuery = downloadsQuery.ApplyTimeRange(startTime, endTime);
 
         // Calculate ALL-TIME totals from Downloads table directly (no cache)
         // Note: All-time totals should NOT be filtered by event - they represent overall system stats
@@ -765,38 +700,17 @@ public class StatsController : ControllerBase
             q => q.SumAsync(d => d.CacheMissBytes));
         var periodDownloadCount = await AggregateExcludingAsync(downloadsQuery, statsExcludedOnlyIps,
             q => q.CountAsync());
+        var periodTotal = periodHitBytes + periodMissBytes;
 
-        // Get top service from Downloads table (not cached ServiceStats)
-        // Exclude stats-excluded IPs from the sum calculation
-        var topServiceQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode).ApplyPlaceholderServiceFilter();
-        var topServiceGroups = await topServiceQuery
-            .GroupBy(d => d.Service)
-            .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) })
-            .ToListAsync();
-
-        // Subtract excluded IPs from each service's total
-        if (statsExcludedOnlyIps.Count > 0)
-        {
-            var excludedServiceGroups = await topServiceQuery
-                .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
-                .GroupBy(d => d.Service)
-                .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) })
-                .ToListAsync();
-            
-            var excludedByService = excludedServiceGroups.ToDictionary(g => g.Service, g => g.TotalBytes);
-            topServiceGroups = topServiceGroups
-                .Select(g => new { 
-                    g.Service, 
-                    TotalBytes = excludedByService.TryGetValue(g.Service, out var excludedBytes) 
-                        ? g.TotalBytes - excludedBytes 
-                        : g.TotalBytes 
-                })
-                .ToList();
-        }
-        
-        var topService = topServiceGroups
-            .OrderByDescending(s => s.TotalBytes)
-            .FirstOrDefault();
+        // Same xbox-folded per-service breakdown DashboardBatchService uses, so both endpoints
+        // report the same top service for identical data instead of each keeping its own group-by.
+        // Three things change against the group-by this replaced: xbox and xboxlive now fold into
+        // one service, the top service is scoped to the requested period and event filter instead
+        // of all time, and each stats-excluded client's bytes are no longer subtracted per service.
+        // Reading it off the breakdown in this same response is what keeps the two agreeing.
+        var serviceBreakdown = await ServiceBreakdownMerger.QueryMergedAsync(
+            downloadsQuery, periodTotal, HttpContext.RequestAborted);
+        var topServiceName = serviceBreakdown.FirstOrDefault()?.Service ?? "N/A";
 
         // Active downloads and unique clients (exclude stats-excluded IPs from counts)
         var activeDownloadsQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode)
@@ -835,40 +749,13 @@ public class StatsController : ControllerBase
         var cacheHitRatio = totalServed > 0
             ? (double)totalBandwidthSaved / totalServed
             : 0;
-        var topServiceName = topService?.Service ?? "none";
 
         // Period-specific metrics
-        var periodTotal = periodHitBytes + periodMissBytes;
         var periodHitRatio = periodTotal > 0
             ? (double)periodHitBytes / periodTotal
             : 0;
 
-        // Determine period label for response
-        string periodLabel = "all";
-        if (cutoffTime.HasValue && endDateTime.HasValue)
-        {
-            var duration = endDateTime.Value - cutoffTime.Value;
-            periodLabel = duration.TotalHours <= 24 ? $"{(int)duration.TotalHours}h" : $"{(int)duration.TotalDays}d";
-        }
-        else if (cutoffTime.HasValue)
-        {
-            periodLabel = "since " + cutoffTime.Value.ToString("yyyy-MM-dd");
-        }
-
-        // xboxlive and microsoft rows are folded into xbox after materialisation
-        var serviceBreakdown = ServiceBreakdownMerger.MergeXboxRows(await downloadsQuery
-            .ApplyPlaceholderServiceFilter()
-            .GroupBy(d => d.Service)
-            .Select(g => new ServiceBreakdownItem
-            {
-                Service = g.Key,
-                Bytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                Percentage = periodTotal > 0
-                    ? (g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) * 100.0) / periodTotal
-                    : 0
-            })
-            .OrderByDescending(s => s.Bytes)
-            .ToListAsync());
+        var periodLabel = DashboardPeriod.Label(cutoffTime, endDateTime);
 
         return Ok(new DashboardStatsResponse
         {

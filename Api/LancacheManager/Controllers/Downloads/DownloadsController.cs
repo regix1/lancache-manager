@@ -283,9 +283,9 @@ public class DownloadsController : ControllerBase
                 })
                 .ToListAsync();
 
-            // Resolve game names at group level (a depot maps to exactly one app, so this is
-            // equivalent to the previous per-row resolution but over far fewer items).
-            await ResolveGroupNamesAsync(groupedRows);
+            // Resolve game names at group level over the same shared resolver the dashboard
+            // batch uses, so both views pick the same owner when a depot has multiple mappings.
+            await GameNameResolver.ResolveAsync(_context, groupedRows, HttpContext.RequestAborted);
 
             // ShowClean keeps evicted rows in the list but suppresses the badge and dimming, the
             // same way the row-level download list does. Hide/Remove already dropped those rows
@@ -562,7 +562,7 @@ public class DownloadsController : ControllerBase
     /// SQL-side aggregate projection for one retro group (DepotId + ClientIp, or a single
     /// no-depot download identified by RowKey).
     /// </summary>
-    private sealed class RetroGroupRow
+    private sealed class RetroGroupRow : IGameNameRow
     {
         public long? DepotId { get; set; }
         public string ClientIp { get; set; } = string.Empty;
@@ -697,81 +697,6 @@ public class DownloadsController : ControllerBase
         }
 
         return baseQuery;
-    }
-
-    /// <summary>
-    /// Fills missing game names on aggregated retro rows from Steam depot mappings and
-    /// Epic game mappings.
-    /// </summary>
-    private async Task ResolveGroupNamesAsync(List<RetroGroupRow> rows)
-    {
-        if (rows.Count == 0) return;
-
-        var depotIds = rows
-            .Where(r => string.IsNullOrEmpty(r.GameName) && r.DepotId.HasValue)
-            .Select(r => r.DepotId!.Value)
-            .Distinct()
-            .ToList();
-
-        var steamMappings = depotIds.Count > 0
-            ? await _context.SteamDepotMappings
-                .AsNoTracking()
-                .Where(m => m.IsOwner && depotIds.Contains(m.DepotId))
-                .ToDictionaryAsync(m => m.DepotId, m => m)
-            : new Dictionary<long, SteamDepotMapping>();
-
-        var epicAppIds = rows
-            .Where(r => string.IsNullOrEmpty(r.GameName) && !string.IsNullOrEmpty(r.EpicAppId))
-            .Select(r => r.EpicAppId!)
-            .Distinct()
-            .ToList();
-
-        var epicMappings = epicAppIds.Count > 0
-            ? await _context.EpicGameMappings
-                .AsNoTracking()
-                .Where(m => epicAppIds.Contains(m.AppId))
-                .ToDictionaryAsync(m => m.AppId, m => m.Name)
-            : new Dictionary<string, string>();
-
-        var xboxProductIds = rows
-            .Where(r => string.IsNullOrEmpty(r.GameName) && !string.IsNullOrEmpty(r.XboxProductId))
-            .Select(r => r.XboxProductId!)
-            .Distinct()
-            .ToList();
-
-        var xboxMappings = xboxProductIds.Count > 0
-            ? await _context.XboxGameMappings
-                .AsNoTracking()
-                .Where(m => xboxProductIds.Contains(m.ProductId))
-                .ToDictionaryAsync(m => m.ProductId, m => m.Title)
-            : new Dictionary<string, string>();
-
-        foreach (var r in rows)
-        {
-            if (string.IsNullOrEmpty(r.GameName) && r.DepotId.HasValue
-                && steamMappings.TryGetValue(r.DepotId.Value, out var steamMapping))
-            {
-                r.GameName = steamMapping.AppName;
-                r.GameAppId = steamMapping.AppId;
-            }
-
-            if (string.IsNullOrEmpty(r.GameName) && !string.IsNullOrEmpty(r.EpicAppId)
-                && epicMappings.TryGetValue(r.EpicAppId, out var epicName))
-            {
-                r.GameName = epicName;
-            }
-
-            if (string.IsNullOrEmpty(r.GameName) && !string.IsNullOrEmpty(r.XboxProductId)
-                && xboxMappings.TryGetValue(r.XboxProductId, out var xboxTitle))
-            {
-                r.GameName = xboxTitle;
-            }
-
-            if (string.IsNullOrEmpty(r.GameName))
-            {
-                r.GameName = r.Service;
-            }
-        }
     }
 
     /// <summary>

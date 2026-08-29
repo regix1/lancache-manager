@@ -34,18 +34,15 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
 
     private readonly TimeSpan _defaultInterval;
     private TimeSpan _interval;
-    private CancellationTokenSource? _intervalChangedCts;
-    private readonly object _intervalLock = new();
-    private volatile bool _intervalJustChanged;
 
     /// <summary>
     /// Current scheduling interval. When the interval is zero, the service is considered disabled
     /// and ExecuteScheduledWorkAsync will not be called.
-    /// Thread-safe: reads/writes are protected by a lock.
+    /// Thread-safe: reads/writes are protected by the shared interval lock.
     /// </summary>
     public TimeSpan ConfiguredInterval
     {
-        get { lock (_intervalLock) return _interval; }
+        get { lock (IntervalLock) return _interval; }
     }
 
     /// <summary>
@@ -81,50 +78,17 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
     /// </summary>
     protected void UpdateInterval(TimeSpan newInterval)
     {
-        lock (_intervalLock)
+        lock (IntervalLock)
         {
             _interval = newInterval;
-            _intervalJustChanged = true;
 
-            // Cancel the current sleep to wake the loop - it will skip work and re-sleep with new interval
-            CancelIntervalDelay();
+            // Wake the loop under the same lock hold (it is reentrant), so the change and the wake
+            // it triggers are seen together - the loop will skip work and re-sleep with new interval.
+            WakeForScheduleChange();
         }
 
         _logger.LogInformation("{ServiceName} interval updated to {Hours:F1} hour(s)",
             ServiceName, newInterval.TotalHours);
-    }
-
-    /// <inheritdoc />
-    protected override void WakeForScheduleChange()
-    {
-        lock (_intervalLock)
-        {
-            // Reuses the flag an interval change already owns: both mean "the sleep you are in was
-            // computed from a value that has since changed", and the loop's response is the same.
-            _intervalJustChanged = true;
-
-            CancelIntervalDelay();
-        }
-    }
-
-    /// <summary>
-    /// Cancels the sleep this loop is currently in. Taken under the interval lock so an interval
-    /// change and the wake it triggers are seen together; the lock is reentrant, so callers that
-    /// already hold it stay atomic.
-    /// </summary>
-    protected override void CancelIntervalDelay()
-    {
-        lock (_intervalLock)
-        {
-            try
-            {
-                _intervalChangedCts?.Cancel();
-            }
-            catch (ObjectDisposedException)
-            {
-                // Already disposed, will be recreated on next loop iteration
-            }
-        }
     }
 
     /// <summary>
@@ -148,12 +112,12 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
 
         _logger.LogInformation("{ServiceName} scheduling loop started", ServiceName);
 
-        // Discard any "_intervalJustChanged" flag that was set during construction or
+        // Discard any "IntervalJustChanged" flag that was set during construction or
         // InitializeAsync - e.g. LoadStateOverrides → UpdateInterval sets that flag to
         // wake a sleeping loop, but there's no loop yet, so the flag is meaningless here
         // and must not leak into the first iteration (it would eat the skip-first-execution
         // check and delay the first real work run by an extra full interval).
-        _intervalJustChanged = false;
+        IntervalJustChanged = false;
 
         // If RunOnStartup is false, skip the very first work execution and go straight
         // to the sleep - work will only run after the first interval has elapsed (or
@@ -184,9 +148,9 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
 
             // Skip work if woken by an interval change with no manual run pending - just re-sleep
             // with the new interval.
-            if (_intervalJustChanged && !manualPending)
+            if (IntervalJustChanged && !manualPending)
             {
-                _intervalJustChanged = false;
+                IntervalJustChanged = false;
             }
             else if (skipFirstExecution && !manualPending)
             {
@@ -196,69 +160,41 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
             }
             else if (manualPending || workIsDue)
             {
-                _intervalJustChanged = false;
+                IntervalJustChanged = false;
                 skipFirstExecution = false;
-                var runFailed = false;
-                var shuttingDown = false;
-                try
-                {
-                    IsCurrentlyExecuting = true;
-                    CurrentRunTrigger = manualPending
-                        ? RunTrigger.Manual
-                        : startupRunPending ? RunTrigger.Startup : RunTrigger.Scheduled;
-                    // Broadcast the start so the Schedules status dot lights up for the whole run.
-                    // Poll-style services (see BroadcastRunStart) opt out to avoid a per-tick flash and
-                    // raise the start themselves only when a real run begins.
-                    if (BroadcastRunStart)
+
+                var (shuttingDown, runFailed) = await RunScheduledWorkAsync(
+                    async () =>
                     {
-                        ServiceExecutionStateChanged?.Invoke(ServiceName);
-                    }
-                    await ExecuteWorkAsync(stoppingToken);
-                    // Advance NextRunUtc now so the run-END broadcast in the finally carries the fresh
-                    // next-run instead of the just-elapsed one. The bottom-of-loop sleep re-sets this
-                    // authoritatively; this only keeps the END snapshot from shipping a stale countdown.
-                    // (Ignored by services like ScheduledPrefill whose card derives timing elsewhere.)
-                    NextRunUtc = ComputeNextRun(ConfiguredCustomSchedule, ConfiguredInterval);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                        CurrentRunTrigger = manualPending
+                            ? RunTrigger.Manual
+                            : startupRunPending ? RunTrigger.Startup : RunTrigger.Scheduled;
+                        // Broadcast the start so the Schedules status dot lights up for the whole run.
+                        // Poll-style services (see BroadcastRunStart) opt out to avoid a per-tick flash
+                        // and raise the start themselves only when a real run begins.
+                        if (BroadcastRunStart)
+                        {
+                            ServiceExecutionStateChanged?.Invoke(ServiceName);
+                        }
+                        await ExecuteWorkAsync(stoppingToken);
+                        // Advance NextRunUtc now so the run-END broadcast carries the fresh next-run
+                        // instead of the just-elapsed one. The bottom-of-loop sleep re-sets this
+                        // authoritatively; this only keeps the END snapshot from shipping a stale
+                        // countdown. (Ignored by services like ScheduledPrefill whose card derives
+                        // timing elsewhere.)
+                        NextRunUtc = ComputeNextRun(ConfiguredCustomSchedule, ConfiguredInterval);
+                    },
+                    stoppingToken,
+                    "{ServiceName} error in scheduled work",
+                    () => ServiceExecutionStateChanged?.Invoke(ServiceName));
+
+                if (shuttingDown)
                 {
-                    // Shutdown - end the loop cleanly. A non-shutdown OCE (e.g. an inner
-                    // per-iteration timeout) falls through to the Exception handler below
-                    // instead of silently ending the service loop.
-                    shuttingDown = true;
                     break;
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "{ServiceName} error in scheduled work", ServiceName);
-                    runFailed = true;
-                    // The next attempt is the retry below, not the elapsed schedule - point the
-                    // countdown in the run-END broadcast at the retry deadline.
-                    NextRunUtc = DateTime.UtcNow + ErrorRetryDelay;
-                }
-                finally
-                {
-                    // A run that threw still ran, so it stamps here rather than after ExecuteWorkAsync:
-                    // the Schedules page reads this for "Last run", and the frontend also clears its
-                    // optimistic Run Now flag when this value moves. Stamping only on success left a
-                    // failed run's end-broadcast carrying an unchanged time, which held that button
-                    // disabled until a safety timeout expired. Shutdown is excluded because the work
-                    // never reached a terminal state - the service is stopping, not finishing.
-                    if (!shuttingDown)
-                    {
-                        LastRunUtc = DateTime.UtcNow;
-                    }
-                    IsCurrentlyExecuting = false;
-                    // Broadcast the end AFTER clearing the flag so GetAll() reports the run finished and
-                    // the dot clears - including on the failed-run path.
-                    ServiceExecutionStateChanged?.Invoke(ServiceName);
-                }
 
-                // Back off AFTER the finally above has cleared the flag and broadcast the end, so a
-                // failed run does not sit falsely "running" (green dot) for the whole retry delay.
                 if (runFailed)
                 {
-                    await SafeDelayAsync(ErrorRetryDelay, stoppingToken);
                     continue;
                 }
             }
@@ -309,33 +245,8 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                 sleepDuration = interval > TimeSpan.Zero ? interval : Timeout.InfiniteTimeSpan;
             }
 
-            CancellationTokenSource? linkedCts = null;
-            try
-            {
-                lock (_intervalLock)
-                {
-                    _intervalChangedCts?.Dispose();
-                    _intervalChangedCts = new CancellationTokenSource();
-                }
-
-                linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-                    stoppingToken, _intervalChangedCts!.Token);
-
-                await Task.Delay(sleepDuration, linkedCts.Token);
-            }
-            catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
-            {
-                // Interval was changed - loop back to check the new interval
-                _logger.LogDebug("{ServiceName} sleep interrupted by interval change", ServiceName);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            finally
-            {
-                linkedCts?.Dispose();
-            }
+            // On shutdown the delay returns and the while condition ends the loop.
+            await InterruptibleDelayAsync(sleepDuration, stoppingToken);
         }
 
         _logger.LogInformation("{ServiceName} scheduling loop stopped", ServiceName);
@@ -369,15 +280,5 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
     {
         await base.StopAsync(cancellationToken);
         await CleanupAsync(cancellationToken);
-    }
-
-    public override void Dispose()
-    {
-        lock (_intervalLock)
-        {
-            _intervalChangedCts?.Dispose();
-            _intervalChangedCts = null;
-        }
-        base.Dispose();
     }
 }

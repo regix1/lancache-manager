@@ -247,7 +247,7 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 result.Success = true;
                 result.ResolvedIps = resolvedIps;
-                result.IsPrivateIp = resolvedIps.Any(IsPrivateIp);
+                result.IsPrivateIp = resolvedIps.Any(StatusCheck.LancacheServerLocator.IsPrivateIp);
 
                 _logger.LogInformation("  {Domain} resolved to {IpAddresses}", domain, string.Join(", ", resolvedIps));
 
@@ -382,44 +382,6 @@ public abstract partial class PrefillDaemonServiceBase
         // For getent and ping, just find the first non-loopback IP
         ips.AddRange(ExtractIpsFromText(output, ipv4Pattern, ipv6Pattern));
         return FilterIps(ips);
-    }
-
-    /// <summary>
-    /// Checks if an IP address is in a private range (RFC 1918 or IPv6 ULA/link-local).
-    /// </summary>
-    private static bool IsPrivateIp(string ip)
-    {
-        if (string.IsNullOrEmpty(ip)) return false;
-        if (!IPAddress.TryParse(ip, out var address)) return false;
-
-        if (address.AddressFamily == AddressFamily.InterNetwork)
-        {
-            var bytes = address.GetAddressBytes();
-            var first = bytes[0];
-            var second = bytes[1];
-
-            // 10.0.0.0/8
-            if (first == 10) return true;
-
-            // 172.16.0.0/12
-            if (first == 172 && second >= 16 && second <= 31) return true;
-
-            // 192.168.0.0/16
-            if (first == 192 && second == 168) return true;
-
-            return false;
-        }
-
-        if (address.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            if (address.IsIPv6LinkLocal || address.IsIPv6SiteLocal) return true;
-
-            var bytes = address.GetAddressBytes();
-            // Unique local addresses (fc00::/7)
-            return (bytes[0] & 0xFE) == 0xFC;
-        }
-
-        return false;
     }
 
     private static List<string> ExtractIpsFromLine(string line, string ipv4Pattern, string ipv6Pattern)

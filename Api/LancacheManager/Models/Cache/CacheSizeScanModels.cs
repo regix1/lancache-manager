@@ -1,3 +1,4 @@
+using LancacheManager.Core.Interfaces;
 namespace LancacheManager.Models;
 
 /// <summary>

@@ -1,4 +1,6 @@
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
 
@@ -29,6 +31,31 @@ internal static class ServiceBreakdownMerger
     public static string NormalizeXboxService(string service)
     {
         return _xboxAliases.Contains(service) ? XboxCanonical : service;
+    }
+
+    /// <summary>
+    /// The per-service byte breakdown for a period: grouped in SQL over the given downloads
+    /// query, placeholder services filtered, xbox aliases folded. The one shared query behind
+    /// the dashboard batch and the stats endpoint.
+    /// </summary>
+    public static async Task<List<ServiceBreakdownItem>> QueryMergedAsync(
+        IQueryable<Download> downloadsQuery,
+        long periodTotal,
+        CancellationToken ct)
+    {
+        return MergeXboxRows(await downloadsQuery
+            .ApplyPlaceholderServiceFilter()
+            .GroupBy(d => d.Service)
+            .Select(g => new ServiceBreakdownItem
+            {
+                Service = g.Key,
+                Bytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                Percentage = periodTotal > 0
+                    ? (g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) * 100.0) / periodTotal
+                    : 0
+            })
+            .OrderByDescending(s => s.Bytes)
+            .ToListAsync(ct));
     }
 
     /// <summary>

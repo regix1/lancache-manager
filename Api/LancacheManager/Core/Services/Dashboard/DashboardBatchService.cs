@@ -329,19 +329,8 @@ public partial class DashboardBatchService : IDashboardBatchService
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
         query = query.ApplyHiddenClientFilter(hiddenClientIps);
         query = query.ApplyEvictedFilter(evictedMode);
-        if (statsExcludedOnlyIps.Count > 0)
-            query = query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
-
-        if (startTime.HasValue)
-        {
-            var startDate = startTime.Value.FromUnixSeconds();
-            query = query.Where(d => d.StartTimeUtc >= startDate);
-        }
-        if (endTime.HasValue)
-        {
-            var endDate = endTime.Value.FromUnixSeconds();
-            query = query.Where(d => d.StartTimeUtc <= endDate);
-        }
+        query = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+        query = query.ApplyTimeRange(startTime, endTime);
 
         // The GROUP BY and its client-side duration fold are shared with GET /api/stats/clients, so
         // the two surfaces cannot drift at the step above the shared ranking helper.
@@ -385,21 +374,9 @@ public partial class DashboardBatchService : IDashboardBatchService
             .ApplyEvictedFilter(evictedMode);
 
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
+        query = query.ApplyTimeRange(startTime, endTime);
 
-        if (startTime.HasValue)
-        {
-            var startDate = startTime.Value.FromUnixSeconds();
-            query = query.Where(d => d.StartTimeUtc >= startDate);
-        }
-        if (endTime.HasValue)
-        {
-            var endDate = endTime.Value.FromUnixSeconds();
-            query = query.Where(d => d.StartTimeUtc <= endDate);
-        }
-
-        var serviceStatsQuery = statsExcludedOnlyIps.Count > 0
-            ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
-            : query;
+        var serviceStatsQuery = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
 
         var serviceStats = await ServiceStatsQuery(serviceStatsQuery).ToListAsync(ct);
 
@@ -423,15 +400,10 @@ public partial class DashboardBatchService : IDashboardBatchService
 
         downloadsQuery = downloadsQuery.ApplyEventFilter(eventIdList, eventDownloadIds);
 
-        if (cutoffTime.HasValue)
-            downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
-        if (endDateTime.HasValue)
-            downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc <= endDateTime.Value);
+        downloadsQuery = downloadsQuery.ApplyTimeRange(startTime, endTime);
 
         // Calculate period metrics (exclude stats-excluded IPs)
-        var periodQuery = statsExcludedOnlyIps.Count > 0
-            ? downloadsQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
-            : downloadsQuery;
+        var periodQuery = downloadsQuery.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
 
         // Combined period aggregates: hitBytes + missBytes + count in ONE query (was 3 round trips)
         var periodAgg = await periodQuery
@@ -458,23 +430,19 @@ public partial class DashboardBatchService : IDashboardBatchService
         var activeQuery = context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode)
-            .Where(d => d.IsActive && d.EndTimeUtc > activeThreshold);
-        if (statsExcludedOnlyIps.Count > 0)
-            activeQuery = activeQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
+            .Where(d => d.IsActive && d.EndTimeUtc > activeThreshold)
+            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
         var activeDownloads = await activeQuery.CountAsync(ct);
 
         // Unique clients in period
-        var uniqueClientsQuery = statsExcludedOnlyIps.Count > 0
-            ? downloadsQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
-            : downloadsQuery;
+        var uniqueClientsQuery = downloadsQuery.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
         var uniqueClientsCount = await uniqueClientsQuery.Select(d => d.ClientIp).Distinct().CountAsync(ct);
 
         // Combined all-time aggregates: hitBytes + missBytes in ONE query (was 2 round trips)
         var allTimeQuery = context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
-            .ApplyEvictedFilter(evictedMode);
-        if (statsExcludedOnlyIps.Count > 0)
-            allTimeQuery = allTimeQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
+            .ApplyEvictedFilter(evictedMode)
+            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
 
         var allTimeAgg = await allTimeQuery
             .GroupBy(d => 1)
@@ -491,33 +459,11 @@ public partial class DashboardBatchService : IDashboardBatchService
         var cacheHitRatio = totalServed > 0 ? (totalHitBytes * 100.0) / totalServed : 0;
 
         // Service breakdown (also provides top service - no separate query needed)
-        // xboxlive and microsoft rows are folded into xbox after materialisation
-        var serviceBreakdown = ServiceBreakdownMerger.MergeXboxRows(await downloadsQuery
-            .ApplyPlaceholderServiceFilter()
-            .GroupBy(d => d.Service)
-            .Select(g => new ServiceBreakdownItem
-            {
-                Service = g.Key,
-                Bytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                Percentage = periodTotal > 0
-                    ? (g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) * 100.0) / periodTotal
-                    : 0
-            })
-            .OrderByDescending(s => s.Bytes)
-            .ToListAsync(ct));
+        var serviceBreakdown = await ServiceBreakdownMerger.QueryMergedAsync(downloadsQuery, periodTotal, ct);
 
         var topServiceName = serviceBreakdown.FirstOrDefault()?.Service ?? "N/A";
 
-        string periodLabel = "all";
-        if (cutoffTime.HasValue && endDateTime.HasValue)
-        {
-            var duration = endDateTime.Value - cutoffTime.Value;
-            periodLabel = duration.TotalHours <= 24 ? $"{(int)duration.TotalHours}h" : $"{(int)duration.TotalDays}d";
-        }
-        else if (cutoffTime.HasValue)
-        {
-            periodLabel = "since " + cutoffTime.Value.ToString("yyyy-MM-dd");
-        }
+        var periodLabel = DashboardPeriod.Label(cutoffTime, endDateTime);
 
         return new DashboardStatsResponse
         {
@@ -599,7 +545,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         }
 
         // Resolve game names via Steam depot mappings + Epic lookup
-        await EnrichGameNamesAsync(context, downloads, ct);
+        await GameNameResolver.ResolveAsync(context, downloads, ct);
 
         return downloads;
     }
@@ -660,9 +606,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             query = query.Where(d => d.StartTimeUtc <= endDateTime);
         }
 
-        var filteredQuery = statsExcludedOnlyIps.Count > 0
-            ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
-            : query;
+        var filteredQuery = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
 
         // Rows, not a GROUP BY: spreading a download's bytes over the buckets it was active in
         // needs each row's own window, which no per-bucket aggregate carries.
@@ -787,9 +731,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             query = query.Where(d => d.StartTimeUtc <= endDateTime);
         }
 
-        var filteredQuery = statsExcludedOnlyIps.Count > 0
-            ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
-            : query;
+        var filteredQuery = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
 
         // Rows, not a GROUP BY: spreading a download's bytes over the hours it was active needs
         // each row's own window, which no per-hour aggregate carries.
@@ -1096,90 +1038,5 @@ public partial class DashboardBatchService : IDashboardBatchService
             .Distinct()
             .ToListAsync(ct);
         return new HashSet<long>(ids);
-    }
-
-    /// <summary>
-    /// Resolve game names for downloads, filling blanks from the Steam depot, Epic and Xbox
-    /// mapping tables in that order and falling back to the service name.
-    /// </summary>
-    internal static async Task EnrichGameNamesAsync(AppDbContext context, List<Download> downloads, CancellationToken ct)
-    {
-        if (downloads.Count == 0) return;
-
-        // Build Steam depot mapping lookup for downloads with a DepotId
-        var depotIds = downloads
-            .Where(d => d.DepotId.HasValue)
-            .Select(d => d.DepotId!.Value)
-            .Distinct()
-            .ToList();
-
-        var steamMappingRows = depotIds.Count > 0
-            ? await context.SteamDepotMappings
-                .AsNoTracking()
-                .Where(m => m.IsOwner && depotIds.Contains(m.DepotId))
-                .ToListAsync(ct)
-            : [];
-        var steamMappings = steamMappingRows
-            .GroupBy(m => m.DepotId)
-            .ToDictionary(
-                group => group.Key,
-                SteamDepotMapping.SelectOwner);
-
-        // Build Epic game name lookup for Epic downloads
-        var epicAppIds = downloads
-            .Where(d => !string.IsNullOrEmpty(d.EpicAppId))
-            .Select(d => d.EpicAppId!)
-            .Distinct()
-            .ToList();
-
-        var epicMappings = epicAppIds.Count > 0
-            ? await context.EpicGameMappings
-                .AsNoTracking()
-                .Where(m => epicAppIds.Contains(m.AppId))
-                .ToDictionaryAsync(m => m.AppId, m => m.Name, ct)
-            : new Dictionary<string, string>();
-
-        // Build Xbox game name lookup for Xbox downloads (named-style: GameName from the shared
-        // XboxGameMapping catalog keyed by XboxProductId metadata).
-        var xboxProductIds = downloads
-            .Where(d => !string.IsNullOrEmpty(d.XboxProductId))
-            .Select(d => d.XboxProductId!)
-            .Distinct()
-            .ToList();
-
-        var xboxMappings = xboxProductIds.Count > 0
-            ? await context.XboxGameMappings
-                .AsNoTracking()
-                .Where(m => xboxProductIds.Contains(m.ProductId))
-                .ToDictionaryAsync(m => m.ProductId, m => m.Title, ct)
-            : new Dictionary<string, string>();
-
-        // Apply name resolution priority: existing GameName -> Steam AppName -> Epic Name -> Xbox Title -> fallback to Service
-        foreach (var d in downloads)
-        {
-            if (string.IsNullOrEmpty(d.GameName) && d.DepotId.HasValue
-                && steamMappings.TryGetValue(d.DepotId.Value, out var steamMapping))
-            {
-                d.GameName = steamMapping.AppName;
-                d.GameAppId = steamMapping.AppId;
-            }
-
-            if (string.IsNullOrEmpty(d.GameName) && !string.IsNullOrEmpty(d.EpicAppId)
-                && epicMappings.TryGetValue(d.EpicAppId, out var epicName))
-            {
-                d.GameName = epicName;
-            }
-
-            if (string.IsNullOrEmpty(d.GameName) && !string.IsNullOrEmpty(d.XboxProductId)
-                && xboxMappings.TryGetValue(d.XboxProductId, out var xboxTitle))
-            {
-                d.GameName = xboxTitle;
-            }
-
-            if (string.IsNullOrEmpty(d.GameName))
-            {
-                d.GameName = d.Service;
-            }
-        }
     }
 }

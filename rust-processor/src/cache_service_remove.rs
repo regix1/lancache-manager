@@ -13,7 +13,6 @@ use lancache_processor::cancel;
 use lancache_processor::db;
 use lancache_processor::log_purge;
 use lancache_processor::progress_events;
-use lancache_processor::progress_utils;
 use lancache_processor::removal_core;
 use log_purge::remove_log_entries_for_service;
 use progress_events::ProgressReporter;
@@ -62,20 +61,6 @@ struct Args {
     count_only: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProgressData {
-    status: String,
-    stage_key: String,
-    context: serde_json::Value,
-    #[serde(rename = "percentComplete")]
-    percent_complete: f64,
-    #[serde(rename = "filesProcessed")]
-    files_processed: usize,
-    #[serde(rename = "totalFiles")]
-    total_files: usize,
-    timestamp: String,
-}
 
 #[derive(Debug, Serialize)]
 struct RemovalReport {
@@ -128,47 +113,6 @@ fn cache_candidate_verified_for_deletion(
     }
 }
 
-fn write_progress(
-    progress_path: &Path,
-    reporter: &ProgressReporter,
-    status: &str,
-    stage_key: &str,
-    context: serde_json::Value,
-    percent_complete: f64,
-    files_processed: usize,
-    total_files: usize,
-) -> Result<()> {
-    let emit_context = context.clone();
-    let progress = ProgressData {
-        status: status.to_string(),
-        stage_key: stage_key.to_string(),
-        context,
-        percent_complete,
-        files_processed,
-        total_files,
-        timestamp: progress_utils::current_timestamp(),
-    };
-
-    progress_utils::write_progress_json(progress_path, &progress)?;
-
-    // File write above always precedes the stdout emit (mirrors cache_game_detect.rs's
-    // checkpoint ordering / removal_core.rs's write_progress), so a stdout-triggered C#
-    // file re-read is never stale.
-    match status {
-        "starting" => reporter.emit_started(stage_key, emit_context),
-        "completed" => reporter.emit_complete(stage_key, emit_context),
-        "failed" => {
-            let error_detail = emit_context
-                .get("errorDetail")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            reporter.emit_failed(stage_key, emit_context, error_detail);
-        }
-        _ => reporter.emit_progress(percent_complete, stage_key, emit_context),
-    }
-
-    Ok(())
-}
 
 /// Returns each unique URL for the service along with the max BytesServed observed for it,
 /// mirroring cache_steam_remove's (url, total_bytes) shape so the cache probe can derive a
@@ -215,7 +159,7 @@ async fn get_service_urls_from_db(pool: &PgPool, service: &str) -> Result<HashMa
 ///
 /// `remove_cache_files_for_service` deletes exactly this list, so `.len()` is the count of
 /// files a removal will delete and it reaches no delete loop. Deriving that number any other
-/// way would compute a cache key nginx never wrote. [6][7][8]
+/// way would compute a cache key nginx never wrote.
 fn collect_cache_digests(
     cache_dir: &Path,
     service: &str,
@@ -384,7 +328,7 @@ fn remove_cache_files_for_service(
                 if should_write {
                     let overall_percent = 10.0 + (checked as f64 / total_paths as f64) * 60.0;
                     let del_count = deleted_files.load(Ordering::Relaxed);
-                    let _ = write_progress(progress_path, reporter, "removing_cache", "signalr.serviceRemove.cache.file.progress", json!({ "n": del_count, "total": total_paths }), overall_percent, del_count, total_paths);
+                    let _ = removal_core::write_progress(progress_path, reporter, "removing_cache", "signalr.serviceRemove.cache.file.progress", json!({ "n": del_count, "total": total_paths }), overall_percent, del_count, total_paths);
                 }
             }
         }
@@ -478,10 +422,10 @@ async fn main() -> Result<()> {
     } else {
         "signalr.serviceRemove.starting.default"
     };
-    write_progress(&progress_path, &reporter, "starting", starting_stage_key, json!({ "service": service }), 0.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "starting", starting_stage_key, json!({ "service": service }), 0.0, 0, 0)?;
 
     // Step 1: Get all URLs for this service from database
-    write_progress(&progress_path, &reporter, "querying_database", "signalr.serviceRemove.db.querying", json!({}), 5.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "querying_database", "signalr.serviceRemove.db.querying", json!({}), 5.0, 0, 0)?;
     let urls = get_service_urls_from_db(&pool, service).await?;
 
     // A count run stops here. It walks the same list a removal would walk, reports how many of
@@ -505,7 +449,7 @@ async fn main() -> Result<()> {
                 cache_files_found,
             })?,
         )?;
-        write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.counting.complete", json!({ "files": cache_files_found, "service": service }), 100.0, cache_files_found, cache_files_found)?;
+        removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.counting.complete", json!({ "files": cache_files_found, "service": service }), 100.0, cache_files_found, cache_files_found)?;
 
         eprintln!("Cache files found: {}", cache_files_found);
         return Ok(());
@@ -513,13 +457,13 @@ async fn main() -> Result<()> {
 
     if urls.is_empty() {
         eprintln!("No URLs found for service '{}'", service);
-        write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.noUrls", json!({}), 100.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.noUrls", json!({}), 100.0, 0, 0)?;
         return Ok(());
     }
 
     // Step 2: Remove cache files
     let url_count = urls.len();
-    write_progress(&progress_path, &reporter, "removing_cache", "signalr.serviceRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, url_count)?;
+    removal_core::write_progress(&progress_path, &reporter, "removing_cache", "signalr.serviceRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, url_count)?;
     let (
         cache_files_deleted,
         total_bytes_freed,
@@ -538,7 +482,7 @@ async fn main() -> Result<()> {
     // C# re-runs reconciliation/detection after a cancelled remove.
     if cancel::is_cancelled() {
         eprintln!("Cancellation confirmed — flushing partial progress and exiting.");
-        let _ = write_progress(
+        let _ = removal_core::write_progress(
             &progress_path,
             &reporter,
             "removing_cache",
@@ -561,7 +505,7 @@ async fn main() -> Result<()> {
     }
 
     // Step 3: Remove log entries
-    write_progress(&progress_path, &reporter, "removing_logs", "signalr.serviceRemove.logs.removing", json!({}), 70.0, cache_files_deleted, url_count)?;
+    removal_core::write_progress(&progress_path, &reporter, "removing_logs", "signalr.serviceRemove.logs.removing", json!({}), 70.0, cache_files_deleted, url_count)?;
     let url_set: HashSet<String> = urls.keys().cloned().collect();
     let stem_positions = args
         .stem_positions
@@ -577,14 +521,10 @@ async fn main() -> Result<()> {
     // CRITICAL: Check for permission errors before deleting database records
     let total_permission_errors = cache_permission_errors + log_permission_errors;
     if total_permission_errors > 0 {
-        let puid = std::env::var("PUID").unwrap_or_else(|_| "1000".to_string());
-        let pgid = std::env::var("PGID").unwrap_or_else(|_| "1000".to_string());
-        let error_msg = format!(
-            "ABORTED: Cannot delete database records because {} file(s) could not be modified due to permission errors. \
-            This is likely caused by incorrect PUID/PGID settings. The lancache container is configured to run as UID/GID {}:{}. \
-            Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership. \
-            Cache permission errors: {}, Log permission errors: {}",
-            total_permission_errors, puid, pgid, cache_permission_errors, log_permission_errors
+        let error_msg = removal_core::permission_error_message(
+            total_permission_errors,
+            cache_permission_errors,
+            log_permission_errors,
         );
         eprintln!("\n{}", error_msg);
         // The log purge already ran, so its counts must reach the host even though this run
@@ -606,7 +546,7 @@ async fn main() -> Result<()> {
     }
 
     // Step 4: Delete database records (only if no permission errors)
-    write_progress(&progress_path, &reporter, "removing_database", "signalr.serviceRemove.db.deleting", json!({}), 90.0, cache_files_deleted, url_count)?;
+    removal_core::write_progress(&progress_path, &reporter, "removing_database", "signalr.serviceRemove.db.deleting", json!({}), 90.0, cache_files_deleted, url_count)?;
     let database_entries_deleted = delete_service_from_database(&pool, service).await?;
 
     // Success report for the C# host. The stderr summary below stays as its fallback parse,
@@ -622,7 +562,7 @@ async fn main() -> Result<()> {
     };
     write_removal_report(&output_json, &report)?;
 
-    write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.complete", json!({ "files": cache_files_deleted, "gb": total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": log_entries_removed, "dbRecords": database_entries_deleted, "service": service }), 100.0, cache_files_deleted, url_count)?;
+    removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.complete", json!({ "files": cache_files_deleted, "gb": total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": log_entries_removed, "dbRecords": database_entries_deleted, "service": service }), 100.0, cache_files_deleted, url_count)?;
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Service: {}", service);

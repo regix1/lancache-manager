@@ -47,6 +47,26 @@ pub struct NamedDownloadRecord {
     pub(crate) bytes_served: i64,
 }
 
+/// Shared by the sampling and no-limit paths so the two cannot drift apart - they diverge only
+/// at the GROUP BY/ORDER BY pushed later.
+///
+/// The DISTINCT ON subquery reduces SteamDepotMappings to one owner row per depot before the
+/// join: the unique index is (DepotId, AppId) and IsOwner is a plain column, so a depot can
+/// carry several IsOwner = true rows (prefill used to claim shared and DLC depots another app
+/// already owned). Joining the raw table would return each log row once per owning app, and
+/// every one of those apps would then probe and count the same cache files. The tie-break
+/// matches SteamDepotMapping.SelectOwner on the C# side: a non-Prefill source wins (false
+/// orders before true; Source is non-null, defaulting to 'observed'), then the lowest AppId.
+const MAPPED_GAME_QUERY_BASE: &str = r#"SELECT le."Service", sdm."AppId", COALESCE(sdm."AppName", sdm."DepotName", 'App ' || sdm."AppId"), le."Url", le."DepotId", MAX(le."BytesServed")
+ FROM "LogEntries" le
+ INNER JOIN (
+     SELECT DISTINCT ON ("DepotId") "DepotId", "AppId", "AppName", "DepotName"
+     FROM "SteamDepotMappings"
+     WHERE "IsOwner" = true AND "AppId" IS NOT NULL
+     ORDER BY "DepotId", ("Source" = 'Prefill'), "AppId"
+ ) sdm ON le."DepotId" = sdm."DepotId"
+ WHERE le."Url" IS NOT NULL"#;
+
 /// Returns the per-game record map directly. Rows are streamed off the connection straight
 /// into the map: fetch_all would buffer every GROUP BY row (one per unique URL, millions on a
 /// large library) as PgRows and then again as a flat Vec before grouping.
@@ -98,22 +118,10 @@ pub async fn query_game_downloads(
     // largest observed byte size for that URL — the value that sizes the probe chunk count.
     // (The no-limit branch was previously SELECT DISTINCT over the same column set; GROUP BY
     // over that exact set is equivalent for row identity while letting us aggregate bytes.)
-    let mut mapped_query = if let Some(limit) = max_urls_per_game {
+    if let Some(limit) = max_urls_per_game {
         eprintln!("Using sampling strategy: max {} URLs per game", limit);
-        QueryBuilder::<Postgres>::new(
-            "SELECT le.\"Service\", sdm.\"AppId\", COALESCE(sdm.\"AppName\", sdm.\"DepotName\", 'App ' || sdm.\"AppId\"), le.\"Url\", le.\"DepotId\", MAX(le.\"BytesServed\")
-             FROM \"LogEntries\" le
-             INNER JOIN \"SteamDepotMappings\" sdm ON le.\"DepotId\" = sdm.\"DepotId\"
-             WHERE sdm.\"AppId\" IS NOT NULL AND le.\"Url\" IS NOT NULL AND sdm.\"IsOwner\" = true",
-        )
-    } else {
-        QueryBuilder::<Postgres>::new(
-            "SELECT le.\"Service\", sdm.\"AppId\", COALESCE(sdm.\"AppName\", sdm.\"DepotName\", 'App ' || sdm.\"AppId\"), le.\"Url\", le.\"DepotId\", MAX(le.\"BytesServed\")
-             FROM \"LogEntries\" le
-             INNER JOIN \"SteamDepotMappings\" sdm ON le.\"DepotId\" = sdm.\"DepotId\"
-             WHERE sdm.\"AppId\" IS NOT NULL AND le.\"Url\" IS NOT NULL AND sdm.\"IsOwner\" = true",
-        )
-    };
+    }
+    let mut mapped_query = QueryBuilder::<Postgres>::new(MAPPED_GAME_QUERY_BASE);
 
     if !excluded_game_ids.is_empty() {
         mapped_query.push(" AND sdm.\"AppId\" NOT IN (");
@@ -501,4 +509,36 @@ pub async fn unevict_downloads(pool: &PgPool, download_ids: &[i64]) -> Result<u6
         .await
         .with_context(|| "Failed to un-evict re-cached downloads")?;
     Ok(result.rows_affected())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pins the query's source text because the invariant lives in the SQL itself: the unique
+    /// index on SteamDepotMappings is (DepotId, AppId) and IsOwner is a plain column, so one
+    /// depot can carry several IsOwner = true rows (prefill used to claim shared and DLC depots
+    /// another app already owned). Joining the raw table hands each log row to every owning
+    /// app, and every one of those apps then probes and counts the same cache files.
+    #[test]
+    fn mapped_game_query_picks_one_owner_per_depot() {
+        // One owner per depot, chosen before the join.
+        assert!(
+            MAPPED_GAME_QUERY_BASE.contains(r#"SELECT DISTINCT ON ("DepotId")"#),
+            "mapped-game query must reduce SteamDepotMappings to one owner row per depot before joining"
+        );
+        // Same tie-break as SteamDepotMapping.SelectOwner: a non-Prefill source wins
+        // (false orders before true), then the lowest AppId.
+        assert!(
+            MAPPED_GAME_QUERY_BASE
+                .contains(r#"ORDER BY "DepotId", ("Source" = 'Prefill'), "AppId""#),
+            "owner tie-break must match SteamDepotMapping.SelectOwner"
+        );
+        // The owner gate stays inside the subquery so the mapped branch still claims exactly
+        // the depots the unknown branch's NOT EXISTS (IsOwner = true) excludes.
+        assert!(
+            MAPPED_GAME_QUERY_BASE.contains(r#""IsOwner" = true AND "AppId" IS NOT NULL"#),
+            "owner filter must live in the per-depot subquery"
+        );
+    }
 }

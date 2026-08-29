@@ -925,9 +925,6 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
         return IsPrivateIp(ip) || IPAddress.IsLoopback(address);
     }
 
-    /// <summary>Same private-range classification as <c>PrefillDaemonServiceBase.IsPrivateIp</c>
-    /// (a small, self-contained helper - not worth extracting given the risk-containment decision
-    /// not to touch that file).</summary>
     /// <summary>A deliberate DNS blackhole answer (0.0.0.0 or ::). Upstream blocklists and
     /// lancache-dns use it to block un-cacheable endpoints (e.g. Nintendo's telemetry receiver
     /// receive-lp1.dg.srv.nintendo.net). Traffic to it goes nowhere, so it must never be
@@ -939,6 +936,8 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
                (address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any));
     }
 
+    /// <summary>Private-range classification (RFC 1918, IPv6 ULA/link-local). The single shared
+    /// copy: prefill diagnostics, hostname resolution and the status checks all call this.</summary>
     internal static bool IsPrivateIp(string ip)
     {
         if (string.IsNullOrEmpty(ip) || !IPAddress.TryParse(ip, out var address))

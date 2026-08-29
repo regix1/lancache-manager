@@ -114,10 +114,15 @@ public sealed class UnknownGameResolutionService
                     depotToGameFromDownloads.Count);
             }
 
-            var depotMappingsDict = await dbContext.SteamDepotMappings
+            var depotMappingRows = await dbContext.SteamDepotMappings
                 .Where(m => unknownDepotIds.Contains(m.DepotId) && m.IsOwner && m.AppName != null)
                 .AsNoTracking()
-                .ToDictionaryAsync(m => m.DepotId, cancellationToken);
+                .ToListAsync(cancellationToken);
+            // A depot can carry more than one owner row (prefill used to claim shared and DLC
+            // depots), so the winner is picked per depot instead of keyed directly.
+            var depotMappingsDict = depotMappingRows
+                .GroupBy(m => m.DepotId)
+                .ToDictionary(group => group.Key, SteamDepotMapping.SelectOwner);
 
             var resolvedAppIds = depotToGameFromDownloads.Values
                 .Select(d => d.GameAppId!.Value)

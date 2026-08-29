@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
@@ -68,180 +67,6 @@ public class StateService : IStateService
     }
 
     /// <summary>
-    /// Internal class used for JSON serialization with encrypted fields
-    /// </summary>
-    private class PersistedState
-    {
-        public LogProcessingState LogProcessing { get; set; } = new();
-        public DepotProcessingState DepotProcessing { get; set; } = new();
-        // CacheClearOperations moved to data/operations/cache_operations.json
-        // OperationStates moved to data/operations/operation_history.json
-        public bool SetupCompleted { get; set; } = false;
-        public DateTime? LastPicsCrawl { get; set; }
-        // Separate from LastPicsCrawl, which every mode stamps. See AppState.
-        public DateTime? LastFullPicsCrawl { get; set; }
-        public StatusCheckResult? StatusCheckResult { get; set; }
-        // User-selected DNS resolver mode for Status Check ("auto" | "bridge" | "host"). Default "auto".
-        public string StatusCheckResolverMode { get; set; } = "auto";
-        public DateTime? EpicMappingLastCollection { get; set; }
-        public double CrawlIntervalHours { get; set; } = 1.0;
-        public int TopGameCount { get; set; } = 50;
-        // Only applies when state.json has no stored value, i.e. a fresh install. See ManagerState.
-        public object CrawlIncrementalMode { get; set; } = "github";
-        public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
-        public bool HasDataLoaded { get; set; } = false;
-        public bool HasProcessedLogs { get; set; } = false;
-        // null = no UI override; SessionService.GetGuestDurationHours() falls back to env/appsettings.
-        public int? GuestSessionDurationHours { get; set; }
-        public bool GuestModeLocked { get; set; } = false;
-        public string? DefaultGuestTheme { get; set; } = "dark-default";
-        public string RefreshRate { get; set; } = "STANDARD";
-        public string DefaultGuestRefreshRate { get; set; } = "STANDARD";
-        public bool GuestRefreshRateLocked { get; set; } = true;
-
-        // Default guest preferences
-        public bool DefaultGuestUseLocalTimezone { get; set; } = false;
-        public bool DefaultGuestUseUtcTimezone { get; set; } = false;
-        public bool DefaultGuestUse24HourFormat { get; set; } = true;
-        public bool DefaultGuestSharpCorners { get; set; } = false;
-        public bool DefaultGuestDisableTooltips { get; set; } = false;
-        public bool DefaultGuestShowDatasourceLabels { get; set; } = true;
-
-        // Allowed time formats for guests
-        public List<string> AllowedTimeFormats { get; set; } = new(TimeFormats.All);
-
-        // Marks that the one-time offer of "utc" to installs that predate it has run. Persisted so a
-        // restart never reruns it and cannot put "utc" back after an admin removes it on purpose.
-        public bool UtcTimeFormatMigrated { get; set; } = false;
-
-        // Guest prefill permissions
-        public bool GuestPrefillEnabledByDefault { get; set; } = false;
-        public int GuestPrefillDurationHours { get; set; } = 2;
-
-        // Validity window (days) for a persistent admin login before re-login is required.
-        // Default 90. Allowed range 1-365. See StateService.GetAdminPersistentLoginValidityDays.
-        public int AdminPersistentLoginValidityDays { get; set; } = 90;
-
-        // Prefill panel default settings
-        public List<string> DefaultPrefillOperatingSystems { get; set; } = new() { "windows", "linux", "macos" };
-        public string DefaultPrefillMaxConcurrency { get; set; } = "default";
-
-        // Max thread count limit for guest users (null = no limit)
-        public int? DefaultGuestMaxThreadCount { get; set; } = null;
-
-        // Epic prefill settings
-        public bool EpicGuestPrefillEnabledByDefault { get; set; } = false;
-        public int EpicGuestPrefillDurationHours { get; set; } = 2;
-        public int? EpicDefaultGuestMaxThreadCount { get; set; } = null;
-        public string EpicDefaultPrefillMaxConcurrency { get; set; } = "default";
-
-        // Battle.net prefill settings (anonymous service)
-        public bool BattleNetGuestPrefillEnabledByDefault { get; set; } = false;
-        public int BattleNetGuestPrefillDurationHours { get; set; } = 2;
-
-        // Riot prefill settings (anonymous service)
-        public bool RiotGuestPrefillEnabledByDefault { get; set; } = false;
-        public int RiotGuestPrefillDurationHours { get; set; } = 2;
-
-        // Xbox prefill settings (login-required service - mirrors Epic, has a thread limit)
-        public bool XboxGuestPrefillEnabledByDefault { get; set; } = false;
-        public int XboxGuestPrefillDurationHours { get; set; } = 2;
-        public int? XboxDefaultGuestMaxThreadCount { get; set; } = null;
-
-        // PICS viability check caching
-        public bool RequiresFullScan { get; set; } = false;
-        public DateTime? LastViabilityCheck { get; set; }
-        public uint LastViabilityCheckChangeNumber { get; set; } = 0;
-        public uint ViabilityChangeGap { get; set; } = 0;
-
-        // Metrics authentication toggle (null = use env var default)
-        public bool? RequireAuthForMetrics { get; set; } = null;
-
-        // Client IPs to exclude from stats calculations
-        public List<string> ExcludedClientIps { get; set; } = new();
-
-        // Client IP exclusion rules (mode controls stats-only vs hide)
-        public List<ClientExclusionRule> ExcludedClientRules { get; set; } = new();
-
-        // Evicted data display mode (show/hide/showClean/remove).
-        // Stored as the wire string ("show"/"hide"/"showClean"/"remove") for backward
-        // compatibility with older state.json files; parsed into
-        // <see cref="LancacheManager.Models.EvictedDataMode"/> when loaded.
-        public string EvictedDataMode { get; set; } = LancacheManager.Models.EvictedDataMode.Show.ToWireString();
-
-        // Whether the eviction scan shows the universal notification bar
-        public bool EvictionScanNotifications { get; set; } = false;
-
-        // Marks that the one-time legacy-to-per-service notification-mode migration has run.
-        // Persisted so the migration never reruns on restart and cannot overwrite a mode the
-        // user later selected (or a Reset-to-Defaults that intentionally cleared the per-service key).
-        public bool EvictionNotificationsMigrated { get; set; } = false;
-
-        // Whether the eviction scan also deletes orphaned downloads (rows with no log
-        // entries - they produce no probe keys, so the scan can never verify them and
-        // they linger in stats forever). Opt-in because clearing a service's logs also
-        // orphans its genuine download history.
-        public bool PruneOrphanedDownloads { get; set; } = false;
-
-        // Whether client addresses are looked up on the network's DNS server and shown by name
-        public bool ClientHostnameLookup { get; set; } = false;
-
-        // The DNS server an admin named for those lookups, asked before any that were discovered.
-        // Null means discover one from the host's network configuration and Docker.
-        public string? ClientHostnameResolver { get; set; }
-        public bool ClientHostnameGuestAccess { get; set; } = false;
-        public bool ClientHostnameRouterLookup { get; set; } = true;
-        public bool ClientHostnameDockerLookup { get; set; } = true;
-
-        // Setup wizard state
-        public string? CurrentSetupStep { get; set; }
-        public string? DataSourceChoice { get; set; }
-        public string? CompletedPlatforms { get; set; }
-
-        // Per-service interval overrides (keyed by ServiceKey, value in hours)
-        public Dictionary<string, double> ServiceIntervals { get; set; } = new();
-
-        // Positive per-datasource cache-size limits in bytes.
-        public Dictionary<string, long> DatasourceCacheSizeOverrides { get; set; } = new();
-
-        // Per-service "run on startup" overrides (keyed by ServiceKey).
-        // Absent key = use the service's hardcoded DefaultRunOnStartup.
-        public Dictionary<string, bool> ServiceRunOnStartup { get; set; } = new();
-
-        // Per-service notification-mode overrides (keyed by ServiceKey).
-        // Absent key = use the service's hardcoded DefaultNotificationMode.
-        public Dictionary<string, NotificationMode> ServiceNotificationMode { get; set; } = new();
-
-        // Per-service custom schedules (keyed by ServiceKey). Absent key = the service runs on its
-        // interval. A state.json written before this existed deserializes the property to an empty
-        // map, which is exactly "no service has one".
-        public Dictionary<string, CustomSchedule> ServiceCustomSchedule { get; set; } = new();
-
-        // Per-service notification-DISPLAY-mode overrides (keyed by ServiceKey): full card vs condensed
-        // status line. Absent key = Full - pure UI display state, no per-service compiled default.
-        public Dictionary<string, NotificationDisplayMode> ServiceNotificationDisplayMode { get; set; } = new();
-
-        // Scheduled prefill config (per-service settings + per-run runtime guards).
-        // Nullable on disk so a pre-feature state.json deserializes to null and is migrated to a
-        // default-constructed config on load. The schedule INTERVAL is NOT here; it lives in
-        // ServiceIntervals["scheduledPrefill"] (hours) like every other ConfigurableScheduledService.
-        public ScheduledPrefillConfigDto? ScheduledPrefill { get; set; }
-
-        // Per-service scheduled-prefill last-run timestamps (UTC), keyed by PrefillPlatform name.
-        // Schedule basis (anchor + due-check), NOT the display "last run".
-        public Dictionary<string, DateTime> ScheduledPrefillServiceLastRunUtc { get; set; } = new();
-
-        // Per-service timestamp of the last GENUINE run (real prefill engaged), keyed by PrefillPlatform
-        // name. Stamped only on a real run, so the schedule view shows "Never" until a service truly ran.
-        public Dictionary<string, DateTime> ScheduledPrefillServiceLastActualRunUtc { get; set; } = new();
-
-        // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
-        // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public SteamAuthState? SteamAuth { get; set; }
-    }
-
-    /// <summary>
     /// Gets the current application state (with decrypted sensitive fields)
     /// </summary>
     public AppState GetState()
@@ -268,10 +93,10 @@ public class StateService : IStateService
                 if (File.Exists(_stateFilePath))
                 {
                     var json = File.ReadAllText(_stateFilePath);
-                    PersistedState persisted;
+                    AppState persisted;
                     try
                     {
-                        persisted = JsonSerializer.Deserialize<PersistedState>(json) ?? new PersistedState();
+                        persisted = JsonSerializer.Deserialize<AppState>(json) ?? new AppState();
                     }
                     catch (JsonException ex)
                     {
@@ -283,8 +108,8 @@ public class StateService : IStateService
                         loadedWithSectionRecovery = true;
                     }
 
-                    // Convert persisted state to app state, decrypting sensitive fields
-                    _cachedState = FromPersisted(persisted);
+                    // Repair legacy/null blocks and decrypt sensitive fields on the loaded state
+                    _cachedState = NormalizeLoadedState(persisted);
                     CleanupStaleOperations(_cachedState);
 
                     // Migrate Steam auth data to separate file (one-time migration)
@@ -373,8 +198,8 @@ public class StateService : IStateService
             {
                 state.LastUpdated = DateTime.UtcNow;
 
-                // Convert to persisted state with encrypted sensitive fields
-                var persisted = ToPersisted(state);
+                // Serialize a copy whose sensitive/derived fields are in their wire form
+                var persisted = PrepareWireState(state);
 
                 var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
 
@@ -1633,7 +1458,7 @@ public class StateService : IStateService
     // main deserialize. A future [JsonPropertyName] or naming-policy change can't silently desync the two
     // paths, and a newly added persisted field is bound automatically rather than dropped.
     private static readonly JsonPropertyInfo[] _persistedStateSections =
-        JsonSerializerOptions.Default.GetTypeInfo(typeof(PersistedState)).Properties
+        JsonSerializerOptions.Default.GetTypeInfo(typeof(AppState)).Properties
             .Where(section => section.Set is not null)
             .ToArray();
 
@@ -1651,12 +1476,48 @@ public class StateService : IStateService
     }
 
     /// <summary>
+    /// Binds one TOP-LEVEL section through a single-property wrapper deserialize of
+    /// <see cref="AppState"/>, so property-level attributes (the enum wire converters,
+    /// most importantly) apply exactly as they do on a whole-file deserialize. The nested
+    /// dictionary-entry and compound-member salvage keep binding bare types via
+    /// <see cref="TryBindJsonValue"/>, where no property attributes exist.
+    /// </summary>
+    private static JsonBindOutcome TryBindSectionValue(JsonPropertyInfo section, JsonNode? node, out object? value, out JsonException? error)
+    {
+        value = null;
+        error = null;
+
+        if (node is null)
+        {
+            // Explicit JSON null: valid only for a nullable/reference target; a null on a non-nullable value
+            // type is itself an invalid value. (The enum wire converters accept null on a whole-file
+            // deserialize and fall back to their defaults, which is also what the NullRejected path keeps.)
+            return !section.PropertyType.IsValueType || Nullable.GetUnderlyingType(section.PropertyType) is not null
+                ? JsonBindOutcome.Bound
+                : JsonBindOutcome.NullRejected;
+        }
+
+        try
+        {
+            var wrapper = new JsonObject { [section.Name] = node.DeepClone() };
+            var probe = wrapper.Deserialize<AppState>(JsonSerializerOptions.Default)!;
+            value = section.Get!(probe);
+            return JsonBindOutcome.Bound;
+        }
+        catch (JsonException ex)
+        {
+            error = ex;
+            return JsonBindOutcome.Failed;
+        }
+    }
+
+    /// <summary>
     /// Binds a single JSON node to <paramref name="targetType"/> using the SAME options and null semantics as
-    /// the main deserialize, without storing anything. This is the one shared bind kernel behind the section
-    /// loop, the compound-member salvage, and the dictionary-entry salvage; each caller maps the outcome to its
-    /// own failure accounting (per-section warning, dropped-member count, dropped-entry count). On
-    /// <see cref="JsonBindOutcome.Bound"/>, <paramref name="value"/> is the result to store (null only for an
-    /// explicit JSON null on a nullable/reference target).
+    /// the main deserialize, without storing anything. The bare-type bind kernel behind the compound-member
+    /// salvage and the dictionary-entry salvage; each caller maps the outcome to its own failure accounting
+    /// (dropped-member count, dropped-entry count). On <see cref="JsonBindOutcome.Bound"/>,
+    /// <paramref name="value"/> is the result to store (null only for an explicit JSON null on a
+    /// nullable/reference target).
     /// </summary>
     private static JsonBindOutcome TryBindJsonValue(JsonNode? node, Type targetType, out object? value, out JsonException? error)
     {
@@ -1696,7 +1557,7 @@ public class StateService : IStateService
     /// recoverable per-section, so <paramref name="originalError"/> (the whole-file deserialize failure) is
     /// re-thrown to let the caller's outer fallback handle it exactly as before.
     /// </summary>
-    private PersistedState DeserializePersistedStateWithSectionIsolation(string json, JsonException originalError)
+    private AppState DeserializePersistedStateWithSectionIsolation(string json, JsonException originalError)
     {
         JsonObject root;
         try
@@ -1715,7 +1576,7 @@ public class StateService : IStateService
         // Only warn about per-section recovery once we know the file is structurally recoverable.
         _logger.LogWarning(originalError, "State file has an invalid section; recovering per-section so only the corrupt block(s) reset");
 
-        var result = new PersistedState();
+        var result = new AppState();
         foreach (var section in _persistedStateSections)
         {
             if (!root.TryGetPropertyValue(section.Name, out var node))
@@ -1724,7 +1585,7 @@ public class StateService : IStateService
                 continue;
             }
 
-            switch (TryBindJsonValue(node, section.PropertyType, out var value, out var error))
+            switch (TryBindSectionValue(section, node, out var value, out var error))
             {
                 case JsonBindOutcome.Bound:
                     // Store an explicit null (nullable target) and any deserialized value. A non-null node
@@ -1774,7 +1635,7 @@ public class StateService : IStateService
     /// entry never discards the rest of the map. Returns false for a non-dictionary (or non-object) section
     /// so the caller applies the bare-default degrade instead.
     /// </summary>
-    private bool TrySalvageDictionarySection(JsonPropertyInfo section, JsonNode node, PersistedState target, JsonException originalError)
+    private bool TrySalvageDictionarySection(JsonPropertyInfo section, JsonNode node, AppState target, JsonException originalError)
     {
         if (node is not JsonObject map)
         {
@@ -1823,7 +1684,7 @@ public class StateService : IStateService
     /// the invalid one(s), so a single malformed field can't discard the entire cursor (e.g. every log
     /// position). Scoped to those durable cursors; any other object section keeps the bare-default degrade.
     /// </summary>
-    private bool TrySalvageCompoundSection(JsonPropertyInfo section, JsonNode node, PersistedState target, JsonException originalError)
+    private bool TrySalvageCompoundSection(JsonPropertyInfo section, JsonNode node, AppState target, JsonException originalError)
     {
         if (section.PropertyType != typeof(LogProcessingState) && section.PropertyType != typeof(DepotProcessingState))
         {
@@ -1877,10 +1738,10 @@ public class StateService : IStateService
     /// instead of the bare initializer. An invalid metrics-auth value degrades to "authentication required"
     /// (true) so a corrupt value can never silently weaken the policy to the fail-open configuration default.
     /// </summary>
-    private bool TryApplyFailClosedSecurityDefault(JsonPropertyInfo section, PersistedState target, JsonException originalError)
+    private bool TryApplyFailClosedSecurityDefault(JsonPropertyInfo section, AppState target, JsonException originalError)
     {
         // Identifies the metrics-auth toggle by its (attribute-free) persisted name.
-        if (section.Name != nameof(PersistedState.RequireAuthForMetrics))
+        if (section.Name != nameof(AppState.RequireAuthForMetrics))
         {
             return false;
         }
@@ -1929,254 +1790,79 @@ public class StateService : IStateService
     }
 
     /// <summary>
-    /// Converts persisted state (with encrypted fields) to app state (with decrypted fields)
+    /// Repairs a freshly deserialized state in place: null-coalesces list/map blocks a hand-edited
+    /// or ancient state.json may carry as JSON null, folds legacy exclusion IPs into rules,
+    /// validates the scheduled-prefill block, and decrypts the legacy SteamAuth token. The enum
+    /// wire formats are handled by the converters on <see cref="AppState"/> itself.
     /// </summary>
-    private AppState FromPersisted(PersistedState persisted)
+    private AppState NormalizeLoadedState(AppState state)
     {
-        var state = new AppState
+        state.DefaultGuestTheme ??= "dark-default";
+        state.AllowedTimeFormats ??= new List<string>(TimeFormats.All);
+        state.DefaultPrefillOperatingSystems ??= new List<string> { "windows", "linux", "macos" };
+        state.DefaultPrefillMaxConcurrency ??= "default";
+        state.EpicDefaultPrefillMaxConcurrency ??= "default";
+        state.ExcludedClientIps ??= new List<string>();
+        state.ExcludedClientRules = ResolveExcludedClientRules(state);
+        state.DatasourceCacheSizeOverrides = NormalizeDatasourceCacheSizeOverrides(state.DatasourceCacheSizeOverrides);
+        state.ServiceIntervals ??= new Dictionary<string, double>();
+        state.ServiceRunOnStartup ??= new Dictionary<string, bool>();
+        state.ServiceNotificationMode ??= new Dictionary<string, NotificationMode>();
+        state.ServiceCustomSchedule ??= new Dictionary<string, CustomSchedule>();
+        state.ServiceNotificationDisplayMode ??= new Dictionary<string, NotificationDisplayMode>();
+        state.ScheduledPrefill = ResolveScheduledPrefillConfig(
+            state.ScheduledPrefill,
+            GetLegacyScheduledPrefillInterval(state.ServiceIntervals));
+        state.ScheduledPrefillServiceLastRunUtc ??= new Dictionary<string, DateTime>();
+        state.ScheduledPrefillServiceLastActualRunUtc ??= new Dictionary<string, DateTime>();
+
+        // LEGACY: decrypt the migrated-away Steam auth token (present only in a pre-migration file)
+        if (state.SteamAuth != null)
         {
-            LogProcessing = persisted.LogProcessing,
-            DepotProcessing = persisted.DepotProcessing,
-            // CacheClearOperations loaded from separate file via GetCacheClearOperations()
-            // OperationStates loaded from separate file via GetOperationStates()
-            SetupCompleted = persisted.SetupCompleted,
-            LastPicsCrawl = persisted.LastPicsCrawl,
-            LastFullPicsCrawl = persisted.LastFullPicsCrawl,
-            StatusCheckResult = persisted.StatusCheckResult,
-            StatusCheckResolverMode = persisted.StatusCheckResolverMode,
-            EpicMappingLastCollection = persisted.EpicMappingLastCollection,
-            CrawlIntervalHours = persisted.CrawlIntervalHours,
-            TopGameCount = persisted.TopGameCount,
-            CrawlIncrementalMode = persisted.CrawlIncrementalMode,
-            LastUpdated = persisted.LastUpdated,
-            HasDataLoaded = persisted.HasDataLoaded,
-            HasProcessedLogs = persisted.HasProcessedLogs,
-            GuestSessionDurationHours = persisted.GuestSessionDurationHours,
-            GuestModeLocked = persisted.GuestModeLocked,
-            DefaultGuestTheme = persisted.DefaultGuestTheme ?? "dark-default",
-            RefreshRate = RefreshRateExtensions.TryParseWire(persisted.RefreshRate) ?? RefreshRate.Standard,
-            DefaultGuestRefreshRate = RefreshRateExtensions.TryParseWire(persisted.DefaultGuestRefreshRate) ?? RefreshRate.Standard,
-            GuestRefreshRateLocked = persisted.GuestRefreshRateLocked,
-            // Default guest preferences
-            DefaultGuestUseLocalTimezone = persisted.DefaultGuestUseLocalTimezone,
-            DefaultGuestUseUtcTimezone = persisted.DefaultGuestUseUtcTimezone,
-            DefaultGuestUse24HourFormat = persisted.DefaultGuestUse24HourFormat,
-            DefaultGuestSharpCorners = persisted.DefaultGuestSharpCorners,
-            DefaultGuestDisableTooltips = persisted.DefaultGuestDisableTooltips,
-            DefaultGuestShowDatasourceLabels = persisted.DefaultGuestShowDatasourceLabels,
-            AllowedTimeFormats = persisted.AllowedTimeFormats ?? new List<string>(TimeFormats.All),
-            // Restore the marker so the one-time UTC offer never reruns after a restart.
-            UtcTimeFormatMigrated = persisted.UtcTimeFormatMigrated,
-            // Guest prefill permissions
-            GuestPrefillEnabledByDefault = persisted.GuestPrefillEnabledByDefault,
-            GuestPrefillDurationHours = persisted.GuestPrefillDurationHours,
-            AdminPersistentLoginValidityDays = persisted.AdminPersistentLoginValidityDays,
-            // Prefill panel default settings
-            DefaultPrefillOperatingSystems = persisted.DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" },
-            DefaultPrefillMaxConcurrency = persisted.DefaultPrefillMaxConcurrency ?? "default",
-            DefaultGuestMaxThreadCount = persisted.DefaultGuestMaxThreadCount,
-            // Epic prefill settings
-            EpicGuestPrefillEnabledByDefault = persisted.EpicGuestPrefillEnabledByDefault,
-            EpicGuestPrefillDurationHours = persisted.EpicGuestPrefillDurationHours,
-            EpicDefaultGuestMaxThreadCount = persisted.EpicDefaultGuestMaxThreadCount,
-            EpicDefaultPrefillMaxConcurrency = persisted.EpicDefaultPrefillMaxConcurrency ?? "default",
-            // Battle.net prefill settings
-            BattleNetGuestPrefillEnabledByDefault = persisted.BattleNetGuestPrefillEnabledByDefault,
-            BattleNetGuestPrefillDurationHours = persisted.BattleNetGuestPrefillDurationHours,
-            // Riot prefill settings
-            RiotGuestPrefillEnabledByDefault = persisted.RiotGuestPrefillEnabledByDefault,
-            RiotGuestPrefillDurationHours = persisted.RiotGuestPrefillDurationHours,
-            // Xbox prefill settings
-            XboxGuestPrefillEnabledByDefault = persisted.XboxGuestPrefillEnabledByDefault,
-            XboxGuestPrefillDurationHours = persisted.XboxGuestPrefillDurationHours,
-            XboxDefaultGuestMaxThreadCount = persisted.XboxDefaultGuestMaxThreadCount,
-            // PICS viability check caching
-            RequiresFullScan = persisted.RequiresFullScan,
-            LastViabilityCheck = persisted.LastViabilityCheck,
-            LastViabilityCheckChangeNumber = persisted.LastViabilityCheckChangeNumber,
-            ViabilityChangeGap = persisted.ViabilityChangeGap,
-            // Metrics authentication toggle
-            RequireAuthForMetrics = persisted.RequireAuthForMetrics,
-            // Client IPs excluded from stats
-            ExcludedClientIps = persisted.ExcludedClientIps ?? new List<string>(),
-            ExcludedClientRules = ResolveExcludedClientRules(persisted),
-            // Evicted data display mode
-            EvictedDataMode = EvictedDataModeExtensions.TryParseWire(persisted.EvictedDataMode) ?? EvictedDataMode.Show,
-            // Eviction scan on startup
-            EvictionScanNotifications = persisted.EvictionScanNotifications,
-            // Restore the migration marker so the one-time seeding never reruns after a restart.
-            EvictionNotificationsMigrated = persisted.EvictionNotificationsMigrated,
-            PruneOrphanedDownloads = persisted.PruneOrphanedDownloads,
-            // Client hostname lookup
-            ClientHostnameLookup = persisted.ClientHostnameLookup,
-            ClientHostnameResolver = persisted.ClientHostnameResolver,
-            ClientHostnameGuestAccess = persisted.ClientHostnameGuestAccess,
-            ClientHostnameRouterLookup = persisted.ClientHostnameRouterLookup,
-            ClientHostnameDockerLookup = persisted.ClientHostnameDockerLookup,
-            // Setup wizard state
-            CurrentSetupStep = SetupStepExtensions.TryParseWire(persisted.CurrentSetupStep),
-            DataSourceChoice = DataSourceChoiceExtensions.TryParseWire(persisted.DataSourceChoice),
-            CompletedPlatforms = persisted.CompletedPlatforms,
-            // Per-service interval overrides
-            ServiceIntervals = persisted.ServiceIntervals ?? new Dictionary<string, double>(),
-            // Per-datasource cache-size overrides
-            DatasourceCacheSizeOverrides = NormalizeDatasourceCacheSizeOverrides(persisted.DatasourceCacheSizeOverrides),
-            // Per-service "run on startup" overrides
-            ServiceRunOnStartup = persisted.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
-            // Per-service notification-mode overrides
-            ServiceNotificationMode = persisted.ServiceNotificationMode ?? new Dictionary<string, NotificationMode>(),
-            // Per-service custom schedules
-            ServiceCustomSchedule = persisted.ServiceCustomSchedule ?? new Dictionary<string, CustomSchedule>(),
-            // Per-service notification-display-mode overrides
-            ServiceNotificationDisplayMode = persisted.ServiceNotificationDisplayMode ?? new Dictionary<string, NotificationDisplayMode>(),
-            // Scheduled prefill config: default-construct when missing (migration from pre-feature
-            // state.json), migrate older versions (seeding per-service IntervalHours from the legacy
-            // global value), and normalize an invalid persisted config back to defaults instead of
-            // crashing state load. All validation lives in ScheduledPrefillConfigFactory.
-            ScheduledPrefill = ResolveScheduledPrefillConfig(
-                persisted.ScheduledPrefill,
-                GetLegacyScheduledPrefillInterval(persisted.ServiceIntervals)),
-            // Per-service scheduled-prefill last-run timestamps
-            ScheduledPrefillServiceLastRunUtc = persisted.ScheduledPrefillServiceLastRunUtc ?? new Dictionary<string, DateTime>(),
-            // Per-service GENUINE last-run timestamps (the honest "Last run" the schedule view shows)
-            ScheduledPrefillServiceLastActualRunUtc = persisted.ScheduledPrefillServiceLastActualRunUtc ?? new Dictionary<string, DateTime>(),
-            // LEGACY: Only load SteamAuth if present (for migration from old state.json)
-            SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
-            {
-                Mode = persisted.SteamAuth.Mode,
-                Username = persisted.SteamAuth.Username,
-                // Decrypt sensitive fields (GuardData not used in modern auth)
-                RefreshToken = _encryption.Decrypt(persisted.SteamAuth.RefreshToken),
-                LastAuthenticated = persisted.SteamAuth.LastAuthenticated
-            } : null
-        };
+            state.SteamAuth.RefreshToken = _encryption.Decrypt(state.SteamAuth.RefreshToken);
+        }
 
         return state;
     }
 
     /// <summary>
-    /// Converts app state (with decrypted fields) to persisted state (with encrypted fields)
+    /// Builds the copy of <paramref name="state"/> that goes to disk: the legacy IP list rebuilt
+    /// from the rules, overrides normalized, the scheduled-prefill block validated, and the legacy
+    /// SteamAuth token encrypted. Works on a shallow clone so the cached in-memory state (decrypted
+    /// token included) is never mutated by a save.
     /// </summary>
-    private PersistedState ToPersisted(AppState state)
+    private AppState PrepareWireState(AppState state)
     {
-        var persisted = new PersistedState
-        {
-            LogProcessing = state.LogProcessing,
-            DepotProcessing = state.DepotProcessing,
-            // CacheClearOperations saved to separate file via SaveCacheClearOperations()
-            // OperationStates saved to separate file via SaveOperationStates()
-            SetupCompleted = state.SetupCompleted,
-            LastPicsCrawl = state.LastPicsCrawl,
-            LastFullPicsCrawl = state.LastFullPicsCrawl,
-            StatusCheckResult = state.StatusCheckResult,
-            StatusCheckResolverMode = state.StatusCheckResolverMode,
-            EpicMappingLastCollection = state.EpicMappingLastCollection,
-            CrawlIntervalHours = state.CrawlIntervalHours,
-            TopGameCount = state.TopGameCount,
-            CrawlIncrementalMode = state.CrawlIncrementalMode,
-            LastUpdated = state.LastUpdated,
-            HasDataLoaded = state.HasDataLoaded,
-            HasProcessedLogs = state.HasProcessedLogs,
-            GuestSessionDurationHours = state.GuestSessionDurationHours,
-            GuestModeLocked = state.GuestModeLocked,
-            DefaultGuestTheme = state.DefaultGuestTheme,
-            RefreshRate = state.RefreshRate.ToWireString(),
-            DefaultGuestRefreshRate = state.DefaultGuestRefreshRate.ToWireString(),
-            GuestRefreshRateLocked = state.GuestRefreshRateLocked,
-            // Default guest preferences
-            DefaultGuestUseLocalTimezone = state.DefaultGuestUseLocalTimezone,
-            DefaultGuestUseUtcTimezone = state.DefaultGuestUseUtcTimezone,
-            DefaultGuestUse24HourFormat = state.DefaultGuestUse24HourFormat,
-            DefaultGuestSharpCorners = state.DefaultGuestSharpCorners,
-            DefaultGuestDisableTooltips = state.DefaultGuestDisableTooltips,
-            DefaultGuestShowDatasourceLabels = state.DefaultGuestShowDatasourceLabels,
-            AllowedTimeFormats = state.AllowedTimeFormats,
-            // Persist the marker so a restart never reruns the one-time UTC offer.
-            UtcTimeFormatMigrated = state.UtcTimeFormatMigrated,
-            // Guest prefill permissions
-            GuestPrefillEnabledByDefault = state.GuestPrefillEnabledByDefault,
-            GuestPrefillDurationHours = state.GuestPrefillDurationHours,
-            AdminPersistentLoginValidityDays = state.AdminPersistentLoginValidityDays,
-            // Prefill panel default settings
-            DefaultPrefillOperatingSystems = state.DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" },
-            DefaultPrefillMaxConcurrency = state.DefaultPrefillMaxConcurrency ?? "default",
-            DefaultGuestMaxThreadCount = state.DefaultGuestMaxThreadCount,
-            // Epic prefill settings
-            EpicGuestPrefillEnabledByDefault = state.EpicGuestPrefillEnabledByDefault,
-            EpicGuestPrefillDurationHours = state.EpicGuestPrefillDurationHours,
-            EpicDefaultGuestMaxThreadCount = state.EpicDefaultGuestMaxThreadCount,
-            EpicDefaultPrefillMaxConcurrency = state.EpicDefaultPrefillMaxConcurrency ?? "default",
-            // Battle.net prefill settings
-            BattleNetGuestPrefillEnabledByDefault = state.BattleNetGuestPrefillEnabledByDefault,
-            BattleNetGuestPrefillDurationHours = state.BattleNetGuestPrefillDurationHours,
-            // Riot prefill settings
-            RiotGuestPrefillEnabledByDefault = state.RiotGuestPrefillEnabledByDefault,
-            RiotGuestPrefillDurationHours = state.RiotGuestPrefillDurationHours,
-            // Xbox prefill settings
-            XboxGuestPrefillEnabledByDefault = state.XboxGuestPrefillEnabledByDefault,
-            XboxGuestPrefillDurationHours = state.XboxGuestPrefillDurationHours,
-            XboxDefaultGuestMaxThreadCount = state.XboxDefaultGuestMaxThreadCount,
-            // PICS viability check caching
-            RequiresFullScan = state.RequiresFullScan,
-            LastViabilityCheck = state.LastViabilityCheck,
-            LastViabilityCheckChangeNumber = state.LastViabilityCheckChangeNumber,
-            ViabilityChangeGap = state.ViabilityChangeGap,
-            // Metrics authentication toggle
-            RequireAuthForMetrics = state.RequireAuthForMetrics,
-            // Client IPs excluded from stats (legacy)
-            ExcludedClientIps = BuildExcludedIpList(state.ExcludedClientRules, state.ExcludedClientIps),
-            ExcludedClientRules = state.ExcludedClientRules ?? new List<ClientExclusionRule>(),
-            // Evicted data display mode
-            EvictedDataMode = state.EvictedDataMode.ToWireString(),
-            // Eviction scan on startup
-            EvictionScanNotifications = state.EvictionScanNotifications,
-            // Persist the migration marker so a restart never reruns the one-time seeding.
-            EvictionNotificationsMigrated = state.EvictionNotificationsMigrated,
-            PruneOrphanedDownloads = state.PruneOrphanedDownloads,
-            // Client hostname lookup
-            ClientHostnameLookup = state.ClientHostnameLookup,
-            ClientHostnameResolver = state.ClientHostnameResolver,
-            ClientHostnameGuestAccess = state.ClientHostnameGuestAccess,
-            ClientHostnameRouterLookup = state.ClientHostnameRouterLookup,
-            ClientHostnameDockerLookup = state.ClientHostnameDockerLookup,
-            // Setup wizard state
-            CurrentSetupStep = state.CurrentSetupStep?.ToWireString(),
-            DataSourceChoice = state.DataSourceChoice?.ToWireString(),
-            CompletedPlatforms = state.CompletedPlatforms,
-            // Per-service interval overrides
-            ServiceIntervals = state.ServiceIntervals ?? new Dictionary<string, double>(),
-            // Per-datasource cache-size overrides
-            DatasourceCacheSizeOverrides = NormalizeDatasourceCacheSizeOverrides(state.DatasourceCacheSizeOverrides),
-            // Per-service "run on startup" overrides
-            ServiceRunOnStartup = state.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
-            // Per-service notification-mode overrides
-            ServiceNotificationMode = state.ServiceNotificationMode ?? new Dictionary<string, NotificationMode>(),
-            // Per-service custom schedules
-            ServiceCustomSchedule = state.ServiceCustomSchedule ?? new Dictionary<string, CustomSchedule>(),
-            // Per-service notification-display-mode overrides
-            ServiceNotificationDisplayMode = state.ServiceNotificationDisplayMode ?? new Dictionary<string, NotificationDisplayMode>(),
-            // Scheduled prefill config: validate (default-construct when missing) before persisting.
-            // The in-memory config is already current-version, so Migrate is a no-op here.
-            ScheduledPrefill = ResolveScheduledPrefillConfig(
-                state.ScheduledPrefill,
-                GetLegacyScheduledPrefillInterval(state.ServiceIntervals)),
-            // Per-service scheduled-prefill last-run timestamps
-            ScheduledPrefillServiceLastRunUtc = state.ScheduledPrefillServiceLastRunUtc ?? new Dictionary<string, DateTime>(),
-            // Per-service GENUINE last-run timestamps (the honest "Last run" the schedule view shows)
-            ScheduledPrefillServiceLastActualRunUtc = state.ScheduledPrefillServiceLastActualRunUtc ?? new Dictionary<string, DateTime>(),
-            // LEGACY: Only persist SteamAuth if not null (will be null after migration)
-            // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
-            SteamAuth = state.SteamAuth != null ? new SteamAuthState
+        var wire = state.ShallowClone();
+        wire.DefaultPrefillOperatingSystems = state.DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" };
+        wire.DefaultPrefillMaxConcurrency = state.DefaultPrefillMaxConcurrency ?? "default";
+        wire.EpicDefaultPrefillMaxConcurrency = state.EpicDefaultPrefillMaxConcurrency ?? "default";
+        wire.ExcludedClientIps = BuildExcludedIpList(state.ExcludedClientRules, state.ExcludedClientIps);
+        wire.ExcludedClientRules = state.ExcludedClientRules ?? new List<ClientExclusionRule>();
+        wire.DatasourceCacheSizeOverrides = NormalizeDatasourceCacheSizeOverrides(state.DatasourceCacheSizeOverrides);
+        wire.ServiceIntervals = state.ServiceIntervals ?? new Dictionary<string, double>();
+        wire.ServiceRunOnStartup = state.ServiceRunOnStartup ?? new Dictionary<string, bool>();
+        wire.ServiceNotificationMode = state.ServiceNotificationMode ?? new Dictionary<string, NotificationMode>();
+        wire.ServiceCustomSchedule = state.ServiceCustomSchedule ?? new Dictionary<string, CustomSchedule>();
+        wire.ServiceNotificationDisplayMode = state.ServiceNotificationDisplayMode ?? new Dictionary<string, NotificationDisplayMode>();
+        // The in-memory config is already current-version, so Migrate is a no-op here.
+        wire.ScheduledPrefill = ResolveScheduledPrefillConfig(
+            state.ScheduledPrefill,
+            GetLegacyScheduledPrefillInterval(state.ServiceIntervals));
+        wire.ScheduledPrefillServiceLastRunUtc = state.ScheduledPrefillServiceLastRunUtc ?? new Dictionary<string, DateTime>();
+        wire.ScheduledPrefillServiceLastActualRunUtc = state.ScheduledPrefillServiceLastActualRunUtc ?? new Dictionary<string, DateTime>();
+        // LEGACY: encrypt the token on a fresh object so the cached state keeps the decrypted one.
+        // JsonIgnore(WhenWritingNull) on the property excludes it from JSON once migrated away.
+        wire.SteamAuth = state.SteamAuth != null
+            ? new SteamAuthState
             {
                 Mode = state.SteamAuth.Mode,
                 Username = state.SteamAuth.Username,
-                // Encrypt sensitive fields (GuardData not used in modern auth)
                 RefreshToken = _encryption.Encrypt(state.SteamAuth.RefreshToken),
                 LastAuthenticated = state.SteamAuth.LastAuthenticated
-            } : null
-        };
-
-        return persisted;
+            }
+            : null;
+        return wire;
     }
 
     /// <summary>
@@ -2493,16 +2179,6 @@ public class StateService : IStateService
     public void SetClientHostnameDockerLookup(bool enabled)
     {
         UpdateState(state => state.ClientHostnameDockerLookup = enabled);
-    }
-
-    private static List<ClientExclusionRule> ResolveExcludedClientRules(PersistedState persisted)
-    {
-        if (persisted.ExcludedClientRules != null && persisted.ExcludedClientRules.Count > 0)
-        {
-            return NormalizeRules(persisted.ExcludedClientRules, persisted.ExcludedClientIps);
-        }
-
-        return NormalizeRules(null, persisted.ExcludedClientIps);
     }
 
     private static List<ClientExclusionRule> ResolveExcludedClientRules(AppState state)

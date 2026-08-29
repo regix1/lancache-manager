@@ -10,11 +10,13 @@ namespace LancacheManager.Infrastructure.Services.Base;
 /// notification preferences, run tracking, the manual-run flag the Schedules "Run Now" button sets,
 /// and the state-store load helper.
 ///
-/// The two loop implementations (<see cref="ScheduledBackgroundService"/> and
-/// <see cref="ConfigurableScheduledService"/>) keep their own interval storage and sleep handling,
-/// and each declares its own <see cref="DefaultRunOnStartup"/>: the two hierarchies ship different
-/// values, so this class leaves the property abstract rather than picking a default that would
-/// silently change startup behaviour for whichever hierarchy did not expect it.
+/// The interruptible-sleep machinery (the delay token source, the change flag and the wake calls)
+/// also lives here, shared by both loops; each loop keeps only its own interval STORAGE, guarded
+/// by the shared <see cref="IntervalLock"/>. The two loop implementations
+/// (<see cref="ScheduledBackgroundService"/> and <see cref="ConfigurableScheduledService"/>) each
+/// declare their own <see cref="DefaultRunOnStartup"/>: the two hierarchies ship different values,
+/// so this class leaves the property abstract rather than picking a default that would silently
+/// change startup behaviour for whichever hierarchy did not expect it.
 /// </summary>
 public abstract class ScheduledServiceBase : BackgroundService
 {
@@ -97,12 +99,89 @@ public abstract class ScheduledServiceBase : BackgroundService
         _logger.LogDebug("{ServiceName} immediate run triggered", ServiceName);
     }
 
+    // Shared interruptible-sleep machinery. Guards the delay token source AND each loop's own
+    // interval storage, so an interval change and the wake it triggers are seen together. The lock
+    // is reentrant, so callers that already hold it stay atomic.
+    private CancellationTokenSource? _intervalChangedCts;
+    protected object IntervalLock { get; } = new();
+    private volatile bool _intervalJustChanged;
+
     /// <summary>
-    /// Cancels the loop's current sleep so it wakes on the next iteration. Implemented by each loop
-    /// against its own delay token source; safe to call while already holding that loop's interval
-    /// lock, which is how an interval change stays atomic with the wake it triggers.
+    /// True when the current wake came from an interval or schedule change rather than the sleep
+    /// elapsing: the loop must skip work on that wake and re-sleep on the new value. Volatile via
+    /// the backing field, so the loop thread sees a change made on an HTTP thread.
     /// </summary>
-    protected abstract void CancelIntervalDelay();
+    protected bool IntervalJustChanged
+    {
+        get => _intervalJustChanged;
+        set => _intervalJustChanged = value;
+    }
+
+    /// <summary>
+    /// Cancels the loop's current sleep so it wakes on the next iteration. Safe to call while
+    /// already holding <see cref="IntervalLock"/>, which is how an interval change stays atomic
+    /// with the wake it triggers.
+    /// </summary>
+    protected void CancelIntervalDelay()
+    {
+        lock (IntervalLock)
+        {
+            try
+            {
+                _intervalChangedCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Already disposed - will be recreated on next loop iteration
+            }
+        }
+    }
+
+    /// <summary>
+    /// Delay that an interval change, schedule change or Run Now can interrupt. On interruption
+    /// (not a shutdown) it returns so the loop continues immediately and picks up the change; on
+    /// shutdown it returns and the loop's own stop-token check ends it.
+    /// </summary>
+    protected async Task InterruptibleDelayAsync(TimeSpan delay, CancellationToken stoppingToken)
+    {
+        CancellationTokenSource? linkedCts = null;
+        try
+        {
+            lock (IntervalLock)
+            {
+                _intervalChangedCts?.Dispose();
+                _intervalChangedCts = new CancellationTokenSource();
+            }
+
+            linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                stoppingToken, _intervalChangedCts!.Token);
+
+            await Task.Delay(delay, linkedCts.Token);
+        }
+        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+        {
+            // Interval changed or immediate run triggered - loop back to pick up the change
+            _logger.LogDebug("{ServiceName} sleep interrupted by interval change or trigger", ServiceName);
+        }
+        catch (OperationCanceledException)
+        {
+            // Service is shutting down - let the loop exit
+        }
+        finally
+        {
+            linkedCts?.Dispose();
+        }
+    }
+
+    public override void Dispose()
+    {
+        lock (IntervalLock)
+        {
+            _intervalChangedCts?.Dispose();
+            _intervalChangedCts = null;
+        }
+        base.Dispose();
+    }
 
     /// <summary>
     /// Hardcoded default for whether work runs at startup, before the first interval elapses.
@@ -258,10 +337,19 @@ public abstract class ScheduledServiceBase : BackgroundService
 
     /// <summary>
     /// Tells the loop that the value its current sleep was computed from has changed: the loop must
-    /// skip work on the wake this causes and re-sleep on the new value. Each loop owns its own flag
-    /// and delay source, which is why this cannot live here.
+    /// skip work on the wake this causes and re-sleep on the new value.
     /// </summary>
-    protected abstract void WakeForScheduleChange();
+    protected void WakeForScheduleChange()
+    {
+        lock (IntervalLock)
+        {
+            // Reuses the flag an interval change already owns: both mean "the sleep you are in was
+            // computed from a value that has since changed", and the loop's response is the same.
+            _intervalJustChanged = true;
+
+            CancelIntervalDelay();
+        }
+    }
 
     /// <summary>
     /// The instant this service should next run: the custom schedule's next occurrence when one is
@@ -335,5 +423,73 @@ public abstract class ScheduledServiceBase : BackgroundService
         {
             // Expected during shutdown or interval change
         }
+    }
+
+    /// <summary>
+    /// Runs one scheduled-work attempt under the cancellation, failure and completion handling both
+    /// loop bases need. <paramref name="executeWork"/> carries everything that differs between the
+    /// two loops (trigger attribution, the start broadcast, the actual work call and the success
+    /// NextRunUtc); <paramref name="errorLogMessage"/> and <paramref name="broadcastEnd"/> carry the
+    /// two values that differ in this shared tail itself.
+    /// </summary>
+    /// <returns>
+    /// ShuttingDown is true when the caller's while loop should break because the service is
+    /// stopping. RunFailed is true when the caller should continue straight to its next iteration
+    /// because this attempt already backed off via <see cref="ErrorRetryDelay"/>.
+    /// </returns>
+    protected async Task<(bool ShuttingDown, bool RunFailed)> RunScheduledWorkAsync(
+        Func<Task> executeWork,
+        CancellationToken stoppingToken,
+        string errorLogMessage,
+        Action broadcastEnd)
+    {
+        IsCurrentlyExecuting = true;
+        var runFailed = false;
+        var shuttingDown = false;
+        try
+        {
+            await executeWork();
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Shutdown - end the loop cleanly. A non-shutdown OCE (e.g. an inner
+            // per-iteration timeout) falls through to the Exception handler below
+            // instead of silently ending the service loop.
+            shuttingDown = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, errorLogMessage, ServiceName);
+            runFailed = true;
+            // The next attempt is the retry below, not the elapsed schedule - point the
+            // countdown in the run-END broadcast at the retry deadline.
+            NextRunUtc = DateTime.UtcNow + ErrorRetryDelay;
+        }
+        finally
+        {
+            // A run that threw still ran, so it stamps here rather than after ExecuteWorkAsync:
+            // the Schedules page reads this for "Last run", and the frontend also clears its
+            // optimistic Run Now flag when this value moves. Stamping only on success left a
+            // failed run's end-broadcast carrying an unchanged time, which held that button
+            // disabled until a safety timeout expired. Shutdown is excluded because the work
+            // never reached a terminal state - the service is stopping, not finishing.
+            if (!shuttingDown)
+            {
+                LastRunUtc = DateTime.UtcNow;
+            }
+            IsCurrentlyExecuting = false;
+            // Broadcast the end AFTER clearing the flag so GetAll() reports the run finished and
+            // the dot clears - including on the failed-run path.
+            broadcastEnd();
+        }
+
+        // Back off AFTER the finally above has cleared the flag and broadcast the end, so a
+        // failed run does not sit falsely "running" (green dot) for the whole retry delay.
+        if (runFailed)
+        {
+            await SafeDelayAsync(ErrorRetryDelay, stoppingToken);
+        }
+
+        return (shuttingDown, runFailed);
     }
 }

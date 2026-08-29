@@ -32,70 +32,11 @@ use crate::log_purge;
 use crate::progress_events::ProgressReporter;
 use crate::progress_utils;
 
-/// Progress JSON written to the progress file and tailed by the C# poller.
-/// Identical shape (and camelCase field names) to every removal bin's prior
-/// local `ProgressData` struct, so the frontend contract is unchanged.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProgressData {
-    pub status: String,
-    pub stage_key: String,
-    pub context: serde_json::Value,
-    #[serde(rename = "percentComplete")]
-    pub percent_complete: f64,
-    #[serde(rename = "filesProcessed")]
-    pub files_processed: usize,
-    #[serde(rename = "totalFiles")]
-    pub total_files: usize,
-    pub timestamp: String,
-}
-
-/// Write a single progress entry to `progress_path`. Mirrors the prior per-bin
-/// `write_progress` helper verbatim (same field population, same timestamp source),
-/// then emits the matching stdout event via `reporter` — file write ALWAYS happens
-/// first (mirrors cache_game_detect.rs's checkpoint ordering), so a stdout-triggered
-/// C# file re-read is never stale. `status` selects the emit method: "starting" ->
-/// emit_started, "completed" -> emit_complete, "failed" -> emit_failed, anything else
-/// (querying_database/removing_cache/cleaning_directories/removing_logs/removing_database)
-/// -> emit_progress. `reporter` no-ops every emit call when `--progress` was not passed.
-pub fn write_progress(
-    progress_path: &Path,
-    reporter: &ProgressReporter,
-    status: &str,
-    stage_key: &str,
-    context: serde_json::Value,
-    percent_complete: f64,
-    files_processed: usize,
-    total_files: usize,
-) -> Result<()> {
-    let emit_context = context.clone();
-    let progress = ProgressData {
-        status: status.to_string(),
-        stage_key: stage_key.to_string(),
-        context,
-        percent_complete,
-        files_processed,
-        total_files,
-        timestamp: progress_utils::current_timestamp(),
-    };
-
-    progress_utils::write_progress_json(progress_path, &progress)?;
-
-    match status {
-        "starting" => reporter.emit_started(stage_key, emit_context),
-        "completed" => reporter.emit_complete(stage_key, emit_context),
-        "failed" => {
-            let error_detail = emit_context
-                .get("errorDetail")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            reporter.emit_failed(stage_key, emit_context, error_detail);
-        }
-        _ => reporter.emit_progress(percent_complete, stage_key, emit_context),
-    }
-
-    Ok(())
-}
+/// Progress JSON written to the progress file and tailed by the C# poller, and its
+/// writer. Both live in `progress_utils` (the neutral home every removal, corruption
+/// and log-purge binary already imports) so the 7-field camelCase wire contract
+/// C#'s `RustProgressBase` parses exists once.
+pub use progress_utils::{write_progress, ProgressData};
 
 /// Per-service progress stage keys. These are a "LOCKED CONTRACT" with the frontend
 /// i18n + SignalR layer, so the core never invents keys — each bin passes its own
@@ -550,6 +491,174 @@ pub fn permission_error_message(
         Cache permission errors: {}, Log permission errors: {}",
         total_permission_errors, puid, pgid, cache_permission_errors, log_permission_errors
     )
+}
+
+/// Lifecycle stage keys for [`run_url_removal_steps`]: one per shared step, differing per bin
+/// only in the `signalr.*` family they belong to (`epicRemove` vs `gameRemove`).
+pub struct RemovalLifecycleKeys {
+    pub cache_removing: &'static str,
+    pub dirs_cleaning: &'static str,
+    pub logs_removing: &'static str,
+    pub db_deleting: &'static str,
+}
+
+/// What [`run_url_removal_steps`] produced, for the caller's DB delete and final report.
+/// Defaultable so the no-URLs early exit (which never runs the tail) can still build a
+/// [`RemovalReport`] through the same [`RemovalReport::from_tail`] path as the other two
+/// exit paths.
+#[derive(Default)]
+pub struct RemovalTail {
+    pub deleted_files: usize,
+    pub bytes_freed: u64,
+    pub empty_dirs_removed: usize,
+    pub log_entries_removed: u64,
+    pub log_lines_removed_by_source: HashMap<String, u64>,
+    pub log_lines_removed_before_position_by_source: HashMap<String, u64>,
+}
+
+/// Final report the Epic and name-keyed removal bins write to their output JSON.
+/// (Steam's own report additionally carries depot ids, so it keeps its own type.)
+#[derive(Debug, Serialize)]
+pub struct RemovalReport {
+    pub game_name: String,
+    pub cache_files_deleted: usize,
+    pub total_bytes_freed: u64,
+    pub empty_dirs_removed: usize,
+    pub log_entries_removed: u64,
+    /// Removed-line count per log-source stem, series-wide - the caller subtracts these
+    /// from the saved ingestion positions so a purge cannot shift them past unread lines.
+    pub log_lines_removed_by_source: HashMap<String, u64>,
+    /// The already-read subset of `log_lines_removed_by_source` (series index below the
+    /// saved position). This is the amount the position itself comes back by; the full
+    /// map above is what the on-disk total-line count comes down by.
+    pub log_lines_removed_before_position_by_source: HashMap<String, u64>,
+}
+
+impl RemovalReport {
+    /// Build the report from a removal tail. Called on all three exit paths: the
+    /// no-URLs early return passes a default (zeroed) tail, the verification/permission
+    /// failure closure passes the partial tail, and the final success path passes the
+    /// completed tail. [17]
+    pub fn from_tail(game_name: &str, tail: &RemovalTail) -> Self {
+        Self {
+            game_name: game_name.to_string(),
+            cache_files_deleted: tail.deleted_files,
+            total_bytes_freed: tail.bytes_freed,
+            empty_dirs_removed: tail.empty_dirs_removed,
+            log_entries_removed: tail.log_entries_removed,
+            log_lines_removed_by_source: tail.log_lines_removed_by_source.clone(),
+            log_lines_removed_before_position_by_source: tail
+                .log_lines_removed_before_position_by_source
+                .clone(),
+        }
+    }
+
+    /// Persist the report to the bin's output JSON.
+    pub fn write(&self, output_json: &Path) -> Result<()> {
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write(output_json, json)?;
+        Ok(())
+    }
+}
+
+/// The URL-scoped removal step sequence shared by the Epic and name-keyed bins: cache-file
+/// delete, empty-dir cleanup, bare-metal verification gate, access-log purge, and the
+/// permission gate, ending on the `removing_database` emit. The caller then deletes its own
+/// DB rows and writes the final report from the returned tail. Returns `Ok(None)` when a
+/// cancellation arrived during the cache sweep (partial dirs are cleaned; log/DB work is
+/// skipped and the bin exits 0). `write_failure_report` runs on the two abort paths so the
+/// bin's own report shape still lands on disk before the error propagates.
+///
+/// Steam does NOT use this: its log purge is depot-scoped with per-file progress, and its
+/// report carries depot ids - the one tail divergence that bin keeps.
+pub fn run_url_removal_steps(
+    cache_dir: &Path,
+    log_dir: &Path,
+    url_data: &HashMap<String, (String, i64)>,
+    progress_path: &Path,
+    reporter: &ProgressReporter,
+    per_file_keys: &RemovalStageKeys,
+    lifecycle: &RemovalLifecycleKeys,
+    cadence: ProgressCadence,
+    stem_positions_path: Option<&str>,
+    write_failure_report: &dyn Fn(&RemovalTail) -> Result<()>,
+) -> Result<Option<RemovalTail>> {
+    // Step 1: Remove cache files
+    let url_count = url_data.len();
+    write_progress(progress_path, reporter, "removing_cache", lifecycle.cache_removing, json!({ "count": url_count }), 10.0, 0, 0)?;
+    eprintln!("\nRemoving cache files...");
+    let outcome = remove_cache_files(
+        cache_dir,
+        url_data,
+        progress_path,
+        reporter,
+        per_file_keys,
+        cadence,
+        cache_utils::active_key_scheme(),
+    )?;
+
+    // If cancellation arrived during cache removal, do directory cleanup and exit 0.
+    if cancel::is_cancelled() {
+        eprintln!("Cancellation confirmed — cleaning up partial directories and exiting.");
+        cache_utils::cleanup_empty_directories(cache_dir, outcome.parent_dirs);
+        return Ok(None);
+    }
+
+    // Step 2: Clean up empty directories
+    write_progress(progress_path, reporter, "cleaning_directories", lifecycle.dirs_cleaning, json!({}), 70.0, 0, 0)?;
+    eprintln!("\nCleaning up empty directories...");
+    let empty_dirs_removed = cache_utils::cleanup_empty_directories(cache_dir, outcome.parent_dirs);
+
+    let mut tail = RemovalTail {
+        deleted_files: outcome.deleted_files,
+        bytes_freed: outcome.bytes_freed,
+        empty_dirs_removed,
+        log_entries_removed: 0,
+        log_lines_removed_by_source: Default::default(),
+        log_lines_removed_before_position_by_source: Default::default(),
+    };
+
+    // A failed bare-metal KEY check is not a successful removal. The cache helper
+    // correctly left the candidate untouched; preserve its URL provenance as well
+    // so a corrected retry can still find it instead of turning it into an orphan.
+    if let Err(error) = ensure_cache_deletions_verified(outcome.verification_skips) {
+        write_failure_report(&tail)?;
+        return Err(error);
+    }
+
+    // Step 3: Remove log entries from access log text files
+    write_progress(progress_path, reporter, "removing_logs", lifecycle.logs_removing, json!({}), 80.0, 0, 0)?;
+    eprintln!("\nRemoving log entries...");
+    let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
+    let stem_positions = stem_positions_path.and_then(log_purge::read_stem_positions);
+    let log_outcome = purge_log_entries(
+        log_dir,
+        &urls_to_remove,
+        &LogScope::Urls,
+        stem_positions.as_ref(),
+    )?;
+    tail.log_entries_removed = log_outcome.lines_removed;
+    let log_permission_errors = log_outcome.permission_errors;
+    tail.log_lines_removed_by_source = log_outcome.lines_removed_by_stem;
+    tail.log_lines_removed_before_position_by_source = log_outcome.lines_removed_before_position_by_stem;
+
+    // Step 4: Check for permission errors before touching database
+    let total_permission_errors = outcome.permission_errors + log_permission_errors;
+    if total_permission_errors > 0 {
+        let error_msg = permission_error_message(
+            total_permission_errors,
+            outcome.permission_errors,
+            log_permission_errors,
+        );
+        eprintln!("\n{}", error_msg);
+        write_failure_report(&tail)?;
+        anyhow::bail!("{}", error_msg);
+    }
+
+    // Step 5 hand-off: the caller deletes its own database records next.
+    write_progress(progress_path, reporter, "removing_database", lifecycle.db_deleting, json!({}), 90.0, 0, 0)?;
+    eprintln!("\nRemoving database records...");
+    Ok(Some(tail))
 }
 
 #[cfg(test)]

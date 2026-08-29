@@ -11,7 +11,7 @@ namespace LancacheManager.Tests;
 /// </summary>
 public sealed class RustLogProcessorRefreshContractTests
 {
-    private static RustLogProcessorService.ProgressData TerminalCheckpoint(
+    private static LogProcessingProgress TerminalCheckpoint(
         string terminalStatus, long entriesSaved) => new()
     {
         SchemaVersion = 1,
@@ -43,7 +43,7 @@ public sealed class RustLogProcessorRefreshContractTests
 
         // A pre-contract writer (schema 0) or a non-terminal/unknown status must never be
         // trusted, even when it claims saved entries.
-        Assert.False(RustLogProcessorService.HasCommittedDownloads(new RustLogProcessorService.ProgressData
+        Assert.False(RustLogProcessorService.HasCommittedDownloads(new LogProcessingProgress
         {
             SchemaVersion = 0,
             TerminalStatus = "completed",

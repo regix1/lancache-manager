@@ -1,6 +1,14 @@
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using LancacheManager.Controllers;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
 namespace LancacheManager.Tests;
@@ -226,14 +234,16 @@ public sealed class DashboardBatchCacheContractTests
     [Fact]
     public void EverySubQueryCallSiteForwardsTheRequestToken()
     {
-        var source = BatchServiceSource();
+        // The name-resolution queries live in the shared GameNameResolver (also used by the
+        // retro endpoint), so its source is swept under the same token contract.
+        var source = BatchServiceSource() + GameNameResolverSource();
 
         // Allowlist of call sites whose token argument is not covered by the tokenless-idiom
         // sweep below (named arguments, custom helpers, or overloads with other parameters).
         string[] requiredCallSites =
         [
             "await GetEventDownloadIdsAsync(eventIdList, ct)",
-            "await EnrichGameNamesAsync(context, downloads, ct);",
+            "await GameNameResolver.ResolveAsync(context, downloads, ct);",
             "await activeQuery.CountAsync(ct)",
             ".Where(m => m.IsOwner && depotIds.Contains(m.DepotId))",
             ".ToListAsync(ct)",
@@ -343,8 +353,189 @@ public sealed class DashboardBatchCacheContractTests
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Locks the fix for the TopService disagreement: <see cref="StatsController"/> used to pick
+    /// the top service from its own un-folded group-by (raw "xboxlive"), while
+    /// <see cref="DashboardBatchService"/> already read it off the xbox-folded breakdown
+    /// (canonical "xbox") - same rows, two different answers. Both must now agree.
+    /// </summary>
+    [Fact]
+    public async Task DashboardStatsTopService_AgreesBetweenControllerAndBatchService()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"topservice-agreement-{Guid.NewGuid():N}")
+            .Options;
+
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.Downloads.Add(new Download
+            {
+                Service = "steam",
+                ClientIp = "10.0.0.1",
+                StartTimeUtc = DateTime.UtcNow.AddMinutes(-10),
+                EndTimeUtc = DateTime.UtcNow.AddMinutes(-9),
+                CacheHitBytes = 100,
+                CacheMissBytes = 0,
+                IsActive = false
+            });
+            seed.Downloads.Add(new Download
+            {
+                Service = "xboxlive",
+                ClientIp = "10.0.0.2",
+                StartTimeUtc = DateTime.UtcNow.AddMinutes(-10),
+                EndTimeUtc = DateTime.UtcNow.AddMinutes(-9),
+                CacheHitBytes = 1_000_000,
+                CacheMissBytes = 0,
+                IsActive = false
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var batchService =
+            (DashboardBatchService)RuntimeHelpers.GetUninitializedObject(typeof(DashboardBatchService));
+        typeof(DashboardBatchService)
+            .GetField("_dbContextFactory", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(batchService, new TopServiceDbContextFactory(options));
+
+        var getDashboardStats = typeof(DashboardBatchService).GetMethod(
+            "GetDashboardStatsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var batchTask = (Task<object>)getDashboardStats.Invoke(
+            batchService,
+            [null, null, new List<long>(), null, new List<string>(), "show", new List<string>(), CancellationToken.None])!;
+        var batchResponse = Assert.IsType<DashboardStatsResponse>(await batchTask);
+
+        var stateService = CreateProxy<IStateService>((method, _) => method.Name switch
+        {
+            nameof(IStateService.GetHiddenClientIps) => new List<string>(),
+            nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
+            nameof(IStateService.GetEvictedDataMode) => "show",
+            _ => DefaultReturn(method.ReturnType)
+        });
+
+        var controller = (StatsController)RuntimeHelpers.GetUninitializedObject(typeof(StatsController));
+        typeof(StatsController)
+            .GetField("_context", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(controller, new AppDbContext(options));
+        typeof(StatsController)
+            .GetField("_stateRepository", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(controller, stateService);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var controllerResult = await controller.DashboardStatsAsync(startTime: null, endTime: null, eventId: null, ct: CancellationToken.None);
+        var controllerResponse = Assert.IsType<DashboardStatsResponse>(
+            Assert.IsType<OkObjectResult>(controllerResult.Result).Value);
+
+        Assert.Equal("xbox", batchResponse.TopService);
+        Assert.Equal(batchResponse.TopService, controllerResponse.TopService);
+    }
+
+    /// <summary>
+    /// Pins the empty-state string both endpoints answer when the period holds no download rows.
+    /// It is a response-body value an API caller can compare against, and the two endpoints reached
+    /// it by different routes, so the pair had drifted apart once already (one answered "none").
+    /// </summary>
+    [Fact]
+    public async Task DashboardStatsTopService_IsNotAvailableOnBothEndpointsWhenThereAreNoDownloads()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"topservice-empty-{Guid.NewGuid():N}")
+            .Options;
+
+        var batchService =
+            (DashboardBatchService)RuntimeHelpers.GetUninitializedObject(typeof(DashboardBatchService));
+        typeof(DashboardBatchService)
+            .GetField("_dbContextFactory", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(batchService, new TopServiceDbContextFactory(options));
+
+        var getDashboardStats = typeof(DashboardBatchService).GetMethod(
+            "GetDashboardStatsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var batchTask = (Task<object>)getDashboardStats.Invoke(
+            batchService,
+            [null, null, new List<long>(), null, new List<string>(), "show", new List<string>(), CancellationToken.None])!;
+        var batchResponse = Assert.IsType<DashboardStatsResponse>(await batchTask);
+
+        var stateService = CreateProxy<IStateService>((method, _) => method.Name switch
+        {
+            nameof(IStateService.GetHiddenClientIps) => new List<string>(),
+            nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
+            nameof(IStateService.GetEvictedDataMode) => "show",
+            _ => DefaultReturn(method.ReturnType)
+        });
+
+        var controller = (StatsController)RuntimeHelpers.GetUninitializedObject(typeof(StatsController));
+        typeof(StatsController)
+            .GetField("_context", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(controller, new AppDbContext(options));
+        typeof(StatsController)
+            .GetField("_stateRepository", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(controller, stateService);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var controllerResult = await controller.DashboardStatsAsync(startTime: null, endTime: null, eventId: null, ct: CancellationToken.None);
+        var controllerResponse = Assert.IsType<DashboardStatsResponse>(
+            Assert.IsType<OkObjectResult>(controllerResult.Result).Value);
+
+        Assert.Equal("N/A", batchResponse.TopService);
+        Assert.Equal(batchResponse.TopService, controllerResponse.TopService);
+    }
+
+    private sealed class TopServiceDbContextFactory(DbContextOptions<AppDbContext> options) : IDbContextFactory<AppDbContext>
+    {
+        public AppDbContext CreateDbContext() => new AppDbContext(options);
+
+        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new AppDbContext(options));
+    }
+
+    private static T CreateProxy<T>(Func<MethodInfo, object?[]?, object?> handler) where T : class
+    {
+        var proxy = DispatchProxy.Create<T, ProxyDispatch<T>>();
+        ((ProxyDispatch<T>)(object)proxy).Handler = handler;
+        return proxy;
+    }
+
+    private static object? DefaultReturn(Type returnType)
+    {
+        if (returnType == typeof(void))
+        {
+            return null;
+        }
+
+        if (returnType == typeof(Task))
+        {
+            return Task.CompletedTask;
+        }
+
+        if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(Task<>))
+        {
+            var resultType = returnType.GetGenericArguments()[0];
+            var fromResult = typeof(Task)
+                .GetMethod(nameof(Task.FromResult))!
+                .MakeGenericMethod(resultType);
+            return fromResult.Invoke(null, [DefaultValue(resultType)]);
+        }
+
+        return DefaultValue(returnType);
+    }
+
+    private static object? DefaultValue(Type type)
+        => !type.IsValueType || Nullable.GetUnderlyingType(type) != null
+            ? null
+            : Activator.CreateInstance(type);
+
+    private class ProxyDispatch<T> : DispatchProxy where T : class
+    {
+        public Func<MethodInfo, object?[]?, object?>? Handler { get; set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+            => Handler!(targetMethod!, args);
+    }
+
     private static string BatchServiceSource()
         => ReadSource("Core", "Services", "Dashboard", "DashboardBatchService.cs");
+
+    private static string GameNameResolverSource()
+        => ReadSource("Core", "Services", "Detection", "GameNameResolver.cs");
 
     private static string ReadSource(params string[] pathSegments)
     {

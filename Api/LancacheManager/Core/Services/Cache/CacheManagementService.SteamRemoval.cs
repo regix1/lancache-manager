@@ -1,4 +1,3 @@
-using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
@@ -14,131 +13,34 @@ public partial class CacheManagementService
         Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null,
         Guid? operationId = null)
     {
-        // Per-game cache removal requires an unambiguous key scheme; fail closed across
-        // every datasource rather than partially deleting a mixed or unknown fleet.
-        var keyCapabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
-        if (keyCapabilityDenial != null)
-        {
-            throw new InvalidOperationException(keyCapabilityDenial);
-        }
+        RequireUnambiguousKeyScheme();
 
         await _cacheLock.WaitAsync(cancellationToken);
         try
         {
-            _logger.LogInformation("[GameRemoval] Starting game cache removal for AppID {AppId}", gameAppId);
-
-            var rustBinaryPath = _pathResolver.GetRustSteamRemoverPath();
-            var executionPlan = PrepareRemovalExecutionPlan(
-                "[GameRemoval]",
-                rustBinaryPath,
-                "Game cache remover",
-                "game_removal",
-                "game_removal_progress",
-                gameAppId.ToString(),
-                requireWritableLogs: false);
-
-            var aggregatedReport = new GameCacheRemovalReport
-            {
-                GameAppId = gameAppId
-            };
-
-            int datasourcesProcessed = 0;
-            foreach (var execution in executionPlan.RunnableDatasources)
-            {
-                var datasource = execution.Datasource;
-
-                var dsReport = await RunRustRemovalProcessAsync<GameRemovalProgressData, GameCacheRemovalReport>(
-                    "[GameRemoval]",
-                    execution,
-                    () =>
+            var aggregatedReport = await RunGameRemovalAcrossDatasourcesAsync(
+                logTag: "[GameRemoval]",
+                rustBinaryPath: _pathResolver.GetRustSteamRemoverPath(),
+                planDescription: "Game cache remover",
+                planName: "game_removal",
+                target: gameAppId.ToString(),
+                targetDescription: $"AppID {gameAppId}",
+                rustProcessName: "game_cache_remover",
+                outputReadLabel: "GameRemoval",
+                aggregatedReport: new GameCacheRemovalReport { GameAppId = gameAppId },
+                cancellationToken: cancellationToken,
+                onProgress: onProgress,
+                operationId: operationId,
+                aggregateExtras: (aggregated, dsReport) =>
+                {
+                    foreach (long depotId in dsReport.DepotIds)
                     {
-                        var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                            rustBinaryPath,
-                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" {gameAppId} \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}");
-                        _logger.LogInformation("[GameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
-                            datasource.Name, rustBinaryPath, startInfo.Arguments);
-                        return startInfo;
-                    },
-                    "game_cache_remover",
-                    cancellationToken,
-                    operationId,
-                    async progressData =>
-                    {
-                        if (onProgress != null)
+                        if (!aggregated.DepotIds.Contains(depotId))
                         {
-                            var scaledProgress = ScaleRemovalProgress(
-                                execution.ExecutionIndex,
-                                execution.TotalConfiguredDatasources,
-                                progressData.PercentComplete);
-                            await onProgress(
-                                scaledProgress,
-                                progressData.StageKey,
-                                progressData.Context,
-                                progressData.FilesProcessed,
-                                0);
+                            aggregated.DepotIds.Add(depotId);
                         }
-                    },
-                    async result =>
-                    {
-                        var report = await _rustProcessHelper.ReadOutputJsonAsync<GameCacheRemovalReport>(
-                            result.OutputJsonPath,
-                            "GameRemoval");
-                        // Runs on failed exits too (the binaries write the report on their
-                        // abort paths): the purge already shortened the log, so the saved
-                        // positions must come back regardless of how the run ended.
-                        _stateService.ReduceLogPositionsAfterPurge(
-                            datasource.Name,
-                            report.LogLinesRemovedBeforePositionBySource,
-                            report.LogLinesRemovedBySource);
-                        return report;
-                    });
-
-                // Send final progress update from the report
-                if (onProgress != null)
-                {
-                    var scaledProgress = ScaleRemovalProgress(
-                        execution.ExecutionIndex + 1,
-                        execution.TotalConfiguredDatasources);
-                    // Synthetic per-datasource completion tick; Rust has already written its own
-                    // "completed" progress entry. Pass an empty stageKey so the frontend falls
-                    // through to the registry's default completed message.
-                    await onProgress(
-                        scaledProgress,
-                        string.Empty,
-                        null,
-                        dsReport.CacheFilesDeleted,
-                        (long)dsReport.TotalBytesFreed);
-                }
-
-                // Aggregate results from this datasource
-                aggregatedReport.CacheFilesDeleted += dsReport.CacheFilesDeleted;
-                aggregatedReport.TotalBytesFreed += dsReport.TotalBytesFreed;
-                aggregatedReport.EmptyDirsRemoved += dsReport.EmptyDirsRemoved;
-                aggregatedReport.LogEntriesRemoved += dsReport.LogEntriesRemoved;
-                if (!string.IsNullOrEmpty(dsReport.GameName))
-                {
-                    aggregatedReport.GameName = dsReport.GameName;
-                }
-                foreach (long depotId in dsReport.DepotIds)
-                {
-                    if (!aggregatedReport.DepotIds.Contains(depotId))
-                    {
-                        aggregatedReport.DepotIds.Add(depotId);
                     }
-                }
-
-                datasourcesProcessed++;
-
-                _logger.LogInformation(
-                    "[GameRemoval] Datasource '{DatasourceName}': removed {Files} files ({Bytes} bytes) for game {AppId}",
-                    datasource.Name, dsReport.CacheFilesDeleted, dsReport.TotalBytesFreed, gameAppId);
-            }
-
-            _logger.LogInformation(
-                "[GameRemoval] Completed for AppID {AppId}: {Processed} datasource(s) processed, {Skipped} skipped. " +
-                "Total: {Files} files removed, {Bytes} bytes freed",
-                gameAppId, datasourcesProcessed, executionPlan.DatasourcesSkipped,
-                aggregatedReport.CacheFilesDeleted, aggregatedReport.TotalBytesFreed);
+                });
 
             // The Rust phase is done but the operation is not: detection-entry delete,
             // disk-summary refresh, service-counts invalidation, and the nginx log reopen
@@ -158,14 +60,7 @@ public partial class CacheManagementService
                 .ExecuteDeleteAsync();
             _logger.LogInformation("[GameRemoval] Removed cached game detection entry for AppID: {AppId}", gameAppId);
 
-            // Refresh persisted disk-summary totals so dashboard reads reflect post-removal state
-            await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(cancellationToken);
-
-            // Invalidate service counts cache since logs were modified
-            await InvalidateServiceCountsAsync();
-
-            // Signal nginx to reopen log files (prevents monolithic container from losing log access)
-            await _nginxLogRotationService.ReopenNginxLogsAsync();
+            await FinalizeGameRemovalAsync(cancellationToken);
 
             return aggregatedReport;
         }

@@ -1,6 +1,5 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

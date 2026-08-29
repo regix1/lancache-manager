@@ -22,8 +22,8 @@ public class StatsDataService : IStatsDataService
 
     /// <summary>
     /// Get latest downloads with optional limit.
-    /// Uses LEFT JOIN to resolve game names from SteamDepotMappings for downloads
-    /// where the game name wasn't available at download time.
+    /// Resolves game names from SteamDepotMappings for downloads where the name wasn't
+    /// available at download time, after the page has been chosen.
     /// </summary>
     /// <param name="limit">Maximum number of downloads to return</param>
     /// <param name="activeOnly">If true, only return active (in-progress) downloads</param>
@@ -40,30 +40,39 @@ public class StatsDataService : IStatsDataService
             baseQuery = baseQuery.Where(d => d.IsActive);
         }
 
-        // LEFT JOIN with SteamDepotMappings to resolve missing game names at query time
-        var query = from d in baseQuery
-                    join m in _context.SteamDepotMappings.Where(mapping => mapping.IsOwner)
-                        on d.DepotId equals m.DepotId into mappings
-                    from mapping in mappings.DefaultIfEmpty()
-                    orderby d.StartTimeUtc descending
-                    select new
-                    {
-                        Download = d,
-                        MappedAppName = mapping != null ? mapping.AppName : null,
-                        MappedAppId = mapping != null ? (uint?)mapping.AppId : null
-                    };
+        var downloads = await baseQuery
+            .OrderByDescending(d => d.StartTimeUtc)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
 
-        var results = await query.Take(limit).ToListAsync(cancellationToken);
+        // Look the owner mappings up separately rather than joining them in SQL. A depot can carry
+        // more than one owner row (prefill used to claim shared and DLC depots), and a join would
+        // then emit the download once per owner row, double-counting its bytes in the client-side
+        // totals and spending two of the limit's slots on one download.
+        var unnamedDepotIds = downloads
+            .Where(d => string.IsNullOrEmpty(d.GameName) && d.DepotId.HasValue)
+            .Select(d => d.DepotId!.Value)
+            .Distinct()
+            .ToList();
 
-        var downloads = results.Select(r =>
+        var depotOwners = unnamedDepotIds.Count > 0
+            ? (await _context.SteamDepotMappings.AsNoTracking()
+                    .Where(m => m.IsOwner && unnamedDepotIds.Contains(m.DepotId))
+                    .ToListAsync(cancellationToken))
+                .GroupBy(m => m.DepotId)
+                .ToDictionary(group => group.Key, SteamDepotMapping.SelectOwner)
+            : [];
+
+        foreach (var download in downloads)
         {
-            var download = r.Download;
-
             // Fill in missing game info from mapping if available
-            if (string.IsNullOrEmpty(download.GameName) && !string.IsNullOrEmpty(r.MappedAppName))
+            if (string.IsNullOrEmpty(download.GameName)
+                && download.DepotId.HasValue
+                && depotOwners.TryGetValue(download.DepotId.Value, out var owner)
+                && !string.IsNullOrEmpty(owner.AppName))
             {
-                download.GameName = r.MappedAppName;
-                download.GameAppId = r.MappedAppId;
+                download.GameName = owner.AppName;
+                download.GameAppId = owner.AppId;
             }
 
             // Calculate duration from EndTime - StartTime for proper JSON serialization
@@ -71,9 +80,7 @@ public class StatsDataService : IStatsDataService
             {
                 download.DurationSeconds = (download.EndTimeUtc - download.StartTimeUtc).TotalSeconds;
             }
-
-            return download;
-        }).ToList();
+        }
 
         return downloads.WithUtcMarking();
     }

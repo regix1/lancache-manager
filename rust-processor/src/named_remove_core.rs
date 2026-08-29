@@ -13,18 +13,16 @@
 
 use anyhow::Result;
 use clap::Parser;
-use serde::Serialize;
 use serde_json::json;
 use sqlx::PgPool;
 use sqlx::Row;
-use std::collections::{HashMap, HashSet};
-use std::fs;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::db;
 use crate::cache_utils;
 use crate::progress_events::ProgressReporter;
-use crate::removal_core::{self, LogScope, ProgressCadence, RemovalStageKeys};
+use crate::removal_core::{self, ProgressCadence, RemovalReport, RemovalStageKeys};
 
 /// Positional args for a name-keyed removal bin. The owning service is pinned by the
 /// wrapper (it is NOT a positional arg), so the contract matches the Epic bin:
@@ -64,22 +62,6 @@ struct Args {
     /// actually reach, not a detection scan's older snapshot.
     #[arg(long = "count-only")]
     count_only: bool,
-}
-
-#[derive(Debug, Serialize)]
-struct RemovalReport {
-    game_name: String,
-    cache_files_deleted: usize,
-    total_bytes_freed: u64,
-    empty_dirs_removed: usize,
-    log_entries_removed: u64,
-    /// Removed-line count per log-source stem, series-wide - the caller subtracts these
-    /// from the saved ingestion positions so a purge cannot shift them past unread lines.
-    log_lines_removed_by_source: std::collections::HashMap<String, u64>,
-    /// The already-read subset of `log_lines_removed_by_source` (series index below the saved
-    /// position). This is the amount the position itself comes back by; the full map above is
-    /// what the on-disk total-line count comes down by.
-    log_lines_removed_before_position_by_source: std::collections::HashMap<String, u64>,
 }
 
 /// Name-keyed services reuse the Steam removal stage keys (`signalr.gameRemove.*`)
@@ -372,18 +354,8 @@ pub async fn run(service: &str) -> Result<()> {
     if url_data.is_empty() {
         eprintln!("No URLs found for named game '{}/{}'", service, game_name);
 
-        let report = RemovalReport {
-            game_name: game_name.to_string(),
-            cache_files_deleted: 0,
-            total_bytes_freed: 0,
-            empty_dirs_removed: 0,
-            log_entries_removed: 0,
-            log_lines_removed_by_source: Default::default(),
-            log_lines_removed_before_position_by_source: Default::default(),
-        };
-
-        let json = serde_json::to_string_pretty(&report)?;
-        fs::write(&output_json, json)?;
+        RemovalReport::from_tail(game_name, &removal_core::RemovalTail::default())
+            .write(&output_json)?;
 
         removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.gameRemove.noUrls", json!({}), 100.0, 0, 0)?;
         return Ok(());
@@ -391,114 +363,40 @@ pub async fn run(service: &str) -> Result<()> {
 
     eprintln!("Found {} unique URLs for '{}/{}'", url_data.len(), service, game_name);
 
-    // Step 1: Remove cache files
-    let url_count = url_data.len();
-    removal_core::write_progress(&progress_path, &reporter, "removing_cache", "signalr.gameRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, 0)?;
-    eprintln!("\nRemoving cache files...");
-    let outcome = removal_core::remove_cache_files(
+    // Steps 1-4 (cache delete, dir cleanup, verification gate, log purge, permission gate)
+    // are the URL-scoped sequence shared with the Epic bin.
+    let lifecycle = removal_core::RemovalLifecycleKeys {
+        cache_removing: "signalr.gameRemove.cache.removing",
+        dirs_cleaning: "signalr.gameRemove.dirs.cleaning",
+        logs_removing: "signalr.gameRemove.logs.removing",
+        db_deleting: "signalr.gameRemove.db.deleting",
+    };
+    let write_failure_report = |tail: &removal_core::RemovalTail| -> Result<()> {
+        RemovalReport::from_tail(game_name, tail).write(&output_json)
+    };
+    let Some(tail) = removal_core::run_url_removal_steps(
         &cache_dir,
+        &log_dir,
         &url_data,
         &progress_path,
         &reporter,
         &NAMED_STAGE_KEYS,
+        &lifecycle,
         ProgressCadence::OnPercentAdvance,
-        cache_utils::active_key_scheme(),
-    )?;
-
-    // If cancellation arrived during cache removal, do directory cleanup and exit 0.
-    if crate::cancel::is_cancelled() {
-        eprintln!("Cancellation confirmed — cleaning up partial directories and exiting.");
-        cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
+        args.stem_positions.as_deref(),
+        &write_failure_report,
+    )?
+    else {
+        // Cancellation confirmed during the cache sweep - partial dirs cleaned, exit 0.
         return Ok(());
-    }
-
-    // Step 2: Clean up empty directories
-    removal_core::write_progress(&progress_path, &reporter, "cleaning_directories", "signalr.gameRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
-    eprintln!("\nCleaning up empty directories...");
-    let empty_dirs_removed = cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
-
-    // A failed bare-metal KEY check is not a successful removal. The cache helper
-    // correctly left the candidate untouched; preserve its URL provenance as well
-    // so a corrected retry can still find it instead of turning it into an orphan.
-    if let Err(error) = removal_core::ensure_cache_deletions_verified(outcome.verification_skips) {
-        let report = RemovalReport {
-            game_name: game_name.to_string(),
-            cache_files_deleted: outcome.deleted_files,
-            total_bytes_freed: outcome.bytes_freed,
-            empty_dirs_removed,
-            log_entries_removed: 0,
-            log_lines_removed_by_source: Default::default(),
-            log_lines_removed_before_position_by_source: Default::default(),
-        };
-        let json = serde_json::to_string_pretty(&report)?;
-        fs::write(&output_json, json)?;
-        return Err(error);
-    }
-
-    // Step 3: Remove log entries from access log text files
-    removal_core::write_progress(&progress_path, &reporter, "removing_logs", "signalr.gameRemove.logs.removing", json!({}), 80.0, 0, 0)?;
-    eprintln!("\nRemoving log entries...");
-    let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
-    let stem_positions = args
-        .stem_positions
-        .as_deref()
-        .and_then(crate::log_purge::read_stem_positions);
-    let log_outcome = removal_core::purge_log_entries(
-        &log_dir,
-        &urls_to_remove,
-        &LogScope::Urls,
-        stem_positions.as_ref(),
-    )?;
-    let log_entries_removed = log_outcome.lines_removed;
-    let log_permission_errors = log_outcome.permission_errors;
-    let log_lines_removed_by_source = log_outcome.lines_removed_by_stem;
-    let log_lines_removed_before_position_by_source =
-        log_outcome.lines_removed_before_position_by_stem;
-
-    // Step 4: Check for permission errors before touching database
-    let total_permission_errors = outcome.permission_errors + log_permission_errors;
-    if total_permission_errors > 0 {
-        let error_msg = removal_core::permission_error_message(
-            total_permission_errors,
-            outcome.permission_errors,
-            log_permission_errors,
-        );
-        eprintln!("\n{}", error_msg);
-
-        let report = RemovalReport {
-            game_name: game_name.to_string(),
-            cache_files_deleted: outcome.deleted_files,
-            total_bytes_freed: outcome.bytes_freed,
-            empty_dirs_removed,
-            log_entries_removed,
-            log_lines_removed_by_source: log_lines_removed_by_source.clone(),
-            log_lines_removed_before_position_by_source:
-                log_lines_removed_before_position_by_source.clone(),
-        };
-        let json = serde_json::to_string_pretty(&report)?;
-        fs::write(&output_json, json)?;
-
-        anyhow::bail!("{}", error_msg);
-    }
+    };
 
     // Step 5: Delete database records
-    removal_core::write_progress(&progress_path, &reporter, "removing_database", "signalr.gameRemove.db.deleting", json!({}), 90.0, 0, 0)?;
-    eprintln!("\nRemoving database records...");
     let (_log_records, _download_records) = delete_named_game_from_database(&pool, &service, game_name).await?;
 
     // Write final report
-    let report = RemovalReport {
-        game_name: game_name.clone(),
-        cache_files_deleted: outcome.deleted_files,
-        total_bytes_freed: outcome.bytes_freed,
-        empty_dirs_removed,
-        log_entries_removed,
-        log_lines_removed_by_source,
-        log_lines_removed_before_position_by_source,
-    };
-
-    let json = serde_json::to_string_pretty(&report)?;
-    fs::write(&output_json, json)?;
+    let report = RemovalReport::from_tail(game_name, &tail);
+    report.write(&output_json)?;
 
     removal_core::write_progress(
         &progress_path,

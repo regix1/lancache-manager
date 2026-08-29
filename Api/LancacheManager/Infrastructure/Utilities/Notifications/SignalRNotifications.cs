@@ -1,3 +1,4 @@
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Utilities;
@@ -8,15 +9,6 @@ namespace LancacheManager.Infrastructure.Utilities;
 /// </summary>
 public static class SignalRNotifications
 {
-    /// <summary>
-    /// Base interface for all completion notifications that have success/stageKey pattern.
-    /// </summary>
-    public interface ICompletionNotification
-    {
-        bool Success { get; }
-        string StageKey { get; }
-    }
-
     #region Removal Notifications
 
     /// <summary>
@@ -65,7 +57,7 @@ public static class SignalRNotifications
         // shared IOperationComplete contract on the failure/cancel paths.
         string? Error = null,
         bool Cancelled = false
-    ) : ICompletionNotification, IOperationComplete
+    ) : IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;
         OperationStatus IOperationComplete.Status =>
@@ -112,7 +104,7 @@ public static class SignalRNotifications
         // shared IOperationComplete contract on the failure/cancel paths.
         string? Error = null,
         bool Cancelled = false
-    ) : ICompletionNotification, IOperationComplete
+    ) : IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;
         OperationStatus IOperationComplete.Status =>
@@ -160,7 +152,7 @@ public static class SignalRNotifications
         Dictionary<string, object?>? Context = null,
         string? DetectionMethod = null,
         bool Cancelled = false
-    ) : ICompletionNotification, IOperationComplete
+    ) : IOperationComplete
     {
         OperationStatus IOperationComplete.Status => Cancelled
             ? OperationStatus.Cancelled
@@ -264,7 +256,7 @@ public static class SignalRNotifications
         // Run-stable display flag: the terminal carries the same visibility the run started with so a
         // silent run's terminal cannot resurrect a card. Appended to keep positional callers safe.
         bool ShowNotification = true
-    ) : ICompletionNotification, IOperationComplete
+    ) : IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;
     }
@@ -315,7 +307,7 @@ public static class SignalRNotifications
         long? FilesPendingRetry = null,
         long? StateEntries = null,
         StructuralScanStatusResponse? ScanSummary = null
-    ) : ICompletionNotification, IOperationComplete
+    ) : IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;
     }
@@ -394,7 +386,7 @@ public static class SignalRNotifications
         bool Cancelled = false,
         string? Error = null,
         Dictionary<string, object?>? Context = null
-    ) : ICompletionNotification, IOperationComplete;
+    ) : IOperationComplete;
 
     #endregion
 

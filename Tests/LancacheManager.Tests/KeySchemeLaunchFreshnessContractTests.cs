@@ -18,9 +18,9 @@ public sealed class KeySchemeLaunchFreshnessContractTests
     }
 
     [Theory]
-    [InlineData("Cache/CacheManagementService.SteamRemoval.cs")]
-    [InlineData("Cache/CacheManagementService.EpicRemoval.cs")]
-    [InlineData("Cache/CacheManagementService.NamedRemoval.cs")]
+    // The Steam/Epic/named game flavors share one per-datasource loop (GameRemovalCore), so the
+    // deferred-factory freshness contract is pinned there once rather than per flavor.
+    [InlineData("Cache/CacheManagementService.GameRemovalCore.cs")]
     [InlineData("Cache/CacheManagementService.ServiceRemoval.cs")]
     public void RemovalFlavorsResolveKeySchemeInsideDeferredLaunchFactory(string fileName)
     {

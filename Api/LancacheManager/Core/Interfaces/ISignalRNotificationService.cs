@@ -1,4 +1,3 @@
-using LancacheManager.Models;
 
 namespace LancacheManager.Core.Interfaces;
 

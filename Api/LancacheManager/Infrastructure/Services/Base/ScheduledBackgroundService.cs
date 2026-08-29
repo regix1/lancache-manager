@@ -24,9 +24,6 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
 
     // Runtime interval override state
     private TimeSpan? _intervalOverride;
-    private CancellationTokenSource? _intervalChangedCts;
-    private readonly object _intervalLock = new();
-    private volatile bool _intervalJustChanged;
 
     // Schedule metadata - override in subclasses to register as user-configurable
     public virtual string ServiceKey => GetType().Name;
@@ -38,7 +35,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
     {
         get
         {
-            lock (_intervalLock)
+            lock (IntervalLock)
             {
                 return _intervalOverride ?? Interval;
             }
@@ -74,12 +71,13 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
     /// </summary>
     public void SetInterval(TimeSpan newInterval)
     {
-        lock (_intervalLock)
+        lock (IntervalLock)
         {
             _intervalOverride = newInterval;
-            _intervalJustChanged = true;
 
-            CancelIntervalDelay();
+            // Wake the loop under the same lock hold (it is reentrant), so the change and the wake
+            // it triggers are seen together.
+            WakeForScheduleChange();
         }
 
         _logger.LogDebug("{ServiceName} interval changed to {Interval}", ServiceName, newInterval);
@@ -90,48 +88,14 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
     /// </summary>
     public void ResetInterval()
     {
-        lock (_intervalLock)
+        lock (IntervalLock)
         {
             _intervalOverride = null;
-            _intervalJustChanged = true;
 
-            CancelIntervalDelay();
+            WakeForScheduleChange();
         }
 
         _logger.LogDebug("{ServiceName} interval reset to default ({Interval})", ServiceName, Interval);
-    }
-
-    /// <inheritdoc />
-    protected override void WakeForScheduleChange()
-    {
-        lock (_intervalLock)
-        {
-            // Reuses the flag an interval change already owns: both mean "the sleep you are in was
-            // computed from a value that has since changed", and the loop's response is the same.
-            _intervalJustChanged = true;
-
-            CancelIntervalDelay();
-        }
-    }
-
-    /// <summary>
-    /// Cancels the sleep this loop is currently in. Taken under the interval lock so an interval
-    /// change and the wake it triggers are seen together; the lock is reentrant, so callers that
-    /// already hold it stay atomic.
-    /// </summary>
-    protected override void CancelIntervalDelay()
-    {
-        lock (_intervalLock)
-        {
-            try
-            {
-                _intervalChangedCts?.Cancel();
-            }
-            catch (ObjectDisposedException)
-            {
-                // Already disposed - will be recreated on next loop iteration
-            }
-        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -187,12 +151,12 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             }
         }
 
-        // Discard any "_intervalJustChanged" flag that was set during construction or
+        // Discard any "IntervalJustChanged" flag that was set during construction or
         // InitializeAsync - e.g. LoadStateOverrides → SetInterval sets that flag to wake
         // a sleeping loop, but there's no loop yet, so the flag is meaningless here and
         // must not leak into the first iteration (it would cause the first real work run
         // to be delayed by an extra full interval).
-        _intervalJustChanged = false;
+        IntervalJustChanged = false;
 
         // Main execution loop.
         // Always sleep one interval before the first ExecuteWorkAsync - this honors both:
@@ -208,7 +172,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             // change ALSO woke the loop (both call CancelAndRecreateDelay, so either or both can
             // be true on the same wake) AND even during the skip-first-execution pass. Reading it
             // before the branches, rather than inside the "else" below, is what makes that possible
-            // - checking _intervalJustChanged/skipFirstExecution first and only reading
+            // - checking IntervalJustChanged/skipFirstExecution first and only reading
             // _pendingManualRun in the other branch silently drops a same-tick Run Now (no work
             // happens) AND leaves the flag stale to misattribute a LATER genuinely scheduled tick as
             // Manual. Mirrors ConfigurableScheduledService's ordering.
@@ -248,9 +212,9 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
 
             // Skip work if woken by an interval change with no manual run pending - just re-sleep
             // with the new interval.
-            if (_intervalJustChanged && !manualPending)
+            if (IntervalJustChanged && !manualPending)
             {
-                _intervalJustChanged = false;
+                IntervalJustChanged = false;
             }
             // `schedule is null` short-circuits to the unchanged behaviour: without a schedule this
             // branch is still taken unconditionally, and a paused service is stopped by the sleep at
@@ -261,60 +225,32 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             else if (manualPending || schedule is null || IsWorkDue(schedule, interval))
             {
                 skipFirstExecution = false;
-                _intervalJustChanged = false;
-                var runFailed = false;
-                var shuttingDown = false;
-                try
+                IntervalJustChanged = false;
+
+                var (shuttingDown, runFailed) = await RunScheduledWorkAsync(
+                    async () =>
+                    {
+                        CurrentRunTrigger = manualPending ? RunTrigger.Manual : RunTrigger.Scheduled;
+                        // Broadcast the start so the Schedules status dot lights up for the whole run.
+                        ServiceExecutionStateChanged?.Invoke(ServiceKey);
+                        await ExecuteWorkAsync(stoppingToken);
+                        // Advance NextRunUtc now so the run-END broadcast carries the fresh next-run
+                        // instead of the just-elapsed one. The bottom-of-loop sleep re-sets this
+                        // authoritatively; this only keeps the END snapshot from shipping a stale
+                        // countdown.
+                        NextRunUtc = ComputeNextRun(ConfiguredCustomSchedule, EffectiveInterval);
+                    },
+                    stoppingToken,
+                    "{ServiceName} error in execution loop",
+                    () => ServiceExecutionStateChanged?.Invoke(ServiceKey));
+
+                if (shuttingDown)
                 {
-                    IsCurrentlyExecuting = true;
-                    CurrentRunTrigger = manualPending ? RunTrigger.Manual : RunTrigger.Scheduled;
-                    // Broadcast the start so the Schedules status dot lights up for the whole run.
-                    ServiceExecutionStateChanged?.Invoke(ServiceKey);
-                    await ExecuteWorkAsync(stoppingToken);
-                    // Advance NextRunUtc now so the run-END broadcast in the finally carries the fresh
-                    // next-run instead of the just-elapsed one. The bottom-of-loop sleep re-sets this
-                    // authoritatively; this only keeps the END snapshot from shipping a stale countdown.
-                    NextRunUtc = ComputeNextRun(ConfiguredCustomSchedule, EffectiveInterval);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    // Shutdown - end the loop cleanly. A non-shutdown OCE (e.g. an inner
-                    // per-iteration timeout) falls through to the Exception handler below
-                    // instead of silently ending the service loop.
-                    shuttingDown = true;
                     break;
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "{ServiceName} error in execution loop", ServiceName);
-                    runFailed = true;
-                    // The next attempt is the retry below, not the elapsed schedule - point the
-                    // countdown in the run-END broadcast at the retry deadline.
-                    NextRunUtc = DateTime.UtcNow + ErrorRetryDelay;
-                }
-                finally
-                {
-                    // A run that threw still ran, so it stamps here rather than after ExecuteWorkAsync:
-                    // the Schedules page reads this for "Last run", and the frontend also clears its
-                    // optimistic Run Now flag when this value moves. Stamping only on success left a
-                    // failed run's end-broadcast carrying an unchanged time, which held that button
-                    // disabled until a safety timeout expired. Shutdown is excluded because the work
-                    // never reached a terminal state - the service is stopping, not finishing.
-                    if (!shuttingDown)
-                    {
-                        LastRunUtc = DateTime.UtcNow;
-                    }
-                    IsCurrentlyExecuting = false;
-                    // Broadcast the end AFTER clearing the flag so GetAll() reports the run finished and
-                    // the dot clears - including on the failed-run path.
-                    ServiceExecutionStateChanged?.Invoke(ServiceKey);
-                }
 
-                // Back off AFTER the finally above has cleared the flag and broadcast the end, so a
-                // failed run does not sit falsely "running" (green dot) for the whole retry delay.
                 if (runFailed)
                 {
-                    await SafeDelayAsync(ErrorRetryDelay, stoppingToken);
                     continue;
                 }
             }
@@ -364,41 +300,6 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
     }
 
     /// <summary>
-    /// Delay that can be interrupted by SetInterval() or TriggerImmediateRun().
-    /// On interruption (not a shutdown), the loop continues immediately to pick up the change.
-    /// </summary>
-    private async Task InterruptibleDelayAsync(TimeSpan delay, CancellationToken stoppingToken)
-    {
-        CancellationTokenSource? linkedCts = null;
-        try
-        {
-            lock (_intervalLock)
-            {
-                _intervalChangedCts?.Dispose();
-                _intervalChangedCts = new CancellationTokenSource();
-            }
-
-            linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-                stoppingToken, _intervalChangedCts!.Token);
-
-            await Task.Delay(delay, linkedCts.Token);
-        }
-        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
-        {
-            // Interval changed or immediate run triggered - loop back to pick up the change
-            _logger.LogDebug("{ServiceName} sleep interrupted by interval change or trigger", ServiceName);
-        }
-        catch (OperationCanceledException)
-        {
-            // Service is shutting down - let the loop exit
-        }
-        finally
-        {
-            linkedCts?.Dispose();
-        }
-    }
-
-    /// <summary>
     /// Override to run work on startup before the main loop.
     /// </summary>
     protected virtual Task OnStartupAsync(CancellationToken stoppingToken)
@@ -437,15 +338,5 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             return true;
 
         return _configuration.GetValue<bool>(EnabledConfigKey, EnabledByDefault);
-    }
-
-    public override void Dispose()
-    {
-        lock (_intervalLock)
-        {
-            _intervalChangedCts?.Dispose();
-            _intervalChangedCts = null;
-        }
-        base.Dispose();
     }
 }

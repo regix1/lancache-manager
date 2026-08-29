@@ -24,6 +24,41 @@ public static class DownloadQueryExtensions
     }
 
     /// <summary>
+    /// Drops downloads from clients excluded from stats calculations only (they stay visible in
+    /// lists). Shared by the stats endpoint and the dashboard batch.
+    /// </summary>
+    public static IQueryable<Download> ApplyStatsExcludedClientFilter(this IQueryable<Download> query, List<string> statsExcludedOnlyIps)
+    {
+        if (statsExcludedOnlyIps.Count == 0)
+        {
+            return query;
+        }
+
+        return query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
+    }
+
+    /// <summary>
+    /// Bounds a query to an optional unix-seconds window on <c>StartTimeUtc</c>. Either bound may
+    /// be absent; an absent bound leaves that side open, matching the live/all-time views.
+    /// </summary>
+    public static IQueryable<Download> ApplyTimeRange(this IQueryable<Download> query, long? startTime, long? endTime)
+    {
+        if (startTime.HasValue)
+        {
+            var startDate = startTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc >= startDate);
+        }
+
+        if (endTime.HasValue)
+        {
+            var endDate = endTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc <= endDate);
+        }
+
+        return query;
+    }
+
+    /// <summary>
     /// Hides inactive zero-byte sessions from download lists. These are metadata-only polls or
     /// aborted connections (Windows Update produces them constantly): they carry no transfer
     /// data, contribute nothing to any byte-based aggregation, and are deliberately neutral in
