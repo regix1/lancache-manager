@@ -108,14 +108,6 @@ operation_states.json
 steam_depot_mappings.json
 steam_applist.json
 
-# Agent and editor tool directories. These are working files, never project source. They were only
-# ever ignored by a personal global gitignore, so anyone else cloning saw them as untracked noise,
-# and stale copies had collected under Web/src, rust-processor and the test project.
-.claude/
-**/.claude/
-.serena/
-**/.serena/
-
 # Documentation (local-only; only images are tracked because README references them)
 docs/*
 !docs/images/
