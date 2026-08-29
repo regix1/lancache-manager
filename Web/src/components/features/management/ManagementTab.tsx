@@ -11,6 +11,7 @@ import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useNotifySuccess } from '@/hooks/useErrorHandler';
 import { storage } from '@utils/storage';
+import { clearScanJump, readScanJump } from '@utils/scanJump';
 
 // Import navigation and sections
 import ManagementNav, { type ManagementSection } from './ManagementNav';
@@ -38,8 +39,14 @@ const ManagementTab: React.FC = () => {
   const scheduleBattleNetHighlightClear = useTimeoutCallback(2000);
   const scheduleEvictionHighlightClear = useTimeoutCallback(3000);
 
+  // Set by a stale scan chip on the dashboard just before it asked App to switch tabs. This tab
+  // was not mounted then, so the target is taken here on mount and outranks the saved section.
+  const [scanJump, setScanJump] = useState(readScanJump);
+  const scheduleScanJumpClear = useTimeoutCallback(3000);
+
   // Active section state - persisted to localStorage
   const [activeSection, setActiveSection] = useState<ManagementSection>(() => {
+    if (scanJump) return 'storage';
     const saved = storage.getItem('management-active-section');
     // Migrate old 'authentication' value to 'settings'
     if (saved === 'authentication') return 'settings';
@@ -82,6 +89,15 @@ const ManagementTab: React.FC = () => {
   useEffect(() => {
     storage.setItem('management-active-section', activeSection);
   }, [activeSection]);
+
+  // The jump has been acted on by the time this runs, so the target is spent. The local copy
+  // outlives it by the length of the glow, then goes too, so stepping away to another section and
+  // back does not replay it.
+  useEffect(() => {
+    if (!scanJump) return;
+    clearScanJump();
+    scheduleScanJumpClear(() => setScanJump(null));
+  }, [scanJump, scheduleScanJumpClear]);
 
   // Check if optimizations (GC management) is enabled
   useEffect(() => {
@@ -182,6 +198,8 @@ const ManagementTab: React.FC = () => {
             mockMode={mockMode}
             gameCacheRefreshKey={gameCacheRefreshKey}
             highlightEviction={highlightEviction}
+            highlightCacheScan={scanJump === 'cacheFiles'}
+            highlightGameDetection={scanJump === 'gameDetection'}
             onError={addError}
             onSuccess={setSuccess}
             onDataRefresh={refreshStatsAndGameCache}

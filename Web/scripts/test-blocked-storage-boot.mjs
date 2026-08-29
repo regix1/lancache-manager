@@ -48,7 +48,8 @@ const BESPOKE = [
     keyText: "'dashboard-card-layout'",
     fallback: 'balanced',
     stored: ['dashboard-card-layout', '3-column'],
-    storedResult: '3-column'
+    storedResult: '3-column',
+    scope: {}
   },
   {
     label: 'Management active section',
@@ -56,14 +57,18 @@ const BESPOKE = [
     keyText: "'management-active-section'",
     fallback: 'settings',
     stored: ['management-active-section', 'schedules'],
-    storedResult: 'schedules'
+    storedResult: 'schedules',
+    // The initializer opens on Storage instead when the dashboard's stale scan chip left a target
+    // behind. No target is the case that reaches the stored value, which is what is under test.
+    scope: { scanJump: null }
   }
 ];
 
 for (const site of BESPOKE) {
   test(`${site.label} falls back to its default when storage is blocked`, () => {
     const initializer = bindLifted(liftHookCallback(site.path, 'useState', site.keyText), {
-      storage
+      storage,
+      ...site.scope
     });
     assert.equal(initializer(), site.fallback);
   });
@@ -71,7 +76,8 @@ for (const site of BESPOKE) {
   test(`${site.label} still reads its stored value when storage works`, () => {
     const values = new Map([site.stored]);
     const initializer = bindLifted(liftHookCallback(site.path, 'useState', site.keyText), {
-      storage: { getItem: (key) => values.get(key) ?? null }
+      storage: { getItem: (key) => values.get(key) ?? null },
+      ...site.scope
     });
     assert.equal(initializer(), site.storedResult);
   });

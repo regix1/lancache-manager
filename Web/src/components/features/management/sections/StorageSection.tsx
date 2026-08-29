@@ -102,6 +102,8 @@ interface StorageSectionProps {
   mockMode: boolean;
   gameCacheRefreshKey: number;
   highlightEviction?: boolean;
+  highlightCacheScan?: boolean;
+  highlightGameDetection?: boolean;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
   onDataRefresh: () => void;
@@ -113,6 +115,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   mockMode,
   gameCacheRefreshKey,
   highlightEviction = false,
+  highlightCacheScan = false,
+  highlightGameDetection = false,
   onError,
   onSuccess,
   onDataRefresh
@@ -742,25 +746,31 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         <GroupHeading label={t('management.sections.storage.cacheOperations')} />
 
         <div className="space-y-4">
-          {/* Cache Clearing */}
-          <CacheManager
-            isAdmin={isAdmin}
-            authMode={authMode}
-            mockMode={mockMode}
-            onError={onError}
-            onSuccess={onSuccess}
-          />
+          {/* Cache Clearing. HighlightGlow scrolls to and glows this card when the user jumps
+            here from the dashboard's stale Cache Files chip, which this card's scan refreshes. */}
+          <HighlightGlow enabled={highlightCacheScan} scrollIntoView>
+            <CacheManager
+              isAdmin={isAdmin}
+              authMode={authMode}
+              mockMode={mockMode}
+              onError={onError}
+              onSuccess={onSuccess}
+            />
+          </HighlightGlow>
 
           {/* Corruption Detection */}
           <CorruptionManager authMode={authMode} mockMode={mockMode} onError={onError} />
 
-          {/* Game Detection */}
-          <GameCacheDetector
-            mockMode={mockMode}
-            isAdmin={isAdmin}
-            onDataRefresh={onDataRefresh}
-            refreshKey={gameCacheRefreshKey}
-          />
+          {/* Game Detection. Refreshes both the Games on Disk and Services on Disk cards, so the
+            stale chip on either of them jumps here. */}
+          <HighlightGlow enabled={highlightGameDetection} scrollIntoView>
+            <GameCacheDetector
+              mockMode={mockMode}
+              isAdmin={isAdmin}
+              onDataRefresh={onDataRefresh}
+              refreshKey={gameCacheRefreshKey}
+            />
+          </HighlightGlow>
 
           {/* Eviction Detection and Removal (outer card with two inner sub-accordions: settings + items).
             HighlightGlow scrolls to and glows this card when the user jumps here from the

@@ -541,6 +541,7 @@
       "noCacheScanData": "暂无扫描数据 — 请前往“管理”→“缓存”运行扫描。",
       "scannedAt": "扫描于 {{time}}",
       "staleScanData": "扫描数据已过期",
+      "staleScanDataJump": "扫描数据已过期，前往{{destination}}",
       "evictedIncluded": "{{count}} 个已淘汰",
       "liveNow": "实时"
     },

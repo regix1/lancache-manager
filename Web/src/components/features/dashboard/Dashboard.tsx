@@ -36,7 +36,8 @@ import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 import { formatBytes, formatCount, formatPercent } from '@utils/formatters';
 import { buildGamesOnDiskDisplayStats } from '@utils/gameDetection';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
-import { STORAGE_KEYS } from '@utils/constants';
+import { APP_EVENTS, STORAGE_KEYS } from '@utils/constants';
+import { requestScanJump, type ScanJumpTarget } from '@utils/scanJump';
 import { type StatCardData } from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
@@ -361,6 +362,35 @@ const Dashboard: React.FC = () => {
     storageKey: STORAGE_KEYS.DASHBOARD_CARD_ORDER,
     dragHintStorageKey: 'dashboard-hide-drag-hint'
   });
+
+  // The chip on a stale card is the way back to the card that reruns the scan; both of those live
+  // in the Management tab's Storage section. It goes inert while cards are being rearranged, since
+  // a tap there is meant to pick the card up rather than leave the page.
+  const staleScanBadge = useCallback(
+    (target: ScanJumpTarget) => {
+      const destination =
+        target === 'cacheFiles' ? t('management.cache.title') : t('management.gameDetection.title');
+      const jump = () => {
+        requestScanJump(target);
+        window.dispatchEvent(
+          new CustomEvent(APP_EVENTS.NAVIGATE_TO_TAB, { detail: { tab: 'management' } })
+        );
+      };
+
+      return (
+        <Badge
+          variant="warning"
+          ariaLabel={
+            isEditMode ? undefined : t('dashboard.cards.staleScanDataJump', { destination })
+          }
+          onClick={isEditMode ? undefined : jump}
+        >
+          {t('dashboard.cards.staleScanData')}
+        </Badge>
+      );
+    },
+    [t, isEditMode]
+  );
 
   /* The chip form of the range: "24h", not "Last 24 hours". The long sentence pushed a stat
      card's title onto a second line on any narrow column, so badged cards sat a line lower than
@@ -705,10 +735,7 @@ const Dashboard: React.FC = () => {
               ]
                 .filter(Boolean)
                 .join(' • '),
-        badge:
-          hasCacheScan && cacheInfo?.scanStale ? (
-            <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
-          ) : undefined,
+        badge: hasCacheScan && cacheInfo?.scanStale ? staleScanBadge('cacheFiles') : undefined,
         tone: hasCacheScan && cacheInfo?.scanStale ? 'warning' : undefined,
         icon: Files,
         color: 'blue' as const,
@@ -741,7 +768,7 @@ const Dashboard: React.FC = () => {
         // staleness, so neither card's scan can flag or clear the other. The staleness badge
         // outranks the evicted badge: it prompts the rerun that also refreshes evicted state.
         badge: gamesOnDiskStats?.isStale ? (
-          <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
+          staleScanBadge('gameDetection')
         ) : gamesOnDiskStats?.includesEvicted ? (
           <Badge variant="warning">
             {t('dashboard.cards.evictedIncluded', { count: gamesOnDiskStats.evictedCount })}
@@ -772,9 +799,7 @@ const Dashboard: React.FC = () => {
           : detectionFailed
             ? t('common.failedToLoad')
             : t('dashboard.cards.noScanData'),
-        badge: gamesOnDiskStats?.isStale ? (
-          <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
-        ) : undefined,
+        badge: gamesOnDiskStats?.isStale ? staleScanBadge('gameDetection') : undefined,
         tone: gamesOnDiskStats?.isStale ? 'warning' : undefined,
         icon: Boxes,
         color: 'blue' as const,
@@ -799,6 +824,7 @@ const Dashboard: React.FC = () => {
       hasCacheScan,
       cacheFilesValue,
       isEditMode,
+      staleScanBadge,
       unmappedCacheBytes,
       failedSections,
       cacheSnapshotFailed,

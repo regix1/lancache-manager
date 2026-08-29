@@ -67,6 +67,18 @@
     color: var(--theme-text-secondary);
   }
 
+  /* A warning chip that acts answers with a ring rather than a new fill: the amber surface and its
+     text are a contrast-checked pair in every theme, and swapping either one for a hover state
+     would have to be re-checked per theme to stay readable. */
+  button.themed-badge.status-badge-warning {
+    transition: box-shadow 0.15s ease;
+  }
+
+  button.themed-badge.status-badge-warning:hover,
+  button.themed-badge.status-badge-warning:active {
+    box-shadow: inset 0 0 0 1px var(--theme-warning);
+  }
+
   /* Session badges */
   .session-badge-user {
     background-color: var(--theme-user-session-bg);

@@ -541,6 +541,7 @@
       "noCacheScanData": "No scan data yet — run a scan in Management → Cache.",
       "scannedAt": "scanned {{time}}",
       "staleScanData": "Scan outdated",
+      "staleScanDataJump": "Scan outdated, go to {{destination}}",
       "evictedIncluded": "{{count}} evicted",
       "liveNow": "Live now"
     },
