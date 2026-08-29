@@ -12,6 +12,7 @@ import Badge from '@components/ui/Badge';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { formatBytes, formatPercent, formatSpeedWithSeparatedUnit } from '@utils/formatters';
 import ApiService from '@services/api.service';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { getErrorMessage } from '@utils/error';
 import type { SpeedHistorySnapshot } from '../../../types';
 
@@ -64,6 +65,9 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
       signalR.off('LogProcessingComplete', fetchHistory);
     };
   }, [signalR, fetchHistory]);
+
+  // Refresh events emitted while the connection was down are gone, so refetch on reconnect.
+  useReconnectRefetch(signalR.isConnected, fetchHistory);
 
   // Use speedSnapshot from SpeedContext (single source of truth for real-time data)
   const isActive = speedSnapshot?.hasActiveDownloads || false;

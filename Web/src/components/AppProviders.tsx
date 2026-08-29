@@ -29,6 +29,7 @@ import { SessionPreferencesProvider } from '@contexts/SessionPreferencesContext'
 import { DockerSocketProvider } from '@contexts/DockerSocketContext';
 import { GameServiceProvider } from '@contexts/GameServiceContext';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import ErrorBoundary from '@components/common/ErrorBoundary';
 import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
 import ApiService from '@services/api.service';
@@ -59,7 +60,7 @@ const EventProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ ch
 // value the other could not compare against. One provider here means GameImagesUpdated is still
 // handled while the Downloads tab is unmounted, and every banner reads the same number.
 const ImageCacheProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const [imageCacheVersion, setImageCacheVersion] = useState(0);
   const invalidateImageCache = useCallback(() => {
     setImageCacheVersion((prev) => prev + 1);
@@ -85,6 +86,19 @@ const ImageCacheProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       off('GameImagesUpdated', handleGameImagesUpdated);
     };
   }, [on, off]);
+
+  // GameImagesUpdated events emitted while the connection was down are gone forever, so every
+  // reconnect re-reads the backend generation and bumps past it to force a fresh /available fetch.
+  const resyncImageCacheVersion = useCallback(() => {
+    ApiService.getImageCacheVersion()
+      .then((v) => {
+        setImageCacheVersion((prev) => Math.max(prev, v));
+      })
+      .catch(() => {
+        setImageCacheVersion((prev) => prev + 1);
+      });
+  }, []);
+  useReconnectRefetch(isConnected, resyncImageCacheVersion);
 
   return (
     <ImageCacheContext.Provider value={imageCacheVersion}>
