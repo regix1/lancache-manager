@@ -17,7 +17,7 @@ namespace LancacheManager.Tests;
 /// that are invisible to it. Depot mapping writes exactly such rows and then asks for a pass, which
 /// is refused while one is running. What happens to that refused request is what these tests pin.
 ///
-/// A null from StartFetchInBackground is documented as "the lock was held and a follow-up is armed",
+/// A null from StartFetchInBackgroundAsync is documented as "the lock was held and a follow-up is armed",
 /// and callers drop their own fallbacks on the strength of that, so it is pinned for both flavors of
 /// caller rather than only for the one that found the bug.
 ///
@@ -47,14 +47,14 @@ public sealed class GameImageFetchFollowUpPassTests
         var tracker = NewTracker();
         var service = NewService(provider, tracker);
 
-        var running = service.StartFetchInBackground(refreshEpicImageUrls: false);
+        var running = await service.StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled);
         Assert.NotNull(running);
         Assert.True(await httpClients.WaitForCallAsync(Arrival), "the first pass never reached its fetch");
 
         // False is depot mapping, which has just written GameAppId onto downloads the running pass
         // already read. True is the clear-the-cache path, which has just deleted every stored image.
         // Both are refused the execution lock, and neither may lose its request.
-        Assert.Null(service.StartFetchInBackground(refreshEpicImageUrls: refusedAsksForEpicUrls));
+        Assert.Null(await service.StartFetchInBackgroundAsync(refreshEpicImageUrls: refusedAsksForEpicUrls, RunTrigger.Scheduled));
 
         httpClients.Release();
 
@@ -80,9 +80,9 @@ public sealed class GameImageFetchFollowUpPassTests
         var tracker = NewTracker();
         var service = NewService(provider, tracker);
 
-        Assert.NotNull(service.StartFetchInBackground(refreshEpicImageUrls: false));
+        Assert.NotNull(await service.StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
         Assert.True(await httpClients.WaitForCallAsync(Arrival), "the first pass never reached its fetch");
-        Assert.Null(service.StartFetchInBackground(refreshEpicImageUrls: false));
+        Assert.Null(await service.StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
 
         httpClients.Release();
         Assert.True(await httpClients.WaitForCallAsync(Arrival), "the follow-up pass never ran");

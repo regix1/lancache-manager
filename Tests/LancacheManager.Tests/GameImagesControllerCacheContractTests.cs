@@ -5,6 +5,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Http;
@@ -36,23 +37,12 @@ public sealed class GameImagesControllerCacheContractTests
     {
         using var passStarted = new ManualResetEventSlim(false);
         using var releasePass = new ManualResetEventSlim(false);
-        using var passFinished = new ManualResetEventSlim(false);
 
-        var tracker = CreateProxy<IUnifiedOperationTracker>((method, _) =>
-        {
-            if (method.Name == nameof(IUnifiedOperationTracker.RegisterOperation))
-            {
-                return Guid.NewGuid();
-            }
-
-            if (method.Name == nameof(IUnifiedOperationTracker.CompleteOperation))
-            {
-                passFinished.Set();
-                return null;
-            }
-
-            return DefaultReturn(method.ReturnType);
-        });
+        // A real tracker: the pass now completes through a ScheduledRunReporter, whose completion
+        // waits on the tracker invoking the terminal-emit callback. A proxy that swallows
+        // CompleteOperation never invokes it and deadlocks the pass while it holds the static
+        // execution lock.
+        var tracker = NewTracker();
 
         var queue = new RecordingOperationQueue(new QueuedOperationResponse
         {
@@ -75,7 +65,7 @@ public sealed class GameImagesControllerCacheContractTests
 
         // The pass is under way, and the response arrived without waiting for it to end.
         Assert.True(passStarted.Wait(TimeSpan.FromSeconds(5)));
-        Assert.False(passFinished.IsSet);
+        Assert.NotEmpty(tracker.GetActiveOperations(OperationType.GameImageFetch));
 
         // Refreshing Epic's image URLs calls out to Epic's catalog, so it must belong to the pass
         // and not to the request. The pass is still parked on resolving the Epic service, which the
@@ -87,7 +77,7 @@ public sealed class GameImagesControllerCacheContractTests
         Assert.Equal(GameImagesController.CacheGeneration, body.CacheGeneration);
 
         releasePass.Set();
-        Assert.True(passFinished.Wait(TimeSpan.FromSeconds(5)));
+        await WaitForPassesToFinishAsync(tracker);
     }
 
     [Fact]
@@ -148,15 +138,12 @@ public sealed class GameImagesControllerCacheContractTests
         string? activeOperationType)
     {
         var passes = new CountingServiceProvider();
-        var tracker = CreateProxy<IUnifiedOperationTracker>((method, _) =>
-            method.Name == nameof(IUnifiedOperationTracker.RegisterOperation)
-                ? Guid.NewGuid()
-                : DefaultReturn(method.ReturnType));
+        var tracker = NewTracker();
         var images = CreateDefaultProxy<IImageCacheService>();
 
         // A pass is already under way and holds the execution lock.
-        Assert.NotNull(CreateFetchService(passes, tracker, images)
-            .StartFetchInBackground(refreshEpicImageUrls: false));
+        Assert.NotNull(await CreateFetchService(passes, tracker, images)
+            .StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
         Assert.True(passes.WaitForFirstPass(), "the first pass never started");
 
         var conflict = activeOperationType == null
@@ -196,17 +183,14 @@ public sealed class GameImagesControllerCacheContractTests
     public async Task ClearImageCache_WhenTheCallerHasGoneAway_StillArmsTheRefetchAsync()
     {
         var passes = new CountingServiceProvider();
-        var tracker = CreateProxy<IUnifiedOperationTracker>((method, _) =>
-            method.Name == nameof(IUnifiedOperationTracker.RegisterOperation)
-                ? Guid.NewGuid()
-                : DefaultReturn(method.ReturnType));
+        var tracker = NewTracker();
         var images = CreateDefaultProxy<IImageCacheService>();
 
         // A pass is already running, so the follow-up is the only thing that can refill the table.
         // It is also what makes the throw reachable: the checker only tests the token once it has an
         // active operation to walk.
-        Assert.NotNull(CreateFetchService(passes, tracker, images)
-            .StartFetchInBackground(refreshEpicImageUrls: false));
+        Assert.NotNull(await CreateFetchService(passes, tracker, images)
+            .StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
         Assert.True(passes.WaitForFirstPass(), "the first pass never started");
 
         var controller = CreateController(
@@ -536,6 +520,20 @@ public sealed class GameImagesControllerCacheContractTests
             CreateDefaultProxy<ISignalRNotificationService>(),
             images,
             tracker);
+    }
+
+    private static UnifiedOperationTracker NewTracker() => new(
+        new ProcessManager(NullLogger<ProcessManager>.Instance),
+        NullLogger<UnifiedOperationTracker>.Instance);
+
+    private static async Task WaitForPassesToFinishAsync(UnifiedOperationTracker tracker)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (tracker.GetActiveOperations(OperationType.GameImageFetch).Any())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "a fetch pass never finished");
+            await Task.Delay(10);
+        }
     }
 
     /// <summary>

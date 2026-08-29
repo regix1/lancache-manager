@@ -62,7 +62,7 @@ public sealed class GameImageFetchBannerNotificationTests
         var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();
         var service = NewService(provider, tracker, notifications);
 
-        Assert.NotNull(service.StartFetchInBackground(refreshEpicImageUrls: false));
+        Assert.NotNull(await service.StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
         await WaitForPassesToFinishAsync(tracker);
 
         var recorder = (RecordingNotifications)(object)notifications;
@@ -98,7 +98,7 @@ public sealed class GameImageFetchBannerNotificationTests
         var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();
         var service = NewService(provider, tracker, notifications);
 
-        Assert.NotNull(service.StartFetchInBackground(refreshEpicImageUrls: false));
+        Assert.NotNull(await service.StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
         await WaitForPassesToFinishAsync(tracker);
 
         var recorder = (RecordingNotifications)(object)notifications;

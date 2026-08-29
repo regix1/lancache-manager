@@ -273,7 +273,7 @@ public class GameImagesController : ControllerBase
     /// is parked on the wait queue and starts once that conflict clears. An image fetch pass that is
     /// already running is NOT parked: the queue treats a second request under the same name as an
     /// idempotent accept and answers "already running" without a waiter, which would leave every
-    /// banner deleted and nothing to refill them. StartFetchInBackground announces the request before
+    /// banner deleted and nothing to refill them. StartFetchInBackgroundAsync announces the request before
     /// it tries for the execution lock and the running pass starts one more on its way out, so that
     /// follow-up reads the emptied table and refetches everything.
     /// </remarks>
@@ -294,7 +294,7 @@ public class GameImagesController : ControllerBase
         // never 409'd. The delegate captures only the singleton fetch service, so it stays valid at
         // promotion time when this request is long gone.
         Task<Guid?> StartImageFetchAsync() =>
-            Task.FromResult(_gameImageFetchService.StartFetchInBackground(refreshEpicImageUrls: true));
+            _gameImageFetchService.StartFetchInBackgroundAsync(refreshEpicImageUrls: true, RunTrigger.Manual);
 
         // Every row is marked for re-fetch from here on, so no path out of this method may leave
         // without a re-fetch either running or on its way. Clearing takes no cancellation token, so
@@ -323,10 +323,10 @@ public class GameImagesController : ControllerBase
         }
         catch
         {
-            // StartFetchInBackground announces the request before it reaches anything that can fail,
+            // StartFetchInBackgroundAsync announces the request before it reaches anything that can fail,
             // so this arms the refill whether or not it goes on to take the lock. The original
             // failure is still what the caller sees.
-            _gameImageFetchService.StartFetchInBackground(refreshEpicImageUrls: true);
+            await _gameImageFetchService.StartFetchInBackgroundAsync(refreshEpicImageUrls: true, RunTrigger.Manual);
             throw;
         }
 
@@ -334,7 +334,7 @@ public class GameImagesController : ControllerBase
 
         if (operationId == null)
         {
-            // A pass already holds the execution lock. StartFetchInBackground announced this request
+            // A pass already holds the execution lock. StartFetchInBackgroundAsync announced this request
             // before trying to take it, and the running pass starts one more on its way out, so the
             // work is armed rather than lost. That follow-up reads the rows this request just
             // backdated, which the running pass had already read past.

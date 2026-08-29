@@ -1178,10 +1178,19 @@ public class RustLogProcessorService
                     // may have occurred above even without new log entries
                     await FetchMissingEpicImagesAsync();
 
-                    // NOTE: GameImageFetchService runs on its own 30-minute schedule and will
-                    // fetch image binaries after all game detection, mapping, and DB saves complete.
-                    // We do NOT trigger it here to avoid fetching images mid-pipeline before
-                    // game detection (GameDetectionService) has finished.
+                    // The Rust processor maps depots itself, so the SteamKit2 mapping trigger never
+                    // fires for games it identified. Start a banner pass when one of them has no
+                    // stored art yet, instead of leaving it blank until the next scheduled tick.
+                    try
+                    {
+                        using var imageFetchScope = _serviceProvider.CreateScope();
+                        var imageFetchService = imageFetchScope.ServiceProvider.GetRequiredService<GameImageFetchService>();
+                        await imageFetchService.StartFetchForMissingArtAsync(CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Banner fetch trigger after log processing failed (non-fatal)");
+                    }
                 });
 
                 if (!silentMode && shouldFinalizeOperation)

@@ -125,7 +125,7 @@ public sealed class GameImageRefreshInPlaceTests
             DispatchProxy.Create<IImageCacheService, NullReturningProxy>(),
             tracker);
 
-        Assert.NotNull(service.StartFetchInBackground(refreshEpicImageUrls: false));
+        Assert.NotNull(await service.StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
 
         var deadline = DateTime.UtcNow + PassTimeout;
         while (tracker.GetActiveOperations(OperationType.GameImageFetch).Any())

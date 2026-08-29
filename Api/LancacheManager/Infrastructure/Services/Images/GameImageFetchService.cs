@@ -100,8 +100,9 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// Public trigger so other services can request an immediate image fetch after ALL game
     /// detection, mapping, and DB saves are complete. Starts a fetch pass on a background task owned
     /// by this singleton and returns its tracked operation id, or null when a pass is already
-    /// running. This is a programmatic trigger (not a scheduled run), so it does not surface a
-    /// Schedules progress card.
+    /// running. The pass reports through the same ScheduledRunReporter lifecycle as a scheduled
+    /// run, so it shows live progress; <paramref name="trigger"/> and the service's notification
+    /// mode decide whether the card is visible.
     /// </summary>
     /// <returns>
     /// The tracked operation id of the pass this call started, or null when a pass was already
@@ -137,7 +138,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// scheduled cadence leaves it off: Epic's own catalog refresh runs on its own interval, which
     /// the user sets in hours, and re-polling it every half hour would ignore that setting.
     /// </param>
-    public Guid? StartFetchInBackground(bool refreshEpicImageUrls)
+    public async Task<Guid?> StartFetchInBackgroundAsync(bool refreshEpicImageUrls, RunTrigger trigger)
     {
         // Announced before the attempt rather than after a refusal: a request announced after a
         // failed acquire can land in the moment a finishing pass is releasing the lock and reading
@@ -154,9 +155,19 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         // so far.
         Interlocked.Exchange(ref _followUpPassWanted, 0);
 
-        var cts = new CancellationTokenSource();
-        var operationId = _operationTracker.RegisterOperation(
-            OperationType.GameImageFetch, "Game Image Fetch", cts);
+        // Started eagerly (not lazily inside FetchImagesAsync) so the caller gets the operation id
+        // back. The reporter owns the tracked operation and the cancellation source from here on.
+        var reporter = new ScheduledRunReporter(
+            _notifications,
+            _operationTracker,
+            ServiceKey,
+            OperationType.GameImageFetch,
+            _eventNames,
+            $"{StageBase}.complete",
+            EffectiveNotificationMode.AllowsTrigger(trigger),
+            CancellationToken.None);
+        await reporter.StartAsync($"{StageBase}.starting");
+        var operationId = reporter.OperationId;
 
         _ = Task.Run(async () =>
         {
@@ -175,11 +186,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                     {
                         try
                         {
-                            var refreshedUrls = await epicMapping.RefreshImagesAsync(cts.Token);
+                            var refreshedUrls = await epicMapping.RefreshImagesAsync(reporter.Token);
                             _logger.LogInformation(
                                 "[GameImageFetch] Refreshed {Count} Epic image URLs", refreshedUrls);
                         }
-                        catch (Exception ex)
+                        catch (Exception ex) when (ex is not OperationCanceledException)
                         {
                             // Epic's catalog call fails on an expired session or a bad response.
                             // The stored URLs still fetch, so the pass carries on.
@@ -188,7 +199,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                     }
                 }
 
-                await FetchImagesAsync(scope.ServiceProvider, reporter: null, cts.Token);
+                await FetchImagesAsync(scope.ServiceProvider, reporter, reporter.Token);
+            }
+            catch (OperationCanceledException) when (reporter.Token.IsCancellationRequested)
+            {
+                // DisposeAsync below completes the run as cancelled.
             }
             catch (Exception ex)
             {
@@ -200,7 +215,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 // Release the service-local gate before completing the operation, so a queued waiter
                 // promoted by the completion can acquire it.
                 _executionLock.Release();
-                _operationTracker.CompleteOperation(operationId, success: error == null, error: error);
+                if (error != null)
+                {
+                    await reporter.CompleteAsync(success: false, error: error);
+                }
+                await reporter.DisposeAsync();
                 StartFollowUpPass();
             }
         }, CancellationToken.None);
@@ -222,7 +241,59 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     {
         if (Interlocked.Exchange(ref _followUpPassWanted, 0) == 1)
         {
-            StartFetchInBackground(refreshEpicImageUrls: false);
+            _ = StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled);
+        }
+    }
+
+    // AppIds a log-processing trigger has already started a pass for. A game whose art cannot be
+    // fetched at all (delisted, no banner published) stays missing after the pass, and without this
+    // set it would start a new pass on every log-processing run for as long as it appears in the
+    // logs. The scheduled sweep remains the retry path for those.
+    private readonly HashSet<long> _artTriggerAttemptedAppIds = new();
+    private readonly object _artTriggerLock = new();
+
+    /// <summary>
+    /// Starts a fetch pass when a download has a Steam game identity but no stored banner yet.
+    /// Called after each log-processing run: the Rust processor maps depots itself, so the
+    /// SteamKit2 mapping trigger never fires for games it identified, and their banners would
+    /// otherwise stay blank until the next scheduled tick up to half an hour later.
+    /// </summary>
+    public async Task StartFetchForMissingArtAsync(CancellationToken ct)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        // Same filter as the Steam phase, so a trigger never starts a pass that finds nothing.
+        var steamAppIds = await db.Downloads
+            .AsNoTracking()
+            .Where(d => d.GameAppId != null && d.GameAppId != 0 && !string.IsNullOrEmpty(d.GameName))
+            .Select(d => d.GameAppId!.Value)
+            .Distinct()
+            .ToListAsync(ct);
+
+        var existingSteamIds = await db.GameImages
+            .AsNoTracking()
+            .Where(g => g.Service == "steam")
+            .Select(g => g.AppId)
+            .ToListAsync(ct);
+
+        var existingSet = existingSteamIds.ToHashSet();
+
+        var anyNew = false;
+        lock (_artTriggerLock)
+        {
+            foreach (var appId in steamAppIds)
+            {
+                if (!existingSet.Contains(appId.ToString()) && _artTriggerAttemptedAppIds.Add(appId))
+                {
+                    anyNew = true;
+                }
+            }
+        }
+
+        if (anyNew)
+        {
+            await StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled);
         }
     }
 
@@ -351,12 +422,18 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         if (totalDownloads == 0)
         {
             _logger.LogInformation("[GameImageFetch] Downloads table is empty - log processing hasn't completed yet, will retry next cycle");
+            if (reporter is { IsStarted: true })
+            {
+                // The background-trigger path starts its reporter eagerly, so this run must still
+                // reach a terminal instead of being disposed as a failure.
+                await reporter.CompleteAsync(success: true, skipped: true);
+            }
             return;
         }
 
         // There is work to do (downloads exist): start the run now so the "no downloads yet" retry never
-        // surfaces a card.
-        if (reporter != null)
+        // surfaces a card. The background-trigger path arrives already started.
+        if (reporter is { IsStarted: false })
         {
             await reporter.StartAsync($"{StageBase}.starting");
         }
