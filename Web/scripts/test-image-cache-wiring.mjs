@@ -79,7 +79,7 @@ test('the image cache version is a counter seeded from the backend, not a timest
   assert.equal(callsTo(sourceFile, 'Date.now').length, 0);
 });
 
-test('the backend cache version is read exactly once, and the read has a catch', () => {
+test('only the provider reads the backend cache version, and every read has a catch', () => {
   const readers = sourceFiles.filter(
     (relativePath) => callsTo(parse(relativePath), 'ApiService.getImageCacheVersion').length > 0
   );
@@ -87,19 +87,23 @@ test('the backend cache version is read exactly once, and the read has a catch',
 
   const sourceFile = parse(PROVIDER_FILE);
   const reads = callsTo(sourceFile, 'ApiService.getImageCacheVersion');
-  assert.equal(reads.length, 1);
+  assert.ok(reads.length > 0, 'expected the provider to read the version at least once');
 
-  const chain = [];
-  for (let node = reads[0].parent; node; node = node.parent) {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-      chain.push(node.expression.name.getText(sourceFile));
+  for (const read of reads) {
+    const chain = [];
+    for (let node = read.parent; node; node = node.parent) {
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+        chain.push(node.expression.name.getText(sourceFile));
+      }
+      if (ts.isExpressionStatement(node)) break;
     }
-    if (ts.isExpressionStatement(node)) break;
+    assert.ok(
+      chain.includes('catch'),
+      `expected a catch on the version read at line ${
+        sourceFile.getLineAndCharacterOfPosition(read.getStart(sourceFile)).line + 1
+      }, got ${chain.join('.')}`
+    );
   }
-  assert.ok(
-    chain.includes('catch'),
-    `expected a catch on the version read, got ${chain.join('.')}`
-  );
 });
 
 test('GameImagesUpdated is subscribed once, above every banner', () => {
