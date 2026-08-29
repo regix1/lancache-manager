@@ -194,12 +194,12 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
   // keeps updating (and can expire) instead of freezing at the last pushed snapshot. The
   // monotonic guard in acceptSnapshot keeps these polls from overwriting newer pushed data.
   useEffect(() => {
-    if (!hasAccess || signalR.connectionState === 'connected') return;
+    if (!hasAccess || signalR.isConnected) return;
     const interval = setInterval(() => {
       fetchSpeed();
     }, DISCONNECTED_POLL_MS);
     return () => clearInterval(interval);
-  }, [signalR.connectionState, hasAccess, fetchSpeed]);
+  }, [signalR.isConnected, hasAccess, fetchSpeed]);
 
   // Re-fetch data when SignalR reconnects to recover from missed messages
   useReconnectRefetch(signalR.isConnected, () => {

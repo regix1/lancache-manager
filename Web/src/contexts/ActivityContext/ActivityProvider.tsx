@@ -39,7 +39,7 @@ const MIN_HOLD_MS = 1500;
  * N per-domain channels. Rich per-domain channels (speed, last-seen, lifecycle) are unchanged.
  */
 export const ActivityProvider: React.FC<ActivityProviderProps> = ({ children }) => {
-  const { on, off, connectionState } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const [activities, setActivities] = useState<ActivityMap>(() => new Map());
   // Flips true once, the first time a snapshot is processed - lets a consumer distinguish "the registry
   // has no data yet" from "the registry says inactive" (see ActivityLookup.ready).
@@ -178,10 +178,10 @@ export const ActivityProvider: React.FC<ActivityProviderProps> = ({ children }) 
 
   // Arm the resync while the connection is down so the next reseed becomes the new baseline.
   useEffect(() => {
-    if (connectionState !== 'connected') {
+    if (!isConnected) {
       resyncRef.current = true;
     }
-  }, [connectionState]);
+  }, [isConnected]);
 
   const value = useMemo<ActivityLookup>(() => {
     const isActive: ActivityLookup['isActive'] = (domain, key, aspect) =>

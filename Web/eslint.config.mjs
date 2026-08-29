@@ -96,6 +96,26 @@ export default tseslint.config(
             "BinaryExpression[operator='==='][right.value='complete'][left.property.name='status']",
           message:
             "Use 'completed' instead of 'complete' for status checks. The backend sends 'completed' for all completion states."
+        },
+        {
+          selector:
+            "BinaryExpression[operator=/^[!=]==$/][right.value='connected'][left.property.name='connectionState']",
+          message:
+            'Do not compare connectionState to "connected". Read the isConnected boolean instead, and to re-fetch data once a dropped connection returns call useReconnectRefetch(isConnected, callback) from @hooks/useReconnectRefetch. A hand-rolled check re-fetches on every unrelated re-render and misses the first connect.'
+        },
+        {
+          // The same comparison written against a destructured `connectionState`, which has no
+          // `.property` for the selector above to match.
+          selector:
+            "BinaryExpression[operator=/^[!=]==$/][right.value='connected'][left.name='connectionState']",
+          message:
+            'Do not compare connectionState to "connected". Read the isConnected boolean instead, and to re-fetch data once a dropped connection returns call useReconnectRefetch(isConnected, callback) from @hooks/useReconnectRefetch. A hand-rolled check re-fetches on every unrelated re-render and misses the first connect.'
+        },
+        {
+          selector:
+            'VariableDeclarator[id.name=/^(wasDisconnected|prevConnectionState|everConnected|hasConnected|wasConnected)Ref$/]',
+          message:
+            'Do not hand-roll a reconnect latch. useReconnectRefetch(isConnected, callback) from @hooks/useReconnectRefetch already tracks the drop-and-return transition and is covered by scripts/test-reconnect-refetch.mjs.'
         }
       ]
     }
@@ -121,6 +141,28 @@ export default tseslint.config(
             "BinaryExpression[operator='==='][right.value='complete'][left.property.name='status']",
           message:
             "Use 'completed' instead of 'complete' for SignalR status checks. The backend sends 'completed' for all completion states."
+        },
+        // Repeated from the general block because a rule declared here replaces it rather than
+        // merging with it, and these files are the likeliest place to hand-roll a reconnect.
+        {
+          selector:
+            "BinaryExpression[operator=/^[!=]==$/][right.value='connected'][left.property.name='connectionState']",
+          message:
+            'Do not compare connectionState to "connected". Read the isConnected boolean instead, and to re-fetch data once a dropped connection returns call useReconnectRefetch(isConnected, callback) from @hooks/useReconnectRefetch. A hand-rolled check re-fetches on every unrelated re-render and misses the first connect.'
+        },
+        {
+          // The same comparison written against a destructured `connectionState`, which has no
+          // `.property` for the selector above to match.
+          selector:
+            "BinaryExpression[operator=/^[!=]==$/][right.value='connected'][left.name='connectionState']",
+          message:
+            'Do not compare connectionState to "connected". Read the isConnected boolean instead, and to re-fetch data once a dropped connection returns call useReconnectRefetch(isConnected, callback) from @hooks/useReconnectRefetch. A hand-rolled check re-fetches on every unrelated re-render and misses the first connect.'
+        },
+        {
+          selector:
+            'VariableDeclarator[id.name=/^(wasDisconnected|prevConnectionState|everConnected|hasConnected|wasConnected)Ref$/]',
+          message:
+            'Do not hand-roll a reconnect latch. useReconnectRefetch(isConnected, callback) from @hooks/useReconnectRefetch already tracks the drop-and-return transition and is covered by scripts/test-reconnect-refetch.mjs.'
         }
       ]
     }
