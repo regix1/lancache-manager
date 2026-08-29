@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useMemo, type ReactNode } from 'react';
 import { useSignalR } from '../SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useAuth } from '../useAuth';
 import themeService from '@services/theme.service';
 import type { ShowToastEvent } from '../SignalRContext/types';
@@ -107,9 +108,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     Map<string, { timerId: ReturnType<typeof setTimeout>; instanceId: number }>
   >(new Map());
   const instanceCounterRef = useRef<Map<string, number>>(new Map());
-
-  // Track previous SignalR connection state to detect reconnections
-  const prevConnectionStateRef = useRef<string | null>(null);
 
   // Track when the tab was hidden, so we can debounce visibility recovery
   const tabHiddenAtRef = useRef<number | null>(null);
@@ -392,35 +390,21 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     recoverAllOperations();
   }, [authLoading, isAdmin, fetchWithAuth, scheduleAutoDismiss]);
 
-  // Monitor SignalR connection state - re-run recovery on reconnection
-  // This ensures we recover from missed completion events during connection loss (especially on mobile)
-  React.useEffect(() => {
+  // Re-run recovery on every connect, including the first one: the page-load recovery above can
+  // seed a running card before the hub subscription is live, so a completion emitted in that gap
+  // would otherwise leave the card running forever.
+  useReconnectRefetch(signalR.isConnected, () => {
     // Skip if not admin - all recovery endpoints require admin access
     if (authLoading || !isAdmin) return;
 
-    const currentState = signalR.connectionState;
-    const prevState = prevConnectionStateRef.current;
+    const recoverAllOperations = createRecoveryRunner(
+      fetchWithAuth,
+      setNotifications,
+      scheduleAutoDismiss
+    );
 
-    // Update the ref for next comparison
-    prevConnectionStateRef.current = currentState;
-
-    // Trigger recovery on EVERY transition to 'connected', including the initial connection.
-    // The page-load recovery effect races the SignalR connection: it can fetch active ops and
-    // seed a running card BEFORE the hub subscription is live, so a completion emitted in that
-    // gap is lost and the recovered card would stay "running" forever. Re-running recovery once
-    // the connection lands reconciles that window (the no-active-op branch marks the card
-    // completed); live cards are safe because recovery keeps an existing running card for the
-    // same operationId instead of replacing it.
-    if (currentState === 'connected' && prevState !== 'connected') {
-      const recoverAllOperations = createRecoveryRunner(
-        fetchWithAuth,
-        setNotifications,
-        scheduleAutoDismiss
-      );
-
-      recoverAllOperations();
-    }
-  }, [signalR.connectionState, authLoading, isAdmin, fetchWithAuth, scheduleAutoDismiss]);
+    recoverAllOperations();
+  });
 
   // Recovery on tab becoming visible after being backgrounded.
   // The SignalR connection stays open while backgrounded, so the reconnection effect

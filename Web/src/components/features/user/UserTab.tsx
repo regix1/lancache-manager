@@ -4,6 +4,7 @@ import { Users, Settings2, UserCog } from 'lucide-react';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
@@ -165,7 +166,7 @@ const UserTab: React.FC = () => {
   }, []);
 
   // SignalR handlers for live config updates
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
 
   const handleGuestModeLockChanged = useCallback((data: { isLocked: boolean }) => {
     setGuestModeLocked(data.isLocked);
@@ -186,6 +187,13 @@ const UserTab: React.FC = () => {
   const handleGuestRefreshRateLockChanged = useCallback((data: { locked: boolean }) => {
     setGuestRefreshRateLocked(data.locked);
   }, []);
+
+  // Refresh guest defaults when SignalR reconnects (catches config events missed during disconnect)
+  useReconnectRefetch(isConnected, () => {
+    loadGuestDuration();
+    loadDefaultGuestTheme();
+    loadDefaultGuestRefreshRate();
+  });
 
   useEffect(() => {
     loadGuestDuration();

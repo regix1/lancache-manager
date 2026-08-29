@@ -11,6 +11,7 @@ import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import ApiService from '@services/api.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type { DefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
@@ -81,7 +82,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
 }) => {
   const { t } = useTranslation();
   const { notifyError } = useErrorHandler();
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const { authMode } = useAuth();
   const [defaultGuestPreferences, setDefaultGuestPreferences] = useState<DefaultGuestPreferences>({
     useLocalTimezone: false,
@@ -420,6 +421,14 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     const config = prefillConfigs[service.id];
     updatePrefillConfig(service, config.enabledByDefault, config.durationHours, threads);
   };
+
+  // Refresh guest defaults when SignalR reconnects (catches config events missed during disconnect)
+  useReconnectRefetch(isConnected, () => {
+    loadDefaultGuestPreferences();
+    for (const service of PREFILL_SERVICES) {
+      loadPrefillConfig(service);
+    }
+  });
 
   useEffect(() => {
     loadDefaultGuestPreferences();

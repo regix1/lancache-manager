@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useRefreshRate } from '@contexts/useRefreshRate';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type { EventHandler } from '@contexts/SignalRContext/types';
 import { PERSISTENT_PREFILL_CONTAINER_SIGNALR_EVENTS } from './persistentPrefillSignalREvents';
 
@@ -37,7 +38,6 @@ export function usePersistentPrefillContainerSignalR({
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onRefreshRef = useRef(onRefresh);
   const getRefreshIntervalRef = useRef(getRefreshInterval);
-  const wasDisconnectedRef = useRef(false);
 
   onRefreshRef.current = onRefresh;
   getRefreshIntervalRef.current = getRefreshInterval;
@@ -45,19 +45,12 @@ export function usePersistentPrefillContainerSignalR({
   // A reconnect can swallow the session/auth events for a container that was created, started, or
   // finished authenticating while the socket was down - reconcile from the server whenever the
   // connection returns so the card cannot stay frozen on a pre-drop snapshot.
-  useEffect(() => {
+  useReconnectRefetch(isConnected, () => {
     if (!enabled) {
       return;
     }
-    if (!isConnected) {
-      wasDisconnectedRef.current = true;
-      return;
-    }
-    if (wasDisconnectedRef.current) {
-      wasDisconnectedRef.current = false;
-      onRefreshRef.current();
-    }
-  }, [enabled, isConnected]);
+    onRefreshRef.current();
+  });
 
   useEffect(() => {
     if (!enabled) {

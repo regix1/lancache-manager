@@ -19,6 +19,7 @@ import { formatLastRun } from '../scheduleFormatting';
 import type { CustomSchedule } from '../custom-schedule/types';
 import type { ServiceScheduleInfo } from '../types';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { ScheduledPrefillConfigModal } from './ScheduledPrefillConfigModal';
 import {
   getPersistentServiceId,
@@ -219,7 +220,7 @@ export function ScheduledPrefillScheduleDetail({
   runNowDisabled
 }: ScheduledPrefillScheduleDetailProps) {
   const { t } = useTranslation();
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   // Persistent-container run/login state now flows through the unified activity registry; the
   // fetched container list stays the pre-seed fallback (activity.isActive(...) || existing).
   const activity = useActivityStatus();
@@ -315,6 +316,12 @@ export function ScheduledPrefillScheduleDetail({
     onRefresh: () => {
       void refreshPersistentContainers();
     }
+  });
+
+  // Refresh the schedule when SignalR reconnects (catches events missed during disconnect). The
+  // container list is already covered by the reconnect refresh above.
+  useReconnectRefetch(isConnected, () => {
+    void refreshSchedule();
   });
 
   // Card-level per-service save. Goes through the same whole-config round-trip the Configure
