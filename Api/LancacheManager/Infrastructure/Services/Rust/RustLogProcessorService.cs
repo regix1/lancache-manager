@@ -243,6 +243,24 @@ public class RustLogProcessorService
         }
         finally
         {
+            // Completion backstop. BeginOperation registered the batch operation, but only the
+            // FINAL datasource's run finalizes it - a cancellation break before that iteration,
+            // or an exception between registration and the loop (which the background runner
+            // swallows with a log line), otherwise leaves the operation active forever, and the
+            // operation queue then parks every later run behind the ghost. If nothing reached a
+            // terminal state, fail the operation here so the queue can move on.
+            if (_operationTracker.GetOperation(batchOperationId)?.Status.IsTerminal() != true)
+            {
+                _terminalMetrics = new LogProcessingTerminalMetrics(
+                    EntriesProcessed: 0,
+                    LinesProcessed: 0,
+                    Elapsed: null,
+                    Message: "Log processing ended without completing; marked failed",
+                    StageKey: null);
+                _operationTracker.CompleteOperation(batchOperationId, false,
+                    "Log processing ended without completing");
+            }
+
             if (IsProcessing)
             {
                 EndOperation();
