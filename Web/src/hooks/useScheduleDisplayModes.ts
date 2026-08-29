@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type {
   NotificationDisplayMode,
   ServiceScheduleInfo
@@ -26,7 +27,7 @@ const toDisplayModeMap = (schedules: ServiceScheduleInfo[]): ScheduleDisplayMode
  */
 export function useScheduleDisplayModes(): ScheduleDisplayModeMap {
   const [displayModes, setDisplayModes] = useState<ScheduleDisplayModeMap>({});
-  const { on, off, connectionState } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   // Single freshness sequence shared by every writer below: each applied update bumps it, and a
   // fetch response only lands if the generation captured when the request was sent still matches
   // when it resolves. A GET snapshot resolving after newer data has already applied is discarded
@@ -63,25 +64,19 @@ export function useScheduleDisplayModes(): ScheduleDisplayModeMap {
 
   // Refetch on reconnect: broadcasts sent while SignalR was down are gone for good, so the map
   // must be re-based on authoritative state (same recovery the Schedules page itself performs).
-  useEffect(() => {
-    if (connectionState !== 'connected') {
-      return;
-    }
-    let cancelled = false;
+  // The generation guard keeps a slow response from overwriting a newer SignalR push.
+  useReconnectRefetch(isConnected, () => {
     const requestGeneration = generationRef.current;
     ApiService.getSchedules()
       .then((schedules) => {
-        if (!cancelled && generationRef.current === requestGeneration) {
+        if (generationRef.current === requestGeneration) {
           applySchedules(schedules);
         }
       })
       .catch((error: unknown) => {
         console.error('useScheduleDisplayModes reconnect refresh failed:', getErrorMessage(error));
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [connectionState, applySchedules]);
+  });
 
   return displayModes;
 }

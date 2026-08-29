@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import i18n from '@/i18n';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useRefreshRate } from '@contexts/useRefreshRate';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
@@ -201,11 +202,11 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
   }, [signalR.connectionState, hasAccess, fetchSpeed]);
 
   // Re-fetch data when SignalR reconnects to recover from missed messages
-  useEffect(() => {
-    if (signalR.connectionState === 'connected' && hasAccess) {
+  useReconnectRefetch(signalR.isConnected, () => {
+    if (hasAccess) {
       fetchSpeed();
     }
-  }, [signalR.connectionState, fetchSpeed, hasAccess]);
+  });
 
   // Re-fetch data when page becomes visible (handles tab switching / mobile backgrounding)
   useEffect(() => {

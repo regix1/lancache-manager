@@ -40,6 +40,7 @@ import { APP_EVENTS } from '@utils/constants';
 import { formatCount } from '@utils/formatters';
 import { formatLastRun } from './scheduleFormatting';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import StatusDot from '@components/common/StatusDot';
@@ -1241,7 +1242,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   // Reset to Defaults where every row flashes at once and needs to feel like an
   // acknowledgement rather than an attention-grab.
   const [completedKeys, setCompletedKeys] = useState<Record<string, HighlightGlowVariant>>({});
-  const { on, off, connectionState } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const { addNotification } = useNotifications();
   const { notifySuccess } = useNotifySuccess();
   const scheduleFlashClear = useTimeoutCallback(1400);
@@ -1386,11 +1387,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   }, [on, off, clearPending]);
 
   // Refetch when SignalR reconnects to recover any missed updates
-  useEffect(() => {
-    if (connectionState === 'connected') {
-      fetchSchedules();
-    }
-  }, [connectionState, fetchSchedules]);
+  useReconnectRefetch(isConnected, fetchSchedules);
 
   const handleIntervalChange = useCallback(
     async (key: string, intervalHours: number) => {

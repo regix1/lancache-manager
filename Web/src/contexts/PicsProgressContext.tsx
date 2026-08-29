@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import type {
@@ -106,20 +107,12 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode, authLoading, hasAccess]);
 
-  // Monitor SignalR connection state - re-fetch state on reconnection
-  // This ensures we recover from missed messages during connection loss
-  useEffect(() => {
-    if (mockMode) return;
-
-    // Only refetch on reconnection if user has access
-    if (authLoading || !hasAccess) return;
-
-    // When SignalR reconnects, immediately fetch current state to recover any missed messages
-    if (signalR.connectionState === 'connected') {
-      fetchProgress();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signalR.connectionState, mockMode, authLoading, hasAccess]);
+  // Re-fetch state on reconnection to recover from messages missed during connection loss.
+  // Access changes while connected are already handled by the fetch effect above.
+  useReconnectRefetch(signalR.isConnected, () => {
+    if (mockMode || authLoading || !hasAccess) return;
+    fetchProgress();
+  });
 
   // Listen for real-time depot mapping updates via SignalR
   useEffect(() => {

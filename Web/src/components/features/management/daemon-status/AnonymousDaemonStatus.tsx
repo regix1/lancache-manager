@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import DaemonStatusCard from './DaemonStatusCard';
 import type { AnonymousDaemonCopy, AnonymousDaemonService } from './daemonStatus.types';
@@ -36,7 +37,7 @@ function useAnonymousDaemonStatus(
   service: AnonymousDaemonService,
   onLoadError: () => void
 ): AnonymousDaemonState {
-  const { on, off, connectionState } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const activity = useActivityStatus();
   const [status, setStatus] = useState<DaemonStatusDto | null>(null);
   const [hasError, setHasError] = useState(false);
@@ -78,11 +79,7 @@ function useAnonymousDaemonStatus(
   }, [on, off, loadStatus, refreshEvents]);
 
   // Refresh data when SignalR reconnects (catches events missed during disconnect)
-  useEffect(() => {
-    if (connectionState === 'connected') {
-      loadStatus();
-    }
-  }, [connectionState, loadStatus]);
+  useReconnectRefetch(isConnected, loadStatus);
 
   return {
     connected: activity.isActiveOrFallback(

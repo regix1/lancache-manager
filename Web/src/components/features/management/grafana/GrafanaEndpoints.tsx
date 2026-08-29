@@ -22,6 +22,7 @@ import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
 import { useNotifications } from '@contexts/notifications';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import { getErrorMessage, isAbortError } from '@utils/error';
@@ -59,7 +60,7 @@ const GrafanaEndpoints: React.FC = () => {
   const { isAdmin } = useAuth();
   const { addNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
-  const { on, off, connectionState } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
 
   const dataRefreshOptions = [
     { seconds: 5, description: t('management.grafana.dataRefresh.5secDesc') },
@@ -186,11 +187,7 @@ const GrafanaEndpoints: React.FC = () => {
   }, [on, off]);
 
   // Refetch when SignalR reconnects to recover any missed updates
-  useEffect(() => {
-    if (connectionState === 'connected') {
-      void fetchMetricsSecurity();
-    }
-  }, [connectionState, fetchMetricsSecurity]);
+  useReconnectRefetch(isConnected, fetchMetricsSecurity);
 
   const handleDataRefreshChange = async (value: string) => {
     setDataRefreshRate(value);

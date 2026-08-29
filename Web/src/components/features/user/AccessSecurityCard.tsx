@@ -13,6 +13,7 @@ import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type { GuestDurationResponse } from './AccessSecurityCard.types';
 
 interface AccessSecurityCardProps {
@@ -29,7 +30,7 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
   const { notifyError } = useErrorHandler();
-  const { on, off, connectionState } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
 
   const [expanded, setExpanded] = useState(false);
   useAccordionGroupItem('guest-access-security', expanded, () => setExpanded((prev) => !prev));
@@ -65,11 +66,7 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
     return () => off('GuestDurationUpdated', handleDurationUpdated);
   }, [on, off, fetchGuestDuration]);
 
-  useEffect(() => {
-    if (connectionState === 'connected') {
-      void fetchGuestDuration();
-    }
-  }, [connectionState, fetchGuestDuration]);
+  useReconnectRefetch(isConnected, fetchGuestDuration);
 
   const persistDuration = async (next: number | null, previous: GuestDurationResponse) => {
     setIsSaving(true);

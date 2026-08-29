@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import DaemonStatusCard from '../daemon-status/DaemonStatusCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import type {
   XboxMappingAuthStateChangedEvent,
@@ -37,7 +38,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   onSuccess
 }) => {
   const { t } = useTranslation();
-  const { on, off, connectionState } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   // Authentication now flows through the unified activity registry, which is authoritative once ready -
   // trusting a stale cached authStatus over a fresh registry false is exactly the bug found in Epic's
   // scheduled-refresh path (EpicDaemonStatus.tsx), so this stays consistent rather than an `||`.
@@ -106,11 +107,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   }, [on, off, loadStatus]);
 
   // Refresh data when SignalR reconnects (catches events missed during disconnect)
-  useEffect(() => {
-    if (connectionState === 'connected') {
-      loadStatus();
-    }
-  }, [connectionState, loadStatus]);
+  useReconnectRefetch(isConnected, loadStatus);
 
   const {
     state: loginState,

@@ -5,6 +5,7 @@ import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import EpicGameMappings from './EpicGameMappings';
 import DaemonStatusCard from '../daemon-status/DaemonStatusCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import ApiService from '@services/api.service';
@@ -25,7 +26,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
   onSuccess
 }) => {
   const { t } = useTranslation();
-  const { on, off, connectionState } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   // Authentication now flows through the unified activity registry, which is authoritative once ready.
   // NOT an `||`: a scheduled catalog refresh whose token renewal fails calls SetIsAuthenticated(false)
   // without emitting EpicGameMappingsUpdated/EpicMappingProgress (see EpicMappingService.Scheduling.cs),
@@ -72,11 +73,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
   }, [on, off, loadStatus]);
 
   // Refresh data when SignalR reconnects (catches events missed during disconnect)
-  useEffect(() => {
-    if (connectionState === 'connected') {
-      loadStatus();
-    }
-  }, [connectionState, loadStatus]);
+  useReconnectRefetch(isConnected, loadStatus);
 
   const {
     state: loginState,

@@ -9,6 +9,7 @@ import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type { SignalREventName } from '@contexts/SignalRContext/types';
 import { FormattedDateCell } from '@components/common/FormattedDateTime';
 import { getErrorMessage } from '@utils/error';
@@ -106,7 +107,7 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
   loadErrorMessage
 }: GameMappingsCatalogProps<TMapping>): React.ReactElement {
   const { t } = useTranslation();
-  const { on, off, connectionState } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
 
   const [mappings, setMappings] = useState<TMapping[]>([]);
   const [stats, setStats] = useState<GameMappingCatalogStats | null>(null);
@@ -145,11 +146,7 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
   }, [on, off, updateEvent, loadData]);
 
   // Refresh data when SignalR reconnects (catches events missed during disconnect)
-  useEffect(() => {
-    if (connectionState === 'connected') {
-      loadData();
-    }
-  }, [connectionState, loadData]);
+  useReconnectRefetch(isConnected, loadData);
 
   const handleSearch = (value: string) => {
     setSearchQuery(value);

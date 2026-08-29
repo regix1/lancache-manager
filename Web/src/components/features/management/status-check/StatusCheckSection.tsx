@@ -17,6 +17,7 @@ import ApiService, {
   type StatusCheckStatusResponse
 } from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSelectionSet } from '@hooks/useSelectionSet';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import VerdictCard from './VerdictCard';
@@ -172,17 +173,7 @@ const StatusCheckSection: React.FC = () => {
 
   // A reconnect can swallow the completion event of a sweep that finished while
   // the socket was down - resync from the server whenever the connection returns.
-  const wasDisconnectedRef = useRef(false);
-  useEffect(() => {
-    if (!isConnected) {
-      wasDisconnectedRef.current = true;
-      return;
-    }
-    if (wasDisconnectedRef.current) {
-      wasDisconnectedRef.current = false;
-      void loadAll();
-    }
-  }, [isConnected, loadAll]);
+  useReconnectRefetch(isConnected, loadAll);
 
   const handleRun = useCallback(async () => {
     setRunError(null);
