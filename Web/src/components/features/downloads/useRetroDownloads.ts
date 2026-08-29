@@ -131,6 +131,10 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
 
   // Preserve previous data across fetches (placeholderData: keepPreviousData semantics).
   const hasInitialDataRef = useRef<boolean>(false);
+  // Lets the fetch effect tell a background SignalR-driven refetch (only refreshVersion changed)
+  // apart from a user-initiated one (a page/filter/sort dependency changed): the fade below is
+  // wanted for the latter and must stay off for the former.
+  const prevRefreshVersionRef = useRef<number>(refreshVersion);
 
   // Stable, so the subscription below re-runs only when the connection's own callbacks change.
   const reload = useCallback((): void => {
@@ -165,6 +169,14 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
   }, [enabled, on, off, reload, scheduleReload, timeRange]);
 
   useEffect(() => {
+    // A run where only refreshVersion changed since the last run is a background SignalR refresh;
+    // any other changed dependency (page, filter, sort, ...) is user-initiated. Classified above the
+    // gate below because the reconnect refetch is not gated on enabled: a bump that lands while the
+    // view sits hidden has to be consumed here, or the next run with the view showing reads its own
+    // version mismatch as a background refresh and skips the fade it should have.
+    const isBackgroundRefresh = refreshVersion !== prevRefreshVersionRef.current;
+    prevRefreshVersionRef.current = refreshVersion;
+
     if (!enabled) {
       return;
     }
@@ -188,7 +200,11 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       eventId
     };
 
-    setIsFetching(true);
+    // Written on every run rather than only on user-initiated ones. The settle below returns early
+    // on an aborted request, so a user fetch that a version bump cancels partway leaves the flag
+    // true; a background run that merely skipped setting it would then fade the table for its whole
+    // duration, which is the fade this hook exists to keep off.
+    setIsFetching(!isBackgroundRefresh);
     if (!hasInitialDataRef.current) {
       setIsLoading(true);
     }

@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import typescript from 'typescript';
-import { collectNodes, compileToUrl, moduleUrl, parseSource } from './transpile-module.mjs';
+import {
+  bindLifted,
+  collectNodes,
+  compileToUrl,
+  liftHookCallback,
+  moduleUrl,
+  parseSource
+} from './transpile-module.mjs';
 
 /**
  * The Retro page fetched once and then showed that answer until someone changed a filter or
@@ -13,6 +20,7 @@ import { collectNodes, compileToUrl, moduleUrl, parseSource } from './transpile-
  */
 
 const HOOK_PATH = 'src/components/features/downloads/useRetroDownloads.ts';
+const RETRO_VIEW_PATH = 'src/components/features/downloads/RetroView.tsx';
 
 /**
  * The smallest React that can run this hook: ordered slots for state, refs, callbacks and effects,
@@ -227,17 +235,30 @@ const PROPS = {
   hitMiss: 'all'
 };
 
-/** A page of Retro, mounted fresh with an empty hub and no recorded requests behind it. */
+/**
+ * A page of Retro, mounted fresh with an empty hub and no recorded requests behind it. Exposes the
+ * hook's latest return value and a way to change its props, so a test can drive a user-initiated
+ * dependency change the same way RetroView would (a new page, filter, or sort).
+ */
 const mountRetro = ({ isConnected = true, timeRange = 'live' } = {}) => {
   calls.length = 0;
   hub.handlers.clear();
   hub.isConnected = isConnected;
   header.timeRange = timeRange;
+  let props = PROPS;
+  let result;
   const component = createComponent(() => {
-    useRetroDownloads(PROPS);
+    result = useRetroDownloads(props);
   });
   component.render();
-  return component;
+  return {
+    ...component,
+    getResult: () => result,
+    setProps: (next) => {
+      props = { ...props, ...next };
+      component.render();
+    }
+  };
 };
 
 // Long enough to clear the interval the stub reports, by a margin.
@@ -331,6 +352,129 @@ test('on a bounded range a completion still lands', async () => {
 
   assert.equal(calls.length, 2, 'a removed game has to leave the screen on 24h too');
   component.unmount();
+});
+
+test('a background refresh leaves isFetching false, so the table does not fade', async () => {
+  const retro = mountRetro();
+  await delay(0);
+  assert.equal(retro.getResult().isFetching, false, 'the mount fetch has to settle first');
+
+  hub.emit('DownloadsRefresh');
+  assert.equal(
+    retro.getResult().isFetching,
+    false,
+    'a refreshVersion-only run is a background refresh; the fade must not show'
+  );
+
+  await delay(0);
+  assert.equal(
+    retro.getResult().isFetching,
+    false,
+    'and stays false once the background fetch settles'
+  );
+  retro.unmount();
+});
+
+test('a user-initiated page change still sets isFetching true', async () => {
+  const retro = mountRetro();
+  await delay(0);
+  assert.equal(retro.getResult().isFetching, false, 'the mount fetch has to settle first');
+
+  retro.setProps({ page: 2 });
+  assert.equal(
+    retro.getResult().isFetching,
+    true,
+    'a page change is user-initiated, so the fade must still show'
+  );
+
+  await delay(0);
+  assert.equal(retro.getResult().isFetching, false, 'and clears once that fetch settles');
+  retro.unmount();
+});
+
+test('the container never gains page-fading during a background refresh', async () => {
+  const retro = mountRetro();
+  await delay(0);
+  assert.equal(retro.getResult().isFetching, false, 'the mount fetch has to settle first');
+
+  // The real fade effect from RetroView.tsx, driven with the hook's own live result, so a bug in
+  // either the hook or the component that reads it would show up here.
+  const toggles = [];
+  const fadeContainerRef = {
+    current: { classList: { toggle: (className, fading) => toggles.push({ className, fading }) } }
+  };
+  const setPageFading = bindLifted(
+    liftHookCallback(RETRO_VIEW_PATH, 'useCallback', "classList.toggle('page-fading'"),
+    { fadeContainerRef }
+  );
+
+  hub.emit('DownloadsRefresh');
+  bindLifted(
+    liftHookCallback(RETRO_VIEW_PATH, 'useEffect', 'setPageFading(serverRetro.isFetching'),
+    {
+      serverMode: true,
+      serverRetro: retro.getResult(),
+      setPageFading
+    }
+  )();
+
+  assert.deepEqual(
+    toggles,
+    [{ className: 'page-fading', fading: false }],
+    'a background refresh must never toggle the container into page-fading'
+  );
+  retro.unmount();
+});
+
+test('a background refresh clears a fade left behind by the fetch it aborted', async () => {
+  const retro = mountRetro();
+  await delay(0);
+
+  retro.setProps({ page: 2 });
+  assert.equal(retro.getResult().isFetching, true, 'a page change is user-initiated, so it fades');
+
+  // The bump aborts that page fetch before it settles, and an aborted request returns from the
+  // settle handler without clearing the flag. The background run that replaces it has to clear the
+  // flag itself, or the table stays faded for the whole refresh.
+  hub.emit('DownloadsRefresh');
+  assert.equal(
+    retro.getResult().isFetching,
+    false,
+    'an aborted page fetch must not leave the table faded across the background refresh'
+  );
+
+  await delay(0);
+  assert.equal(
+    retro.getResult().isFetching,
+    false,
+    'and stays false once the background fetch settles'
+  );
+  retro.unmount();
+});
+
+test('a reconnect while the view is hidden does not cost the next show its fade', async () => {
+  const retro = mountRetro();
+  await delay(0);
+
+  retro.setProps({ enabled: false });
+
+  // The reconnect refetch is not gated on enabled, so this bumps the version while the view sits
+  // hidden behind display:none. Showing the view again is a user action and still has to fade.
+  hub.isConnected = false;
+  retro.setProps({});
+  hub.isConnected = true;
+  retro.setProps({});
+
+  retro.setProps({ enabled: true });
+  assert.equal(
+    retro.getResult().isFetching,
+    true,
+    'showing the view again is user-initiated, whatever arrived while it was hidden'
+  );
+
+  await delay(0);
+  assert.equal(retro.getResult().isFetching, false, 'and clears once that fetch settles');
+  retro.unmount();
 });
 
 test('Retro answers the same events off Live that the other download views answer', () => {
