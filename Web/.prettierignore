@@ -1,3 +1,4 @@
+# Build output and dependencies
 dist
 build
 node_modules
@@ -6,3 +7,24 @@ node_modules
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
+
+# Tool working directories. None of this is project source, and the scraped pages under .firecrawl
+# are not valid JSON, so prettier exits with an error rather than a warning when it reaches them.
+.firecrawl
+.serena
+.claude
+**/.claude
+
+# Hand-maintained docs and root config.
+#
+# Prettier owns src/ and scripts/ and nothing else, which is exactly the set lint-staged formats on
+# commit (see the lint-staged block in package.json). Anything outside that set is written by hand
+# and never reformatted on the way in, so letting a manual prettier run rewrite it produces a diff
+# nobody asked for and the file drifts straight back the next time someone edits it. Keeping the two
+# scopes identical is what makes `prettier --check .` a no-op on a clean tree.
+*.md
+**/*.md
+index.html
+*.config.js
+tsconfig*.json
+.prettierrc.json
