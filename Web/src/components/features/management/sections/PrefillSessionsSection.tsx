@@ -461,7 +461,8 @@ const SessionCard: React.FC<{
                         )}
                         {entry.errorMessage && (
                           <span className="is-error">
-                            <XCircle className="w-3 h-3" /> {entry.errorMessage}
+                            <XCircle className="w-3 h-3" />
+                            {entry.errorMessage}
                           </span>
                         )}
                       </div>

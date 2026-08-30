@@ -255,7 +255,12 @@ public abstract partial class PrefillDaemonServiceBase
             var progress = new PrefillProgress
             {
                 State = socketProgress.State ?? "downloading",
-                CurrentAppId = socketProgress.CurrentAppId,
+                // The daemon sends currentAppId as a number and uses 0 for "no app in flight",
+                // which the flexible string converter turns into "0" rather than null. Every
+                // downstream check is a null/empty test, so an un-normalized "0" reads as a real
+                // app: it opened a history entry after the last game finished that nothing could
+                // ever complete, and session teardown then recorded it as a cancelled "App 0".
+                CurrentAppId = socketProgress.CurrentAppId == "0" ? null : socketProgress.CurrentAppId,
                 CurrentAppName = socketProgress.CurrentAppName,
                 TotalBytes = socketProgress.TotalBytes,
                 BytesDownloaded = socketProgress.BytesDownloaded,

@@ -89,8 +89,17 @@
   gap: 0.25rem 0.6rem;
 }
 
+/* The icon and its message are one flex row so a long reason wraps beside the icon rather
+   than starting a second line underneath it. */
 .session-row__meta .is-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   color: var(--theme-error);
+}
+
+.session-row__meta .is-error svg {
+  flex-shrink: 0;
 }
 
 .session-row__meta .is-warning {
