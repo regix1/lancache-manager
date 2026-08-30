@@ -37,6 +37,8 @@ import { useSelectionSet, type SelectionSet } from '@/hooks/useSelectionSet';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useConfig } from '@contexts/useConfig';
 import { useSetupStatus } from '@contexts/useSetupStatus';
+import { useSpeed } from '@contexts/SpeedContext/useSpeed';
+import { ScanWhileDownloadingGate } from '../ScanWhileDownloadingGate';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -100,6 +102,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const invalidateImageCache = useInvalidateImages();
   const { setupStatus, refreshSetupStatus } = useSetupStatus();
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? false;
+  const { speedSnapshot } = useSpeed();
+  // A scan walks the cache while a download is still writing into it, so its file counts and
+  // sizes are stale before the report is written. Both scans wait for the transfer to finish.
+  const downloadInProgress = speedSnapshot?.hasActiveDownloads ?? false;
 
   // Derive game detection state from notifications (standardized pattern)
   const isDetectionFromNotification = useOperationBusy({ types: ['game_detection'] });
@@ -939,27 +945,43 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               {t('common.load')}
             </ActionMenuItem>
 
-            <ActionMenuItem
-              icon={<Zap className="w-3.5 h-3.5" />}
-              disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
-              onClick={() => {
-                handleIncrementalScan();
-                close();
-              }}
-            >
-              {t('management.gameDetection.quick')}
-            </ActionMenuItem>
+            <ScanWhileDownloadingGate blocked={downloadInProgress}>
+              <ActionMenuItem
+                icon={<Zap className="w-3.5 h-3.5" />}
+                disabled={
+                  loading ||
+                  isDetectionQueued ||
+                  mockMode ||
+                  !hasProcessedLogs ||
+                  downloadInProgress
+                }
+                onClick={() => {
+                  handleIncrementalScan();
+                  close();
+                }}
+              >
+                {t('management.gameDetection.quick')}
+              </ActionMenuItem>
+            </ScanWhileDownloadingGate>
 
-            <ActionMenuItem
-              icon={<Search className="w-3.5 h-3.5" />}
-              disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
-              onClick={() => {
-                handleFullScan();
-                close();
-              }}
-            >
-              {t('management.gameDetection.fullScanButton')}
-            </ActionMenuItem>
+            <ScanWhileDownloadingGate blocked={downloadInProgress}>
+              <ActionMenuItem
+                icon={<Search className="w-3.5 h-3.5" />}
+                disabled={
+                  loading ||
+                  isDetectionQueued ||
+                  mockMode ||
+                  !hasProcessedLogs ||
+                  downloadInProgress
+                }
+                onClick={() => {
+                  handleFullScan();
+                  close();
+                }}
+              >
+                {t('management.gameDetection.fullScanButton')}
+              </ActionMenuItem>
+            </ScanWhileDownloadingGate>
 
             {isAdmin && (
               <>

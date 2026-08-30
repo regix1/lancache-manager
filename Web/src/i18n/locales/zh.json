@@ -2949,6 +2949,7 @@
       "subtitle": "扫描缓存以查找游戏以及未匹配到具体游戏的服务级文件",
       "quick": "快速扫描",
       "fullScanButton": "全面扫描",
+      "blockedWhileDownloading": "有下载正在进行。此时扫描会统计仍在写入的文件，请等待下载完成。",
       "servicesSection": "服务",
       "gamesSection": "游戏",
       "unmappedSection": "未映射",

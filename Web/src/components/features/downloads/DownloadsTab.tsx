@@ -50,9 +50,6 @@ import type { RetroViewHandle } from './RetroView.types';
 const RetroView = lazy(() => import('./RetroView'));
 import DownloadsHeader from './DownloadsHeader';
 import ActiveDownloadsView from './ActiveDownloadsView';
-import LiveDownloadRows from './LiveDownloadRows';
-import { useLiveDownloadPreviews } from './useLiveDownloadPreviews';
-import { filterLivePreviews } from './liveDownloadPreviews';
 import { cacheHitPercent } from './downloadGrouping';
 
 import type { Download, DownloadGroup } from '../../../types';
@@ -877,46 +874,6 @@ const DownloadsTab: React.FC = () => {
     clientGroups
   ]);
 
-  // In-progress previews for the Recent tab (live range, no event filter, non-retro).
-  // Matching runs against the FULL latestDownloads list - reconciliation must see rows the
-  // view filters hide. Previews never enter latestDownloads, filteredDownloads, pagination,
-  // exports, or the header counts (the Recent badge stays latestDownloads.length).
-  const livePreviews = useLiveDownloadPreviews(
-    latestDownloads,
-    activeTab === 'recent' && !isHistoricalView && settings.viewMode !== 'retro'
-  );
-
-  // The view's supportable filters (client, service, search, localhost, unknown-Steam,
-  // window hit/miss) applied to previews with the same predicates as the recorded rows.
-  // Session-size filters have no honest live equivalent and are not applied.
-  const visibleLivePreviews = useMemo(() => {
-    if (livePreviews.length === 0) return livePreviews;
-    const selectedGroup = findClientFilterGroup(settings.selectedClient, clientGroups);
-    const clientFilter =
-      settings.selectedClient === 'all'
-        ? { type: 'all' as const }
-        : selectedGroup
-          ? { type: 'group' as const, memberIps: selectedGroup.memberIps }
-          : { type: 'ip' as const, ip: settings.selectedClient };
-    return filterLivePreviews(livePreviews, {
-      serviceFilterKey: settings.selectedService,
-      clientFilter,
-      searchQuery: settings.searchQuery,
-      hideLocalhost: settings.hideLocalhost,
-      hideUnknownSteam: settings.hideUnknownGames,
-      hitMissFilter: settings.hitMissFilter
-    });
-  }, [
-    livePreviews,
-    settings.selectedService,
-    settings.selectedClient,
-    settings.searchQuery,
-    settings.hideLocalhost,
-    settings.hideUnknownGames,
-    settings.hitMissFilter,
-    clientGroups
-  ]);
-
   // Removed serviceFilteredDownloads - now using latestDownloads.length directly for total count
 
   // Grouping logic for different view modes. Memoized on t so the group names regroup when the
@@ -1406,13 +1363,11 @@ const DownloadsTab: React.FC = () => {
     setExpandedItem(expandedItem === id ? null : id);
   };
 
-  // Loading state with skeleton loader. Live previews still render above the skeleton:
-  // they come from the speed snapshot, not from the recorded data being loaded.
+  // Loading state with skeleton loader.
   if (loading) {
     return (
       <div className="space-y-4 animate-fade-in" role="status" aria-live="polite" aria-busy="true">
         <span className="sr-only">{t('common.loading')}</span>
-        <LiveDownloadRows previews={visibleLivePreviews} variant="downloads" />
         {/* Skeleton Controls */}
         <Card padding="sm">
           <div className="flex flex-col gap-3">
@@ -1443,13 +1398,11 @@ const DownloadsTab: React.FC = () => {
     );
   }
 
-  // Empty state (only show for Recent tab when no data). Live previews still render:
-  // traffic can be visible in the speed window before any row has been recorded.
+  // Empty state (only show for Recent tab when no data).
   if (latestDownloads.length === 0 && activeTab === 'recent') {
     return (
       <div className="space-y-4 animate-fade-in">
         <DownloadsHeader activeTab={activeTab} onTabChange={setActiveTab} />
-        <LiveDownloadRows previews={visibleLivePreviews} variant="downloads" />
         <Alert color="blue" icon={<Database className="w-5 h-5" />}>
           {t('downloads.tab.emptyRecorded')}
         </Alert>
@@ -2090,10 +2043,6 @@ const DownloadsTab: React.FC = () => {
                 </div>
               </div>
             )}
-
-          {/* Live in-progress region: pinned above recorded results, outside pagination
-              (page counts, exports, and totals never include previews). */}
-          <LiveDownloadRows previews={visibleLivePreviews} variant="downloads" />
 
           {/* Downloads list */}
           {/* Retro stays mounted behind display:none like the other views, so

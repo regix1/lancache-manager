@@ -2949,6 +2949,7 @@
       "subtitle": "Scan cache to find games and service-level files that were not matched to a game",
       "quick": "Quick Scan",
       "fullScanButton": "Full Scan",
+      "blockedWhileDownloading": "A download is in progress. Scanning now would count files that are still being written, so wait for it to finish.",
       "servicesSection": "Services",
       "gamesSection": "Games",
       "unmappedSection": "Unmapped",
@@ -7524,7 +7525,7 @@
         "progress": "Processing service {{processed}}/{{total}}"
       },
       "unmapped": {
-        "progress": "Checking unclaimed cache file {{processed}}/{{total}}"
+        "progress": "Checking for unclaimed cache files {{processed}}/{{total}}"
       },
       "writing": "Writing detection report",
       "loaded": {
