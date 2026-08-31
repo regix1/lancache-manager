@@ -302,6 +302,36 @@ public sealed class AuthStatusSessionCookieTests : IDisposable
             .Select(header => header[$"{CookieName}=".Length..].Split(';')[0])
             .LastOrDefault();
 
+    /// <summary>
+    /// The shared auth-disabled session's id is the key the clock and guest refresh-rate preferences
+    /// hang off, and its only in-process record is a static that dies with the process. Recording the id
+    /// in state.json is what lets a restart adopt the same session instead of minting a new one and
+    /// orphaning those preferences, which reset the header on every restart.
+    /// </summary>
+    [Fact]
+    public async Task SharedAuthDisabledSession_KeepsItsIdAcrossARestart()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var beforeRestart = await NewSessionService(database.Factory, authenticationEnabled: false)
+            .GetOrCreateAuthDisabledAdminSessionAsync(new DefaultHttpContext());
+        Assert.NotNull(beforeRestart);
+
+        // Everything a restart clears, and nothing it does not: the statics go, state.json stays.
+        ResetSharedSessions();
+
+        var afterRestart = await NewSessionService(database.Factory, authenticationEnabled: false)
+            .GetOrCreateAuthDisabledAdminSessionAsync(new DefaultHttpContext());
+        Assert.NotNull(afterRestart);
+
+        Assert.Equal(beforeRestart!.Value.Session.Id, afterRestart!.Value.Session.Id);
+        Assert.Equal(beforeRestart.Value.Session.Id, _stateService.GetSharedAdminSessionId());
+
+        // The token is reissued rather than recovered, so the new one works and the old one does not.
+        var sessions = NewSessionService(database.Factory, authenticationEnabled: false);
+        Assert.NotNull(await sessions.ValidateSessionAsync(afterRestart.Value.RawToken));
+        Assert.Null(await sessions.ValidateSessionAsync(beforeRestart.Value.RawToken));
+    }
+
     private SessionService NewSessionService(
         IDbContextFactory<AppDbContext> dbContextFactory, bool authenticationEnabled) =>
         new(

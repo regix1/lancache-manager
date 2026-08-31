@@ -236,13 +236,16 @@ public sealed class SessionAuthenticationHandlerTests
         Assert.Null(await service.ValidateSessionAsync("a-token-nobody-issued"));
     }
 
+    // A real StateService, in a directory of its own per service: the shared session's id is recorded
+    // there so a restart can adopt the same session, and every test here starts from an empty one.
     private static SessionService NewSessionService(
         IDbContextFactory<AppDbContext> dbContextFactory, ILogger<SessionService> logger) =>
         new(
             dbContextFactory,
             apiKeyService: null!,
             logger,
-            stateService: null!,
+            StateTestMethods.CreateStateService(
+                Path.Combine(Path.GetTempPath(), $"lcm-session-handler-{Guid.NewGuid():N}")),
             signalR: null!,
             new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>

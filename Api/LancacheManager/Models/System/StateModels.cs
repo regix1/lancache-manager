@@ -60,6 +60,12 @@ public class AppState
     public RefreshRate DefaultGuestRefreshRate { get; set; } = RefreshRate.Standard; // Default refresh rate for guest users
     public bool GuestRefreshRateLocked { get; set; } = true; // When true, guests cannot change their refresh rate
 
+    // The session every cookie-less caller runs as while authentication is disabled. Clock and guest
+    // refresh-rate preferences hang off a session id, so minting a new session on each start orphaned
+    // them and the header fell back to defaults after every restart. Only the id is kept: the raw token
+    // is a credential and is reissued on startup instead of stored.
+    public Guid? SharedAdminSessionId { get; set; }
+
     // Default guest preferences (applied to new guest sessions)
     public bool DefaultGuestUseLocalTimezone { get; set; } = false;
     public bool DefaultGuestUseUtcTimezone { get; set; } = false;

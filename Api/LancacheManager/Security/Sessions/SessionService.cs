@@ -214,9 +214,26 @@ public class SessionService
                     return reused.Value;
                 }
 
+                // The cache above is process memory, so the first request after a restart always misses
+                // it. Falling straight through to a new session orphaned the clock and guest
+                // refresh-rate preferences, which hang off the session id, and the header reset on every
+                // restart. The id is kept in state.json on the data volume; the token is not, so the
+                // stored session is adopted by issuing it a fresh one.
+                var readopted = await TryReadoptStoredAdminSessionAsync();
+                if (readopted != null)
+                {
+                    _authDisabledAdminSession = (readopted.Value.Session.Id, readopted.Value.RawToken);
+                    _authDisabledRetryAfterUtc = DateTime.MinValue;
+                    _logger.LogInformation(
+                        "Reusing the stored auth-disabled admin session {SessionId} with a fresh token",
+                        readopted.Value.Session.Id);
+                    return readopted.Value;
+                }
+
                 var (rawToken, session) = await PersistAdminSessionAsync(httpContext);
 
                 _authDisabledAdminSession = (session.Id, rawToken);
+                _stateService.SetSharedAdminSessionId(session.Id);
                 _authDisabledRetryAfterUtc = DateTime.MinValue;
                 _logger.LogInformation(
                     "Created shared auth-disabled admin session {SessionId} (Security:EnableAuthentication=false)",
@@ -270,6 +287,51 @@ public class SessionService
         {
             _authDisabledAdminLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Adopts the shared session recorded in state.json, issuing it a fresh token, so preferences keyed
+    /// on its id survive a restart. Returns null when no id is stored or the row is gone, revoked or
+    /// expired, which sends the caller on to create a new session.
+    /// </summary>
+    private async Task<(string RawToken, UserSession Session)?> TryReadoptStoredAdminSessionAsync()
+    {
+        var storedId = _stateService.GetSharedAdminSessionId();
+        if (storedId is not { } sessionId)
+        {
+            return null;
+        }
+
+        var session = await GetLiveSessionAsync(sessionId);
+        if (session == null)
+        {
+            return null;
+        }
+
+        // The previous process held the only copy of this session's raw token, so a new one is minted
+        // rather than recovered. No grace window is set: nothing can still be presenting the old token
+        // once the process that handed it out is gone.
+        var (rawToken, tokenHash) = GenerateSessionToken();
+
+        using var context = _dbContextFactory.CreateDbContext();
+        var persistedSession = await context.UserSessions.FindAsync(sessionId);
+        if (persistedSession == null)
+        {
+            return null;
+        }
+
+        persistedSession.SessionTokenHash = tokenHash;
+        persistedSession.PreviousSessionTokenHash = null;
+        persistedSession.PreviousTokenValidUntilUtc = null;
+        persistedSession.LastSeenAtUtc = DateTime.UtcNow;
+        await context.SaveChangesAsync();
+
+        session.SessionTokenHash = tokenHash;
+        session.PreviousSessionTokenHash = null;
+        session.PreviousTokenValidUntilUtc = null;
+
+        await ReportSessionPresenceAsync(sessionId, true);
+        return (rawToken, session);
     }
 
     /// <summary>

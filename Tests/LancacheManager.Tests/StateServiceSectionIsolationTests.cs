@@ -500,6 +500,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         RefreshRate = RefreshRate.Ultra,
         DefaultGuestRefreshRate = RefreshRate.Relaxed,
         GuestRefreshRateLocked = false,
+        SharedAdminSessionId = Guid.Parse("11111111-2222-3333-4444-555555555555"),
         DefaultGuestUseLocalTimezone = true,
         DefaultGuestUseUtcTimezone = true,
         DefaultGuestUse24HourFormat = false,

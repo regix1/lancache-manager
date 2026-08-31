@@ -1982,6 +1982,17 @@ public class StateService : IStateService
         UpdateState(state => state.RefreshRate = parsed);
     }
 
+    // Shared Auth-Disabled Session Methods
+    public Guid? GetSharedAdminSessionId()
+    {
+        return GetState().SharedAdminSessionId;
+    }
+
+    public void SetSharedAdminSessionId(Guid? sessionId)
+    {
+        UpdateState(state => state.SharedAdminSessionId = sessionId);
+    }
+
     // Default Guest Refresh Rate Methods
     public string GetDefaultGuestRefreshRate()
     {
