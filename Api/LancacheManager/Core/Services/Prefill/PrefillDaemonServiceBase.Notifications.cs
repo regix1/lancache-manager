@@ -538,16 +538,33 @@ public abstract partial class PrefillDaemonServiceBase
                              session.CurrentAppName != progress.CurrentAppName;
 
         // Track history: detect game transitions
-        if (appInfoChanged && !string.IsNullOrEmpty(progress.CurrentAppId))
+        var newAppId = string.IsNullOrEmpty(progress.CurrentAppId) ? null : progress.CurrentAppId;
+        var startingNewApp = appInfoChanged && newAppId is not null;
+        if (startingNewApp)
         {
             // If there was an app being prefilled, complete its history entry
             // Use the STORED bytes (from before the transition), not progress bytes (which are for the new app)
             var previousAppId = session.CurrentAppId;
+            var carriedAppName = session.CurrentAppName;
+            var carriedBytesDownloaded = session.CurrentBytesDownloaded;
+            var carriedTotalBytes = session.CurrentTotalBytes;
+
+            // Claim the new app before the first database await, for the same reason the
+            // app-completed path below claims the finished one: this handler is re-entrant, and
+            // two ticks carrying the same app both used to pass the check above while the first
+            // was still awaiting its write, so both opened a history entry. That left one row
+            // stranded as InProgress until session teardown recorded it as cancelled, which is
+            // how a game that downloaded fine also showed up as a cancelled run beside itself.
+            session.PreviousAppId = previousAppId;
+            session.PreviousAppName = carriedAppName;
+            session.CurrentAppId = progress.CurrentAppId;
+            session.CurrentAppName = progress.CurrentAppName;
+
             if (!string.IsNullOrEmpty(previousAppId))
             {
-                var previousAppName = session.CurrentAppName;
-                var previousBytesDownloaded = session.CurrentBytesDownloaded;
-                var previousTotalBytes = session.CurrentTotalBytes;
+                var previousAppName = carriedAppName;
+                var previousBytesDownloaded = carriedBytesDownloaded;
+                var previousTotalBytes = carriedTotalBytes;
 
                 try
                 {
@@ -577,7 +594,7 @@ public abstract partial class PrefillDaemonServiceBase
             // Start a new history entry for the current app
             try
             {
-                var entry = await _sessionService.StartEntryAsync(session.Id, progress.CurrentAppId, progress.CurrentAppName);
+                var entry = await _sessionService.StartEntryAsync(session.Id, newAppId!, progress.CurrentAppName);
 
                 // Only broadcast if an entry was actually created (won't create if recently completed)
                 if (entry != null)
@@ -586,7 +603,7 @@ public abstract partial class PrefillDaemonServiceBase
                         progress.CurrentAppId, progress.CurrentAppName, session.Id);
 
                     // Broadcast history update
-                    await BroadcastHistoryUpdatedAsync(session.Id, progress.CurrentAppId, "InProgress");
+                    await BroadcastHistoryUpdatedAsync(session.Id, newAppId!, "InProgress");
                 }
             }
             catch (Exception ex)
@@ -870,11 +887,16 @@ public abstract partial class PrefillDaemonServiceBase
             return; // Don't process further for terminal states
         }
 
-        // Update previous app tracking before changing current
-        session.PreviousAppId = session.CurrentAppId;
-        session.PreviousAppName = session.CurrentAppName;
-        session.CurrentAppId = progress.CurrentAppId;
-        session.CurrentAppName = progress.CurrentAppName;
+        // Update previous app tracking before changing current. A tick that opened a history entry
+        // above already claimed the app there, and re-running this would move the app it just
+        // recorded as current into the previous slot.
+        if (!startingNewApp)
+        {
+            session.PreviousAppId = session.CurrentAppId;
+            session.PreviousAppName = session.CurrentAppName;
+            session.CurrentAppId = progress.CurrentAppId;
+            session.CurrentAppName = progress.CurrentAppName;
+        }
 
         // Calculate total bytes transferred ourselves since daemon doesn't track it
         // Use progress.TotalBytesTransferred if available, otherwise calculate from bytesDownloaded
