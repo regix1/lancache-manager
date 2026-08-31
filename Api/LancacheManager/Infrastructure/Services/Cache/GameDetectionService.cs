@@ -68,7 +68,8 @@ public class GameDetectionService : ScheduledBackgroundService
             ConflictScope.Bulk(),
             "Game Detection",
             StartDetectionAsync,
-            ct);
+            ct,
+            reportRefusal: true);
 
         var disposition = outcome.Queued
             ? "queued"

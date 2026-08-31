@@ -369,8 +369,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         // every cancel a failure, which is why callers used to pass a message purely to avoid it -
         // and the message they reached for named a person the code cannot identify, because a run's
         // token is linked to the host's and a shutdown arrives here exactly like a click.
+        // A skipped run keeps whatever reason the caller supplied: a run stopped by a condition
+        // outside itself has something to say, and the generic sentence below would replace it with
+        // nothing the reader can act on. No reason falls back to that sentence unchanged. [13]
         operation.Message = success
-            ? (skipped ? "Operation skipped - nothing to do" : "Operation completed successfully")
+            ? (skipped ? (error ?? "Operation skipped - nothing to do") : "Operation completed successfully")
             : (error ?? (operation.Cancelled ? "Operation cancelled" : "Operation failed"));
         operation.Success = success;
         operation.CompletedAt = DateTime.UtcNow;

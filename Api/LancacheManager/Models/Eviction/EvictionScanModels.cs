@@ -32,7 +32,10 @@ public record EvictionScanProgress(
 public record EvictionScanComplete(
     bool Success,
     Guid OperationId,
-    string StageKey,
+    // Nullable because a terminal that always carries its own sentence has nothing for a key to
+    // say: the reader's message resolver prefers the sentence, so a key sent beside one can never
+    // render, and one that can never render still costs a translated entry in every locale.
+    string? StageKey,
     int Processed,
     int Evicted,
     int UnEvicted,
@@ -40,12 +43,21 @@ public record EvictionScanComplete(
     string? Error = null,
     Dictionary<string, object?>? Context = null,
     bool ShowNotification = true,
-    bool Cancelled = false) : IOperationComplete
+    bool Cancelled = false,
+    bool Skipped = false) : IOperationComplete
 {
     Guid? IOperationComplete.OperationId => OperationId;
-    OperationStatus IOperationComplete.Status => Cancelled
+
+    /// <summary>
+    /// Declared public rather than as an explicit interface implementation so it is serialized:
+    /// an explicit implementation is invisible to System.Text.Json, which left the frontend
+    /// reading no status at all and falling back to the success wording.
+    /// </summary>
+    public OperationStatus Status => Cancelled
         ? OperationStatus.Cancelled
-        : (Success ? OperationStatus.Completed : OperationStatus.Failed);
+        : Skipped
+            ? OperationStatus.Skipped
+            : (Success ? OperationStatus.Completed : OperationStatus.Failed);
 }
 
 /// <summary>

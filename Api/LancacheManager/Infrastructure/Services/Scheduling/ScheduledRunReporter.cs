@@ -315,9 +315,16 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             // key, which reads as success text on a failed card. Once the key was picked for THIS
             // outcome the frontend translates it, but only while this field is null, so a generic
             // English sentence here would take precedence and hide the real reason. [27]
-            var error = info.Success || info.Cancelled
+            // A skipped run keeps whatever reason it was given and gains none it was not: it stopped
+            // for something outside itself, and that sentence is the only part of the card worth
+            // reading. It never picks up the failure fallback below, because it did not fail. [14]
+            var error = info.Cancelled
                 ? null
-                : info.Error ?? (terminalStageKey == _completeStageKey ? "Scheduled run failed" : null);
+                : info.Skipped
+                    ? info.Error
+                    : info.Success
+                        ? null
+                        : info.Error ?? (terminalStageKey == _completeStageKey ? "Scheduled run failed" : null);
             var terminal = new ScheduledRunCompleteEvent(
                 _serviceKey,
                 _operationId,

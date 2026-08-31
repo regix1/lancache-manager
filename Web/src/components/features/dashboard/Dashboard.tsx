@@ -49,7 +49,7 @@ import StatCard from '@components/common/StatCard';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
-import { HelpSection } from '@components/ui/HelpPopover';
+import { HelpSection, HelpDefinition, HelpNote } from '@components/ui/HelpPopover';
 import ServiceAnalyticsChart from './ServiceAnalyticsChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
 import TopClientsTable from './TopClientsTable';
@@ -114,10 +114,29 @@ const getStatTooltips = (
       {t('dashboard.statCards.bandwidthSaved.description')}
     </HelpSection>
   ),
+  // The only stat card whose figure never reconciles with the ones beside it, so the help text
+  // carries the two directions it can drift as terms rather than as one long sentence.
   addedToCache: (
-    <HelpSection title={t('dashboard.statCards.addedToCache.term')}>
-      {t('dashboard.statCards.addedToCache.description')}
-    </HelpSection>
+    <>
+      <HelpSection title={t('dashboard.statCards.addedToCache.term')}>
+        {t('dashboard.statCards.addedToCache.description')}
+      </HelpSection>
+      <HelpSection title={t('dashboard.statCards.addedToCache.differsTitle')} variant="subtle">
+        <HelpDefinition
+          items={[
+            {
+              term: t('dashboard.statCards.addedToCache.belowTerm'),
+              description: t('dashboard.statCards.addedToCache.belowDescription')
+            },
+            {
+              term: t('dashboard.statCards.addedToCache.aboveTerm'),
+              description: t('dashboard.statCards.addedToCache.aboveDescription')
+            }
+          ]}
+        />
+      </HelpSection>
+      <HelpNote type="info">{t('dashboard.statCards.addedToCache.note')}</HelpNote>
+    </>
   ),
   totalServed: (
     <HelpSection title={t('dashboard.statCards.totalServed.term')}>

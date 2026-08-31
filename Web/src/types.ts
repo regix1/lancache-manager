@@ -78,7 +78,9 @@ export interface QueuedOperationResponse {
   operationId: string;
   queued: boolean;
   alreadyRunning: boolean;
-  status: 'waiting' | 'started' | 'alreadyRunning';
+  status: 'waiting' | 'started' | 'alreadyRunning' | 'skipped';
+  /** Set only with `status: 'skipped'`: why the run was refused before it started. */
+  skippedReason?: string;
 }
 
 export interface Download {
@@ -777,6 +779,16 @@ export interface DownloadSpeedSnapshot {
   windowSeconds: number;
   entriesInWindow: number;
   hasActiveDownloads: boolean;
+}
+
+/**
+ * Whether a cache scan would be refused right now. Answered by the same gate the server uses to
+ * refuse one, and read from the UNFILTERED download set: hiding a client takes them off the
+ * dashboard, it does not stop their bytes reaching the cache.
+ */
+export interface CacheScanBlockedResponse {
+  blocked: boolean;
+  reason: string | null;
 }
 
 export interface SpeedHistorySnapshot {

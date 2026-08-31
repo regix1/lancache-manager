@@ -32,8 +32,11 @@ public interface IServiceScheduleRegistry
     /// <see cref="ScheduleRunStatus.IsRunning"/> = <c>true</c>, this call could not start a second run
     /// (see <c>ScheduledServiceBase.TriggerImmediateRun</c>'s single pending-run flag) - the caller is
     /// colliding with the run described by the returned status, not starting a new one.
+    ///
+    /// SkippedReason is set instead when the run was refused before it was armed, and is the sentence
+    /// to show the caller: nothing was triggered and no run will follow. [18]
     /// </summary>
-    Task<ScheduleRunStatus> TriggerRunAsync(string serviceKey);
+    Task<(ScheduleRunStatus Status, string? SkippedReason)> TriggerRunAsync(string serviceKey);
 
     /// <summary>
     /// Returns the live run status for a service by its key, or <c>null</c> when the key maps to no
@@ -49,9 +52,11 @@ public interface IServiceScheduleRegistry
     /// per service - individual services own their concurrency. Returns how many were not-yet-running
     /// when triggered (a genuine new run) versus already running (which get one follow-up run armed
     /// rather than a second concurrent one, for the same single-pending-run reason as
-    /// <see cref="TriggerRunAsync"/>).
+    /// <see cref="TriggerRunAsync"/>). Services refused before they were armed are counted separately
+    /// with the single reason they all share, so the fan-out still triggers everything that can run
+    /// rather than being blocked as a whole. [22]
     /// </summary>
-    Task<(int TriggeredCount, int AlreadyRunningCount)> TriggerAllAsync();
+    Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason)> TriggerAllAsync();
 
     void ResetToDefaults();
 

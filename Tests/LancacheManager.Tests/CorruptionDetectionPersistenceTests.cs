@@ -1299,7 +1299,8 @@ public sealed class CorruptionDetectionPersistenceTests
             dbContextFactory: factory,
             operationStateService: null!,
             operationTracker: null!,
-            capabilityService: null!);
+            capabilityService: null!,
+            cacheScanGate: CacheScanGateHarness.Idle());
 
     private sealed class TestableCorruptionScanHistoryMigration : AddCorruptionScanHistory
     {

@@ -18,6 +18,12 @@ public sealed class QueuedOperationResponse
     /// <summary>True when an identical operation (same type + scope) was already active or queued.</summary>
     public bool AlreadyRunning { get; init; }
 
-    /// <summary>"waiting" | "started" | "alreadyRunning" - convenience mirror of the flags.</summary>
+    /// <summary>"waiting" | "started" | "alreadyRunning" | "skipped" - convenience mirror of the
+    /// flags. "skipped" is the same word the operation tracker already puts on the wire for a run
+    /// that stopped without doing anything, so one idea keeps one name.</summary>
     public string Status { get; init; } = "waiting";
+
+    /// <summary>Why nothing was started, set only when <see cref="Status"/> is "skipped". Null on
+    /// every other status.</summary>
+    public string? SkippedReason { get; init; }
 }

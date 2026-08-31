@@ -38,6 +38,7 @@ import type {
   EventCompareResponse,
   CreateEventRequest,
   UpdateEventRequest,
+  CacheScanBlockedResponse,
   DownloadSpeedSnapshot,
   SpeedHistorySnapshot,
   ClientGroup,
@@ -1998,6 +1999,38 @@ class ApiService {
     }
   }
 
+  // In-flight dedupe, same reason as getCachedGameDetection: the four Management sections that
+  // read the scan gate mount on one tick, and every CacheScanBlockedChanged sends all four back
+  // at once, so one answer was being fetched four times. Takes no AbortSignal, because a shared
+  // promise cannot honour one caller's cancellation without cancelling the others, and no caller
+  // passes one.
+  private static _cacheScanBlockedInFlight: Promise<CacheScanBlockedResponse> | null = null;
+
+  // Would a cache scan be refused right now. Answered from the UNFILTERED download set, so a
+  // hidden client's download blocks scans the same as anyone else's.
+  static getCacheScanBlocked(): Promise<CacheScanBlockedResponse> {
+    if (ApiService._cacheScanBlockedInFlight) {
+      return ApiService._cacheScanBlockedInFlight;
+    }
+
+    const promise = (async (): Promise<CacheScanBlockedResponse> => {
+      try {
+        const res = await fetch(`${API_BASE}/speeds/scan-blocked`, ApiService.getFetchOptions({}));
+        return await ApiService.handleResponse<CacheScanBlockedResponse>(res);
+      } catch (error: unknown) {
+        if (!isAbortError(error)) {
+          console.error('getCacheScanBlocked error:', error);
+        }
+        throw error;
+      } finally {
+        ApiService._cacheScanBlockedInFlight = null;
+      }
+    })();
+
+    ApiService._cacheScanBlockedInFlight = promise;
+    return promise;
+  }
+
   // Get historical download speeds for a time period
   static async getSpeedHistory(minutes = 60, signal?: AbortSignal): Promise<SpeedHistorySnapshot> {
     try {
@@ -3511,6 +3544,8 @@ class ApiService {
   static async runAllSchedules(): Promise<{
     triggeredCount: number;
     alreadyRunningCount?: number;
+    skippedCount?: number;
+    skippedReason?: string;
   }> {
     try {
       const res = await fetch(

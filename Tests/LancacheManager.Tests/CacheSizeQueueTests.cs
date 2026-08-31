@@ -34,7 +34,8 @@ public sealed class CacheSizeQueueTests
             conflictChecker: null!,
             operationQueue: queue,
             capabilityService: null!,
-        stateService: null!);
+            stateService: null!,
+            cacheScanGate: CacheScanGateHarness.Idle());
 
         var result = await controller.GetCacheSizeAsync(
             datasource: null,
@@ -62,7 +63,8 @@ public sealed class CacheSizeQueueTests
             ConflictScope scope,
             string displayName,
             Func<Task<Guid?>> start,
-            CancellationToken ct)
+            CancellationToken ct,
+            bool reportRefusal = false)
         {
             Type = type;
             Scope = scope;

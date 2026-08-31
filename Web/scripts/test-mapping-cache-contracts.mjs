@@ -14,6 +14,18 @@ const handlers = readWebSource('src/contexts/notifications/handlers.ts');
 const xboxAuthHook = readWebSource('src/hooks/useXboxMappingAuth.ts');
 const cacheManager = readWebSource('src/components/features/management/cache/CacheManager.tsx');
 const dashboardContext = readWebSource('src/contexts/DashboardDataContext/index.tsx');
+const gameCacheDetector = readWebSource(
+  'src/components/features/management/game-detection/GameCacheDetector.tsx'
+);
+const storageSection = readWebSource(
+  'src/components/features/management/sections/StorageSection.tsx'
+);
+const corruptionManager = readWebSource(
+  'src/components/features/management/cache/CorruptionManager.tsx'
+);
+const cacheSizeContext = readWebSource('src/contexts/CacheSizeContext.tsx');
+const scanBlockedHook = readWebSource('src/hooks/useCacheScanBlocked.ts');
+const errorUtils = readWebSource('src/utils/error.ts');
 const en = JSON.parse(readWebSource('src/i18n/locales/en.json'));
 const zh = JSON.parse(readWebSource('src/i18n/locales/zh.json'));
 
@@ -231,10 +243,89 @@ test('successful cache clearing forces all-range dashboard refresh while ordinar
 test('successful eviction scan and removal force all-range dashboard refresh like cache clear', () => {
   assert.match(
     dashboardContext,
-    /handleEvictionScanComplete[\s\S]*?if \(!event\.success\) return;[\s\S]*?handleForcedRefreshEvent\('EvictionScanComplete'\)/
+    /handleEvictionScanComplete[\s\S]*?if \(!event\.success \|\| isSkippedRun\(event\)\) return;[\s\S]*?handleForcedRefreshEvent\('EvictionScanComplete'\)/
   );
   assert.match(
     dashboardContext,
     /handleEvictionRemovalComplete[\s\S]*?if \(!event\.success \|\| event\.cancelled\) return;[\s\S]*?clearDetectionState\(\);[\s\S]*?handleForcedRefreshEvent\('EvictionRemovalComplete'\)/
   );
+});
+
+test('a declined run does not trigger a refetch in any completion listener', () => {
+  // A declined run reports success:true, so a !success guard lets it through and every one of
+  // these listeners would refetch for work that never happened.
+  assert.match(signalRTypes, /export function isSkippedRun\([\s\S]*?status === 'skipped'/);
+  assert.match(
+    dashboardContext,
+    /handleGameDetectionComplete[\s\S]*?if \(isSkippedRun\(event\)\) return;/
+  );
+  assert.match(
+    gameCacheDetector,
+    /handleDetectionComplete[\s\S]*?if \(isSkippedRun\(event\)\) return;/
+  );
+  assert.match(
+    gameCacheDetector,
+    /handleEvictionStateChanged[\s\S]*?if \(isSkippedRun\(event\)\) return;/
+  );
+  assert.match(storageSection, /handleScanDone[\s\S]*?if \(isSkippedRun\(event\) \|\|/);
+});
+
+test('a declined game detection releases the section instead of leaving it scanning', () => {
+  // The terminal filter that clears isStartingDetection and detectionInFlightRef must treat a
+  // declined run as terminal. Without it the card says skipped while the section stays in its
+  // loader with both scan buttons disabled, and only a reload frees it.
+  assert.match(
+    gameCacheDetector,
+    /gameDetectionEndedNotifs = notifications\.filter\([\s\S]*?'skipped'[\s\S]*?\);[\s\S]*?detectionInFlightRef\.current = false;/
+  );
+});
+
+test('a terminal card from an earlier scan cannot end the one just started', () => {
+  // One card slot per type, so a leftover terminal card is still in the list when the next scan
+  // starts. Both terminal filters must age it out, or it clears the in-flight guard mid-request
+  // and a second click starts a second scan. This guards all four terminal states, not just one.
+  assert.match(gameCacheDetector, /scanStartedAtRef\.current = Date\.now\(\);/);
+  assert.match(
+    gameCacheDetector,
+    /raisedByThisScan = \(n: UnifiedNotification\) =>[\s\S]*?n\.startedAt\.getTime\(\) >= scanStartedAtRef\.current/
+  );
+  assert.match(
+    gameCacheDetector,
+    /gameDetectionNotifs = notifications\.filter\([\s\S]*?'completed'[\s\S]*?raisedByThisScan\(n\)/
+  );
+  assert.match(
+    gameCacheDetector,
+    /gameDetectionEndedNotifs = notifications\.filter\([\s\S]*?raisedByThisScan\(n\)/
+  );
+});
+
+test('scan buttons gate on the unfiltered server answer, not the filtered snapshot', () => {
+  // The speed snapshot drops hidden clients, but their bytes still reach the cache, so gating on
+  // it left every scan button enabled during a hidden client's download.
+  assert.match(scanBlockedHook, /ApiService\.getCacheScanBlocked\(\)/);
+  assert.match(scanBlockedHook, /on\('CacheScanBlockedChanged'/);
+  // Before the first answer the gate is neither open nor blocked, so no control is offered on a
+  // claim nothing has made and none of them shows the download sentence.
+  assert.match(scanBlockedHook, /useState<CacheScanAnswer>\('checking'\)/);
+  assert.match(signalRTypes, /'CacheScanBlockedChanged'/);
+  for (const source of [gameCacheDetector, corruptionManager, storageSection, cacheManager]) {
+    assert.match(source, /const scanGate = useCacheScanBlocked\(\);/);
+    assert.doesNotMatch(source, /hasActiveDownloads/);
+  }
+});
+
+test('only a route whose sole 400 is the decline is allowed to soften one', () => {
+  assert.match(errorUtils, /export function isRefusal\(error: unknown\): error is ApiError/);
+  assert.match(errorUtils, /isRefusal[\s\S]*?error\.status === 400/);
+
+  // The cache-size read is the one route whose only 400 is the download denial; its
+  // authorization failures are 401 and 403.
+  assert.match(cacheSizeContext, /if \(isRefusal\(err\)\)[\s\S]*?setDenialReason/);
+
+  // The three scan starts each answer an identical 400 for a refusal and for a fleet whose
+  // datasources disagree about their cache-key scheme. Softening one hides the other, and the
+  // configuration failure is the one that must not be hidden.
+  for (const source of [gameCacheDetector, storageSection, corruptionManager]) {
+    assert.doesNotMatch(source, /isRefusal/);
+  }
 });

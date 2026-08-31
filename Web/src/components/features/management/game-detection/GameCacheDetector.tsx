@@ -23,10 +23,13 @@ import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications } from '@contexts/notifications';
+import type { UnifiedNotification } from '@contexts/notifications/types';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { getErrorMessage } from '@utils/error';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { isSkippedRun, type GameDetectionCompleteEvent } from '@contexts/SignalRContext/types';
+import type { OperationStatus } from '@/types/operations';
 import { useBulkRemoval, type BulkQueueEntry } from '@contexts/BulkRemovalContext';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
@@ -37,8 +40,7 @@ import { useSelectionSet, type SelectionSet } from '@/hooks/useSelectionSet';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useConfig } from '@contexts/useConfig';
 import { useSetupStatus } from '@contexts/useSetupStatus';
-import { useSpeed } from '@contexts/SpeedContext/useSpeed';
-import { ScanWhileDownloadingGate } from '../ScanWhileDownloadingGate';
+import { useCacheScanBlocked } from '@hooks/useCacheScanBlocked';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -100,12 +102,20 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const { cacheReadOnly, logsReadOnly, cacheExist, logsExist, checkingPermissions } =
     useDirectoryPermissionsContext();
   const invalidateImageCache = useInvalidateImages();
-  const { setupStatus, refreshSetupStatus } = useSetupStatus();
-  const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? false;
-  const { speedSnapshot } = useSpeed();
+  const {
+    setupStatus,
+    isSetupStatusKnown,
+    isLoading: setupStatusLoading,
+    refreshSetupStatus
+  } = useSetupStatus();
+  // A failed status call falls back to a placeholder whose hasProcessedLogs is false, so the
+  // context's own flag is the only way to tell "no logs yet" from "nobody has managed to ask".
+  // Only a server that said so puts the scans out of reach or tells a person to process logs
+  // first; a call that settled without an answer leaves both alone.
+  const noProcessedLogs = isSetupStatusKnown && setupStatus?.hasProcessedLogs === false;
   // A scan walks the cache while a download is still writing into it, so its file counts and
   // sizes are stale before the report is written. Both scans wait for the transfer to finish.
-  const downloadInProgress = speedSnapshot?.hasActiveDownloads ?? false;
+  const scanGate = useCacheScanBlocked();
 
   // Derive game detection state from notifications (standardized pattern)
   const isDetectionFromNotification = useOperationBusy({ types: ['game_detection'] });
@@ -132,6 +142,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [isLoadingData, setIsLoadingData] = useState(false);
   // Ref to prevent duplicate API calls (handles rapid button clicks before state updates)
   const detectionInFlightRef = useRef(false);
+  const scanStartedAtRef = useRef(0);
   // Combined loading state: notification says running, starting phase, or explicit Load click.
   const loading = isDetectionFromNotification || isStartingDetection || isLoadingData;
   const [games, setGames] = useState<GameCacheInfo[]>([]);
@@ -370,8 +381,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     // Handle game detection completion - ONLY if we were starting detection
     if (isStartingDetection) {
+      // One card slot per type means a terminal card from an EARLIER scan is still in the list
+      // when the next one starts, and it matches on status alone. Only a card raised after this
+      // attempt began can be this attempt's outcome; without the check the leftover clears the
+      // in-flight guard while the start request is still open, dropping the loader and letting a
+      // second click fire a second scan. Applies to every terminal status, not just one. [75]
+      const raisedByThisScan = (n: UnifiedNotification) =>
+        n.startedAt.getTime() >= scanStartedAtRef.current;
+
       const gameDetectionNotifs = notifications.filter(
-        (n) => n.type === 'game_detection' && n.status === 'completed'
+        (n) => n.type === 'game_detection' && n.status === 'completed' && raisedByThisScan(n)
       );
       if (gameDetectionNotifs.length > 0) {
         // Load results BEFORE clearing loading state so the UI transitions
@@ -393,11 +412,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         loadResults();
       }
 
-      // Handle game detection failure or cancellation - ONLY if we were starting detection.
-      // A cancelled scan is terminal exactly like a failed one: without it the card would
-      // stay in its loading state and detectionInFlightRef would block the next scan.
+      // Handle game detection failure, cancellation or refusal - ONLY if we were starting
+      // detection. A cancelled scan is terminal exactly like a failed one, and so is a run that
+      // was declined before it started: without these the card would stay in its loading state
+      // and detectionInFlightRef would block the next scan. [74]
       const gameDetectionEndedNotifs = notifications.filter(
-        (n) => n.type === 'game_detection' && (n.status === 'failed' || n.status === 'cancelled')
+        (n) =>
+          n.type === 'game_detection' &&
+          (n.status === 'failed' || n.status === 'cancelled' || n.status === 'skipped') &&
+          raisedByThisScan(n)
       );
       if (gameDetectionEndedNotifs.length > 0) {
         if (gameDetectionEndedNotifs.some((n) => n.status === 'failed')) {
@@ -416,7 +439,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // This handles the case where an external process (e.g., a scheduled scan or another browser tab)
   // triggers a scan while isStartingDetection is false, so the notification-based flow above would not reload.
   useEffect(() => {
-    const handleDetectionComplete = () => {
+    const handleDetectionComplete = (event: GameDetectionCompleteEvent) => {
+      if (isSkippedRun(event)) return;
       scheduleCachedDetectionSync('Failed to reload results after external scan', true);
     };
 
@@ -443,7 +467,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Reload after an eviction scan or successful cache clear so newly evicted games surface
   // immediately without requiring a full Game Cache Detection scan or service restart.
   useEffect(() => {
-    const handleEvictionStateChanged = () => {
+    // Also bound to CacheClearingComplete, whose payload carries no status; the check reads it
+    // as undefined and lets a real clear through.
+    const handleEvictionStateChanged = (event: { status?: OperationStatus }) => {
+      if (isSkippedRun(event)) return;
       scheduleCachedDetectionSync('Failed to reload after cache eviction state changed');
     };
 
@@ -476,6 +503,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
       // Set ref immediately to block any concurrent calls
       detectionInFlightRef.current = true;
+      // Stamped before the request so any card left over from an earlier scan is older than
+      // this attempt and cannot be mistaken for its outcome. [75]
+      scanStartedAtRef.current = Date.now();
 
       setIsStartingDetection(true);
       setScanType(scanTypeLabel);
@@ -495,6 +525,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           );
         }
       } catch (err: unknown) {
+        // Every 400 this route can answer looks the same on the wire, and the one above the
+        // download gate is a fleet whose datasources disagree about their cache-key scheme.
+        // Nothing here can tell a refusal from that configuration failure, so all of them
+        // stay on the red path: a real failure shown as a soft skip is the worse mistake.
         const errorMsg =
           getErrorMessage(err) || t('management.gameDetection.failedToStartDetection');
         addNotification({
@@ -945,15 +979,25 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               {t('common.load')}
             </ActionMenuItem>
 
-            <ScanWhileDownloadingGate blocked={downloadInProgress}>
+            <DiskObjectActionGate
+              available={scanGate.available && !setupStatusLoading}
+              tooltip={
+                scanGate.available
+                  ? t('management.gameDetection.checkingProcessedLogs')
+                  : scanGate.tooltip
+              }
+              position="left"
+              className="block w-full"
+            >
               <ActionMenuItem
                 icon={<Zap className="w-3.5 h-3.5" />}
                 disabled={
                   loading ||
                   isDetectionQueued ||
                   mockMode ||
-                  !hasProcessedLogs ||
-                  downloadInProgress
+                  setupStatusLoading ||
+                  noProcessedLogs ||
+                  !scanGate.available
                 }
                 onClick={() => {
                   handleIncrementalScan();
@@ -962,17 +1006,27 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               >
                 {t('management.gameDetection.quick')}
               </ActionMenuItem>
-            </ScanWhileDownloadingGate>
+            </DiskObjectActionGate>
 
-            <ScanWhileDownloadingGate blocked={downloadInProgress}>
+            <DiskObjectActionGate
+              available={scanGate.available && !setupStatusLoading}
+              tooltip={
+                scanGate.available
+                  ? t('management.gameDetection.checkingProcessedLogs')
+                  : scanGate.tooltip
+              }
+              position="left"
+              className="block w-full"
+            >
               <ActionMenuItem
                 icon={<Search className="w-3.5 h-3.5" />}
                 disabled={
                   loading ||
                   isDetectionQueued ||
                   mockMode ||
-                  !hasProcessedLogs ||
-                  downloadInProgress
+                  setupStatusLoading ||
+                  noProcessedLogs ||
+                  !scanGate.available
                 }
                 onClick={() => {
                   handleFullScan();
@@ -981,7 +1035,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               >
                 {t('management.gameDetection.fullScanButton')}
               </ActionMenuItem>
-            </ScanWhileDownloadingGate>
+            </DiskObjectActionGate>
 
             {isAdmin && (
               <>
@@ -1266,7 +1320,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       : t('management.gameDetection.emptyState.noGamesServices')
                   }
                   subtitle={
-                    !hasProcessedLogs
+                    noProcessedLogs
                       ? t('management.gameDetection.emptyState.processLogsFirst')
                       : t('management.gameDetection.emptyState.clickFullScan')
                   }

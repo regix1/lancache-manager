@@ -560,7 +560,13 @@
       },
       "addedToCache": {
         "term": "新增到缓存",
-        "description": "从互联网获取并写入缓存的新数据。在“已淘汰数据”设置为显示时，已淘汰的文件仍会计入，因此该数值可能高于磁盘上的当前数据；设为隐藏或删除后则不再计入。"
+        "description": "自开始记录日志以来，从互联网获取并写入缓存的字节总量。",
+        "differsTitle": "与缓存大小不同的原因",
+        "belowTerm": "低于缓存大小",
+        "belowDescription": "旧日志轮转后被清除，但它们创建的文件仍在磁盘上。这些数据仍在缓存中，只是不再计入此数值。",
+        "aboveTerm": "高于缓存大小",
+        "aboveDescription": "在“已淘汰数据”设置为显示时，已淘汰的文件仍会计入。设为隐藏或删除后则不再计入。",
+        "note": "此数值只增不减，是累计流量统计，而非磁盘当前数据的读数。"
       },
       "totalServed": {
         "term": "总服务量",
@@ -2950,6 +2956,8 @@
       "quick": "快速扫描",
       "fullScanButton": "全面扫描",
       "blockedWhileDownloading": "有下载正在进行。此时扫描会统计仍在写入的文件，请等待下载完成。",
+      "checkingForDownload": "正在检查是否有下载正在写入缓存。",
+      "checkingProcessedLogs": "正在检查是否已有日志被处理。",
       "servicesSection": "服务",
       "gamesSection": "游戏",
       "unmappedSection": "未映射",
@@ -3668,11 +3676,14 @@
       "runAll": "全部运行",
       "runAllTriggered": "已触发 {{count}} 个服务",
       "runAllTriggeredWithQueued": "已启动 {{count}} 个服务，另有 {{queued}} 个正在运行中，将在结束后再次运行",
+      "runAllTriggeredWithSkipped": "已启动 {{count}} 个服务，{{skipped}} 个未运行。{{reason}}",
+      "runAllTriggeredWithSkippedAndQueued": "已启动 {{count}} 个服务，另有 {{queued}} 个正在运行中，将在结束后再次运行，{{skipped}} 个未运行。{{reason}}",
       "runAllFailed": "运行所有计划失败",
       "runNowTriggered": "{{service}} 已手动触发",
       "runNowAlreadyRunning": "{{service}} 已在运行中",
       "runNowQueuedNext": "{{service}} 已在运行中，您触发的运行将在当前运行结束后开始",
       "runNowFailed": "触发 {{service}} 失败",
+      "runNowSkipped": "{{service}} 未运行",
       "resetComplete": "所有计划已重置为默认值",
       "resetFailed": "重置计划失败",
       "neverRun": "从未运行",
@@ -7113,7 +7124,8 @@
       "unknown": "操作进行中...",
       "failed": "操作失败",
       "complete": "操作完成",
-      "cancelled": "操作已取消"
+      "cancelled": "操作已取消",
+      "skipped": "操作已跳过"
     },
     "cacheClear": {
       "initializing": "正在初始化缓存清理...",

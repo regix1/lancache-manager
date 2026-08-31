@@ -560,7 +560,13 @@
       },
       "addedToCache": {
         "term": "Added to Cache",
-        "description": "New data fetched from the internet and written to cache. Evicted files still count while the evicted data setting is Show, so the figure can sit ahead of what is on disk now; Hide and Remove take them out."
+        "description": "Every byte fetched from the internet and written to cache, added up since logging started.",
+        "differsTitle": "Why it differs from Cache Size",
+        "belowTerm": "Lower than Cache Size",
+        "belowDescription": "Old log lines rotate away, but the files they created stay on disk. Those bytes are still cached, they just stopped being counted here.",
+        "aboveTerm": "Higher than Cache Size",
+        "aboveDescription": "Evicted files keep counting while the evicted data setting is Show. Hide and Remove take them out.",
+        "note": "This figure only counts up. It is a lifetime traffic total, not a reading of what is on disk right now."
       },
       "totalServed": {
         "term": "Total Served",
@@ -2950,6 +2956,8 @@
       "quick": "Quick Scan",
       "fullScanButton": "Full Scan",
       "blockedWhileDownloading": "A download is in progress. Scanning now would count files that are still being written, so wait for it to finish.",
+      "checkingForDownload": "Checking whether a download is writing to the cache.",
+      "checkingProcessedLogs": "Checking whether any logs have been processed.",
       "servicesSection": "Services",
       "gamesSection": "Games",
       "unmappedSection": "Unmapped",
@@ -3668,11 +3676,14 @@
       "runAll": "Run All",
       "runAllTriggered": "Triggered {{count}} services",
       "runAllTriggeredWithQueued": "Started {{count}} services, {{queued}} already running will run again next",
+      "runAllTriggeredWithSkipped": "Started {{count}} services, {{skipped}} did not run. {{reason}}",
+      "runAllTriggeredWithSkippedAndQueued": "Started {{count}} services, {{queued}} already running will run again next, {{skipped}} did not run. {{reason}}",
       "runAllFailed": "Failed to run all schedules",
       "runNowTriggered": "{{service}} triggered manually",
       "runNowAlreadyRunning": "{{service}} is already running",
       "runNowQueuedNext": "{{service}} is already running - your run will start when it finishes",
       "runNowFailed": "Failed to trigger {{service}}",
+      "runNowSkipped": "{{service}} did not run",
       "resetComplete": "All schedules reset to defaults",
       "resetFailed": "Failed to reset schedules",
       "neverRun": "Never",
@@ -7147,7 +7158,8 @@
       "unknown": "Operation in progress...",
       "failed": "Operation failed",
       "complete": "Operation complete",
-      "cancelled": "Operation cancelled"
+      "cancelled": "Operation cancelled",
+      "skipped": "Operation skipped"
     },
     "cacheClear": {
       "initializing": "Initializing cache clear...",

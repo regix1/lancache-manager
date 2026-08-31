@@ -158,7 +158,8 @@ public class GameDetectionVisibilityRaceTests
                 (ISignalRNotificationService)(object)Notifications,
                 datasourceService,
                 capabilityService,
-                (IUnifiedOperationTracker)(object)Tracker);
+                (IUnifiedOperationTracker)(object)Tracker,
+                CacheScanGateHarness.Idle());
         }
 
         public void Dispose()

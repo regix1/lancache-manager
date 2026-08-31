@@ -488,7 +488,8 @@ public sealed class ScheduledHeavyOperationQueueTests
             ConflictScope scope,
             string displayName,
             Func<Task<Guid?>> start,
-            CancellationToken ct)
+            CancellationToken ct,
+            bool reportRefusal = false)
         {
             Type = type;
             Scope = scope;
@@ -559,7 +560,8 @@ public sealed class ScheduledHeavyOperationQueueTests
                 evictedDetectionPreservationService: null!,
                 operationQueue,
                 CreateProxy<IHostApplicationLifetime>((method, _) => DefaultReturn(method.ReturnType)),
-                capabilityService: null!)
+                capabilityService: null!,
+                CacheScanGateHarness.Idle())
         {
         }
 

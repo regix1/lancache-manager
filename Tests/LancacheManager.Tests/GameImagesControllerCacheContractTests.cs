@@ -680,7 +680,8 @@ public sealed class GameImagesControllerCacheContractTests
             ConflictScope scope,
             string displayName,
             Func<Task<Guid?>> start,
-            CancellationToken ct)
+            CancellationToken ct,
+            bool reportRefusal = false)
         {
             Type = type;
             Scope = scope;

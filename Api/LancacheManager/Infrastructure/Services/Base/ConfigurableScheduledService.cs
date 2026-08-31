@@ -163,12 +163,21 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                 IntervalJustChanged = false;
                 skipFirstExecution = false;
 
+                // Resolved before the call rather than inside it, because the gate is asked with it
+                // and the work run is attributed with it, and the two must agree.
+                var runTrigger = manualPending
+                    ? RunTrigger.Manual
+                    : startupRunPending ? RunTrigger.Startup : RunTrigger.Scheduled;
+
+                // ServiceName, not a schedule key: this loop identifies itself by ServiceName
+                // everywhere else too, including the broadcasts below. Whoever answers has to
+                // translate it, because the two are different strings for the same service.
                 var (shuttingDown, runFailed) = await RunScheduledWorkAsync(
+                    ServiceName,
+                    runTrigger,
                     async () =>
                     {
-                        CurrentRunTrigger = manualPending
-                            ? RunTrigger.Manual
-                            : startupRunPending ? RunTrigger.Startup : RunTrigger.Scheduled;
+                        CurrentRunTrigger = runTrigger;
                         // Broadcast the start so the Schedules status dot lights up for the whole run.
                         // Poll-style services (see BroadcastRunStart) opt out to avoid a per-tick flash
                         // and raise the start themselves only when a real run begins.

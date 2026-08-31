@@ -47,6 +47,7 @@ public class CacheController : ControllerBase
     private readonly IOperationQueue _operationQueue;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IStateService _stateService;
+    private readonly CacheScanGate _cacheScanGate;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -64,10 +65,12 @@ public class CacheController : ControllerBase
         IOperationConflictChecker conflictChecker,
         IOperationQueue operationQueue,
         DatasourceCapabilityService capabilityService,
-        IStateService stateService)
+        IStateService stateService,
+        CacheScanGate cacheScanGate)
     {
         _capabilityService = capabilityService;
         _stateService = stateService;
+        _cacheScanGate = cacheScanGate;
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
         _corruptionDetectionService = corruptionDetectionService;
@@ -125,6 +128,17 @@ public class CacheController : ControllerBase
     {
         if (force && string.IsNullOrEmpty(datasource))
         {
+            // Only the explicit rescan is refused while a client download is writing. The
+            // ordinary read below must keep answering, because the Cache card calls it on
+            // mount and on every reconnect. [26]
+            var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
+            if (downloadDenial != null)
+            {
+                // Coded so the caller can render this as "try again later" rather than as a
+                // failure, which is what every other 400 on this route means.
+                return BadRequest(ApiResponse.DownloadInProgress(downloadDenial));
+            }
+
             // An explicit full rescan is a heavy operation. Always enter through the queue gate,
             // even when no conflict is visible yet: the gate closes the check/start race, starts
             // immediately when eligible, and parks/deduplicates otherwise. The singleton service
@@ -604,6 +618,17 @@ public class CacheController : ControllerBase
                 lookbackDays,
                 method,
                 structuralScanMode);
+
+        // Asked before the conflict check below, because that check parks a conflicting request
+        // and answers 202. A person waiting on this response needs the refusal now, not a queued
+        // card that fails later.
+        var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
+        if (downloadDenial != null)
+        {
+            // Coded, unlike the key-dependent capability denial above, which is a real failure
+            // sharing this status and shape.
+            return BadRequest(ApiResponse.DownloadInProgress(downloadDenial));
+        }
 
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.CorruptionDetection,

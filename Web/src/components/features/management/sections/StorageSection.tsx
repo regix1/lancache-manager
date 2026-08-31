@@ -36,10 +36,13 @@ import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { isSkippedRun } from '@contexts/SignalRContext/types';
+import type { OperationStatus } from '@/types/operations';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { useCacheScanBlocked } from '@hooks/useCacheScanBlocked';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
@@ -191,6 +194,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // cache-key scheme before these actions are safe.
   const { available: diskObjectsAvailable, denialReason: diskObjectDenialReason } =
     useDiskObjectCapability();
+  const scanGate = useCacheScanBlocked();
 
   // Managed setTimeout for post-SignalR eviction refetch; cancels on unmount.
   const scheduleEvictedItemsRefresh = useTimeoutCallback(CACHED_DETECTION_RELOAD_DELAY_MS);
@@ -239,8 +243,10 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // reconciliation too, so refetch on clear / scan / detection completion.
   const { on, off, isConnected } = useSignalR();
   useEffect(() => {
-    const handleScanDone = () => {
-      if (isAnyEvictedRemovalRunning) return;
+    // Also bound to CacheClearingComplete, whose payload carries no status; the check reads it
+    // as undefined and lets a real clear through.
+    const handleScanDone = (event: { status?: OperationStatus }) => {
+      if (isSkippedRun(event) || isAnyEvictedRemovalRunning) return;
       // Small delay so the backend finishes its post-scan recovery + cache
       // invalidation before we refetch. The hook owns cleanup on unmount.
       scheduleEvictedItemsRefresh(() => void fetchEvictedItems());
@@ -644,6 +650,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     try {
       await attemptScan();
     } catch (err: unknown) {
+      // This route answers the same 400 for a refused scan and for a fleet with unusable
+      // cache-key evidence, so neither can be softened without hiding the other.
       onError(getErrorMessage(err));
     } finally {
       if (isMountedRef.current) {
@@ -812,16 +820,25 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                             : t('management.gameDetection.expandAll')}
                         </ActionMenuItem>
 
-                        <ActionMenuItem
-                          icon={<Search className="w-3.5 h-3.5" />}
-                          disabled={isEvictionScanRunning || resettingEvictions}
-                          onClick={() => {
-                            handleStartEvictionScan();
-                            close();
-                          }}
+                        <DiskObjectActionGate
+                          available={scanGate.available}
+                          tooltip={scanGate.tooltip}
+                          position="left"
+                          className="block w-full"
                         >
-                          {t('management.sections.data.runEvictionScan')}
-                        </ActionMenuItem>
+                          <ActionMenuItem
+                            icon={<Search className="w-3.5 h-3.5" />}
+                            disabled={
+                              isEvictionScanRunning || resettingEvictions || !scanGate.available
+                            }
+                            onClick={() => {
+                              handleStartEvictionScan();
+                              close();
+                            }}
+                          >
+                            {t('management.sections.data.runEvictionScan')}
+                          </ActionMenuItem>
+                        </DiskObjectActionGate>
 
                         <ActionMenuDivider />
 

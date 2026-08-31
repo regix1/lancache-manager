@@ -17,6 +17,19 @@ public class NotFoundException : Exception
 public class ValidationException : Exception
 {
     public ValidationException(string message) : base(message) { }
+
+    /// <summary>
+    /// Only a subclass may name itself: a code is a promise to the caller that this refusal is
+    /// one it can recognize, and that promise belongs to the type rather than to a call site.
+    /// </summary>
+    protected ValidationException(string message, string code) : base(message) => Code = code;
+
+    /// <summary>
+    /// A stable token naming this refusal, written onto the error body so a caller can tell one
+    /// 400 apart from another without matching prose. Null for the ordinary case, where the
+    /// sentence is the whole answer.
+    /// </summary>
+    public string? Code { get; }
 }
 
 /// <summary>
@@ -152,6 +165,10 @@ public class GlobalExceptionMiddleware
         {
             error = isDevelopment ? exception.Message : safeMessage,
             details = isDevelopment ? exception.Message : (string?)null,
+            // Same field, same value, as the routes that return the refusal directly rather than
+            // throwing it: both paths exist for the download refusal, and a caller cannot be asked
+            // to know which one answered it. Omitted when null, which is every other exception.
+            code = (exception as ValidationException)?.Code,
             statusCode = (int)statusCode,
             traceId = context.TraceIdentifier
         };

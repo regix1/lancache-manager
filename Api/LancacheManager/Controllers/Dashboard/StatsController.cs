@@ -35,6 +35,7 @@ public class StatsController : ControllerBase
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IClientHostnameService _clientHostnameService;
     private readonly IEventsService _eventsService;
+    private readonly CacheScanGate _cacheScanGate;
 
     public StatsController(
         AppDbContext context,
@@ -49,8 +50,10 @@ public class StatsController : ControllerBase
         IServiceScheduleRegistry scheduleRegistry,
         DatasourceCapabilityService capabilityService,
         IClientHostnameService clientHostnameService,
-        IEventsService eventsService)
+        IEventsService eventsService,
+        CacheScanGate cacheScanGate)
     {
+        _cacheScanGate = cacheScanGate;
         _clientHostnameService = clientHostnameService;
         _capabilityService = capabilityService;
         _context = context;
@@ -465,6 +468,15 @@ public class StatsController : ControllerBase
         if (capabilityDenial != null)
         {
             return BadRequest(ApiResponse.Error(capabilityDenial));
+        }
+
+        var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
+        if (downloadDenial != null)
+        {
+            // Coded, unlike the capability denial above, which is a real failure sharing this
+            // status and shape. The caller renders one as "try again later" and the other as
+            // something broken, and it has only the body to tell them apart.
+            return BadRequest(ApiResponse.DownloadInProgress(downloadDenial));
         }
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.

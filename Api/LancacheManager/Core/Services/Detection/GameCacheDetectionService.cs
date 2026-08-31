@@ -26,6 +26,7 @@ public partial class GameCacheDetectionService : IDisposable
     private readonly DatasourceService _datasourceService;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly CacheScanGate _cacheScanGate;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
@@ -115,7 +116,8 @@ public partial class GameCacheDetectionService : IDisposable
         ISignalRNotificationService notifications,
         DatasourceService datasourceService,
         DatasourceCapabilityService capabilityService,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        CacheScanGate cacheScanGate)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -129,6 +131,7 @@ public partial class GameCacheDetectionService : IDisposable
         _datasourceService = datasourceService;
         _capabilityService = capabilityService;
         _operationTracker = operationTracker;
+        _cacheScanGate = cacheScanGate;
 
         _logger.LogInformation("GameCacheDetectionService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
 
@@ -142,6 +145,15 @@ public partial class GameCacheDetectionService : IDisposable
         // evidence must be rejected even when this service is called without a controller.
         // The caller awaits this before any background work starts, so the refusal is answered
         // as the same 400 the controller's own gate returns for this condition.
+        // Asked before the capability check below, which enumerates log directories for a run
+        // that is already refused. This is also the check a queued run reaches at promotion,
+        // because the parked delegate calls this method.
+        var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
+        if (downloadDenial != null)
+        {
+            throw new DownloadInProgressException(downloadDenial);
+        }
+
         var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
         if (capabilityDenial != null)
         {

@@ -93,7 +93,8 @@ public sealed class SystemConfigVisibilityTests : IDisposable
             notifications: null!,
             envFileReader: null!,
             conflictChecker: null!,
-            capabilityService);
+            capabilityService,
+            CacheScanGateHarness.Idle());
 
         _controller = new SystemController(
             stateService,

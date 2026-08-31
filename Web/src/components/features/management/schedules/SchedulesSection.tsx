@@ -38,6 +38,7 @@ import {
 } from './types';
 import { APP_EVENTS } from '@utils/constants';
 import { formatCount } from '@utils/formatters';
+import { getErrorMessage } from '@utils/error';
 import { formatLastRun } from './scheduleFormatting';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
@@ -1602,28 +1603,56 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const handleRunAll = useCallback(async () => {
     setRunningAll(true);
     try {
-      const { triggeredCount, alreadyRunningCount } = await ApiService.runAllSchedules();
+      const { triggeredCount, alreadyRunningCount, skippedCount, skippedReason } =
+        await ApiService.runAllSchedules();
       await fetchSchedules();
 
       // Services that were mid-run are not left out: each had a follow-up run armed and runs
       // again when its current one ends. Report that second number instead of only the started
       // count, which on its own reads as if the rest were ignored.
       const queuedNext = alreadyRunningCount ?? 0;
-      notifySuccess(
-        queuedNext > 0
-          ? t('management.schedules.runAllTriggeredWithQueued', {
-              count: triggeredCount,
-              queued: queuedNext
-            })
-          : t('management.schedules.runAllTriggered', { count: triggeredCount })
-      );
+      const refused = skippedCount ?? 0;
+
+      if (refused > 0) {
+        // A fan-out that refused a service did not fully succeed, whatever the started count
+        // says, so it reports as a refusal rather than through the green path. The two counts
+        // are independent and both matter: the plain skipped line has no room for the services
+        // that were already running, and dropping it loses the fact that they run again.
+        addNotification({
+          type: 'generic',
+          status: 'skipped',
+          message:
+            queuedNext > 0
+              ? t('management.schedules.runAllTriggeredWithSkippedAndQueued', {
+                  count: triggeredCount,
+                  queued: queuedNext,
+                  skipped: refused,
+                  reason: skippedReason ?? ''
+                })
+              : t('management.schedules.runAllTriggeredWithSkipped', {
+                  count: triggeredCount,
+                  skipped: refused,
+                  reason: skippedReason ?? ''
+                }),
+          details: { notificationType: 'warning' }
+        });
+      } else {
+        notifySuccess(
+          queuedNext > 0
+            ? t('management.schedules.runAllTriggeredWithQueued', {
+                count: triggeredCount,
+                queued: queuedNext
+              })
+            : t('management.schedules.runAllTriggered', { count: triggeredCount })
+        );
+      }
 
       flashAll();
-    } catch {
+    } catch (err: unknown) {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: t('management.schedules.runAllFailed'),
+        message: getErrorMessage(err) || t('management.schedules.runAllFailed'),
         details: { notificationType: 'error' }
       });
     } finally {
@@ -1653,7 +1682,24 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
 
       try {
         const result = await ApiService.triggerSchedule(key);
-        if (result.alreadyRunning) {
+        if (result.status === 'skipped') {
+          // Nothing was armed, so retire the optimistic pending flag and the row flash that the
+          // click started rather than leaving a refused run looking like a real one. [36]
+          clearPending(key);
+          setCompletedKeys((prev) => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+          });
+          addNotification({
+            type: 'generic',
+            status: 'skipped',
+            message:
+              result.skippedReason ||
+              t('management.schedules.runNowSkipped', { service: displayName }),
+            details: { notificationType: 'warning', serviceKey: key }
+          });
+        } else if (result.alreadyRunning) {
           // The click still armed the service's pending-run flag, so one more run follows the
           // one in progress - say that rather than only "already running", which reads as a
           // no-op. Nothing is cleared here on purpose: the SchedulesUpdated handler retires the
@@ -1673,12 +1719,14 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
             details: { notificationType: 'success', serviceKey: key }
           });
         }
-      } catch {
+      } catch (err: unknown) {
         clearPending(key);
         addNotification({
           type: 'generic',
           status: 'failed',
-          message: t('management.schedules.runNowFailed', { service: displayName }),
+          message:
+            getErrorMessage(err) ||
+            t('management.schedules.runNowFailed', { service: displayName }),
           details: { notificationType: 'error', serviceKey: key }
         });
       }

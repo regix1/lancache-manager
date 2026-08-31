@@ -22,6 +22,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 {
     private readonly DatasourceService _datasourceService;
     private readonly DatasourceCapabilityService _capabilityService;
+    private readonly CacheScanGate _cacheScanGate;
     private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
@@ -154,7 +155,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     // Single owner and strict ordering: release the service-local gate exactly once,
                     // then complete the tracker operation so queue promotion can safely acquire it.
                     EndRun();
-                    _operationTracker.CompleteOperation(operationId, outcome.Success, outcome.Error);
+                    // A skipped run did not fail, so it is completed with success true and the
+                    // reason on the message, which is the pairing CompleteOperation documents.
+                    _operationTracker.CompleteOperation(
+                        operationId,
+                        outcome.Success || outcome.Skipped,
+                        outcome.Error,
+                        skipped: outcome.Skipped);
                     onCompleted?.Invoke();
                 }
             }, CancellationToken.None);
@@ -193,10 +200,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         EvictedDetectionPreservationService evictedDetectionPreservationService,
         IOperationQueue operationQueue,
         IHostApplicationLifetime applicationLifetime,
-        DatasourceCapabilityService capabilityService)
+        DatasourceCapabilityService capabilityService,
+        CacheScanGate cacheScanGate)
         : base(serviceProvider, logger, configuration)
     {
         _capabilityService = capabilityService;
+        _cacheScanGate = cacheScanGate;
         _datasourceService = datasourceService;
         _stateService = stateService;
         _notifications = notifications;
@@ -262,6 +271,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 silent,
                 () => scanCompleted.TrySetResult()));
 
+            // No reportRefusal here: that only fires for a refusal the start delegate throws, and
+            // this one cannot. StartScanInBackground returns an id before any download is checked,
+            // and the check that does happen returns a skipped outcome from the background worker,
+            // which this service announces itself on its own terminal event.
             var outcome = await _operationQueue.EnqueueAsync(
                 OperationType.EvictionScan,
                 ConflictScope.Bulk(),
@@ -308,6 +321,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         Task<Guid?> StartScheduledScanAsync() => Task.FromResult(
             StartScanInBackground("Eviction Scan", silent));
 
+        // Same as the startup path: the start delegate cannot throw a refusal, so asking the queue
+        // to announce one would announce nothing. The refusal this run can hit is reported by the
+        // background worker's own terminal event.
         var outcome = await _operationQueue.EnqueueAsync(
             OperationType.EvictionScan,
             ConflictScope.Bulk(),
@@ -358,6 +374,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         if (_evictionScanTerminalStates.TryGetValue(operationId, out var scanTerminalState))
         {
             scanTerminalState.Silent = silent;
+        }
+
+        // A manual request parked behind another operation can be promoted much later, so the
+        // download state is read again here rather than only at request time. Asked before the
+        // capability revalidation below, which enumerates log directories for a run that is
+        // already refused. [29]
+        var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
+        if (downloadDenial != null)
+        {
+            _logger.LogWarning("[EvictionScan] Skipping eviction scan: {Reason}", downloadDenial);
+            return new EvictionScanRunOutcome(Success: false, Error: downloadDenial, Skipped: true);
         }
 
         // Execution-time capability revalidation prevents a queued scan from running after
@@ -760,6 +787,28 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         Cancelled: true));
                 }
 
+                // Above the success branch: a refused run completes successfully because it did
+                // not fail, so without this it would announce itself as a finished scan that
+                // found nothing to evict. [62]
+                if (info.Skipped)
+                {
+                    return _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
+                        Success: true,
+                        OperationId: operationId,
+                        // No stage key: this branch always carries a reason, because the only run
+                        // outcome that sets Skipped is the download refusal and it is built with
+                        // the gate's own sentence. The reader prefers that sentence to a key, so a
+                        // key here could never render and would only oblige every locale to
+                        // translate a line nobody sees.
+                        StageKey: null,
+                        Processed: 0,
+                        Evicted: 0,
+                        UnEvicted: 0,
+                        Error: info.Error,
+                        ShowNotification: showNotification,
+                        Skipped: true));
+                }
+
                 if (info.Success)
                 {
                     return _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
@@ -903,7 +952,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         public int PrunedOrphans;
     }
 
-    private sealed record EvictionScanRunOutcome(bool Success, string? Error);
+    /// <summary>
+    /// The result of one eviction scan run. <see cref="Skipped"/> separates a run that declined to
+    /// start from one that started and failed, so the card carries the reason without turning red.
+    /// </summary>
+    private sealed record EvictionScanRunOutcome(bool Success, string? Error, bool Skipped = false);
 
     /// <summary>
     /// Mutable terminal-metrics holder for an in-flight EvictionRemoval. Populated BY VALUE in

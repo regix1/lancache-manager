@@ -28,11 +28,13 @@ import { useSelectionSet } from '@/hooks/useSelectionSet';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
+import { useCacheScanBlocked } from '@hooks/useCacheScanBlocked';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
+import { getErrorMessage } from '@utils/error';
 import { resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { resolveDatasources } from '@utils/datasources';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
@@ -98,6 +100,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   // datasource needs one resolved cache-key scheme. Disable both actions with the backend reason.
   const { available: diskObjectsAvailable, denialReason: diskObjectDenialReason } =
     useDiskObjectCapability();
+  const scanGate = useCacheScanBlocked();
 
   const isScanningFromNotification = useOperationBusy({
     types: ['corruption_detection'],
@@ -547,6 +550,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     startingRemoveSelected ||
     isCorruptionRemovalActive;
   const scanBlocked =
+    !scanGate.available ||
     isScanBusy ||
     isAnyRemovalRunning ||
     corruptionRemovalBusy ||
@@ -603,7 +607,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           scanRequestInFlightRef.current = false;
         }
       } catch (error: unknown) {
-        notifyError(t('management.corruption.errors.startScan'), error, {
+        // This route answers the same 400 for a refused scan and for a fleet with unusable
+        // cache-key evidence, so neither can be softened without hiding the other.
+        notifyError(getErrorMessage(error) || t('management.corruption.errors.startScan'), error, {
           logLabel: '[CorruptionManager] Failed to start scan'
         });
         setStartingScanAction(null);
@@ -979,8 +985,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         {(close) => (
           <>
             <DiskObjectActionGate
-              available={diskObjectsAvailable}
-              tooltip={diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable')}
+              available={diskObjectsAvailable && scanGate.available}
+              tooltip={
+                diskObjectsAvailable
+                  ? scanGate.tooltip
+                  : (diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable'))
+              }
               position="left"
               className="block w-full"
             >

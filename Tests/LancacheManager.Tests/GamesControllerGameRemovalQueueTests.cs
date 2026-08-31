@@ -75,7 +75,8 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             operationTracker: CreateProxy<IUnifiedOperationTracker>((method, _) => DefaultReturn(method.ReturnType)),
             conflictChecker: conflict,
             operationQueue: _queue,
-            capabilityService: capabilityService);
+            capabilityService: capabilityService,
+            cacheScanGate: CacheScanGateHarness.Idle());
     }
 
     public void Dispose()
@@ -251,7 +252,8 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             ConflictScope scope,
             string displayName,
             Func<Task<Guid?>> start,
-            CancellationToken ct)
+            CancellationToken ct,
+            bool reportRefusal = false)
         {
             Type = type;
             Scope = scope;

@@ -27,13 +27,60 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private Process? _rustProcess;
     // Raw tracker output, kept private so diagnostics can still inspect actual tracker state.
     // Everything user-facing (REST + SignalR) goes through BuildClientVisibleSnapshot so hidden
-    // clients and prefill traffic can never leak through either transport.
+    // clients cannot leak through either transport. Prefill traffic is NOT excluded: nothing in
+    // the builder or the Rust tracker filters it, so it appears like any other client unless an
+    // operator hides its address by hand.
     // Initial value before the first Rust snapshot arrives. Two seconds is the minimum/default
     // window; the Rust tracker reports a window that adapts upward from there toward the
     // observed log-delivery cadence.
     private DownloadSpeedSnapshot _currentSnapshot = new() { WindowSeconds = 2 };
     private readonly object _snapshotLock = new();
     private bool _previousHadActivity = false;
+    // Tracks the same edge as _previousHadActivity but over the unfiltered set, so the end of the
+    // last download is reported even when the only client downloading was a hidden one.
+    private bool _previousHadUnfilteredActivity = false;
+
+    /// <summary>
+    /// Supplies the current scan-refusal reason, or null when a scan may start. Set once at
+    /// startup by <c>CacheScanGate</c>, which owns the rule; the tracker only needs to know when
+    /// the answer changes so it can announce it, and asking through a hook keeps the rule in one
+    /// place without the tracker taking a dependency on something that depends on the tracker.
+    /// </summary>
+    public static Func<string?>? ScanBlockedAnswer { get; set; }
+
+    /// <summary>
+    /// How long after the tracker stops reporting the answer above changes on its own, with no
+    /// output from the tracker to prompt a re-read. Set alongside <see cref="ScanBlockedAnswer"/>
+    /// by the same owner, because the window it clears is part of the rule.
+    /// </summary>
+    public static TimeSpan ScanBlockedRecheckDelay { get; set; }
+
+    // Last announced answer, so the announcement fires on a change rather than on every tick.
+    private bool _previouslyScanBlocked;
+
+    // Serializes reading the answer and recording it in AnnounceScanBlockedIfChangedAsync. The
+    // timed announcement runs on its own task, so it can reach that pair at the same moment as the
+    // stdout thread, and an interleave there leaves the recorded answer disagreeing with the last
+    // one sent, which is how a later real change stops being announced. Taken before _snapshotLock
+    // and never the other way round: both writers release _snapshotLock before they announce.
+    private readonly object _scanBlockedLock = new();
+
+    /// <summary>
+    /// Raised once when the tracker parses a snapshot in which nothing is downloading any more.
+    /// Carries nothing: the edge itself is the whole signal.
+    /// </summary>
+    /// <remarks>
+    /// Raised only from a parsed snapshot, never when the tracker process dies. A dead tracker has
+    /// stopped answering, which is not the same event as the last download finishing, and treating
+    /// the two alike is the confusion the readiness clock exists to prevent.
+    /// Handlers run on the tracker's stdout thread and must not throw.
+    /// </remarks>
+    public static event Action? DownloadsEnded;
+    // An empty snapshot means two different things: the tracker looked and saw nothing, or it has
+    // no answer to give. This holds the moment the second state began, and is null while the
+    // tracker is publishing. Every transition into having no answer sets it: construction, each
+    // spawn of the child, and each death of the child. Only a parsed snapshot clears it.
+    private DateTime? _unreportedSinceUtc = DateTime.UtcNow;
 
     // Ceiling for the restart backoff. A dependency the tracker can never satisfy (an unreachable
     // database, a missing log source) stops costing a spawn every few seconds once the delay
@@ -45,7 +92,11 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private static readonly TimeSpan _healthyRunDuration = TimeSpan.FromMinutes(1);
 
     protected override string ServiceName => "RustSpeedTrackerService";
-    protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(5);
+    // Differs from the base default deliberately: this tracker produces the download signal that
+    // gates every cache scan, so until it publishes, a scan cannot tell whether the cache is being
+    // written to. It should begin publishing as early as it can rather than inherit a
+    // general-purpose settling delay.
+    protected override TimeSpan StartupDelay => TimeSpan.Zero;
     protected override TimeSpan Interval => TimeSpan.Zero;
     protected override TimeSpan ErrorRetryDelay => TimeSpan.FromSeconds(5);
 
@@ -85,6 +136,102 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
 
         return BuildClientVisibleSnapshot(
             raw, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
+    }
+
+    /// <summary>
+    /// Announces that the answer to "would a cache scan be refused right now" has changed, and
+    /// only then. Asking the gate here, rather than deriving the answer from a download edge,
+    /// covers the second reason it moves: the tracker gaining or losing the ability to report,
+    /// which a download edge misses entirely and which left the scan controls disabled after the
+    /// gate had gone idle.
+    /// </summary>
+    /// <remarks>
+    /// A caller is still needed for every way the answer can move. The third way produces no
+    /// output at all to hang a call off, because the answer goes from refuse to allow purely
+    /// because the no-answer window expires; that one is
+    /// <see cref="AnnounceScanBlockedWhenWindowExpiresAsync"/>.
+    /// </remarks>
+    private Task AnnounceScanBlockedIfChangedAsync()
+    {
+        lock (_scanBlockedLock)
+        {
+            var blocked = ScanBlockedAnswer?.Invoke() != null;
+            if (blocked == _previouslyScanBlocked)
+            {
+                return Task.CompletedTask;
+            }
+
+            _previouslyScanBlocked = blocked;
+        }
+
+        return _notifications.NotifyAllAsync(SignalREvents.CacheScanBlockedChanged, null);
+    }
+
+    /// <summary>
+    /// Waits out the window during which the tracker having no answer refuses scans, then asks
+    /// once more. Nothing the tracker does marks the end of that window: the gate answers from the
+    /// clock, so it starts allowing scans at a moment no spawn, no parsed line and no death lines
+    /// up with. Without this the last announcement stays "blocked" until the tracker publishes or
+    /// spawns again, which for a child that dies into a growing restart delay is minutes and for
+    /// one that hangs without printing is forever, leaving the scan buttons disabled while the
+    /// server would accept a scan.
+    /// </summary>
+    /// <remarks>
+    /// One wait per arming of the clock rather than a running timer, so a server with nothing
+    /// happening stays silent. Announcing is a no-op unless the answer moved, so an arming that
+    /// the tracker publishes through before the wait ends costs one comparison.
+    /// </remarks>
+    internal async Task AnnounceScanBlockedWhenWindowExpiresAsync(CancellationToken stoppingToken)
+    {
+        await SafeDelayAsync(ScanBlockedRecheckDelay, stoppingToken);
+
+        if (!stoppingToken.IsCancellationRequested)
+        {
+            await AnnounceScanBlockedIfChangedAsync();
+        }
+    }
+
+    /// <summary>
+    /// Raises <see cref="DownloadsEnded"/> on the snapshot where the download set goes from busy
+    /// to idle, then records the new state for the next snapshot to compare against.
+    /// </summary>
+    /// <remarks>
+    /// Reads the UNFILTERED set, not the client-visible projection: hiding a client stops it
+    /// appearing on the dashboard, it does not stop its bytes reaching the cache, so the visible
+    /// edge can arrive while a hidden download is still running.
+    /// </remarks>
+    internal void AnnounceDownloadsEndedIfStopped(DownloadSpeedSnapshot snapshot)
+    {
+        var unfilteredHasActivity = snapshot.HasActiveDownloads;
+        if (_previousHadUnfilteredActivity && !unfilteredHasActivity)
+        {
+            DownloadsEnded?.Invoke();
+        }
+
+        _previousHadUnfilteredActivity = unfilteredHasActivity;
+    }
+
+    /// <summary>
+    /// Reads the UNFILTERED speed snapshot together with the moment the tracker last had no answer
+    /// to give, which is null while it is publishing. Unfiltered because bytes reaching the cache
+    /// do not stop reaching it when an operator hides the client that is sending them, so anything
+    /// deciding whether the cache is being written to reads this rather than the client-visible
+    /// projection. While the clock is set, the snapshot is an empty placeholder that says nothing
+    /// about what is downloading, so a caller reading it as "quiet" would be reading its own
+    /// ignorance.
+    /// </summary>
+    /// <remarks>
+    /// The two are returned from one lock because both transitions write them together. Taken as
+    /// two reads, a tracker that died in between hands back the null clock from before the death
+    /// and the emptied snapshot from after it, which reads as "nothing is downloading" and lets a
+    /// scan start against a tracker that has just stopped answering.
+    /// </remarks>
+    public (DateTime? UnreportedSinceUtc, DownloadSpeedSnapshot Snapshot) ReadUnfilteredState()
+    {
+        lock (_snapshotLock)
+        {
+            return (_unreportedSinceUtc, _currentSnapshot);
+        }
     }
 
     /// <summary>
@@ -361,6 +508,22 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                 }
 
                 var startedAt = DateTime.UtcNow;
+
+                // Spawning is a transition into "no answer yet", so the window is measured from
+                // here rather than from construction. Startup can put minutes between the two:
+                // the schedule registry is resolved eagerly before app.Run(), which builds every
+                // hosted service, and those constructors read the state file and the database.
+                lock (_snapshotLock)
+                {
+                    _unreportedSinceUtc = startedAt;
+                }
+
+                await AnnounceScanBlockedIfChangedAsync();
+
+                // Arming the clock also sets a time at which the answer changes back with nothing
+                // to report it, so the one announcement for that moment is booked here.
+                _ = AnnounceScanBlockedWhenWindowExpiresAsync(stoppingToken);
+
                 await RunTrackerAsync(rustExecutablePath, logDirs, stoppingToken);
 
                 if (stoppingToken.IsCancellationRequested)
@@ -471,13 +634,15 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                         lock (_snapshotLock)
                         {
                             _currentSnapshot = snapshot;
+                            _unreportedSinceUtc = null;
                         }
 
-                        // Broadcast the client-visible projection: hidden clients and prefill
-                        // traffic must be filtered BEFORE the hub send (the REST endpoint uses
-                        // the same builder), otherwise a hidden client leaks through SignalR
-                        // even though it is absent from every REST response. Activity gating
-                        // uses the same projection so hidden-only traffic broadcasts nothing.
+                        // Broadcast the client-visible projection: hidden clients must be filtered
+                        // BEFORE the hub send (the REST endpoint uses the same builder), otherwise
+                        // a hidden client leaks through SignalR even though it is absent from every
+                        // REST response. Speed activity gating uses the same projection, so a
+                        // hidden-only download broadcasts no speeds; the scan-blocked signal below
+                        // is the one thing that still reports it, deliberately.
                         var visibleSnapshot = BuildClientVisibleSnapshot(
                             snapshot,
                             _stateService.GetHiddenClientIps(),
@@ -509,6 +674,10 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                         }
 
                         _previousHadActivity = hasActivity;
+
+                        AnnounceDownloadsEndedIfStopped(snapshot);
+
+                        await AnnounceScanBlockedIfChangedAsync();
                     }
                 }
                 catch (JsonException ex)
@@ -527,7 +696,22 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                 lock (_snapshotLock)
                 {
                     _currentSnapshot = emptySnapshot;
+
+                    // Death is the other transition into "no answer yet". Every transition arms
+                    // the clock; only a published snapshot clears it. A crash loop therefore
+                    // arms repeatedly, but it cannot block scans indefinitely because the restart
+                    // delay doubles from five seconds toward five minutes, so the armed share of
+                    // each cycle shrinks, and a tracker that never spawns at all arms only once
+                    // at construction.
+                    _unreportedSinceUtc = DateTime.UtcNow;
                 }
+
+                await AnnounceScanBlockedIfChangedAsync();
+
+                // A death arms the clock the same way a spawn does, and the restart delay doubles
+                // from five seconds toward five minutes, so most of the gap that follows is time
+                // the gate spends allowing scans with nobody told.
+                _ = AnnounceScanBlockedWhenWindowExpiresAsync(stoppingToken);
 
                 if (_previousHadActivity)
                 {

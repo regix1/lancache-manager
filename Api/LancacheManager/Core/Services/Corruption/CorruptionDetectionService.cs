@@ -43,6 +43,7 @@ public class CorruptionDetectionService
     private readonly OperationStateService _operationStateService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly DatasourceCapabilityService _capabilityService;
+    private readonly CacheScanGate _cacheScanGate;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
     public CorruptionDetectionService(
@@ -55,9 +56,11 @@ public class CorruptionDetectionService
         IDbContextFactory<AppDbContext> dbContextFactory,
         OperationStateService operationStateService,
         IUnifiedOperationTracker operationTracker,
-        DatasourceCapabilityService capabilityService)
+        DatasourceCapabilityService capabilityService,
+        CacheScanGate cacheScanGate)
     {
         _capabilityService = capabilityService;
+        _cacheScanGate = cacheScanGate;
         _logger = logger;
         _configuration = configuration;
         _pathResolver = pathResolver;
@@ -84,6 +87,15 @@ public class CorruptionDetectionService
         // fail closed here too because the controller gate is only the presentation check.
         // The caller awaits this before any background work starts, so the refusal is answered
         // as the same 400 that gate returns for this condition.
+        // Asked before the capability check below, which enumerates log directories for a run
+        // that is already refused. This is also the check a queued run reaches at promotion,
+        // because the parked delegate calls this method.
+        var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
+        if (downloadDenial != null)
+        {
+            throw new DownloadInProgressException(downloadDenial);
+        }
+
         var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
         if (capabilityDenial != null)
         {

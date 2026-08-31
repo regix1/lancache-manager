@@ -53,9 +53,24 @@ public class ConflictResponse
 /// </summary>
 public class ErrorResponse
 {
+    /// <summary>
+    /// The value <see cref="Code"/> carries on the one refusal a caller is meant to read as "not
+    /// right now" rather than "something is wrong": a client download is writing to the cache, so
+    /// a scan would read a directory tree that is still changing. Every other 400 on those same
+    /// routes, the configuration denials among them, is a real failure and carries no code. The
+    /// sentence cannot be the discriminator, because it is prose and changes when anyone edits it.
+    /// </summary>
+    public const string DownloadInProgressCode = "downloadInProgress";
+
     public string Error { get; set; } = string.Empty;
     public string? Details { get; set; }
     public int? StatusCode { get; set; }
+
+    /// <summary>
+    /// A stable token naming this refusal, for a caller that has to tell one 400 apart from
+    /// another. Null wherever the sentence is the whole answer, which is nearly everywhere.
+    /// </summary>
+    public string? Code { get; set; }
 
     /// <summary>
     /// Legacy secondary message field. <see cref="Error"/> is the canonical error key; this is retained
@@ -106,6 +121,18 @@ public static class ApiResponse
     {
         Error = error,
         Details = details
+    };
+
+    /// <summary>
+    /// The refusal a cache scan gives while a client download is writing to the cache. Built here
+    /// rather than through <see cref="Error"/> so every route that returns this refusal carries the
+    /// code, and so the routes that return a configuration failure through the same status and
+    /// shape keep reading as failures.
+    /// </summary>
+    public static ErrorResponse DownloadInProgress(string reason) => new()
+    {
+        Error = reason,
+        Code = ErrorResponse.DownloadInProgressCode
     };
 
     /// <summary>Creates a not found response for a specific entity type.</summary>

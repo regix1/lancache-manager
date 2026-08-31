@@ -117,8 +117,35 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
 
         _logger.LogInformation("{ServiceName} started", ServiceName);
 
-        // Optional: Run once at startup
+        // The startup run does not go through RunScheduledWorkAsync - the flag handling and the
+        // broadcasts below are this class's own - so it asks the same question here. Eviction and
+        // game detection both do real work from OnStartupAsync, so a container that comes up while a
+        // download is writing would otherwise run them unguarded. [10]
+        string? startupDenial = null;
         if (RunOnStartup)
+        {
+            // The question is asked at the earliest moment the process can ask it, which for the
+            // cache scans is the one moment the download tracker cannot have answered yet: the file
+            // scan and game detection both start with no delay at all, and the eviction scan's five
+            // seconds lands on the boundary. Asked then, the answer is the tracker's silence, and
+            // the startup run was refused on every restart with nothing downloading. Waiting first
+            // costs about a second in the ordinary case and keeps the refusal meaningful, because a
+            // restart during a download still gets a real download answer. [90]
+            if (WaitForDownloadAnswer is not null)
+            {
+                await WaitForDownloadAnswer(ServiceKey, stoppingToken);
+            }
+
+            startupDenial = ScheduleRunGate?.Invoke(ServiceKey, RunTrigger.Startup);
+        }
+
+        if (startupDenial is not null)
+        {
+            _logger.LogInformation("{ServiceName} startup run skipped: {Reason}", ServiceName, startupDenial);
+        }
+
+        // Optional: Run once at startup
+        if (RunOnStartup && startupDenial is null)
         {
             try
             {
@@ -227,10 +254,16 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                 skipFirstExecution = false;
                 IntervalJustChanged = false;
 
+                // Resolved before the call rather than inside it, because the gate is asked with it
+                // and the work run is attributed with it, and the two must agree.
+                var runTrigger = manualPending ? RunTrigger.Manual : RunTrigger.Scheduled;
+
                 var (shuttingDown, runFailed) = await RunScheduledWorkAsync(
+                    ServiceKey,
+                    runTrigger,
                     async () =>
                     {
-                        CurrentRunTrigger = manualPending ? RunTrigger.Manual : RunTrigger.Scheduled;
+                        CurrentRunTrigger = runTrigger;
                         // Broadcast the start so the Schedules status dot lights up for the whole run.
                         ServiceExecutionStateChanged?.Invoke(ServiceKey);
                         await ExecuteWorkAsync(stoppingToken);

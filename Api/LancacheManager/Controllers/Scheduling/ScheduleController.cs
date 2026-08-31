@@ -208,7 +208,19 @@ public class ScheduleController : ControllerBase
             return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
-        var status = await _registry.TriggerRunAsync(serviceKey);
+        var (status, skippedReason) = await _registry.TriggerRunAsync(serviceKey);
+        if (skippedReason is not null)
+        {
+            // Nothing was armed, so no run will follow and no state change will be broadcast. The
+            // reason is the whole answer here: without it the caller sees a success for a run that
+            // never happened. [18]
+            return Accepted(new QueuedOperationResponse
+            {
+                Status = "skipped",
+                SkippedReason = skippedReason
+            });
+        }
+
         // Don't broadcast a schedule snapshot here. The run's status dot is driven by the service
         // loop's own ServiceExecutionStateChanged broadcasts - a START fires the moment the woken loop
         // begins the run. A snapshot at this point would capture IsRunning=false (the loop hasn't
@@ -253,11 +265,17 @@ public class ScheduleController : ControllerBase
     [ProducesResponseType(typeof(TriggerAllResponse), StatusCodes.Status202Accepted)]
     public async Task<ActionResult<TriggerAllResponse>> TriggerAllAsync()
     {
-        var (triggeredCount, alreadyRunningCount) = await _registry.TriggerAllAsync();
+        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason) = await _registry.TriggerAllAsync();
         // As with the single-service run above, each woken service loop broadcasts its own run
         // start/end. A snapshot here would capture every service as not-yet-running and could race
         // those STARTs, so don't broadcast it.
-        return Accepted(new TriggerAllResponse { TriggeredCount = triggeredCount, AlreadyRunningCount = alreadyRunningCount });
+        return Accepted(new TriggerAllResponse
+        {
+            TriggeredCount = triggeredCount,
+            AlreadyRunningCount = alreadyRunningCount,
+            SkippedCount = skippedCount,
+            SkippedReason = skippedReason
+        });
     }
 }
 
@@ -270,6 +288,14 @@ public class TriggerAllResponse
     /// skipped - each had one follow-up run armed via its own single pending-run flag, so it runs
     /// again once the current run finishes.</summary>
     public int AlreadyRunningCount { get; set; }
+
+    /// <summary>Services that were refused before a run was armed. Nothing was queued for these.</summary>
+    public int SkippedCount { get; set; }
+
+    /// <summary>The one reason behind every skip in this call, or null when nothing was skipped.
+    /// Every schedule asks the identical question, so one sentence covers them all and no per-service
+    /// list is reported.</summary>
+    public string? SkippedReason { get; set; }
 }
 
 public class UpdateScheduleIntervalRequest

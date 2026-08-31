@@ -23,7 +23,11 @@
 
 import i18n from '@/i18n';
 import { translateRecoveryStage } from '@utils/stageKeyMessage';
-import { ACTIVE_PROGRESS_PERCENT_CAP, GENERIC_FAILURE_I18N_KEY } from './constants';
+import {
+  ACTIVE_PROGRESS_PERCENT_CAP,
+  GENERIC_FAILURE_I18N_KEY,
+  GENERIC_SKIPPED_I18N_KEY
+} from './constants';
 import type {
   NotificationProgressMode,
   NotificationRegistryEntry,
@@ -141,6 +145,21 @@ export function errorOrStageKeyMessage<
     event.error ??
     (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
     i18n.t(fallbackKey);
+}
+
+/**
+ * Terminal resolver for an operation that can be declined before it starts. A declined run
+ * reports `success: true`, so the completion handler resolves its card through the SUCCESS
+ * message; without this the card would announce work that never happened. The reason travels in
+ * `error`, with the event's stage key and a generic line behind it. [48]
+ */
+export function skippedOrStageKeyMessage<
+  TEvent extends TerminalStageKeyEvent & OperationStatusEvent = TerminalStageKeyEvent &
+    OperationStatusEvent
+>(completedKey: string): (event: TEvent) => string {
+  const completed = stageKeyMessage<TEvent>(completedKey);
+  const skipped = errorOrStageKeyMessage<TEvent>(GENERIC_SKIPPED_I18N_KEY);
+  return (event) => (event.status === 'skipped' ? skipped(event) : completed(event));
 }
 
 /** Holds a running card below 100% so only the terminal event can complete the bar. */
@@ -465,7 +484,9 @@ export function buildScheduledRunEntry(
     } satisfies RegistryProgressConfig<ScheduledRunProgressEvent>,
     complete: {
       shouldDisplay: visibleWhenNotSilent,
-      getSuccessMessage: stageKeyMessage<ScheduledRunCompleteEvent>(`${i18nBase}.complete`),
+      getSuccessMessage: skippedOrStageKeyMessage<ScheduledRunCompleteEvent>(
+        `${i18nBase}.complete`
+      ),
       getFailureMessage: errorOrStageKeyMessage<ScheduledRunCompleteEvent>(GENERIC_FAILURE_I18N_KEY)
     } satisfies RegistryCompleteConfig<ScheduledRunCompleteEvent>
   };

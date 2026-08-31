@@ -14,7 +14,9 @@ import { useSelectionSet } from '@hooks/useSelectionSet';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { shouldPinOperationIdFromResponse } from '@components/features/management/game-detection/gameRemovalEntity';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
+import { useCacheScanBlocked } from '@hooks/useCacheScanBlocked';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
+import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -54,6 +56,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     useDirectoryPermissionsContext();
   const signalR = useSignalR();
   const { config, updateConfig } = useConfig();
+  const scanGate = useCacheScanBlocked();
 
   // Rsync availability check
   const [rsyncAvailable, setRsyncAvailable] = useState(false);
@@ -69,6 +72,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     isLoading: cacheSizeLoading,
     hasFetched: hasFetchedCacheSize,
     error: cacheSizeError,
+    denialReason: cacheSizeDenialReason,
     fetchCacheSize,
     clearCacheSize
   } = useCacheSize();
@@ -287,16 +291,23 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       <SectionActionsMenu label={t('management.actions.menuLabel')}>
         {(close) => (
           <>
-            <ActionMenuItem
-              icon={<RefreshCw className="w-3.5 h-3.5" />}
-              disabled={cacheSizeLoading || isCacheSizeScanRunning}
-              onClick={() => {
-                handleScanCacheSize();
-                close();
-              }}
+            <DiskObjectActionGate
+              available={scanGate.available}
+              tooltip={scanGate.tooltip}
+              position="left"
+              className="block w-full"
             >
-              {t('management.cache.refreshCacheSize')}
-            </ActionMenuItem>
+              <ActionMenuItem
+                icon={<RefreshCw className="w-3.5 h-3.5" />}
+                disabled={cacheSizeLoading || isCacheSizeScanRunning || !scanGate.available}
+                onClick={() => {
+                  handleScanCacheSize();
+                  close();
+                }}
+              >
+                {t('management.cache.refreshCacheSize')}
+              </ActionMenuItem>
+            </DiskObjectActionGate>
             {hasMultipleDatasources && (
               <>
                 <ActionMenuDivider />
@@ -352,6 +363,18 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             {/* Cache Size Info */}
             <div className="space-y-3">
               <p className="mgmt-subhead caps-label">{t('management.cache.cacheSize')}</p>
+
+              {/* The refresh is refused while the gate is shut, and the menu item that would carry
+                  the server's own sentence back is disabled before the click can be made, so the
+                  card says why the figures below cannot be brought up to date. It waits for a
+                  definite answer, so nothing is claimed while the gate is still being read, and it
+                  repeats the gate's sentence because only the server knows whether a download is
+                  writing or the tracker has yet to report. [80] */}
+              {(cacheSizeDenialReason || scanGate.blocked) && (
+                <Alert color="yellow">
+                  <p className="text-sm">{cacheSizeDenialReason ?? scanGate.tooltip}</p>
+                </Alert>
+              )}
 
               {cacheSizeError ? (
                 <Alert color="red">

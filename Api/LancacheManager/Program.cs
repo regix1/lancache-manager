@@ -856,6 +856,10 @@ builder.Services.AddHostedService<DirectoryPermissionMonitorService>();
 // connects to the same database this process may have just decided it does not have.
 builder.Services.AddDatabaseBackedHostedService<RustSpeedTrackerService>(databaseAvailable);
 
+// Register the cache scan gate - reads the tracker snapshot above so every scan entry point
+// asks one question about client downloads.
+builder.Services.AddSingleton<CacheScanGate>();
+
 // Register GameDetectionService - runs scheduled game cache detection. Whether it
 // also runs at startup is user-controlled via the Schedules UI (DefaultRunOnStartup = false).
 builder.Services.AddDatabaseBackedHostedService<GameDetectionService>(databaseAvailable);
@@ -1136,6 +1140,18 @@ using (var scope = app.Services.CreateScope())
         logger.LogInformation("Cleaned up {Count} old operation files on startup", cleanedCount);
     }
 }
+
+// Build the schedule registry before the hosted services reach their startup runs. It is otherwise
+// constructed on the first schedules request, and its constructor is what installs the answer the
+// scheduled loops ask before they run, so a container that came up during a download would run its
+// startup work unguarded until somebody opened the page. [10]
+//
+// It MUST stay after the block above. Its constructor takes IEnumerable<IHostedService>, so
+// resolving it builds every hosted service, and those constructors read the state file and the
+// database. Run earlier and the state read lands before the legacy data layout has been moved: the
+// destination file does not exist yet, the read writes a default one, and the move that follows
+// then skips because the destination now exists, leaving the real settings orphaned on disk.
+app.Services.GetRequiredService<IServiceScheduleRegistry>();
 
 // First start (no api_key.txt) prints the key. Later restarts only print the file path.
 var apiKeyService = app.Services.GetRequiredService<ApiKeyService>();

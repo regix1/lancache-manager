@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import i18n from '@/i18n';
 import ApiService from '@services/api.service';
-import { isAbortError } from '@utils/error';
+import { isAbortError, isRefusal } from '@utils/error';
 import type { CacheSizeInfo } from '@/types';
 import { useSignalR } from './SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
@@ -19,6 +19,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
   const [isLoading, setIsLoading] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [denialReason, setDenialReason] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   // A completion event can land while the single-flight read is still open. Remember that a
   // refetch was requested and run exactly one once the in-flight read settles, so the fresh
@@ -49,6 +50,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
 
     setIsLoading(true);
     setError(null);
+    setDenialReason(null);
 
     try {
       const size = await ApiService.getCacheSize(undefined, force, controller.signal);
@@ -90,6 +92,15 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
         // Record the quiet attempt so a disconnected client cannot spin the mount effect into
         // an immediate retry loop. A later scheduled completion or explicit scan retries it.
         setHasFetched(true);
+        return;
+      }
+
+      // A 400 is the server declining to scan right now, not a failure. Recorded separately so
+      // the card keeps the last known size and the mount fetch, which is gated on `error`, is
+      // still free to run on the next mount. [49]
+      if (isRefusal(err)) {
+        setHasFetched(true);
+        setDenialReason(err.message);
         return;
       }
 
@@ -144,6 +155,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
     setCacheSize(null);
     setHasFetched(false);
     setError(null);
+    setDenialReason(null);
   }, []);
 
   // Cleanup on unmount
@@ -160,6 +172,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
     isLoading,
     hasFetched,
     error,
+    denialReason,
     fetchCacheSize,
     clearCacheSize
   };

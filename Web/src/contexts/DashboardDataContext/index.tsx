@@ -11,9 +11,11 @@ import { useSignalR } from '../SignalRContext/useSignalR';
 import { useAuth } from '../useAuth';
 import {
   SIGNALR_REFRESH_EVENTS,
+  isSkippedRun,
   type CacheClearCompleteEvent,
   type EvictionRemovalCompleteEvent,
   type EvictionScanCompleteEvent,
+  type GameDetectionCompleteEvent,
   type EventHandler
 } from '../SignalRContext/types';
 import type {
@@ -492,7 +494,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
     // Handler for game detection completion - always refresh game detection data
     // regardless of the current time range (detection data is not time-range dependent)
-    const handleGameDetectionComplete = () => {
+    const handleGameDetectionComplete = (event: GameDetectionCompleteEvent) => {
+      if (isSkippedRun(event)) return;
       fetchAllData({ forceRefresh: true, trigger: 'signalr:GameDetectionComplete' });
     };
 
@@ -526,7 +529,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     // Eviction scan/removal: same all-range force-refresh as cache clear so Dashboard,
     // Downloads, and Clients do not keep stale batch data after detection or file removal.
     const handleEvictionScanComplete = (event: EvictionScanCompleteEvent) => {
-      if (!event.success) return;
+      if (!event.success || isSkippedRun(event)) return;
       handleForcedRefreshEvent('EvictionScanComplete');
     };
 

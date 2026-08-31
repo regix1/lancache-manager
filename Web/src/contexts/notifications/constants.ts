@@ -112,6 +112,9 @@ export const GENERIC_FAILURE_I18N_KEY = 'signalr.generic.failed';
 /** Generic cancellation fallback for an operation that stopped without its own message. */
 export const GENERIC_CANCELLED_I18N_KEY = 'signalr.generic.cancelled';
 
+/** Generic fallback for a run that was declined before it started and carried no reason. */
+export const GENERIC_SKIPPED_I18N_KEY = 'signalr.generic.skipped';
+
 /** Waiting-card message keys shared by live SignalR creation and REST recovery. */
 export const OPERATION_WAITING_I18N_KEYS = {
   DEFAULT: 'common.notifications.operationWaiting',

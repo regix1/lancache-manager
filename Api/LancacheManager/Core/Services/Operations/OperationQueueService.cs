@@ -87,7 +87,8 @@ public sealed class OperationQueueService : IOperationQueue
         ConflictScope scope,
         string displayName,
         Func<Task<Guid?>> start,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool reportRefusal = false)
     {
         await _gate.WaitAsync(ct);
         try
@@ -119,7 +120,45 @@ public sealed class OperationQueueService : IOperationQueue
             var retryAfterParking = false;
             if (conflict == null)
             {
-                var startedId = await start();
+                Guid? startedId;
+                try
+                {
+                    startedId = await start();
+                }
+                catch (DownloadInProgressException ex)
+                {
+                    // The same refusal the promotion path reports, arriving through the immediate
+                    // door: the schedule gate said yes, then a download began before the start
+                    // delegate ran its own check. Named here as a decline rather than left to the
+                    // caller, whose only handler logs it as an error for something that did not go
+                    // wrong. Rethrown unchanged, because an HTTP caller is waiting on this and its
+                    // 400 with the reason is the answer: dropping the throw would turn that into a
+                    // silent success, so this handler only looks redundant. [72]
+                    _logger.LogInformation(
+                        "{Type} '{Name}' declined before it started: {Reason}", type, displayName, ex.Message);
+
+                    // Announced only for a caller that swallows the exception, because the throw
+                    // below already IS the report for everyone else: an HTTP route turns it into a
+                    // 400 the click renders, and announcing as well shows two notices for one
+                    // click, one of them describing the SCHEDULED run rather than what was clicked.
+                    // Reported through the tracker, which is a seam this service and the schedule
+                    // registry already share: the registry subscribes to the terminal hook and is
+                    // the one place that knows which card this operation type's schedule owns. The
+                    // dependency runs that way round on purpose, so nothing here has to know about
+                    // schedules and nothing there has to be injected into the queue. [72] [78]
+                    if (reportRefusal)
+                    {
+                        var declinedId = _tracker.RegisterOperation(
+                            type,
+                            displayName,
+                            new CancellationTokenSource(),
+                            metadata: new Dictionary<string, object?> { [DeclinedRunMetadata.Key] = true });
+                        _tracker.CompleteOperation(declinedId, success: true, error: ex.Message, skipped: true);
+                    }
+
+                    throw;
+                }
+
                 if (startedId.HasValue)
                 {
                     return new QueuedOperationResponse
@@ -165,6 +204,9 @@ public sealed class OperationQueueService : IOperationQueue
                 // Always close the waiting-card lifecycle. Usually the promoted op's Started
                 // event has already replaced the card; Promoted also handles intentionally
                 // silent scheduled operations by removing their purple card at handoff.
+                // A declined run rides the success flag too, so it is excluded from Promoted and
+                // reported on its own: nothing started and nothing replaced the card, and saying
+                // otherwise removes the card without ever showing the reason. [61]
                 onTerminalEmit: info => _notifications.NotifyAllAsync(
                     SignalREvents.OperationWaitingComplete,
                     new OperationWaitingCompleteNotification(
@@ -172,7 +214,8 @@ public sealed class OperationQueueService : IOperationQueue
                         typeWire,
                         info.Cancelled,
                         info.Error,
-                        Promoted: info.Success)),
+                        Promoted: info.Success && !info.Skipped,
+                        Skipped: info.Skipped)),
                 initialStatus: OperationStatus.Waiting);
 
             // A waiting op has no worker, so the queue is its worker: when the universal
@@ -354,9 +397,27 @@ public sealed class OperationQueueService : IOperationQueue
 
                     Guid? startedId = null;
                     string? startError = null;
+                    var startDeclined = false;
                     try
                     {
                         startedId = await waiter.Start();
+                    }
+                    catch (DownloadInProgressException ex)
+                    {
+                        // Only this one condition is a decline. The same request refused a moment
+                        // earlier, at request time, would have been answered 400 and never queued,
+                        // so being parked behind another operation must not turn it into a red
+                        // failure. Every other stated precondition that throws the base
+                        // ValidationException - a wrong PUID or PGID failing a write-permission
+                        // re-check, a datasource that cannot map logical objects - is a real
+                        // problem the reader has to see, and falls through to the handler below.
+                        // This catch must stay above that one; the derived type is unreachable
+                        // otherwise. [63]
+                        startDeclined = true;
+                        startError = ex.Message;
+                        _logger.LogInformation(
+                            "Queued {Type} '{Name}' declined at promotion: {Reason}",
+                            waiter.Type, waiter.Name, ex.Message);
                     }
                     catch (Exception ex)
                     {
@@ -442,11 +503,13 @@ public sealed class OperationQueueService : IOperationQueue
                     }
                     else
                     {
-                        // An actual start exception is terminal; notify the frontend card.
+                        // Terminal either way; the card just has to say which. A decline carries its
+                        // reason on a skipped card, everything else on a failed one.
                         _tracker.CompleteOperation(
                             waiter.WaitingId,
-                            success: false,
-                            error: startError);
+                            success: startDeclined,
+                            error: startError,
+                            skipped: startDeclined);
                     }
                 }
             }

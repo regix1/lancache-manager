@@ -17,30 +17,52 @@ public class SpeedsController : ControllerBase
     private readonly RustSpeedTrackerService _speedTrackerService;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly IStateService _stateRepository;
+    private readonly CacheScanGate _cacheScanGate;
 
     public SpeedsController(
         RustSpeedTrackerService speedTrackerService,
         IDbContextFactory<AppDbContext> contextFactory,
-        IStateService stateRepository)
+        IStateService stateRepository,
+        CacheScanGate cacheScanGate)
     {
         _speedTrackerService = speedTrackerService;
         _contextFactory = contextFactory;
         _stateRepository = stateRepository;
+        _cacheScanGate = cacheScanGate;
     }
 
     /// <summary>
     /// Gets current download speeds for all active games and clients.
     /// </summary>
     /// <remarks>
-    /// Hidden-client, prefill, and evicted-data filtering happen inside the tracker's shared
-    /// client-visible snapshot builder, which the SignalR broadcast also uses, so both transports
-    /// always expose identical visibility semantics.
+    /// Hidden-client and evicted-data filtering happen inside the tracker's shared client-visible
+    /// snapshot builder, which the SignalR broadcast also uses, so both transports always expose
+    /// identical visibility semantics. Prefill traffic is not filtered and appears like any other
+    /// client.
     /// </remarks>
     [HttpGet("current")]
     [ProducesResponseType(typeof(DownloadSpeedSnapshot), StatusCodes.Status200OK)]
     public ActionResult<DownloadSpeedSnapshot> GetCurrentSpeeds()
     {
         return Ok(_speedTrackerService.GetCurrentSnapshot());
+    }
+
+    /// <summary>
+    /// Says whether a cache scan would be refused right now, and why.
+    /// </summary>
+    /// <remarks>
+    /// Answers from the same gate the scan routes use, so a control that reads this can never
+    /// offer an action the server is about to refuse. Deliberately NOT derived from the
+    /// client-visible speeds: hiding a client keeps it off the dashboard, it does not stop its
+    /// bytes reaching the cache. Blocked is also true while the tracker has not reported yet,
+    /// which is not the same as nothing downloading, and the reason says which it is.
+    /// </remarks>
+    [HttpGet("scan-blocked")]
+    [ProducesResponseType(typeof(CacheScanBlockedResponse), StatusCodes.Status200OK)]
+    public ActionResult<CacheScanBlockedResponse> GetCacheScanBlocked()
+    {
+        var reason = _cacheScanGate.CheckDownloadInProgress();
+        return Ok(new CacheScanBlockedResponse { Blocked = reason != null, Reason = reason });
     }
 
     /// <summary>

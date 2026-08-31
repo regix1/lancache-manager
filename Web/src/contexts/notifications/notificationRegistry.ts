@@ -77,6 +77,7 @@ import {
   cappedProgress,
   errorOrStageKeyMessage,
   operationIdDetails,
+  skippedOrStageKeyMessage,
   stageKeyMessage
 } from './registryEntries';
 import { translateRecoveryStage, translateStageKeyMessage } from '@utils/stageKeyMessage';
@@ -608,11 +609,17 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     complete: {
       getSuccessMessage: (event: GameDetectionCompleteEvent) =>
         formatGameDetectionCompleteMessage(event),
-      getSuccessDetails: (event: GameDetectionCompleteEvent, existing) => ({
-        ...existing?.details,
-        totalGamesDetected: event.totalGamesDetected,
-        totalServicesDetected: event.totalServicesDetected
-      }),
+      // The terminal handler resolves a declined run through the success path too, and that
+      // payload carries no counts, so merging it would write undefined over the numbers the
+      // card is already showing. [70]
+      getSuccessDetails: (event: GameDetectionCompleteEvent, existing) =>
+        event.status === 'skipped'
+          ? existing?.details
+          : {
+              ...existing?.details,
+              totalGamesDetected: event.totalGamesDetected,
+              totalServicesDetected: event.totalServicesDetected
+            },
       getFailureMessage: (event: GameDetectionCompleteEvent) =>
         formatGameDetectionFailureMessage(event)
     }
@@ -906,7 +913,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getErrorMessage: stageKeyMessage(GENERIC_FAILURE_I18N_KEY)
     },
     complete: {
-      getSuccessMessage: stageKeyMessage('signalr.evictionScan.complete'),
+      getSuccessMessage: skippedOrStageKeyMessage<EvictionScanCompleteEvent>(
+        'signalr.evictionScan.complete'
+      ),
       getFailureMessage: errorOrStageKeyMessage(GENERIC_FAILURE_I18N_KEY),
       getCancelledMessage: stageKeyMessage('signalr.evictionScan.cancelled')
     }
@@ -975,7 +984,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getErrorMessage: stageKeyMessage(GENERIC_FAILURE_I18N_KEY)
     },
     complete: {
-      getSuccessMessage: stageKeyMessage('signalr.cacheSizeScan.complete'),
+      getSuccessMessage: skippedOrStageKeyMessage<CacheSizeScanCompleteEvent>(
+        'signalr.cacheSizeScan.complete'
+      ),
       getFailureMessage: errorOrStageKeyMessage(GENERIC_FAILURE_I18N_KEY),
       getCancelledMessage: stageKeyMessage('signalr.cacheSizeScan.cancelled')
     }

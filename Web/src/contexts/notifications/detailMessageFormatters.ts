@@ -26,7 +26,11 @@ import i18n from '@/i18n';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
 import { formatBytes, formatCount } from '@/utils/formatters';
 import { formatCorruptionProgress, structuralStartingKey } from './corruptionProgress';
-import { GENERIC_COMPLETION_I18N_KEY, GENERIC_FAILURE_I18N_KEY } from './constants';
+import {
+  GENERIC_COMPLETION_I18N_KEY,
+  GENERIC_FAILURE_I18N_KEY,
+  GENERIC_SKIPPED_I18N_KEY
+} from './constants';
 
 type GameDetectionInterpolation = Record<string, string | number | boolean | null>;
 
@@ -283,6 +287,15 @@ export const formatGameDetectionCompleteMessage = (event: GameDetectionCompleteE
     totalGamesDetected: event.totalGamesDetected,
     newGamesCount: event.newGamesCount
   });
+
+  // A declined run reports success:true and reaches this success formatter, so the counts below
+  // would report a scan that never looked at anything. Its reason travels in `error`. [48]
+  if (event.status === 'skipped') {
+    return (
+      event.error ??
+      (event.stageKey ? i18n.t(event.stageKey, interpolation) : i18n.t(GENERIC_SKIPPED_I18N_KEY))
+    );
+  }
 
   return event.stageKey
     ? i18n.t(event.stageKey, interpolation)

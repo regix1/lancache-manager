@@ -34,6 +34,27 @@ public abstract class ScheduledServiceBase : BackgroundService
     }
 
     /// <summary>
+    /// Asked before every run a schedule starts, with the service's own key and what triggered the
+    /// attempt: returns the reason the run may not start right now, or null when it may. Static and
+    /// set once at startup, the same way ServiceExecutionStateChanged is wired, because this base has
+    /// 21 concrete subclasses and a constructor parameter would have to be threaded through every one
+    /// of them. Null while nothing has set it, so every run proceeds. [3]
+    ///
+    /// The trigger travels with the question because a refused run that a person asked for has to be
+    /// reported every time, while a refused timer tick does not. [57]
+    /// </summary>
+    public static Func<string, RunTrigger, string?>? ScheduleRunGate { get; set; }
+
+    /// <summary>
+    /// Awaited before a startup run asks <see cref="ScheduleRunGate"/>, so the answer it gets is
+    /// what the download tracker reported rather than the tracker's silence. Takes the service's
+    /// own key because only the schedules whose work walks the cache tree are worth waiting for.
+    /// Static and set once for the same reason as the gate above; null while nothing has set it,
+    /// so every startup run asks straight away. [90]
+    /// </summary>
+    public static Func<string, CancellationToken, Task>? WaitForDownloadAnswer { get; set; }
+
+    /// <summary>
     /// The name of this service for logging purposes.
     /// </summary>
     protected abstract string ServiceName { get; }
@@ -438,11 +459,28 @@ public abstract class ScheduledServiceBase : BackgroundService
     /// because this attempt already backed off via <see cref="ErrorRetryDelay"/>.
     /// </returns>
     protected async Task<(bool ShuttingDown, bool RunFailed)> RunScheduledWorkAsync(
+        string serviceKey,
+        RunTrigger trigger,
         Func<Task> executeWork,
         CancellationToken stoppingToken,
         string errorLogMessage,
         Action broadcastEnd)
     {
+        // Asked before the try is entered, so a declined run never reaches the finally below: it
+        // leaves LastRunUtc on the time of the last run that really happened, never flips
+        // IsCurrentlyExecuting, and broadcasts no end for a run that had no start. RunFailed stays
+        // false because a decline is not a failure, so the caller sleeps its ordinary interval
+        // instead of backing off and retrying a minute later. [6]
+        // The pending Run Now flag has already been taken by the loop above by the time this runs, so
+        // a manual attempt refused here is gone. That is why the trigger is handed over: whoever
+        // answers has to report a refused manual attempt rather than let the click disappear. [57]
+        var runDenial = ScheduleRunGate?.Invoke(serviceKey, trigger);
+        if (runDenial is not null)
+        {
+            _logger.LogInformation("{ServiceName} run skipped: {Reason}", ServiceName, runDenial);
+            return (false, false);
+        }
+
         IsCurrentlyExecuting = true;
         var runFailed = false;
         var shuttingDown = false;

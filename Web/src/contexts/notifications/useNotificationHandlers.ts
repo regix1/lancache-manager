@@ -24,7 +24,11 @@ import {
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import type { OperationWaitingEvent, OperationWaitingCompleteEvent } from '../SignalRContext/types';
-import { GENERIC_FAILURE_I18N_KEY, OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE } from './constants';
+import {
+  GENERIC_FAILURE_I18N_KEY,
+  GENERIC_SKIPPED_I18N_KEY,
+  OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE
+} from './constants';
 import i18n from '@/i18n';
 
 /**
@@ -326,19 +330,31 @@ export function useNotificationHandlers(
           )
             return n;
           terminated = true;
-          return event.cancelled
-            ? {
-                ...n,
-                status: 'completed' as const,
-                message: i18n.t('common.notifications.operationWaitingCancelled'),
-                details: { ...n.details, cancelled: true }
-              }
-            : {
-                ...n,
-                status: 'failed' as const,
-                message: event.error ?? i18n.t(GENERIC_FAILURE_I18N_KEY),
-                error: event.error
-              };
+          if (event.cancelled) {
+            return {
+              ...n,
+              status: 'completed' as const,
+              message: i18n.t('common.notifications.operationWaitingCancelled'),
+              details: { ...n.details, cancelled: true }
+            };
+          }
+          // A run declined at promotion never started, so it is neither a success nor a
+          // failure. Its reason rides in `error` like the failure path; dropping the card
+          // instead would leave the reader with no trace of what happened. [61]
+          if (event.skipped) {
+            return {
+              ...n,
+              status: 'skipped' as const,
+              message: event.error ?? i18n.t(GENERIC_SKIPPED_I18N_KEY),
+              error: event.error
+            };
+          }
+          return {
+            ...n,
+            status: 'failed' as const,
+            message: event.error ?? i18n.t(GENERIC_FAILURE_I18N_KEY),
+            error: event.error
+          };
         });
         // Nothing became terminal, so there is nothing to time out. Arming it regardless put a
         // dismiss timer on whatever else happened to be in that slot.

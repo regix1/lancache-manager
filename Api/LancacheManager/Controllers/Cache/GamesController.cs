@@ -29,6 +29,7 @@ public class GamesController : ControllerBase
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
     private readonly DatasourceCapabilityService _capabilityService;
+    private readonly CacheScanGate _cacheScanGate;
 
     public GamesController(
         GameCacheDetectionService gameCacheDetectionService,
@@ -39,9 +40,11 @@ public class GamesController : ControllerBase
         IUnifiedOperationTracker operationTracker,
         IOperationConflictChecker conflictChecker,
         IOperationQueue operationQueue,
-        DatasourceCapabilityService capabilityService)
+        DatasourceCapabilityService capabilityService,
+        CacheScanGate cacheScanGate)
     {
         _capabilityService = capabilityService;
+        _cacheScanGate = cacheScanGate;
         _gameCacheDetectionService = gameCacheDetectionService;
         _cacheManagementService = cacheManagementService;
         _notifications = notifications;
@@ -542,6 +545,17 @@ public class GamesController : ControllerBase
         if (capabilityError != null)
         {
             return capabilityError;
+        }
+
+        // Asked before the conflict check below, because that check parks a conflicting request
+        // and answers 202. A person waiting on this response needs the refusal now, not a queued
+        // card that fails later.
+        var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
+        if (downloadDenial != null)
+        {
+            // Coded, unlike the capability denial above: same status, same shape, and only the
+            // body says whether this is "try again later" or something the operator must fix.
+            return BadRequest(ApiResponse.DownloadInProgress(downloadDenial));
         }
 
         // forceRefresh=true means full scan (incremental=false)

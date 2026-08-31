@@ -31,7 +31,8 @@ public sealed partial class CacheFileRemovalScopeTests
         conflictChecker: null!,
         operationQueue: null!,
         capabilityService: null!,
-        stateService: null!);
+        stateService: null!,
+        cacheScanGate: CacheScanGateHarness.Idle());
 
     private static GamesController NewGamesController() => new GamesController(
         gameCacheDetectionService: null!,
@@ -42,7 +43,8 @@ public sealed partial class CacheFileRemovalScopeTests
         operationTracker: null!,
         conflictChecker: null!,
         operationQueue: null!,
-        capabilityService: null!);
+        capabilityService: null!,
+        cacheScanGate: CacheScanGateHarness.Idle());
 
     [Fact]
     public async Task ClearServiceCache_WithEvictedRecordsScope_IsRefusedAsync()

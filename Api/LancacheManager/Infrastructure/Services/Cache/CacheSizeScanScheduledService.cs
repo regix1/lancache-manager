@@ -80,7 +80,8 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
                 ConflictScope.Bulk(),
                 "Cache File Scan",
                 StartScanAsync,
-                stoppingToken);
+                stoppingToken,
+                reportRefusal: true);
 
             if (outcome.Queued)
             {

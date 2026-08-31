@@ -41,6 +41,7 @@ export const SIGNALR_EVENTS = [
   // Downloads
   'DownloadsRefresh',
   'DownloadSpeedUpdate',
+  'CacheScanBlockedChanged',
 
   // Log Processing
   'LogProcessingStarted',
@@ -1220,6 +1221,16 @@ export interface EvictionScanProgressEvent {
   showNotification?: boolean;
 }
 
+/**
+ * True when a terminal event reports a run that was declined before it started. Such a run
+ * reports `success: true`, so a `!success` guard lets it through. Listeners that refetch on
+ * completion must ignore it: nothing ran, so nothing changed, and the refetch is pure cost at
+ * the moment the machine is busiest. [42]
+ */
+export function isSkippedRun(event: { status?: OperationStatus }): boolean {
+  return event.status === 'skipped';
+}
+
 export interface EvictionScanCompleteEvent {
   success: boolean;
   operationId: string;
@@ -1234,6 +1245,11 @@ export interface EvictionScanCompleteEvent {
   error?: string;
   showNotification?: boolean;
   cancelled?: boolean;
+  /**
+   * Terminal status. A run declined before it started reports success:true here, so this is the
+   * only field separating it from one that finished its work.
+   */
+  status?: OperationStatus;
 }
 
 export interface CacheSizeScanStartedEvent {
@@ -1267,6 +1283,11 @@ export interface CacheSizeScanCompleteEvent {
   error?: string;
   showNotification?: boolean;
   cancelled?: boolean;
+  /**
+   * Terminal status. A run declined before it started reports success:true here, so this is the
+   * only field separating it from one that finished its work.
+   */
+  status?: OperationStatus;
 }
 
 /**
@@ -1296,6 +1317,11 @@ export interface OperationWaitingCompleteEvent {
   cancelled: boolean;
   error?: string;
   promoted?: boolean;
+  /**
+   * The run was declined and never started, so nothing replaced the card. Mutually exclusive
+   * with `promoted`, and the reason travels in `error`.
+   */
+  skipped?: boolean;
 }
 
 export interface EvictionRemovalStartedEvent {

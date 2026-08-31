@@ -86,7 +86,8 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
             DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
             DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
             DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
-            new DatasourceCapabilityService(datasourceService));
+            new DatasourceCapabilityService(datasourceService),
+            CacheScanGateHarness.Idle());
     }
 
     public void Dispose()

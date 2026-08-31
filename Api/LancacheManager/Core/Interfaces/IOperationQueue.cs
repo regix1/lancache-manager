@@ -29,12 +29,20 @@ public interface IOperationQueue
     /// (or immediately when the conflict vanished). Must return the started operation's id,
     /// or null when the start path internally refused. Must only capture singleton services
     /// or factories - it runs after the originating HTTP request has completed.</param>
+    /// <param name="reportRefusal">Whether a refusal thrown by <paramref name="start"/> before it
+    /// starts needs announcing on its own. Leave it false wherever the exception reaches a caller
+    /// that shows it, which is every HTTP route: the 400 IS the report, and announcing as well puts
+    /// two notices on screen for one click. Pass true only from a caller that swallows the
+    /// exception, where the announcement is the only thing the reader would ever see. Refusals at
+    /// promotion time are unaffected and always reported, because by then nobody is waiting on a
+    /// response. [78]</param>
     Task<QueuedOperationResponse> EnqueueAsync(
         OperationType type,
         ConflictScope scope,
         string displayName,
         Func<Task<Guid?>> start,
-        CancellationToken ct);
+        CancellationToken ct,
+        bool reportRefusal = false);
 
     /// <summary>
     /// Display name of the operation the given parked waiter is currently blocked behind, or

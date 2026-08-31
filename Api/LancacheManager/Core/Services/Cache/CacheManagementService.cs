@@ -30,6 +30,7 @@ public partial class CacheManagementService
     private readonly ISignalRNotificationService _notifications;
     private readonly ILancacheEnvFileReader _envFileReader;
     private readonly IOperationConflictChecker _conflictChecker;
+    private readonly CacheScanGate _cacheScanGate;
     private readonly DockerClient? _dockerClient;
 
     // Legacy single-path fields (for backward compatibility)
@@ -99,9 +100,11 @@ public partial class CacheManagementService
         ISignalRNotificationService notifications,
         ILancacheEnvFileReader envFileReader,
         IOperationConflictChecker conflictChecker,
-        DatasourceCapabilityService capabilityService)
+        DatasourceCapabilityService capabilityService,
+        CacheScanGate cacheScanGate)
     {
         _capabilityService = capabilityService;
+        _cacheScanGate = cacheScanGate;
         _logger = logger;
         _pathResolver = pathResolver;
         _rustProcessHelper = rustProcessHelper;
@@ -2032,6 +2035,16 @@ public partial class CacheManagementService
         Guid? operationId = null;
         try
         {
+            // A request parked in the queue can be promoted long after it was accepted, so the
+            // download state is read again here rather than only at the route. Thrown rather than
+            // returned as null: the queue reads a null start as transient and parks the caller
+            // again, while a throw terminates the waiting card with this reason.
+            var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
+            if (downloadDenial != null)
+            {
+                throw new DownloadInProgressException(downloadDenial);
+            }
+
             var result = await GetCacheSizeAsync(
                 force: true,
                 datasource: null,
@@ -2089,6 +2102,14 @@ public partial class CacheManagementService
                 .FirstOrDefault(d => d.Name.Equals(datasource, StringComparison.OrdinalIgnoreCase));
             if (ds == null)
                 return null;
+
+            // This branch always walks the directory, so it is a scan however it was asked for.
+            var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
+            if (downloadDenial != null)
+            {
+                throw new DownloadInProgressException(downloadDenial);
+            }
+
             return await RunCacheSizeScanAsync(ds.CachePath, cancellationToken);
         }
 
