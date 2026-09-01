@@ -102,7 +102,11 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
       }
 
       setLogEntries((prev) => {
-        const newEntries = [...prev, createLogEntry(type, message, details)];
+        // Keep only the most recent entries so a long-running prefill doesn't grow state without
+        // bound. Same cap the sessionStorage write applies.
+        const newEntries = [...prev, createLogEntry(type, message, details)].slice(
+          -MAX_LOG_ENTRIES
+        );
         persistLogs(newEntries);
         return newEntries;
       });
