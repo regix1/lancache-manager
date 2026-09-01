@@ -600,7 +600,46 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         }
     }
 
+    // An operation history row whose type the converter cannot parse must drop only that row: the
+    // remaining rows still load, in file order, and the dropped row is named in a warning.
+    [Fact]
+    public void GetOperationStates_UnparseableRow_KeepsTheOtherRows()
+    {
+        var firstId = Guid.NewGuid();
+        var unparseableId = Guid.NewGuid();
+        var lastId = Guid.NewGuid();
+
+        var historyPath = Path.Combine(_root, nameof(IPathResolver.GetOperationsDirectory), "operation_history.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(historyPath)!);
+        File.WriteAllText(historyPath, new JsonArray(
+            OperationHistoryRow(firstId, "cacheClearing"),
+            OperationHistoryRow(unparseableId, "totallyBogusOperationType"),
+            OperationHistoryRow(lastId, "logProcessing")).ToJsonString());
+
+        var (service, logger) = CreateStateService();
+
+        var states = service.GetOperationStates();
+
+        Assert.Equal(new[] { firstId, lastId }, states.Select(state => state.Id).ToArray());
+        Assert.Contains(
+            logger.Entries,
+            entry => entry.Level == LogLevel.Warning
+                && entry.Message.Contains(unparseableId.ToString(), StringComparison.Ordinal));
+    }
+
     // ---- file / service helpers ----
+
+    // PascalCase keys and camelCase enum values, matching what SaveOperationStates writes. Running is
+    // non-terminal, so the retention prune that follows a successful load leaves every row in place.
+    private static JsonObject OperationHistoryRow(Guid id, string type) => new()
+    {
+        ["Id"] = id.ToString(),
+        ["Type"] = type,
+        ["Status"] = "running",
+        ["Message"] = "row " + id,
+        ["CreatedAt"] = DateTime.UtcNow,
+        ["UpdatedAt"] = DateTime.UtcNow
+    };
 
     private string StateFilePath => Path.Combine(_root, nameof(IPathResolver.GetStateDirectory), "state.json");
 

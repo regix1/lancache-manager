@@ -580,6 +580,11 @@ public class StateService : IStateService
     /// Must be called <em>inside</em> the caller's lock — it does not acquire any lock itself.
     /// Returns the cached list (populating it on first call) and invokes <paramref name="cleanup"/>
     /// after a successful deserialisation.
+    /// When the whole-list deserialize fails, the rows are re-bound one at a time and only the invalid
+    /// ones are dropped, so a single unreadable record no longer discards the caller's whole history.
+    /// <paramref name="cleanup"/> still runs on that path: the salvaged list is a complete load of every
+    /// readable row, and skipping the retention prune would leave the two getters behaving differently
+    /// for the rest of the process lifetime.
     /// </summary>
     private List<T> LoadOperationList<T>(ref List<T>? cache, string filePath, Action cleanup)
     {
@@ -590,9 +595,22 @@ public class StateService : IStateService
 
         try
         {
-            cache = File.Exists(filePath)
-                ? JsonSerializer.Deserialize<List<T>>(File.ReadAllText(filePath)) ?? new List<T>()
-                : new List<T>();
+            if (!File.Exists(filePath))
+            {
+                cache = new List<T>();
+            }
+            else
+            {
+                var json = File.ReadAllText(filePath);
+                try
+                {
+                    cache = JsonSerializer.Deserialize<List<T>>(json) ?? new List<T>();
+                }
+                catch (JsonException ex)
+                {
+                    cache = SalvageOperationRows<T>(json, filePath, ex);
+                }
+            }
 
             cleanup();
 
@@ -604,6 +622,45 @@ public class StateService : IStateService
             cache = new List<T>();
             return cache;
         }
+    }
+
+    /// <summary>
+    /// Re-binds an operation list row by row after its whole-list deserialize failed, keeping every row
+    /// that binds and dropping only the invalid ones (logged by their persisted id). Uses the same bind
+    /// kernel as the persisted-state salvage, so the rows that survive hold exactly the values a clean
+    /// load would have produced, in file order. A file whose root is not a JSON array is not recoverable
+    /// row by row, so the original failure is re-thrown for the caller's existing fallback.
+    /// </summary>
+    private List<T> SalvageOperationRows<T>(string json, string filePath, JsonException originalError)
+    {
+        if (JsonNode.Parse(json) is not JsonArray rows)
+        {
+            throw originalError;
+        }
+
+        var salvaged = new List<T>(rows.Count);
+        var droppedIds = new List<string>();
+        foreach (var row in rows)
+        {
+            if (TryBindJsonValue(row, typeof(T), out var value, out _) == JsonBindOutcome.Bound && value is T bound)
+            {
+                salvaged.Add(bound);
+                continue;
+            }
+
+            // Written by SaveOperationStates / SaveCacheClearOperations, so the id is PascalCase when present.
+            droppedIds.Add((row as JsonObject)?["Id"]?.ToString() ?? $"index {rows.IndexOf(row)}");
+        }
+
+        _logger.LogWarning(
+            originalError,
+            "Operation list {Path} dropped {DroppedCount} unreadable rows ({DroppedIds}); {KeptCount} preserved",
+            filePath,
+            droppedIds.Count,
+            string.Join(", ", droppedIds),
+            salvaged.Count);
+
+        return salvaged;
     }
 
     // Cache Clear Operations Methods - now use separate file (data/operations/cache_operations.json)
