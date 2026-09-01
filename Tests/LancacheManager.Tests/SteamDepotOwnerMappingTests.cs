@@ -173,7 +173,7 @@ public sealed class SteamDepotOwnerMappingTests
         });
         await context.SaveChangesAsync();
 
-        var downloads = await new StatsDataService(context).GetLatestDownloadsAsync();
+        var downloads = await new StatsDataService(context).GetLatestDownloadsAsync(int.MaxValue);
 
         var download = Assert.Single(downloads);
         Assert.Equal(1024, download.CacheHitBytes);

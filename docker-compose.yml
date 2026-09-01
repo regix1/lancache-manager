@@ -156,11 +156,6 @@ services:
       # Optimization Settings
       #---------------------------------------------------------------------------
 
-      # Show memory management controls in Management page
-      # Enable for low-memory systems or if memory usage climbs over time
-      # Most users should leave this disabled
-      # - Optimizations__EnableGarbageCollectionManagement=false
-
       #---------------------------------------------------------------------------
       # Steam Prefill (auto-detects host paths from container mounts)
       # Pre-download games to your cache before LAN parties

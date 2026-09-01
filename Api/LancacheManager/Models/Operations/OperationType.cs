@@ -35,6 +35,8 @@ public enum OperationType
     GameImageFetch,
     CacheSnapshot,
     OperationHistoryCleanup,
+    // No longer produced. Retained so historical operation_history.json rows still deserialize:
+    // the converter has no unknown-value fallback, and a single unparseable row empties the whole list.
     PerformanceOptimization,
     DashboardCacheWarmer,
     XboxMapping,

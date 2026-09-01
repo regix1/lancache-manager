@@ -149,6 +149,12 @@ public class DownloadsController : ControllerBase
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
     {
+        const int maxCount = 200;
+
+        // Each row carries a correlated event subquery, so an unbounded count materializes the
+        // whole table twice over.
+        count = Math.Clamp(count, 1, maxCount);
+
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
         var startDate = startTime.HasValue

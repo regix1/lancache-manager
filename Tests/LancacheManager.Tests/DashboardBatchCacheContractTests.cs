@@ -9,7 +9,9 @@ using LancacheManager.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Primitives;
 
 namespace LancacheManager.Tests;
 
@@ -154,9 +156,15 @@ public sealed class DashboardBatchCacheContractTests
             searchFrom = idx + 1;
         }
 
+        Assert.Equal(1, occurrences);
+
+        var removeIndex = source.IndexOf(removeText, StringComparison.Ordinal);
+        var finallyIndex = source.LastIndexOf("finally", removeIndex, StringComparison.Ordinal);
+        var ifMine = source.LastIndexOf("if (mine)", removeIndex, StringComparison.Ordinal);
+
         Assert.True(
-            occurrences >= 2,
-            "both the success path and the failure path must retire the exact stored key+value pair they observed, so a newer flight for the same key is never removed early");
+            finallyIndex >= 0 && ifMine > finallyIndex,
+            "the single removal must sit in a finally guarded by ownership, so the caller that created the flight retires it on success, on fault and on its own cancellation, a joiner never removes a flight that is still running for someone else, and the exact stored key+value pair is what gets retired");
     }
 
     [Fact]
@@ -530,6 +538,78 @@ public sealed class DashboardBatchCacheContractTests
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
             => Handler!(targetMethod!, args);
     }
+
+    /// <summary>
+    /// The eviction handle a request captures has to outlive the build it travels through.
+    /// A live batch can take seconds to assemble and an ingest tick invalidates about once a second
+    /// while one is running, so the source captured at the start is routinely cancelled and
+    /// disposed before the entry options are built at the end. Reading
+    /// <see cref="CancellationTokenSource.Token"/> off a disposed source throws
+    /// <see cref="ObjectDisposedException"/>, which would turn a slow live request into a 500.
+    /// Capturing the token itself sidesteps that: it stays readable, reports itself already
+    /// cancelled, and the cache declines the entry, which is the wanted outcome for a response
+    /// built under a superseded generation.
+    /// </summary>
+    [Fact]
+    public void AnEvictionTokenCapturedBeforeAnInvalidationDeclinesTheEntryInsteadOfThrowing()
+    {
+        var service = (DashboardBatchService)RuntimeHelpers.GetUninitializedObject(typeof(DashboardBatchService));
+        SetEvictionSource(service, "_liveCacheEviction", new CancellationTokenSource());
+        SetEvictionSource(service, "_detectionCacheEviction", new CancellationTokenSource());
+
+        // The handle taken at the point GetBatchAsync captures it, before any work starts.
+        var capturedToken = EvictionSource(service, "_liveCacheEviction").Token;
+
+        // The invalidation that lands while the build is still running.
+        service.InvalidateLiveCache();
+
+        using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 * 1024 * 1024 });
+        var entryOptions = new MemoryCacheEntryOptions()
+            .SetAbsoluteExpiration(TimeSpan.FromMinutes(5))
+            .SetSize(50_000)
+            .SetPriority(CacheItemPriority.High)
+            .AddExpirationToken(new CancellationChangeToken(capturedToken));
+
+        cache.Set("dashboard-batch:eviction-capture", new object(), entryOptions);
+
+        Assert.False(cache.TryGetValue("dashboard-batch:eviction-capture", out _));
+    }
+
+    /// <summary>
+    /// Pins the shape the test above depends on: the request captures the token struct, carries
+    /// that through the build, and never reads <c>.Token</c> off a source at the point the entry
+    /// options are built.
+    /// </summary>
+    [Fact]
+    public void TheEvictionHandleThatTravelsThroughABuildIsATokenNotItsSource()
+    {
+        var source = BatchServiceSource();
+
+        Assert.Contains(
+            "var liveCacheEviction = Volatile.Read(ref _liveCacheEviction).Token;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "var detectionCacheEviction = Volatile.Read(ref _detectionCacheEviction).Token;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CancellationToken liveCacheEviction, CancellationToken detectionCacheEviction,",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("CancellationChangeToken(liveCacheEviction.Token)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CancellationChangeToken(detectionCacheEviction.Token)", source, StringComparison.Ordinal);
+    }
+
+    private static CancellationTokenSource EvictionSource(DashboardBatchService service, string fieldName)
+        => (CancellationTokenSource)typeof(DashboardBatchService)
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(service)!;
+
+    private static void SetEvictionSource(DashboardBatchService service, string fieldName, CancellationTokenSource source)
+        => typeof(DashboardBatchService)
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(service, source);
 
     private static string BatchServiceSource()
         => ReadSource("Core", "Services", "Dashboard", "DashboardBatchService.cs");

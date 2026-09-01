@@ -348,21 +348,6 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// Gets whether GC management (the memory-threshold-triggered collection pass) is enabled.
-    /// </summary>
-    [Authorize(Policy = "AccountHolder")]
-    [HttpGet("gc-management/status")]
-    [ProducesResponseType(typeof(GcStatusResponse), StatusCodes.Status200OK)]
-    public ActionResult<GcStatusResponse> GetGcStatus()
-    {
-        var isEnabled = _configuration.GetValue<bool>(
-            "Optimizations:EnableGarbageCollectionManagement",
-            false);
-
-        return Ok(new GcStatusResponse { Enabled = isEnabled });
-    }
-
-    /// <summary>
     /// Updates the setup status.
     /// </summary>
     /// <remarks>

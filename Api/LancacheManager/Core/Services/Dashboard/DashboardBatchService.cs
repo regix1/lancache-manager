@@ -10,6 +10,7 @@ using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Primitives;
 
 namespace LancacheManager.Core.Services;
 
@@ -36,6 +37,7 @@ public partial class DashboardBatchService : IDashboardBatchService
     private readonly IMemoryCache _memoryCache;
     private readonly IClientHostnameService _clientHostnameService;
     private readonly IConfiguration _configuration;
+    private readonly IOptions<MemoryCacheOptions> _memoryCacheOptions;
     private readonly JsonSerializerOptions _wireJsonOptions;
 
     // Every request captures both applicable generations before doing any work. Generations are
@@ -43,12 +45,20 @@ public partial class DashboardBatchService : IDashboardBatchService
     private long _liveCacheGeneration;
     private long _detectionCacheGeneration;
 
+    // Bumping a generation only makes the old entry unreachable by key; the entry itself keeps its
+    // pre-serialized downloads section for the rest of its expiry window while the next request
+    // builds a replacement beside it. Every entry is linked to the eviction token of the generation
+    // that produced it, so an invalidation releases that memory immediately. [1]
+    private CancellationTokenSource _liveCacheEviction = new();
+    private CancellationTokenSource _detectionCacheEviction = new();
+
     // One flight per cache key so concurrent misses share a single fan-out. Stored as a Lazy
     // so GetOrAdd's value factory racing under contention never starts more than one recompute:
     // constructing a Lazy is inert, and only the ONE instance that actually gets stored into the
-    // dictionary ever has its factory invoked. Whichever caller observes the flight complete
-    // (success or failure) retires it via the atomic key+value TryRemove, so a newer flight for
-    // the same key is never removed early and a cached failure is never replayed forever.
+    // dictionary ever has its factory invoked. The caller that created the flight retires it on
+    // every exit path - success, fault, and its own cancellation - via the atomic key+value
+    // TryRemove, so a newer flight for the same key is never removed early, a cached failure is
+    // never replayed forever, and an abandoned request never strands its entry here.
     private readonly ConcurrentDictionary<string, Lazy<Task<DashboardBatchResponse>>> _inflight = new();
 
     public DashboardBatchService(
@@ -63,6 +73,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         IMemoryCache memoryCache,
         IClientHostnameService clientHostnameService,
         IConfiguration configuration,
+        IOptions<MemoryCacheOptions> memoryCacheOptions,
         IOptions<Microsoft.AspNetCore.Mvc.JsonOptions> mvcJsonOptions)
     {
         _cacheService = cacheService;
@@ -76,6 +87,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         _memoryCache = memoryCache;
         _clientHostnameService = clientHostnameService;
         _configuration = configuration;
+        _memoryCacheOptions = memoryCacheOptions;
         // The MVC wire options: pre-serialized sections must match what the output formatter
         // would have produced for the same object, byte for byte.
         _wireJsonOptions = mvcJsonOptions.Value.JsonSerializerOptions;
@@ -97,6 +109,14 @@ public partial class DashboardBatchService : IDashboardBatchService
         var isLive = !startTime.HasValue && !endTime.HasValue;
         var liveCacheGeneration = isLive ? Volatile.Read(ref _liveCacheGeneration) : 0;
         var detectionCacheGeneration = Volatile.Read(ref _detectionCacheGeneration);
+        // Read after the generations, so a token captured here is never older than the generation
+        // it is paired with; the generationsAreCurrent check before the write covers the reverse.
+        // The token STRUCT is what travels, never the source: a build can take seconds, an
+        // invalidation lands on a notification thread meanwhile and disposes the source it
+        // displaced, and CancellationTokenSource.Token throws once disposed. A token handed out
+        // before that stays readable, reports itself already cancelled, and the entry is declined.
+        var liveCacheEviction = Volatile.Read(ref _liveCacheEviction).Token;
+        var detectionCacheEviction = Volatile.Read(ref _detectionCacheEviction).Token;
 
         // Shared state used by multiple sub-queries
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
@@ -115,12 +135,12 @@ public partial class DashboardBatchService : IDashboardBatchService
         // RunSingleFlightAsync), so GetOrAdd's plain-value overload deterministically stores
         // exactly one Lazy per key; ReferenceEquals against the caller's own Lazy then tells it
         // whether it created that stored flight or only joined one already in progress. Every
-        // caller waits on its own token. A caller's own cancellation always rethrows immediately
-        // without touching the entry, since the flight may still be legitimately in progress for
-        // other callers. Anything else - a foreign cancellation or an ordinary fault - retires
-        // the entry (a Lazy with ExecutionAndPublication caches a thrown exception forever
-        // otherwise) and either rethrows, if this caller owns the failed flight, or loops back
-        // to mint its own fresh attempt, bounding every caller to at most two awaited flights.
+        // caller waits on its own token, and only the creator retires the entry, in a finally so
+        // that its own cancellation cleans up too - the flight runs on the creator's token, so
+        // there is nobody else left to do it. A joiner that sees the flight end for a reason other
+        // than its own token either rethrows, if it owns the failed flight, or loops back to mint
+        // a fresh attempt, bounding every caller to at most two awaited flights; a Lazy with
+        // ExecutionAndPublication would otherwise replay a thrown exception forever.
         const int MaxContestedFlightAttempts = 2;
         var attempt = 0;
 
@@ -142,23 +162,23 @@ public partial class DashboardBatchService : IDashboardBatchService
                 return await RunSingleFlightAsync(
                     cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
                     hiddenClientIps, statsExcludedOnlyIps, evictedMode,
-                    isLive, liveCacheGeneration, detectionCacheGeneration, includeClientHostnames, ct);
+                    isLive, liveCacheGeneration, detectionCacheGeneration,
+                    liveCacheEviction, detectionCacheEviction, includeClientHostnames, ct);
             }
 
             var myLazy = new Lazy<Task<DashboardBatchResponse>>(
                 () => RunSingleFlightAsync(
                     cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
                     hiddenClientIps, statsExcludedOnlyIps, evictedMode,
-                    isLive, liveCacheGeneration, detectionCacheGeneration, includeClientHostnames, ct),
+                    isLive, liveCacheGeneration, detectionCacheGeneration,
+                    liveCacheEviction, detectionCacheEviction, includeClientHostnames, ct),
                 LazyThreadSafetyMode.ExecutionAndPublication);
             var stored = _inflight.GetOrAdd(cacheKey, myLazy);
             var mine = ReferenceEquals(stored, myLazy);
 
             try
             {
-                var result = await stored.Value.WaitAsync(ct);
-                _inflight.TryRemove(new KeyValuePair<string, Lazy<Task<DashboardBatchResponse>>>(cacheKey, stored));
-                return result;
+                return await stored.Value.WaitAsync(ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -166,7 +186,6 @@ public partial class DashboardBatchService : IDashboardBatchService
             }
             catch
             {
-                _inflight.TryRemove(new KeyValuePair<string, Lazy<Task<DashboardBatchResponse>>>(cacheKey, stored));
                 attempt++;
                 if (mine)
                 {
@@ -177,6 +196,13 @@ public partial class DashboardBatchService : IDashboardBatchService
                 }
                 // A flight this caller only joined ended for a reason other than its own
                 // token; loop back and contend again, up to the attempt cap above.
+            }
+            finally
+            {
+                if (mine)
+                {
+                    _inflight.TryRemove(new KeyValuePair<string, Lazy<Task<DashboardBatchResponse>>>(cacheKey, stored));
+                }
             }
         }
     }
@@ -193,6 +219,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         List<long> eventIdList, string readerTimeZoneId,
         List<string> hiddenClientIps, List<string> statsExcludedOnlyIps, string evictedMode,
         bool isLive, long liveCacheGeneration, long detectionCacheGeneration,
+        CancellationToken liveCacheEviction, CancellationToken detectionCacheEviction,
         bool includeClientHostnames,
         CancellationToken ct)
     {
@@ -224,10 +251,17 @@ public partial class DashboardBatchService : IDashboardBatchService
         // UTF-8 copy on every poll of every client instead of re-serializing tens of MB of
         // entities per request. The entity list itself is released here instead of living in
         // the cache entry.
+        // Serializing to UTF-8 first and parsing that buffer, rather than SerializeToElement,
+        // is what makes the entry's real byte length available for SetSize below.
         var downloadsResult = await downloadsTask;
+        byte[] downloadsUtf8 = downloadsResult == null
+            ? []
+            : JsonSerializer.SerializeToUtf8Bytes(downloadsResult, _wireJsonOptions);
         object? downloadsSection = downloadsResult == null
             ? null
-            : JsonSerializer.SerializeToElement(downloadsResult, _wireJsonOptions);
+            : JsonSerializer.Deserialize<JsonElement>(downloadsUtf8);
+        // The parsed element owns its own copy of the bytes, so only the length is carried forward.
+        var downloadsSectionBytes = downloadsUtf8.Length;
 
         DashboardBatchResponse response = new()
         {
@@ -243,10 +277,24 @@ public partial class DashboardBatchService : IDashboardBatchService
         };
 
         // Non-live ranges (startTime/endTime fixed) cache for 60s; live uses the shared warm window.
+        // The size is the downloads section's real byte length plus what the remaining sections
+        // used to be charged as the whole entry, so the global SizeLimit sees an entry's true
+        // cost instead of a flat 50 KB. A moving time window mints a new key per request, and it
+        // is that limit which now bounds how many of those can pile up; ranged entries are the
+        // low-priority ones so compaction takes them before the live entry every reader shares. [5]
+        var entrySize = 50_000L + downloadsSectionBytes;
         var cacheOptions = new MemoryCacheEntryOptions()
             .SetAbsoluteExpiration(isLive ? LiveCacheWindow : TimeSpan.FromSeconds(60))
-            .SetSize(50_000)
-            .SetPriority(CacheItemPriority.High);
+            .SetSize(entrySize)
+            .SetPriority(isLive ? CacheItemPriority.High : CacheItemPriority.Low)
+            .AddExpirationToken(new CancellationChangeToken(detectionCacheEviction));
+
+        // The live generation is part of the key only for live requests, so only they are linked
+        // to its token; a ranged entry's live generation is a constant zero. [2]
+        if (isLive)
+        {
+            cacheOptions.AddExpirationToken(new CancellationChangeToken(liveCacheEviction));
+        }
 
         var generationsAreCurrent =
             detectionCacheGeneration == Volatile.Read(ref _detectionCacheGeneration)
@@ -256,6 +304,17 @@ public partial class DashboardBatchService : IDashboardBatchService
         if (generationsAreCurrent && !HasFailedSection(response))
         {
             _memoryCache.Set(cacheKey, response, cacheOptions);
+
+            // An entry bigger than the whole SizeLimit is refused without an exception and without
+            // evicting anything, so on a large enough downloads table the dashboard would stop
+            // being cached at all and rebuild on every poll with nothing to explain it.
+            if (_memoryCacheOptions.Value.SizeLimit is long sizeLimit && entrySize > sizeLimit)
+            {
+                _logger.LogWarning(
+                    "dashboard batch response is {EntryBytes} bytes and the memory cache limit is {SizeLimitBytes} bytes, so it was not cached and every request will rebuild it",
+                    entrySize,
+                    sizeLimit);
+            }
         }
 
         return response;
@@ -289,20 +348,34 @@ public partial class DashboardBatchService : IDashboardBatchService
     /// <inheritdoc />
     public void InvalidateLiveCache()
     {
+        // Exchange rather than a plain assignment: these run on SignalR notification threads, so
+        // two invalidations can overlap and each must cancel exactly the source it took out.
+        // The evicted source is cancelled but never disposed: CancellationTokenSource.Token
+        // throws ObjectDisposedException once the source is disposed, and a request reads it
+        // from the field it captured, so disposing here would fail any request that an
+        // invalidation overlaps. A cancelled source holds no timer and is collectable as-is.
+        var evicted = Interlocked.Exchange(ref _liveCacheEviction, new CancellationTokenSource());
         Interlocked.Increment(ref _liveCacheGeneration);
+        evicted.Cancel();
     }
 
     /// <inheritdoc />
     public void InvalidateDetectionCache()
     {
+        var evicted = Interlocked.Exchange(ref _detectionCacheEviction, new CancellationTokenSource());
         Interlocked.Increment(ref _detectionCacheGeneration);
+        evicted.Cancel();
     }
 
     /// <inheritdoc />
     public void InvalidateAllCache()
     {
+        var liveEvicted = Interlocked.Exchange(ref _liveCacheEviction, new CancellationTokenSource());
+        var detectionEvicted = Interlocked.Exchange(ref _detectionCacheEviction, new CancellationTokenSource());
         Interlocked.Increment(ref _liveCacheGeneration);
         Interlocked.Increment(ref _detectionCacheGeneration);
+        liveEvicted.Cancel();
+        detectionEvicted.Cancel();
     }
 
     // ───────────────────── Sub-query implementations ─────────────────────
@@ -547,7 +620,66 @@ public partial class DashboardBatchService : IDashboardBatchService
         // Resolve game names via Steam depot mappings + Epic lookup
         await GameNameResolver.ResolveAsync(context, downloads, ct);
 
-        return downloads;
+        // Projected onto the narrower row here rather than serialized as entities: LastUrl and
+        // XboxProductId sit on every row, no client reads either, and in live mode this list is
+        // the whole visible downloads table held in the cache entry as pre-serialized bytes. [7]
+        return downloads.Select(d => new DashboardDownloadRow
+        {
+            Id = d.Id,
+            Service = d.Service,
+            ClientIp = d.ClientIp,
+            StartTimeUtc = d.StartTimeUtc,
+            EndTimeUtc = d.EndTimeUtc,
+            CacheHitBytes = d.CacheHitBytes,
+            CacheMissBytes = d.CacheMissBytes,
+            IsActive = d.IsActive,
+            IsEvicted = d.IsEvicted,
+            GameAppId = d.GameAppId,
+            GameName = d.GameName,
+            GameImageUrl = d.GameImageUrl,
+            DepotId = d.DepotId,
+            EpicAppId = d.EpicAppId,
+            Datasource = d.Datasource,
+            DurationSeconds = d.DurationSeconds
+        }).ToList();
+    }
+
+    /// <summary>
+    /// One row of the batch response's downloads section: <see cref="Download"/> minus the columns
+    /// nothing on the wire reads. The computed members mirror the entity's so the JSON the
+    /// frontend receives is unchanged apart from the two dropped fields.
+    /// </summary>
+    internal sealed class DashboardDownloadRow
+    {
+        public long Id { get; init; }
+        public string Service { get; init; } = string.Empty;
+        public string ClientIp { get; init; } = string.Empty;
+        public DateTime StartTimeUtc { get; init; }
+        public DateTime EndTimeUtc { get; init; }
+        public long CacheHitBytes { get; init; }
+        public long CacheMissBytes { get; init; }
+        public bool IsActive { get; init; }
+        public bool IsEvicted { get; init; }
+        public long? GameAppId { get; init; }
+        public string? GameName { get; init; }
+        public string? GameImageUrl { get; init; }
+        public long? DepotId { get; init; }
+        public string? EpicAppId { get; init; }
+        public string Datasource { get; init; } = string.Empty;
+        public double? DurationSeconds { get; init; }
+
+        public long TotalBytes => CacheHitBytes + CacheMissBytes;
+
+        public double CacheHitPercent => TotalBytes > 0 ? (CacheHitBytes * 100.0) / TotalBytes : 0;
+
+        public double AverageBytesPerSecond
+        {
+            get
+            {
+                var duration = DurationSeconds ?? (EndTimeUtc - StartTimeUtc).TotalSeconds;
+                return duration > 0 ? TotalBytes / duration : 0;
+            }
+        }
     }
 
     private async Task<object> GetCachedDetectionAsync(long usedCacheSizeBytes)

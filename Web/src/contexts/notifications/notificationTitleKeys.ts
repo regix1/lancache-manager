@@ -27,7 +27,6 @@ export const NOTIFICATION_TITLE_KEYS: Record<NotificationType, string | null> = 
   game_image_fetch: 'common.notifications.titles.gameImageFetch',
   cache_snapshot: 'common.notifications.titles.cacheSnapshot',
   operation_history_cleanup: 'common.notifications.titles.operationHistoryCleanup',
-  performance_optimization: 'common.notifications.titles.performanceOptimization',
   dashboard_cache_warmer: 'common.notifications.titles.dashboardCacheWarmer',
   bulk_removal: 'common.notifications.titles.bulkRemoval',
   prefill_login: 'common.notifications.titles.prefillLogin',

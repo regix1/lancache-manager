@@ -25,10 +25,11 @@ public class StatsDataService : IStatsDataService
     /// Resolves game names from SteamDepotMappings for downloads where the name wasn't
     /// available at download time, after the page has been chosen.
     /// </summary>
-    /// <param name="limit">Maximum number of downloads to return</param>
+    /// <param name="limit">Maximum number of downloads to return. Required, so that asking for the
+    /// whole table is always a deliberate choice at the call site.</param>
     /// <param name="activeOnly">If true, only return active (in-progress) downloads</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task<List<Download>> GetLatestDownloadsAsync(int limit = int.MaxValue, bool activeOnly = false, CancellationToken cancellationToken = default)
+    public async Task<List<Download>> GetLatestDownloadsAsync(int limit, bool activeOnly = false, CancellationToken cancellationToken = default)
     {
         var baseQuery = _context.Downloads.AsNoTracking()
             .ApplyEmptySessionFilter()

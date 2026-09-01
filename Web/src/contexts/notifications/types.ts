@@ -41,7 +41,6 @@ export type NotificationType =
   | 'game_image_fetch'
   | 'cache_snapshot'
   | 'operation_history_cleanup'
-  | 'performance_optimization'
   | 'dashboard_cache_warmer'
   | 'bulk_removal'
   | 'prefill_login'

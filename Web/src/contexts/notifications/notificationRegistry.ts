@@ -1228,17 +1228,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     staleMessageKey: 'signalr.scheduledRun.operationHistoryCleanup.complete'
   }),
   buildScheduledRunEntry({
-    type: 'performance_optimization',
-    id: NOTIFICATION_IDS.PERFORMANCE_OPTIMIZATION,
-    storageKey: NOTIFICATION_STORAGE_KEYS.PERFORMANCE_OPTIMIZATION,
-    serviceKey: 'performanceOptimization',
-    eventPrefix: 'PerformanceOptimization',
-    i18nBase: 'signalr.scheduledRun.performanceOptimization',
-    countable: false,
-    defaultMessage: 'Starting performance optimization...',
-    staleMessageKey: 'signalr.scheduledRun.performanceOptimization.complete'
-  }),
-  buildScheduledRunEntry({
     type: 'dashboard_cache_warmer',
     id: NOTIFICATION_IDS.DASHBOARD_CACHE_WARMER,
     storageKey: NOTIFICATION_STORAGE_KEYS.DASHBOARD_CACHE_WARMER,

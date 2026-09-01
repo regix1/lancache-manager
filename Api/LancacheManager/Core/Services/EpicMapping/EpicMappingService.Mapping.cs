@@ -12,10 +12,6 @@ public partial class EpicMappingService
     /// </summary>
     public async Task<int> ResolveDownloadsAsync(CancellationToken ct = default)
     {
-        // Seed well-known non-game patterns (Epic Games Launcher etc.) so launcher chunks
-        // get labeled instead of falling through as Unknown. Idempotent.
-        await EnsureWellKnownPatternsAsync(ct);
-
         using var db = _dbContextFactory.CreateDbContext();
         const string epicServicePattern = "%epic%";
 
@@ -25,27 +21,29 @@ public partial class EpicMappingService
         // older pattern row is not an Epic identity to GamesOnDiskCalculator.GetDownloadGameKey,
         // so a null-only test would leave it permanently stuck: never re-resolved here, yet still
         // treated as Epic by the layers that test the column against null.
+        // Count the candidates before loading them: the log pass calls this after every run, and on
+        // a cache with no Epic traffic there is never anything to name, so the common case costs one
+        // count instead of a tracked load plus the well-known pattern seed. [11]
+        var unresolvedCount = await db.Downloads
+            .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && string.IsNullOrEmpty(d.EpicAppId) && d.LastUrl != null, ct);
+
+        if (unresolvedCount == 0)
+        {
+            _logger.LogInformation("No unresolved Epic downloads to match against CDN patterns");
+            return 0;
+        }
+
+        // Seed well-known non-game patterns (Epic Games Launcher etc.) so launcher chunks
+        // get labeled instead of falling through as Unknown. Idempotent.
+        await EnsureWellKnownPatternsAsync(ct);
+
         var unresolvedDownloads = await db.Downloads
             .Where(d => EF.Functions.Like(d.Service, epicServicePattern) && string.IsNullOrEmpty(d.EpicAppId) && d.LastUrl != null)
             .ToListAsync(ct);
 
         if (unresolvedDownloads.Count == 0)
         {
-            // Check if there are any Epic downloads at all for diagnostics
-            var totalEpicCount = await db.Downloads
-                .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern), ct);
-
-            if (totalEpicCount == 0)
-            {
-                var distinctServices = await db.Downloads
-                    .Select(d => d.Service)
-                    .Distinct()
-                    .ToListAsync(ct);
-                _logger.LogWarning(
-                    "No downloads found with 'epic' in Service name. Distinct service names in DB: [{Services}]",
-                    string.Join(", ", distinctServices));
-            }
-
+            // A concurrent ingest pass can stamp the last candidate between the count and this load.
             return 0;
         }
 

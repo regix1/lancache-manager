@@ -51,7 +51,6 @@ export const SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: Partial<Record<Notifica
     game_image_fetch: 'gameImageFetch',
     cache_snapshot: 'cacheSnapshot',
     operation_history_cleanup: 'operationHistoryCleanup',
-    performance_optimization: 'performanceOptimization',
     dashboard_cache_warmer: 'dashboardCacheWarmer',
     scheduled_prefill: 'scheduledPrefill',
     eviction_scan: 'cacheReconciliation',
@@ -207,8 +206,6 @@ export const NOTIFICATION_STORAGE_KEYS = {
   CACHE_SNAPSHOT: 'notification_cache_snapshot',
   /** Key for scheduled operation history cleanup run state */
   OPERATION_HISTORY_CLEANUP: 'notification_operation_history_cleanup',
-  /** Key for scheduled performance optimization run state */
-  PERFORMANCE_OPTIMIZATION: 'notification_performance_optimization',
   /** Key for scheduled dashboard cache warmer run state */
   DASHBOARD_CACHE_WARMER: 'notification_dashboard_cache_warmer'
 } as const;
@@ -275,8 +272,6 @@ export const NOTIFICATION_IDS = {
   CACHE_SNAPSHOT: 'cache_snapshot',
   /** ID for scheduled operation history cleanup runs */
   OPERATION_HISTORY_CLEANUP: 'operation_history_cleanup',
-  /** ID for scheduled performance optimization runs */
-  PERFORMANCE_OPTIMIZATION: 'performance_optimization',
   /** ID for scheduled dashboard cache warmer runs */
   DASHBOARD_CACHE_WARMER: 'dashboard_cache_warmer'
 } as const;

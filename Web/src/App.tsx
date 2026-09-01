@@ -218,11 +218,6 @@ const AppContent: React.FC = () => {
 
   const { refreshConfig } = useConfig();
 
-  // NOTE: Automatic GC on page load is now handled by the backend GcMiddleware
-  // which properly respects the memory threshold and aggressiveness settings.
-  // The manual trigger endpoint (/api/gc/trigger) bypasses threshold checks and
-  // is only intended for the "Run GC Now" button in the management UI.
-
   // Check if depot data exists (only after auth check is done)
   useEffect(() => {
     if (checkingAuth || checkingSetupStatus) {

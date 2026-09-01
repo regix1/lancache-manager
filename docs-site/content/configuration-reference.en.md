@@ -119,7 +119,6 @@ If you run more than one cache instance or split services across drives, see [Mu
 |----------|---------|-------------|
 | `ApiOptions__MaxClientsPerRequest` | `1000` | Max clients returned in a single stats request. |
 | `ApiOptions__DefaultClientsLimit` | `100` | Default client limit when none is provided. |
-| `Optimizations__EnableGarbageCollectionManagement` | `false` | Show memory management controls in Management. Helpful on low-memory hosts. |
 | `ASPNETCORE_URLS` | `http://+:80` | Internal port binding. Don't change unless you know exactly why. |
 | `ConnectionStrings__DefaultConnection` | (auto) | Full PostgreSQL connection string override. For power users with complex setups not covered by individual `POSTGRES_*` variables. |
 | `CacheSnapshots__RetentionDays` | `90` | How long to keep cache snapshots. Older snapshots are automatically deleted. |
@@ -199,7 +198,6 @@ services:
       # --- API, optimization, cache snapshots ---
       # - ApiOptions__MaxClientsPerRequest=1000
       # - ApiOptions__DefaultClientsLimit=100
-      # - Optimizations__EnableGarbageCollectionManagement=false   # low-memory hosts only
       # - CacheSnapshots__RetentionDays=90        # cache-size history retention
       # - CacheSnapshots__IntervalMinutes=60      # advanced: how often to record a snapshot
       # - ASPNETCORE_URLS=http://+:80             # internal bind; leave as-is

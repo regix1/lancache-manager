@@ -187,7 +187,6 @@
         "gameImageFetch": "Game Image Fetch",
         "cacheSnapshot": "Cache Snapshot",
         "operationHistoryCleanup": "Operation History Cleanup",
-        "performanceOptimization": "Performance Optimization",
         "dashboardCacheWarmer": "Dashboard Cache Warmer",
         "bulkRemoval": "Bulk Removal",
         "prefillLogin": "Prefill Sign-In"
@@ -2298,8 +2297,7 @@
         "help": {
           "apiAuthTitle": "About",
           "demoModeTitle": "About",
-          "displayPreferencesTitle": "About",
-          "performanceOptimizationsTitle": "About"
+          "displayPreferencesTitle": "About"
         },
         "title": "Settings",
         "apiAuth": "API Authentication",
@@ -2312,15 +2310,8 @@
         "mockModeActive": "Mock mode active - API actions are disabled",
         "displayPreferences": "Display Preferences",
         "displayPreferencesDesc": "Customize your experience",
-        "performanceOptimizations": "Performance Optimizations",
-        "performanceOptimizationsShort": "Performance",
-        "performanceOptimizationsDesc": "Garbage collection and memory management",
-        "performanceOptimizationsDisabled": "Performance optimizations are disabled",
-        "performanceOptimizationsEnvVar": "Add the following environment variable to your docker-compose.yml:",
-        "loadingGcSettings": "Loading GC settings...",
         "groupSystem": "System",
-        "groupPreferences": "Preferences",
-        "groupPerformance": "Performance"
+        "groupPreferences": "Preferences"
       },
       "preferences": {
         "title": "Theme"
@@ -3643,29 +3634,6 @@
       },
       "summary": "Endpoints and settings for Grafana and Prometheus monitoring."
     },
-    "gc": {
-      "statusSection": "Status",
-      "enabledLabel": "Enable automatic garbage collection",
-      "enabledDesc": "When enabled, the Performance Optimizations service runs on the interval configured on the Schedules page and cleans up memory when the threshold is exceeded.",
-      "memorySettings": "Memory Settings",
-      "thresholdLabel": "Threshold",
-      "thresholdDesc": "Memory limit that triggers cleanup when exceeded",
-      "actions": "Actions",
-      "saveSettings": "Save Settings",
-      "saving": "Saving...",
-      "runGcNow": "Run GC Now",
-      "running": "Running...",
-      "runGcTooltip": "Manually run garbage collection once (5s cooldown)",
-      "noRestartRequired": "Changes take effect immediately - no restart required.",
-      "saveSuccess": "GC settings saved successfully",
-      "saveFailed": "Failed to save GC settings",
-      "triggerFailed": "Failed to trigger garbage collection",
-      "before": "Before",
-      "after": "After",
-      "freed": "Freed",
-      "cooldown": "Cooldown",
-      "remaining": "remaining"
-    },
     "schedules": {
       "title": "Service Schedules",
       "taskColumn": "Task",
@@ -4166,13 +4134,6 @@
           "summary": "Clears cache-clear records older than 24 hours.",
           "gain": "Completed operation records are automatically cleaned up after 24 hours, keeping the history tidy",
           "loss": "Operation records older than 24 hours are permanently removed and cannot be reviewed later"
-        },
-        "performanceOptimization": {
-          "displayName": "Performance Optimizations",
-          "description": "Watches memory use and triggers garbage collection only when it crosses your configured threshold. Also clears stale database connections. Off by default - enable on the Performance Optimizations page if you're memory-constrained.",
-          "summary": "Frees memory when usage crosses your threshold.",
-          "gain": "Memory usage stays lower and the UI feels snappier on memory-constrained hosts",
-          "loss": "Brief CPU spikes during each collection pass can cause small pauses in background work"
         },
         "dashboardCacheWarmer": {
           "displayName": "Dashboard Preloader",
@@ -7040,6 +7001,8 @@
     "totalAllocatedDesc": "Total memory allocated by .NET runtime",
     "heapSize": "Heap Size:",
     "heapSizeDesc": "Current size of the managed heap",
+    "committed": "Committed:",
+    "committedDesc": "Memory the runtime holds from the operating system for the managed heap",
     "fragmented": "Fragmented Memory:",
     "fragmentedDesc": "Wasted space due to memory fragmentation",
     "processStats": "Process Statistics",
@@ -7485,11 +7448,6 @@
         "starting": "Starting operation history cleanup...",
         "running": "Removing old operation history ({{processed}} of {{total}})...",
         "complete": "Operation history cleaned up"
-      },
-      "performanceOptimization": {
-        "starting": "Starting performance optimization...",
-        "running": "Optimizing performance...",
-        "complete": "Performance optimization complete"
       },
       "dashboardCacheWarmer": {
         "starting": "Warming dashboard cache...",

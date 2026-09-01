@@ -32,7 +32,6 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         ["gameImageFetch"] = OperationType.GameImageFetch,
         ["cacheSnapshot"] = OperationType.CacheSnapshot,
         ["operationHistoryCleanup"] = OperationType.OperationHistoryCleanup,
-        ["performanceOptimization"] = OperationType.PerformanceOptimization,
         ["dashboardCacheWarmer"] = OperationType.DashboardCacheWarmer,
         ["cacheReconciliation"] = OperationType.EvictionScan,
         ["cacheSizeScan"] = OperationType.CacheSizeScan,
@@ -302,8 +301,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     public void NotifySchedulesChanged()
     {
         // Re-use the same fire-and-forget SignalR broadcast path as work-state ticks so
-        // conditional-visibility changes (e.g. GC Aggressiveness flip) propagate to the
-        // Schedules UI without a page reload. Any error is swallowed - matches existing pattern.
+        // schedule changes propagate to the Schedules UI without a page reload. Any error is
+        // swallowed - matches existing pattern.
         _ = NotifySchedulesAsync();
     }
 
@@ -386,21 +385,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         foreach (var service in _scheduledServices.Values)
         {
-            if (service is IConditionallyVisibleSchedule scheduledVisibility && !scheduledVisibility.IsScheduleVisible())
-            {
-                continue;
-            }
-
             results.Add(MapScheduledService(service));
         }
 
         foreach (var service in _configurableServices.Values)
         {
-            if (service is IConditionallyVisibleSchedule configurableVisibility && !configurableVisibility.IsScheduleVisible())
-            {
-                continue;
-            }
-
             results.Add(MapConfigurableService(service));
         }
 
@@ -411,21 +400,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         if (_scheduledServices.TryGetValue(serviceKey, out var scheduled))
         {
-            if (scheduled is IConditionallyVisibleSchedule scheduledVisibility && !scheduledVisibility.IsScheduleVisible())
-            {
-                return null;
-            }
-
             return MapScheduledService(scheduled);
         }
 
         if (_configurableServices.TryGetValue(serviceKey, out var configurable))
         {
-            if (configurable is IConditionallyVisibleSchedule configurableVisibility && !configurableVisibility.IsScheduleVisible())
-            {
-                return null;
-            }
-
             return MapConfigurableService(configurable);
         }
 
@@ -836,15 +815,6 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         foreach (var (key, service) in _scheduledServices)
         {
-            // Apply the same visibility gate GetAll and Get use. A hidden service has no row in the
-            // list the user pressed this button on, its work method returns immediately while its
-            // prerequisite toggle is off, and Get already 404s its single-service run route - so
-            // counting it here would report more services than the user can see or run themselves.
-            if (service is IConditionallyVisibleSchedule scheduledVisibility && !scheduledVisibility.IsScheduleVisible())
-            {
-                continue;
-            }
-
             // Same before-trigger read as the single-service TriggerRunAsync. A refused service is
             // counted and dropped here rather than triggered, which is what the skipped count
             // reports. For everything else the trigger call runs whether or not the service is
@@ -873,11 +843,6 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         foreach (var (key, service) in _configurableServices)
         {
-            if (service is IConditionallyVisibleSchedule configurableVisibility && !configurableVisibility.IsScheduleVisible())
-            {
-                continue;
-            }
-
             var configurableDenial = CheckScheduleRun(key);
             if (configurableDenial is not null)
             {

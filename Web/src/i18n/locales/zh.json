@@ -187,7 +187,6 @@
         "gameImageFetch": "游戏图片获取",
         "cacheSnapshot": "缓存快照",
         "operationHistoryCleanup": "操作历史清理",
-        "performanceOptimization": "性能优化",
         "dashboardCacheWarmer": "仪表盘缓存预热",
         "bulkRemoval": "批量移除",
         "prefillLogin": "预填充登录"
@@ -2298,8 +2297,7 @@
         "help": {
           "apiAuthTitle": "关于",
           "demoModeTitle": "关于",
-          "displayPreferencesTitle": "关于",
-          "performanceOptimizationsTitle": "关于"
+          "displayPreferencesTitle": "关于"
         },
         "title": "设置",
         "apiAuth": "API 认证",
@@ -2312,15 +2310,8 @@
         "mockModeActive": "模拟模式已激活 - API 操作已禁用",
         "displayPreferences": "显示首选项",
         "displayPreferencesDesc": "自定义体验",
-        "performanceOptimizations": "性能优化",
-        "performanceOptimizationsShort": "性能优化",
-        "performanceOptimizationsDesc": "垃圾回收与内存管理",
-        "performanceOptimizationsDisabled": "性能优化已禁用",
-        "performanceOptimizationsEnvVar": "将以下环境变量添加到您的 docker-compose.yml：",
-        "loadingGcSettings": "加载 GC 设置中...",
         "groupSystem": "系统",
-        "groupPreferences": "偏好设置",
-        "groupPerformance": "性能"
+        "groupPreferences": "偏好设置"
       },
       "preferences": {
         "title": "主题"
@@ -3643,29 +3634,6 @@
       },
       "summary": "Grafana 和 Prometheus 监控的端点与设置。"
     },
-    "gc": {
-      "statusSection": "状态",
-      "enabledLabel": "启用自动垃圾回收",
-      "enabledDesc": "启用后，性能优化服务按照计划页面配置的间隔运行，并在超过阈值时清理内存。",
-      "memorySettings": "内存设置",
-      "thresholdLabel": "阈值",
-      "thresholdDesc": "超过时触发清理的内存限制",
-      "actions": "操作",
-      "saveSettings": "保存设置",
-      "saving": "保存中...",
-      "runGcNow": "立即运行 GC",
-      "running": "运行中...",
-      "runGcTooltip": "手动运行一次垃圾回收（5 秒冷却）",
-      "noRestartRequired": "更改立即生效 - 无需重启。",
-      "saveSuccess": "GC 设置保存成功",
-      "saveFailed": "保存 GC 设置失败",
-      "triggerFailed": "触发垃圾回收失败",
-      "before": "之前",
-      "after": "之后",
-      "freed": "已释放",
-      "cooldown": "冷却",
-      "remaining": "剩余"
-    },
     "schedules": {
       "title": "服务计划",
       "taskColumn": "任务",
@@ -4166,13 +4134,6 @@
           "summary": "清除超过 24 小时的缓存清理记录。",
           "gain": "完成的操作记录在 24 小时后自动清理，保持历史整洁",
           "loss": "超过 24 小时的操作记录将被永久移除，以后无法查看"
-        },
-        "performanceOptimization": {
-          "displayName": "性能优化",
-          "description": "监视内存使用，仅在超过配置的阈值时触发垃圾回收。同时清除过时的数据库连接。默认关闭 - 如果您内存受限，请在性能优化页面上启用。",
-          "summary": "内存超过阈值时自动释放。",
-          "gain": "内存使用保持较低，界面在内存受限的主机上感觉更流畅",
-          "loss": "每次收集过程中短暂的 CPU 峰值可能导致后台工作短暂暂停"
         },
         "dashboardCacheWarmer": {
           "displayName": "仪表板预加载",
@@ -7006,6 +6967,8 @@
     "totalAllocatedDesc": "由 .NET 运行时分配的总内存",
     "heapSize": "堆大小：",
     "heapSizeDesc": "托管堆的当前大小",
+    "committed": "已提交：",
+    "committedDesc": "运行时为托管堆向操作系统占用的内存",
     "fragmented": "碎片内存：",
     "fragmentedDesc": "由于内存碎片造成的浪费空间",
     "processStats": "进程统计",
@@ -7450,11 +7413,6 @@
         "starting": "正在启动操作历史清理...",
         "running": "正在删除旧的操作历史（{{processed}}/{{total}}）...",
         "complete": "操作历史已清理"
-      },
-      "performanceOptimization": {
-        "starting": "正在启动性能优化...",
-        "running": "正在优化性能...",
-        "complete": "性能优化完成"
       },
       "dashboardCacheWarmer": {
         "starting": "正在预热仪表盘缓存...",

@@ -17,6 +17,8 @@ interface MemoryStats {
   totalAllocatedGB: number;
   heapSizeMB: number;
   heapSizeGB: number;
+  committedMB: number;
+  committedGB: number;
   fragmentedMB: number;
   fragmentedGB: number;
   threadCount: number;
@@ -197,6 +199,20 @@ const MemoryDiagnostics: React.FC = () => {
               </div>
               <div className="text-xs mt-1 text-themed-muted opacity-80">
                 {t('memory.heapSizeDesc')}
+              </div>
+            </div>
+            <div className="py-2 border-b border-themed">
+              <div className="flex justify-between items-center">
+                <span className="text-themed-muted">{t('memory.committed')}</span>
+                <span className="font-bold">
+                  <span className="text-themed-primary">{stats.committedMB.toFixed(2)} MB</span>
+                  <span className="text-themed-muted"> (</span>
+                  <span className="text-themed-accent">{stats.committedGB.toFixed(2)} GB</span>
+                  <span className="text-themed-muted">)</span>
+                </span>
+              </div>
+              <div className="text-xs mt-1 text-themed-muted opacity-80">
+                {t('memory.committedDesc')}
               </div>
             </div>
             <div className="py-2">

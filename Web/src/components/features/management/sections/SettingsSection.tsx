@@ -1,6 +1,6 @@
-import React, { useCallback, useState, Suspense } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Shield, Sparkles, Settings, Gauge } from 'lucide-react';
+import { Shield, Sparkles, Settings } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { GroupHeading } from '@components/ui/GroupHeading';
@@ -16,14 +16,8 @@ import { useNotifications } from '@contexts/notifications';
 import { useNotifySuccess } from '@/hooks/useErrorHandler';
 import AuthenticationManager from '../steam/AuthenticationManager';
 import DisplayPreferences from './DisplayPreferences';
-import GcManager from '../gc/GcManager';
 
-interface SettingsSectionProps {
-  optimizationsEnabled: boolean;
-  isAdmin: boolean;
-}
-
-const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled, isAdmin }) => {
+const SettingsSection: React.FC = () => {
   const { t } = useTranslation();
   const { mockMode, setMockMode } = useMockMode();
   const { authenticationEnabled } = useAuth();
@@ -41,10 +35,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
   const [displayPrefsExpanded, setDisplayPrefsExpanded] = useState(false);
   useAccordionGroupItem('settings-display-preferences', displayPrefsExpanded, () =>
     setDisplayPrefsExpanded((prev) => !prev)
-  );
-  const [performanceExpanded, setPerformanceExpanded] = useState(false);
-  useAccordionGroupItem('settings-performance', performanceExpanded, () =>
-    setPerformanceExpanded((prev) => !prev)
   );
 
   const handleError = useCallback(
@@ -86,14 +76,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
     <HelpPopover position="left" width={320}>
       <HelpSection title={t('management.sections.settings.help.displayPreferencesTitle')}>
         {t('management.sections.settings.displayPreferencesDesc')}
-      </HelpSection>
-    </HelpPopover>
-  );
-
-  const performanceOptimizationsHelpAccessory = (
-    <HelpPopover position="left" width={320}>
-      <HelpSection title={t('management.sections.settings.help.performanceOptimizationsTitle')}>
-        {t('management.sections.settings.performanceOptimizationsDesc')}
       </HelpSection>
     </HelpPopover>
   );
@@ -172,7 +154,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
       </div>
 
       {/* PREFERENCES */}
-      <div className="mb-6 sm:mb-8">
+      <div>
         <GroupHeading label={t('management.sections.settings.groupPreferences')} />
 
         <div className="space-y-4">
@@ -184,50 +166,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
             onToggle={() => setDisplayPrefsExpanded((prev) => !prev)}
           >
             <DisplayPreferences />
-          </AccordionSection>
-        </div>
-      </div>
-
-      {/* PERFORMANCE */}
-      <div>
-        <GroupHeading label={t('management.sections.settings.groupPerformance')} />
-
-        <div className="space-y-4">
-          <AccordionSection
-            title={t('management.sections.settings.performanceOptimizations')}
-            shortTitle={t('management.sections.settings.performanceOptimizationsShort')}
-            titleAccessory={performanceOptimizationsHelpAccessory}
-            icon={Gauge}
-            isExpanded={performanceExpanded}
-            onToggle={() => setPerformanceExpanded((prev) => !prev)}
-          >
-            {optimizationsEnabled ? (
-              <Suspense
-                fallback={
-                  <div className="flex items-center justify-center py-8">
-                    <div className="text-themed-muted">
-                      {t('management.sections.settings.loadingGcSettings')}
-                    </div>
-                  </div>
-                }
-              >
-                <GcManager isAdmin={isAdmin} />
-              </Suspense>
-            ) : (
-              <Alert color="yellow">
-                <div className="min-w-0">
-                  <p className="font-medium">
-                    {t('management.sections.settings.performanceOptimizationsDisabled')}
-                  </p>
-                  <p className="text-sm mt-1 mb-2">
-                    {t('management.sections.settings.performanceOptimizationsEnvVar')}
-                  </p>
-                  <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
-                    - Optimizations__EnableGarbageCollectionManagement=true
-                  </pre>
-                </div>
-              </Alert>
-            )}
           </AccordionSection>
         </div>
       </div>

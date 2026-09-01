@@ -50,10 +50,16 @@ public class MemoryController : ControllerBase
         // Each call to GetCurrentProcess() creates a new object that must be disposed
         using var process = System.Diagnostics.Process.GetCurrentProcess();
 
-        // Calculate managed vs unmanaged memory
+        // Calculate managed vs unmanaged memory.
+        // HeapSizeBytes is the heap as of the last collection and does not move between
+        // collections, so the live allocated figure is the one reported as managed.
+        // Unmanaged is what is resident beyond the heap the GC has committed; the two counters
+        // come from different sources and a heap that is committed but paged out reads larger
+        // than the working set, so the difference is floored at zero instead of going negative.
         var workingSetBytes = process.WorkingSet64;
-        var managedBytes = gcMemoryInfo.HeapSizeBytes;
-        var unmanagedBytes = workingSetBytes - managedBytes;
+        var managedBytes = totalMemory;
+        var committedBytes = gcMemoryInfo.TotalCommittedBytes;
+        var unmanagedBytes = Math.Max(0, workingSetBytes - committedBytes);
 
         // Get total system memory
         var totalSystemMemoryBytes = gcMemoryInfo.TotalAvailableMemoryBytes;
@@ -76,6 +82,8 @@ public class MemoryController : ControllerBase
             TotalAllocatedGB = totalMemory / 1024.0 / 1024.0 / 1024.0,
             HeapSizeMB = gcMemoryInfo.HeapSizeBytes / 1024.0 / 1024.0,
             HeapSizeGB = gcMemoryInfo.HeapSizeBytes / 1024.0 / 1024.0 / 1024.0,
+            CommittedMB = committedBytes / 1024.0 / 1024.0,
+            CommittedGB = committedBytes / 1024.0 / 1024.0 / 1024.0,
             FragmentedMB = gcMemoryInfo.FragmentedBytes / 1024.0 / 1024.0,
             FragmentedGB = gcMemoryInfo.FragmentedBytes / 1024.0 / 1024.0 / 1024.0,
             // Process Statistics

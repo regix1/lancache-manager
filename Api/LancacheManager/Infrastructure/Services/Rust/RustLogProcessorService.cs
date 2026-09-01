@@ -32,6 +32,11 @@ public class RustLogProcessorService
     private Task? _progressMonitorTask;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
+    // The image/banner pass that runs detached after each log pass can take many seconds, and
+    // IsProcessing clears before it finishes, so the next tick would start another one and nothing
+    // would bound how many are alive. A tick that loses this gate does no work and returns. [13]
+    private readonly SemaphoreSlim _postPassLock = new(1, 1);
+
     // Signaled at the RegisterOperation call inside the processor so StartBackgroundProcessingAsync
     // can return the assigned operationId without polling. Class-field is safe because _startLock
     // gates IsProcessing = true, so there is at most one in-flight start at a time.
@@ -461,6 +466,20 @@ public class RustLogProcessorService
         IsValidTerminalCheckpoint(progress) && progress!.EntriesSaved > 0;
 
     /// <summary>
+    /// True when a run may clear the shared operation state: the busy flags, the current operation
+    /// id, the current cancellation source and the datasource/progress paths. This service is a
+    /// singleton and the interactive path clears <see cref="IsProcessing"/> before its display
+    /// delay, so a second run can pass the re-entry guard and install its own id while the first is
+    /// still finishing. Ownership is what separates the three states: the field still holds this
+    /// run's id, so this run installed what is there and clears it; the field holds a newer id, so
+    /// that run owns the state and clearing it would leave it running with nothing able to cancel
+    /// it; or both are absent, which is a run that set the busy flag and never got as far as
+    /// registering, and must still clear the flag it set.
+    /// </summary>
+    internal static bool OwnsOperationState(Guid? currentOperationId, Guid? ownerOperationId) =>
+        currentOperationId == ownerOperationId;
+
+    /// <summary>
     /// Emits the committed-boundary <see cref="SignalREvents.DownloadsRefresh"/>: fired once
     /// per run, immediately after terminal-checkpoint validation and BEFORE the auto-tag and
     /// mapping post-passes, so the frontend refetches inserted rows at commit latency instead
@@ -521,22 +540,40 @@ public class RustLogProcessorService
         var shouldFinalizeOperation = finalizeOperation;
         RiotMappingRunReporter? riotMappingRun = null;
 
+        // This run's own operation id, captured where the operation is registered. Every completion
+        // below uses it instead of re-reading _currentOperationId: the interactive path clears
+        // IsProcessing before its two-second display delay, so a live ingest tick can pass the
+        // re-entry guard and reassign the field while this run is still inside that window. [14]
+        Guid? ownerOperationId = null;
+
         try
         {
             if (sharedOperationId != null)
             {
+                ownerOperationId = sharedOperationId;
                 _currentOperationId = sharedOperationId;
                 IsSilentMode = silentMode;
             }
             else
             {
                 _cancellationTokenSource = new CancellationTokenSource();
-                _currentOperationId = _operationTracker.RegisterOperation(
+                // The local is assigned in the same breath as the field, with nothing between them
+                // that can throw. A run that reaches this point always knows its own id, so the
+                // teardown checks below can never mistake it for a run that installed nothing.
+                ownerOperationId = _operationTracker.RegisterOperation(
                     OperationType.LogProcessing,
                     "Log Processing",
                     _cancellationTokenSource,
                     onTerminalCleanup: () =>
                     {
+                        // Clear only the state this run installed. A later run can have registered
+                        // its own id and cancellation source while this one was finishing, and
+                        // disposing those here would leave it running with nothing able to cancel it.
+                        if (!OwnsOperationState(_currentOperationId, ownerOperationId))
+                        {
+                            return;
+                        }
+
                         _currentOperationId = null;
                         _currentDatasourceName = null;
                         _currentProgressPath = null;
@@ -552,13 +589,13 @@ public class RustLogProcessorService
                     // only wire the emitter for interactive ops. The single terminal event then fires
                     // exactly once from CompleteOperation (success / OCE / force-kill).
                     onTerminalEmit: silentMode ? null : BuildTerminalEmit());
-                _operationRegisteredTcs?.TrySetResult(_currentOperationId.Value);
+                _currentOperationId = ownerOperationId;
+                _operationRegisteredTcs?.TrySetResult(ownerOperationId.Value);
             }
 
             var processingToken = _cancellationTokenSource?.Token
-                ?? _operationTracker.GetOperation(_currentOperationId!.Value)?.CancellationTokenSource?.Token
+                ?? _operationTracker.GetOperation(ownerOperationId!.Value)?.CancellationTokenSource?.Token
                 ?? CancellationToken.None;
-            var ownerOperationId = _currentOperationId;
             riotMappingRun = new RiotMappingRunReporter(
                 _notifications,
                 _operationTracker,
@@ -819,7 +856,7 @@ public class RustLogProcessorService
                 // Complete the operation with cancellation status. The single terminal
                 // LogProcessingComplete event is emitted by the onTerminalEmit closure (interactive
                 // ops only); snapshot the final metrics by value first so the closure can read them.
-                if (_currentOperationId.HasValue && shouldFinalizeOperation)
+                if (ownerOperationId.HasValue && shouldFinalizeOperation)
                 {
                     _terminalMetrics = new LogProcessingTerminalMetrics(
                         EntriesProcessed: finalProgress?.EntriesSaved ?? 0,
@@ -827,7 +864,7 @@ public class RustLogProcessorService
                         Elapsed: null,
                         Message: "Log processing was cancelled",
                         StageKey: null);
-                    _operationTracker.CompleteOperation(_currentOperationId.Value, false, "Operation was cancelled");
+                    _operationTracker.CompleteOperation(ownerOperationId.Value, false, "Operation was cancelled");
                 }
 
                 return false;
@@ -844,7 +881,7 @@ public class RustLogProcessorService
 
                     // Snapshot failure metrics for the onTerminalEmit closure, then complete the op
                     // (CompleteOperation fires the single terminal LogProcessingComplete event).
-                    if (_currentOperationId.HasValue && shouldFinalizeOperation)
+                    if (ownerOperationId.HasValue && shouldFinalizeOperation)
                     {
                         _terminalMetrics = new LogProcessingTerminalMetrics(
                             EntriesProcessed: 0,
@@ -852,7 +889,7 @@ public class RustLogProcessorService
                             Elapsed: null,
                             Message: finalProgress.StageKey ?? "Log processing failed",
                             StageKey: finalProgress.StageKey);
-                        _operationTracker.CompleteOperation(_currentOperationId.Value, false, finalProgress.StageKey);
+                        _operationTracker.CompleteOperation(ownerOperationId.Value, false, finalProgress.StageKey);
                     }
 
                     return false;
@@ -867,7 +904,7 @@ public class RustLogProcessorService
                     _logger.LogError(
                         "Rust processor exited with code 0 but left no valid terminal checkpoint (schema {Schema}, terminal '{Terminal}')",
                         finalProgress?.SchemaVersion ?? 0, finalProgress?.TerminalStatus ?? "<none>");
-                    if (_currentOperationId.HasValue && shouldFinalizeOperation)
+                    if (ownerOperationId.HasValue && shouldFinalizeOperation)
                     {
                         _terminalMetrics = new LogProcessingTerminalMetrics(
                             EntriesProcessed: finalProgress?.EntriesSaved ?? 0,
@@ -875,7 +912,7 @@ public class RustLogProcessorService
                             Elapsed: null,
                             Message: "Log processing ended without a valid completion checkpoint",
                             StageKey: null);
-                        _operationTracker.CompleteOperation(_currentOperationId.Value, false,
+                        _operationTracker.CompleteOperation(ownerOperationId.Value, false,
                             "Log processing ended without a valid completion checkpoint");
                     }
                     return false;
@@ -893,7 +930,7 @@ public class RustLogProcessorService
                         $"{finalProgress.EntriesSaved} entries were saved";
                     _logger.LogError("{Message}: {Files}", partialMessage,
                         string.Join("; ", finalProgress.FilesWithErrors));
-                    if (_currentOperationId.HasValue && shouldFinalizeOperation)
+                    if (ownerOperationId.HasValue && shouldFinalizeOperation)
                     {
                         _terminalMetrics = new LogProcessingTerminalMetrics(
                             EntriesProcessed: finalProgress.EntriesSaved,
@@ -901,7 +938,7 @@ public class RustLogProcessorService
                             Elapsed: null,
                             Message: partialMessage,
                             StageKey: null);
-                        _operationTracker.CompleteOperation(_currentOperationId.Value, false, partialMessage);
+                        _operationTracker.CompleteOperation(ownerOperationId.Value, false, partialMessage);
                     }
                     return false;
                 }
@@ -914,7 +951,7 @@ public class RustLogProcessorService
                     var unexpectedMessage =
                         $"Log processing ended with unexpected status '{finalProgress.TerminalStatus}'";
                     _logger.LogError("{Message}", unexpectedMessage);
-                    if (_currentOperationId.HasValue && shouldFinalizeOperation)
+                    if (ownerOperationId.HasValue && shouldFinalizeOperation)
                     {
                         _terminalMetrics = new LogProcessingTerminalMetrics(
                             EntriesProcessed: finalProgress.EntriesSaved,
@@ -922,7 +959,7 @@ public class RustLogProcessorService
                             Elapsed: null,
                             Message: unexpectedMessage,
                             StageKey: null);
-                        _operationTracker.CompleteOperation(_currentOperationId.Value, false, unexpectedMessage);
+                        _operationTracker.CompleteOperation(ownerOperationId.Value, false, unexpectedMessage);
                     }
                     return false;
                 }
@@ -1066,35 +1103,48 @@ public class RustLogProcessorService
                 // Image fetching can run in background as it's not critical for the UI refresh
                 _ = Task.Run(async () =>
                 {
-                    // Brief settle delay so any final DB writes from the Rust process are durable
-                    // before we fetch images. (The live dashboard-batch cache is invalidated
-                    // synchronously in the finalize step below, before the UI refresh signal —
-                    // see InvalidateLiveCache.)
-                    await Task.Delay(500);
-
-                    // Rust mapped the depot IDs to game names during processing, but we still need to fetch images
-                    // Only fetch Steam images when new entries were saved (requires Steam API calls)
-                    if (finalProgress?.EntriesSaved > 0)
+                    if (!await _postPassLock.WaitAsync(0))
                     {
-                        await FetchMissingGameNamesAsync();
+                        _logger.LogDebug("Skipping image pass after log processing - one is already running");
+                        return;
                     }
 
-                    // Fetch images for resolved Epic downloads unconditionally - new resolutions
-                    // may have occurred above even without new log entries
-                    await FetchMissingEpicImagesAsync();
-
-                    // The Rust processor maps depots itself, so the SteamKit2 mapping trigger never
-                    // fires for games it identified. Start a banner pass when one of them has no
-                    // stored art yet, instead of leaving it blank until the next scheduled tick.
                     try
                     {
-                        using var imageFetchScope = _serviceProvider.CreateScope();
-                        var imageFetchService = imageFetchScope.ServiceProvider.GetRequiredService<GameImageFetchService>();
-                        await imageFetchService.StartFetchForMissingArtAsync(CancellationToken.None);
+                        // Brief settle delay so any final DB writes from the Rust process are durable
+                        // before we fetch images. (The live dashboard-batch cache is invalidated
+                        // synchronously in the finalize step below, before the UI refresh signal —
+                        // see InvalidateLiveCache.)
+                        await Task.Delay(500);
+
+                        // Rust mapped the depot IDs to game names during processing, but we still need to fetch images
+                        // Only fetch Steam images when new entries were saved (requires Steam API calls)
+                        if (finalProgress?.EntriesSaved > 0)
+                        {
+                            await FetchMissingGameNamesAsync();
+                        }
+
+                        // Fetch images for resolved Epic downloads unconditionally - new resolutions
+                        // may have occurred above even without new log entries
+                        await FetchMissingEpicImagesAsync();
+
+                        // The Rust processor maps depots itself, so the SteamKit2 mapping trigger never
+                        // fires for games it identified. Start a banner pass when one of them has no
+                        // stored art yet, instead of leaving it blank until the next scheduled tick.
+                        try
+                        {
+                            using var imageFetchScope = _serviceProvider.CreateScope();
+                            var imageFetchService = imageFetchScope.ServiceProvider.GetRequiredService<GameImageFetchService>();
+                            await imageFetchService.StartFetchForMissingArtAsync(CancellationToken.None);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Banner fetch trigger after log processing failed (non-fatal)");
+                        }
                     }
-                    catch (Exception ex)
+                    finally
                     {
-                        _logger.LogWarning(ex, "Banner fetch trigger after log processing failed (non-fatal)");
+                        _postPassLock.Release();
                     }
                 });
 
@@ -1150,9 +1200,9 @@ public class RustLogProcessorService
                 }
 
                 // Complete the operation successfully
-                if (_currentOperationId.HasValue && shouldFinalizeOperation)
+                if (ownerOperationId.HasValue && shouldFinalizeOperation)
                 {
-                    _operationTracker.CompleteOperation(_currentOperationId.Value, true);
+                    _operationTracker.CompleteOperation(ownerOperationId.Value, true);
                 }
 
                 return true;
@@ -1164,7 +1214,7 @@ public class RustLogProcessorService
 
                 // Snapshot error metrics for the onTerminalEmit closure, then complete the op
                 // (CompleteOperation fires the single terminal LogProcessingComplete event).
-                if (_currentOperationId.HasValue && shouldFinalizeOperation)
+                if (ownerOperationId.HasValue && shouldFinalizeOperation)
                 {
                     _terminalMetrics = new LogProcessingTerminalMetrics(
                         EntriesProcessed: 0,
@@ -1172,7 +1222,7 @@ public class RustLogProcessorService
                         Elapsed: null,
                         Message: $"Log processing failed with exit code {exitCode}",
                         StageKey: null);
-                    _operationTracker.CompleteOperation(_currentOperationId.Value, false, $"Log processing failed with exit code {exitCode}");
+                    _operationTracker.CompleteOperation(ownerOperationId.Value, false, $"Log processing failed with exit code {exitCode}");
                 }
 
                 return false;
@@ -1182,9 +1232,10 @@ public class RustLogProcessorService
         {
             _logger.LogInformation("Log processing was cancelled for datasource '{DatasourceName}'", datasourceName);
 
-            // Snapshot the id once: a universal force-kill may have already run the cleanup
-            // callback (which nulls _currentOperationId) on another thread.
-            var cancelOpId = _currentOperationId;
+            // This run's own id. It is null only when the cancellation arrived before the operation
+            // was registered; a universal force-kill that already ran the terminal cleanup is caught
+            // by the status check below instead.
+            var cancelOpId = ownerOperationId;
 
             // If a universal force-kill already completed this op (or already cleared the id),
             // suppress the duplicate SignalR completion + CompleteOperation so only ONE
@@ -1216,7 +1267,7 @@ public class RustLogProcessorService
 
             // Snapshot error metrics for the onTerminalEmit closure, then complete the op
             // (CompleteOperation fires the single terminal LogProcessingComplete event).
-            if (_currentOperationId.HasValue && shouldFinalizeOperation)
+            if (ownerOperationId.HasValue && shouldFinalizeOperation)
             {
                 _terminalMetrics = new LogProcessingTerminalMetrics(
                     EntriesProcessed: 0,
@@ -1224,7 +1275,7 @@ public class RustLogProcessorService
                     Elapsed: null,
                     Message: $"Log processing error: {ex.Message}",
                     StageKey: null);
-                _operationTracker.CompleteOperation(_currentOperationId.Value, false, ex.Message);
+                _operationTracker.CompleteOperation(ownerOperationId.Value, false, ex.Message);
             }
 
             return false;
@@ -1238,7 +1289,16 @@ public class RustLogProcessorService
 
             if (shouldFinalizeOperation)
             {
-                EndOperation();
+                // Tear down only the state this run installed. A live tick that passed the re-entry
+                // guard during the interactive display window has already registered its own
+                // operation into the field and its own cancellation source; disposing those here
+                // would leave that run with no way to be cancelled. When the field no longer holds
+                // this run's id, the newer registration owns them, and a terminal cleanup that
+                // already cleared the field has done this teardown itself. [14]
+                if (OwnsOperationState(_currentOperationId, ownerOperationId))
+                {
+                    EndOperation();
+                }
             }
             else
             {

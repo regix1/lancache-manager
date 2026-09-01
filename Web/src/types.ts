@@ -98,7 +98,6 @@ export interface Download {
   gameAppId?: number;
   depotId?: number;
   epicAppId?: string;
-  lastUrl?: string;
   displayName?: string;
   /** The datasource this download belongs to (for multi-datasource support). */
   datasource?: string;

@@ -4,7 +4,6 @@ import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
 import { useMockMode } from '@contexts/useMockMode';
 import { useAuth } from '@contexts/useAuth';
-import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import ErrorBoundary from '@components/common/ErrorBoundary';
 import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
@@ -53,7 +52,6 @@ const ManagementTab: React.FC = () => {
     return (saved as ManagementSection) || 'settings';
   });
 
-  const [optimizationsEnabled, setOptimizationsEnabled] = useState(false);
   const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
   const [highlightSteamApi, setHighlightSteamApi] = useState(false);
   const [highlightBattleNet, setHighlightBattleNet] = useState(false);
@@ -99,20 +97,6 @@ const ManagementTab: React.FC = () => {
     scheduleScanJumpClear(() => setScanJump(null));
   }, [scanJump, scheduleScanJumpClear]);
 
-  // Check if optimizations (GC management) is enabled
-  useEffect(() => {
-    const checkOptimizations = async () => {
-      try {
-        const data = (await ApiService.getGcManagementStatus()) as { enabled: boolean };
-        setOptimizationsEnabled(data.enabled === true);
-      } catch {
-        setOptimizationsEnabled(false);
-      }
-    };
-
-    checkOptimizations();
-  }, []);
-
   // Handle section change
   const handleSectionChange = useCallback((section: ManagementSection) => {
     setActiveSection(section);
@@ -157,7 +141,7 @@ const ManagementTab: React.FC = () => {
   const renderActiveSection = () => {
     // Settings section is always available
     if (renderedSection === 'settings') {
-      return <SettingsSection optimizationsEnabled={optimizationsEnabled} isAdmin={isAdmin} />;
+      return <SettingsSection />;
     }
 
     // Other sections require authentication

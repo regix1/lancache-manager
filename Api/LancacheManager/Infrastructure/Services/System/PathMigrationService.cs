@@ -30,12 +30,6 @@ public class PathMigrationService
             "state");
 
         MoveFileIfMissing(
-            Path.Combine(dataDirectory, "gc-settings.json"),
-            _pathResolver.GetSettingsPath("gc-settings.json"),
-            result,
-            "gc settings");
-
-        MoveFileIfMissing(
             Path.Combine(dataDirectory, "log-rotation-settings.json"),
             _pathResolver.GetSettingsPath("log-rotation-settings.json"),
             result,

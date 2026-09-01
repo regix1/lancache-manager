@@ -277,9 +277,6 @@ public static class SignalREvents
     public const string OperationHistoryCleanupStarted = "OperationHistoryCleanupStarted";
     public const string OperationHistoryCleanupProgress = "OperationHistoryCleanupProgress";
     public const string OperationHistoryCleanupComplete = "OperationHistoryCleanupComplete";
-    public const string PerformanceOptimizationStarted = "PerformanceOptimizationStarted";
-    public const string PerformanceOptimizationProgress = "PerformanceOptimizationProgress";
-    public const string PerformanceOptimizationComplete = "PerformanceOptimizationComplete";
     public const string DashboardCacheWarmerStarted = "DashboardCacheWarmerStarted";
     public const string DashboardCacheWarmerProgress = "DashboardCacheWarmerProgress";
     public const string DashboardCacheWarmerComplete = "DashboardCacheWarmerComplete";

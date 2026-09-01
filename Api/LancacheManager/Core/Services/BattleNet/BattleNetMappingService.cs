@@ -65,6 +65,21 @@ public class BattleNetMappingService
         {
             await using var db = await _dbContextFactory.CreateDbContextAsync(ct);
             const string blizzardServicePattern = "%blizzard%";
+
+            // Count the candidates before loading them: the log pass calls this after every run, and
+            // on a cache with no Blizzard traffic there is never anything to name, so the common case
+            // costs one count instead of a tracked load of every matching row. [11]
+            var unresolvedCount = await db.Downloads
+                .CountAsync(d => EF.Functions.Like(d.Service, blizzardServicePattern)
+                                 && d.GameName == null
+                                 && d.LastUrl != null, ct);
+
+            if (unresolvedCount == 0)
+            {
+                _logger.LogInformation("No unnamed Blizzard downloads with a LastUrl to resolve");
+                return 0;
+            }
+
             var unresolvedDownloads = await db.Downloads
                 .Where(d => EF.Functions.Like(d.Service, blizzardServicePattern)
                             && d.GameName == null
@@ -73,7 +88,8 @@ public class BattleNetMappingService
 
             if (unresolvedDownloads.Count == 0)
             {
-                _logger.LogInformation("No unnamed Blizzard downloads with a LastUrl to resolve");
+                // A concurrent ingest pass can name the last candidate between the count and this
+                // load, and the progress math below divides by this count.
                 return 0;
             }
 

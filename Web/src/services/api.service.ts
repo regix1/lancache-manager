@@ -2624,13 +2624,6 @@ class ApiService {
 
   // ── Log Rotation ──────────────────────────────────────────────────────────
 
-  // ── GC Management ─────────────────────────────────────────────────────────
-
-  static async getGcManagementStatus(): Promise<unknown> {
-    const response = await fetch(`${API_BASE}/system/gc-management/status`, this.getFetchOptions());
-    return ApiService.handleResponse<unknown>(response);
-  }
-
   // ── Events ────────────────────────────────────────────────────────────────
 
   static async getEventDownloads<T>(eventId: number): Promise<T> {

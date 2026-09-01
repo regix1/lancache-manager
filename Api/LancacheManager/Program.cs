@@ -130,7 +130,6 @@ var documentedDomainByController = new Dictionary<string, string>(StringComparer
     ["Database"] = "System",
     ["DataMigration"] = "System",
     ["DatasourceConfiguration"] = "System",
-    ["Gc"] = "System",
     ["Memory"] = "System",
     ["Metrics"] = "System",
     ["Operations"] = "System",
@@ -395,7 +394,6 @@ builder.Services.AddScoped<DatabaseService>();
 builder.Services.AddScoped<IStatsDataService, StatsDataService>();
 builder.Services.AddScoped<IEventsService, EventsService>();
 builder.Services.AddScoped<IClientGroupsService, ClientGroupsService>();
-builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<PathMigrationService>();
 
 // Register in-memory cache with size limit to prevent unbounded growth
@@ -530,7 +528,6 @@ builder.Services.AddHttpClient();
 // Register HttpClient for SteamService
 builder.Services.AddHttpClient<SteamService>(client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(10);
     client.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
 });
 
@@ -824,12 +821,6 @@ builder.Services.AddSingleton<LancacheManager.Infrastructure.Services.XboxAuthSt
 // by re-reading the daemon's already-authenticated session. Surfaces on the Schedules page as
 // "xboxMapping" (auto-discovered by ServiceScheduleRegistry as a ConfigurableScheduledService).
 builder.Services.AddDatabaseBackedHostedService<LancacheManager.Core.Services.Xbox.XboxCatalogMappingService>(databaseAvailable);
-
-// Register GcScheduledService - runs on a user-configurable interval (managed through the
-// unified Schedules page) and performs aggressive GC when the working set exceeds the
-// configured threshold. Surfaces on the unified Schedules page as "performanceOptimization"
-// only when IsScheduleVisible() returns true.
-builder.Services.AddSingletonHostedService<GcScheduledService>();
 
 // Register Scheduled Prefill - orchestrates prefill runs across all enabled services on a
 // user-configurable interval (managed through the unified Schedules page) as "scheduledPrefill".
@@ -1235,9 +1226,6 @@ app.UseWhen(
 
 // Global exception handler - must run early to catch all exceptions
 app.UseGlobalExceptionHandler();
-
-// GC management now runs as a scheduled BackgroundService (GcScheduledService) rather than
-// a request-pipeline middleware - see Infrastructure/Services/GcScheduledService.cs.
 
 // Serve static files (UseDefaultFiles rewrites / to /index.html for faster static serving)
 app.UseDefaultFiles();

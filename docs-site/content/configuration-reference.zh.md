@@ -118,7 +118,6 @@
 |----------|---------|-------------|
 | `ApiOptions__MaxClientsPerRequest` | `1000` | 单次统计请求最多返回的客户端数量。 |
 | `ApiOptions__DefaultClientsLimit` | `100` | 未指定限制时的默认客户端数量。 |
-| `Optimizations__EnableGarbageCollectionManagement` | `false` | 在管理页面显示内存管理控件。适合低内存主机。 |
 | `ASPNETCORE_URLS` | `http://+:80` | 内部端口绑定。除非你清楚为什么要改，否则不要改动。 |
 | `ConnectionStrings__DefaultConnection` | （自动） | 完整的 PostgreSQL 连接字符串覆盖项。面向单个 `POSTGRES_*` 变量无法满足的复杂配置的高级用户。 |
 | `CacheSnapshots__RetentionDays` | `90` | 缓存快照的保留时长。更早的快照会被自动删除。 |
@@ -198,7 +197,6 @@ services:
       # --- API、优化、缓存快照 ---
       # - ApiOptions__MaxClientsPerRequest=1000
       # - ApiOptions__DefaultClientsLimit=100
-      # - Optimizations__EnableGarbageCollectionManagement=false   # 仅低内存主机需要
       # - CacheSnapshots__RetentionDays=90        # 缓存大小历史保留时长
       # - CacheSnapshots__IntervalMinutes=60      # 高级设置：记录快照的频率
       # - ASPNETCORE_URLS=http://+:80             # 内部绑定；保持默认即可

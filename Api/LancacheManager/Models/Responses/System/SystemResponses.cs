@@ -291,14 +291,6 @@ public class RefreshRateResponse
 }
 
 /// <summary>
-/// Response for GC management status.
-/// </summary>
-public class GcStatusResponse
-{
-    public bool Enabled { get; set; }
-}
-
-/// <summary>
 /// Response for the default guest refresh rate.
 /// </summary>
 public class DefaultGuestRefreshRateResponse
@@ -376,59 +368,6 @@ public class PrefillDefaultsResponse
 }
 
 /// <summary>
-/// Response for GC settings
-/// </summary>
-public class GcSettingsResponse
-{
-    public bool Enabled { get; set; }
-    public long MemoryThresholdMB { get; set; }
-
-    /// <summary>
-    /// Confirmation text for a settings update. Null when read from <c>GET /api/gc/settings</c>,
-    /// which only reports the current settings.
-    /// </summary>
-    public string? Message { get; set; }
-}
-
-/// <summary>
-/// Response for GC trigger operation
-/// </summary>
-public class GcTriggerResponse
-{
-    public bool Skipped { get; set; }
-
-    /// <summary>
-    /// Why the trigger was skipped. Null when <see cref="Skipped"/> is false.
-    /// </summary>
-    public string? Reason { get; set; }
-
-    /// <summary>
-    /// Seconds left in the cooldown before another trigger will run. Null when
-    /// <see cref="Skipped"/> is false.
-    /// </summary>
-    public double? RemainingSeconds { get; set; }
-
-    /// <summary>
-    /// Process working-set size before the collection, in megabytes. Null when
-    /// <see cref="Skipped"/> is true (no collection ran).
-    /// </summary>
-    public double? BeforeMB { get; set; }
-
-    /// <summary>
-    /// Process working-set size after the collection, in megabytes. Null when
-    /// <see cref="Skipped"/> is true.
-    /// </summary>
-    public double? AfterMB { get; set; }
-
-    /// <summary>
-    /// Megabytes freed by the collection (<see cref="BeforeMB"/> minus <see cref="AfterMB"/>).
-    /// Null when <see cref="Skipped"/> is true.
-    /// </summary>
-    public double? FreedMB { get; set; }
-    public string Message { get; set; } = string.Empty;
-}
-
-/// <summary>
 /// Response for memory statistics
 /// </summary>
 public class MemoryStatsResponse
@@ -449,6 +388,8 @@ public class MemoryStatsResponse
     public double TotalAllocatedGB { get; set; }
     public double HeapSizeMB { get; set; }
     public double HeapSizeGB { get; set; }
+    public double CommittedMB { get; set; }
+    public double CommittedGB { get; set; }
     public double FragmentedMB { get; set; }
     public double FragmentedGB { get; set; }
     // Process Statistics

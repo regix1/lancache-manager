@@ -156,15 +156,6 @@ public class SteamService : IDisposable
         };
     }
 
-    /// <summary>
-    /// Clear all caches
-    /// </summary>
-    public void ClearCache()
-    {
-        _gameCache.Clear();
-        _logger.LogInformation("Cleared all Steam service caches");
-    }
-
     #endregion
 
     public void Dispose()
