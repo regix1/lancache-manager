@@ -1028,7 +1028,7 @@ public class RustLogRemovalService
 
     /// <summary>
     /// Forwards a per-datasource Rust progress tick to the UI. The Rust log_manager reports
-    /// <see cref="LogRemovalProgress.PercentComplete"/> as 0-100 for the CURRENT datasource only, so when
+    /// <see cref="RustProgressBase.PercentComplete"/> as 0-100 for the CURRENT datasource only, so when
     /// removing across multiple datasources the raw value would reset to a low number at every
     /// datasource boundary (a visible jump). To keep the outer card moving smoothly we scale the inner
     /// percent into this datasource's band: datasource <paramref name="datasourceIndex"/> of
