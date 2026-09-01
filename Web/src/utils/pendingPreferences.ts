@@ -31,7 +31,7 @@ let clicks = 0;
  * readers. A pick is released once both have happened to it, in whichever order they arrive:
  * released before its save answers it stops shielding a click still on the wire, and released
  * before the readers hold its values every one of them drops back to the clock it replaced. Both
- * name a pick by its number, never by what it holds. [69][74]
+ * name a pick by its number, never by what it holds.
  */
 let confirmedClick: number | null = null;
 let echoedClick: number | null = null;
@@ -130,7 +130,7 @@ export const timeSettingFromClock = (clock: ClockPreferences): TimeSettingValue 
  *
  * Held until its own save answers, never on a timer: a timer either ends a save still running, which
  * puts the reader back on a clock the server is about to disagree with, or outlives one that
- * already answered. [74]
+ * already answered.
  */
 export const setPendingTimezone = (value: TimeSettingValue): number => {
   const clock = clockFromTimeSetting(value);
@@ -146,7 +146,7 @@ export const setPendingTimezone = (value: TimeSettingValue): number => {
  * The three flags are only a clock together, so this takes all three or none, in one notification.
  * A pick owns its entries by its own number rather than by the values it wrote, because two picks
  * of the same setting write the same values: comparing those lets a failed save take back the pick
- * that came after it. [64][69]
+ * that came after it.
  */
 export const dropPendingTimezone = (click: number): void => {
   let dropped = false;

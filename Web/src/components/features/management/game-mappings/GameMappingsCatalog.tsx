@@ -9,6 +9,7 @@ import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useMockMode } from '@contexts/useMockMode';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type { SignalREventName } from '@contexts/SignalRContext/types';
 import { FormattedDateCell } from '@components/common/FormattedDateTime';
@@ -108,6 +109,7 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
 }: GameMappingsCatalogProps<TMapping>): React.ReactElement {
   const { t } = useTranslation();
   const { on, off, isConnected } = useSignalR();
+  const { mockMode } = useMockMode();
 
   const [mappings, setMappings] = useState<TMapping[]>([]);
   const [stats, setStats] = useState<GameMappingCatalogStats | null>(null);
@@ -119,6 +121,14 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const loadData = useCallback(async () => {
+    // Mock mode has no mapping catalog behind it, so the list empties rather than showing the real
+    // one a live session had already loaded.
+    if (mockMode) {
+      setMappings([]);
+      setStats(null);
+      setError(null);
+      return;
+    }
     try {
       setError(null);
       const [mappingsData, statsData] = await Promise.all([loadMappings(), loadStats()]);
@@ -127,7 +137,7 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
     } catch (err) {
       setError(getErrorMessage(err) || loadErrorMessage);
     }
-  }, [loadMappings, loadStats, loadErrorMessage]);
+  }, [mockMode, loadMappings, loadStats, loadErrorMessage]);
 
   useEffect(() => {
     loadData();

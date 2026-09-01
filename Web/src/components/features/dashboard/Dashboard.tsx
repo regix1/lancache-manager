@@ -31,6 +31,7 @@ import {
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useEvents } from '@contexts/useEvents';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
+import { useMockMode } from '@contexts/useMockMode';
 import { useDraggableCards } from '@hooks/useDraggableCards';
 import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 import { formatBytes, formatCount, formatPercent } from '@utils/formatters';
@@ -205,10 +206,18 @@ const Dashboard: React.FC = () => {
     useTimeFilter();
   const { selectedEvent: _selectedEvent } = useEvents();
   const { speedSnapshot, activeDownloadCount } = useSpeed();
+  const { mockMode } = useMockMode();
 
   // Eviction mode - determines whether evicted games are included in "Games on Disk"
   const [evictedDataMode, setEvictedDataMode] = useState<string>('show');
   useEffect(() => {
+    // Mock mode has no stored setting behind it. The mode read before the toggle was switched on
+    // is a real server's, so it goes back to 'show' rather than narrowing the generated games list.
+    if (mockMode) {
+      setEvictedDataMode('show');
+      return;
+    }
+
     const controller = new AbortController();
     ApiService.getEvictionSettings(controller.signal)
       .then((response: { evictedDataMode: string }) => {
@@ -218,7 +227,7 @@ const Dashboard: React.FC = () => {
         /* ignore abort / network errors */
       });
     return () => controller.abort();
-  }, []);
+  }, [mockMode]);
 
   // Listen for in-session eviction-settings saves so the dashboard reflects
   // the new mode without waiting for a remount.

@@ -18,6 +18,7 @@ import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
+import { useMockMode } from '@contexts/useMockMode';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import { useErrorHandler } from '@hooks/useErrorHandler';
@@ -49,6 +50,7 @@ const UserAccounts: React.FC = () => {
   const { t } = useTranslation();
   const { notifyError } = useErrorHandler();
   const { isMainAdmin, accountId } = useAuth();
+  const { mockMode } = useMockMode();
   const { on, off, isConnected } = useSignalR();
   // The six-column table needs 772px of column minimums, so on a phone it can only be reached by
   // scrolling sideways and the badges and the row menu sit off the edge. Below the sm breakpoint the
@@ -77,6 +79,14 @@ const UserAccounts: React.FC = () => {
    */
   const loadAccounts = useCallback(
     async (firstLoad: boolean) => {
+      // These are real accounts. Mock mode shows none rather than listing them on a screen the
+      // reader turned on to see generated data.
+      if (mockMode) {
+        setAccounts([]);
+        setLoadFailed(false);
+        setLoading(false);
+        return;
+      }
       try {
         if (firstLoad) {
           setLoading(true);
@@ -97,7 +107,7 @@ const UserAccounts: React.FC = () => {
         }
       }
     },
-    [notifyError, t]
+    [mockMode, notifyError, t]
   );
 
   useEffect(() => {

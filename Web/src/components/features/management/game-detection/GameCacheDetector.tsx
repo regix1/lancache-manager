@@ -13,6 +13,7 @@ import {
   FileQuestion
 } from 'lucide-react';
 import ApiService from '@services/api.service';
+import MockDataService from '@/test/mockData.service';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
@@ -309,6 +310,28 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   useEffect(() => {
     const loadCachedGames = async () => {
       if (mockMode) {
+        // The same detection the Dashboard's Games on Disk card shows in mock mode, widened to
+        // the fuller shape this tab renders: the summary the dashboard reads carries no depot
+        // ids, sample URLs or datasources.
+        const detection = MockDataService.generateMockGameDetection();
+        setGames(
+          (detection.games ?? []).map((game) => ({
+            ...game,
+            depot_ids: [],
+            sample_urls: [],
+            cache_file_paths: [],
+            datasources: ['Default']
+          }))
+        );
+        setServices(
+          (detection.services ?? []).map((service) => ({
+            ...service,
+            sample_urls: [],
+            cache_file_paths: [],
+            datasources: ['Default']
+          }))
+        );
+        setLastDetectionTime(detection.lastDetectionTime ?? null);
         setIsLoadingInitialCache(false);
         return;
       }
@@ -385,7 +408,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       // when the next one starts, and it matches on status alone. Only a card raised after this
       // attempt began can be this attempt's outcome; without the check the leftover clears the
       // in-flight guard while the start request is still open, dropping the loader and letting a
-      // second click fire a second scan. Applies to every terminal status, not just one. [75]
+      // second click fire a second scan. Applies to every terminal status, not just one.
       const raisedByThisScan = (n: UnifiedNotification) =>
         n.startedAt.getTime() >= scanStartedAtRef.current;
 
@@ -415,7 +438,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       // Handle game detection failure, cancellation or refusal - ONLY if we were starting
       // detection. A cancelled scan is terminal exactly like a failed one, and so is a run that
       // was declined before it started: without these the card would stay in its loading state
-      // and detectionInFlightRef would block the next scan. [74]
+      // and detectionInFlightRef would block the next scan.
       const gameDetectionEndedNotifs = notifications.filter(
         (n) =>
           n.type === 'game_detection' &&
@@ -504,7 +527,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       // Set ref immediately to block any concurrent calls
       detectionInFlightRef.current = true;
       // Stamped before the request so any card left over from an earlier scan is older than
-      // this attempt and cannot be mistaken for its outcome. [75]
+      // this attempt and cannot be mistaken for its outcome.
       scanStartedAtRef.current = Date.now();
 
       setIsStartingDetection(true);

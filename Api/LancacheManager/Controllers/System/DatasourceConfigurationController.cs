@@ -49,7 +49,10 @@ public class DatasourceConfigurationController : ControllerBase
     {
         var overrideBytes = ResolveCacheSizeOverride(request);
         var datasource = _datasourceService.GetDatasource(datasourceName)
-            ?? throw new NotFoundException("Datasource");
+            ?? throw new NotFoundException("Datasource")
+            {
+                StageKey = "errors.datasources.notFound"
+            };
 
         _stateService.SetDatasourceCacheSizeOverride(datasource.Name, overrideBytes);
         _cacheManagementService.InvalidateConfiguredCacheSize();
@@ -83,7 +86,10 @@ public class DatasourceConfigurationController : ControllerBase
         if (!CacheSizeParser.TryParse(request.Size, out var bytes))
         {
             throw new ValidationException(
-                "Cache size must be a byte count or a size such as 2000g, 500G, 2t, or 1.5T.");
+                "Cache size must be a byte count or a size such as 2000g, 500G, 2t, or 1.5T.")
+            {
+                StageKey = "errors.datasources.invalidCacheSize"
+            };
         }
 
         return bytes == 0 ? null : bytes;

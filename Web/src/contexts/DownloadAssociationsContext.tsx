@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect, type ReactNode } from 
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
+import { useMockMode } from '@contexts/useMockMode';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type { EventSummary } from '../types';
@@ -20,6 +21,7 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
 }) => {
   const { on, off, isConnected } = useSignalR();
   const { authMode } = useAuth();
+  const { mockMode } = useMockMode();
   const { notifyError } = useErrorHandler();
   const isAdmin = authMode === 'authenticated';
   const [associations, setAssociations] = useState<AssociationsCache>({});
@@ -36,6 +38,9 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
     async (downloadIds: number[]) => {
       // Batch download events endpoint is admin-only
       if (!isAdminRef.current) return;
+      // The generated download ids exist only in the browser, so asking the server which events
+      // they belong to answers nothing and still costs a request.
+      if (mockMode) return;
 
       // Filter out already fetched IDs
       const newIds = downloadIds.filter((id) => !fetchedIds.current.has(id));
@@ -73,7 +78,7 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
         setLoading(false);
       }
     },
-    [notifyError]
+    [mockMode, notifyError]
   );
 
   const getAssociations = useCallback(

@@ -34,7 +34,7 @@ public class RustLogProcessorService
 
     // The image/banner pass that runs detached after each log pass can take many seconds, and
     // IsProcessing clears before it finishes, so the next tick would start another one and nothing
-    // would bound how many are alive. A tick that loses this gate does no work and returns. [13]
+    // would bound how many are alive. A tick that loses this gate does no work and returns.
     private readonly SemaphoreSlim _postPassLock = new(1, 1);
 
     // Signaled at the RegisterOperation call inside the processor so StartBackgroundProcessingAsync
@@ -543,7 +543,7 @@ public class RustLogProcessorService
         // This run's own operation id, captured where the operation is registered. Every completion
         // below uses it instead of re-reading _currentOperationId: the interactive path clears
         // IsProcessing before its two-second display delay, so a live ingest tick can pass the
-        // re-entry guard and reassign the field while this run is still inside that window. [14]
+        // re-entry guard and reassign the field while this run is still inside that window.
         Guid? ownerOperationId = null;
 
         try
@@ -1294,7 +1294,7 @@ public class RustLogProcessorService
                 // operation into the field and its own cancellation source; disposing those here
                 // would leave that run with no way to be cancelled. When the field no longer holds
                 // this run's id, the newer registration owns them, and a terminal cleanup that
-                // already cleared the field has done this teardown itself. [14]
+                // already cleared the field has done this teardown itself.
                 if (OwnsOperationState(_currentOperationId, ownerOperationId))
                 {
                     EndOperation();

@@ -49,6 +49,7 @@ public class ValidationFilter : IAsyncActionFilter
             var response = new ValidationErrorResponse
             {
                 Error = "Validation failed",
+                StageKey = "errors.validation.failed",
                 Errors = errors
             };
 

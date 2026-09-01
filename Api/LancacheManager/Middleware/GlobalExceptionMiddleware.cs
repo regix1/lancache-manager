@@ -4,9 +4,28 @@ using System.Text.Json;
 namespace LancacheManager.Middleware;
 
 /// <summary>
+/// Base for the answers this API gives on purpose. Carries the i18n key naming the reason so the
+/// browser can show it in the reader's language; the English message stays on the wire as the
+/// fallback for a build whose locale has no words for that key yet.
+/// </summary>
+public abstract class ApiException : Exception
+{
+    protected ApiException(string message) : base(message) { }
+
+    /// <summary>
+    /// i18n key for the localized reason (e.g. <c>"errors.corruption.scanIdRequired"</c>). Null where
+    /// the throw site has not been keyed yet, which is every site the English sentence still answers.
+    /// </summary>
+    public string? StageKey { get; init; }
+
+    /// <summary>Substitution values for the localized <see cref="StageKey"/> template.</summary>
+    public Dictionary<string, object?>? Context { get; init; }
+}
+
+/// <summary>
 /// Custom exception for 404 Not Found responses
 /// </summary>
-public class NotFoundException : Exception
+public class NotFoundException : ApiException
 {
     public NotFoundException(string resource) : base($"{resource} not found") { }
 }
@@ -14,7 +33,7 @@ public class NotFoundException : Exception
 /// <summary>
 /// Custom exception for 400 Bad Request validation errors
 /// </summary>
-public class ValidationException : Exception
+public class ValidationException : ApiException
 {
     public ValidationException(string message) : base(message) { }
 
@@ -37,7 +56,7 @@ public class ValidationException : Exception
 /// is already running and cannot be started again). The message is developer-authored and safe to
 /// surface to the client.
 /// </summary>
-public class ConflictException : Exception
+public class ConflictException : ApiException
 {
     public ConflictException(string message) : base(message) { }
 }
@@ -46,7 +65,7 @@ public class ConflictException : Exception
 /// Custom exception for 403 Forbidden responses (the caller is authenticated but not permitted).
 /// The message is developer-authored and safe to surface to the client.
 /// </summary>
-public class ForbiddenException : Exception
+public class ForbiddenException : ApiException
 {
     public ForbiddenException(string message) : base(message) { }
 }
@@ -57,7 +76,7 @@ public class ForbiddenException : Exception
 /// would be a lie and a 500 would hide the one thing that helps: which dependency to bring back up.
 /// The message is developer-authored and safe to surface to the client.
 /// </summary>
-public class ServiceUnavailableException : Exception
+public class ServiceUnavailableException : ApiException
 {
     public ServiceUnavailableException(string message) : base(message) { }
 }
@@ -110,12 +129,12 @@ public class GlobalExceptionMiddleware
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogWarning(ex, "Unauthorized access attempt");
-            await WriteErrorAsync(context, ex, HttpStatusCode.Forbidden, "Access denied");
+            await WriteErrorAsync(context, ex, HttpStatusCode.Forbidden, "Access denied", "errors.http.accessDenied");
         }
         catch (ArgumentException ex)
         {
             _logger.LogWarning(ex, "Invalid argument provided");
-            await WriteErrorAsync(context, ex, HttpStatusCode.BadRequest, "Invalid request parameters");
+            await WriteErrorAsync(context, ex, HttpStatusCode.BadRequest, "Invalid request parameters", "errors.http.invalidParameters");
         }
         catch (InvalidOperationException ex)
         {
@@ -124,17 +143,17 @@ public class GlobalExceptionMiddleware
             // now throw ValidationException (400), ConflictException (409), or ForbiddenException (403)
             // instead (Wave 2 migrates the affected call sites).
             _logger.LogError(ex, "Invalid operation");
-            await WriteErrorAsync(context, ex, HttpStatusCode.InternalServerError, "An unexpected error occurred");
+            await WriteErrorAsync(context, ex, HttpStatusCode.InternalServerError, "An unexpected error occurred", "errors.http.unexpected");
         }
         catch (IOException ex)
         {
             _logger.LogError(ex, "IO error occurred");
-            await WriteErrorAsync(context, ex, HttpStatusCode.InternalServerError, "A file system error occurred");
+            await WriteErrorAsync(context, ex, HttpStatusCode.InternalServerError, "A file system error occurred", "errors.http.fileSystem");
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
             _logger.LogError(ex, "Request timeout");
-            await WriteErrorAsync(context, ex, HttpStatusCode.RequestTimeout, "Request timed out");
+            await WriteErrorAsync(context, ex, HttpStatusCode.RequestTimeout, "Request timed out", "errors.http.timeout");
         }
         catch (OperationCanceledException)
         {
@@ -144,7 +163,7 @@ public class GlobalExceptionMiddleware
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unhandled exception occurred at {Path}", context.Request.Path);
-            await WriteErrorAsync(context, ex, HttpStatusCode.InternalServerError, "An unexpected error occurred");
+            await WriteErrorAsync(context, ex, HttpStatusCode.InternalServerError, "An unexpected error occurred", "errors.http.unexpected");
         }
     }
 
@@ -152,7 +171,8 @@ public class GlobalExceptionMiddleware
         HttpContext context,
         Exception exception,
         HttpStatusCode statusCode,
-        string safeMessage)
+        string safeMessage,
+        string? stageKey = null)
     {
         context.Response.ContentType = "application/json";
         context.Response.StatusCode = (int)statusCode;
@@ -160,6 +180,12 @@ public class GlobalExceptionMiddleware
         // In development, include exception details for debugging
         // In production, use generic safe messages to prevent information disclosure
         var isDevelopment = _environment.IsDevelopment();
+
+        // A deliberate answer names its own reason; the framework exceptions are named by the branch
+        // that caught them, since their own text is not safe to show. In development that text is
+        // shown, and the branch key would hide it again: the browser renders the key and falls back
+        // to the message only when there is no key.
+        var answered = exception as ApiException;
 
         var response = new
         {
@@ -169,6 +195,8 @@ public class GlobalExceptionMiddleware
             // throwing it: both paths exist for the download refusal, and a caller cannot be asked
             // to know which one answered it. Omitted when null, which is every other exception.
             code = (exception as ValidationException)?.Code,
+            stageKey = answered?.StageKey ?? (isDevelopment ? null : stageKey),
+            context = answered?.Context,
             statusCode = (int)statusCode,
             traceId = context.TraceIdentifier
         };

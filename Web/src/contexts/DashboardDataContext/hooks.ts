@@ -1,12 +1,14 @@
 import { useMemo } from 'react';
 import { createContextHook } from '../createContextHook';
-import { DashboardDataContext, type CachedDetectionResponse } from './types';
+import { DashboardDataContext, type CachedDetectionResponse, type DownloadFilters } from './types';
 import type {
   CacheInfo,
   ClientStat,
   ServiceStat,
   DashboardStats,
   Download,
+  DownloadTotals,
+  ServiceFilterOption,
   GameDetectionSummary,
   SparklineDataResponse,
   HourlyActivityResponse,
@@ -68,21 +70,28 @@ export const useStats = (): {
 
 export const useDownloads = (): {
   latestDownloads: Download[];
+  downloadTotals: DownloadTotals | null;
+  filteredDownloadTotals: DownloadTotals | null;
+  serviceOptions: ServiceFilterOption[];
+  clientOptions: string[];
   loading: boolean;
   error: string | null;
   failed: boolean;
   refreshDownloads: () => Promise<void>;
-  updateDownloads: (updater: { latestDownloads?: (prev: Download[]) => Download[] }) => void;
+  setDownloadFilters: (filters: DownloadFilters) => void;
 } => {
   const context = useDashboardDataContext();
   return {
     latestDownloads: context.latestDownloads,
+    downloadTotals: context.downloadTotals,
+    filteredDownloadTotals: context.filteredDownloadTotals,
+    serviceOptions: context.serviceOptions,
+    clientOptions: context.clientOptions,
     loading: context.loading,
     error: context.error,
-    failed: context.failedSectionKeys.includes('downloads'),
+    failed: context.failedSectionKeys.includes('recentDownloads'),
     refreshDownloads: async () => context.refreshData(true),
-    updateDownloads: (updater: { latestDownloads?: (prev: Download[]) => Download[] }) =>
-      context.updateData(updater)
+    setDownloadFilters: context.setDownloadFilters
   };
 };
 

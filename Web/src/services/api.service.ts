@@ -39,6 +39,7 @@ import type {
   CreateEventRequest,
   UpdateEventRequest,
   CacheScanBlockedResponse,
+  Download,
   DownloadSpeedSnapshot,
   SpeedHistorySnapshot,
   ClientGroup,
@@ -192,6 +193,10 @@ export interface IncrementalViabilityCheck {
   willTriggerFullScan: boolean;
   estimatedAppsToScan: number;
   error: string | null;
+  /** i18n key for the frame around {@link error}; the exception text it wraps stays English. */
+  stageKey?: string | null;
+  /** Substitution values for {@link stageKey}. */
+  context?: Record<string, string | number | boolean | null> | null;
 }
 
 export interface RetroDownloadDto {
@@ -201,6 +206,9 @@ export interface RetroDownloadDto {
   startTimeUtc: string;
   /** Latest download end time in the group (UTC, ISO 8601 string) */
   endTimeUtc: string;
+  /** Latest download start time in the group (UTC, ISO 8601 string). The grouped views label and
+   *  order their rows by this, not by the latest end time. */
+  lastStartTimeUtc: string;
   /** Steam depot ID, null if non-Steam */
   depotId: number | null;
   /** Resolved game/app name from depot mapping or download record */
@@ -237,11 +245,23 @@ export interface RetroDownloadDto {
   isEvicted: boolean;
   /** True when some, but not all, downloads in the group have been evicted from the cache */
   isPartiallyEvicted: boolean;
+  /** The group's newest download by start time, which is the row a collapsed group renders from.
+   *  Sent only when mergeAcrossServices is set; null when the row was deleted between the two
+   *  server queries that fetch it. */
+  primaryDownload: Download | null;
+  /** True when any member carries a resolved game name, or when this is the Unknown/Other bucket.
+   *  The newest member alone cannot answer it, so it is computed over the whole membership. */
+  hasRealGameName: boolean;
+  /** 'game' or 'content' for a row produced with mergeAcrossServices; empty otherwise. */
+  groupType: string;
 }
 
 export interface RetroDownloadResponse {
   items: RetroDownloadDto[];
   totalItems: number;
+  /** Individual downloads behind every group in the filtered set, across all pages. `totalItems`
+   *  counts groups; this counts the downloads those groups stand for. */
+  totalDownloads: number;
   totalPages: number;
   currentPage: number;
   pageSize: number;
@@ -252,16 +272,33 @@ export interface RetroDownloadQueryParams {
   pageSize: number;
   sort?: string;
   service?: string;
+  /** Comma-separated client addresses. A dropdown entry can name a client group, which is several
+   *  addresses; a single address is that list with one member. */
   client?: string;
   search?: string;
   hideLocalhost?: boolean;
   showZeroBytes?: boolean;
+  /** Drops downloads under 1 MB. */
+  hideSmallFiles?: boolean;
+  /** Drops evicted downloads for this reader, on top of the server's stored evicted-data mode. */
+  hideEvicted?: boolean;
   hideUnknown?: boolean;
+  /** Keeps downloads that are still running in the list. Omitted leaves them out, which is what
+   *  the retro history table wants; the grouped Downloads views ask for them. */
+  includeActive?: boolean;
   /** Hit/miss bucket filter - 'all' (or omitted) is no filter, 'hit', or 'miss'. */
   hitMiss?: string;
   groupByGame?: boolean;
   /** When true, merges all rows for the same service into one row, overriding groupByGame. */
   groupByService?: boolean;
+  /** Read only with groupByGame. Keys each bucket on the game identity alone, so one title seen
+   *  under two services is a single row. This is what the grouped Downloads views show. */
+  mergeAcrossServices?: boolean;
+  /** Read only with mergeAcrossServices. Collapses unmapped Steam rows into one Unknown/Other
+   *  bucket instead of leaving them in the per-service one. */
+  groupUnknownGames?: boolean;
+  /** Sorts groups with more than one download ahead of single-download groups. */
+  groupByFrequency?: boolean;
   startTime?: number;
   endTime?: number;
   eventId?: number;
@@ -393,7 +430,9 @@ class ApiService {
     startTime?: number,
     endTime?: number,
     eventId?: number,
-    cacheBust?: number
+    cacheBust?: number,
+    service?: string,
+    client?: string
   ): Promise<DashboardBatchResponse> {
     let url = `${API_BASE}/dashboard/batch`;
     const params = new URLSearchParams();
@@ -401,6 +440,10 @@ class ApiService {
     if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
     if (eventId) params.append('eventId', eventId.toString());
     if (cacheBust) params.append('cacheBust', cacheBust.toString());
+    // Sent only when they narrow something. The unfiltered request keeps the URL, and so the
+    // server-side cache key, that every other page asks for.
+    if (service && service !== 'all') params.append('service', service);
+    if (client && client !== 'all') params.append('client', client);
     // The zone is sent by name, not as one offset: an offset read now is wrong for every row on
     // the far side of a daylight-saving change. Read per call, since the reader can switch clocks.
     params.append('timeZoneId', getEffectiveTimezone());
@@ -464,11 +507,22 @@ class ApiService {
         qs.append('hideLocalhost', String(params.hideLocalhost));
       if (params.showZeroBytes !== undefined)
         qs.append('showZeroBytes', String(params.showZeroBytes));
+      if (params.hideSmallFiles !== undefined)
+        qs.append('hideSmallFiles', String(params.hideSmallFiles));
+      if (params.hideEvicted !== undefined) qs.append('hideEvicted', String(params.hideEvicted));
       if (params.hideUnknown !== undefined) qs.append('hideUnknown', String(params.hideUnknown));
+      if (params.includeActive !== undefined)
+        qs.append('includeActive', String(params.includeActive));
       if (params.hitMiss) qs.append('hitMiss', params.hitMiss);
       if (params.groupByGame !== undefined) qs.append('groupByGame', String(params.groupByGame));
       if (params.groupByService !== undefined)
         qs.append('groupByService', String(params.groupByService));
+      if (params.mergeAcrossServices !== undefined)
+        qs.append('mergeAcrossServices', String(params.mergeAcrossServices));
+      if (params.groupUnknownGames !== undefined)
+        qs.append('groupUnknownGames', String(params.groupUnknownGames));
+      if (params.groupByFrequency !== undefined)
+        qs.append('groupByFrequency', String(params.groupByFrequency));
       if (params.startTime !== undefined) qs.append('startTime', String(params.startTime));
       if (params.endTime !== undefined) qs.append('endTime', String(params.endTime));
       if (params.eventId !== undefined) qs.append('eventId', String(params.eventId));
@@ -481,6 +535,67 @@ class ApiService {
         // Silently ignore abort errors
       } else {
         console.error('getRetroDownloads error:', error);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * The download rows behind a set of ids, newest first. Serves the member list of a group the
+   * reader has expanded: the grouped page carries the ids on the row and sends back one download
+   * per group, so the rest are fetched only for the one group that was opened.
+   */
+  static async getDownloadsByIds(downloadIds: number[], signal?: AbortSignal): Promise<Download[]> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/downloads/by-ids`,
+        this.getJsonFetchOptions({ downloadIds }, { signal, method: 'POST' })
+      );
+      return await this.handleResponse<Download[]>(res);
+    } catch (error: unknown) {
+      if (!isAbortError(error)) {
+        console.error('getDownloadsByIds error:', error);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Every download row the range and event selection contain. Read on demand by the Downloads
+   * page's export, which writes individual rows rather than the grouped rows on screen. The views
+   * themselves page against the grouped endpoint, so nothing fetches this to render.
+   *
+   * The route answers one page at a time and takes the id of the last row back as the place to
+   * continue from, so the pages are walked here rather than by the caller: a caller that read the
+   * first response alone would write a file holding only the newest rows and looking complete. An
+   * empty page ends the walk, and a request that fails part way through rejects rather than
+   * returning the rows gathered so far.
+   */
+  static async getDownloadRows(
+    startTime?: number,
+    endTime?: number,
+    eventId?: number,
+    signal?: AbortSignal
+  ): Promise<Download[]> {
+    try {
+      const qs = new URLSearchParams();
+      if (startTime !== undefined) qs.append('startTime', String(startTime));
+      if (endTime !== undefined) qs.append('endTime', String(endTime));
+      if (eventId !== undefined) qs.append('eventId', String(eventId));
+
+      const rows: Download[] = [];
+      for (;;) {
+        const query = qs.toString();
+        const url = `${API_BASE}/downloads/all${query ? `?${query}` : ''}`;
+        const res = await fetch(url, this.getFetchOptions({ signal }));
+        const page = await this.handleResponse<Download[]>(res);
+        if (page.length === 0) return rows;
+        rows.push(...page);
+        qs.set('afterId', String(page[page.length - 1].id));
+      }
+    } catch (error: unknown) {
+      if (!isAbortError(error)) {
+        console.error('getDownloadRows error:', error);
       }
       throw error;
     }
@@ -1004,12 +1119,12 @@ class ApiService {
   // ==================== Steam API Key Management ====================
 
   // Test a Steam Web API key without saving it
-  static async testSteamApiKey(apiKey: string): Promise<{ valid: boolean; message: string }> {
+  static async testSteamApiKey(apiKey: string): Promise<{ valid: boolean }> {
     const response = await fetch(
       `${API_BASE}/steam-api-keys/test`,
       this.getJsonFetchOptions({ apiKey }, { method: 'POST' })
     );
-    return this.handleResponse<{ valid: boolean; message: string }>(response);
+    return this.handleResponse<{ valid: boolean }>(response);
   }
 
   // Save a Steam Web API key
@@ -2316,13 +2431,13 @@ class ApiService {
   static async terminateAllPrefillSessions(
     reason?: string,
     force = true
-  ): Promise<{ message: string }> {
+  ): Promise<{ count: number }> {
     try {
       const res = await fetch(
         `${API_BASE}/prefill-admin/sessions/terminate-all`,
         this.getJsonFetchOptions({ reason, force }, { method: 'POST' })
       );
-      return await this.handleResponse<{ message: string }>(res);
+      return await this.handleResponse<{ count: number }>(res);
     } catch (error: unknown) {
       console.error('terminateAllPrefillSessions error:', error);
       throw error;

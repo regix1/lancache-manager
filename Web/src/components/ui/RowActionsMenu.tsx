@@ -12,7 +12,7 @@ interface RowActionsMenuProps {
   /**
    * Hides the trigger until the row is hovered or focused. Only ThemeCard's grid needs this - the
    * other four sites show the trigger at rest. Reveals on group-focus-within too, so a keyboard
-   * user tabbing through the row can still find and activate it. [27]
+   * user tabbing through the row can still find and activate it.
    */
   revealOnHover?: boolean;
   /** Passed to ActionMenu. Row labels such as "Terminate session" need more than the menu default. */
@@ -21,7 +21,7 @@ interface RowActionsMenuProps {
 
 // Controlled row-level kebab menu, the per-row sibling of SectionActionsMenu (which owns its own
 // open state). A row list re-renders many trigger instances, so the open row's state has to live
-// with the list, not inside each trigger. [11]
+// with the list, not inside each trigger.
 export function RowActionsMenu({
   children,
   open,

@@ -23,7 +23,7 @@ interface DownloadsHeaderProps {
 
 const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChange }) => {
   const { t } = useTranslation();
-  const { latestDownloads } = useDownloads();
+  const { downloadTotals } = useDownloads();
   const signalR = useSignalR();
   const { speedSnapshot, gameSpeeds, activeDownloadCount, totalActiveClients } = useSpeed();
   const activity = useActivityStatus();
@@ -83,9 +83,9 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   const todayTotal = historySnapshot?.totalBytes || 0;
   const { value: speedValue, unit: speedUnit } = formatSpeedWithSeparatedUnit(totalSpeed);
 
-  // Compute overall cache hit rate from latestDownloads
-  const totalBytesAll = latestDownloads.reduce((sum, d) => sum + d.totalBytes, 0);
-  const totalHitBytes = latestDownloads.reduce((sum, d) => sum + d.cacheHitBytes, 0);
+  // Overall cache hit rate, counted server-side over every visible row rather than the recent slice
+  const totalHitBytes = downloadTotals?.cacheHitBytes ?? 0;
+  const totalBytesAll = totalHitBytes + (downloadTotals?.cacheMissBytes ?? 0);
   const overallHitPercent = totalBytesAll > 0 ? (totalHitBytes / totalBytesAll) * 100 : 0;
 
   return (
@@ -172,7 +172,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                   <>
                     {t('downloads.header.recentTab')}
                     <Badge variant="neutral" className="badge-count">
-                      {latestDownloads.length}
+                      {downloadTotals?.count ?? 0}
                     </Badge>
                   </>
                 )

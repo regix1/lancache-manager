@@ -5,9 +5,13 @@ import { compileToUrl } from './transpile-module.mjs';
 // The helper imports a path-aliased module, which a bare data-URL import cannot resolve, so the
 // dependency is compiled first and its data URL substituted for the alias.
 const serviceDisplayNameUrl = await compileToUrl('../src/utils/serviceDisplayName.ts');
+const liveDownloadPreviewsUrl = await compileToUrl(
+  '../src/components/features/downloads/liveDownloadPreviews.ts'
+);
 const { cacheHitPercent, toGroup } = await import(
   await compileToUrl('../src/components/features/downloads/downloadGrouping.ts', {
-    '@utils/serviceDisplayName': serviceDisplayNameUrl
+    '@utils/serviceDisplayName': serviceDisplayNameUrl,
+    './liveDownloadPreviews': liveDownloadPreviewsUrl
   })
 );
 
@@ -40,6 +44,7 @@ test('wraps one download in the group shape the renderers read', () => {
     type: 'game',
     service: 'steam',
     downloads: [item],
+    downloadIds: [42],
     totalBytes: 1000,
     totalDownloaded: 1000,
     cacheHitBytes: 250,
@@ -47,9 +52,21 @@ test('wraps one download in the group shape the renderers read', () => {
     clientsSet: new Set(['10.0.0.7']),
     firstSeen: '2026-08-08T10:00:00Z',
     lastSeen: '2026-08-08T10:00:00Z',
-    count: 1
+    count: 1,
+    isEvicted: false,
+    isPartiallyEvicted: false,
+    hasRealGameName: true
   });
   assert.equal(group.downloads[0], item);
+});
+
+test('answers the membership questions from the one row it wraps', () => {
+  const evicted = toGroup(download({ isEvicted: true }));
+  assert.equal(evicted.isEvicted, true);
+  assert.equal(evicted.isPartiallyEvicted, false);
+
+  const unnamed = toGroup(download({ gameName: 'steam' }));
+  assert.equal(unnamed.hasRealGameName, false);
 });
 
 test('falls back to the service display name when the game is unidentified', () => {

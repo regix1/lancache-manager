@@ -4,7 +4,9 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useRefreshRate } from '@contexts/useRefreshRate';
 import { useAuth } from '@contexts/useAuth';
+import { useMockMode } from '@contexts/useMockMode';
 import ApiService from '@services/api.service';
+import MockDataService from '@/test/mockData.service';
 import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../../types';
 import type { SpeedContextType, SpeedProviderProps } from './types';
 import { SpeedContext } from './SpeedContext.types';
@@ -24,6 +26,7 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
   const { hasSession, isLoading: authLoading } = useAuth();
+  const { mockMode } = useMockMode();
   const hasAccess = !authLoading && hasSession;
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -131,6 +134,13 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
 
   // Fetch speed data from the API (used for initial load and manual refresh)
   const fetchSpeed = useCallback(async () => {
+    // Mock mode has no tracker behind it, and generated activity must not expire the way a real
+    // snapshot does, so it is set directly rather than through acceptSnapshot's expiry timer.
+    if (mockMode) {
+      setSpeedSnapshot(MockDataService.generateMockSpeedSnapshot());
+      setIsLoading(false);
+      return;
+    }
     try {
       const data = await ApiService.getCurrentSpeeds();
       acceptSnapshot(data, { throttle: false });
@@ -141,11 +151,15 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
     } finally {
       setIsLoading(false);
     }
-  }, [acceptSnapshot]);
+  }, [acceptSnapshot, mockMode]);
 
   // Manual refresh function exposed to consumers (user-triggered) - unlike fetchSpeed's
   // background polling, a failure here has no other feedback path, so surface it.
   const refreshSpeed = useCallback(async () => {
+    if (mockMode) {
+      setSpeedSnapshot(MockDataService.generateMockSpeedSnapshot());
+      return;
+    }
     try {
       const data = await ApiService.getCurrentSpeeds();
       acceptSnapshot(data, { throttle: false });
@@ -164,7 +178,7 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
         })
       );
     }
-  }, [acceptSnapshot]);
+  }, [acceptSnapshot, mockMode]);
 
   // Fetch initial data on mount (only when authenticated or guest)
   useEffect(() => {
@@ -228,6 +242,10 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
   // Listen for real-time speed updates via SignalR. Validation, expiry scheduling, and
   // render throttling all live in the shared acceptSnapshot path.
   useEffect(() => {
+    // The socket stays connected in mock mode, so subscribing here would paint real live traffic
+    // over the generated snapshot.
+    if (mockMode) return;
+
     const handleSpeedUpdate = (speedData: DownloadSpeedSnapshot) => {
       acceptSnapshot(speedData, { throttle: true });
     };
@@ -237,7 +255,7 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
     return () => {
       signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
     };
-  }, [signalR, acceptSnapshot]);
+  }, [signalR, acceptSnapshot, mockMode]);
 
   const value: SpeedContextType = useMemo(
     () => ({

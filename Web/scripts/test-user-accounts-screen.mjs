@@ -101,7 +101,7 @@ const columnRender = (sourceFile, key) => {
   return render.initializer;
 };
 
-test('the account screen is built from the shared list components, not new ones [67]', () => {
+test('the account screen is built from the shared list components, not new ones', () => {
   const imports = importedNamesByModule(accountsFile);
 
   const required = {
@@ -139,7 +139,7 @@ test('the account screen is built from the shared list components, not new ones 
   }
 });
 
-test('the screen defines an empty, a loading and an error state [68]', () => {
+test('the screen defines an empty, a loading and an error state', () => {
   const rendered = new Set(
     collect(accountsFile, (node) => ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)).map(
       jsxTagName
@@ -157,7 +157,7 @@ test('the screen defines an empty, a loading and an error state [68]', () => {
   assert.ok(calls.includes('notifyError'), 'the screen never calls notifyError');
 });
 
-test("the installation's own account keeps its row actions, disabled [69]", () => {
+test("the installation's own account keeps its row actions, disabled", () => {
   const render = columnRender(accountsFile, 'actions');
 
   const ownerDeclaration = collect(
@@ -271,7 +271,7 @@ test('the row you are signed in as cannot delete, disable or demote itself', () 
   );
 });
 
-test('the account screen is a third segment of the user tab [67]', () => {
+test('the account screen is a third segment of the user tab', () => {
   const options = collect(
     userTabFile,
     (node) =>

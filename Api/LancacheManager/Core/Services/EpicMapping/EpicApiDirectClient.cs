@@ -70,7 +70,11 @@ public class EpicApiDirectClient
             // The authorization code is pasted in by the user and expires quickly, so a rejected
             // exchange is a client-fixable input error rather than a server fault. Keep it a 400
             // carrying the real reason instead of the generic 500 message.
-            throw new ValidationException($"Epic OAuth failed: {response.StatusCode}. Check your authorization code.");
+            throw new ValidationException($"Epic OAuth failed: {response.StatusCode}. Check your authorization code.")
+            {
+                StageKey = "errors.epic.oauthFailed",
+                Context = new Dictionary<string, object?> { ["status"] = response.StatusCode.ToString() }
+            };
         }
 
         var tokenResponse = JsonSerializer.Deserialize<EpicTokenResponse>(json);

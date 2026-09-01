@@ -10,7 +10,7 @@ import { bindLifted, findSoleNode, liftHookCallback, parseSource } from './trans
  * repainted off the same feed while this chart still drew the old figures.
  *
  * The subscription is written inside the component and never exported, so these lift the arrows that
- * ship out of the source and run them, rather than a copy written here. [20]
+ * ship out of the source and run them, rather than a copy written here.
  */
 
 const COMPONENT_PATH = 'src/components/features/dashboard/widgets/EventCompareChart.tsx';

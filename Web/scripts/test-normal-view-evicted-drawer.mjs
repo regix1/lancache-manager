@@ -10,7 +10,7 @@ import ts from 'typescript';
  * as normal in the drawer.
  *
  * These checks pin the shape that makes that impossible: the markup lives in one component, the
- * evicted treatment appears once inside it, and NormalView keeps no second copy to drift again. [25]
+ * evicted treatment appears once inside it, and NormalView keeps no second copy to drift again.
  */
 
 const readWebSource = (relativePath) =>

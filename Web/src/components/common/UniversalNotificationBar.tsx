@@ -225,7 +225,7 @@ const UniversalNotificationBar: React.FC = () => {
     // A refused Run Now never starts a run, so it has no lifecycle notification to fold into and
     // the compact bar would answer the click with a coloured line carrying no reason. This toast is
     // the only answer that click gets, so it keeps its card whatever the service is set to. Routine
-    // runs are unaffected: they never arrive as 'generic'. [79]
+    // runs are unaffected: they never arrive as 'generic'.
     const refusedManualRun = notification.type === 'generic' && notification.status === 'skipped';
     const condensedByService =
       !refusedManualRun && serviceKey !== undefined && displayModes[serviceKey] === 'condensed';

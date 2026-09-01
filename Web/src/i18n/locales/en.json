@@ -1498,6 +1498,7 @@
       "searchPlaceholder": "Search games, clients, depots...",
       "errors": {
         "exportFailed": "Failed to export downloads",
+        "loadFailed": "Failed to load downloads. Check your connection and try again.",
         "clearImageCacheFailed": "Failed to clear image cache"
       },
       "tooltips": {
@@ -1624,9 +1625,7 @@
         "unknownOther": "Unknown/Other",
         "serviceDownloads": "{{service}} Downloads"
       },
-      "warnings": {
-        "paginationSuggestion": "Loading {{items}} items. Consider using pagination for better performance."
-      },
+      "warnings": {},
       "emptyRange": {
         "title": "No downloads found in selected time range",
         "description": "The dashboard shows active downloads (currently in progress), while this list shows downloads that started within the selected time period. Try switching to Live to see all downloads, or adjust your time range."
@@ -3227,6 +3226,10 @@
         "needsKey": "V2 unavailable, V1 needs an API key",
         "down": "Web API unavailable"
       },
+      "test": {
+        "valid": "Steam Web API key is valid and working",
+        "invalid": "Steam Web API key is invalid or Steam Web API V1 is unavailable"
+      },
       "updateApiKey": "Update API Key",
       "configureApiKey": "Configure API Key",
       "remove": "Remove",
@@ -3370,6 +3373,12 @@
       "success": {
         "resetStarted": "Database reset started for {{count}} table(s)",
         "resetAlreadyRunning": "A database reset is already in progress"
+      },
+      "import": {
+        "connected": "Connection successful",
+        "connectedNoTable": "Connection successful, but Downloads table not found",
+        "completed": "Import completed: {{imported}} imported, {{skipped}} skipped, {{errors}} errors",
+        "cancelledWithCount": "Import cancelled: {{imported}} imported before cancellation"
       }
     },
     "themes": {
@@ -4377,7 +4386,9 @@
       "liveSessionsSummary": "Prefill runs happening right now.",
       "historySummary": "Past prefill runs and how they ended.",
       "historyStarted": "Started:",
-      "historyCompleted": "Completed:"
+      "historyCompleted": "Completed:",
+      "terminatedCount_one": "Terminated {{count}} session",
+      "terminatedCount_other": "Terminated {{count}} sessions"
     },
     "clients": {
       "selectClients": "Select clients"
@@ -7461,6 +7472,7 @@
         "incremental": "Starting incremental scan (new games and services only)...",
         "full": "Starting full scan (all games and services)..."
       },
+      "resuming": "Resuming game cache detection...",
       "complete": {
         "default": "Detection complete",
         "newGames": "Incremental scan complete. {{newGamesCount}} new game(s) found ({{totalGamesDetected}} total on disk)",
@@ -7652,7 +7664,35 @@
       "disconnected": "Disconnected from Steam: {{result}}"
     },
     "scheduledPrefill": {
-      "stale": "Scheduled prefill completed"
+      "stale": "Scheduled prefill completed",
+      "skippedNoDaemon": "No daemon registered for this service",
+      "skippedNoContainer": "No running persistent container. Start the persistent container before scheduling.",
+      "skippedContainerNotReady": "The persistent container is running but has not reported ready yet. This platform needs no login, so wait for the container to finish starting.",
+      "skippedManualActive": "A manual prefill session is active",
+      "skippedAlreadyRunning": "A prefill is already in progress",
+      "needsPersistentContainer": "No running persistent container. Start and log in the persistent container before scheduling.",
+      "needsPersistentLogin": "The persistent container is running but not logged in. Log in to the persistent container before scheduling.",
+      "reusingContainer": "Reusing persistent container",
+      "failedToStart": "Prefill failed to start",
+      "running": "Prefill in progress",
+      "runningWithCounts": "Prefill in progress ({{completed}} of {{total}} games)",
+      "downloadingGame": "Downloading {{game}} ({{completed}} of {{total}} games)",
+      "failedMaxRuntime": "Exceeded maximum service runtime",
+      "failedStalled": "Prefill stalled (no progress)",
+      "stopped": "Prefill stopped",
+      "completeWithBytes": "Prefill completed ({{bytes}} downloaded)",
+      "completeAllCached": "Prefill completed, all selected games were already cached (0 bytes). Enable Force to re-download.",
+      "completeNoBytes": "Prefill completed (0 bytes downloaded)",
+      "runSomeServicesFailed": "One or more services failed during the run",
+      "runAllNeedLogin": "All due services need login",
+      "runAllSkipped": "All enabled services were skipped"
+    },
+    "prefillSession": {
+      "superseded": "Superseded by new prefill operation"
+    },
+    "statusCheck": {
+      "dnsTimeout": "DNS query timed out",
+      "noARecords": "No A records returned"
     }
   },
   "errors": {
@@ -7673,6 +7713,14 @@
       "usernameTaken": "That username is already taken.",
       "credentialsRejected": "The username or password does not meet the requirements."
     },
+    "cache": {
+      "readOnly": "Cannot clear cache: cache directory is read-only. This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. The LANCache container is configured to run as UID/GID {{uidGid}} (configured via PUID/PGID environment variables)."
+    },
+    "clientGroups": {
+      "nicknameTaken": "A client group with this nickname already exists",
+      "invalidAddresses": "One or more addresses are not valid. Please correct them and try again.",
+      "notFound": "Client group with ID {{id}} not found"
+    },
     "conflict": {
       "duplicate": "Operation already in progress for this item.",
       "overlappingEntity": "Another operation is touching the same cache files. Wait for it to finish.",
@@ -7682,8 +7730,71 @@
       "cacheFileScanActive": "A cache file scan is in progress. Wait for it to finish before starting cache operations.",
       "heavyOperationActive": "Another data operation is running. This one has been queued and will start when it finishes."
     },
+    "corruption": {
+      "scanIdRequired": "A corruption scan ID is required",
+      "invalidService": "Invalid service name",
+      "invalidMethod": "Detection method must be 'repeated_miss' or 'structural'",
+      "unsupportedMethod": "Unsupported corruption detection method",
+      "invalidStructuralMode": "Structural scan mode must be 'full' or 'incremental'",
+      "structuralModeNotApplicable": "Structural scan mode is only valid for structural detection",
+      "structuralModeRequired": "Structural scan mode is required",
+      "unsupportedStructuralMode": "Unsupported structural scan mode",
+      "invalidThreshold": "Corruption threshold must be 3, 5, or 10",
+      "lookbackOutOfRange": "Evidence lookback must be between {{min}} and {{max}} days",
+      "scanInProgress": "A different corruption detection scan is already in progress",
+      "scanNotFound": "Corruption scan not found",
+      "candidatesNotFound": "Corruption candidates not found",
+      "scanChanged": "The corruption scan changed. Reload results and try again",
+      "scanChangedOnDelete": "The corruption scan changed before it could be deleted",
+      "scanStale": "The corruption scan is stale. Reload results and try again",
+      "scanFormatOld": "The stored corruption scan uses an older format. Run a new scan and try again",
+      "evidenceUnsupported": "The stored corruption scan contains unsupported evidence. Run a new scan and try again",
+      "deleteBlockedByRemoval": "The corruption scan cannot be deleted while its cache removal is active",
+      "serviceNotInScan": "One or more requested services are not part of the stored corruption scan",
+      "candidateNotInScan": "One or more corruption candidate IDs are not part of the stored scan",
+      "candidateRequired": "At least one stored corruption candidate is required",
+      "nothingRemovable": "This stored corruption scan has no removable candidates",
+      "scopeNothingRemovable": "This stored corruption scope has no removable candidates",
+      "datasourceGone": "One or more corruption candidates belong to a datasource that is no longer configured"
+    },
+    "datasources": {
+      "invalidCacheSize": "Cache size must be a byte count or a size such as 2000g, 500G, 2t, or 1.5T.",
+      "notFound": "Datasource not found"
+    },
+    "depot": {
+      "mappingInProgress": "A depot mapping operation is already running.",
+      "githubImportFailed": "Failed to download and import pre-created depot data from GitHub",
+      "invalidSource": "Invalid source. Must be 'github' or 'local'",
+      "invalidInterval": "Interval must be 0 or a positive number. Received: {{received}}",
+      "invalidScanMode": "Invalid scan mode. Must be true, false, \"hybrid\", or \"github\"",
+      "noActiveRebuild": "No active rebuild to cancel"
+    },
+    "epic": {
+      "authInProgress": "Epic auth is already in progress",
+      "oauthFailed": "Epic OAuth failed: {{status}}. Check your authorization code.",
+      "noActiveRefresh": "No active refresh to cancel"
+    },
+    "events": {
+      "notFound": "Event with ID {{id}} not found"
+    },
+    "http": {
+      "accessDenied": "Access denied",
+      "invalidParameters": "Invalid request parameters",
+      "unexpected": "An unexpected error occurred",
+      "fileSystem": "A file system error occurred",
+      "timeout": "Request timed out"
+    },
     "login": {
       "invalidCredentials": "Invalid API key, username or password."
+    },
+    "logs": {
+      "startFailed": "Failed to start log processing",
+      "startFailedForDatasource": "Failed to start log processing for '{{datasource}}'",
+      "removeFailed": "Failed to remove logs for service '{{service}}' from datasource '{{datasource}}'",
+      "fileNotFound": "Log file not found: {{path}}"
+    },
+    "migration": {
+      "notConfigured": "Server database connection is not configured"
     },
     "password": {
       "accountRequired": "This session is not signed in as an account.",
@@ -7691,8 +7802,42 @@
       "locked": "Too many failed password attempts. Try again later.",
       "rejected": "The new password does not meet the password requirements."
     },
+    "prefill": {
+      "banned": "You are banned from using the prefill feature.",
+      "containerBusy": "An existing persistent {{service}} container is still being removed or restarting. Please try again shortly.",
+      "loginInProgress": "A login attempt is already in progress for session {{sessionId}}.",
+      "dockerUnavailable": "Docker is not running or not accessible. Please start Docker Desktop and try again.",
+      "daemonShuttingDown": "{{service}} daemon is shutting down; the persistent session {{sessionId}} cannot be stopped right now. Its login is preserved for re-adoption on the next start; stop it again after the manager restarts.",
+      "editCleanupWaiting": "Edit-session cleanup is waiting for a persistent start before releasing session {{sessionId}}.",
+      "noRunningSession": "No running persistent session for service '{{service}}'"
+    },
     "rateLimit": {
       "tooManyRequests": "Too many requests from this address. Wait for the limit to reset and try again."
+    },
+    "stats": {
+      "invalidExclusions": "One or more exclusions are not valid. Please correct them and try again.",
+      "invalidEvictionMode": "Mode must be one of: {{modes}}"
+    },
+    "statusCheck": {
+      "sweepRunning": "A Status Check sweep is already running.",
+      "nofetchEnabled": "NOFETCH is enabled in the LANCache .env file; refresh is disabled. Set NOFETCH=false (or remove it) to allow fetching an updated domain list.",
+      "noCacheIp": "No cache server IP could be determined (set Prefill__LancacheIp or ensure the LANCache container is discoverable)."
+    },
+    "steam": {
+      "apiKeyInvalid": "The provided API key is invalid or Steam Web API V1 is unavailable. Please verify your key at https://steamcommunity.com/dev/apikey",
+      "signInInProgress": "A Steam sign-in is already in progress.",
+      "signInCancelled": "Sign-in was cancelled.",
+      "serversBusy": "Steam's servers are busy right now. This is temporary, please wait a moment and try again.",
+      "mobileConfirmationRequired": "Mobile confirmation required",
+      "connectionFailed": "Connection failed: {{detail}}"
+    },
+    "themes": {
+      "notFound": "Theme '{{id}}' not found on server",
+      "deleteFailed": "Failed to delete theme",
+      "deletePermission": "Permission denied - cannot delete theme file"
+    },
+    "validation": {
+      "failed": "Validation failed"
     }
   }
 }

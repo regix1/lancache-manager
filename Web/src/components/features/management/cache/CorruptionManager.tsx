@@ -403,6 +403,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   const loadCachedData = useCallback(
     async (showNotification = false) => {
+      // Mock mode has no scan behind it and the scan buttons are already disabled there, so the
+      // card shows its empty state rather than a real machine's corruption results.
+      if (mockMode) {
+        markLoaded();
+        return;
+      }
+
       // Capture the selection now; the response is validated against it and a
       // method switch bumps the epoch so a late response can never repaint.
       const method = detectionMethod;
@@ -463,6 +470,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       detectionMethod,
       markFailed,
       markLoaded,
+      mockMode,
       notifyError,
       notifySuccess,
       t

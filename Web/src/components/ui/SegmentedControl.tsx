@@ -66,7 +66,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
   return (
     // radiogroup, not group: a couple of callers already wrap this control in their own
     // role="group" for a label, and a mutually-exclusive picker is a radiogroup/radio pair
-    // regardless, so this never doubles up with a caller's wrapper. [40]
+    // regardless, so this never doubles up with a caller's wrapper.
     <div
       role="radiogroup"
       className={`inline-flex segmented-control-container ${sizes.container} ${fullWidth ? 'w-full' : ''} ${className} bg-themed-tertiary border border-themed-secondary`}

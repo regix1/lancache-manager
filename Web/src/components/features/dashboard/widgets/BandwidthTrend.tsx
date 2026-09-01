@@ -183,7 +183,7 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
   );
 
   // A fresh element every render defeats the memo on EventCompareChart, which re-renders it on
-  // every sparkline refresh. [37]
+  // every sparkline refresh.
   const tabControl = useMemo(
     () => (
       <SegmentedControl

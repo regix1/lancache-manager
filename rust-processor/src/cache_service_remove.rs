@@ -431,7 +431,7 @@ async fn main() -> Result<()> {
     // A count run stops here. It walks the same list a removal would walk, reports how many of
     // those files exist on disk, and returns before the delete loop, the log purge and the
     // database delete below are reachable. A service with no URLs reports zero rather than
-    // taking the no-URL exit, so the confirmation always has a number to show. [6][8]
+    // taking the no-URL exit, so the confirmation always has a number to show.
     if args.count_only {
         let collection_progress = removal_core::CollectionProgress {
             progress_path: &progress_path,

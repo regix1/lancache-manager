@@ -285,8 +285,8 @@ public class PrefillAdminController : ControllerBase
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("sessions/terminate-all")]
-    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<MessageOnlyResponse>> TerminateAllAsync([FromBody] TerminateSessionRequest? request = null)
+    [ProducesResponseType(typeof(TerminatedSessionsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<TerminatedSessionsResponse>> TerminateAllAsync([FromBody] TerminateSessionRequest? request = null)
     {
         var caller = HttpContext.GetUserSession();
         var adminSessionId = HttpContext.GetRequiredSessionId();
@@ -333,7 +333,7 @@ public class PrefillAdminController : ControllerBase
             await _xboxDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString);
         }
 
-        return Ok(new MessageOnlyResponse { Message = $"Terminated {count} sessions" });
+        return Ok(new TerminatedSessionsResponse { Count = count });
     }
 
     #endregion

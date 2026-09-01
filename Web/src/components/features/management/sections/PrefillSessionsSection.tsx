@@ -41,12 +41,14 @@ import ApiService, {
 import type { PrefillSessionStatus } from '@/types/operations';
 import { GAME_SERVICES, type GameServiceId } from '@/types/gameService';
 import { getErrorMessage } from '@utils/error';
+import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 import { formatBytes } from '@utils/formatters';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
+import { useMockMode } from '@contexts/useMockMode';
 import { cleanIpAddress } from '@components/features/user/types';
 import { rowToggleHandlers } from '@utils/rowToggle';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -462,7 +464,7 @@ const SessionCard: React.FC<{
                         {entry.errorMessage && (
                           <span className="is-error">
                             <XCircle className="w-3 h-3" />
-                            {entry.errorMessage}
+                            {translateStageKeyMessage(entry.errorMessage)}
                           </span>
                         )}
                       </div>
@@ -628,6 +630,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   onSuccess
 }) => {
   const { t } = useTranslation();
+  const { mockMode } = useMockMode();
   const { on, off, isConnected } = useSignalR();
 
   // Accordion states
@@ -698,6 +701,16 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
   // Load sessions and pre-fetch history
   const loadSessions = useCallback(async () => {
+    // Mock mode has no prefill container behind it, so the list stays empty rather than showing a
+    // real machine's sessions, bans and cache route.
+    if (mockMode) {
+      setSessions([]);
+      setActiveSessions([]);
+      setTotalCount(0);
+      setHasLoadedSessions(true);
+      setLoadingSessions(false);
+      return;
+    }
     setLoadingSessions(true);
     setSessionsError(null);
     try {
@@ -746,7 +759,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     } finally {
       setLoadingSessions(false);
     }
-  }, [page, pageSize, statusFilter, platformFilter, onError]);
+  }, [mockMode, page, pageSize, statusFilter, platformFilter, onError]);
 
   // Load bans
   const loadBans = useCallback(async () => {
@@ -940,7 +953,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     setTerminatingAll(true);
     try {
       const result = await ApiService.terminateAllPrefillSessions('Bulk termination by admin');
-      onSuccess(result.message);
+      onSuccess(t('management.prefillSessions.terminatedCount', { count: result.count }));
       setTerminateAllConfirm(false);
       await loadSessions();
     } catch (error) {

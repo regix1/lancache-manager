@@ -17,6 +17,6 @@ const utcTimezonePreference = createGlobalPreference(false);
 
 export const setGlobalUtcPreference = utcTimezonePreference.set;
 
-/** The UTC half of the reader's clock, read the same way as getGlobalTimezonePreference. [60] */
+/** The UTC half of the reader's clock, read the same way as getGlobalTimezonePreference. */
 export const getGlobalUtcPreference = (): boolean =>
   getPendingValue<boolean>('useUtcTimezone') ?? utcTimezonePreference.get();

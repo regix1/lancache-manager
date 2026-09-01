@@ -83,7 +83,11 @@ public class ClientGroupsService : IClientGroupsService
 
         if (existing == null)
         {
-            throw new NotFoundException($"Client group with ID {group.Id}");
+            throw new NotFoundException($"Client group with ID {group.Id}")
+            {
+                StageKey = "errors.clientGroups.notFound",
+                Context = new Dictionary<string, object?> { ["id"] = group.Id }
+            };
         }
 
         existing.Nickname = group.Nickname;
@@ -125,7 +129,11 @@ public class ClientGroupsService : IClientGroupsService
 
         if (group == null)
         {
-            throw new NotFoundException($"Client group with ID {groupId}");
+            throw new NotFoundException($"Client group with ID {groupId}")
+            {
+                StageKey = "errors.clientGroups.notFound",
+                Context = new Dictionary<string, object?> { ["id"] = groupId }
+            };
         }
 
         var desiredIps = clientIps.Distinct(StringComparer.Ordinal).ToList();

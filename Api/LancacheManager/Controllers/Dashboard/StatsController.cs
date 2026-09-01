@@ -289,6 +289,7 @@ public class StatsController : ControllerBase
                 {
                     error = "Invalid exclusion rules",
                     message = "One or more exclusions are not valid. Please correct them and try again.",
+                    stageKey = "errors.stats.invalidExclusions",
                     invalidIps = invalidRuleIps,
                 });
             }
@@ -304,6 +305,7 @@ public class StatsController : ControllerBase
                 {
                     error = "Invalid exclusion rules",
                     message = "One or more exclusions are not valid. Please correct them and try again.",
+                    stageKey = "errors.stats.invalidExclusions",
                     invalidIps,
                 });
             }
@@ -368,6 +370,8 @@ public class StatsController : ControllerBase
             {
                 error = "Invalid eviction mode",
                 message = $"Mode must be one of: {string.Join(", ", validModes)}",
+                stageKey = "errors.stats.invalidEvictionMode",
+                context = new { modes = string.Join(", ", validModes) },
             });
         }
 

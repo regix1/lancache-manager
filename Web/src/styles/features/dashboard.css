@@ -153,6 +153,12 @@
   color: var(--theme-text-accent);
 }
 
+/* Still showing the figure the last answer carried while a new one is on its way. Muted instead of
+   tiered, so a number that no longer describes the current selection cannot read as its verdict. */
+.dash-readout-value.is-stale {
+  color: var(--theme-text-muted);
+}
+
 /* 2-up strip on phones: divider only between the columns */
 @media (max-width: 639.98px) {
   .dash-readout {
@@ -777,7 +783,7 @@
    row at its natural width against the right edge. Give each control a full-width row
    and split the actions row between them. Stretching a segmented control's container
    alone leaves its buttons bunched at one end, so the segments split their width too,
-   the way the component's own fullWidth prop does. [80] */
+   the way the component's own fullWidth prop does. */
 @media (max-width: 639.98px) {
   .line-trend-controls > * {
     flex: 1 1 100%;

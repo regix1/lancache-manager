@@ -18,15 +18,22 @@ public class PicsDataService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IPathResolver _pathResolver;
     private readonly StateService _stateService;
+    private readonly TimeProvider _timeProvider;
     private readonly string _picsJsonFile;
     private readonly object _fileLock = new object();
 
     public PicsDataService(ILogger<PicsDataService> logger, IServiceScopeFactory scopeFactory, IPathResolver pathResolver, StateService stateService)
+        : this(logger, scopeFactory, pathResolver, stateService, TimeProvider.System)
+    {
+    }
+
+    internal PicsDataService(ILogger<PicsDataService> logger, IServiceScopeFactory scopeFactory, IPathResolver pathResolver, StateService stateService, TimeProvider timeProvider)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _pathResolver = pathResolver;
         _stateService = stateService;
+        _timeProvider = timeProvider;
         _picsJsonFile = Path.Combine(_pathResolver.GetPicsDirectory(), "pics_depot_mappings.json");
     }
 
@@ -275,9 +282,9 @@ public class PicsDataService
     /// <summary>
     /// Load PICS depot mappings from JSON file
     /// </summary>
-    // Cache for loaded PICS data to avoid repeated deserialization of 73MB+ file
+    // Cache for loaded PICS data to avoid repeated deserialization of the ~180MB file
     private PicsJsonData? _cachedPicsData = null;
-    private DateTime _cacheLastLoaded = DateTime.MinValue;
+    private DateTimeOffset _cacheLastLoaded = DateTimeOffset.MinValue;
     private readonly TimeSpan _cacheExpiration = TimeSpan.FromMinutes(5);
 
     /// <summary>
@@ -296,10 +303,17 @@ public class PicsDataService
                 return Task.FromResult<PicsJsonData?>(null);
             }
 
-            // Return cached data if still valid
-            if (_cachedPicsData != null && (DateTime.UtcNow - _cacheLastLoaded) < _cacheExpiration)
+            // Return cached data if still valid. Once it has expired, drop the reference before
+            // the reload so the old ~180MB depot graph is collectable while the replacement is
+            // parsed, instead of both being resident at once.
+            if (_cachedPicsData != null)
             {
-                return Task.FromResult<PicsJsonData?>(_cachedPicsData);
+                if (_timeProvider.GetUtcNow() - _cacheLastLoaded < _cacheExpiration)
+                {
+                    return Task.FromResult<PicsJsonData?>(_cachedPicsData);
+                }
+
+                _cachedPicsData = null;
             }
 
             var jsonOptions = new JsonSerializerOptions
@@ -364,7 +378,7 @@ public class PicsDataService
             if (picsData != null)
             {
                 _cachedPicsData = picsData;
-                _cacheLastLoaded = DateTime.UtcNow;
+                _cacheLastLoaded = _timeProvider.GetUtcNow();
                 _logger.LogInformation("PICS data loaded and cached ({TotalMappings} mappings)", picsData.Metadata?.TotalMappings ?? 0);
 
                 // Update state to indicate data is loaded
@@ -673,7 +687,7 @@ public class PicsDataService
     public void ClearCache()
     {
         _cachedPicsData = null;
-        _cacheLastLoaded = DateTime.MinValue;
+        _cacheLastLoaded = DateTimeOffset.MinValue;
         _logger.LogInformation("PICS data cache cleared");
     }
 }

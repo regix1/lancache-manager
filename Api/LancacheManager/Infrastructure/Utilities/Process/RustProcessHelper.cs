@@ -220,8 +220,10 @@ public partial class RustProcessHelper
 
         // P2-D: always register a token-cancel kill callback, even when an operationId is set.
         // A linked/host-shutdown token can cancel outside tracker.CancelOperation; without this the
-        // finally would Untrack+Dispose the wrapper while leaving the OS child running. Idempotent
-        // with the tracker's own kill via KillProcessTree's HasExited guard.
+        // finally would Untrack+Dispose the wrapper while leaving the OS child running. The tracker
+        // kills as well, so a normal cancel kills twice, and HasExited does not make the second kill
+        // a no-op: the OS has not reaped the child in the instant after Kill, and once the finally
+        // below disposes the process every read of it throws instead. KillProcessTree absorbs both.
         var cancelRegistration = cancellationToken.CanBeCanceled
             ? cancellationToken.Register(() =>
                 _processManager.KillProcessTree(process, $"{processLabel} token-cancel"))

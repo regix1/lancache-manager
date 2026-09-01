@@ -77,7 +77,10 @@ public class StatusCheckController : ControllerBase
         var operationId = _statusCheckService.StartSweep();
         if (operationId == null)
         {
-            throw new ConflictException("A Status Check sweep is already running.");
+            throw new ConflictException("A Status Check sweep is already running.")
+            {
+                StageKey = "errors.statusCheck.sweepRunning"
+            };
         }
 
         return Accepted(new RunStatusCheckResponse { OperationId = operationId.Value });
@@ -128,7 +131,10 @@ public class StatusCheckController : ControllerBase
         var outcome = await _domainsService.RefreshDomainsAsync(cancellationToken);
         if (!outcome.Success)
         {
-            throw new ConflictException(outcome.BlockedReason ?? "Domain refresh was blocked.");
+            throw new ConflictException(outcome.BlockedReason ?? "Domain refresh was blocked.")
+            {
+                StageKey = outcome.BlockedStageKey
+            };
         }
 
         return Ok(new RefreshDomainsResponse

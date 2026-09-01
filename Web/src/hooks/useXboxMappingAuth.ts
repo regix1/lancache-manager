@@ -184,7 +184,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
           // past approval and the reporter has already settled the card with this exact translated
           // sentence one message earlier. Hand ownership over before failLogin snapshots it, or a
           // second card lands carrying the generic "Xbox login failed" and demotes the real reason to
-          // a detail line the condensed strip never draws. [27]
+          // a detail line the condensed strip never draws.
           loginNotificationActiveRef.current = false;
         }
         failLogin(

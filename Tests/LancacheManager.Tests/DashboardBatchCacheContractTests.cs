@@ -30,7 +30,11 @@ public sealed class DashboardBatchCacheContractTests
         Clients = new object(),
         Services = new object(),
         Dashboard = new object(),
-        Downloads = new object(),
+        DownloadTotals = new object(),
+        FilteredDownloadTotals = new object(),
+        ServiceOptions = new object(),
+        ClientOptions = new object(),
+        RecentDownloads = new object(),
         Detection = new object(),
         Sparklines = new object(),
         HourlyActivity = new object(),
@@ -48,7 +52,11 @@ public sealed class DashboardBatchCacheContractTests
     [InlineData("clients")]
     [InlineData("services")]
     [InlineData("dashboard")]
-    [InlineData("downloads")]
+    [InlineData("downloadTotals")]
+    [InlineData("filteredDownloadTotals")]
+    [InlineData("serviceOptions")]
+    [InlineData("clientOptions")]
+    [InlineData("recentDownloads")]
     [InlineData("detection")]
     [InlineData("sparklines")]
     [InlineData("hourlyActivity")]
@@ -62,7 +70,11 @@ public sealed class DashboardBatchCacheContractTests
             case "clients": response.Clients = null; break;
             case "services": response.Services = null; break;
             case "dashboard": response.Dashboard = null; break;
-            case "downloads": response.Downloads = null; break;
+            case "downloadTotals": response.DownloadTotals = null; break;
+            case "filteredDownloadTotals": response.FilteredDownloadTotals = null; break;
+            case "serviceOptions": response.ServiceOptions = null; break;
+            case "clientOptions": response.ClientOptions = null; break;
+            case "recentDownloads": response.RecentDownloads = null; break;
             case "detection": response.Detection = null; break;
             case "sparklines": response.Sparklines = null; break;
             case "hourlyActivity": response.HourlyActivity = null; break;
@@ -231,12 +243,196 @@ public sealed class DashboardBatchCacheContractTests
     }
 
     [Fact]
-    public void LiveDownloadsHotPathObservesTheRequestToken()
+    public void RecentDownloadsHotPathObservesTheRequestToken()
     {
         var source = BatchServiceSource();
         Assert.True(
-            source.Contains("statsService.GetLatestDownloadsAsync(int.MaxValue, cancellationToken: ct)", StringComparison.Ordinal),
-            "the live downloads query is the heaviest sub-query and must observe the request token");
+            source.Contains("var active = await query.Where(d => d.IsActive).ToListAsync(ct);", StringComparison.Ordinal),
+            "the recent slice is the only sub-query still returning rows and must observe the request token");
+        Assert.True(
+            source.Contains(".Take(RecentDownloadsLimit)", StringComparison.Ordinal),
+            "the newest half of the recent slice must be bounded");
+    }
+
+    /// <summary>
+    /// The batch used to ship the whole visible Downloads table to every page that mounts the
+    /// provider. Nothing may put it back: the aggregates below exist so that the array does not
+    /// have to travel, and a reinstated array would defeat all of them at once.
+    /// </summary>
+    [Fact]
+    public void TheBatchDoesNotShipTheWholeDownloadsTable()
+    {
+        var source = BatchServiceSource();
+
+        Assert.DoesNotContain("GetLatestDownloadsAsync", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("int.MaxValue", source, StringComparison.Ordinal);
+        Assert.Null(typeof(DashboardBatchResponse).GetProperty("Downloads"));
+    }
+
+    /// <summary>
+    /// A sum written over <c>TotalBytes</c> or <c>CacheHitPercent</c> compiles and then throws at
+    /// runtime: both are computed off the entity and neither has a column behind it, so EF cannot
+    /// translate them. Every server-side aggregate has to name the two stored columns.
+    /// </summary>
+    [Fact]
+    public void ServerSideAggregatesNameTheStoredByteColumns()
+    {
+        var source = BatchServiceSource();
+
+        Assert.DoesNotContain("Sum(d => d.TotalBytes)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Max(d => d.TotalBytes)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("d.CacheHitPercent", source, StringComparison.Ordinal);
+        Assert.Contains("g.Max(d => d.CacheHitBytes + d.CacheMissBytes)", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The totals, the filter options and the recent slice must see the same rows as each other,
+    /// which they only do while they all compose the shared visibility filters instead of
+    /// restating a predicate of their own.
+    /// </summary>
+    [Fact]
+    public void TheDownloadSectionsShareOneVisibilityQuery()
+    {
+        var source = BatchServiceSource();
+
+        Assert.Contains("private static IQueryable<Download> BuildVisibleDownloadsQuery(", source, StringComparison.Ordinal);
+        Assert.Contains(".ApplyHiddenClientFilter(hiddenClientIps)", source, StringComparison.Ordinal);
+        Assert.Contains(".ApplyEmptySessionFilter()", source, StringComparison.Ordinal);
+
+        var sections = new[]
+        {
+            "GetDownloadTotalsAsync",
+            "GetFilteredDownloadTotalsAsync",
+            "GetServiceOptionsAsync",
+            "GetClientOptionsAsync",
+            "GetRecentDownloadsAsync"
+        };
+        foreach (var section in sections)
+        {
+            var declaration = source.IndexOf($"private async Task<object> {section}(", StringComparison.Ordinal);
+            Assert.True(declaration >= 0, $"missing download sub-query: {section}");
+            // Bounded to this section's own body. The five sections run in the order listed, so a
+            // search to the end of the file is satisfied for all of them by the last one's call.
+            var body = source[declaration..source.IndexOf("\n    }", declaration, StringComparison.Ordinal)];
+            Assert.True(
+                body.Contains("BuildVisibleDownloadsQuery(context", StringComparison.Ordinal),
+                $"{section} must compose the shared visibility query");
+        }
+    }
+
+    /// <summary>
+    /// The bytes and the row count come out of one grouping. Splitting them costs a second round
+    /// trip for a figure the first one already had.
+    /// </summary>
+    [Fact]
+    public void TheDownloadTotalsAndTheirCountShareOneRoundTrip()
+    {
+        var source = BatchServiceSource();
+
+        var declaration = source.IndexOf(
+            "private static async Task<DownloadTotals> QueryDownloadTotalsAsync(IQueryable<Download> query, CancellationToken ct)",
+            StringComparison.Ordinal);
+        var grouping = source.IndexOf(".GroupBy(d => 1)", declaration, StringComparison.Ordinal);
+        var count = source.IndexOf("Count = g.Count()", grouping, StringComparison.Ordinal);
+        var materialize = source.IndexOf(".FirstOrDefaultAsync(ct)", grouping, StringComparison.Ordinal);
+
+        Assert.True(declaration >= 0, "both totals passes must share one projection");
+        Assert.True(grouping > declaration, "the totals must come from a single grouping");
+        Assert.True(count > grouping && count < materialize, "the count must sit in the same projection as the bytes");
+    }
+
+    /// <summary>
+    /// The service dropdown lists every service the log parser wrote, placeholders included: the
+    /// aggregate service rows drop <c>localhost</c> and <c>ip-address</c> because no files on disk
+    /// can be attributed to them, but a reader still filters the download list by both.
+    /// </summary>
+    [Fact]
+    public void TheServiceOptionsKeepThePlaceholderServices()
+    {
+        var source = BatchServiceSource();
+
+        var declaration = source.IndexOf("private async Task<object> GetServiceOptionsAsync(", StringComparison.Ordinal);
+        var nextSection = source.IndexOf("private async Task<object> GetClientOptionsAsync(", declaration, StringComparison.Ordinal);
+        var body = source[declaration..nextSection];
+
+        Assert.DoesNotContain("ApplyPlaceholderServiceFilter", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("NormalizeXboxService", body, StringComparison.Ordinal);
+        Assert.Contains(".GroupBy(d => d.Service)", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A prefill that has been running for hours has an old start time and is still active. That
+    /// row is what retires the live preview drawn beside it, so the slice carries every active row
+    /// whatever its age; the five-minute window the active COUNT uses would drop it and leave a
+    /// duplicate row on screen for good.
+    /// </summary>
+    [Fact]
+    public void TheRecentSliceCarriesEveryActiveRowWhateverItsAge()
+    {
+        var source = BatchServiceSource();
+
+        var declaration = source.IndexOf("private async Task<object> GetRecentDownloadsAsync(", StringComparison.Ordinal);
+        var nextSection = source.IndexOf("internal sealed class DashboardDownloadRow", declaration, StringComparison.Ordinal);
+        var body = source[declaration..nextSection];
+
+        Assert.Contains("query.Where(d => d.IsActive)", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("activeThreshold", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("EndTimeUtc >", body, StringComparison.Ordinal);
+        Assert.Contains(".DistinctBy(d => d.Id)", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The recent panel's footer is computed after its own dropdowns and the Downloads page header
+    /// is computed over everything, and the two pages read one shared response. So the narrowed
+    /// totals travel beside the plain ones rather than replacing them: one field cannot be both,
+    /// and a single narrowed field would make a dropdown on the Dashboard move a number on the
+    /// Downloads page. The dropdown contents stay unfiltered too, otherwise choosing one service
+    /// would empty the list it was chosen from.
+    /// </summary>
+    [Fact]
+    public void OnlyTheFilteredTotalsAndTheSliceTakeTheDownloadFilters()
+    {
+        var source = BatchServiceSource();
+
+        Assert.Contains(
+            "private static IQueryable<Download> ApplyDownloadFilters(IQueryable<Download> query, string? service, string? client)",
+            source,
+            StringComparison.Ordinal);
+
+        foreach (var section in new[] { "GetFilteredDownloadTotalsAsync", "GetRecentDownloadsAsync" })
+        {
+            var declaration = source.IndexOf($"private async Task<object> {section}(", StringComparison.Ordinal);
+            Assert.True(declaration >= 0, $"missing download sub-query: {section}");
+            var body = source[declaration..source.IndexOf("\n    }", declaration, StringComparison.Ordinal)];
+            Assert.True(
+                body.Contains("ApplyDownloadFilters(", StringComparison.Ordinal),
+                $"{section} must honor the service and client filters");
+        }
+
+        foreach (var section in new[] { "GetDownloadTotalsAsync", "GetServiceOptionsAsync", "GetClientOptionsAsync" })
+        {
+            var declaration = source.IndexOf($"private async Task<object> {section}(", StringComparison.Ordinal);
+            var body = source[declaration..source.IndexOf("\n    }", declaration, StringComparison.Ordinal)];
+            Assert.DoesNotContain("ApplyDownloadFilters(", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("string? service", body, StringComparison.Ordinal);
+        }
+
+        // The filters change the body, so they have to change the key the body is stored under.
+        Assert.Contains(":{includeClientHostnames}:{service}:{client}", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A client dropdown entry can name a group, which stands for several addresses. Matching one
+    /// address would make every group selection return nothing at all, so the value arrives as a
+    /// list and the query tests membership.
+    /// </summary>
+    [Fact]
+    public void TheClientFilterMatchesEveryAddressAGroupCovers()
+    {
+        var source = BatchServiceSource();
+
+        Assert.Contains("clientIps.Contains(d.ClientIp)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("d.ClientIp == client", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -284,6 +480,65 @@ public sealed class DashboardBatchCacheContractTests
         }
     }
 
+    /// <summary>
+    /// Hiding a client, or excluding one from stats only, changes the clients, services, dashboard,
+    /// sparklines and hourly sections. Saving either list raises the live generation, and a ranged
+    /// entry's key does not carry that generation, so the two lists have to be in the key itself or
+    /// a reader on a fixed window keeps the pre-change body for the rest of that entry's window.
+    /// </summary>
+    [Fact]
+    public void TheCacheKeyCarriesTheClientVisibilityLists()
+    {
+        var source = BatchServiceSource();
+
+        Assert.Contains(
+            "{string.Join(\",\", hiddenClientIps)}|{string.Join(\",\", statsExcludedOnlyIps)}",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The detection section is the one sub-query that queues on a shared lock, and the load in
+    /// front of it can run for seconds. A batch whose caller has gone away has to be able to leave
+    /// that queue rather than wait for someone else's load and then run its own.
+    /// </summary>
+    [Fact]
+    public void TheDetectionSubQueryObservesTheRequestToken()
+    {
+        var batchSource = BatchServiceSource();
+        var detectionSource = ReadSource("Core", "Services", "Detection", "GameCacheDetectionService.cs");
+
+        Assert.Contains("GetCachedDetectionAsync(actualCacheSize, ct)", batchSource, StringComparison.Ordinal);
+        Assert.Contains("_gameCacheDetectionService.GetCachedDetectionAsync(ct)", batchSource, StringComparison.Ordinal);
+        Assert.Contains("_detectionCacheLock.WaitAsync(cancellationToken)", detectionSource, StringComparison.Ordinal);
+        Assert.Contains(
+            "LoadDetectionAsync(cancellationToken, includeCacheFilePaths: false)",
+            detectionSource,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The retro endpoint resolves game names under HttpContext.RequestAborted, so a reader that
+    /// navigates away cancels it. Reporting that as an empty page hands the client a success with
+    /// no rows in it; the cancellation belongs to the middleware, which answers 499 for it.
+    /// </summary>
+    [Fact]
+    public void TheRetroEndpointDoesNotReportACanceledRequestAsAnEmptyPage()
+    {
+        var source = ReadSource("Controllers", "Downloads", "DownloadsController.cs");
+
+        var logIndex = source.IndexOf("Error getting retro downloads", StringComparison.Ordinal);
+        Assert.True(logIndex > 0, "the retro handler no longer logs under this message");
+
+        var catchIndex = source.LastIndexOf("catch (Exception ex)", logIndex, StringComparison.Ordinal);
+        Assert.True(catchIndex > 0, "the retro handler no longer catches Exception");
+
+        Assert.StartsWith(
+            "catch (Exception ex) when (ex is not OperationCanceledException)",
+            source[catchIndex..],
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void WarmerRetriesOnceAndReportsPartialWarms()
     {
@@ -306,7 +561,7 @@ public sealed class DashboardBatchCacheContractTests
     /// <summary>
     /// A warm that names no zone writes a key whose zone segment is empty, while every browser asks
     /// for a key carrying its zone name. That entry is read by nobody and the fan-out behind it is
-    /// paid on a schedule anyway. [70]
+    /// paid on a schedule anyway.
     /// </summary>
     [Fact]
     public void WarmRequestsTheZoneADefaultReaderSends()
@@ -323,7 +578,7 @@ public sealed class DashboardBatchCacheContractTests
     /// /api/system/config answers <see cref="ServerTimeZone.IanaId(IConfiguration)"/>, a reader on the
     /// default server clock sends that id straight back, and the batch puts whatever arrives through
     /// KnownTimeZoneId before keying on it - so that round trip has to return the id unchanged. A
-    /// rename to "Etc/UTC" on the reader's side alone would split the two keys. [70]
+    /// rename to "Etc/UTC" on the reader's side alone would split the two keys.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -486,6 +741,161 @@ public sealed class DashboardBatchCacheContractTests
         Assert.Equal("N/A", batchResponse.TopService);
         Assert.Equal(batchResponse.TopService, controllerResponse.TopService);
     }
+
+    /// <summary>
+    /// A service whose downloads only ever cached metadata is still selectable, it just sits below
+    /// the dropdown's own divider. That split needs a per-service maximum, and the name it is
+    /// reported under stays raw so the client can fold the aliases itself.
+    /// </summary>
+    [Fact]
+    public async Task ServiceOptionsMarkOnlyTheServicesThatCachedALargeDownload()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"service-options-{Guid.NewGuid():N}")
+            .Options;
+
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.Downloads.Add(NewDownload("steam", "10.0.0.1", DateTime.UtcNow.AddMinutes(-10), cacheHitBytes: 500 * 1024));
+            seed.Downloads.Add(NewDownload("xboxlive", "10.0.0.2", DateTime.UtcNow.AddMinutes(-10), cacheHitBytes: 2 * 1024 * 1024));
+            await seed.SaveChangesAsync();
+        }
+
+        var serviceOptions = Assert.IsType<List<ServiceFilterOption>>(
+            await InvokeSubQuery(BatchServiceOver(options), "GetServiceOptionsAsync",
+                [null, null, new List<long>(), null, new List<string>(), "show", CancellationToken.None]));
+
+        Assert.False(serviceOptions.Single(o => o.Service == "steam").HasLargeFiles);
+        Assert.True(serviceOptions.Single(o => o.Service == "xboxlive").HasLargeFiles);
+    }
+
+    /// <summary>
+    /// The row of a download that has been running for hours is older than every completed row
+    /// beside it, and it is the row whose advancing byte count retires the live preview drawn over
+    /// it. Dropping it out of the slice leaves that preview beside the recorded row for good.
+    /// </summary>
+    [Fact]
+    public async Task TheRecentSliceKeepsAnActiveRowOlderThanEveryCompletedRow()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"recent-slice-{Guid.NewGuid():N}")
+            .Options;
+
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.Downloads.Add(NewDownload("steam", "10.0.0.1", DateTime.UtcNow.AddHours(-6), cacheHitBytes: 4096, isActive: true));
+            for (var minute = 1; minute <= 5; minute++)
+            {
+                seed.Downloads.Add(NewDownload("steam", "10.0.0.2", DateTime.UtcNow.AddMinutes(-minute), cacheHitBytes: 4096));
+            }
+            await seed.SaveChangesAsync();
+        }
+
+        var rows = Assert.IsType<List<DashboardBatchService.DashboardDownloadRow>>(
+            await InvokeSubQuery(BatchServiceOver(options), "GetRecentDownloadsAsync",
+                [null, null, new List<long>(), null, new List<string>(), "show", null, null, CancellationToken.None]));
+
+        Assert.Single(rows, row => row.IsActive);
+        Assert.Equal(6, rows.Count);
+    }
+
+    /// <summary>
+    /// The recent panel's footer is summed after its client dropdown, so a selected client has to
+    /// narrow those totals. The Downloads page header sums everything and sits on another page
+    /// reading the same response, so the plain totals must stay whole while that happens: a reader
+    /// changing a dropdown on the Dashboard cannot be allowed to move a number on the Downloads
+    /// page.
+    /// </summary>
+    [Fact]
+    public async Task TheFilteredTotalsFollowTheSelectedClientAndThePlainTotalsDoNot()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"download-totals-{Guid.NewGuid():N}")
+            .Options;
+
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.Downloads.Add(NewDownload("steam", "10.0.0.1", DateTime.UtcNow.AddMinutes(-10), cacheHitBytes: 100, cacheMissBytes: 20));
+            seed.Downloads.Add(NewDownload("steam", "10.0.0.1", DateTime.UtcNow.AddMinutes(-9), cacheHitBytes: 300, cacheMissBytes: 80));
+            seed.Downloads.Add(NewDownload("steam", "10.0.0.2", DateTime.UtcNow.AddMinutes(-8), cacheHitBytes: 600, cacheMissBytes: 900));
+            await seed.SaveChangesAsync();
+        }
+
+        var filtered = Assert.IsType<DownloadTotals>(
+            await InvokeSubQuery(BatchServiceOver(options), "GetFilteredDownloadTotalsAsync",
+                [null, null, new List<long>(), null, new List<string>(), "show", null, "10.0.0.1", CancellationToken.None]));
+
+        Assert.Equal(400, filtered.CacheHitBytes);
+        Assert.Equal(100, filtered.CacheMissBytes);
+        Assert.Equal(2, filtered.Count);
+
+        var plain = Assert.IsType<DownloadTotals>(
+            await InvokeSubQuery(BatchServiceOver(options), "GetDownloadTotalsAsync",
+                [null, null, new List<long>(), null, new List<string>(), "show", CancellationToken.None]));
+
+        Assert.Equal(1000, plain.CacheHitBytes);
+        Assert.Equal(1000, plain.CacheMissBytes);
+        Assert.Equal(3, plain.Count);
+    }
+
+    /// <summary>
+    /// A client group covers several addresses and the dropdown offers it as one entry, so the
+    /// filter has to admit every member. Matching a single address would return nothing for every
+    /// group selection, emptying the panel and zeroing its footer.
+    /// </summary>
+    [Fact]
+    public async Task TheFilteredTotalsCoverEveryAddressInASelectedClientGroup()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"client-group-totals-{Guid.NewGuid():N}")
+            .Options;
+
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.Downloads.Add(NewDownload("steam", "10.0.0.1", DateTime.UtcNow.AddMinutes(-10), cacheHitBytes: 100));
+            seed.Downloads.Add(NewDownload("steam", "10.0.0.2", DateTime.UtcNow.AddMinutes(-9), cacheHitBytes: 300));
+            seed.Downloads.Add(NewDownload("steam", "10.0.0.3", DateTime.UtcNow.AddMinutes(-8), cacheHitBytes: 900));
+            await seed.SaveChangesAsync();
+        }
+
+        var totals = Assert.IsType<DownloadTotals>(
+            await InvokeSubQuery(BatchServiceOver(options), "GetFilteredDownloadTotalsAsync",
+                [null, null, new List<long>(), null, new List<string>(), "show", null, "10.0.0.1,10.0.0.2", CancellationToken.None]));
+
+        Assert.Equal(400, totals.CacheHitBytes);
+        Assert.Equal(2, totals.Count);
+    }
+
+    private static Download NewDownload(
+        string service,
+        string clientIp,
+        DateTime startTimeUtc,
+        long cacheHitBytes = 0,
+        long cacheMissBytes = 0,
+        bool isActive = false) => new()
+        {
+            Service = service,
+            ClientIp = clientIp,
+            StartTimeUtc = startTimeUtc,
+            EndTimeUtc = startTimeUtc.AddMinutes(1),
+            CacheHitBytes = cacheHitBytes,
+            CacheMissBytes = cacheMissBytes,
+            IsActive = isActive
+        };
+
+    private static DashboardBatchService BatchServiceOver(DbContextOptions<AppDbContext> options)
+    {
+        var service = (DashboardBatchService)RuntimeHelpers.GetUninitializedObject(typeof(DashboardBatchService));
+        typeof(DashboardBatchService)
+            .GetField("_dbContextFactory", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(service, new TopServiceDbContextFactory(options));
+        return service;
+    }
+
+    private static Task<object> InvokeSubQuery(DashboardBatchService service, string name, object?[] arguments)
+        => (Task<object>)typeof(DashboardBatchService)
+            .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(service, arguments)!;
 
     private sealed class TopServiceDbContextFactory(DbContextOptions<AppDbContext> options) : IDbContextFactory<AppDbContext>
     {

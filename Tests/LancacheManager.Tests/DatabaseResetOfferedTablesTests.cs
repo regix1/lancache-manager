@@ -8,7 +8,7 @@ namespace LancacheManager.Tests;
 /// table names, and when they drift the screen offers a checkbox the backend then discards without
 /// saying so: XboxGameMappings and XboxCdnPatterns were both offered and both cleared nothing.
 /// Reading the names out of the screen's own source is what makes the next drift fail here rather
-/// than on a user's box. [1][2]
+/// than on a user's box.
 /// </summary>
 public sealed partial class DatabaseResetOfferedTablesTests
 {

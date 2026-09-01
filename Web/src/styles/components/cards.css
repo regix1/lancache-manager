@@ -33,9 +33,9 @@
 
   /* Light mode card shadow for visual separation (Linear/Stripe style) */
   /* Width and style only. The `border` shorthand used to be here, and because this selector
-     outranks a single class it repainted the colour over any border-* utility the card carried,
+     outranks a single class it repainted the color over any border-* utility the card carried,
      so in the light theme a card marked active or warning drew the same edge as every other card.
-     The colour stays on .themed-card above, where a utility can still win it. [52] */
+     The color stays on .themed-card above, where a utility can still win it. */
   [data-theme='light'] .themed-card {
     box-shadow: var(--shadow-card);
     border-width: 1px;
@@ -98,7 +98,7 @@
     /* Matches .themed-card above: stops the background bleeding over the border pixels at the
        anti-aliased rounded corner, and gives the light-theme shadow below a tween instead of a
        snap. Without these a .widget-card sat visibly flat next to a <Card> in the same dashboard
-       grid, which does compose .themed-card. [8] */
+       grid, which does compose .themed-card. */
     background-clip: padding-box;
     transition: box-shadow 0.15s ease-out;
   }

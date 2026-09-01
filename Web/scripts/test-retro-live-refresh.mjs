@@ -193,6 +193,19 @@ export const useRefreshRate = () => ({ getRefreshInterval: () => ${REFRESH_INTER
 
 const eventsUrl = await compileToUrl('../src/contexts/SignalRContext/types.ts');
 
+// Every case in this file is about the live path, so the toggle is off throughout and the
+// generator is wired to fail loudly if the hook ever reaches for it here.
+const mockModeUrl = moduleUrl(`
+export const useMockMode = () => ({ mockMode: false });
+`);
+const mockDataUrl = moduleUrl(`
+export default {
+  generateMockRetroData() {
+    throw new Error('the live path reached the mock generator');
+  }
+};
+`);
+
 const { createComponent } = await import(reactUrl);
 const { hub } = await import(signalRUrl);
 const { calls } = await import(apiUrl);
@@ -209,6 +222,8 @@ const importHook = async (relativePath) =>
       '@contexts/SignalRContext/types': eventsUrl,
       '@contexts/SignalRContext/useSignalR': signalRUrl,
       '@contexts/useTimeFilter': timeFilterUrl,
+      '@contexts/useMockMode': mockModeUrl,
+      '@/test/mockData.service': mockDataUrl,
       '@hooks/useReconnectRefetch': await compileToUrl('../src/hooks/useReconnectRefetch.ts', {
         react: reactUrl
       }),

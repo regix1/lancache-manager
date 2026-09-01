@@ -36,6 +36,16 @@ public class NotFoundResponse
 {
     public string Error { get; set; } = string.Empty;
     public Guid? OperationId { get; set; }
+
+    /// <summary>
+    /// i18n key for the localized reason, the same field a thrown refusal carries. Set on the
+    /// routes that answer with this shape instead of throwing; null everywhere the English
+    /// sentence is still the only answer.
+    /// </summary>
+    public string? StageKey { get; set; }
+
+    /// <summary>Substitution values for the localized <see cref="StageKey"/> template.</summary>
+    public Dictionary<string, object?>? Context { get; set; }
 }
 
 /// <summary>
@@ -73,6 +83,16 @@ public class ErrorResponse
     public string? Code { get; set; }
 
     /// <summary>
+    /// i18n key for the localized reason, the same field a thrown refusal carries. Set on the
+    /// routes that answer with this shape instead of throwing; null everywhere the English
+    /// sentence is still the only answer.
+    /// </summary>
+    public string? StageKey { get; set; }
+
+    /// <summary>Substitution values for the localized <see cref="StageKey"/> template.</summary>
+    public Dictionary<string, object?>? Context { get; set; }
+
+    /// <summary>
     /// Legacy secondary message field. <see cref="Error"/> is the canonical error key; this is retained
     /// only for the existing SteamApiKeysController payload that sets both. Do NOT add new usages.
     /// </summary>
@@ -96,6 +116,13 @@ public class MessageOnlyResponse
 public class ValidationErrorResponse
 {
     public string Error { get; set; } = "Validation failed";
+
+    /// <summary>
+    /// i18n key naming the refusal, so the browser shows it in the reader's language. The English
+    /// <see cref="Error"/> stays as the fallback for a build whose locale has no words for the key.
+    /// </summary>
+    public string? StageKey { get; set; }
+
     public List<ValidationFieldError> Errors { get; set; } = new();
 }
 

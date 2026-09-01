@@ -34,6 +34,29 @@ internal static class ServiceBreakdownMerger
     }
 
     /// <summary>
+    /// The title the grouped Downloads views put on a nameless service's row: "Epic Games" for
+    /// Epic, and for every other service the capitalized service name followed by "Downloads".
+    /// Mirrors Web/src/components/features/downloads/DownloadsTab.tsx so an alphabetical sort here
+    /// orders what the reader sees rather than the bare key the row carries. The browser translates
+    /// the "Downloads" half, so the two orders still part company outside English.
+    /// </summary>
+    public static string ServiceGroupTitle(string service)
+    {
+        var display = NormalizeXboxService(service);
+        if (string.Equals(display, "epicgames", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Epic Games";
+        }
+
+        // Download.Service defaults to the empty string, so a row can reach here with nothing to
+        // capitalize.
+        var capitalized = display.Length > 0
+            ? char.ToUpperInvariant(display[0]) + display[1..]
+            : display;
+        return $"{capitalized} Downloads";
+    }
+
+    /// <summary>
     /// The per-service byte breakdown for a period: grouped in SQL over the given downloads
     /// query, placeholder services filtered, xbox aliases folded. The one shared query behind
     /// the dashboard batch and the stats endpoint.

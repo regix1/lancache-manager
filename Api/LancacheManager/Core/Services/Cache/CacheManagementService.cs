@@ -74,7 +74,7 @@ public partial class CacheManagementService
     /// Only one tracked full scan runs at a time (_scanCacheLock serializes them).
     /// </summary>
     // Written on the scan worker thread, read on the request thread by the status endpoint.
-    // volatile publishes the write so a status read on another thread sees it. [26]
+    // volatile publishes the write so a status read on another thread sees it.
     private volatile Dictionary<string, object?>? _currentCacheSizeScanProgressContext;
     public Dictionary<string, object?>? CurrentCacheSizeScanProgressContext => _currentCacheSizeScanProgressContext;
 

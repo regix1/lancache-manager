@@ -1,8 +1,10 @@
 using LancacheManager.Core;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -469,4 +471,121 @@ public class XboxNamedDetectionEvictionTests
         Assert.Equal(1, await assert.CachedGameDetections.CountAsync());
     }
 
+    // -----------------------------------------------------------------------------------------
+    // Startup reconciliation. ReconcileDetectionDataAsync ends with a cleanup that drops rows no
+    // identity can address. Its predicate has to spare the named identity, which is the SAME
+    // (GameAppId=0, EpicAppId=null) shape - the difference is that a named row carries a title in
+    // GameName. Without that distinction every Xbox/Blizzard/Riot row is deleted on every boot, and
+    // nothing restores it: the startup rescan is skipped while any Steam row survives, and a named
+    // detection row has no product id to re-resolve from.
+    // -----------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("xbox", "Call of Duty®: Black Ops 4")]
+    [InlineData("blizzard", "Diablo IV")]
+    [InlineData("riot", "VALORANT")]
+    public async Task ReconcileDetectionData_KeepsNamedGame_AndStillDropsNamelessRow(string service, string gameName)
+    {
+        var options = NewInMemoryOptions();
+        var root = Path.Combine(Path.GetTempPath(), "lcm-named-reconcile", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.CachedGameDetections.Add(NamedDetectionRow(service, gameName));
+
+            // A Steam row, because it is what makes the loss permanent in production: the startup
+            // rescan is skipped whenever any detection row survives.
+            seed.CachedGameDetections.Add(new CachedGameDetection
+            {
+                GameAppId = 730,
+                EpicAppId = null,
+                Service = "steam",
+                GameName = "Counter-Strike 2",
+                LastDetectedUtc = DateTime.UtcNow,
+                CreatedAtUtc = DateTime.UtcNow
+            });
+
+            // The row the cleanup is actually for: no app id, no Epic id, no name, so nothing can
+            // address it and no scan can refill it.
+            seed.CachedGameDetections.Add(new CachedGameDetection
+            {
+                GameAppId = 0,
+                EpicAppId = null,
+                Service = service,
+                GameName = "",
+                LastDetectedUtc = DateTime.UtcNow,
+                CreatedAtUtc = DateTime.UtcNow
+            });
+
+            await seed.SaveChangesAsync();
+        }
+
+        var detectionService = NewDetectionService(options, root);
+        try
+        {
+            await detectionService.ReconcileDetectionDataAsync();
+        }
+        finally
+        {
+            detectionService.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+
+        await using var assert = new AppDbContext(options);
+
+        Assert.True(await assert.CachedGameDetections.AnyAsync(
+            g => g.GameAppId == 0 && g.EpicAppId == null && g.Service == service && g.GameName == gameName));
+        Assert.True(await assert.CachedGameDetections.AnyAsync(g => g.GameAppId == 730));
+        Assert.False(await assert.CachedGameDetections.AnyAsync(g => g.GameName == ""));
+    }
+
+    /// <summary>
+    /// Builds a real <see cref="GameCacheDetectionService"/> for the startup reconcile path only.
+    /// The collaborators that path uses are real and rooted at a throwaway temp directory; the
+    /// operation-state and tracker collaborators are left null because the only thing that reads them
+    /// is the constructor's RestoreInterruptedOperations, which swallows the resulting failure, and
+    /// the Rust and notification collaborators are never reached by a reconcile.
+    /// </summary>
+    private static GameCacheDetectionService NewDetectionService(DbContextOptions<AppDbContext> options, string root)
+    {
+        var dbContextFactory = new InMemoryDbContextFactory(options);
+        var pathResolver = new TempDirPathResolver(root);
+        var configuration = new ConfigurationBuilder().Build();
+        var datasourceService = new DatasourceService(
+            configuration, pathResolver, NullLogger<DatasourceService>.Instance);
+
+        return new GameCacheDetectionService(
+            NullLogger<GameCacheDetectionService>.Instance,
+            pathResolver,
+            operationStateService: null!,
+            dbContextFactory,
+            NewDataService(options),
+            new EvictedDetectionPreservationService(),
+            new UnknownGameResolutionService(
+                dbContextFactory, NullLogger<UnknownGameResolutionService>.Instance),
+            rustProcessHelper: null!,
+            notifications: null!,
+            datasourceService,
+            new DatasourceCapabilityService(datasourceService),
+            operationTracker: null!,
+            CacheScanGateHarness.Idle());
+    }
+
+    private sealed class TempDirPathResolver : PathResolverBase
+    {
+        private readonly string _basePath;
+
+        public TempDirPathResolver(string basePath) : base(NullLogger.Instance)
+        {
+            _basePath = basePath;
+        }
+
+        protected override string BasePath => _basePath;
+        protected override string RustExecutableExtension => string.Empty;
+
+        public override string ResolvePath(string relativePath) => relativePath;
+        public override string NormalizePath(string path) => path;
+        public override bool IsDockerSocketAvailable() => false;
+    }
 }

@@ -655,7 +655,10 @@ public class PrefillSessionService
             {
                 stale.Status = PrefillHistoryEntryStatus.Cancelled;
                 stale.CompletedAtUtc = DateTime.UtcNow;
-                stale.ErrorMessage = "Superseded by new prefill operation";
+                // An i18n key rather than a sentence: this reason is written by the app, not
+                // reported by a daemon, so the history row can be read in the operator's language.
+                // Rows written before this carry English and are shown as they are.
+                stale.ErrorMessage = "signalr.prefillSession.superseded";
             }
             _logger.LogDebug("Cancelled {Count} stale InProgress entries for app {AppId} in session {SessionId}",
                 staleEntries.Count, appId, sessionId);

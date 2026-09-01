@@ -113,6 +113,7 @@ var documentedDomainByController = new Dictionary<string, string>(StringComparer
     ["Games"] = "Cache and Games",
     ["XboxGameMapping"] = "Cache and Games",
     ["Dashboard"] = "Downloads and Reporting",
+    ["DownloadRows"] = "Downloads and Reporting",
     ["Downloads"] = "Downloads and Reporting",
     ["Events"] = "Downloads and Reporting",
     ["Logs"] = "Downloads and Reporting",
@@ -391,7 +392,6 @@ builder.Services.AddSingleton<RustProcessHelper>();
 builder.Services.AddSingleton<SteamAuthStorageService>();
 builder.Services.AddSingleton<IStateService, StateService>();
 builder.Services.AddScoped<DatabaseService>();
-builder.Services.AddScoped<IStatsDataService, StatsDataService>();
 builder.Services.AddScoped<IEventsService, EventsService>();
 builder.Services.AddScoped<IClientGroupsService, ClientGroupsService>();
 builder.Services.AddSingleton<PathMigrationService>();
@@ -410,7 +410,6 @@ builder.Services.AddSingleton<ISignalRNotificationService, SignalRNotificationSe
 
 // Register concrete classes (for code that directly references them)
 builder.Services.AddSingleton(sp => (StateService)sp.GetRequiredService<IStateService>());
-builder.Services.AddScoped(sp => (StatsDataService)sp.GetRequiredService<IStatsDataService>());
 
 // Database configuration - build connection string dynamically from env vars or config file
 var baseConnStr = builder.Configuration.GetConnectionString("DefaultConnection")
@@ -1135,7 +1134,7 @@ using (var scope = app.Services.CreateScope())
 // Build the schedule registry before the hosted services reach their startup runs. It is otherwise
 // constructed on the first schedules request, and its constructor is what installs the answer the
 // scheduled loops ask before they run, so a container that came up during a download would run its
-// startup work unguarded until somebody opened the page. [10]
+// startup work unguarded until somebody opened the page.
 //
 // It MUST stay after the block above. Its constructor takes IEnumerable<IHostedService>, so
 // resolving it builds every hosted service, and those constructors read the state file and the
@@ -1147,7 +1146,7 @@ app.Services.GetRequiredService<IServiceScheduleRegistry>();
 // First start (no api_key.txt) prints the key. Later restarts only print the file path.
 var apiKeyService = app.Services.GetRequiredService<ApiKeyService>();
 // The flag is only set once the key file has been read or created, and the argument below is read
-// before DisplayApiKey runs that read itself, so without this line a first start masks the key. [1]
+// before DisplayApiKey runs that read itself, so without this line a first start masks the key.
 apiKeyService.GetApiKey();
 apiKeyService.DisplayApiKey(app.Configuration, revealKey: apiKeyService.WasNewKeyGenerated);
 

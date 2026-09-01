@@ -213,7 +213,7 @@ public class ScheduleController : ControllerBase
         {
             // Nothing was armed, so no run will follow and no state change will be broadcast. The
             // reason is the whole answer here: without it the caller sees a success for a run that
-            // never happened. [18]
+            // never happened.
             return Accepted(new QueuedOperationResponse
             {
                 Status = "skipped",

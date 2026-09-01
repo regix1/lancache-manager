@@ -41,7 +41,10 @@ public partial class SteamKit2Service
     {
         if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
         {
-            throw new ConflictException("A depot mapping operation is already running.");
+            throw new ConflictException("A depot mapping operation is already running.")
+            {
+                StageKey = "errors.depot.mappingInProgress"
+            };
         }
 
         _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);

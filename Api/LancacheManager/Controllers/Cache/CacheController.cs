@@ -130,7 +130,7 @@ public class CacheController : ControllerBase
         {
             // Only the explicit rescan is refused while a client download is writing. The
             // ordinary read below must keep answering, because the Cache card calls it on
-            // mount and on every reconnect. [26]
+            // mount and on every reconnect.
             var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
             if (downloadDenial != null)
             {
@@ -180,7 +180,11 @@ public class CacheController : ControllerBase
                 return Ok(new CacheSizeUnavailableResponse());
             }
 
-            return StatusCode(500, new ErrorResponse { Error = "Failed to calculate cache size" });
+            return StatusCode(500, new ErrorResponse
+            {
+                Error = "Failed to calculate cache size",
+                StageKey = "management.cache.errors.calculateSizeFailed"
+            });
         }
 
         return Ok(result);
@@ -269,10 +273,15 @@ public class CacheController : ControllerBase
         {
             var errorMessage = "Cannot clear cache: cache directory is read-only. " +
                 "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
+                $"The LANCache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
             _logger.LogWarning("[ClearAllCache] Permission check failed: {Error}", errorMessage);
-            return BadRequest(ApiResponse.Error(errorMessage));
+            return BadRequest(new ErrorResponse
+            {
+                Error = errorMessage,
+                StageKey = "errors.cache.readOnly",
+                Context = new Dictionary<string, object?> { ["uidGid"] = ContainerEnvironment.UidGid }
+            });
         }
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
@@ -419,7 +428,10 @@ public class CacheController : ControllerBase
             : CorruptionDetectionMethodExtensions.TryParseWire(detectionMethod, out var parsed)
                 ? parsed
                 : throw new ValidationException(
-                    "Detection method must be 'repeated_miss' or 'structural'");
+                    "Detection method must be 'repeated_miss' or 'structural'")
+                {
+                    StageKey = "errors.corruption.invalidMethod"
+                };
         var cachedResults = await _corruptionDetectionService.GetDetectionAsync(
             method,
             cancellationToken);
@@ -494,12 +506,18 @@ public class CacheController : ControllerBase
     {
         if (scanId == Guid.Empty)
         {
-            throw new ValidationException("A corruption scan ID is required");
+            throw new ValidationException("A corruption scan ID is required")
+            {
+                StageKey = "errors.corruption.scanIdRequired"
+            };
         }
 
         if (!_serviceNameRegex.IsMatch(service))
         {
-            throw new ValidationException("Invalid service name");
+            throw new ValidationException("Invalid service name")
+            {
+                StageKey = "errors.corruption.invalidService"
+            };
         }
 
         var details = await _corruptionDetectionService.GetSnapshotDetailsAsync(
@@ -524,7 +542,10 @@ public class CacheController : ControllerBase
     {
         if (scanId == Guid.Empty)
         {
-            throw new ValidationException("A corruption scan ID is required");
+            throw new ValidationException("A corruption scan ID is required")
+            {
+                StageKey = "errors.corruption.scanIdRequired"
+            };
         }
 
         await _corruptionSnapshotMutationGate.WaitAsync(cancellationToken);
@@ -534,7 +555,10 @@ public class CacheController : ControllerBase
             if (HasActiveCorruptionRemovalForScan(activeRemovals, scanId))
             {
                 throw new ConflictException(
-                    "The corruption scan cannot be deleted while its cache removal is active");
+                    "The corruption scan cannot be deleted while its cache removal is active")
+                {
+                    StageKey = "errors.corruption.deleteBlockedByRemoval"
+                };
             }
 
             await _corruptionDetectionService.DeleteSnapshotAsync(scanId, cancellationToken);
@@ -599,7 +623,10 @@ public class CacheController : ControllerBase
             : CorruptionDetectionMethodExtensions.TryParseWire(detectionMethod, out var parsed)
                 ? parsed
                 : throw new ValidationException(
-                    "Detection method must be 'repeated_miss' or 'structural'");
+                    "Detection method must be 'repeated_miss' or 'structural'")
+                {
+                    StageKey = "errors.corruption.invalidMethod"
+                };
         var structuralScanMode = CorruptionDetectionService.ResolveStructuralScanMode(method, scanMode);
         CorruptionDetectionService.ValidateScanInput(
             threshold,
@@ -718,12 +745,18 @@ public class CacheController : ControllerBase
     {
         if (!_serviceNameRegex.IsMatch(service))
         {
-            throw new ValidationException("Invalid service name");
+            throw new ValidationException("Invalid service name")
+            {
+                StageKey = "errors.corruption.invalidService"
+            };
         }
 
         if (scanId == Guid.Empty)
         {
-            throw new ValidationException("A corruption scan ID is required");
+            throw new ValidationException("A corruption scan ID is required")
+            {
+                StageKey = "errors.corruption.scanIdRequired"
+            };
         }
 
         var details = await _corruptionDetectionService.GetDetailsAsync(scanId, service, cancellationToken);
@@ -759,12 +792,18 @@ public class CacheController : ControllerBase
 
         if (!_serviceNameRegex.IsMatch(service))
         {
-            throw new ValidationException("Invalid service name");
+            throw new ValidationException("Invalid service name")
+            {
+                StageKey = "errors.corruption.invalidService"
+            };
         }
 
         if (scanId == Guid.Empty)
         {
-            throw new ValidationException("A corruption scan ID is required");
+            throw new ValidationException("A corruption scan ID is required")
+            {
+                StageKey = "errors.corruption.scanIdRequired"
+            };
         }
 
         var requestedCandidateIds = ParseCsvValues(candidateIds, StringComparer.Ordinal);
@@ -898,7 +937,10 @@ public class CacheController : ControllerBase
 
         if (scanId == Guid.Empty)
         {
-            throw new ValidationException("A corruption scan ID is required");
+            throw new ValidationException("A corruption scan ID is required")
+            {
+                StageKey = "errors.corruption.scanIdRequired"
+            };
         }
 
         var cachedDetection = await _corruptionDetectionService.GetCurrentDetectionByScanIdAsync(
@@ -921,7 +963,10 @@ public class CacheController : ControllerBase
             if (unknown.Count > 0)
             {
                 throw new ValidationException(
-                    "One or more requested services are not part of the stored corruption scan");
+                    "One or more requested services are not part of the stored corruption scan")
+                {
+                    StageKey = "errors.corruption.serviceNotInScan"
+                };
             }
 
             servicesToRemove = cachedDetection.CorruptionCounts.Keys
@@ -935,7 +980,10 @@ public class CacheController : ControllerBase
 
         if (servicesToRemove.Count == 0)
         {
-            throw new ForbiddenException("This stored corruption scan has no removable candidates");
+            throw new ForbiddenException("This stored corruption scan has no removable candidates")
+            {
+                StageKey = "errors.corruption.nothingRemovable"
+            };
         }
 
         var previewSelections = new List<CorruptionRemovalSelection>();
@@ -1177,7 +1225,10 @@ public class CacheController : ControllerBase
         if (missing.Count > 0)
         {
             throw new ConflictException(
-                "One or more corruption candidates belong to a datasource that is no longer configured");
+                "One or more corruption candidates belong to a datasource that is no longer configured")
+            {
+                StageKey = "errors.corruption.datasourceGone"
+            };
         }
 
         return requestedNames.Select(name => configuredByName[name]).ToList();

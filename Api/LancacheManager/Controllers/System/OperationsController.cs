@@ -130,7 +130,9 @@ public class OperationsController : ControllerBase
         {
             // P2-C: the operation completed concurrently (its CTS was disposed / state nulled) between
             // the lookup above and the cancel. The op is already terminal, so the user's intent is
-            // satisfied — report success instead of leaking an unhandled 500.
+            // satisfied — report success instead of leaking an unhandled 500. The disposed-Process
+            // race is answered where the wait happens, in ProcessManager, because reporting every
+            // InvalidOperationException as finished would drop the card on a live operation.
             return Ok(new OperationCancelResponse
             {
                 Message = "Operation already completed",
@@ -167,6 +169,7 @@ public class OperationsController : ControllerBase
             // P2-C parity with the cancel endpoint: the operation completed concurrently (its CTS /
             // Process was disposed or state nulled) during the force kill. The op is already terminal,
             // so the user's intent is satisfied — report success instead of leaking an unhandled 500.
+            // The disposed-Process race is answered in ProcessManager, where the wait happens.
             return Ok(new OperationForceKillResponse
             {
                 Message = "Operation already completed",

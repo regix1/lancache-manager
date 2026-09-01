@@ -48,7 +48,7 @@ public partial class DashboardBatchService : IDashboardBatchService
     // Bumping a generation only makes the old entry unreachable by key; the entry itself keeps its
     // pre-serialized downloads section for the rest of its expiry window while the next request
     // builds a replacement beside it. Every entry is linked to the eviction token of the generation
-    // that produced it, so an invalidation releases that memory immediately. [1]
+    // that produced it, so an invalidation releases that memory immediately.
     private CancellationTokenSource _liveCacheEviction = new();
     private CancellationTokenSource _detectionCacheEviction = new();
 
@@ -99,7 +99,9 @@ public partial class DashboardBatchService : IDashboardBatchService
         long? eventId,
         string? timeZoneId,
         bool includeClientHostnames,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? service = null,
+        string? client = null)
     {
         // A reader that names no zone, or one this server cannot resolve, is grouped on the zone
         // the server reports as its own. That is still a zone name, so the database resolves each
@@ -128,7 +130,14 @@ public partial class DashboardBatchService : IDashboardBatchService
         // Whether client names may appear is part of the key, not a filter applied afterwards: one
         // cached body is handed to every reader, so a guest must never be served the entry an
         // account holder warmed.
-        var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{readerTimeZoneId}:{liveCacheGeneration}:{detectionCacheGeneration}:{includeClientHostnames}";
+        // The download filters are in the key for the same reason the zone is: they change the body,
+        // so a reader that picked a client must not be handed the entry an unfiltered reader warmed.
+        // The two client-visibility lists sit beside evictedMode for the same reason, and because
+        // saving them only raises the live generation: a ranged entry keeps its key across that
+        // bump and would keep serving the pre-change clients, services, dashboard, sparklines and
+        // hourly sections for the rest of its window. Joined with a character no address carries so
+        // the two lists cannot run together into one shared spelling.
+        var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{readerTimeZoneId}:{liveCacheGeneration}:{detectionCacheGeneration}:{includeClientHostnames}:{service}:{client}:{string.Join(",", hiddenClientIps)}|{string.Join(",", statsExcludedOnlyIps)}";
 
         // Concurrent misses for one key share a single fan-out via a Lazy-backed single-flight.
         // The Lazy is constructed before GetOrAdd (construction is inert - it never invokes
@@ -163,7 +172,8 @@ public partial class DashboardBatchService : IDashboardBatchService
                     cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
                     hiddenClientIps, statsExcludedOnlyIps, evictedMode,
                     isLive, liveCacheGeneration, detectionCacheGeneration,
-                    liveCacheEviction, detectionCacheEviction, includeClientHostnames, ct);
+                    liveCacheEviction, detectionCacheEviction, includeClientHostnames,
+                    service, client, ct);
             }
 
             var myLazy = new Lazy<Task<DashboardBatchResponse>>(
@@ -171,7 +181,8 @@ public partial class DashboardBatchService : IDashboardBatchService
                     cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
                     hiddenClientIps, statsExcludedOnlyIps, evictedMode,
                     isLive, liveCacheGeneration, detectionCacheGeneration,
-                    liveCacheEviction, detectionCacheEviction, includeClientHostnames, ct),
+                    liveCacheEviction, detectionCacheEviction, includeClientHostnames,
+                    service, client, ct),
                 LazyThreadSafetyMode.ExecutionAndPublication);
             var stored = _inflight.GetOrAdd(cacheKey, myLazy);
             var mine = ReferenceEquals(stored, myLazy);
@@ -221,6 +232,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         bool isLive, long liveCacheGeneration, long detectionCacheGeneration,
         CancellationToken liveCacheEviction, CancellationToken detectionCacheEviction,
         bool includeClientHostnames,
+        string? service, string? client,
         CancellationToken ct)
     {
         // Pre-fetch event download IDs once (shared by clients, services, dashboard, downloads)
@@ -236,32 +248,35 @@ public partial class DashboardBatchService : IDashboardBatchService
         var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, includeClientHostnames, ct), ct);
         var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
-        var downloadsTask = SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, ct), ct);
-        var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync(actualCacheSize), ct);
+        var downloadTotalsTask = SafeExecuteAsync("downloadTotals", () => GetDownloadTotalsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, ct), ct);
+        var filteredDownloadTotalsTask = SafeExecuteAsync("filteredDownloadTotals", () => GetFilteredDownloadTotalsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, service, client, ct), ct);
+        var serviceOptionsTask = SafeExecuteAsync("serviceOptions", () => GetServiceOptionsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, ct), ct);
+        var clientOptionsTask = SafeExecuteAsync("clientOptions", () => GetClientOptionsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, ct), ct);
+        var recentDownloadsTask = SafeExecuteAsync("recentDownloads", () => GetRecentDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, service, client, ct), ct);
+        var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync(actualCacheSize, ct), ct);
         var sparklinesTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, readerTimeZoneId, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var cacheSnapshotTask = SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime, ct), ct);
 
-        await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask);
+        await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadTotalsTask, filteredDownloadTotalsTask, serviceOptionsTask, clientOptionsTask, recentDownloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask);
 
         var detectionResult = await detectionTask;
 
-        // Pre-serialize the downloads section once per cache window. It dominates the payload
-        // (the whole visible downloads list in live mode), and a JsonElement re-emits as a raw
-        // UTF-8 copy on every poll of every client instead of re-serializing tens of MB of
-        // entities per request. The entity list itself is released here instead of living in
-        // the cache entry.
+        // Pre-serialize the recent slice once per cache window. It is the only section still
+        // carrying rows, so it dominates the payload, and a JsonElement re-emits as a raw UTF-8
+        // copy on every poll of every client instead of re-serializing the rows per request. The
+        // entity list itself is released here instead of living in the cache entry.
         // Serializing to UTF-8 first and parsing that buffer, rather than SerializeToElement,
         // is what makes the entry's real byte length available for SetSize below.
-        var downloadsResult = await downloadsTask;
-        byte[] downloadsUtf8 = downloadsResult == null
+        var recentDownloadsResult = await recentDownloadsTask;
+        byte[] recentDownloadsUtf8 = recentDownloadsResult == null
             ? []
-            : JsonSerializer.SerializeToUtf8Bytes(downloadsResult, _wireJsonOptions);
-        object? downloadsSection = downloadsResult == null
+            : JsonSerializer.SerializeToUtf8Bytes(recentDownloadsResult, _wireJsonOptions);
+        object? recentDownloadsSection = recentDownloadsResult == null
             ? null
-            : JsonSerializer.Deserialize<JsonElement>(downloadsUtf8);
+            : JsonSerializer.Deserialize<JsonElement>(recentDownloadsUtf8);
         // The parsed element owns its own copy of the bytes, so only the length is carried forward.
-        var downloadsSectionBytes = downloadsUtf8.Length;
+        var recentDownloadsSectionBytes = recentDownloadsUtf8.Length;
 
         DashboardBatchResponse response = new()
         {
@@ -269,7 +284,11 @@ public partial class DashboardBatchService : IDashboardBatchService
             Clients = await clientsTask,
             Services = await servicesTask,
             Dashboard = await dashboardTask,
-            Downloads = downloadsSection,
+            DownloadTotals = await downloadTotalsTask,
+            FilteredDownloadTotals = await filteredDownloadTotalsTask,
+            ServiceOptions = await serviceOptionsTask,
+            ClientOptions = await clientOptionsTask,
+            RecentDownloads = recentDownloadsSection,
             Detection = detectionResult,
             Sparklines = await sparklinesTask,
             HourlyActivity = await hourlyTask,
@@ -277,12 +296,12 @@ public partial class DashboardBatchService : IDashboardBatchService
         };
 
         // Non-live ranges (startTime/endTime fixed) cache for 60s; live uses the shared warm window.
-        // The size is the downloads section's real byte length plus what the remaining sections
+        // The size is the recent slice's real byte length plus what the remaining sections
         // used to be charged as the whole entry, so the global SizeLimit sees an entry's true
         // cost instead of a flat 50 KB. A moving time window mints a new key per request, and it
         // is that limit which now bounds how many of those can pile up; ranged entries are the
-        // low-priority ones so compaction takes them before the live entry every reader shares. [5]
-        var entrySize = 50_000L + downloadsSectionBytes;
+        // low-priority ones so compaction takes them before the live entry every reader shares.
+        var entrySize = 50_000L + recentDownloadsSectionBytes;
         var cacheOptions = new MemoryCacheEntryOptions()
             .SetAbsoluteExpiration(isLive ? LiveCacheWindow : TimeSpan.FromSeconds(60))
             .SetSize(entrySize)
@@ -290,7 +309,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             .AddExpirationToken(new CancellationChangeToken(detectionCacheEviction));
 
         // The live generation is part of the key only for live requests, so only they are linked
-        // to its token; a ranged entry's live generation is a constant zero. [2]
+        // to its token; a ranged entry's live generation is a constant zero.
         if (isLive)
         {
             cacheOptions.AddExpirationToken(new CancellationChangeToken(liveCacheEviction));
@@ -337,7 +356,11 @@ public partial class DashboardBatchService : IDashboardBatchService
             Clients = cached.Clients,
             Services = cached.Services,
             Dashboard = cached.Dashboard,
-            Downloads = cached.Downloads,
+            DownloadTotals = cached.DownloadTotals,
+            FilteredDownloadTotals = cached.FilteredDownloadTotals,
+            ServiceOptions = cached.ServiceOptions,
+            ClientOptions = cached.ClientOptions,
+            RecentDownloads = cached.RecentDownloads,
             Detection = cached.Detection,
             Sparklines = cached.Sparklines,
             HourlyActivity = cached.HourlyActivity,
@@ -562,54 +585,184 @@ public partial class DashboardBatchService : IDashboardBatchService
         };
     }
 
-    private async Task<object> GetLatestDownloadsAsync(
+    /// <summary>
+    /// How many of the newest rows the recent slice carries beside the active ones. Comfortably
+    /// above the member count of the ten groups the panel draws, so grouping the slice on the
+    /// client reproduces the groups it used to build from the whole table.
+    /// </summary>
+    private const int RecentDownloadsLimit = 500;
+
+    /// <summary>
+    /// The downloads the dashboard's own surfaces are allowed to see. Composed from
+    /// <see cref="DownloadQueryExtensions"/> so the totals, the filter options and the recent
+    /// slice can never disagree about which rows exist. Rows tagged to app 0 are dropped on the
+    /// live view only, the way the download list itself has always treated them. The evicted
+    /// filter runs on both arms, matching the client and service cards drawn beside these figures,
+    /// which have always applied it whatever the range.
+    /// </summary>
+    private static IQueryable<Download> BuildVisibleDownloadsQuery(
+        AppDbContext context,
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
-        List<string> excludedClientIps, string evictedMode, CancellationToken ct)
+        List<string> hiddenClientIps, string evictedMode)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
-        List<Download> downloads;
+        var query = context.Downloads.AsNoTracking()
+            .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyEmptySessionFilter()
+            .ApplyEventFilter(eventIdList, eventDownloadIds)
+            .ApplyTimeRange(startTime, endTime);
 
-        if (!startTime.HasValue && !endTime.HasValue && eventIdList.Count == 0)
+        var isLive = !startTime.HasValue && !endTime.HasValue && eventIdList.Count == 0;
+        if (isLive)
         {
-            // StatsDataService is registered Scoped - resolve via a scoped container so its
-            // AppDbContext has a proper lifetime tied to this query.
-            using var scope = _scopeFactory.CreateScope();
-            var statsService = scope.ServiceProvider.GetRequiredService<IStatsDataService>();
-            downloads = await statsService.GetLatestDownloadsAsync(int.MaxValue, cancellationToken: ct);
+            query = query.Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0);
         }
-        else
+
+        return query.ApplyEvictedFilter(evictedMode);
+    }
+
+    /// <summary>
+    /// Narrows a downloads query to the service and the clients the reader picked. The service
+    /// arrives as the folded key the dropdown shows, so an xbox selection is expanded back into
+    /// every raw value behind it - LINQ cannot translate the fold itself. The client value is a
+    /// comma-separated list because a dropdown entry can stand for a client group, which is several
+    /// addresses; a single address is that list with one member.
+    /// </summary>
+    private static IQueryable<Download> ApplyDownloadFilters(IQueryable<Download> query, string? service, string? client)
+    {
+        if (!string.IsNullOrEmpty(service) && service != "all")
         {
-            var startDate = startTime.HasValue ? startTime.Value.FromUnixSeconds() : DateTime.MinValue;
-            var endDate = endTime.HasValue ? endTime.Value.FromUnixSeconds() : DateTime.UtcNow;
-
-            IQueryable<Download> query;
-
-            if (eventIdList.Count > 0)
+            if (ServiceBreakdownMerger.NormalizeXboxService(service) == "xbox")
             {
-                query = context.Downloads.AsNoTracking()
-                    .Where(d => context.EventDownloads
-                        .Where(ed => eventIdList.Contains(ed.EventId))
-                        .Select(ed => ed.DownloadId)
-                        .Contains(d.Id))
-                    .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
+                var xboxServiceNames = ServiceBreakdownMerger.XboxRawServiceNames;
+                query = query.Where(d => xboxServiceNames.Contains(d.Service));
             }
             else
             {
-                query = context.Downloads.AsNoTracking()
-                    .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
+                query = query.Where(d => d.Service == service);
             }
-
-            query = query.ApplyEvictedFilter(evictedMode).ApplyEmptySessionFilter();
-            downloads = await query
-                .OrderByDescending(d => d.StartTimeUtc)
-                .ToListAsync(ct);
         }
 
-        // Filter out excluded client IPs in a single pass - in live mode this list is the whole
-        // visible downloads table, so each extra ToList is a full-size copy.
-        downloads = downloads
-            .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
+        if (!string.IsNullOrEmpty(client) && client != "all")
+        {
+            var clientIps = client.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            query = query.Where(d => clientIps.Contains(d.ClientIp));
+        }
+
+        return query;
+    }
+
+    private async Task<object> GetDownloadTotalsAsync(
+        long? startTime, long? endTime,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<string> hiddenClientIps, string evictedMode, CancellationToken ct)
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
+        return await QueryDownloadTotalsAsync(
+            BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode),
+            ct);
+    }
+
+    private async Task<object> GetFilteredDownloadTotalsAsync(
+        long? startTime, long? endTime,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<string> hiddenClientIps, string evictedMode,
+        string? service, string? client, CancellationToken ct)
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
+        return await QueryDownloadTotalsAsync(
+            ApplyDownloadFilters(
+                BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode),
+                service, client),
+            ct);
+    }
+
+    /// <summary>
+    /// Bytes and rows in ONE round trip, the same grouping the period totals use. TotalBytes is
+    /// computed off the entity with no column behind it, so the sum names the two stored columns.
+    /// Shared by the filtered and unfiltered passes so the two can only ever differ by the filters.
+    /// </summary>
+    private static async Task<DownloadTotals> QueryDownloadTotalsAsync(IQueryable<Download> query, CancellationToken ct)
+    {
+        var totals = await query
+            .GroupBy(d => 1)
+            .Select(g => new
+            {
+                HitBytes = g.Sum(d => d.CacheHitBytes),
+                MissBytes = g.Sum(d => d.CacheMissBytes),
+                Count = g.Count()
+            })
+            .FirstOrDefaultAsync(ct);
+
+        return new DownloadTotals
+        {
+            CacheHitBytes = totals?.HitBytes ?? 0,
+            CacheMissBytes = totals?.MissBytes ?? 0,
+            Count = totals?.Count ?? 0
+        };
+    }
+
+    private async Task<object> GetServiceOptionsAsync(
+        long? startTime, long? endTime,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<string> hiddenClientIps, string evictedMode, CancellationToken ct)
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
+        var query = BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode);
+
+        // Unlike the service breakdown this keeps localhost and ip-address. Neither names a service
+        // that files on disk can be attributed to, but both are still values a reader filters by,
+        // and dropping them here would take two entries out of the dropdown.
+        return await query
+            .GroupBy(d => d.Service)
+            .Select(g => new ServiceFilterOption
+            {
+                Service = g.Key,
+                HasLargeFiles = g.Max(d => d.CacheHitBytes + d.CacheMissBytes) > 1024 * 1024
+            })
+            .ToListAsync(ct);
+    }
+
+    private async Task<object> GetClientOptionsAsync(
+        long? startTime, long? endTime,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<string> hiddenClientIps, string evictedMode, CancellationToken ct)
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
+        var query = BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode);
+
+        return await query.Select(d => d.ClientIp).Distinct().ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// The bounded slice the recent-activity panel draws and the live preview reconciles against.
+    /// Every active row is carried whatever its age: a prefill that has been running for hours is
+    /// old and still running, and it is that row's advancing byte count which retires the preview
+    /// sitting beside it, so an age-bounded slice would leave that preview on screen for good.
+    /// </summary>
+    private async Task<object> GetRecentDownloadsAsync(
+        long? startTime, long? endTime,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<string> hiddenClientIps, string evictedMode,
+        string? service, string? client, CancellationToken ct)
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
+        var query = ApplyDownloadFilters(
+            BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode),
+            service, client);
+
+        var active = await query.Where(d => d.IsActive).ToListAsync(ct);
+        var newest = await query
+            .OrderByDescending(d => d.StartTimeUtc)
+            .Take(RecentDownloadsLimit)
+            .ToListAsync(ct);
+
+        // Read as two sets and merged here: a still-running download that also happens to be among
+        // the newest arrives in both, and the panel keys its rows on the id.
+        var downloads = active
+            .Concat(newest)
+            .DistinctBy(d => d.Id)
+            .OrderByDescending(d => d.StartTimeUtc)
             .ToList();
 
         if (evictedMode == EvictedDataMode.ShowClean.ToWireString())
@@ -621,8 +774,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         await GameNameResolver.ResolveAsync(context, downloads, ct);
 
         // Projected onto the narrower row here rather than serialized as entities: LastUrl and
-        // XboxProductId sit on every row, no client reads either, and in live mode this list is
-        // the whole visible downloads table held in the cache entry as pre-serialized bytes. [7]
+        // XboxProductId sit on every row and no client reads either.
         return downloads.Select(d => new DashboardDownloadRow
         {
             Id = d.Id,
@@ -645,7 +797,7 @@ public partial class DashboardBatchService : IDashboardBatchService
     }
 
     /// <summary>
-    /// One row of the batch response's downloads section: <see cref="Download"/> minus the columns
+    /// One row of the batch response's recent slice: <see cref="Download"/> minus the columns
     /// nothing on the wire reads. The computed members mirror the entity's so the JSON the
     /// frontend receives is unchanged apart from the two dropped fields.
     /// </summary>
@@ -682,14 +834,14 @@ public partial class DashboardBatchService : IDashboardBatchService
         }
     }
 
-    private async Task<object> GetCachedDetectionAsync(long usedCacheSizeBytes)
+    private async Task<object> GetCachedDetectionAsync(long usedCacheSizeBytes, CancellationToken ct)
     {
-        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
+        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync(ct);
         var games = cachedResults?.Games ?? [];
 
         // A response carrying only the unmapped bucket has no detection rows behind it, so its
         // StartTime is the load time rather than a scan time. The Games on Disk card would print
-        // that as the moment the last scan ran. The bucket belongs to the detection panel. [9]
+        // that as the moment the last scan ran. The bucket belongs to the detection panel.
         if (cachedResults == null || (games.Count == 0 && (cachedResults.Services?.Count ?? 0) == 0))
         {
             return CachedDetectionResponseBuilder.BuildEmpty();
@@ -821,7 +973,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             .Select(d => new DateTimeOffset(DateTime.SpecifyKind(d.Start, DateTimeKind.Utc)).ToUnixTimeSeconds())
             .ToList();
 
-        // Traffic is a property of the bucket, not of one metric, so every metric trims on this. [15]
+        // Traffic is a property of the bucket, not of one metric, so every metric trims on this.
         var lastBucketWithTraffic = bucketedData.FindLastIndex(d => d.CacheHitBytes + d.CacheMissBytes > 0);
 
         return new SparklineDataResponse
@@ -1030,7 +1182,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         // Gap-filled slots are real points, so trailing empty buckets would compare 0 against 0 and
         // report "stable" whatever the range did. Trimmed to the last bucket that carried traffic,
         // never to the last one this metric was non-zero in: a hit ratio that genuinely falls to 0%
-        // is a measurement. The data itself stays whole, index-aligned with BucketStarts. [15]
+        // is a measurement. The data itself stays whole, index-aligned with BucketStarts.
         var measured = lastBucketWithTraffic >= 0
             ? data.GetRange(0, lastBucketWithTraffic + 1)
             : data;
@@ -1077,7 +1229,11 @@ public partial class DashboardBatchService : IDashboardBatchService
             || response.Clients == null
             || response.Services == null
             || response.Dashboard == null
-            || response.Downloads == null
+            || response.DownloadTotals == null
+            || response.FilteredDownloadTotals == null
+            || response.ServiceOptions == null
+            || response.ClientOptions == null
+            || response.RecentDownloads == null
             || response.Detection == null
             || response.Sparklines == null
             || response.HourlyActivity == null

@@ -9,7 +9,7 @@ namespace LancacheManager.Tests;
 /// wipe reads its table list off the EF model, and the reset then puts that list back through the
 /// hand-maintained allowlist, discarding anything missing from it with no log and no default arm.
 /// Map a new entity, forget the allowlist entry, and the endpoint that claims to wipe everything
-/// quietly leaves that table full. [24][25]
+/// quietly leaves that table full.
 /// </summary>
 public sealed class DatabaseResetFullWipeTablesTests
 {

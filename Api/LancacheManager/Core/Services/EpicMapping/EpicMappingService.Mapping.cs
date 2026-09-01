@@ -23,7 +23,7 @@ public partial class EpicMappingService
         // treated as Epic by the layers that test the column against null.
         // Count the candidates before loading them: the log pass calls this after every run, and on
         // a cache with no Epic traffic there is never anything to name, so the common case costs one
-        // count instead of a tracked load plus the well-known pattern seed. [11]
+        // count instead of a tracked load plus the well-known pattern seed.
         var unresolvedCount = await db.Downloads
             .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && string.IsNullOrEmpty(d.EpicAppId) && d.LastUrl != null, ct);
 

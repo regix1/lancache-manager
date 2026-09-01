@@ -74,7 +74,8 @@ public sealed class CacheDomainsService : ICacheDomainsService
             return new CacheDomainsRefreshOutcome
             {
                 Success = false,
-                BlockedReason = "NOFETCH is enabled in the lancache .env file; refresh is disabled. Set NOFETCH=false (or remove it) to allow fetching an updated domain list.",
+                BlockedReason = "NOFETCH is enabled in the LANCache .env file; refresh is disabled. Set NOFETCH=false (or remove it) to allow fetching an updated domain list.",
+                BlockedStageKey = "errors.statusCheck.nofetchEnabled",
                 Domains = list,
                 Source = source
             };

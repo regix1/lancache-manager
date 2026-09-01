@@ -113,6 +113,17 @@ public class IncrementalViabilityCheck
 
     [JsonPropertyName("error")]
     public string? Error { get; set; }
+
+    /// <summary>
+    /// i18n key for the frame around <see cref="Error"/>, so the row reads in the operator's
+    /// language. The exception text it wraps comes from .NET or from Steam and stays English.
+    /// </summary>
+    [JsonPropertyName("stageKey")]
+    public string? StageKey { get; set; }
+
+    /// <summary>Substitution values for the <see cref="StageKey"/> template.</summary>
+    [JsonPropertyName("context")]
+    public Dictionary<string, object?>? Context { get; set; }
 }
 
 /// <summary>

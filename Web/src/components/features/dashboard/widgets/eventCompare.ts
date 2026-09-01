@@ -34,7 +34,7 @@ export function elapsedLabel(minutes: number, t: TFunction): string {
 
 export function readCompareEventIds(stored: number[] | null, knownIds: number[]): number[] {
   // A hand-edited or stale value parses into anything at all, so the shape is checked here rather
-  // than trusted from the type argument. [45]
+  // than trusted from the type argument.
   if (!Array.isArray(stored)) {
     return [];
   }

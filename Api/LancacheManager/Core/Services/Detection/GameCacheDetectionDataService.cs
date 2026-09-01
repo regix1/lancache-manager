@@ -399,7 +399,7 @@ public sealed partial class GameCacheDetectionDataService
 
         // A full scan that claimed nothing still measured what is unclaimed, and that is the run
         // whose remainder covers the whole cache. Returning null on the row counts alone would
-        // leave that bucket in the database with no way to reach the panel. [6]
+        // leave that bucket in the database with no way to reach the panel.
         if (games.Count == 0 && services.Count == 0 && unmappedServices == null)
         {
             return null;
@@ -1628,7 +1628,7 @@ public sealed partial class GameCacheDetectionDataService
         // scan stops mid-way and hands over whatever it had. Absence from a list that was never
         // finished is not evidence of anything, so the whole absence pass below is skipped and the
         // rows the run never looked at keep the counts and the badge they already had. Only a full
-        // scan, which enumerates every service, may read absence as eviction evidence [13].
+        // scan, which enumerates every service, may read absence as eviction evidence.
         if (!incremental)
         {
             foreach (var kvp in existingDict)

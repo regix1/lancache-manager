@@ -323,7 +323,7 @@
     border-color: var(--theme-border-focus);
   }
 
-  /* Dashed tooltip underlines: keep the hint fainter than the label it sits under [51] */
+  /* Dashed tooltip underlines: keep the hint fainter than the label it sits under */
   .border-themed-muted {
     border-color: var(--theme-text-muted);
   }
@@ -345,7 +345,7 @@
     border-color: var(--theme-success);
   }
 
-  /* Completes the shorthand family so the active theme card's outline paints [52] */
+  /* Completes the shorthand family so the active theme card's outline paints */
   .border-primary {
     border-color: var(--theme-primary);
   }
@@ -420,7 +420,7 @@
     color: var(--theme-warning-text);
   }
 
-  /* Without this the success branch of each status ternary inherits body text [51] */
+  /* Without this the success branch of each status ternary inherits body text */
   .text-success-text {
     color: var(--theme-success-text);
   }

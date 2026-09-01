@@ -1498,6 +1498,7 @@
       "searchPlaceholder": "搜索游戏、客户端、仓库...",
       "errors": {
         "exportFailed": "导出下载失败",
+        "loadFailed": "无法加载下载记录。请检查网络连接后重试。",
         "clearImageCacheFailed": "清除图像缓存失败"
       },
       "tooltips": {
@@ -1624,9 +1625,7 @@
         "unknownOther": "未知/其他",
         "serviceDownloads": "{{service}} 下载"
       },
-      "warnings": {
-        "paginationSuggestion": "正在加载 {{items}} 个项目。建议使用分页以获得更好的性能。"
-      },
+      "warnings": {},
       "emptyRange": {
         "title": "所选时间范围内未找到下载",
         "description": "仪表板显示活跃下载（当前进行中），而此列表显示在所选时间段内开始的下载。尝试切换到实时以查看所有下载，或调整时间范围。"
@@ -3227,6 +3226,10 @@
         "needsKey": "V2 不可用，V1 需要 API 密钥",
         "down": "Web API 不可用"
       },
+      "test": {
+        "valid": "Steam Web API 密钥有效且可用",
+        "invalid": "Steam Web API 密钥无效，或 Steam Web API V1 不可用"
+      },
       "updateApiKey": "更新 API 密钥",
       "configureApiKey": "配置 API 密钥",
       "remove": "移除",
@@ -3370,6 +3373,12 @@
       "success": {
         "resetStarted": "{{count}} 个表的数据库重置已启动",
         "resetAlreadyRunning": "数据库重置已在进行中"
+      },
+      "import": {
+        "connected": "连接成功",
+        "connectedNoTable": "连接成功，但未找到 Downloads 表",
+        "completed": "导入完成：已导入 {{imported}} 条，跳过 {{skipped}} 条，错误 {{errors}} 条",
+        "cancelledWithCount": "导入已取消：取消前已导入 {{imported}} 条"
       }
     },
     "themes": {
@@ -4377,7 +4386,9 @@
       "liveSessionsSummary": "当前正在进行的预填会话。",
       "historySummary": "过去的预填运行及其结果。",
       "historyStarted": "开始时间：",
-      "historyCompleted": "完成时间："
+      "historyCompleted": "完成时间：",
+      "terminatedCount_one": "已终止 {{count}} 个会话",
+      "terminatedCount_other": "已终止 {{count}} 个会话"
     },
     "clients": {
       "selectClients": "选择客户端"
@@ -7156,6 +7167,7 @@
       "noChunksFoundService": "未发现 {{service}} 的可疑缓存文件，无需移除",
       "filteringLogs": "正在过滤日志文件",
       "filteringFile": "正在过滤文件 {{fileIndex}}/{{totalFiles}}",
+      "logsPartial": "{{service}} 的日志清理未全部完成：已移除 {{logLines}} 行，随后有 {{permissionErrors}} 个文件无法修改。数据库记录已保留以便重试。",
       "removingCacheFiles": "正在移除 {{totalFiles}} 个可疑缓存文件",
       "removingCacheFile": "正在移除已验证的缓存文件 {{fileIndex}}/{{totalFiles}}",
       "deletingDb": "正在删除与已移除嫌疑项关联的数据库记录",
@@ -7426,6 +7438,7 @@
         "incremental": "开始增量扫描（仅新游戏和服务）...",
         "full": "开始全面扫描（所有游戏和服务）..."
       },
+      "resuming": "正在恢复游戏缓存检测...",
       "complete": {
         "default": "检测完成",
         "newGames": "增量扫描完成。发现 {{newGamesCount}} 个新游戏（磁盘上共 {{totalGamesDetected}} 个）",
@@ -7617,7 +7630,35 @@
       "disconnected": "已断开 Steam 连接: {{result}}"
     },
     "scheduledPrefill": {
-      "stale": "计划预填充完成"
+      "stale": "计划预填充完成",
+      "skippedNoDaemon": "此服务没有注册的守护进程",
+      "skippedNoContainer": "没有正在运行的持久容器。请先启动持久容器，再设置计划。",
+      "skippedContainerNotReady": "持久容器正在运行，但尚未就绪。此平台无需登录，请等待容器启动完成。",
+      "skippedManualActive": "手动预填充会话正在进行中",
+      "skippedAlreadyRunning": "预填充已在进行中",
+      "needsPersistentContainer": "没有正在运行的持久容器。请先启动持久容器并在其中登录，再设置计划。",
+      "needsPersistentLogin": "持久容器正在运行，但尚未登录。请先在持久容器中登录，再设置计划。",
+      "reusingContainer": "正在复用持久容器",
+      "failedToStart": "预填充启动失败",
+      "running": "预填充进行中",
+      "runningWithCounts": "预填充进行中（{{completed}}/{{total}} 个游戏）",
+      "downloadingGame": "正在下载 {{game}}（{{completed}}/{{total}} 个游戏）",
+      "failedMaxRuntime": "已超过服务的最长运行时间",
+      "failedStalled": "预填充已停滞（无进度）",
+      "stopped": "预填充已停止",
+      "completeWithBytes": "预填充完成（已下载 {{bytes}}）",
+      "completeAllCached": "预填充完成，所选游戏均已缓存（0 字节）。启用强制重新下载可再次下载。",
+      "completeNoBytes": "预填充完成（已下载 0 字节）",
+      "runSomeServicesFailed": "本次运行中有一个或多个服务失败",
+      "runAllNeedLogin": "所有到期的服务都需要登录",
+      "runAllSkipped": "所有已启用的服务均被跳过"
+    },
+    "prefillSession": {
+      "superseded": "已被新的预填充操作取代"
+    },
+    "statusCheck": {
+      "dnsTimeout": "DNS 查询超时",
+      "noARecords": "未返回 A 记录"
     }
   },
   "errors": {
@@ -7638,6 +7679,14 @@
       "usernameTaken": "该用户名已被占用。",
       "credentialsRejected": "用户名或密码不符合要求。"
     },
+    "cache": {
+      "readOnly": "无法清除缓存：缓存目录为只读。这通常是 docker-compose.yml 中 PUID/PGID 设置不正确导致的。LANCache 容器被配置为以 UID/GID {{uidGid}} 运行（通过 PUID/PGID 环境变量配置）。"
+    },
+    "clientGroups": {
+      "nicknameTaken": "已存在使用此昵称的客户端组",
+      "invalidAddresses": "一个或多个地址无效。请更正后重试。",
+      "notFound": "找不到 ID 为 {{id}} 的客户端组"
+    },
     "conflict": {
       "duplicate": "此项目已有操作正在进行。",
       "overlappingEntity": "另一个操作正在处理相同的缓存文件。请等待其完成。",
@@ -7647,8 +7696,71 @@
       "cacheFileScanActive": "正在进行缓存文件扫描。请等待其完成后再开始缓存操作。",
       "heavyOperationActive": "另一个数据操作正在运行。此操作已加入队列，将在其完成后开始。"
     },
+    "corruption": {
+      "scanIdRequired": "需要提供损坏扫描 ID",
+      "invalidService": "服务名称无效",
+      "invalidMethod": "检测方法必须是 'repeated_miss' 或 'structural'",
+      "unsupportedMethod": "不支持的损坏检测方法",
+      "invalidStructuralMode": "结构扫描模式必须是 'full' 或 'incremental'",
+      "structuralModeNotApplicable": "结构扫描模式仅适用于结构检测",
+      "structuralModeRequired": "需要提供结构扫描模式",
+      "unsupportedStructuralMode": "不支持的结构扫描模式",
+      "invalidThreshold": "损坏阈值必须是 3、5 或 10",
+      "lookbackOutOfRange": "证据回溯必须在 {{min}} 到 {{max}} 天之间",
+      "scanInProgress": "另一个损坏检测扫描已在进行中",
+      "scanNotFound": "找不到损坏扫描",
+      "candidatesNotFound": "找不到损坏候选项",
+      "scanChanged": "损坏扫描已变更。请重新加载结果后重试",
+      "scanChangedOnDelete": "损坏扫描在删除前已变更",
+      "scanStale": "损坏扫描已过期。请重新加载结果后重试",
+      "scanFormatOld": "已保存的损坏扫描使用了较旧的格式。请运行新扫描后重试",
+      "evidenceUnsupported": "已保存的损坏扫描包含不受支持的证据。请运行新扫描后重试",
+      "deleteBlockedByRemoval": "该损坏扫描的缓存移除正在进行，此时无法删除该扫描",
+      "serviceNotInScan": "一个或多个请求的服务不属于已保存的损坏扫描",
+      "candidateNotInScan": "一个或多个损坏候选项 ID 不属于已保存的扫描",
+      "candidateRequired": "至少需要一个已保存的损坏候选项",
+      "nothingRemovable": "此已保存的损坏扫描没有可移除的候选项",
+      "scopeNothingRemovable": "此已保存的损坏范围没有可移除的候选项",
+      "datasourceGone": "一个或多个损坏候选项属于已不再配置的数据源"
+    },
+    "datasources": {
+      "invalidCacheSize": "缓存大小必须是字节数，或诸如 2000g、500G、2t 或 1.5T 的大小。",
+      "notFound": "找不到数据源"
+    },
+    "depot": {
+      "mappingInProgress": "仓库映射操作已在运行中。",
+      "githubImportFailed": "从 GitHub 下载并导入预生成的仓库数据失败",
+      "invalidSource": "来源无效。必须是 'github' 或 'local'",
+      "invalidInterval": "间隔必须为 0 或正数。收到的值：{{received}}",
+      "invalidScanMode": "扫描模式无效。必须是 true、false、\"hybrid\" 或 \"github\"",
+      "noActiveRebuild": "没有正在进行的重建可供取消"
+    },
+    "epic": {
+      "authInProgress": "Epic 授权已在进行中",
+      "oauthFailed": "Epic OAuth 失败：{{status}}。请检查您的授权码。",
+      "noActiveRefresh": "没有正在进行的刷新可供取消"
+    },
+    "events": {
+      "notFound": "找不到 ID 为 {{id}} 的事件"
+    },
+    "http": {
+      "accessDenied": "拒绝访问",
+      "invalidParameters": "请求参数无效",
+      "unexpected": "发生意外错误",
+      "fileSystem": "发生文件系统错误",
+      "timeout": "请求超时"
+    },
     "login": {
       "invalidCredentials": "API 密钥、用户名或密码无效。"
+    },
+    "logs": {
+      "startFailed": "启动日志处理失败",
+      "startFailedForDatasource": "启动数据源 '{{datasource}}' 的日志处理失败",
+      "removeFailed": "从数据源 '{{datasource}}' 移除服务 '{{service}}' 的日志失败",
+      "fileNotFound": "找不到日志文件：{{path}}"
+    },
+    "migration": {
+      "notConfigured": "服务器数据库连接未配置"
     },
     "password": {
       "accountRequired": "此会话未以账户身份登录。",
@@ -7656,8 +7768,42 @@
       "locked": "密码尝试失败次数过多。请稍后重试。",
       "rejected": "新密码不符合密码要求。"
     },
+    "prefill": {
+      "banned": "您已被禁止使用预填充功能。",
+      "containerBusy": "现有的 {{service}} 持久容器仍在移除或重启中。请稍后重试。",
+      "loginInProgress": "会话 {{sessionId}} 已有一次登录尝试正在进行中。",
+      "dockerUnavailable": "Docker 未运行或无法访问。请启动 Docker Desktop 后重试。",
+      "daemonShuttingDown": "{{service}} 守护进程正在关闭，现在无法停止持久会话 {{sessionId}}。其登录会被保留，以便下次启动时重新接管；管理器重启后请再次停止它。",
+      "editCleanupWaiting": "编辑会话清理正在等待持久容器启动完成，之后才能释放会话 {{sessionId}}。",
+      "noRunningSession": "服务 '{{service}}' 没有正在运行的持久会话"
+    },
     "rateLimit": {
       "tooManyRequests": "来自此地址的请求过多。请等待限制重置后重试。"
+    },
+    "stats": {
+      "invalidExclusions": "一个或多个排除项无效。请更正后重试。",
+      "invalidEvictionMode": "模式必须是以下之一：{{modes}}"
+    },
+    "statusCheck": {
+      "sweepRunning": "状态检查已在运行中。",
+      "nofetchEnabled": "LANCache .env 文件中已启用 NOFETCH，刷新已禁用。请设置 NOFETCH=false（或将其删除）以允许获取更新的域名列表。",
+      "noCacheIp": "无法确定缓存服务器 IP（请设置 Prefill__LancacheIp，或确保 LANCache 容器可被发现）。"
+    },
+    "steam": {
+      "apiKeyInvalid": "提供的 API 密钥无效，或 Steam Web API V1 不可用。请在 https://steamcommunity.com/dev/apikey 核对您的密钥",
+      "signInInProgress": "Steam 登录已在进行中。",
+      "signInCancelled": "登录已取消。",
+      "serversBusy": "Steam 服务器当前繁忙。这是暂时的，请稍候片刻再试。",
+      "mobileConfirmationRequired": "需要在手机上确认",
+      "connectionFailed": "连接失败：{{detail}}"
+    },
+    "themes": {
+      "notFound": "在服务器上找不到主题 '{{id}}'",
+      "deleteFailed": "删除主题失败",
+      "deletePermission": "权限被拒绝，无法删除主题文件"
+    },
+    "validation": {
+      "failed": "验证失败"
     }
   }
 }

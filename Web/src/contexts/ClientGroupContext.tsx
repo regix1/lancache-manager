@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
+import { useMockMode } from '@contexts/useMockMode';
+import MockDataService from '@/test/mockData.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { SignalREventName } from '@contexts/SignalRContext/types';
 import { useLoadLifecycle } from '@hooks/useLoadLifecycle';
@@ -55,6 +57,7 @@ const sameClientGroups = (previous: ClientGroup[], next: ClientGroup[]): boolean
 
 export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ children }) => {
   const { authMode, isLoading: authLoading } = useAuth();
+  const { mockMode } = useMockMode();
   const { on, off, isConnected } = useSignalR();
   const { isLoading, beginLoad, markLoaded, markFailed } = useManagerLoading();
   const [clientGroups, setClientGroups] = useState<ClientGroup[]>([]);
@@ -96,6 +99,13 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
     // Written here rather than in its own effect so its ordering against the load below is defined.
     authModeRef.current = authMode;
     if (authLoading) return;
+    // Mock mode labels the generated addresses with the groups the generated client totals were
+    // folded under, rather than a real network's nicknames.
+    if (mockMode) {
+      setClientGroups(MockDataService.generateMockClientGroups());
+      markLoaded();
+      return;
+    }
     if (authMode === 'authenticated' || authMode === 'guest') {
       void load(false);
     } else {
@@ -105,7 +115,7 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
       // No load can complete without a session, so the flags must not stay raised.
       markFailed();
     }
-  }, [authLoading, authMode, load, reset, markFailed]);
+  }, [authLoading, authMode, load, markLoaded, mockMode, reset, markFailed]);
 
   // Stable, so a consumer can depend on it without its effect re-running for the context's own
   // reasons. It only asks to be current, which a recent load already satisfies.

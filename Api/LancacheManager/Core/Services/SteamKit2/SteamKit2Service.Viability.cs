@@ -199,7 +199,9 @@ public partial class SteamKit2Service
                 IsLargeGap = false, // Not a large gap - it's a connection error
                 WillTriggerFullScan = false, // Don't trigger full scan for connection errors
                 EstimatedAppsToScan = 0,
-                Error = $"Connection failed: {ex.Message}"
+                Error = $"Connection failed: {ex.Message}",
+                StageKey = "errors.steam.connectionFailed",
+                Context = new() { ["detail"] = ex.Message }
             };
         }
     }

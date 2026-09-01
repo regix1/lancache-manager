@@ -71,22 +71,7 @@ public class SteamApiKeysController : ControllerBase
         // Validation is handled automatically by FluentValidation
         var isValid = await _steamWebApiService.TestApiKeyAsync(request.ApiKey);
 
-        if (isValid)
-        {
-            return Ok(new ApiKeyTestResponse
-            {
-                Valid = true,
-                Message = "Steam Web API key is valid and working"
-            });
-        }
-        else
-        {
-            return Ok(new ApiKeyTestResponse
-            {
-                Valid = false,
-                Message = "Steam Web API key is invalid or Steam Web API V1 is unavailable"
-            });
-        }
+        return Ok(new ApiKeyTestResponse { Valid = isValid });
     }
 
     /// <summary>
@@ -111,7 +96,8 @@ public class SteamApiKeysController : ControllerBase
             return BadRequest(new ErrorResponse
             {
                 Error = "Invalid API key",
-                Message = "The provided API key is invalid or Steam Web API V1 is unavailable. Please verify your key at https://steamcommunity.com/dev/apikey"
+                Message = "The provided API key is invalid or Steam Web API V1 is unavailable. Please verify your key at https://steamcommunity.com/dev/apikey",
+                StageKey = "errors.steam.apiKeyInvalid"
             });
         }
 

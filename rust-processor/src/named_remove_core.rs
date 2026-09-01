@@ -332,7 +332,7 @@ pub async fn run(service: &str) -> Result<()> {
     // A count run stops here. It walks the same list a removal would walk, reports how many of
     // those files exist on disk, and returns before the cache sweep, the access.log purge and
     // the database delete below are reachable. A game with no URLs reports zero rather than
-    // taking the no-URL exit, so the confirmation always has a number. [6][8]
+    // taking the no-URL exit, so the confirmation always has a number.
     if args.count_only {
         let collection_progress = removal_core::CollectionProgress {
             progress_path: &progress_path,

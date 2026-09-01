@@ -120,7 +120,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
         // The startup run does not go through RunScheduledWorkAsync - the flag handling and the
         // broadcasts below are this class's own - so it asks the same question here. Eviction and
         // game detection both do real work from OnStartupAsync, so a container that comes up while a
-        // download is writing would otherwise run them unguarded. [10]
+        // download is writing would otherwise run them unguarded.
         string? startupDenial = null;
         if (RunOnStartup)
         {
@@ -130,7 +130,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             // seconds lands on the boundary. Asked then, the answer is the tracker's silence, and
             // the startup run was refused on every restart with nothing downloading. Waiting first
             // costs about a second in the ordinary case and keeps the refusal meaningful, because a
-            // restart during a download still gets a real download answer. [90]
+            // restart during a download still gets a real download answer.
             if (WaitForDownloadAnswer is not null)
             {
                 await WaitForDownloadAnswer(ServiceKey, stoppingToken);

@@ -74,7 +74,11 @@ public class EventsService : IEventsService
         var existing = await _context.Events.FindAsync(new object[] { evt.Id }, cancellationToken);
         if (existing == null)
         {
-            throw new NotFoundException($"Event with ID {evt.Id}");
+            throw new NotFoundException($"Event with ID {evt.Id}")
+            {
+                StageKey = "errors.events.notFound",
+                Context = new Dictionary<string, object?> { ["id"] = evt.Id }
+            };
         }
 
         existing.Name = evt.Name;

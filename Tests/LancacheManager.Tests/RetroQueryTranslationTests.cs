@@ -1,16 +1,28 @@
+using System.Reflection;
+using LancacheManager.Controllers;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
 public class RetroQueryTranslationTests
 {
     /// <summary>
-    /// Mirrors the GroupBy + aggregate projection used by
-    /// DownloadsController.GetRetroDownloadsAsync. ToQueryString compiles the
-    /// query through the Npgsql provider without opening a connection, so a
-    /// translation regression (e.g. TimeSpan.TotalSeconds inside grouped
-    /// conditional sums) fails here instead of returning empty pages at runtime.
+    /// Compiles the GroupBy + aggregate projection the retro endpoint runs through the Npgsql
+    /// provider, without opening a connection. Every retro request builds this query - the in-memory
+    /// path materializes it directly and the paged path wraps it - so a clause the provider cannot
+    /// translate (a TimeSpan.TotalSeconds or a conditional sum inside a grouped aggregate) fails
+    /// here instead of returning a 500 at runtime, which no in-memory-provider test can see.
+    /// <para>
+    /// It invokes the controller's own method rather than restating the query. The copy this
+    /// replaced had already drifted: it was missing XboxProductId and the EvictedCount conditional
+    /// sum, which is exactly the shape it existed to protect.
+    /// </para>
     /// </summary>
     [Fact]
     public void RetroGroupedAggregateQuery_TranslatesToSql()
@@ -20,41 +32,38 @@ public class RetroQueryTranslationTests
             .Options;
 
         using var context = new AppDbContext(options);
+        var controller = new DownloadsController(
+            context,
+            DispatchProxy.Create<IStateService, RetroStateProxy>(),
+            DispatchProxy.Create<IEventsService, NullReturningProxy>(),
+            NullLogger<DownloadsController>.Instance)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
 
-        var query = context.Downloads
-            .AsNoTracking()
-            .Where(d => !d.IsActive)
-            .GroupBy(d => new { d.DepotId, d.ClientIp, RowKey = d.DepotId == null ? d.Id : 0L })
-            .Select(g => new
-            {
-                g.Key.DepotId,
-                g.Key.ClientIp,
-                g.Key.RowKey,
-                Service = g.Max(d => d.Service),
-                Datasource = g.Max(d => d.Datasource),
-                GameName = g.Max(d => d.GameName),
-                GameAppId = g.Max(d => d.GameAppId),
-                EpicAppId = g.Max(d => d.EpicAppId),
-                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                CacheMissBytes = g.Sum(d => d.CacheMissBytes),
-                StartTimeUtc = g.Min(d => d.StartTimeUtc),
-                EndTimeUtc = g.Max(d => d.EndTimeUtc),
-                RequestCount = g.Count(),
-                WeightedSpeedSum = g.Sum(d =>
-                    (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds > 0
-                        ? ((d.CacheHitBytes + d.CacheMissBytes)
-                           / (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds)
-                          * (d.CacheHitBytes + d.CacheMissBytes)
-                        : 0),
-                SpeedBytesSum = g.Sum(d =>
-                    (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds > 0
-                    && (d.CacheHitBytes + d.CacheMissBytes) > 0
-                        ? (double)(d.CacheHitBytes + d.CacheMissBytes)
-                        : 0)
-            });
+        var buildGroupedQuery = typeof(DownloadsController)
+            .GetMethod("BuildRetroGroupedQuery", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var query = (IQueryable)buildGroupedQuery.Invoke(controller, [new RetroDownloadQuery()])!;
 
         var sql = query.ToQueryString();
 
         Assert.Contains("GROUP BY", sql, StringComparison.OrdinalIgnoreCase);
     }
+}
+
+/// <summary>
+/// The two state reads every retro query makes before it is built, answered so the query reaches the
+/// provider: no hidden addresses (a null list would throw on Count) and the mode that keeps evicted
+/// rows, so no filter drops out of the query being compiled. Everything else falls through to
+/// <see cref="NullReturningProxy"/>.
+/// </summary>
+internal class RetroStateProxy : NullReturningProxy
+{
+    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        => targetMethod?.Name switch
+        {
+            nameof(IStateService.GetHiddenClientIps) => new List<string>(),
+            nameof(IStateService.GetEvictedDataMode) => "show",
+            _ => base.Invoke(targetMethod, args)
+        };
 }

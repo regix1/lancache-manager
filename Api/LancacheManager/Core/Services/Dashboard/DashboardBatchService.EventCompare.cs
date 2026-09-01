@@ -42,7 +42,7 @@ public partial class DashboardBatchService
         var evictedMode = _stateRepository.GetEvictedDataMode();
 
         // EndTimeUtc is the planned end, so a running event carries a timestamp in the future and a
-        // window that runs to it fills buckets for time that has not happened. [4]
+        // window that runs to it fills buckets for time that has not happened.
         var now = DateTime.UtcNow;
         var windows = new List<(DateTime Start, DateTime End)>(events.Count);
         foreach (var evt in events)
@@ -135,7 +135,7 @@ public partial class DashboardBatchService
     /// <summary>
     /// The tagged download ids of every compared event, in one round trip. Asking per event cost a
     /// query and a pooled context each, on an endpoint re-requested whenever the selection
-    /// changes. [16]
+    /// changes.
     /// </summary>
     internal static async Task<Dictionary<long, HashSet<long>>> LoadTaggedDownloadIdsAsync(
         AppDbContext context,

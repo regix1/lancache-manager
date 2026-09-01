@@ -212,7 +212,7 @@ public class AuthController : ControllerBase
             // With authentication disabled the caller hands out the administrator role anyway
             // (AccountsController.CallerMayGrantAdmin), so the flag carries that right. It is not a
             // claim about every owner-only action: wiping accounts still refuses a caller with no
-            // account row (AccountsController.cs:469). [11]
+            // account row (AccountsController.cs:469).
             IsMainAdmin = !authenticationEnabled || isMainAdmin,
             HasData = hasData,
             HasBeenInitialized = hasBeenInitialized,

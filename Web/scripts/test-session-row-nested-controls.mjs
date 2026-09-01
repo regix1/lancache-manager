@@ -9,7 +9,7 @@ import ts from 'typescript';
  * handling from firing when a Button inside it has focus, or the row swallows the keypress
  * before the Button's own activation runs. `rowToggleHandlers` is the one place that guard is
  * implemented, so the row must get its role/tabIndex/onClick/onKeyDown from there rather than
- * from a hand-rolled set of JSX attributes that has no way to share the guard. [26]
+ * from a hand-rolled set of JSX attributes that has no way to share the guard.
  */
 
 const readWebSource = (relativePath) =>

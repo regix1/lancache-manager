@@ -23,7 +23,10 @@ public partial class EpicMappingService
     {
         if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0)
         {
-            throw new ConflictException("Epic auth is already in progress");
+            throw new ConflictException("Epic auth is already in progress")
+            {
+                StageKey = "errors.epic.authInProgress"
+            };
         }
 
         await _sessionLock.WaitAsync();

@@ -5,10 +5,12 @@ import type { SignalRContextType, SignalRProviderProps, EventHandler } from './t
 // eslint-disable-next-line no-duplicate-imports
 import { SIGNALR_EVENTS, SIGNALR_SEED_EVENTS } from './types';
 import authService from '@services/auth.service';
+import { useMockMode } from '@contexts/useMockMode';
 import { SignalRContext } from './SignalRContext.types';
 import { InfiniteBackoffRetryPolicy } from './retryPolicy';
 
-export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mockMode = false }) => {
+export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children }) => {
+  const { mockMode } = useMockMode();
   const [isConnected, setIsConnected] = useState(false);
   const [connectionState, setConnectionState] = useState<
     'disconnected' | 'connecting' | 'connected' | 'reconnecting'
@@ -20,8 +22,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
   const isMountedRef = useRef(true);
   const mockModeRef = useRef(mockMode);
   const isSettingUpRef = useRef(false);
-  // Track if we've already initialized to prevent double-mounting in Strict Mode
-  const hasInitializedRef = useRef(false);
   // Track page visibility state
   const isPageVisibleRef = useRef(!document.hidden);
 
@@ -184,6 +184,13 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         SIGNALR_EVENTS.forEach((eventName) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           connection.on(eventName, (...args: any[]) => {
+            // Mock mode promises the server reaches nothing. Closing the socket is a round trip, so
+            // a message already on the wire can still be delivered after the toggle flips - a
+            // DownloadSpeedUpdate arrives every second while a download runs.
+            if (mockModeRef.current) {
+              return;
+            }
+
             // Dispatch to all registered handlers for this event
             const handlers = eventHandlersRef.current.get(eventName);
 
@@ -214,14 +221,18 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       // Start the connection
       await connection.start();
 
-      if (isMountedRef.current) {
+      if (isMountedRef.current && !mockModeRef.current && connectionRef.current === null) {
         connectionRef.current = connection;
         setConnectionState('connected');
         setIsConnected(true);
         setConnectionId(connection.connectionId || null);
         isSettingUpRef.current = false;
       } else {
-        // Component unmounted while connecting, clean up
+        // The provider unmounted, mock mode was switched on while this was still connecting, or a
+        // socket started by a later toggle finished opening first and is already in connectionRef.
+        // Mock mode and the occupied ref both get their own check because the effect below stops
+        // whatever is in connectionRef, and a connection still inside start() is not there yet, so
+        // whichever of two racing sockets finishes second closes itself here.
         await connection.stop();
         isSettingUpRef.current = false;
       }
@@ -323,26 +334,28 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
     };
   }, [mockMode, setupConnection]);
 
-  // Initialize connection on mount
+  // Open the connection, and re-open it whenever mock mode is switched back off. The handler
+  // registry is owned by the consumers that filled it through `on` and is deliberately left alone
+  // here: `on` is a stable callback, so a consumer's own effect never re-runs and would never
+  // re-subscribe. setupConnection registers one dispatcher per event name that reads the registry
+  // at dispatch time, so a fresh connection serves every handler still in it.
   useEffect(() => {
     isMountedRef.current = true;
     let connectionStartTimeout: NodeJS.Timeout | null = null;
-    const eventHandlers = eventHandlersRef.current;
 
-    // Don't connect in mock mode
+    // Don't connect in mock mode. The cleanup below has already stopped the live connection, and
+    // the held snapshots go with it - `on` hands the newest one to whoever subscribes next, and
+    // that message is real server state.
     if (mockMode) {
+      seedMessagesRef.current.clear();
       setConnectionState('disconnected');
       setIsConnected(false);
       return;
     }
 
-    // Prevent duplicate connections during React Strict Mode double-mount
-    if (hasInitializedRef.current) {
-      return;
-    }
-
-    // Mark as initialized before connecting
-    hasInitializedRef.current = true;
+    // React Strict Mode double-invokes this: the cleanup between the two runs clears the timer the
+    // first run scheduled, so only the second one reaches setupConnection, which then refuses a
+    // second connection while one is being set up or is already open.
     connectionStartTimeout = setTimeout(() => {
       setupConnection();
     }, 0);
@@ -366,16 +379,13 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       if (connectionRef.current) {
         const connToStop = connectionRef.current;
         connectionRef.current = null;
-        // Best-effort cleanup on unmount - nothing left to notify. Deliberately silent.
+        // Best-effort cleanup on unmount or on mock mode being switched on - the socket is going
+        // either way and nothing is left to notify. Deliberately silent.
         connToStop.stop().catch((err) => {
           console.error('[SignalR] Error stopping connection:', err);
         });
       }
 
-      // Clear all event handlers
-      eventHandlers.clear();
-
-      // Reset setup flag only (keep hasInitializedRef to prevent duplicate connections)
       isSettingUpRef.current = false;
     };
   }, [mockMode, setupConnection]);

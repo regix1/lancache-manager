@@ -32,7 +32,6 @@ export interface SignalRContextType {
 
 export interface SignalRProviderProps {
   children: ReactNode;
-  mockMode?: boolean;
 }
 
 // List of all SignalR events
@@ -806,7 +805,7 @@ export interface AutomaticScanSkippedEvent {
 
 export interface SteamSessionErrorEvent {
   errorType: string;
-  /** i18n key for the toast title, chosen by the backend from errorType. [27] */
+  /** i18n key for the toast title, chosen by the backend from errorType. */
   titleStageKey?: string;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
@@ -1084,6 +1083,13 @@ export interface ScheduledPrefillProgressEvent {
   serviceId: string;
   stage: string;
   message: string;
+  /**
+   * i18n key for the one sentence this event puts on the card - the skip reason, the needs-login
+   * reason, or the progress line. Absent when the text came from a daemon and has no key.
+   */
+  stageKey?: string | null;
+  /** Substitution values for {@link stageKey}. */
+  stageContext?: Record<string, string | number | boolean | null> | null;
   needsLoginReason?: string | null;
   /** Bytes downloaded of the game currently downloading (not the whole run). */
   bytesDownloaded?: number | null;
@@ -1098,6 +1104,11 @@ export interface ScheduledPrefillCompletedEvent {
   operationId: string | null;
   success: boolean;
   error?: string | null;
+  /**
+   * i18n key naming the same reason as {@link error}. Absent when the run ended on an unexpected
+   * exception, whose message comes from .NET and has no key.
+   */
+  stageKey?: string | null;
   /** The run was stopped (the user stopped the active prefill, or cancelled the run itself). */
   cancelled?: boolean;
   showNotification?: boolean;
@@ -1186,7 +1197,7 @@ export interface ActivitySnapshotEvent {
 // Two XboxMappingService call sites share this event name with different payloads: the daemon
 // catalog merge sends { source: 'xbox-daemon-catalog', newMappings, newPatterns } (newly
 // discovered games and newly stored CDN URL fragments; no running total like Epic), and download
-// resolution sends { source: 'xbox-download-resolution', resolvedCount } with neither count. [26]
+// resolution sends { source: 'xbox-download-resolution', resolvedCount } with neither count.
 export interface XboxGameMappingsUpdatedEvent {
   source: string;
   newMappings?: number;
@@ -1222,7 +1233,7 @@ export interface EvictionScanProgressEvent {
  * True when a terminal event reports a run that was declined before it started. Such a run
  * reports `success: true`, so a `!success` guard lets it through. Listeners that refetch on
  * completion must ignore it: nothing ran, so nothing changed, and the refetch is pure cost at
- * the moment the machine is busiest. [42]
+ * the moment the machine is busiest.
  */
 export function isSkippedRun(event: { status?: OperationStatus }): boolean {
   return event.status === 'skipped';

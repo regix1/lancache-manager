@@ -68,14 +68,16 @@ public class OperationCancellationService
                 await _processManager.GracefulCancelAsync(process, TimeSpan.FromSeconds(5), $"force-kill op {operationId}");
             }
         }
-        catch (ObjectDisposedException)
+        catch (Exception ex) when (ex is ObjectDisposedException or InvalidOperationException)
         {
             // A racing CompleteOperation disposed the Process between capture and the HasExited
             // check (or during GracefulCancelAsync). The op is already finishing — treat as exited.
-            _logger.LogDebug("Process for operation {Id} was disposed concurrently during force kill — treating as already exited", operationId);
+            // A disposed Process reports that state as InvalidOperationException from every member,
+            // HasExited included, so the ObjectDisposedException arm alone never caught this.
+            _logger.LogDebug(ex, "Process for operation {Id} was disposed concurrently during force kill — treating as already exited", operationId);
         }
 
-        _operationTracker.ForceKillOperation(operationId); // cancels token, best-effort kill (idempotent via HasExited)
+        _operationTracker.ForceKillOperation(operationId); // cancels token, best-effort kill (KillProcessTree absorbs a second kill)
 
         var current = _operationTracker.GetOperation(operationId);
         if (current == null || current.Status.IsTerminal())

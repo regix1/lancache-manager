@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import { ApiError } from '../services/apiError';
 
 /**
@@ -18,7 +19,7 @@ export function isAbortError(error: unknown): boolean {
  * So this may only be used where the route's ONLY 400 is the decline, established by reading that
  * controller. Its one caller is the cache-size read, whose sole 400 is the download denial
  * (`CacheController.cs:134-138`); its authorization failures are 401 and 403.
- * Use {@link getErrorMessage} to read the sentence itself. [73]
+ * Use {@link getErrorMessage} to read the sentence itself.
  */
 export function isRefusal(error: unknown): error is ApiError {
   return error instanceof ApiError && error.status === 400;
@@ -30,10 +31,17 @@ export function isRefusal(error: unknown): error is ApiError {
  * (`message + details + suggestion` -> `message` -> `error` -> `HTTP {status}`), so returning it
  * preserves the richer details/suggestion text; the raw body fields are only a fallback for the rare
  * empty-message case. Otherwise falls back to the Error message, then String coercion.
+ *
+ * When the body names the refusal with a `stageKey`, that key is what the reader sees, in their own
+ * language. The English sentence is the `defaultValue`, so a key this build's locale has no words
+ * for still reads as a sentence rather than as a key path.
  */
 export function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
-    return error.message || error.body?.message || error.body?.error || `HTTP ${error.status}`;
+    const message =
+      error.message || error.body?.message || error.body?.error || `HTTP ${error.status}`;
+    const stageKey = error.body?.stageKey;
+    return stageKey ? i18n.t(stageKey, { ...error.body?.context, defaultValue: message }) : message;
   }
   if (error instanceof Error) {
     return error.message;

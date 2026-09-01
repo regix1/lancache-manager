@@ -118,7 +118,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
 
   useEffect(() => {
     // Sign-in, sign-out and a failed fetch all empty `events`, and pruning against nothing would
-    // replace the saved selection with defaults and persist them. [19]
+    // replace the saved selection with defaults and persist them.
     if (knownIds.length === 0) {
       return;
     }
@@ -185,7 +185,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
   );
 
   // Counted in points, not series: a single surviving point draws no segment, so a legend over
-  // blank space is what the user gets. [5]
+  // blank space is what the user gets.
   const hasSeries = (visibleCompare?.elapsedMinutes.length ?? 0) > 1;
 
   // The clip keeps only the buckets inside the header range, so a range narrower than one bucket
@@ -221,7 +221,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
           tension: 0.25,
           hidden: hiddenSeries.has(index),
           // An event that has only just started has one value and nulls after it, and a lone value
-          // has no neighbour to draw a line to, so at radius 0 the series is invisible. [5]
+          // has no neighbour to draw a line to, so at radius 0 the series is invisible.
           pointRadius: values.filter((value) => value !== null).length === 1 ? 4 : 0,
           pointHoverRadius: 6,
           pointHitRadius: 12

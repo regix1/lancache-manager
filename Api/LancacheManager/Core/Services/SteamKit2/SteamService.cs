@@ -51,6 +51,10 @@ public class SteamService : IDisposable
                 {
                     return cached;
                 }
+
+                // An expired entry is no longer an answer for this app, so it is dropped here rather
+                // than left in place for a later lookup to overwrite.
+                _gameCache.TryRemove(appId, out _);
             }
 
             var gameInfo = await GetDetailedGameInfoAsync(appId);

@@ -114,7 +114,10 @@ public class CorruptionDetectionService
                     || activeMetrics.Threshold != threshold
                     || activeMetrics.LookbackDays != lookbackDays)
                 {
-                    throw new ConflictException("A different corruption detection scan is already in progress");
+                    throw new ConflictException("A different corruption detection scan is already in progress")
+                    {
+                        StageKey = "errors.corruption.scanInProgress"
+                    };
                 }
                 _logger.LogWarning("[CorruptionDetection] Detection already in progress: {OperationId}", activeOp.Id);
                 return activeOp.Id;
@@ -567,10 +570,16 @@ public class CorruptionDetectionService
                             cacheDir,
                             progressFile,
                             scanStartedUtc,
-                            scanMode ?? throw new ValidationException("Structural scan mode is required"),
+                            scanMode ?? throw new ValidationException("Structural scan mode is required")
+                            {
+                                StageKey = "errors.corruption.structuralModeRequired"
+                            },
                             stateScope,
                             keyScheme)),
                 _ => throw new ValidationException("Unsupported corruption detection method")
+                {
+                    StageKey = "errors.corruption.unsupportedMethod"
+                }
             };
 
             ProcessExecutionResult result;
@@ -1041,7 +1050,10 @@ public class CorruptionDetectionService
     {
         if (!Enum.IsDefined(detectionMethod))
         {
-            throw new ValidationException("Unsupported corruption detection method");
+            throw new ValidationException("Unsupported corruption detection method")
+            {
+                StageKey = "errors.corruption.unsupportedMethod"
+            };
         }
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
@@ -1295,7 +1307,10 @@ public class CorruptionDetectionService
                     .SingleOrDefaultAsync(item => item.ScanId == scanId, cancellationToken);
                 if (scan == null || !IsSupportedScan(scan))
                 {
-                    throw new NotFoundException("Corruption scan");
+                    throw new NotFoundException("Corruption scan")
+                    {
+                        StageKey = "errors.corruption.scanNotFound"
+                    };
                 }
 
                 await dbContext.CachedCorruptionDetections
@@ -1307,7 +1322,10 @@ public class CorruptionDetectionService
                 if (deletedHeaders != 1)
                 {
                     throw new ConflictException(
-                        "The corruption scan changed before it could be deleted");
+                        "The corruption scan changed before it could be deleted")
+                    {
+                        StageKey = "errors.corruption.scanChangedOnDelete"
+                    };
                 }
 
                 await transaction.CommitAsync(cancellationToken);
@@ -1371,7 +1389,10 @@ public class CorruptionDetectionService
         ValidateStoredCandidates(scan, allCandidates, service);
         if (allCandidates.Count == 0)
         {
-            throw new NotFoundException("Corruption candidates");
+            throw new NotFoundException("Corruption candidates")
+            {
+                StageKey = "errors.corruption.candidatesNotFound"
+            };
         }
 
         List<CorruptionCandidate> selected;
@@ -1384,7 +1405,10 @@ public class CorruptionDetectionService
             var unknownIds = requestedIds.Where(id => !storedIds.Contains(id)).ToList();
             if (unknownIds.Count > 0)
             {
-                throw new ValidationException("One or more corruption candidate IDs are not part of the stored scan");
+                throw new ValidationException("One or more corruption candidate IDs are not part of the stored scan")
+                {
+                    StageKey = "errors.corruption.candidateNotInScan"
+                };
             }
 
             selected = allCandidates.Where(candidate => requestedIds.Contains(candidate.CandidateId)).ToList();
@@ -1396,7 +1420,10 @@ public class CorruptionDetectionService
 
         if (selected.Count == 0)
         {
-            throw new ForbiddenException("This stored corruption scope has no removable candidates");
+            throw new ForbiddenException("This stored corruption scope has no removable candidates")
+            {
+                StageKey = "errors.corruption.scopeNothingRemovable"
+            };
         }
 
         var candidatesByDatasource = selected
@@ -1479,7 +1506,10 @@ public class CorruptionDetectionService
     {
         if (candidateIds.Count == 0)
         {
-            throw new ValidationException("At least one stored corruption candidate is required");
+            throw new ValidationException("At least one stored corruption candidate is required")
+            {
+                StageKey = "errors.corruption.candidateRequired"
+            };
         }
 
         var removedIds = new HashSet<string>(candidateIds, StringComparer.Ordinal);
@@ -1550,7 +1580,10 @@ public class CorruptionDetectionService
             catch (DbUpdateConcurrencyException)
             {
                 await transaction.RollbackAsync(cancellationToken);
-                throw new ConflictException("The corruption scan changed. Reload results and try again");
+                throw new ConflictException("The corruption scan changed. Reload results and try again")
+                {
+                    StageKey = "errors.corruption.scanChanged"
+                };
             }
             catch
             {
@@ -1614,7 +1647,10 @@ public class CorruptionDetectionService
         if (rows.Any(row => !row.RemovalAllowed))
         {
             throw new ConflictException(
-                "The stored corruption scan contains unsupported evidence. Run a new scan and try again");
+                "The stored corruption scan contains unsupported evidence. Run a new scan and try again")
+            {
+                StageKey = "errors.corruption.evidenceUnsupported"
+            };
         }
     }
 
@@ -2387,7 +2423,10 @@ public class CorruptionDetectionService
 
         if (!StructuralScanModeExtensions.TryParseWire(scanMode, out var parsed))
         {
-            throw new ValidationException("Structural scan mode must be 'full' or 'incremental'");
+            throw new ValidationException("Structural scan mode must be 'full' or 'incremental'")
+            {
+                StageKey = "errors.corruption.invalidStructuralMode"
+            };
         }
 
         return NormalizeStructuralScanMode(detectionMethod, parsed);
@@ -2401,7 +2440,10 @@ public class CorruptionDetectionService
         {
             if (scanMode.HasValue)
             {
-                throw new ValidationException("Structural scan mode is only valid for structural detection");
+                throw new ValidationException("Structural scan mode is only valid for structural detection")
+                {
+                    StageKey = "errors.corruption.structuralModeNotApplicable"
+                };
             }
 
             return null;
@@ -2412,7 +2454,10 @@ public class CorruptionDetectionService
             return scanMode ?? StructuralScanMode.Full;
         }
 
-        throw new ValidationException("Unsupported corruption detection method");
+        throw new ValidationException("Unsupported corruption detection method")
+        {
+            StageKey = "errors.corruption.unsupportedMethod"
+        };
     }
 
     internal static void ValidateScanInput(
@@ -2423,23 +2468,40 @@ public class CorruptionDetectionService
     {
         if (!_allowedThresholds.Contains(threshold))
         {
-            throw new ValidationException("Corruption threshold must be 3, 5, or 10");
+            throw new ValidationException("Corruption threshold must be 3, 5, or 10")
+            {
+                StageKey = "errors.corruption.invalidThreshold"
+            };
         }
 
         if (lookbackDays is < MinimumLookbackDays or > MaximumLookbackDays)
         {
             throw new ValidationException(
-                $"Evidence lookback must be between {MinimumLookbackDays} and {MaximumLookbackDays} days");
+                $"Evidence lookback must be between {MinimumLookbackDays} and {MaximumLookbackDays} days")
+            {
+                StageKey = "errors.corruption.lookbackOutOfRange",
+                Context = new Dictionary<string, object?>
+                {
+                    ["min"] = MinimumLookbackDays,
+                    ["max"] = MaximumLookbackDays
+                }
+            };
         }
 
         if (!Enum.IsDefined(detectionMethod))
         {
-            throw new ValidationException("Unsupported corruption detection method");
+            throw new ValidationException("Unsupported corruption detection method")
+            {
+                StageKey = "errors.corruption.unsupportedMethod"
+            };
         }
 
         if (scanMode.HasValue && !Enum.IsDefined(scanMode.Value))
         {
-            throw new ValidationException("Unsupported structural scan mode");
+            throw new ValidationException("Unsupported structural scan mode")
+            {
+                StageKey = "errors.corruption.unsupportedStructuralMode"
+            };
         }
 
         _ = NormalizeStructuralScanMode(detectionMethod, scanMode);
@@ -2465,7 +2527,10 @@ public class CorruptionDetectionService
             .SingleOrDefaultAsync(item => item.ScanId == scanId, cancellationToken);
         if (scan == null || !IsSupportedScan(scan))
         {
-            throw new NotFoundException("Corruption scan");
+            throw new NotFoundException("Corruption scan")
+            {
+                StageKey = "errors.corruption.scanNotFound"
+            };
         }
 
         return scan;
@@ -2480,18 +2545,27 @@ public class CorruptionDetectionService
             .SingleOrDefaultAsync(scan => scan.ScanId == scanId, cancellationToken);
         if (current == null)
         {
-            throw new NotFoundException("Corruption scan");
+            throw new NotFoundException("Corruption scan")
+            {
+                StageKey = "errors.corruption.scanNotFound"
+            };
         }
 
         if (!current.IsCurrent)
         {
-            throw new ConflictException("The corruption scan is stale. Reload results and try again");
+            throw new ConflictException("The corruption scan is stale. Reload results and try again")
+            {
+                StageKey = "errors.corruption.scanStale"
+            };
         }
 
         if (!IsSupportedScan(current))
         {
             throw new ConflictException(
-                "The stored corruption scan uses an older format. Run a new scan and try again");
+                "The stored corruption scan uses an older format. Run a new scan and try again")
+            {
+                StageKey = "errors.corruption.scanFormatOld"
+            };
         }
 
         return current;

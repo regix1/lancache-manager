@@ -39,10 +39,12 @@ import {
 import { APP_EVENTS } from '@utils/constants';
 import { formatCount } from '@utils/formatters';
 import { getErrorMessage } from '@utils/error';
+import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 import { formatLastRun } from './scheduleFormatting';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
+import { useMockMode } from '@contexts/useMockMode';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import StatusDot from '@components/common/StatusDot';
 import { ScheduledPrefillScheduleDetail } from './scheduled-prefill/ScheduledPrefillScheduleDetail';
@@ -485,7 +487,12 @@ const DepotIncrementalCheck = memo(function DepotIncrementalCheck({
                   failure (a timeout reads differently from a refused connection) and the line
                   above deliberately does not guess at one. */}
               {outcome === 'unreachable' && check.error && (
-                <p className="incremental-check-error">{check.error}</p>
+                <p className="incremental-check-error">
+                  {translateStageKeyMessage(
+                    check.stageKey ?? check.error,
+                    check.context ?? undefined
+                  )}
+                </p>
               )}
             </div>
             {dismissButton}
@@ -1229,6 +1236,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   onNavigateToSteamApi
 }) => {
   const { t } = useTranslation();
+  const { mockMode } = useMockMode();
   const [schedules, setSchedules] = useState<ServiceScheduleInfo[]>([]);
   const { isLoading, setLoading, markLoaded } = useManagerLoading(true);
   const [error, setError] = useState<string | null>(null);
@@ -1318,6 +1326,12 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   }, [picsProgress?.crawlIncrementalMode]);
 
   const fetchSchedules = useCallback(async () => {
+    // Mock mode has no scheduler behind it. Anything loaded before the toggle was switched on is
+    // a real machine's schedules and next run times, so the list is emptied rather than left.
+    if (mockMode) {
+      setSchedules([]);
+      return;
+    }
     if (isFetchingRef.current) {
       // A refresh was requested while one is already in flight (e.g. a reconnect during the mount
       // GET). Record it so exactly one more fetch runs when the current one settles.
@@ -1353,7 +1367,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     } finally {
       isFetchingRef.current = false;
     }
-  }, [t]);
+  }, [mockMode, t]);
 
   // Initial load
   useEffect(() => {
@@ -1684,7 +1698,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         const result = await ApiService.triggerSchedule(key);
         if (result.status === 'skipped') {
           // Nothing was armed, so retire the optimistic pending flag and the row flash that the
-          // click started rather than leaving a refused run looking like a real one. [36]
+          // click started rather than leaving a refused run looking like a real one.
           clearPending(key);
           setCompletedKeys((prev) => {
             const next = { ...prev };

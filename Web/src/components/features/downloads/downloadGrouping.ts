@@ -1,12 +1,14 @@
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import type { Download, DownloadGroup } from '../../../types';
+import { isResolvedGameName } from './liveDownloadPreviews';
 
 /**
  * Wraps one download in the group shape the row and card renderers accept, so an individual
  * download goes through the same render path as a real group. Every field here is part of that
  * contract: the `individual-` id keys the row and drives expand/collapse, the service name is the
  * fallback title when the game is still unidentified, and the single-item list, client set and
- * repeated start timestamp keep session lists and time labels correct for a group of one.
+ * repeated start timestamp keep session lists and time labels correct for a group of one. The
+ * membership answers collapse to that one row: it is either evicted or it is not, never partially.
  */
 const toSingleDownloadGroup = (download: Download): DownloadGroup => {
   const totalBytes = download.totalBytes;
@@ -17,6 +19,7 @@ const toSingleDownloadGroup = (download: Download): DownloadGroup => {
     type: 'game',
     service: download.service,
     downloads: [download],
+    downloadIds: [download.id],
     totalBytes,
     totalDownloaded: totalBytes,
     cacheHitBytes: download.cacheHitBytes,
@@ -24,7 +27,10 @@ const toSingleDownloadGroup = (download: Download): DownloadGroup => {
     clientsSet: new Set([download.clientIp]),
     firstSeen: download.startTimeUtc,
     lastSeen: download.startTimeUtc,
-    count: 1
+    count: 1,
+    isEvicted: download.isEvicted,
+    isPartiallyEvicted: false,
+    hasRealGameName: isResolvedGameName(download.gameName, download.service)
   };
 };
 

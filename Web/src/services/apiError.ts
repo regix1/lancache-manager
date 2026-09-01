@@ -27,6 +27,14 @@ export interface ApiErrorData {
   error?: string;
   details?: string;
   suggestion?: string;
+  /**
+   * i18n key naming the reason the request was refused, sent beside the English sentence by the
+   * global exception middleware and by the routes that answer a refusal directly. `getErrorMessage`
+   * renders it, so the reader gets the refusal in their own language.
+   */
+  stageKey?: string;
+  /** Substitution values for the {@link stageKey} template. */
+  context?: Record<string, unknown>;
 }
 
 /**

@@ -18,6 +18,7 @@ import {
   getProtocolStatusVariant
 } from './contentPathHelpers';
 import { formatServiceLabel } from '@utils/serviceDisplayName';
+import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 
 interface TestDomainCardProps {
   groups: StatusCheckDomainGroup[] | null;
@@ -130,7 +131,11 @@ const TestDomainCard: React.FC<TestDomainCardProps> = ({ groups }) => {
                   ? t(`${keys}.testHeartbeatOk`, { host: heartbeat.servedBy })
                   : t(`${keys}.testHeartbeatOkNoHost`)
                 : t(`${keys}.testHeartbeatFailed`, {
-                    error: heartbeat.error ?? t(`${keys}.unknownError`)
+                    error: translateStageKeyMessage(
+                      heartbeat.error,
+                      undefined,
+                      `${keys}.unknownError`
+                    )
                   })}
             </p>
           )}

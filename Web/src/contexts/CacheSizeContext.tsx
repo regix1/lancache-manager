@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import i18n from '@/i18n';
 import ApiService from '@services/api.service';
-import { isAbortError, isRefusal } from '@utils/error';
+import { getErrorMessage, isAbortError, isRefusal } from '@utils/error';
 import type { CacheSizeInfo } from '@/types';
 import { useSignalR } from './SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
@@ -97,7 +97,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
 
       // A 400 is the server declining to scan right now, not a failure. Recorded separately so
       // the card keeps the last known size and the mount fetch, which is gated on `error`, is
-      // still free to run on the next mount. [49]
+      // still free to run on the next mount.
       if (isRefusal(err)) {
         setHasFetched(true);
         setDenialReason(err.message);
@@ -107,7 +107,9 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
       console.error('[CacheSize] Failed to fetch cache size:', err);
       setHasFetched(true);
       setError(
-        err instanceof Error ? err.message : i18n.t('management.cache.errors.calculateSizeFailed')
+        err instanceof Error
+          ? getErrorMessage(err)
+          : i18n.t('management.cache.errors.calculateSizeFailed')
       );
     } finally {
       // Only clear the ref if this fetch still owns it - a newer request may have already

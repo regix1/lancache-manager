@@ -379,7 +379,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         // A manual request parked behind another operation can be promoted much later, so the
         // download state is read again here rather than only at request time. Asked before the
         // capability revalidation below, which enumerates log directories for a run that is
-        // already refused. [29]
+        // already refused.
         var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
         if (downloadDenial != null)
         {
@@ -789,7 +789,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 // Above the success branch: a refused run completes successfully because it did
                 // not fail, so without this it would announce itself as a finished scan that
-                // found nothing to evict. [62]
+                // found nothing to evict.
                 if (info.Skipped)
                 {
                     return _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(

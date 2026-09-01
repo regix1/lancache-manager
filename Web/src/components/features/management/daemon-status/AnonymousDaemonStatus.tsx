@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
+import { useMockMode } from '@contexts/useMockMode';
 import DaemonStatusCard from './DaemonStatusCard';
 import type { AnonymousDaemonCopy, AnonymousDaemonService } from './daemonStatus.types';
 import type { DaemonStatusDto } from '../../../../types';
@@ -38,6 +39,7 @@ function useAnonymousDaemonStatus(
   onLoadError: () => void
 ): AnonymousDaemonState {
   const { on, off, isConnected } = useSignalR();
+  const { mockMode } = useMockMode();
   const activity = useActivityStatus();
   const [status, setStatus] = useState<DaemonStatusDto | null>(null);
   const [hasError, setHasError] = useState(false);
@@ -51,6 +53,13 @@ function useAnonymousDaemonStatus(
   }, [onLoadError]);
 
   const loadStatus = useCallback(async () => {
+    // Mock mode reports the daemon as not connected, the same answer XboxDaemonStatus gives there,
+    // rather than a real machine's container state.
+    if (mockMode) {
+      setStatus(OFFLINE_STATUS);
+      setHasError(false);
+      return;
+    }
     try {
       const data = await service.loadStatus();
       setStatus(data);
@@ -60,7 +69,7 @@ function useAnonymousDaemonStatus(
       setStatus(OFFLINE_STATUS);
       onLoadErrorRef.current();
     }
-  }, [service]);
+  }, [mockMode, service]);
 
   useEffect(() => {
     loadStatus().finally(() => setLoading(false));

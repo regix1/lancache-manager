@@ -88,10 +88,14 @@ public static class ScheduledPrefillRunGates
     /// non-system interactive (guest/manual) session, or a persistent container already mid-prefill
     /// (a prior run still going), causes a skip.
     /// </summary>
+    /// <paramref name="skipStageKey"/> names the same reason as an i18n key, so the notification
+    /// card can read in the operator's language; <paramref name="skipMessage"/> stays English for
+    /// the server log.
     public static bool ShouldSkipForBusySessions(
         IEnumerable<DaemonSession> sessions,
         Guid systemUserId,
-        out string skipMessage)
+        out string skipMessage,
+        out string skipStageKey)
     {
         var activeSessions = sessions
             .Where(s => s.Status == DaemonSessionStatus.Active)
@@ -100,16 +104,19 @@ public static class ScheduledPrefillRunGates
         if (activeSessions.Any(s => s.UserId != systemUserId))
         {
             skipMessage = "A manual prefill session is active";
+            skipStageKey = "signalr.scheduledPrefill.skippedManualActive";
             return true;
         }
 
         if (activeSessions.Any(s => s.IsPrefilling))
         {
             skipMessage = "A prefill is already in progress";
+            skipStageKey = "signalr.scheduledPrefill.skippedAlreadyRunning";
             return true;
         }
 
         skipMessage = string.Empty;
+        skipStageKey = string.Empty;
         return false;
     }
 
@@ -248,14 +255,23 @@ public static class ScheduledPrefillRunGates
     {
         if (servicesFailed > 0)
         {
-            return new ScheduledPrefillRunOutcome(false, "One or more services failed during the run");
+            return new ScheduledPrefillRunOutcome(
+                false,
+                "One or more services failed during the run",
+                "signalr.scheduledPrefill.runSomeServicesFailed");
         }
 
         if (servicesRan == 0)
         {
             return servicesNeedingLogin > 0 && servicesSkipped == 0
-                ? new ScheduledPrefillRunOutcome(false, "All due services need login")
-                : new ScheduledPrefillRunOutcome(false, "All enabled services were skipped");
+                ? new ScheduledPrefillRunOutcome(
+                    false,
+                    "All due services need login",
+                    "signalr.scheduledPrefill.runAllNeedLogin")
+                : new ScheduledPrefillRunOutcome(
+                    false,
+                    "All enabled services were skipped",
+                    "signalr.scheduledPrefill.runAllSkipped");
         }
 
         return new ScheduledPrefillRunOutcome(true, null);
@@ -318,6 +334,7 @@ public enum ScheduledPrefillServiceRunResult
 
 /// <summary>
 /// Immutable result of evaluating a completed scheduled-prefill run: whether it succeeded overall,
-/// plus an optional human-readable reason when it did not.
+/// plus an optional human-readable reason when it did not, and the i18n key naming that same reason
+/// so the notification card can show it in the reader's language.
 /// </summary>
-public readonly record struct ScheduledPrefillRunOutcome(bool Success, string? Error);
+public readonly record struct ScheduledPrefillRunOutcome(bool Success, string? Error, string? StageKey = null);

@@ -10,7 +10,7 @@ import type { BadgeVariant } from '@components/ui/Badge.types';
  * own fallback rather than the map guessing on its behalf.
  *
  * A run the user stopped is not a fault, so `cancelled` is grey and red keeps meaning
- * something broke. [18]
+ * something broke.
  *
  * Event lifecycle (`active` / `upcoming` / `past`) is a separate vocabulary and is
  * deliberately not folded in here.

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Ban, CheckCircle2, HelpCircle, Minus, XCircle } from 'lucide-react';
 import { Tooltip } from '@components/ui/Tooltip';
 import type { StatusCheckDomainResult } from '@services/api.service';
+import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 import {
   getProtocolOutcomeTranslationKey,
   getProtocolReasonTranslationKey
@@ -61,7 +62,7 @@ const DomainLeafRow: React.FC<DomainLeafRowProps> = ({ result }) => {
       id: 'dns',
       state: 'fail',
       label: dnsLabel,
-      detail: result.error ?? t(`${keys}.unknownError`)
+      detail: translateStageKeyMessage(result.error, undefined, `${keys}.unknownError`)
     });
   } else if (result.status === 'blocked') {
     lines.push({

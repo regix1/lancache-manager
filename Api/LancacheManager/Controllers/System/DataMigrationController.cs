@@ -91,7 +91,11 @@ public class DataMigrationController : ControllerBase
         if (string.IsNullOrWhiteSpace(targetConnectionString))
         {
             _operationTracker.CompleteOperation(operationId, false, "Target connection string is missing");
-            return StatusCode(500, new ErrorResponse { Error = "Server database connection is not configured" });
+            return StatusCode(500, new ErrorResponse
+            {
+                Error = "Server database connection is not configured",
+                StageKey = "errors.migration.notConfigured"
+            });
         }
 
         var batchSize = request.BatchSize ?? 1000;
@@ -326,6 +330,7 @@ public class DataMigrationController : ControllerBase
             return Ok(new MigrationImportResponse
             {
                 Message = $"Import completed: {recordsImported} imported, {recordsSkipped} skipped, {recordsErrors} errors",
+                StageKey = "management.database.import.completed",
                 TotalRecords = totalRecords,
                 Imported = recordsImported,
                 Skipped = recordsSkipped,
@@ -346,6 +351,7 @@ public class DataMigrationController : ControllerBase
             return Ok(new MigrationImportResponse
             {
                 Message = $"Import cancelled: {recordsImported} imported before cancellation",
+                StageKey = "management.database.import.cancelledWithCount",
                 TotalRecords = totalRecords,
                 Imported = recordsImported,
                 Skipped = recordsSkipped,
@@ -436,7 +442,8 @@ public class DataMigrationController : ControllerBase
                 return Ok(new ConnectionValidationResponse
                 {
                     Valid = false,
-                    Message = "Connection successful, but Downloads table not found"
+                    Message = "Connection successful, but Downloads table not found",
+                    StageKey = "management.database.import.connectedNoTable"
                 });
             }
 
@@ -448,6 +455,7 @@ public class DataMigrationController : ControllerBase
             {
                 Valid = true,
                 Message = "Connection successful",
+                StageKey = "management.database.import.connected",
                 RecordCount = recordCount
             });
         }

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import './VirtualizedList.css';
@@ -33,7 +33,6 @@ import { cacheHitPercent, toGroup } from './downloadGrouping';
 import type { Download, DownloadGroup, GameDetectionSummary } from '../../../types';
 import { useFlatRows } from '@hooks/useFlatRows';
 import type { HeaderRowKind } from './types';
-import { isResolvedGameName } from './liveDownloadPreviews';
 
 interface CompactViewSectionLabels {
   multipleDownloads: string;
@@ -198,13 +197,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
     showSteamImage && primaryDownload?.gameAppId
       ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
       : null;
-  const isEvicted = group.downloads.every((d: Download) => d.isEvicted);
-  const isPartiallyEvicted = !isEvicted && group.downloads.some((d: Download) => d.isEvicted);
+  const { isEvicted, isPartiallyEvicted } = group;
   // Show the group name for resolved games and for the Unknown/Other bucket
   // (whose members have no real game name, so the sentinel service drives it).
-  const showGroupName =
-    serviceLower === 'unknown' ||
-    group.downloads.some((d: Download) => isResolvedGameName(d.gameName, d.service));
+  const showGroupName = serviceLower === 'unknown' || group.hasRealGameName;
   const detection = resolveGameDetection(
     primaryDownload?.gameAppId,
     primaryDownload?.gameName,
@@ -704,12 +700,17 @@ const CompactView = React.memo(function CompactView({
     measureElement: (el) => el?.getBoundingClientRect().height ?? 48
   });
 
+  // Which rows are on screen, as a value that only changes when the rows do. Opening a group
+  // refetches its sessions and rebuilds `items`, so `flatRows` is a new array holding the same
+  // rows; resetting on the array itself sent the reader back to the top on every click.
+  const rowSetKey = useMemo(() => flatRows.map((row) => row.id).join('\n'), [flatRows]);
+
   // Reset virtualized scroll to top when filters/sort change the row set, preventing a stale offset.
   useEffect(() => {
     if (virtualParentRef.current) {
       virtualParentRef.current.scrollTop = 0;
     }
-  }, [flatRows]);
+  }, [rowSetKey]);
 
   const renderSectionHeader = (variant: HeaderRowKind): React.ReactNode => {
     const text =

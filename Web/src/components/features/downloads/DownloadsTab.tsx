@@ -17,7 +17,7 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useClientHostnames } from '@contexts/useClientHostnames';
 import { storage } from '@utils/storage';
-import ApiService from '@services/api.service';
+import ApiService, { type RetroDownloadDto } from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { downloadTextFile } from '@utils/downloadTextFile';
 import {
@@ -41,6 +41,7 @@ import { SearchInput } from '@components/ui/SearchInput';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { LoadingState } from '@components/ui/ManagerCard';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 
 // Import view components
@@ -50,7 +51,8 @@ import type { RetroViewHandle } from './RetroView.types';
 const RetroView = lazy(() => import('./RetroView'));
 import DownloadsHeader from './DownloadsHeader';
 import ActiveDownloadsView from './ActiveDownloadsView';
-import { cacheHitPercent } from './downloadGrouping';
+import { ALL_ITEMS_PAGE_SIZE, useRetroDownloads } from './useRetroDownloads';
+import { useMockMode } from '@contexts/useMockMode';
 
 import type { Download, DownloadGroup } from '../../../types';
 import {
@@ -147,15 +149,15 @@ type SortOrder =
 // Preset type
 type PresetType = 'pretty' | 'minimal' | 'showAll' | 'default' | 'custom';
 
-// Preset configurations
-// Unmapped Steam content: a Steam download with no resolved game name (PICS did not
-// cover the depot, or none was captured). It has no game to map to, so it displays
-// under the synthetic "Unknown/Other" group rather than a named game. This is the
-// single source of truth the group / hide / search "unknown" settings all act on.
+// Unmapped Steam content: a Steam download with no resolved game name (PICS did not cover the
+// depot, or none was captured). It has no game to map to, so it displays under the synthetic
+// "Unknown/Other" group rather than a named game. The grouped page answers this server-side; the
+// export reads raw rows and still has to decide it here.
 const isUnmappedSteam = (d: Download): boolean =>
   (d.service ?? '').toLowerCase() === 'steam' &&
   (!d.gameName || d.gameName.trim() === '' || d.gameName.toLowerCase() === d.service.toLowerCase());
 
+// Preset configurations
 const PRESETS = {
   pretty: {
     hideMetadata: true,
@@ -370,11 +372,16 @@ const convertDownloadsToCSV = (
 const DownloadsTab: React.FC = () => {
   const { t } = useTranslation();
   const { notifyError } = useErrorHandler();
-  const { latestDownloads = [], loading } = useDownloads();
+  const {
+    loading,
+    serviceOptions: serviceFilterOptions,
+    clientOptions: clientIps
+  } = useDownloads();
+  const { mockMode } = useMockMode();
   const { detectionLookup, detectionByName, detectionByService } = useGameDetection();
   const { timeRange, selectedEventIds, getTimeRangeParams, customStartDate, customEndDate } =
     useTimeFilter();
-  const { getGroupForIp } = useClientGroups();
+  const { getGroupForIp, clientGroups } = useClientGroups();
   const { getHostnameForIp } = useClientHostnames();
   const { authMode } = useAuth();
   const isGuest = authMode === 'guest';
@@ -439,6 +446,9 @@ const DownloadsTab: React.FC = () => {
   const [evictedDataMode, setEvictedDataMode] =
     useState<EvictedDataMode>(readCachedEvictedDataMode);
   useEffect(() => {
+    // Mock mode has no stored setting behind it, so the cached value read above stands.
+    if (mockMode) return;
+
     const controller = new AbortController();
     ApiService.getEvictionSettings(controller.signal)
       .then((response: { evictedDataMode: string }) => {
@@ -458,7 +468,7 @@ const DownloadsTab: React.FC = () => {
         }
       });
     return () => controller.abort();
-  }, []);
+  }, [mockMode]);
 
   // Listen for in-session eviction-settings saves from StorageSection so the
   // downloads view reflects the new mode without waiting for a remount.
@@ -484,6 +494,9 @@ const DownloadsTab: React.FC = () => {
   const [settingsOpened, setSettingsOpened] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [imageCacheClearing, setImageCacheClearing] = useState(false);
+  // How many rows the retro table's own fetch found. Null until it has answered, so a control that
+  // reads a count of zero cannot act on it in the render before that table has fetched.
+  const [retroTotalItems, setRetroTotalItems] = useState<number | null>(null);
 
   // Page number is component state. It used to live in the URL, which meant the page and the page
   // size each had two owners; the size pair fought the retro cap below and rewrote each other
@@ -498,13 +511,16 @@ const DownloadsTab: React.FC = () => {
 
   const settingsRef = useRef<HTMLDivElement>(null);
   const retroViewRef = useRef<RetroViewHandle>(null);
+  const exportAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => exportAbort.current?.abort(), []);
 
-  // Retro view: store previous non-retro itemsPerPage so we can restore when switching away
-  const previousNonRetroItemsPerPage = useRef<number | 'unlimited'>(
+  // Retro view: store previous non-retro itemsPerPage so we can restore when switching away.
+  // A stored 'unlimited' names the old "All", which asked for the whole table in one request, so
+  // it reads back as the view's default size rather than turning itself into the walked one.
+  const previousNonRetroItemsPerPage = useRef<number>(
     (() => {
       const saved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE);
-      if (saved === 'unlimited') return 'unlimited';
-      if (saved) return parseInt(saved);
+      if (saved && saved !== 'unlimited') return parseInt(saved);
       return DEFAULT_ITEMS_PER_PAGE.normal;
     })()
   );
@@ -513,16 +529,21 @@ const DownloadsTab: React.FC = () => {
     const savedViewMode = (storage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode;
 
     // Get the appropriate items per page based on view mode
-    const getItemsPerPage = (viewMode: ViewMode): number | 'unlimited' => {
+    const getItemsPerPage = (viewMode: ViewMode): number => {
       if (viewMode === 'retro') {
         const retroSaved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE_RETRO);
-        if (retroSaved === 'unlimited') return 'unlimited';
-        if (retroSaved) return parseInt(retroSaved);
+        if (retroSaved && retroSaved !== 'unlimited') {
+          const parsed = parseInt(retroSaved);
+          // This table is offered 20, 50 and 100 only, but the persist effect writes the size the
+          // page is already showing under this key on the render that switches here - before the
+          // cap below runs. So a 200, or the 0 that means All, can be sitting in storage, and All
+          // here would walk every page of a table whose rows are the widest in the app.
+          return parsed > 100 || parsed === ALL_ITEMS_PAGE_SIZE ? 100 : parsed;
+        }
         return DEFAULT_ITEMS_PER_PAGE.retro;
       } else {
         const standardSaved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE);
-        if (standardSaved === 'unlimited') return 'unlimited';
-        if (standardSaved) return parseInt(standardSaved);
+        if (standardSaved && standardSaved !== 'unlimited') return parseInt(standardSaved);
         return DEFAULT_ITEMS_PER_PAGE[viewMode];
       }
     };
@@ -571,6 +592,60 @@ const DownloadsTab: React.FC = () => {
     const timer = setTimeout(() => setDebouncedSearchQuery(settings.searchQuery), 300);
     return () => clearTimeout(timer);
   }, [settings.searchQuery]);
+
+  // A dropdown entry can name a client group, which stands for several addresses, and the server
+  // takes a comma-separated list. The group is expanded once here for both the page fetch below
+  // and the retro view. A selection naming a group that has been deleted, or one whose members
+  // have all been removed, falls through to the address branch and matches nothing, rather than
+  // quietly dropping the filter.
+  const serverClientFilter = useMemo(() => {
+    if (settings.selectedClient === 'all') return 'all';
+    const memberIps = findClientFilterGroup(settings.selectedClient, clientGroups)?.memberIps.join(
+      ','
+    );
+    return memberIps || settings.selectedClient;
+  }, [settings.selectedClient, clientGroups]);
+
+  // One page of grouped rows, filtered, grouped, sorted and sliced in the database. The whole
+  // table used to be fetched and all of that done here, so every reader held every row in memory.
+  // Switched off while the retro table is showing: that table fetches its own page, and running
+  // both meant every page turn, filter change and refresh grouped the whole table twice. The row
+  // count the export button needs comes back from the table itself instead.
+  const serverPage = useRetroDownloads({
+    // Off while the retro table is showing, because that table fetches its own page. Mock mode is
+    // the exception: its rows are generated on the client, so there is no second server round trip
+    // to save, and the export reads the page's rows rather than the retro table's.
+    enabled: activeTab === 'recent' && (settings.viewMode !== 'retro' || mockMode),
+    page: currentPage,
+    pageSize: settings.itemsPerPage,
+    sort: settings.sortOrder,
+    service: settings.selectedService,
+    client: serverClientFilter,
+    search: debouncedSearchQuery,
+    hideLocalhost: settings.hideLocalhost,
+    hideMetadata: settings.hideMetadata,
+    hideSmallFiles: settings.hideSmallFiles,
+    // The same two halves the browser used to OR together: the reader's own checkbox, and the
+    // stored mode when it is hiding evicted rows for everyone. Sending the mode as well as the
+    // checkbox is what refetches the page when someone changes it in Management, which is the
+    // moment the rows on screen stop matching what the server would send.
+    hideEvicted: settings.hideEvicted || evictedDataMode === 'hide',
+    hideUnknown: settings.hideUnknownGames,
+    // A download that is still running is the row a reader on a cache box is most likely watching,
+    // so it is listed here as it downloads rather than appearing only once it finishes. The retro
+    // table leaves it out: that one is a history view.
+    includeActive: true,
+    hitMiss: settings.hitMissFilter,
+    // The grouped views key a bucket on the game identity alone, so one title seen under two
+    // services stays one row. Always on: it is the grouping these views have always used.
+    groupByGame: true,
+    mergeAcrossServices: true,
+    groupUnknownGames: settings.groupUnknownGames,
+    groupByFrequency: settings.groupByFrequency,
+    startTime: retroTimeParams.startTime,
+    endTime: retroTimeParams.endTime,
+    eventId: retroEventId
+  });
 
   // Page size has one owner: `settings.itemsPerPage`, persisted to localStorage by the effect
   // further down. It used to be mirrored into a `pageSize` URL param by a pair of effects, each
@@ -656,27 +731,24 @@ const DownloadsTab: React.FC = () => {
       prevViewModeRef.current = newMode;
 
       // Load the saved items per page for the new view mode
-      let newItemsPerPage: number | 'unlimited';
+      let newItemsPerPage: number;
       if (newMode === 'retro') {
         // When switching TO retro: save current non-retro itemsPerPage, then cap retro
         previousNonRetroItemsPerPage.current = settings.itemsPerPage;
 
         const retroSaved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE_RETRO);
-        if (retroSaved === 'unlimited') {
-          // Retro saved as unlimited - cap to 100 instead
-          newItemsPerPage = 100;
-        } else if (retroSaved) {
+        if (retroSaved && retroSaved !== 'unlimited') {
           const parsed = parseInt(retroSaved);
-          // Cap at 100 when switching to retro
-          newItemsPerPage = parsed > 100 ? 100 : parsed;
+          // Cap at 100 when switching to retro. The 0 that means All is capped too: it is not one
+          // of the sizes this table is offered, and it would walk every page of the widest rows in
+          // the app.
+          newItemsPerPage = parsed > 100 || parsed === ALL_ITEMS_PAGE_SIZE ? 100 : parsed;
         } else {
           newItemsPerPage = DEFAULT_ITEMS_PER_PAGE.retro;
         }
       } else {
         const standardSaved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE);
-        if (standardSaved === 'unlimited') {
-          newItemsPerPage = 'unlimited';
-        } else if (standardSaved) {
+        if (standardSaved && standardSaved !== 'unlimited') {
           newItemsPerPage = parseInt(standardSaved);
         } else {
           newItemsPerPage = DEFAULT_ITEMS_PER_PAGE[newMode];
@@ -696,26 +768,28 @@ const DownloadsTab: React.FC = () => {
   // Showing a loading overlay for instant client-side filtering causes unnecessary flicker.
   // See Checkbox.tsx for the pattern to follow when filtering data.
 
+  // Both dropdowns are built from the distinct services and clients the server reports over the
+  // whole visible table, not from the rows on screen. The retro view fetches its own page and the
+  // other views page their own rows, so deriving either list from what is currently displayed
+  // would leave the dropdown offering only the services the current page happens to contain.
   const availableServices = useMemo(() => {
-    const services = new Set(latestDownloads.map((d) => d.service.toLowerCase()));
+    const services = new Set(serviceFilterOptions.map((option) => option.service.toLowerCase()));
     return Array.from(services).sort();
-  }, [latestDownloads]);
+  }, [serviceFilterOptions]);
 
-  const availableClients = useMemo(() => {
-    const clients = new Set(latestDownloads.map((d) => d.clientIp));
-    return Array.from(clients).sort();
-  }, [latestDownloads]);
+  const availableClients = useMemo(() => Array.from(new Set(clientIps)).sort(), [clientIps]);
 
-  // Filter out services that only have small files (< 1MB) from the dropdown
+  // Services that only ever cached files under a megabyte are demoted below the divider rather
+  // than removed. The server reports the flag per raw service name, so two aliases of one service
+  // are folded here and the group counts as large-file when either alias is.
   const filteredAvailableServices = useMemo(() => {
-    return availableServices.filter((service) => {
-      // Check if this service has any downloads > 1MB
-      const serviceDownloads = latestDownloads.filter((d) => d.service.toLowerCase() === service);
-      const hasLargeFiles = serviceDownloads.some((d) => d.totalBytes > 1024 * 1024); // 1MB
-
-      return hasLargeFiles;
-    });
-  }, [availableServices, latestDownloads]);
+    const largeFileServices = new Set(
+      serviceFilterOptions
+        .filter((option) => option.hasLargeFiles)
+        .map((option) => option.service.toLowerCase())
+    );
+    return availableServices.filter((service) => largeFileServices.has(service));
+  }, [availableServices, serviceFilterOptions]);
 
   const serviceOptions = useMemo(() => {
     // Group raw service names by their folded display name (e.g. "xbox" and
@@ -751,8 +825,6 @@ const DownloadsTab: React.FC = () => {
     return baseOptions;
   }, [filteredAvailableServices, availableServices, t]);
 
-  const { clientGroups } = useClientGroups();
-
   const clientOptions = useMemo(
     () =>
       buildClientFilterOptions(
@@ -764,431 +836,169 @@ const DownloadsTab: React.FC = () => {
     [availableClients, getGroupForIp, getHostnameForIp, t]
   );
 
+  // "All" is a page size the hook answers by walking the endpoint's own pages and accumulating
+  // them, so the reader sees every row while no single request asks the server for more than the
+  // 200 it serves. The retro table is left out of it for the reason 200 is already left out: its
+  // rows carry banners, tooltips and a wide column set, and it caps at 100.
   const itemsPerPageOptions = useMemo(() => {
     const options = [
       { value: '20', label: '20' },
       { value: '50', label: '50' },
       { value: '100', label: '100' },
       { value: '200', label: '200' },
-      { value: 'unlimited', label: t('downloads.tab.filters.allItems') }
+      { value: String(ALL_ITEMS_PAGE_SIZE), label: t('downloads.tab.filters.allItems') }
     ];
     if (settings.viewMode === 'retro') {
-      return options.filter((opt) => opt.value !== 'unlimited' && opt.value !== '200');
+      return options.filter(
+        (opt) => opt.value !== '200' && opt.value !== String(ALL_ITEMS_PAGE_SIZE)
+      );
     }
     return options;
-  }, [t, settings.viewMode]);
+  }, [settings.viewMode, t]);
 
   // Handler for items-per-page changes - writes settings, which the effect below persists.
   const handleItemsPerPageChange = (value: string) => {
-    const newValue: number | 'unlimited' = value === 'unlimited' ? 'unlimited' : parseInt(value);
-    setSettings((prev) => ({ ...prev, itemsPerPage: newValue }));
+    setSettings((prev) => ({ ...prev, itemsPerPage: parseInt(value) }));
   };
 
-  const filteredDownloads = useMemo(() => {
-    if (!Array.isArray(latestDownloads)) {
-      console.error('latestDownloads is not an array:', latestDownloads);
-      return [];
-    }
-    let filtered = [...latestDownloads];
-
-    if (settings.hideMetadata) {
-      filtered = filtered.filter((d) => d.totalBytes > 0);
-    }
-
-    if (settings.hideSmallFiles) {
-      filtered = filtered.filter((d) => d.totalBytes === 0 || d.totalBytes >= 1048576);
-    }
-
-    if (settings.hideLocalhost) {
-      filtered = filtered.filter((d) => d.clientIp !== '127.0.0.1' && d.clientIp !== '::1');
-    }
-
-    if (settings.hideEvicted || evictedDataMode === 'hide') {
-      filtered = filtered.filter((d) => !d.isEvicted);
-    }
-
-    // "Hide unknown games" drops unmapped Steam content (the Unknown/Other bucket)
-    // before grouping, so it is gone from every view and from the totals.
-    if (settings.hideUnknownGames) {
-      filtered = filtered.filter((d) => !isUnmappedSteam(d));
-    }
-
-    if (settings.hitMissFilter !== 'all') {
-      filtered = filtered.filter((d) =>
-        settings.hitMissFilter === 'hit' ? d.cacheHitPercent >= 50 : d.cacheHitPercent < 50
-      );
-    }
-
-    if (settings.selectedService !== 'all') {
-      filtered = filtered.filter(
-        (d) => getServiceFilterKey(d.service) === settings.selectedService
-      );
-    }
-
-    if (settings.selectedClient !== 'all') {
-      // A selection naming a group that no longer exists falls through to the address branch,
-      // where it matches nothing, rather than quietly dropping the filter. [10]
-      const group = findClientFilterGroup(settings.selectedClient, clientGroups);
-      if (group) {
-        filtered = filtered.filter((d) => group.memberIps.includes(d.clientIp));
+  // One grouped row in the shape the card, compact and normal renderers accept.
+  //
+  // The server answers everything about the membership - whether every member is evicted, whether
+  // any member resolved a real name, how many sessions and clients the group holds - because a
+  // collapsed row carries one download and cannot answer any of it from that. The row ids are the
+  // same strings the browser used to mint, so an expanded group stays expanded across a refetch.
+  //
+  // The title is built here rather than taken from the row: it is translated, and the server has no
+  // locale. The first two branches mirror the two kinds of id the server sends. The third names a
+  // Steam group by its app id: the server knows which app it is but no member resolved a title, so
+  // the row carries the app id and says no member has a real name. A group whose title merely reads
+  // like an app id is a resolved name and keeps it.
+  const toDownloadGroup = useCallback(
+    (row: RetroDownloadDto, downloads: Download[]): DownloadGroup => {
+      let name: string;
+      if (row.id === 'unknown-other') {
+        name = t('downloads.tab.groups.unknownOther');
+      } else if (row.id.startsWith('service-')) {
+        const displayService = getServiceDisplayName(row.service);
+        name =
+          getServiceFilterKey(row.service) === 'epicgames'
+            ? 'Epic Games'
+            : t('downloads.tab.groups.serviceDownloads', {
+                service: displayService.charAt(0).toUpperCase() + displayService.slice(1)
+              });
+      } else if (row.steamAppId && !row.hasRealGameName) {
+        name = t('downloads.tab.groups.steamApp', { appId: row.steamAppId });
       } else {
-        filtered = filtered.filter((d) => d.clientIp === settings.selectedClient);
+        name = row.appName;
       }
-    }
 
-    // Apply search filter
-    if (settings.searchQuery.trim()) {
-      const query = settings.searchQuery.toLowerCase().trim();
-      // Unmapped Steam downloads have no resolved game name and their service is
-      // "steam", so none of the per-row fields carry the word "unknown". They
-      // display under the synthetic "Unknown/Other" group, so let that label be
-      // searchable: match when the query is the start of "unknown", "other", or
-      // "unknown/other". Scoped to Steam to mirror the grouping (WSUS and other
-      // known services stay findable by their own service name).
-      const queryMatchesUnknownLabel =
-        'unknown/other'.startsWith(query) || 'other'.startsWith(query);
-      filtered = filtered.filter(
-        (d) =>
-          (d.gameName && d.gameName.toLowerCase().includes(query)) ||
-          d.service.toLowerCase().includes(query) ||
-          d.clientIp.toLowerCase().includes(query) ||
-          (d.depotId && String(d.depotId).includes(query)) ||
-          (d.gameAppId && String(d.gameAppId).includes(query)) ||
-          (queryMatchesUnknownLabel && isUnmappedSteam(d))
-      );
-    }
-
-    return filtered;
-  }, [
-    latestDownloads,
-    settings.hideMetadata,
-    settings.hideSmallFiles,
-    settings.hideLocalhost,
-    settings.hideEvicted,
-    settings.hideUnknownGames,
-    evictedDataMode,
-    settings.hitMissFilter,
-    settings.selectedService,
-    settings.selectedClient,
-    settings.searchQuery,
-    clientGroups
-  ]);
-
-  // Removed serviceFilteredDownloads - now using latestDownloads.length directly for total count
-
-  // Grouping logic for different view modes. Memoized on t so the group names regroup when the
-  // language changes, without rebuilding the whole grouping on every render.
-  const createGroups = useCallback(
-    (
-      downloads: Download[],
-      groupUnknown = false
-    ): { groups: DownloadGroup[]; individuals: Download[] } => {
-      const groups: Record<string, DownloadGroup> = {};
-      const individuals: Download[] = [];
-
-      downloads.forEach((download) => {
-        let groupKey: string;
-        let groupName: string;
-        let groupType: 'game' | 'metadata' | 'content';
-
-        // Check if this is an unknown game (platform-agnostic)
-        // Catches: null/undefined gameName (Rust processor), empty string, or gameName === service name (backend fallback)
-        const isUnknownGame =
-          !download.gameName ||
-          download.gameName.trim() === '' ||
-          download.gameName.toLowerCase() === download.service.toLowerCase();
-
-        // Check if we have a valid game (either by appId or by name)
-        const hasValidGameAppId = !!download.gameAppId;
-        const hasValidGameName = !isUnknownGame && !!download.gameName;
-
-        if (hasValidGameAppId || hasValidGameName) {
-          // Use gameAppId for grouping when available (prevents duplicates from name variations)
-          // Fall back to gameName only if no appId exists
-          groupKey = hasValidGameAppId
-            ? `game-appid-${download.gameAppId}`
-            : `game-${download.gameName}`;
-          groupName =
-            download.gameName || t('downloads.tab.groups.steamApp', { appId: download.gameAppId });
-          groupType = 'game';
-        } else if (groupUnknown && isUnmappedSteam(download)) {
-          // Group unmapped Steam content together when the setting is enabled.
-          // Only Steam is treated as "unknown" here - other services (WSUS, Riot,
-          // Epic, Xbox, Blizzard, etc.) are known sources and keep their own service
-          // group, so they are never folded into this bucket.
-          groupKey = 'unknown-other';
-          groupName = t('downloads.tab.groups.unknownOther');
-          groupType = 'content';
-        } else if ((download.service ?? '').toLowerCase() !== 'steam') {
-          const svcLower = (download.service ?? '').toLowerCase();
-          groupKey = `service-${svcLower}`;
-          const displayService = getServiceDisplayName(download.service ?? '');
-          groupName =
-            svcLower === 'epicgames'
-              ? 'Epic Games'
-              : t('downloads.tab.groups.serviceDownloads', {
-                  service: displayService.charAt(0).toUpperCase() + displayService.slice(1)
-                });
-          groupType = download.totalBytes === 0 ? 'metadata' : 'content';
-        } else {
-          // Unmapped Steam downloads - group at service level like other services
-          groupKey = 'service-steam';
-          groupName = t('downloads.tab.groups.serviceDownloads', { service: 'Steam' });
-          groupType = 'content';
-        }
-
-        if (!groups[groupKey]) {
-          groups[groupKey] = {
-            id: groupKey,
-            name: groupName,
-            type: groupType,
-            // The Unknown/Other bucket spans downloads that each carry their own
-            // service (e.g. Steam). Use a neutral sentinel so the row renders the
-            // Unknown icon and "Unknown/Other" name instead of borrowing a real
-            // service's badge, icon, or on-disk size.
-            service: groupKey === 'unknown-other' ? 'unknown' : download.service,
-            downloads: [],
-            totalBytes: 0,
-            totalDownloaded: 0,
-            cacheHitBytes: 0,
-            cacheMissBytes: 0,
-            clientsSet: new Set<string>(),
-            firstSeen: download.startTimeUtc,
-            lastSeen: download.startTimeUtc,
-            count: 0
-          };
-        }
-
-        groups[groupKey].downloads.push(download);
-        groups[groupKey].totalBytes += download.totalBytes;
-        groups[groupKey].totalDownloaded += download.totalBytes;
-        groups[groupKey].cacheHitBytes += download.cacheHitBytes;
-        groups[groupKey].cacheMissBytes += download.cacheMissBytes;
-        groups[groupKey].clientsSet.add(download.clientIp);
-        groups[groupKey].count++;
-
-        if (download.startTimeUtc < groups[groupKey].firstSeen) {
-          groups[groupKey].firstSeen = download.startTimeUtc;
-        }
-        if (download.startTimeUtc > groups[groupKey].lastSeen) {
-          groups[groupKey].lastSeen = download.startTimeUtc;
-        }
-      });
-
-      return { groups: Object.values(groups), individuals };
+      return {
+        id: row.id,
+        name,
+        // The views give "metadata" to a zero-byte group, and a completed zero-byte session never
+        // reaches this endpoint, so a row is either a game bucket or a content one.
+        type: row.groupType === 'game' ? 'game' : 'content',
+        service: row.service,
+        downloads,
+        // Every session in the group. `downloads` is the newest one alone until the reader opens
+        // the group, so the event badges are counted from these ids rather than from that one row.
+        downloadIds: row.downloadIds,
+        totalBytes: row.totalBytes,
+        totalDownloaded: row.totalBytes,
+        cacheHitBytes: row.cacheHitBytes,
+        cacheMissBytes: row.cacheMissBytes,
+        clientsSet: new Set(row.clientIps),
+        firstSeen: row.startTimeUtc,
+        // The newest member's START time. The row also carries the group's latest END time, which
+        // is what the retro table shows in its own column and is a different instant.
+        lastSeen: row.lastStartTimeUtc,
+        count: row.requestCount,
+        isEvicted: row.isEvicted,
+        isPartiallyEvicted: row.isPartiallyEvicted,
+        hasRealGameName: row.hasRealGameName
+      };
     },
     [t]
   );
 
-  const normalViewItems = useMemo((): (Download | DownloadGroup)[] => {
-    const { groups, individuals } = createGroups(filteredDownloads, settings.groupUnknownGames);
+  // A grouped row names its members but carries only the newest one, so the sessions of the group
+  // the reader opens are fetched on their own. Collapsing clears them; a refetch of the page
+  // refreshes them, so an open group's sessions stay as current as its header.
+  const [expandedMembers, setExpandedMembers] = useState<{
+    groupId: string;
+    downloads: Download[];
+  } | null>(null);
 
-    // Unmapped Steam content ("Unknown/Other") is already removed upstream in
-    // filteredDownloads when hideUnknownGames is set, so no group-level filtering
-    // is needed here.
-    const allItems: (Download | DownloadGroup)[] = [...groups, ...individuals];
+  useEffect(() => {
+    if (expandedItem === null) {
+      setExpandedMembers(null);
+      return;
+    }
+    const row = serverPage.items.find((item) => item.id === expandedItem);
+    // The open group is not on this page - a page change or a filter dropped it. Nothing renders
+    // it, so there is nothing to fetch.
+    if (!row) return;
 
-    return allItems.sort((a, b) => {
-      // If groupByFrequency is disabled, skip the frequency-based sorting
-      if (settings.groupByFrequency) {
-        // First sort by whether it's a group with multiple downloads vs single/individual
-        const aIsMultiple = 'downloads' in a && a.downloads.length > 1;
-        const bIsMultiple = 'downloads' in b && b.downloads.length > 1;
-
-        if (aIsMultiple && !bIsMultiple) return -1; // Multiple downloads first
-        if (!aIsMultiple && bIsMultiple) return 1; // Single downloads/individuals after
-
-        const aIsSingle = 'downloads' in a && a.downloads.length === 1;
-        const bIsSingle = 'downloads' in b && b.downloads.length === 1;
-
-        if (aIsSingle && !bIsSingle && !bIsMultiple) return -1; // Single downloads before individuals
-        if (!aIsSingle && bIsSingle && !aIsMultiple) return 1; // Individuals after single downloads
-      }
-
-      // Then sort by time within each category (or just by time if groupByFrequency is off)
-      const aTime =
-        'downloads' in a
-          ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-          : new Date(a.startTimeUtc).getTime();
-      const bTime =
-        'downloads' in b
-          ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-          : new Date(b.startTimeUtc).getTime();
-      return bTime - aTime;
-    });
-  }, [createGroups, filteredDownloads, settings.groupByFrequency, settings.groupUnknownGames]);
-
-  // Compact and Normal share the same grouping logic, so reuse normalViewItems
-  const compactViewItems = normalViewItems;
-
-  const allItemsSorted = useMemo(() => {
-    let items =
-      settings.viewMode === 'normal' || settings.viewMode === 'card'
-        ? normalViewItems
-        : settings.viewMode === 'compact'
-          ? compactViewItems
-          : filteredDownloads;
-
-    // Define the sort function
-    const sortFn = (a: Download | DownloadGroup, b: Download | DownloadGroup) => {
-      switch (settings.sortOrder) {
-        case 'oldest': {
-          const aTime =
-            'downloads' in a
-              ? Math.min(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-              : new Date(a.startTimeUtc).getTime();
-          const bTime =
-            'downloads' in b
-              ? Math.min(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-              : new Date(b.startTimeUtc).getTime();
-          return aTime - bTime;
-        }
-        case 'largest': {
-          const aBytes = a.totalBytes;
-          const bBytes = b.totalBytes;
-          return bBytes - aBytes;
-        }
-        case 'smallest': {
-          const aBytesSmall = a.totalBytes;
-          const bBytesSmall = b.totalBytes;
-          return aBytesSmall - bBytesSmall;
-        }
-        case 'service': {
-          const serviceCompare = a.service.localeCompare(b.service);
-          if (serviceCompare !== 0) return serviceCompare;
-          const aLatest =
-            'downloads' in a
-              ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-              : new Date(a.startTimeUtc).getTime();
-          const bLatest =
-            'downloads' in b
-              ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-              : new Date(b.startTimeUtc).getTime();
-          return bLatest - aLatest;
-        }
-        case 'efficiency': {
-          // Sort by cache hit percentage (highest first)
-          const aEfficiency = cacheHitPercent(a.cacheHitBytes, a.totalBytes);
-          const bEfficiency = cacheHitPercent(b.cacheHitBytes, b.totalBytes);
-          return bEfficiency - aEfficiency;
-        }
-        case 'efficiency-low': {
-          // Sort by cache hit percentage (lowest first)
-          const aEffLow = cacheHitPercent(a.cacheHitBytes, a.totalBytes);
-          const bEffLow = cacheHitPercent(b.cacheHitBytes, b.totalBytes);
-          return aEffLow - bEffLow;
-        }
-        case 'sessions': {
-          // Sort by number of download sessions (most first)
-          const aSessions = 'downloads' in a ? a.count : 1;
-          const bSessions = 'downloads' in b ? b.count : 1;
-          return bSessions - aSessions;
-        }
-        case 'alphabetical': {
-          // Sort by name alphabetically
-          const aName = 'downloads' in a ? a.name : a.gameName || getServiceDisplayName(a.service);
-          const bName = 'downloads' in b ? b.name : b.gameName || getServiceDisplayName(b.service);
-          return aName.localeCompare(bName);
-        }
-        case 'recent':
-        default: {
-          const aLatestDefault =
-            'downloads' in a
-              ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-              : new Date(a.startTimeUtc).getTime();
-          const bLatestDefault =
-            'downloads' in b
-              ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-              : new Date(b.startTimeUtc).getTime();
-          return bLatestDefault - aLatestDefault;
-        }
-      }
-    };
-
-    // Apply sorting
-    if (
-      settings.viewMode === 'normal' ||
-      settings.viewMode === 'card' ||
-      settings.viewMode === 'compact'
-    ) {
-      const mixedItems = [...items] as (Download | DownloadGroup)[];
-
-      // Service/alphabetical/efficiency/sessions sorts don't bucket by frequency,
-      // and bucketing is a no-op when the "Group by frequency" toggle is off.
-      const skipFrequencyGrouping =
-        ['service', 'alphabetical', 'efficiency', 'efficiency-low', 'sessions'].includes(
-          settings.sortOrder
-        ) || !settings.groupByFrequency;
-      if (skipFrequencyGrouping) {
-        mixedItems.sort(sortFn);
-        items = mixedItems;
-      } else {
-        // Preserve Multiple vs Single vs Individual categorization, sorted within each bucket
-        const multipleDownloads = mixedItems.filter(
-          (item) => 'downloads' in item && item.downloads.length > 1
-        );
-        const singleDownloads = mixedItems.filter(
-          (item) => 'downloads' in item && item.downloads.length === 1
-        );
-        const individuals = mixedItems.filter((item) => !('downloads' in item));
-
-        multipleDownloads.sort(sortFn);
-        singleDownloads.sort(sortFn);
-        individuals.sort(sortFn);
-
-        items = [...multipleDownloads, ...singleDownloads, ...individuals];
-      }
+    // Mock mode has no member rows to ask for: the generated page carries the group's newest
+    // download and nothing behind it, so opening a group shows that one session.
+    if (mockMode) {
+      setExpandedMembers({
+        groupId: row.id,
+        downloads: row.primaryDownload ? [row.primaryDownload] : []
+      });
+      return;
     }
 
-    return items;
-  }, [
-    filteredDownloads,
-    normalViewItems,
-    compactViewItems,
-    settings.viewMode,
-    settings.sortOrder,
-    settings.groupByFrequency
-  ]);
+    const controller = new AbortController();
+    ApiService.getDownloadsByIds(row.downloadIds, controller.signal)
+      .then((downloads) => setExpandedMembers({ groupId: row.id, downloads }))
+      .catch((err: unknown) => {
+        // notifyError drops an aborted request itself, so switching pages mid-fetch is silent.
+        notifyError(t('downloads.tab.errors.loadFailed'), err, {
+          logLabel: '[DownloadsTab] Failed to load the sessions of the expanded group'
+        });
+      });
+    return () => controller.abort();
+  }, [expandedItem, mockMode, serverPage.items, notifyError, t]);
 
-  const totalPages = useMemo(() => {
-    if (settings.itemsPerPage === 'unlimited') return 1;
-    const itemsPerPageNum = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20;
-    // Floor of 1: an empty list would otherwise report 0 pages and put the pager out of range of
-    // its own clamp.
-    return Math.max(1, Math.ceil(allItemsSorted.length / itemsPerPageNum));
-  }, [allItemsSorted.length, settings.itemsPerPage]);
+  // The page's rows, in the order the server returned them. No client-side sort and no slice is
+  // left: the sort order, the frequency bucketing, the grouping and the page boundary are all
+  // decided in the query, so what arrives is what renders.
+  const itemsToDisplay = useMemo<DownloadGroup[]>(
+    () =>
+      serverPage.items.map((row) => {
+        const members =
+          expandedMembers && expandedMembers.groupId === row.id
+            ? expandedMembers.downloads
+            : row.primaryDownload
+              ? [row.primaryDownload]
+              : [];
+        return toDownloadGroup(row, members);
+      }),
+    [serverPage.items, expandedMembers, toDownloadGroup]
+  );
 
-  // Clamped here, in the data path, rather than relying on the pager's own clamp effect. The pager
-  // only renders while totalPages > 1, so a list that shrinks to a single page unmounts the very
-  // component that would have corrected the page, leaving a slice past the end: an empty list with
-  // no pager to click back with. Matches what usePaginatedList does for the lists that use it.
-  const safePage = Math.min(currentPage, totalPages);
+  // Floor of 1: an empty result would otherwise report 0 pages and put the pager out of range of
+  // its own clamp.
+  const totalPages = Math.max(1, serverPage.totalPages);
 
-  // The clamp above only decides which slice renders; currentPage keeps the out-of-range number.
-  // Left there, a list that grows back past that page jumps forward to it on its own, which reads
-  // as the view moving with nobody touching the pager.
+  // Wiping the logs, or any filter that shrinks the set, can leave the view on a page past the end.
+  // The pager below only renders while totalPages > 1, so on the way down to a single page it
+  // unmounts and takes with it the only control that could get back.
   //
-  // Retro is excluded, and that exclusion is the point rather than an oversight: retro is paginated
-  // server-side, `totalPages` here counts the CLIENT list, and that list is empty while retro is
-  // showing. Measuring retro against it would drag a legitimate page 30 down to page 1 on every
-  // render. RetroView runs its own clamp against the server's total instead.
+  // Waiting for the response to echo the page that was asked for is what keeps a deep page working:
+  // until then the total on hand still belongs to the previous request, and page 30 would be
+  // clamped away before its own rows ever arrived.
+  //
+  // Retro is excluded, and that exclusion is the point rather than an oversight: it fetches its own
+  // page under its own grouping, so its page count is a different number from this one, and it runs
+  // the same clamp against it. Measuring it here would drag a legitimate deep retro page back.
   useEffect(() => {
     if (settings.viewMode === 'retro') return;
-    if (currentPage > totalPages) {
+    if (serverPage.currentPage === currentPage && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [settings.viewMode, currentPage, totalPages]);
-
-  const itemsToDisplay = useMemo(() => {
-    if (settings.itemsPerPage === 'unlimited') {
-      return allItemsSorted;
-    }
-
-    const itemsPerPageNum = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20;
-    const startIndex = (safePage - 1) * itemsPerPageNum;
-    const endIndex = startIndex + itemsPerPageNum;
-    return allItemsSorted.slice(startIndex, endIndex);
-  }, [allItemsSorted, safePage, settings.itemsPerPage]);
+  }, [settings.viewMode, serverPage.currentPage, currentPage, totalPages]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -1205,6 +1015,8 @@ const DownloadsTab: React.FC = () => {
     settings.hideSmallFiles,
     settings.hideLocalhost,
     settings.hideUnknownGames,
+    settings.hideEvicted,
+    settings.hitMissFilter,
     settings.viewMode,
     settings.itemsPerPage,
     settings.groupByGameRetro,
@@ -1298,45 +1110,80 @@ const DownloadsTab: React.FC = () => {
     [setCurrentPage]
   );
 
-  const handleExport = (format: 'json' | 'csv') => {
+  // The one reader left of the row-level route. The views hold a page at a time now, so the rows
+  // an export needs are no longer on hand and are fetched when the button is pressed. They arrive
+  // narrowed only by the time range and the tagged event, so the toolbar's own filters are applied
+  // here - over rows, the way they were applied before the grouped page moved them into the query.
+  const handleExport = async (format: 'json' | 'csv') => {
     setExportLoading(true);
+    // A big table is hundreds of sequential requests. Leaving the page aborts what is left of them
+    // rather than fetching rows into a page nobody is on, and writing the file there.
+    const controller = new AbortController();
+    exportAbort.current = controller;
     try {
-      const itemsForExport = allItemsSorted;
-      let content = '';
-      let filename = '';
-      let mimeType = '';
+      // Mock mode has no row-level route behind it, so the export is the sessions the page is
+      // showing rather than a request for every row in the range.
+      const rows = mockMode
+        ? itemsToDisplay.flatMap((group) => group.downloads)
+        : await ApiService.getDownloadRows(
+            retroTimeParams.startTime,
+            retroTimeParams.endTime,
+            retroEventId,
+            controller.signal
+          );
+
+      const selectedClientIps = serverClientFilter === 'all' ? null : serverClientFilter.split(',');
+      const query = settings.searchQuery.toLowerCase().trim();
+      // Unmapped Steam downloads have no resolved game name and their service is "steam", so none
+      // of their fields carry the word "unknown". They display under the synthetic "Unknown/Other"
+      // group, so that label is searchable too.
+      const queryMatchesUnknownLabel =
+        query !== '' && ('unknown/other'.startsWith(query) || 'other'.startsWith(query));
+
+      const rowsForExport = rows.filter((d) => {
+        if (settings.hideMetadata && d.totalBytes === 0) return false;
+        if (settings.hideSmallFiles && d.totalBytes > 0 && d.totalBytes < 1048576) return false;
+        if (settings.hideLocalhost && (d.clientIp === '127.0.0.1' || d.clientIp === '::1')) {
+          return false;
+        }
+        if ((settings.hideEvicted || evictedDataMode === 'hide') && d.isEvicted) return false;
+        if (settings.hideUnknownGames && isUnmappedSteam(d)) return false;
+        if (settings.hitMissFilter === 'hit' && d.cacheHitPercent < 50) return false;
+        if (settings.hitMissFilter === 'miss' && d.cacheHitPercent >= 50) return false;
+        if (
+          settings.selectedService !== 'all' &&
+          getServiceFilterKey(d.service) !== settings.selectedService
+        ) {
+          return false;
+        }
+        if (selectedClientIps && !selectedClientIps.includes(d.clientIp)) return false;
+        if (query) {
+          return (
+            (!!d.gameName && d.gameName.toLowerCase().includes(query)) ||
+            d.service.toLowerCase().includes(query) ||
+            d.clientIp.toLowerCase().includes(query) ||
+            (!!d.depotId && String(d.depotId).includes(query)) ||
+            (!!d.gameAppId && String(d.gameAppId).includes(query)) ||
+            (queryMatchesUnknownLabel && isUnmappedSteam(d))
+          );
+        }
+        return true;
+      });
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-      const baseFilename = `lancache_downloads_${timestamp}`;
+      const content =
+        format === 'csv'
+          ? convertDownloadsToCSV(rowsForExport, clock)
+          : JSON.stringify(rowsForExport, null, 2);
 
-      if (format === 'csv') {
-        const downloadsForExport =
-          settings.viewMode === 'normal' ||
-          settings.viewMode === 'card' ||
-          settings.viewMode === 'compact'
-            ? (itemsForExport as (Download | DownloadGroup)[]).flatMap((item) =>
-                'downloads' in item ? item.downloads : [item]
-              )
-            : (itemsForExport as Download[]);
-
-        content = convertDownloadsToCSV(downloadsForExport, clock);
-        filename = `${baseFilename}.csv`;
-        mimeType = 'text/csv;charset=utf-8';
-      } else {
-        const jsonReplacer = (_key: string, value: unknown) => {
-          if (value instanceof Set) {
-            return Array.from(value);
-          }
-          return value;
-        };
-
-        content = JSON.stringify(itemsForExport, jsonReplacer, 2);
-        filename = `${baseFilename}.json`;
-        mimeType = 'application/json';
-      }
-
-      downloadTextFile(content, filename, mimeType);
+      downloadTextFile(
+        content,
+        `lancache_downloads_${timestamp}.${format}`,
+        format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json'
+      );
     } catch (error) {
+      // Leaving the page aborted the walk. That is not a failure to report.
+      if (controller.signal.aborted) return;
       notifyError(t('downloads.tab.errors.exportFailed'), error, { logLabel: 'Export failed' });
     } finally {
       setExportLoading(false);
@@ -1363,8 +1210,9 @@ const DownloadsTab: React.FC = () => {
     setExpandedItem(expandedItem === id ? null : id);
   };
 
-  // Loading state with skeleton loader.
-  if (loading) {
+  // Loading state with skeleton loader. The page fetch only reports loading on its first run, so a
+  // background refresh replaces the rows underneath without the skeleton reappearing.
+  if (loading || serverPage.isLoading) {
     return (
       <div className="space-y-4 animate-fade-in" role="status" aria-live="polite" aria-busy="true">
         <span className="sr-only">{t('common.loading')}</span>
@@ -1398,14 +1246,50 @@ const DownloadsTab: React.FC = () => {
     );
   }
 
-  // Empty state (only show for Recent tab when no data).
-  if (latestDownloads.length === 0 && activeTab === 'recent') {
+  // The count the server answers with is the count AFTER the toolbar's filters, so an empty result
+  // on its own cannot tell "nothing recorded yet" from "the filters hid everything". Only the first
+  // gets the notice below, because that notice replaces the whole toolbar: shown for the second it
+  // would take away the very controls needed to undo the filter. The stored eviction mode is
+  // deliberately not counted - it defaults to hiding evicted rows, so counting it would replace the
+  // first-run notice with an empty table on a fresh install.
+  // Whichever fetch is running: the page's own, or the retro table's when that one is showing.
+  const visibleTotalItems = settings.viewMode === 'retro' ? retroTotalItems : serverPage.totalItems;
+
+  const hasNarrowingFilter =
+    settings.hideMetadata ||
+    settings.hideSmallFiles ||
+    settings.hideLocalhost ||
+    settings.hideUnknownGames ||
+    settings.hideEvicted ||
+    settings.hitMissFilter !== 'all' ||
+    settings.selectedService !== 'all' ||
+    settings.selectedClient !== 'all' ||
+    settings.searchQuery.trim() !== '';
+
+  // Empty state (only show for Recent tab when no data). A failed fetch takes the error branch
+  // instead, so a request that never returned rows is not reported as an empty table.
+  //
+  // The retro table is left out because it is the one view that fetches for itself. Returning here
+  // renders instead of everything below, so it would unmount the table, abort its request and drop
+  // its refresh subscription, and the first download to land would then never clear the notice.
+  // It draws the same message inside its own frame and keeps fetching, so the rows appear by
+  // themselves when they arrive.
+  if (
+    visibleTotalItems === 0 &&
+    !hasNarrowingFilter &&
+    activeTab === 'recent' &&
+    settings.viewMode !== 'retro'
+  ) {
     return (
       <div className="space-y-4 animate-fade-in">
         <DownloadsHeader activeTab={activeTab} onTabChange={setActiveTab} />
-        <Alert color="blue" icon={<Database className="w-5 h-5" />}>
-          {t('downloads.tab.emptyRecorded')}
-        </Alert>
+        {serverPage.error ? (
+          <Alert color="red">{t('downloads.tab.errors.loadFailed')}</Alert>
+        ) : (
+          <Alert color="blue" icon={<Database className="w-5 h-5" />}>
+            {t('downloads.tab.emptyRecorded')}
+          </Alert>
+        )}
       </div>
     );
   }
@@ -1417,7 +1301,7 @@ const DownloadsTab: React.FC = () => {
         <>
           <ActionMenuItem
             icon={<DownloadIcon className="w-3.5 h-3.5" />}
-            disabled={exportLoading || itemsToDisplay.length === 0}
+            disabled={exportLoading || visibleTotalItems === 0}
             onClick={() => {
               handleExport('json');
               close();
@@ -1427,7 +1311,7 @@ const DownloadsTab: React.FC = () => {
           </ActionMenuItem>
           <ActionMenuItem
             icon={<DownloadIcon className="w-3.5 h-3.5" />}
-            disabled={exportLoading || itemsToDisplay.length === 0}
+            disabled={exportLoading || visibleTotalItems === 0}
             onClick={() => {
               handleExport('csv');
               close();
@@ -1507,10 +1391,16 @@ const DownloadsTab: React.FC = () => {
                     onClear={() => setSettings({ ...settings, searchQuery: '' })}
                   />
                 </div>
+                {/* A filter, a sort or a page size is a server round trip that rebuilds the whole
+                    grouped list, and the rows already on screen stay there while it runs. */}
+                {serverPage.isFetching && <LoadingSpinner size="xs" inline />}
                 {/* Same menu the wide layout gets. A phone-only settings gear put a control
                     here that exists nowhere else in the app, and hid Export and Refresh
                     Images from phones entirely. */}
                 <div data-settings-button="true" className="inline-flex sm:hidden flex-shrink-0">
+                  {/* The menu closes on the click that starts an export, so this is the only
+                      thing on screen that says the walk behind it is still running. */}
+                  {exportLoading && <LoadingSpinner size="xs" inline />}
                   {toolbarActions}
                 </div>
               </div>
@@ -1537,11 +1427,7 @@ const DownloadsTab: React.FC = () => {
                 <div className="flex sm:hidden gap-2 w-full items-center">
                   <EnhancedDropdown
                     options={itemsPerPageOptions}
-                    value={
-                      settings.itemsPerPage === 'unlimited'
-                        ? 'unlimited'
-                        : settings.itemsPerPage.toString()
-                    }
+                    value={settings.itemsPerPage.toString()}
                     onChange={handleItemsPerPageChange}
                     prefix={t('downloads.tab.filters.showPrefix')}
                     className="flex-1 min-w-0"
@@ -1638,11 +1524,7 @@ const DownloadsTab: React.FC = () => {
 
                   <EnhancedDropdown
                     options={itemsPerPageOptions}
-                    value={
-                      settings.itemsPerPage === 'unlimited'
-                        ? 'unlimited'
-                        : settings.itemsPerPage.toString()
-                    }
+                    value={settings.itemsPerPage.toString()}
                     onChange={handleItemsPerPageChange}
                     prefix={t('downloads.tab.filters.showPrefix')}
                     className="w-28"
@@ -1738,6 +1620,7 @@ const DownloadsTab: React.FC = () => {
                       without it on the trigger, opening this menu would shut the panel and the
                       item could never toggle it back off. */}
                   <div data-settings-button="true" className="inline-flex">
+                    {exportLoading && <LoadingSpinner size="xs" inline />}
                     {toolbarActions}
                   </div>
                 </div>
@@ -2011,7 +1894,7 @@ const DownloadsTab: React.FC = () => {
           </Card>
 
           {/* Help message for empty time ranges */}
-          {filteredDownloads.length === 0 && timeRange !== 'live' && (
+          {visibleTotalItems === 0 && timeRange !== 'live' && (
             <Alert color="yellow">
               <div className="flex flex-col gap-2">
                 <div className="font-medium">{t('downloads.tab.emptyRange.title')}</div>
@@ -2022,27 +1905,30 @@ const DownloadsTab: React.FC = () => {
             </Alert>
           )}
 
+          {/* A request that failed leaves the rows from the last one that worked on screen, and
+              without this there is nothing to tell those apart from a fresh answer. It matters most
+              under "All", where the walk can fail on its seventh request of twelve and the rows
+              still showing are a page of fifty. The empty-table branch above returns before this,
+              so only one of the two ever draws. */}
+          {serverPage.error && <Alert color="red">{t('downloads.tab.errors.loadFailed')}</Alert>}
+
           {/* Sticky Pagination Controls (above content) - retro view manages its own pagination */}
-          {settings.viewMode !== 'retro' &&
-            settings.itemsPerPage !== 'unlimited' &&
-            totalPages > 1 && (
-              <div className="pagination-sticky">
-                <div className="p-2 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)]">
-                  <Pagination
-                    currentPage={safePage}
-                    totalPages={totalPages}
-                    totalItems={allItemsSorted.length}
-                    itemsPerPage={
-                      typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20
-                    }
-                    onPageChange={handlePageChange}
-                    itemLabel={t('ui.pagination.items')}
-                    showCard={false}
-                    totalDownloads={filteredDownloads.length}
-                  />
-                </div>
+          {settings.viewMode !== 'retro' && totalPages > 1 && (
+            <div className="pagination-sticky">
+              <div className="p-2 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)]">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalItems={serverPage.totalItems}
+                  totalDownloads={serverPage.totalDownloads}
+                  itemsPerPage={settings.itemsPerPage}
+                  onPageChange={handlePageChange}
+                  itemLabel={t('ui.pagination.items')}
+                  showCard={false}
+                />
               </div>
-            )}
+            </div>
+          )}
 
           {/* Downloads list */}
           {/* Retro stays mounted behind display:none like the other views, so
@@ -2063,9 +1949,7 @@ const DownloadsTab: React.FC = () => {
                 <RetroView
                   ref={retroViewRef}
                   sortOrder={settings.sortOrder}
-                  itemsPerPage={
-                    typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 100
-                  }
+                  itemsPerPage={settings.itemsPerPage}
                   currentPage={currentPage}
                   onPageChange={handlePageChange}
                   showTimestamps={settings.showTimestamps}
@@ -2079,11 +1963,14 @@ const DownloadsTab: React.FC = () => {
                   detectionByName={detectionByName}
                   detectionByService={detectionByService}
                   serverMode={settings.viewMode === 'retro'}
+                  onTotalItemsChange={setRetroTotalItems}
                   filterService={settings.selectedService}
-                  filterClient={settings.selectedClient}
+                  filterClient={serverClientFilter}
                   filterSearch={debouncedSearchQuery}
                   filterHideLocalhost={settings.hideLocalhost}
                   filterHideMetadata={settings.hideMetadata}
+                  filterHideSmallFiles={settings.hideSmallFiles}
+                  filterHideEvicted={settings.hideEvicted || evictedDataMode === 'hide'}
                   filterHideUnknown={settings.hideUnknownGames}
                   filterHitMiss={settings.hitMissFilter}
                   filterStartTime={retroTimeParams.startTime}
@@ -2103,7 +1990,7 @@ const DownloadsTab: React.FC = () => {
             <div style={{ display: settings.viewMode === 'compact' ? 'block' : 'none' }}>
               {showCompactView && (
                 <CompactView
-                  items={itemsToDisplay as (Download | DownloadGroup)[]}
+                  items={itemsToDisplay}
                   expandedItem={expandedItem}
                   onItemClick={handleItemClick}
                   aestheticMode={settings.aestheticMode}
@@ -2121,7 +2008,7 @@ const DownloadsTab: React.FC = () => {
             <div style={{ display: settings.viewMode === 'card' ? 'block' : 'none' }}>
               {showCardView && (
                 <NormalView
-                  items={itemsToDisplay as (Download | DownloadGroup)[]}
+                  items={itemsToDisplay}
                   expandedItem={expandedItem}
                   onItemClick={handleItemClick}
                   aestheticMode={false}
@@ -2145,7 +2032,7 @@ const DownloadsTab: React.FC = () => {
             <div style={{ display: settings.viewMode === 'normal' ? 'block' : 'none' }}>
               {showNormalView && (
                 <NormalView
-                  items={itemsToDisplay as (Download | DownloadGroup)[]}
+                  items={itemsToDisplay}
                   expandedItem={expandedItem}
                   onItemClick={handleItemClick}
                   aestheticMode={settings.aestheticMode}
@@ -2166,13 +2053,6 @@ const DownloadsTab: React.FC = () => {
               )}
             </div>
           </div>
-
-          {/* Performance warning */}
-          {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
-            <Alert color="yellow">
-              {t('downloads.tab.warnings.paginationSuggestion', { items: itemsToDisplay.length })}
-            </Alert>
-          )}
         </>
       )}
     </div>

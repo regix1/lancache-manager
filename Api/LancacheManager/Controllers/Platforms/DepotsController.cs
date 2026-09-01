@@ -189,7 +189,11 @@ public class DepotsController : ControllerBase
         }
         else
         {
-            return NotFound(new NotFoundResponse { Error = "No active rebuild to cancel" });
+            return NotFound(new ErrorResponse
+            {
+                Error = "No active rebuild to cancel",
+                StageKey = "errors.depot.noActiveRebuild"
+            });
         }
     }
 
@@ -269,7 +273,10 @@ public class DepotsController : ControllerBase
                 // The request was fine; the GitHub download or the import of what it returned failed.
                 // 503 keeps the reason visible in production, where a 500 would replace it with the
                 // generic safe message and leave the admin with nothing to act on.
-                throw new ServiceUnavailableException("Failed to download and import pre-created depot data from GitHub");
+                throw new ServiceUnavailableException("Failed to download and import pre-created depot data from GitHub")
+                {
+                    StageKey = "errors.depot.githubImportFailed"
+                };
             }
         }
         else if (source == "local")
@@ -288,7 +295,11 @@ public class DepotsController : ControllerBase
         }
         else
         {
-            return BadRequest(new ConflictResponse { Error = "Invalid source. Must be 'github' or 'local'" });
+            return BadRequest(new ErrorResponse
+            {
+                Error = "Invalid source. Must be 'github' or 'local'",
+                StageKey = "errors.depot.invalidSource"
+            });
         }
     }
 
@@ -333,7 +344,12 @@ public class DepotsController : ControllerBase
 
         if (intervalHours < 0)
         {
-            return BadRequest(new ConflictResponse { Error = $"Interval must be 0 or a positive number. Received: {intervalHours}" });
+            return BadRequest(new ErrorResponse
+            {
+                Error = $"Interval must be 0 or a positive number. Received: {intervalHours}",
+                StageKey = "errors.depot.invalidInterval",
+                Context = new() { ["received"] = intervalHours }
+            });
         }
 
         _steamKit2Service.CrawlIntervalHours = intervalHours;
@@ -422,7 +438,11 @@ public class DepotsController : ControllerBase
         }
         else
         {
-            return BadRequest(new ConflictResponse { Error = "Invalid scan mode. Must be true, false, \"hybrid\", or \"github\"" });
+            return BadRequest(new ErrorResponse
+            {
+                Error = "Invalid scan mode. Must be true, false, \"hybrid\", or \"github\"",
+                StageKey = "errors.depot.invalidScanMode"
+            });
         }
 
         _logger.LogInformation("Crawl mode updated to {Mode}", scanMode);

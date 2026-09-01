@@ -263,6 +263,10 @@ public class CacheDomainsRefreshOutcome
     /// surfaces this as a 409 with this message.</summary>
     public string? BlockedReason { get; init; }
 
+    /// <summary>i18n key naming the block, sent to the browser beside <see cref="BlockedReason"/>
+    /// so the reader gets it in their own language.</summary>
+    public string? BlockedStageKey { get; init; }
+
     public CacheDomainsList Domains { get; init; } = new();
     public DomainsSource Source { get; init; } = new();
 }

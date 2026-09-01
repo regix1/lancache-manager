@@ -46,6 +46,10 @@ public class CreateClientGroupResponse : ClientGroupDto
 public class InvalidClientIpsResponse
 {
     public string Error { get; set; } = string.Empty;
+
+    /// <summary>i18n key naming the refusal, so the browser shows it in the reader's language.</summary>
+    public string? StageKey { get; set; }
+
     public List<string> InvalidIps { get; set; } = new();
 }
 

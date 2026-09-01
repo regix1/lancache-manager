@@ -96,6 +96,105 @@ public class ScheduledPrefillAnonymousRunPathTests
         Assert.Null(client.PrefillTopRequested);
     }
 
+    /// <summary>
+    /// The busy gate hands its stage key back through an out-parameter, and
+    /// <c>ScheduledPrefillService.RunServiceAsync</c> is the only place that forwards it onto the
+    /// SignalR payload. Drop that forwarding and the gate's own tests stay green while the skip card
+    /// loses its translated sentence, so the two keys are checked here through the real run path.
+    /// A guest/manual session belongs to a real operator rather than the scheduler's system user,
+    /// which is the first branch <c>ShouldSkipForBusySessions</c> defers for.
+    /// </summary>
+    [Fact]
+    public async Task RunServiceAsync_ManualSessionActive_SkipsWithManualActiveStageKey()
+    {
+        var (daemon, _) = CreateRunnablePersistentDaemon(PrefillPlatform.BattleNet);
+
+        var manualSession = new DaemonSession
+        {
+            Id = Guid.NewGuid().ToString("N")[..16],
+            UserId = Guid.NewGuid(),
+            Status = DaemonSessionStatus.Active,
+            IsPersistent = false,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddHours(1)
+        };
+        manualSession.Client = new FakeAnonymousDaemonClient(manualSession);
+        InjectSession(daemon, manualSession);
+
+        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Skipped, result);
+        Assert.Equal(new List<string> { "skipped" }, recorder.Stages);
+        Assert.Equal(new List<string?> { "signalr.scheduledPrefill.skippedManualActive" }, recorder.StageKeys);
+    }
+
+    /// <summary>
+    /// The second busy branch: a prior scheduled run is still going on the persistent container. It
+    /// shares the system user id with the scheduler, so only <c>IsPrefilling</c> can defer it, and it
+    /// must reach the card as a different key than the manual-session skip above.
+    /// </summary>
+    [Fact]
+    public async Task RunServiceAsync_PersistentSessionAlreadyPrefilling_SkipsWithAlreadyRunningStageKey()
+    {
+        var (daemon, _) = CreateRunnablePersistentDaemon(PrefillPlatform.BattleNet);
+        daemon.GetActivePersistentSession()!.IsPrefilling = true;
+
+        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Skipped, result);
+        Assert.Equal(new List<string> { "skipped" }, recorder.Stages);
+        Assert.Equal(new List<string?> { "signalr.scheduledPrefill.skippedAlreadyRunning" }, recorder.StageKeys);
+    }
+
+    /// <summary>
+    /// Drives the real <c>RunServiceAsync</c> against an already-prepared daemon and returns the run
+    /// result with the notifications it emitted. The preset and selection fields are left empty
+    /// because the busy gate answers at step 3, before step 4 ever reads them.
+    /// </summary>
+    private static async Task<(ScheduledPrefillServiceRunResult Result, RecordingNotificationsProxy Recorder)> RunSingleServiceAsync(
+        PrefillPlatform platform,
+        PrefillDaemonServiceBase daemon)
+    {
+        using var daemonProvider = BuildProviderWithDaemon(platform, daemon);
+        using var schedulerProvider = new ServiceCollection().BuildServiceProvider();
+        var scheduledPrefillService = new ScheduledPrefillService(
+            NullLogger<ScheduledPrefillService>.Instance,
+            schedulerProvider.GetRequiredService<IServiceScopeFactory>(),
+            (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>());
+
+        var serviceConfig = new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = platform,
+            Enabled = true,
+            NotificationMode = NotificationMode.Silent,
+            IntervalHours = 24,
+            Preset = ScheduledPrefillPreset.All,
+            TopCount = null,
+            SelectedAppIds = new List<string>(),
+            OperatingSystems = new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows },
+            Force = false,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
+        };
+
+        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+        var recorder = (RecordingNotificationsProxy)notifications;
+
+        var runServiceAsync = typeof(ScheduledPrefillService).GetMethod(
+            "RunServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        var result = await (Task<ScheduledPrefillServiceRunResult>)runServiceAsync.Invoke(
+            scheduledPrefillService,
+            new object?[]
+            {
+                serviceConfig, "op-1", daemonProvider, notifications,
+                ScheduledPrefillConfigFactory.CreateDefault(), false, CancellationToken.None
+            })!;
+
+        scheduledPrefillService.Dispose();
+
+        return (result, recorder);
+    }
+
     private static (PrefillDaemonServiceBase Daemon, FakeAnonymousDaemonClient Client) CreateRunnablePersistentDaemon(
         PrefillPlatform platform)
     {
@@ -136,6 +235,13 @@ public class ScheduledPrefillAnonymousRunPathTests
         var client = new FakeAnonymousDaemonClient(session);
         session.Client = client;
 
+        InjectSession(daemon, session);
+
+        return (daemon, client);
+    }
+
+    private static void InjectSession(PrefillDaemonServiceBase daemon, DaemonSession session)
+    {
         switch (daemon)
         {
             case TestableBattleNetDaemonService bnet:
@@ -145,8 +251,6 @@ public class ScheduledPrefillAnonymousRunPathTests
                 riot.InjectSession(session);
                 break;
         }
-
-        return (daemon, client);
     }
 
     private static ServiceProvider BuildProviderWithDaemon(PrefillPlatform platform, PrefillDaemonServiceBase daemon)
@@ -252,6 +356,13 @@ public class ScheduledPrefillAnonymousRunPathTests
         public List<string> Stages { get; } = new();
         public List<bool> ShowNotificationValues { get; } = new();
 
+        /// <summary>
+        /// The <c>stageKey</c> alongside each recorded stage. Nullable entries are the point: the
+        /// property is always present on the payload, so a caller that stops passing a key records a
+        /// null here rather than dropping out of the list.
+        /// </summary>
+        public List<string?> StageKeys { get; } = new();
+
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync) && args is { Length: >= 2 })
@@ -260,6 +371,12 @@ public class ScheduledPrefillAnonymousRunPathTests
                 if (stageProperty?.GetValue(args[1]) is string stage)
                 {
                     Stages.Add(stage);
+                }
+
+                var stageKeyProperty = args[1]?.GetType().GetProperty("stageKey");
+                if (stageKeyProperty is not null)
+                {
+                    StageKeys.Add(stageKeyProperty.GetValue(args[1]) as string);
                 }
 
                 var showNotificationProperty = args[1]?.GetType().GetProperty("showNotification");

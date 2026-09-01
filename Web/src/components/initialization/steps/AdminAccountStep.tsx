@@ -169,8 +169,9 @@ export const AdminAccountStep: React.FC = () => {
       } else {
         // The endpoint's own refusals travel as an i18n key beside the English sentence, so the
         // reason is read in the operator's language. The sentence is what a key this build has no
-        // translation for falls back to, which is also what the password rules and any other
-        // response shape land on, since neither carries a key.
+        // translation for falls back to. A broken password rule is the exception: it comes back as
+        // a per-field message under a key that only ever says "Validation failed", so the field
+        // message wins and names the rule that was actually broken.
         const sentence =
           data.errors?.[0]?.message ||
           data.error ||
@@ -179,7 +180,10 @@ export const AdminAccountStep: React.FC = () => {
               ? 'initialization.adminAccount.errors.recoverFailed'
               : 'initialization.adminAccount.errors.createFailed'
           );
-        setSubmitError(data.stageKey ? t(data.stageKey, { defaultValue: sentence }) : sentence);
+        setSubmitError(
+          data.errors?.[0]?.message ||
+            (data.stageKey ? t(data.stageKey, { defaultValue: sentence }) : sentence)
+        );
       }
     } catch (error: unknown) {
       setSubmitError(getErrorMessage(error) || t('initialization.adminAccount.errors.network'));

@@ -92,7 +92,7 @@ public class IncrementalServiceSaveTests
 
     /// <summary>
     /// A service absent from a partial list keeps its counts and its badge when the save is
-    /// incremental: a list the run never finished building is not proof the files are gone [13].
+    /// incremental: a list the run never finished building is not proof the files are gone.
     /// </summary>
     [Fact]
     public async Task SaveServices_IncrementalPartialList_LeavesUnreachedServiceUntouchedAsync()
@@ -116,7 +116,7 @@ public class IncrementalServiceSaveTests
 
     /// <summary>
     /// The same partial list on a full scan still zeroes and badges the absent service, so the
-    /// guard is proven in both directions and the success path is unchanged [14].
+    /// guard is proven in both directions and the success path is unchanged.
     /// </summary>
     [Fact]
     public async Task SaveServices_FullScanPartialList_StillEvictsAbsentServiceAsync()

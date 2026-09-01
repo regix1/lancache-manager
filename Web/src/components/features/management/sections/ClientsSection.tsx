@@ -81,7 +81,12 @@ interface ClientsSectionProps {
   onSuccess: (message: string) => void;
 }
 
-const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuccess }) => {
+const ClientsSection: React.FC<ClientsSectionProps> = ({
+  isAdmin,
+  mockMode,
+  onError,
+  onSuccess
+}) => {
   const { t } = useTranslation();
   const { clientGroups, loading, error, deleteClientGroup, getGroupForIp } = useClientGroups();
   const {
@@ -173,6 +178,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   const loadExcludedIps = useCallback(
     async (showLoading: boolean) => {
       if (!isAdmin) return;
+      // Mock mode has no stored exclusion rules behind it, so the list stays as the state default
+      // rather than showing a real machine's hidden clients.
+      if (mockMode) return;
       if (showLoading) setLoadingExcluded(true);
       try {
         const response = await ApiService.getStatsExclusions();
@@ -191,7 +199,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isAdmin, onError]
+    [isAdmin, mockMode, onError]
   );
 
   useEffect(() => {
@@ -201,7 +209,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   // Another admin saving the list changes what this panel is showing, and the panel had no way of
   // hearing about it: it read its rules once, on mount, and the next save here wrote the old ones
   // back over the new. A draft is never replaced, and a background reload never raises the loading
-  // flag, so it neither blanks the list nor disables the controls the user is holding. [21] [22]
+  // flag, so it neither blanks the list nor disables the controls the user is holding.
   const reloadExclusions = useCallback(() => {
     if (hasExcludedChangesRef.current) return;
     void loadExcludedIps(false);
@@ -289,7 +297,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
   // An address that is already excluded stays on the list and says which exclusion it is under,
   // rather than vanishing from a control the reader is using to check what is excluded. It cannot
-  // be picked again, because adding it a second time would do nothing. [8]
+  // be picked again, because adding it a second time would do nothing.
   const knownClientOptions = useMemo(() => {
     return [...allClientIps]
       .sort((a, b) => a.localeCompare(b))
@@ -1070,7 +1078,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                 </div>
 
                 {/* The switches and the resolver are staged until this button, exactly like the
-                    exclusions panel, so both panels say the same thing the same way. [16] */}
+                    exclusions panel, so both panels say the same thing the same way. */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
                   <span className="text-xs text-themed-muted">
                     {hostnamesChanged ? t('management.sections.clients.unsavedChanges') : ''}

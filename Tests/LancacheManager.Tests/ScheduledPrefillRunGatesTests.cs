@@ -19,10 +19,11 @@ public class ScheduledPrefillRunGatesTests
             MakeSession(SystemUserId, isPersistent: true)
         };
 
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(sessions, SystemUserId, out var message);
+        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(sessions, SystemUserId, out var message, out var stageKey);
 
         Assert.False(shouldSkip);
         Assert.Equal(string.Empty, message);
+        Assert.Equal(string.Empty, stageKey);
     }
 
     [Fact]
@@ -33,10 +34,11 @@ public class ScheduledPrefillRunGatesTests
             MakeSession(RealUserId, isPersistent: false)
         };
 
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(sessions, SystemUserId, out var message);
+        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(sessions, SystemUserId, out var message, out var stageKey);
 
         Assert.True(shouldSkip);
         Assert.Equal("A manual prefill session is active", message);
+        Assert.Equal("signalr.scheduledPrefill.skippedManualActive", stageKey);
     }
 
     [Fact]
@@ -44,10 +46,11 @@ public class ScheduledPrefillRunGatesTests
     {
         var session = MakeSession(SystemUserId, isPersistent: true, isPrefilling: true);
 
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions([session], SystemUserId, out var message);
+        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions([session], SystemUserId, out var message, out var stageKey);
 
         Assert.True(shouldSkip);
         Assert.Equal("A prefill is already in progress", message);
+        Assert.Equal("signalr.scheduledPrefill.skippedAlreadyRunning", stageKey);
     }
 
     [Fact]
@@ -59,10 +62,11 @@ public class ScheduledPrefillRunGatesTests
             MakeSession(SystemUserId, isPersistent: true, status: DaemonSessionStatus.Terminated)
         };
 
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(sessions, SystemUserId, out var message);
+        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(sessions, SystemUserId, out var message, out var stageKey);
 
         Assert.False(shouldSkip);
         Assert.Equal(string.Empty, message);
+        Assert.Equal(string.Empty, stageKey);
     }
 
     [Fact]
@@ -74,10 +78,11 @@ public class ScheduledPrefillRunGatesTests
             MakeSession(SystemUserId, isPersistent: true, status: DaemonSessionStatus.Error)
         };
 
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(sessions, SystemUserId, out var message);
+        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(sessions, SystemUserId, out var message, out var stageKey);
 
         Assert.False(shouldSkip);
         Assert.Equal(string.Empty, message);
+        Assert.Equal(string.Empty, stageKey);
     }
 
     [Fact]

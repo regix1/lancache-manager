@@ -17,6 +17,7 @@ import ApiService, {
   type StatusCheckStatusResponse
 } from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useMockMode } from '@contexts/useMockMode';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSelectionSet } from '@hooks/useSelectionSet';
 import { getErrorMessage, isAbortError } from '@utils/error';
@@ -57,6 +58,7 @@ const StatusCheckSection: React.FC = () => {
   const { t } = useTranslation();
   const keys = 'management.sections.statusCheck';
   const { on, off, isConnected } = useSignalR();
+  const { mockMode } = useMockMode();
 
   // Seed from the module-level cache so a reopen paints the last result instantly
   // (stale-while-revalidate): no full-page spinner when we already have a cached snapshot.
@@ -93,26 +95,39 @@ const StatusCheckSection: React.FC = () => {
     setDomainGroups(domains.services);
   }, []);
 
-  const loadAll = useCallback(async (signal?: AbortSignal) => {
-    const [statusResult, domainsResult] = await Promise.allSettled([
-      ApiService.getStatusCheck(signal),
-      ApiService.getCacheDomains(signal)
-    ]);
-    if (signal?.aborted) return;
-    if (statusResult.status === 'fulfilled') {
-      setStatus(statusResult.value);
-      setIsRunning(statusResult.value.isRunning);
-      currentOperationRef.current = statusResult.value.operationId;
-      setStatusError(null);
-    } else if (!isAbortError(statusResult.reason)) {
-      setStatusError(getErrorMessage(statusResult.reason));
-    }
-    // A failed domain list is non-fatal: the test dropdown renders its unavailable state.
-    if (domainsResult.status === 'fulfilled') {
-      setDomainGroups(domainsResult.value.services);
-    }
-    setIsLoading(false);
-  }, []);
+  const loadAll = useCallback(
+    async (signal?: AbortSignal) => {
+      // Mock mode has no resolver or cache host behind it, so the section shows its empty state
+      // rather than a real machine's DNS and reachability answers.
+      if (mockMode) {
+        setStatus(null);
+        setDomainGroups([]);
+        setIsRunning(false);
+        setStatusError(null);
+        setIsLoading(false);
+        return;
+      }
+      const [statusResult, domainsResult] = await Promise.allSettled([
+        ApiService.getStatusCheck(signal),
+        ApiService.getCacheDomains(signal)
+      ]);
+      if (signal?.aborted) return;
+      if (statusResult.status === 'fulfilled') {
+        setStatus(statusResult.value);
+        setIsRunning(statusResult.value.isRunning);
+        currentOperationRef.current = statusResult.value.operationId;
+        setStatusError(null);
+      } else if (!isAbortError(statusResult.reason)) {
+        setStatusError(getErrorMessage(statusResult.reason));
+      }
+      // A failed domain list is non-fatal: the test dropdown renders its unavailable state.
+      if (domainsResult.status === 'fulfilled') {
+        setDomainGroups(domainsResult.value.services);
+      }
+      setIsLoading(false);
+    },
+    [mockMode]
+  );
 
   useEffect(() => {
     const controller = new AbortController();

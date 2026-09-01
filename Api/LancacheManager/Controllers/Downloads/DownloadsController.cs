@@ -223,7 +223,25 @@ public class DownloadsController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Groups downloads by DepotId and ClientIp and aggregates cache statistics, then resolves
-    /// game names on the aggregated rows before returning them.
+    /// game names on the aggregated rows before returning them. GroupByGame merges those rows
+    /// into per-game buckets, and MergeAcrossServices keys those buckets the way the grouped
+    /// Downloads views do so they can page against this endpoint instead of the whole table.
+    ///
+    /// The aggregate is ordered and paged in the database whenever the request asks for nothing
+    /// that has to look outside the page: no merge (GroupByGame, GroupByService,
+    /// MergeAcrossServices), no filter on the resolved game name (Search, HideUnknown), no
+    /// hit/miss bucket, and a sort with a column behind it. Those requests read one page of groups
+    /// and two counts, so an Xbox-heavy table - where every no-depot row is its own group - costs a
+    /// page rather than the whole table on every refresh.
+    ///
+    /// Everything else falls back to reading the whole grouped set into memory, because it has to:
+    /// a merge combines groups the page has not seen, the name filters read a name resolved in C#
+    /// after the aggregate, the hit/miss bucket decides membership, and the alphabetical and
+    /// service sorts order text this endpoint computes (the shown title, the folded service name)
+    /// rather than a column. The two efficiency sorts fall back for a narrower reason: they order
+    /// the cache-hit percentage rounded to one decimal, the provider does not translate that
+    /// rounding over an aggregate, and ordering the unrounded ratio instead would separate rows
+    /// that show the same percentage and put them in a different order than the in-memory path.
     /// </remarks>
     [HttpGet("retro")]
     [ProducesResponseType(typeof(RetroDownloadResponse), StatusCodes.Status200OK)]
@@ -246,96 +264,72 @@ public class DownloadsController : ControllerBase
 
         try
         {
-            // Aggregate per (DepotId, ClientIp) in SQL so only group-level scalars cross the
-            // wire. No-depot rows keep one group per row via RowKey = Id (matches the historical
-            // "no-depot-{service}-{ip}-{id}" key). Raw download rows are never materialized here.
-            var groupedRows = await BuildRetroBaseQuery(query)
-                .GroupBy(d => new
+            // ShowClean keeps evicted rows in the list but suppresses the badge and dimming, the
+            // same way the row-level download list does. Hide/Remove already dropped those rows
+            // in BuildRetroBaseQuery, so their counts come back zero without extra filtering.
+            var maskEviction = _stateRepository.GetEvictedDataMode() == EvictedDataMode.ShowClean.ToWireString();
+
+            // Everything below the merge reads rows the page does not hold: a merge combines
+            // groups, the two name filters read the name resolved after the aggregate, and the
+            // hit/miss bucket decides membership. The four sorts listed here order a value with no
+            // column behind it - a title and a folded service name computed in C#, and a rounded
+            // percentage the provider will not round for us. When none of them is asked for, the
+            // database orders and pages the aggregate and only the page is materialized.
+            var pageInSql = !query.GroupByGame
+                && !query.GroupByService
+                && !query.MergeAcrossServices
+                && !query.HideUnknown
+                && string.IsNullOrEmpty(query.Search)
+                && query.HitMiss is not ("hit" or "miss")
+                && query.Sort is not ("alphabetical" or "service" or "efficiency" or "efficiency-low");
+
+            if (pageInSql)
+            {
+                var groupCount = await BuildRetroGroupedQuery(query).CountAsync();
+                // Nothing merged or dropped rows after the aggregate, so every download behind the
+                // page's groups is a download the base query returned. Counting those directly is
+                // the same number the in-memory path sums off the rows it is holding anyway.
+                var downloadCount = await BuildRetroBaseQuery(query).CountAsync();
+                var pageRows = await BuildRetroPagedQuery(query).ToListAsync();
+
+                await GameNameResolver.ResolveAsync(_context, pageRows, HttpContext.RequestAborted);
+
+                var pageItems = pageRows.Select(r => BuildRetroRow(r, maskEviction)).ToList();
+                var pagePairs = pageItems
+                    .Where(r => r.DepotId.HasValue)
+                    .ToDictionary(
+                        r => r.Id,
+                        r => new List<(long DepotId, string ClientIp)> { (r.DepotId!.Value, r.ClientIp) },
+                        StringComparer.Ordinal);
+
+                await FillDownloadIdsAsync(query, pageItems, pagePairs);
+
+                return Ok(new RetroDownloadResponse
                 {
-                    d.DepotId,
-                    d.ClientIp,
-                    RowKey = d.DepotId == null ? d.Id : 0L
-                })
-                .Select(g => new RetroGroupRow
-                {
-                    DepotId = g.Key.DepotId,
-                    ClientIp = g.Key.ClientIp,
-                    RowKey = g.Key.RowKey,
-                    Service = g.Max(d => d.Service)!,
-                    Datasource = g.Max(d => d.Datasource)!,
-                    GameName = g.Max(d => d.GameName),
-                    GameAppId = g.Max(d => d.GameAppId),
-                    EpicAppId = g.Max(d => d.EpicAppId),
-                    XboxProductId = g.Max(d => d.XboxProductId),
-                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                    CacheMissBytes = g.Sum(d => d.CacheMissBytes),
-                    StartTimeUtc = g.Min(d => d.StartTimeUtc),
-                    EndTimeUtc = g.Max(d => d.EndTimeUtc),
-                    RequestCount = g.Count(),
-                    EvictedCount = g.Sum(d => d.IsEvicted ? 1 : 0),
-                    // Per-row speed is TotalBytes / (EndTime - StartTime); weight it by bytes the
-                    // same way the previous in-memory grouping did.
-                    WeightedSpeedSum = g.Sum(d =>
-                        (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds > 0
-                            ? ((d.CacheHitBytes + d.CacheMissBytes)
-                               / (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds)
-                              * (d.CacheHitBytes + d.CacheMissBytes)
-                            : 0),
-                    SpeedBytesSum = g.Sum(d =>
-                        (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds > 0
-                        && (d.CacheHitBytes + d.CacheMissBytes) > 0
-                            ? (double)(d.CacheHitBytes + d.CacheMissBytes)
-                            : 0)
-                })
+                    Items = pageItems,
+                    TotalItems = groupCount,
+                    TotalDownloads = downloadCount,
+                    TotalPages = Math.Max(1, (int)Math.Ceiling(groupCount / (double)query.PageSize)),
+                    CurrentPage = query.Page,
+                    PageSize = query.PageSize
+                });
+            }
+
+            // The whole grouped set, in the group key's order. The sorts below are stable, so the
+            // ties they leave alone fall back to this order - the same order BuildRetroPagedQuery
+            // spells out as its last tie-break, so a page boundary lands in the same place on
+            // either path.
+            var groupedRows = await BuildRetroGroupedQuery(query)
+                .OrderBy(r => r.DepotId)
+                .ThenBy(r => r.ClientIp)
+                .ThenBy(r => r.RowKey)
                 .ToListAsync();
 
             // Resolve game names at group level over the same shared resolver the dashboard
             // batch uses, so both views pick the same owner when a depot has multiple mappings.
             await GameNameResolver.ResolveAsync(_context, groupedRows, HttpContext.RequestAborted);
 
-            // ShowClean keeps evicted rows in the list but suppresses the badge and dimming, the
-            // same way the row-level download list does. Hide/Remove already dropped those rows
-            // in BuildRetroBaseQuery, so their counts come back zero without extra filtering.
-            var maskEviction = _stateRepository.GetEvictedDataMode() == EvictedDataMode.ShowClean.ToWireString();
-
-            var grouped = groupedRows.Select(r =>
-            {
-                var totalBytes = r.CacheHitBytes + r.CacheMissBytes;
-                var fullyEvicted = !maskEviction && r.EvictedCount == r.RequestCount;
-                var anyEvicted = !maskEviction && r.EvictedCount > 0;
-                return new RetroDownloadDto
-                {
-                    Id = r.DepotId.HasValue
-                        ? $"depot-{r.DepotId.Value}-{r.ClientIp}"
-                        : $"no-depot-{r.Service}-{r.ClientIp}-{r.RowKey}",
-                    DepotId = r.DepotId,
-                    EpicAppId = r.EpicAppId,
-                    ClientIp = r.ClientIp,
-                    Service = r.Service,
-                    Datasource = r.Datasource,
-                    AppName = ResolveRetroAppName(r.Service, r.GameName),
-                    SteamAppId = r.GameAppId,
-                    StartTimeUtc = r.StartTimeUtc,
-                    EndTimeUtc = r.EndTimeUtc,
-                    CacheHitBytes = r.CacheHitBytes,
-                    CacheMissBytes = r.CacheMissBytes,
-                    CacheHitPercent = totalBytes > 0
-                        ? Math.Round((r.CacheHitBytes * 100.0) / totalBytes, 1)
-                        : 0,
-                    TotalBytes = totalBytes,
-                    AverageBytesPerSecond = r.SpeedBytesSum > 0 ? r.WeightedSpeedSum / r.SpeedBytesSum : 0,
-                    RequestCount = r.RequestCount,
-                    // Depot groups get their DownloadIds filled after pagination (page rows only);
-                    // no-depot groups are single downloads whose id IS the row key.
-                    DownloadIds = r.RowKey != 0 ? new List<long> { r.RowKey } : new List<long>(),
-                    ClientIps = new List<string> { r.ClientIp },
-                    DepotIds = r.DepotId.HasValue && r.DepotId.Value != 0
-                        ? new List<uint> { (uint)r.DepotId.Value }
-                        : new List<uint>(),
-                    IsEvicted = fullyEvicted,
-                    IsPartiallyEvicted = anyEvicted && !fullyEvicted
-                };
-            }).ToList();
+            var grouped = groupedRows.Select(r => BuildRetroRow(r, maskEviction)).ToList();
 
             // Keep each row's byte-weighted speed accumulator alongside the DTO. A merged row has
             // to divide the summed weights after merging; averaging the already-divided per-row
@@ -350,7 +344,10 @@ public class DownloadsController : ControllerBase
                 };
             }
 
-            // Filter: search by game name / service / depot / client (all group-level fields)
+            // Filter: search by game name / service / depot / app id / client (all group-level
+            // fields). Unmapped Steam content carries the synthetic "Unknown/Other" name from
+            // ResolveRetroAppName, so searching "unknown" or "other" reaches rows whose own
+            // columns hold neither word.
             if (!string.IsNullOrEmpty(query.Search))
             {
                 var searchLower = query.Search.ToLower();
@@ -358,6 +355,7 @@ public class DownloadsController : ControllerBase
                     .Where(r => r.AppName.ToLower().Contains(searchLower)
                              || r.Service.ToLower().Contains(searchLower)
                              || (r.DepotId.HasValue && r.DepotId.Value.ToString().Contains(searchLower))
+                             || (r.SteamAppId.HasValue && r.SteamAppId.Value.ToString().Contains(searchLower))
                              || r.ClientIp.Contains(searchLower))
                     .ToList();
             }
@@ -393,6 +391,10 @@ public class DownloadsController : ControllerBase
                     r => new List<(long DepotId, string ClientIp)> { (r.DepotId!.Value, r.ClientIp) },
                     StringComparer.Ordinal);
 
+            // Which depot group holds each merged bucket's newest download, so the page's primary
+            // rows can be fetched afterwards for the page's rows only.
+            var newestMemberByRowId = new Dictionary<string, RetroDownloadDto>(StringComparer.Ordinal);
+
             // Merge by service (coarsest, wins over GroupByGame) or by game (in-memory over the
             // depot-group list). GroupByService intentionally overrides GroupByGame rather than
             // combining with it - a per-service total already subsumes a per-game breakdown.
@@ -400,6 +402,7 @@ public class DownloadsController : ControllerBase
             if (query.GroupByService || query.GroupByGame)
             {
                 var mergedBuckets = new Dictionary<string, List<RetroDownloadDto>>(StringComparer.Ordinal);
+                var bucketKinds = new Dictionary<string, RetroBucketKind>(StringComparer.Ordinal);
                 var bucketOrder = new List<string>();
 
                 foreach (var row in grouped)
@@ -410,9 +413,42 @@ public class DownloadsController : ControllerBase
                     var normalizedService = ServiceBreakdownMerger.NormalizeXboxService(row.Service);
 
                     string mergeKey;
+                    var bucketKind = RetroBucketKind.Game;
                     if (query.GroupByService)
                     {
                         mergeKey = normalizedService;
+                    }
+                    else if (query.MergeAcrossServices)
+                    {
+                        // The grouped Downloads views key a game bucket on the title alone, so one
+                        // game seen under two services stays a single row. Their key spellings are
+                        // reproduced exactly, because a group id is what the views use to remember
+                        // which rows are expanded.
+                        if (row.SteamAppId.HasValue && row.SteamAppId.Value != 0)
+                        {
+                            mergeKey = $"game-appid-{row.SteamAppId.Value}";
+                        }
+                        else if (IsRealGameName(row.AppName, row.Service))
+                        {
+                            mergeKey = $"game-{row.AppName}";
+                        }
+                        else if (query.GroupUnknownGames
+                                 && string.Equals(row.AppName, UnknownOtherAppName, StringComparison.Ordinal))
+                        {
+                            // ResolveRetroAppName gives this name to unmapped Steam content and
+                            // nothing else, so the name is the test.
+                            mergeKey = "unknown-other";
+                            bucketKind = RetroBucketKind.Unknown;
+                        }
+                        else
+                        {
+                            // The folded service, so the xbox aliases share the one bucket they
+                            // already share a display name with instead of showing three rows
+                            // under the same label. wsus is outside that fold and keeps its own
+                            // bucket - it carries mixed Windows Update traffic.
+                            mergeKey = $"service-{normalizedService.ToLowerInvariant()}";
+                            bucketKind = RetroBucketKind.Service;
+                        }
                     }
                     else if (row.SteamAppId.HasValue && row.SteamAppId.Value != 0)
                     {
@@ -440,6 +476,7 @@ public class DownloadsController : ControllerBase
                     {
                         bucket = new List<RetroDownloadDto>();
                         mergedBuckets[mergeKey] = bucket;
+                        bucketKinds[mergeKey] = bucketKind;
                         bucketOrder.Add(mergeKey);
                     }
                     bucket.Add(row);
@@ -487,20 +524,62 @@ public class DownloadsController : ControllerBase
 
                     var displayService = ServiceBreakdownMerger.NormalizeXboxService(first.Service);
 
+                    // A service-level bucket can span many depots/apps across many games, so a
+                    // single member row's DepotId/EpicAppId/SteamAppId/AppName would be
+                    // misleading here - null them out and show the service name instead. The
+                    // Unknown/Other bucket spans several clients of one service and shows a
+                    // neutral service so it renders its own icon rather than Steam's.
+                    var kind = bucketKinds[key];
+                    var hideRowIdentity = query.GroupByService || kind != RetroBucketKind.Game;
+                    // A service bucket is keyed on the folded service, so it has to show that same
+                    // folded name or the row would be labeled with one alias of the three it
+                    // holds. A game bucket names the service its title was logged under.
+                    var bucketService = query.MergeAcrossServices && kind == RetroBucketKind.Game
+                        ? first.Service
+                        : displayService;
+                    // A Steam bucket whose depots never mapped to a title still knows which app it
+                    // is, so it is named by that app id rather than shown as unidentified content.
+                    // Only ResolveRetroAppName mints that placeholder, and only for Steam, so the
+                    // name is the test. The row-level name is untouched, which is what the search
+                    // and the hide-unknown filter read, and both run before this merge.
+                    var gameBucketName = first.SteamAppId is > 0
+                        && string.Equals(first.AppName, UnknownOtherAppName, StringComparison.Ordinal)
+                        ? $"Steam App {first.SteamAppId.Value}"
+                        : first.AppName;
+                    var bucketName = kind switch
+                    {
+                        RetroBucketKind.Unknown => UnknownOtherAppName,
+                        RetroBucketKind.Service => bucketService,
+                        _ => query.GroupByService ? displayService : gameBucketName
+                    };
+                    // The collapsed row is drawn from the newest member, and its title is hidden
+                    // unless SOME member resolved a name, which the newest one alone cannot say.
+                    var newestMember = bucket
+                        .OrderByDescending(r => r.LastStartTimeUtc)
+                        .ThenBy(r => r.Id, StringComparer.Ordinal)
+                        .First();
+                    newestMemberByRowId[key] = newestMember;
+                    var hasRealGameName = kind == RetroBucketKind.Unknown
+                        || bucket.Any(r => IsRealGameName(r.AppName, r.Service));
+                    // No "metadata" here, and that is not an omission: the views give that type to
+                    // a zero-byte group, and ApplyEmptySessionFilter drops every zero-byte
+                    // completed row before this endpoint ever sees it.
+                    var groupType = query.MergeAcrossServices
+                        ? (kind == RetroBucketKind.Game ? "game" : "content")
+                        : string.Empty;
+
                     return new RetroDownloadDto
                     {
                         Id = key,
-                        // A service-level bucket can span many depots/apps across many games, so a
-                        // single member row's DepotId/EpicAppId/SteamAppId/AppName would be
-                        // misleading here - null them out and show the service name instead.
-                        DepotId = query.GroupByService ? null : first.DepotId,
-                        EpicAppId = query.GroupByService ? null : first.EpicAppId,
+                        DepotId = hideRowIdentity ? null : first.DepotId,
+                        EpicAppId = hideRowIdentity ? null : first.EpicAppId,
                         ClientIp = first.ClientIp,
-                        Service = displayService,
+                        Service = kind == RetroBucketKind.Unknown ? "unknown" : bucketService,
                         Datasource = first.Datasource,
-                        AppName = query.GroupByService ? displayService : first.AppName,
-                        SteamAppId = query.GroupByService ? null : first.SteamAppId,
+                        AppName = bucketName,
+                        SteamAppId = hideRowIdentity ? null : first.SteamAppId,
                         StartTimeUtc = bucket.Min(r => r.StartTimeUtc),
+                        LastStartTimeUtc = bucket.Max(r => r.LastStartTimeUtc),
                         EndTimeUtc = bucket.Max(r => r.EndTimeUtc),
                         CacheHitBytes = mergedHitBytes,
                         CacheMissBytes = mergedMissBytes,
@@ -514,7 +593,9 @@ public class DownloadsController : ControllerBase
                         ClientIps = clientIpsSet.ToList(),
                         DepotIds = depotIdsSet.ToList(),
                         IsEvicted = mergedFullyEvicted,
-                        IsPartiallyEvicted = mergedAnyEvicted && !mergedFullyEvicted
+                        IsPartiallyEvicted = mergedAnyEvicted && !mergedFullyEvicted,
+                        GroupType = groupType,
+                        HasRealGameName = hasRealGameName
                     };
                 }).ToList();
             }
@@ -523,23 +604,48 @@ public class DownloadsController : ControllerBase
                 effectiveList = grouped;
             }
 
-            // Sort (applied to whichever list is effective)
+            // Groups with more than one download sort ahead of single-download groups. These five
+            // sorts impose their own full order, so they never bucket. When no bucketing applies
+            // the key is constant, and OrderBy is stable, so the ThenBy chain below is left in
+            // sole charge and the order is exactly what a plain OrderBy would give.
+            var bucketByFrequency = query.GroupByFrequency
+                && query.Sort is not ("service" or "alphabetical" or "efficiency" or "efficiency-low" or "sessions");
+            var bucketed = effectiveList.OrderBy(g => bucketByFrequency && g.RequestCount == 1 ? 1 : 0);
+
+            // The grouped Downloads views order by the newest member's START time; retro orders by
+            // the group's latest END time. One list, two columns, chosen per request.
+            //
+            // The two sorts that order text order the text on screen, not the key underneath it: a
+            // nameless service row shows its service's title rather than the bare service, and the
+            // service badge shows the folded service rather than the alias the log used. Ordering
+            // the keys files a row somewhere the reader has no reason to look for it.
             effectiveList = query.Sort switch
             {
-                "oldest" => effectiveList.OrderBy(g => g.StartTimeUtc).ToList(),
-                "largest" => effectiveList.OrderByDescending(g => g.TotalBytes).ToList(),
-                "smallest" => effectiveList.OrderBy(g => g.TotalBytes).ToList(),
-                "efficiency" => effectiveList.OrderByDescending(g => g.CacheHitPercent).ToList(),
-                "efficiency-low" => effectiveList.OrderBy(g => g.CacheHitPercent).ToList(),
-                "sessions" => effectiveList.OrderByDescending(g => g.RequestCount).ToList(),
-                "alphabetical" => effectiveList.OrderBy(g => g.AppName, StringComparer.OrdinalIgnoreCase).ToList(),
-                "service" => effectiveList.OrderBy(g => g.Service).ThenByDescending(g => g.EndTimeUtc).ToList(),
-                // "recent" and "latest" are both pure chronological (newest end time first)
-                _ => effectiveList.OrderByDescending(g => g.EndTimeUtc).ToList(),
+                "oldest" => bucketed.ThenBy(g => g.StartTimeUtc).ToList(),
+                "largest" => bucketed.ThenByDescending(g => g.TotalBytes).ToList(),
+                "smallest" => bucketed.ThenBy(g => g.TotalBytes).ToList(),
+                "efficiency" => bucketed.ThenByDescending(g => g.CacheHitPercent).ToList(),
+                "efficiency-low" => bucketed.ThenBy(g => g.CacheHitPercent).ToList(),
+                "sessions" => bucketed.ThenByDescending(g => g.RequestCount).ToList(),
+                "alphabetical" => bucketed
+                    .ThenBy(
+                        g => g.Id.StartsWith("service-", StringComparison.Ordinal)
+                            ? ServiceBreakdownMerger.ServiceGroupTitle(g.Service)
+                            : g.AppName,
+                        StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+                "service" => bucketed.ThenBy(g => ServiceBreakdownMerger.NormalizeXboxService(g.Service))
+                    .ThenByDescending(g => query.MergeAcrossServices ? g.LastStartTimeUtc : g.EndTimeUtc)
+                    .ToList(),
+                // "recent" and "latest" are both pure chronological (newest first)
+                _ => bucketed.ThenByDescending(g => query.MergeAcrossServices ? g.LastStartTimeUtc : g.EndTimeUtc).ToList(),
             };
 
             // Paginate from the post-merge list
             var totalItems = effectiveList.Count;
+            // Every row carries the downloads it stands for, and the whole filtered list is already
+            // here, so the download count is a sum over it rather than a second pass over the table.
+            var totalDownloads = effectiveList.Sum(g => g.RequestCount);
             var totalPages = Math.Max(1, (int)Math.Ceiling(totalItems / (double)query.PageSize));
             var items = effectiveList
                 .Skip((query.Page - 1) * query.PageSize)
@@ -548,16 +654,25 @@ public class DownloadsController : ControllerBase
 
             await FillDownloadIdsAsync(query, items, pairsByRowId);
 
+            if (query.MergeAcrossServices)
+            {
+                await FillPrimaryDownloadsAsync(query, items, newestMemberByRowId);
+            }
+
             return Ok(new RetroDownloadResponse
             {
                 Items = items,
                 TotalItems = totalItems,
+                TotalDownloads = totalDownloads,
                 TotalPages = totalPages,
                 CurrentPage = query.Page,
                 PageSize = query.PageSize
             });
         }
-        catch (Exception ex)
+        // A client that navigates away cancels HttpContext.RequestAborted, which the name
+        // resolution above observes. That is not a failure to report as an empty page, so it is
+        // left to the middleware, which answers 499 without logging an error.
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error getting retro downloads");
             return Ok(new RetroDownloadResponse());
@@ -582,11 +697,26 @@ public class DownloadsController : ControllerBase
         public long CacheHitBytes { get; set; }
         public long CacheMissBytes { get; set; }
         public DateTime StartTimeUtc { get; set; }
+        public DateTime LastStartTimeUtc { get; set; }
         public DateTime EndTimeUtc { get; set; }
         public int RequestCount { get; set; }
         public int EvictedCount { get; set; }
         public double WeightedSpeedSum { get; set; }
         public double SpeedBytesSum { get; set; }
+    }
+
+    /// <summary>
+    /// What a merged bucket stands for, which decides whether its row can carry a depot and app
+    /// id and which name and service it shows.
+    /// </summary>
+    private enum RetroBucketKind
+    {
+        /// <summary>One identified game.</summary>
+        Game,
+        /// <summary>Every unmapped Steam row, folded together.</summary>
+        Unknown,
+        /// <summary>Every nameless row of one service.</summary>
+        Service
     }
 
     /// <summary>
@@ -614,6 +744,15 @@ public class DownloadsController : ControllerBase
                 || string.Equals(gameName, service, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
+    /// Whether a resolved group name names a game rather than echoing the service back or standing
+    /// in for content that could not be identified.
+    /// </summary>
+    private static bool IsRealGameName(string appName, string service) =>
+        !string.IsNullOrWhiteSpace(appName)
+        && !string.Equals(appName, UnknownOtherAppName, StringComparison.Ordinal)
+        && !string.Equals(appName, service, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Display name for a retro group. Unmapped Steam content (a Steam row with no resolved
     /// game name) is surfaced as "Unknown/Other" to match the Normal/Compact views. Every
     /// other service keeps its service-name fallback.
@@ -631,9 +770,15 @@ public class DownloadsController : ControllerBase
     {
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
 
-        var baseQuery = _context.Downloads
-            .AsNoTracking()
-            .Where(d => !d.IsActive); // Only completed downloads for retro view
+        var baseQuery = _context.Downloads.AsNoTracking();
+
+        // Only completed downloads for the retro view. The grouped Downloads views ask for the
+        // running one as well, so it stays on screen while it downloads instead of appearing only
+        // once it finishes.
+        if (!query.IncludeActive)
+        {
+            baseQuery = baseQuery.Where(d => !d.IsActive);
+        }
 
         // Exclude hidden client IPs
         if (hiddenClientIps.Count > 0)
@@ -644,6 +789,13 @@ public class DownloadsController : ControllerBase
         // Apply eviction filter (hide/remove modes exclude evicted downloads)
         var evictedMode = _stateRepository.GetEvictedDataMode();
         baseQuery = baseQuery.ApplyEvictedFilter(evictedMode).ApplyEmptySessionFilter();
+
+        // Filter: hide evicted for this reader. The stored mode above hides them for every reader,
+        // so this only bites while that mode is showing them.
+        if (query.HideEvicted)
+        {
+            baseQuery = baseQuery.Where(d => !d.IsEvicted);
+        }
 
         // Filter: time range
         if (query.StartTime.HasValue || query.EndTime.HasValue)
@@ -693,7 +845,8 @@ public class DownloadsController : ControllerBase
         // Filter: client IP
         if (!string.IsNullOrEmpty(query.Client) && query.Client != "all")
         {
-            baseQuery = baseQuery.Where(d => d.ClientIp == query.Client);
+            var clientIps = query.Client.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            baseQuery = baseQuery.Where(d => clientIps.Contains(d.ClientIp));
         }
 
         // Filter: hide zero-byte downloads
@@ -702,7 +855,277 @@ public class DownloadsController : ControllerBase
             baseQuery = baseQuery.Where(d => (d.CacheHitBytes + d.CacheMissBytes) > 0);
         }
 
+        // Filter: hide downloads under 1 MB. The sum is written out because TotalBytes is computed
+        // from these two columns and no column holds it. Completed zero-byte sessions are already
+        // gone by here, so the threshold is the whole test.
+        if (query.HideSmallFiles)
+        {
+            baseQuery = baseQuery.Where(d => (d.CacheHitBytes + d.CacheMissBytes) >= 1048576);
+        }
+
         return baseQuery;
+    }
+
+    /// <summary>
+    /// Aggregates per (DepotId, ClientIp) so only group-level scalars cross the wire. No-depot rows
+    /// keep one group per row via RowKey = Id (matches the historical "no-depot-{service}-{ip}-{id}"
+    /// key). Raw download rows are never materialized here.
+    /// </summary>
+    private IQueryable<RetroGroupRow> BuildRetroGroupedQuery(RetroDownloadQuery query)
+    {
+        return BuildRetroBaseQuery(query)
+            .GroupBy(d => new
+            {
+                d.DepotId,
+                d.ClientIp,
+                RowKey = d.DepotId == null ? d.Id : 0L
+            })
+            .Select(g => new RetroGroupRow
+            {
+                DepotId = g.Key.DepotId,
+                ClientIp = g.Key.ClientIp,
+                RowKey = g.Key.RowKey,
+                Service = g.Max(d => d.Service)!,
+                Datasource = g.Max(d => d.Datasource)!,
+                GameName = g.Max(d => d.GameName),
+                GameAppId = g.Max(d => d.GameAppId),
+                EpicAppId = g.Max(d => d.EpicAppId),
+                XboxProductId = g.Max(d => d.XboxProductId),
+                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                CacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                StartTimeUtc = g.Min(d => d.StartTimeUtc),
+                LastStartTimeUtc = g.Max(d => d.StartTimeUtc),
+                EndTimeUtc = g.Max(d => d.EndTimeUtc),
+                RequestCount = g.Count(),
+                EvictedCount = g.Sum(d => d.IsEvicted ? 1 : 0),
+                // Per-row speed is TotalBytes / (EndTime - StartTime); weight it by bytes the
+                // same way the previous in-memory grouping did.
+                WeightedSpeedSum = g.Sum(d =>
+                    (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds > 0
+                        ? ((d.CacheHitBytes + d.CacheMissBytes)
+                           / (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds)
+                          * (d.CacheHitBytes + d.CacheMissBytes)
+                        : 0),
+                SpeedBytesSum = g.Sum(d =>
+                    (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds > 0
+                    && (d.CacheHitBytes + d.CacheMissBytes) > 0
+                        ? (double)(d.CacheHitBytes + d.CacheMissBytes)
+                        : 0)
+            });
+    }
+
+    /// <summary>
+    /// One page of grouped rows, ordered by the database. The frequency bucket and the sort repeat
+    /// the expressions <see cref="GetRetroDownloadsAsync"/> applies in memory, over the same
+    /// columns; the group key closes the order so equal sort keys cannot drift between the two
+    /// paths and move a page boundary. The four sorts with no column behind them never reach here
+    /// - the caller keeps those on the in-memory path.
+    /// </summary>
+    private IQueryable<RetroGroupRow> BuildRetroPagedQuery(RetroDownloadQuery query)
+    {
+        // "sessions" is the only sort that both reaches this method and imposes its own full
+        // order; the other four the in-memory rule lists are all on the in-memory path already.
+        var bucketByFrequency = query.GroupByFrequency && query.Sort != "sessions";
+        var bucketed = BuildRetroGroupedQuery(query)
+            .OrderBy(r => bucketByFrequency && r.RequestCount == 1 ? 1 : 0);
+
+        var ordered = query.Sort switch
+        {
+            "oldest" => bucketed.ThenBy(r => r.StartTimeUtc),
+            "largest" => bucketed.ThenByDescending(r => r.CacheHitBytes + r.CacheMissBytes),
+            "smallest" => bucketed.ThenBy(r => r.CacheHitBytes + r.CacheMissBytes),
+            "sessions" => bucketed.ThenByDescending(r => r.RequestCount),
+            // "recent" and "latest" are both pure chronological (newest first). MergeAcrossServices
+            // keeps a request off this path, so the group's latest end time is the only column the
+            // in-memory sort can be reading here.
+            _ => bucketed.ThenByDescending(r => r.EndTimeUtc)
+        };
+
+        return ordered
+            .ThenBy(r => r.DepotId)
+            .ThenBy(r => r.ClientIp)
+            .ThenBy(r => r.RowKey)
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize);
+    }
+
+    /// <summary>
+    /// The wire row for one aggregated group, after its game name has been resolved.
+    /// </summary>
+    private static RetroDownloadDto BuildRetroRow(RetroGroupRow r, bool maskEviction)
+    {
+        var totalBytes = r.CacheHitBytes + r.CacheMissBytes;
+        var fullyEvicted = !maskEviction && r.EvictedCount == r.RequestCount;
+        var anyEvicted = !maskEviction && r.EvictedCount > 0;
+        return new RetroDownloadDto
+        {
+            Id = r.DepotId.HasValue
+                ? $"depot-{r.DepotId.Value}-{r.ClientIp}"
+                : $"no-depot-{r.Service}-{r.ClientIp}-{r.RowKey}",
+            DepotId = r.DepotId,
+            EpicAppId = r.EpicAppId,
+            ClientIp = r.ClientIp,
+            Service = r.Service,
+            Datasource = r.Datasource,
+            AppName = ResolveRetroAppName(r.Service, r.GameName),
+            SteamAppId = r.GameAppId,
+            StartTimeUtc = r.StartTimeUtc,
+            LastStartTimeUtc = r.LastStartTimeUtc,
+            EndTimeUtc = r.EndTimeUtc,
+            CacheHitBytes = r.CacheHitBytes,
+            CacheMissBytes = r.CacheMissBytes,
+            CacheHitPercent = totalBytes > 0
+                ? Math.Round((r.CacheHitBytes * 100.0) / totalBytes, 1)
+                : 0,
+            TotalBytes = totalBytes,
+            AverageBytesPerSecond = r.SpeedBytesSum > 0 ? r.WeightedSpeedSum / r.SpeedBytesSum : 0,
+            RequestCount = r.RequestCount,
+            // Depot groups get their DownloadIds filled after pagination (page rows only);
+            // no-depot groups are single downloads whose id IS the row key.
+            DownloadIds = r.RowKey != 0 ? new List<long> { r.RowKey } : new List<long>(),
+            ClientIps = new List<string> { r.ClientIp },
+            DepotIds = r.DepotId.HasValue && r.DepotId.Value != 0
+                ? new List<uint> { (uint)r.DepotId.Value }
+                : new List<uint>(),
+            IsEvicted = fullyEvicted,
+            IsPartiallyEvicted = anyEvicted && !fullyEvicted
+        };
+    }
+
+    /// <summary>
+    /// Fetches one download per row on the current page: the newest member of each group, which is
+    /// what the grouped views draw a collapsed row from. Deliberately not the group's members - a
+    /// game group can hold thousands of downloads, so those are fetched per expanded group through
+    /// <see cref="GetByIdsAsync"/> instead. Two queries, both bounded by the page: the newest id in
+    /// each group's newest depot group, then the rows for those ids.
+    /// </summary>
+    private async Task FillPrimaryDownloadsAsync(
+        RetroDownloadQuery query,
+        List<RetroDownloadDto> pageItems,
+        Dictionary<string, RetroDownloadDto> newestMemberByRowId)
+    {
+        var pairs = new HashSet<(long DepotId, string ClientIp)>();
+        var primaryIdByRowId = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var item in pageItems)
+        {
+            if (!newestMemberByRowId.TryGetValue(item.Id, out var member)) continue;
+            if (member.DepotId.HasValue)
+            {
+                pairs.Add((member.DepotId.Value, member.ClientIp));
+            }
+            else if (member.DownloadIds.Count > 0)
+            {
+                // A no-depot group is a single download and already names it.
+                primaryIdByRowId[item.Id] = member.DownloadIds[0];
+            }
+        }
+
+        var primaryIdByPair = new Dictionary<(long DepotId, string ClientIp), long>();
+        if (pairs.Count > 0)
+        {
+            var depotIdList = pairs.Select(p => p.DepotId).Distinct().ToList();
+            var clientIpList = pairs.Select(p => p.ClientIp).Distinct().ToList();
+
+            var candidates = await BuildRetroBaseQuery(query)
+                .Where(d => d.DepotId != null
+                         && depotIdList.Contains(d.DepotId.Value)
+                         && clientIpList.Contains(d.ClientIp))
+                .Select(d => new { d.Id, DepotId = d.DepotId!.Value, d.ClientIp, d.StartTimeUtc })
+                .ToListAsync();
+
+            foreach (var pairGroup in candidates
+                         .Where(c => pairs.Contains((c.DepotId, c.ClientIp)))
+                         .GroupBy(c => (c.DepotId, c.ClientIp)))
+            {
+                primaryIdByPair[pairGroup.Key] = pairGroup
+                    .OrderByDescending(c => c.StartTimeUtc)
+                    .ThenByDescending(c => c.Id)
+                    .First().Id;
+            }
+
+            foreach (var item in pageItems)
+            {
+                if (!newestMemberByRowId.TryGetValue(item.Id, out var member)) continue;
+                if (!member.DepotId.HasValue) continue;
+                if (primaryIdByPair.TryGetValue((member.DepotId.Value, member.ClientIp), out var id))
+                {
+                    primaryIdByRowId[item.Id] = id;
+                }
+            }
+        }
+
+        if (primaryIdByRowId.Count == 0) return;
+
+        var primaryIds = primaryIdByRowId.Values.Distinct().ToList();
+        var rows = await _context.Downloads
+            .AsNoTracking()
+            .Where(d => primaryIds.Contains(d.Id))
+            .ToListAsync();
+
+        await GameNameResolver.ResolveAsync(_context, rows, HttpContext.RequestAborted);
+
+        if (_stateRepository.GetEvictedDataMode() == EvictedDataMode.ShowClean.ToWireString())
+        {
+            foreach (var row in rows) row.IsEvicted = false;
+        }
+
+        var rowsById = rows.ToDictionary(r => r.Id);
+        foreach (var item in pageItems)
+        {
+            if (primaryIdByRowId.TryGetValue(item.Id, out var primaryId)
+                && rowsById.TryGetValue(primaryId, out var row))
+            {
+                row.WithUtcMarking();
+                item.PrimaryDownload = row;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The download rows behind a set of ids, newest first. Serves an expanded group's member
+    /// list, which is why it takes ids rather than a filter: the caller already holds them on the
+    /// grouped row, and only the one group a user opened is ever fetched.
+    /// </summary>
+    [HttpPost("by-ids")]
+    [ProducesResponseType(typeof(List<Download>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<Download>>> GetByIdsAsync([FromBody] BatchDownloadEventsRequest request)
+    {
+        if (request.DownloadIds.Count == 0)
+        {
+            return Ok(new List<Download>());
+        }
+
+        // Same ceiling as the event batch above, for the same reason: a group can name far more
+        // ids than anyone renders, and the views page their member list. The ceiling is applied
+        // after the ordering so the rows it keeps are the newest members of the group, not
+        // whichever ones the id list happened to start with. The whole id list goes to the
+        // database as one array parameter, so passing more than the ceiling costs nothing.
+        const int maxIds = 500;
+
+        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
+        var evictedMode = _stateRepository.GetEvictedDataMode();
+
+        var rows = await _context.Downloads
+            .AsNoTracking()
+            .Where(d => request.DownloadIds.Contains(d.Id))
+            .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp))
+            .ApplyEvictedFilter(evictedMode)
+            .ApplyEmptySessionFilter()
+            .OrderByDescending(d => d.StartTimeUtc)
+            .ThenByDescending(d => d.Id)
+            .Take(maxIds)
+            .ToListAsync();
+
+        await GameNameResolver.ResolveAsync(_context, rows, HttpContext.RequestAborted);
+
+        if (evictedMode == EvictedDataMode.ShowClean.ToWireString())
+        {
+            foreach (var row in rows) row.IsEvicted = false;
+        }
+
+        foreach (var row in rows) row.WithUtcMarking();
+
+        return Ok(rows);
     }
 
     /// <summary>

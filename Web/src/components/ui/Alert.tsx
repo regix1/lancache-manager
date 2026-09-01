@@ -4,7 +4,7 @@ import { AlertCircle, CheckCircle, Info, AlertTriangle, X } from 'lucide-react';
 interface AlertProps {
   children: React.ReactNode;
   // Severity, not palette. The palette names are kept as aliases so call sites can migrate one
-  // file at a time; yellow and orange were always the same rendered class. [10]
+  // file at a time; yellow and orange were always the same rendered class.
   color?: 'info' | 'success' | 'warning' | 'error' | 'blue' | 'green' | 'yellow' | 'red' | 'orange';
   icon?: React.ReactNode;
   withCloseButton?: boolean;

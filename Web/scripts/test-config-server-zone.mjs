@@ -9,7 +9,7 @@ import { transpile } from './transpile-module.mjs';
  * time. It is written where the config lands, above the gate that holds every child back, so that
  * first read already has it. Written a render later instead, the provider seeds itself from the
  * browser's zone, corrects itself on the next render, and aborts the batch it had already sent. The
- * load is lifted out of the product source and run here rather than restated. [71]
+ * load is lifted out of the product source and run here rather than restated.
  */
 
 const readWebSource = (relativePath) =>

@@ -1408,7 +1408,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         if (await _sessionService.IsUserIdBannedAsync(userId))
         {
             _logger.LogWarning("Refusing to create {ServiceName} session for banned user {UserId}", ServiceName, userId);
-            throw new ForbiddenException("You are banned from using the prefill feature.");
+            throw new ForbiddenException("You are banned from using the prefill feature.")
+            {
+                StageKey = "errors.prefill.banned"
+            };
         }
 
         // Always pull latest image before creating session
@@ -1499,7 +1502,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 // only ever requested over HTTP, so a conflict carries the retry-shortly sentence to the
                 // caller instead of collapsing into the middleware's generic 500 body.
                 throw new ConflictException(
-                    $"An existing persistent {ServiceName} container is still being removed or restarting. Please try again shortly.");
+                    $"An existing persistent {ServiceName} container is still being removed or restarting. Please try again shortly.")
+                {
+                    StageKey = "errors.prefill.containerBusy",
+                    Context = new() { ["service"] = ServiceName }
+                };
             }
         }
 
@@ -2752,7 +2759,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // about.
         if (!await session.LoginLock.WaitAsync(_loginLockWaitTimeout, cancellationToken))
         {
-            throw new ConflictException($"A login attempt is already in progress for session {sessionId}.");
+            throw new ConflictException($"A login attempt is already in progress for session {sessionId}.")
+            {
+                StageKey = "errors.prefill.loginInProgress",
+                Context = new() { ["sessionId"] = sessionId }
+            };
         }
 
         var abandonedLoginCleanup = new AbandonedLoginCleanupHolder();
@@ -3952,7 +3963,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             // CreateSessionAsync stays an InvalidOperationException because the hub catches that type
             // by name to forward the message on the SignalR path.
             throw new ServiceUnavailableException(
-                "Docker is not running or not accessible. Please start Docker Desktop and try again.");
+                "Docker is not running or not accessible. Please start Docker Desktop and try again.")
+            {
+                StageKey = "errors.prefill.dockerUnavailable"
+            };
         }
 
         await _persistentStartLock.WaitAsync(cancellationToken);
@@ -4099,7 +4113,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             throw new ConflictException(
                 $"{ServiceName} daemon is shutting down; the persistent session {sessionId} cannot be stopped right now. " +
-                "Its login is preserved for re-adoption on the next start; stop it again after the manager restarts.");
+                "Its login is preserved for re-adoption on the next start; stop it again after the manager restarts.")
+            {
+                StageKey = "errors.prefill.daemonShuttingDown",
+                Context = new() { ["service"] = ServiceName, ["sessionId"] = sessionId }
+            };
         }
 
         var session = GetSession(sessionId);

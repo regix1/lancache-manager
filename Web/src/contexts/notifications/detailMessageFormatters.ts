@@ -289,7 +289,7 @@ export const formatGameDetectionCompleteMessage = (event: GameDetectionCompleteE
   });
 
   // A declined run reports success:true and reaches this success formatter, so the counts below
-  // would report a scan that never looked at anything. Its reason travels in `error`. [48]
+  // would report a scan that never looked at anything. Its reason travels in `error`.
   if (event.status === 'skipped') {
     return (
       event.error ??
@@ -425,7 +425,7 @@ export const formatDatabaseResetCompleteMessage = (
 ): string => {
   // The reset names the prefill daemons whose login outlived it. Without this the card
   // reports success while those services are still signed in. The value arrives as a JSON
-  // array of platform names, which the declared context type does not cover. [61]
+  // array of platform names, which the declared context type does not cover.
   const context: Record<string, unknown> = event.context ?? {};
   const activeLogins = context.persistentLoginFailures;
   if (Array.isArray(activeLogins) && activeLogins.length > 0) {

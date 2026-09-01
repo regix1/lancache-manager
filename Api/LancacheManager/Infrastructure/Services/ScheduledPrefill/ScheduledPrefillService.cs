@@ -178,6 +178,10 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
         bool success = true;
         string? error = null;
+        // Names the failure reason the card shows. Null on the paths whose text has no key: a
+        // canceled run (the card writes its own translated line) and an unexpected exception,
+        // whose message comes from .NET.
+        string? errorStageKey = null;
         bool cancelled = false;
 
         try
@@ -303,6 +307,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(servicesRan, servicesNeedingLogin, servicesSkipped, servicesFailed);
                 success = outcome.Success;
                 error = outcome.Error;
+                errorStageKey = outcome.StageKey;
             }
         }
         catch (OperationCanceledException) when (runToken.IsCancellationRequested)
@@ -353,6 +358,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 operationId = operationIdString,
                 success,
                 error,
+                stageKey = errorStageKey,
                 cancelled,
                 showNotification = notificationMetadata.ShowNotification
             });
@@ -387,7 +393,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(serviceProvider, serviceId);
         if (daemon is null)
         {
-            await ReportProgressAsync(notifications, operationId, serviceConfig, "skipped", "No daemon registered for this service", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+            await ReportProgressAsync(notifications, operationId, serviceConfig, "skipped", "No daemon registered for this service", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1), stageKey: "signalr.scheduledPrefill.skippedNoDaemon");
             return ScheduledPrefillServiceRunResult.Skipped;
         }
 
@@ -410,7 +416,12 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: false),
                 runShowNotification,
                 requiresLogin ? needsLoginReason : ScheduledPrefillRunGates.NoContainerReason,
-                percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+                percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                // The card shows the needs-login reason on one branch and the message on the other,
+                // so one key covers whichever sentence this event actually puts on screen.
+                stageKey: requiresLogin
+                    ? "signalr.scheduledPrefill.needsPersistentContainer"
+                    : "signalr.scheduledPrefill.skippedNoContainer");
             return requiresLogin
                 ? ScheduledPrefillServiceRunResult.NeedsLogin
                 : ScheduledPrefillServiceRunResult.Skipped;
@@ -454,7 +465,10 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 requiresLogin
                     ? ScheduledPrefillRunGates.LoggedOutNeedsLoginReason
                     : ScheduledPrefillRunGates.ContainerNotReadyReason,
-                percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+                percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                stageKey: requiresLogin
+                    ? "signalr.scheduledPrefill.needsPersistentLogin"
+                    : "signalr.scheduledPrefill.skippedContainerNotReady");
             return requiresLogin
                 ? ScheduledPrefillServiceRunResult.NeedsLogin
                 : ScheduledPrefillServiceRunResult.Skipped;
@@ -466,9 +480,10 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         if (ScheduledPrefillRunGates.ShouldSkipForBusySessions(
                 daemon.GetAllSessions(),
                 _systemUserId,
-                out var skipMessage))
+                out var skipMessage,
+                out var skipStageKey))
         {
-            await ReportProgressAsync(notifications, operationId, serviceConfig, "skipped", skipMessage, runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+            await ReportProgressAsync(notifications, operationId, serviceConfig, "skipped", skipMessage, runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1), stageKey: skipStageKey);
             return ScheduledPrefillServiceRunResult.Skipped;
         }
 
@@ -480,7 +495,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             "Reusing persistent container",
             runShowNotification,
             downloadSessionId: sessionId,
-            percent: ScheduledPrefillRunGates.ComputeRunPercent(0));
+            percent: ScheduledPrefillRunGates.ComputeRunPercent(0),
+            stageKey: "signalr.scheduledPrefill.reusingContainer");
 
         // 4. Kick off the prefill. Map preset + OS list to the real daemon signature.
         // When specific apps are selected, prefill exactly those and ignore the All/Recent/Top
@@ -544,10 +560,19 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         // exit immediately and wrongly report "completed". Treat a non-Success start as failed.
         if (!result.Success)
         {
-            var failureMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
-                ? "Prefill failed to start"
-                : result.ErrorMessage;
-            await ReportProgressAsync(notifications, operationId, serviceConfig, "failed", failureMessage, runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+            var daemonFailure = !string.IsNullOrWhiteSpace(result.ErrorMessage);
+            var failureMessage = daemonFailure ? result.ErrorMessage! : "Prefill failed to start";
+            await ReportProgressAsync(
+                notifications,
+                operationId,
+                serviceConfig,
+                "failed",
+                failureMessage,
+                runShowNotification,
+                percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                // The daemon's own text has no key to translate it by, so only the generic sentence
+                // this method wrote itself carries one.
+                stageKey: daemonFailure ? null : "signalr.scheduledPrefill.failedToStart");
             return ScheduledPrefillServiceRunResult.Failed;
         }
 
@@ -559,7 +584,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             "Prefill in progress",
             runShowNotification,
             downloadSessionId: sessionId,
-            percent: ScheduledPrefillRunGates.ComputeRunPercent(0));
+            percent: ScheduledPrefillRunGates.ComputeRunPercent(0),
+            stageKey: "signalr.scheduledPrefill.running");
 
         // Live progress is PUSHED, never sampled. The daemon already raises a tick for every chunk it
         // finishes (it has to - the prefill page renders from those very ticks); the scheduler used to
@@ -612,14 +638,14 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 if (DateTime.UtcNow >= runDeadline)
                 {
                     await StopRelayAsync();
-                    await ReportProgressAsync(notifications, operationId, serviceConfig, "failed", "Exceeded maximum service runtime", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+                    await ReportProgressAsync(notifications, operationId, serviceConfig, "failed", "Exceeded maximum service runtime", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1), stageKey: "signalr.scheduledPrefill.failedMaxRuntime");
                     return ScheduledPrefillServiceRunResult.Failed;
                 }
 
                 if (PrefillDaemonServiceBase.IsPrefillStalled(session, DateTime.UtcNow, config.StallTimeout))
                 {
                     await StopRelayAsync();
-                    await ReportProgressAsync(notifications, operationId, serviceConfig, "failed", "Prefill stalled (no progress)", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+                    await ReportProgressAsync(notifications, operationId, serviceConfig, "failed", "Prefill stalled (no progress)", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1), stageKey: "signalr.scheduledPrefill.failedStalled");
                     return ScheduledPrefillServiceRunResult.Failed;
                 }
 
@@ -661,20 +687,24 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     "Prefill stopped",
                     runShowNotification,
                     downloadSessionId: sessionId,
-                    percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+                    percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                    stageKey: "signalr.scheduledPrefill.stopped");
                 return ScheduledPrefillServiceRunResult.Cancelled;
             }
 
+            var completion = BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force);
             await ReportProgressAsync(
                 notifications,
                 operationId,
                 serviceConfig,
                 "completed",
-                BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force),
+                completion.Message,
                 runShowNotification,
                 bytesDownloaded: session.TotalBytesTransferred,
                 downloadSessionId: sessionId,
-                percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+                percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                stageKey: completion.StageKey,
+                stageContext: completion.Context);
             return ScheduledPrefillServiceRunResult.Ran;
         }
         finally
@@ -854,9 +884,25 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 _highestPercent = percent;
 
                 var cappedCompleted = Math.Min(_appsCompleted, totalApps);
+                var downloadingCount = Math.Min(_appsCompleted + 1, totalApps);
                 var message = string.IsNullOrEmpty(currentAppName)
                     ? $"Prefill in progress ({cappedCompleted} of {totalApps} games)"
-                    : $"Downloading {currentAppName} ({Math.Min(_appsCompleted + 1, totalApps)} of {totalApps} games)";
+                    : $"Downloading {currentAppName} ({downloadingCount} of {totalApps} games)";
+                var stageKey = string.IsNullOrEmpty(currentAppName)
+                    ? "signalr.scheduledPrefill.runningWithCounts"
+                    : "signalr.scheduledPrefill.downloadingGame";
+                var stageContext = string.IsNullOrEmpty(currentAppName)
+                    ? new Dictionary<string, object?>
+                    {
+                        ["completed"] = cappedCompleted,
+                        ["total"] = totalApps
+                    }
+                    : new Dictionary<string, object?>
+                    {
+                        ["game"] = currentAppName,
+                        ["completed"] = downloadingCount,
+                        ["total"] = totalApps
+                    };
 
                 var bytesMoved = currentAppBytes.HasValue && currentAppBytes.Value != _lastEmittedBytes;
                 // Percent is derived exclusively from the completed-count/message and the current
@@ -890,7 +936,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     downloadSessionId: _sessionId,
                     percent: percent,
                     bytesDownloaded: currentAppBytes,
-                    totalBytes: currentAppTotalBytes);
+                    totalBytes: currentAppTotalBytes,
+                    stageKey: stageKey,
+                    stageContext: stageContext);
             }
             catch (Exception ex)
             {
@@ -978,20 +1026,33 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         return mapped;
     }
 
-    private static string BuildCompletionMessage(DaemonSession session, bool hasSelectedApps, bool force)
+    private static (string Message, string StageKey, Dictionary<string, object?>? Context) BuildCompletionMessage(
+        DaemonSession session,
+        bool hasSelectedApps,
+        bool force)
     {
         var bytes = session.TotalBytesTransferred;
         if (bytes > 0)
         {
-            return $"Prefill completed ({FormattingUtils.FormatBytes(bytes)} downloaded)";
+            var downloaded = FormattingUtils.FormatBytes(bytes);
+            return (
+                $"Prefill completed ({downloaded} downloaded)",
+                "signalr.scheduledPrefill.completeWithBytes",
+                new Dictionary<string, object?> { ["bytes"] = downloaded });
         }
 
         if (hasSelectedApps && !force)
         {
-            return "Prefill completed — all selected games were already cached (0 bytes). Enable Force to re-download.";
+            return (
+                "Prefill completed, all selected games were already cached (0 bytes). Enable Force to re-download.",
+                "signalr.scheduledPrefill.completeAllCached",
+                null);
         }
 
-        return "Prefill completed (0 bytes downloaded)";
+        return (
+            "Prefill completed (0 bytes downloaded)",
+            "signalr.scheduledPrefill.completeNoBytes",
+            null);
     }
 
     private Task ReportProgressAsync(
@@ -1005,7 +1066,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         long? bytesDownloaded = null,
         string? downloadSessionId = null,
         double? percent = null,
-        long? totalBytes = null)
+        long? totalBytes = null,
+        string? stageKey = null,
+        Dictionary<string, object?>? stageContext = null)
     {
         var serviceId = serviceConfig.ServiceId;
 
@@ -1028,6 +1091,12 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             serviceId = serviceId.ToString(),
             stage,
             message,
+            // Names the one sentence this event puts on the card - the skip reason, the needs-login
+            // reason, or the progress line - so the browser can render it in the reader's language.
+            // The English above stays on the wire for the log and as the fallback for a build whose
+            // locale has no words for the key yet.
+            stageKey,
+            stageContext,
             needsLoginReason,
             bytesDownloaded,
             totalBytes,

@@ -164,6 +164,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   // Listen for processing complete events to refresh positions
   useEffect(() => {
+    // The socket stays connected in mock mode, so a real processing run would otherwise pull real
+    // log positions into the mock view.
+    if (mockMode) return;
+
     const handleProcessingComplete = async (_result: LogProcessingCompleteEvent) => {
       try {
         const positions = await fetchLogPositions();
@@ -183,7 +187,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     return () => {
       signalR.off('LogProcessingComplete', handleProcessingComplete);
     };
-  }, [signalR, notifyError, t]);
+  }, [mockMode, signalR, notifyError, t]);
 
   // Recover a stale snapshot after a reconnect: a processing-complete event can be missed while
   // the socket is down, so resync log positions whenever the connection returns.

@@ -8,7 +8,7 @@ interface ClientAddressChipProps {
   /**
    * The name to label the address with. Passed in rather than read from the hostname context,
    * because a caller that has just looked a name up needs that name to win over the reverse-name
-   * map, which only covers addresses the install has already seen. [11]
+   * map, which only covers addresses the install has already seen.
    */
   hostname: string | null;
   state: IpChipState;

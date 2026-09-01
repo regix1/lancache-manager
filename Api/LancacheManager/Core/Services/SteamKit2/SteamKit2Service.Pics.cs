@@ -437,6 +437,11 @@ public partial class SteamKit2Service
             _logger.LogInformation("Starting full PICS generation (will use Web API for app enumeration)");
             _depotToAppMappings.Clear();
             _appNames.Clear();
+            // Owners and depot names are added with TryAdd during the crawl, so a value carried over
+            // from the previous catalog would never be replaced and would be written back out as part
+            // of the rebuilt mappings.
+            _depotOwners.Clear();
+            _depotNames.Clear();
             _lastChangeNumberSeen = 0; // Reset to ensure Web API enumeration is used
 
             // Clear game data from Downloads table so all downloads get fresh mappings

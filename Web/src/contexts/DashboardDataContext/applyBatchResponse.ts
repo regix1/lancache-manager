@@ -4,6 +4,8 @@ import type {
   ServiceStat,
   DashboardStats,
   Download,
+  DownloadTotals,
+  ServiceFilterOption,
   SparklineDataResponse,
   HourlyActivityResponse,
   CacheSnapshotResponse
@@ -21,6 +23,10 @@ export interface DashboardSlices {
   serviceStats: ServiceStat[];
   dashboardStats: DashboardStats | null;
   latestDownloads: Download[];
+  downloadTotals: DownloadTotals | null;
+  filteredDownloadTotals: DownloadTotals | null;
+  serviceOptions: ServiceFilterOption[];
+  clientOptions: string[];
   sparklines: SparklineDataResponse | null;
   hourlyActivity: HourlyActivityResponse | null;
   cacheSnapshot: CacheSnapshotResponse | null;
@@ -40,11 +46,21 @@ interface ApplyBatchResult {
 }
 
 /**
- * Identity of a fetch's time window. Live mode sends no start/end params so its
- * key is stable; rolling ranges are anchored and minute-quantized upstream.
+ * Identity of a fetch's time window and download selection. Live mode sends no
+ * start/end params so its key is stable; rolling ranges are anchored and
+ * minute-quantized upstream. The service and client filters belong here because
+ * the batch applies them server-side: without them a failed filtered sub-query
+ * would count as the same range and carry the previous selection's figures
+ * forward under the newly chosen label.
  */
-export function buildRangeKey(startTime?: number, endTime?: number, eventId?: number): string {
-  return `${startTime ?? ''}|${endTime ?? ''}|${eventId ?? ''}`;
+export function buildRangeKey(
+  startTime?: number,
+  endTime?: number,
+  eventId?: number,
+  service?: string,
+  client?: string
+): string {
+  return `${startTime ?? ''}|${endTime ?? ''}|${eventId ?? ''}|${service ?? ''}|${client ?? ''}`;
 }
 
 /**
@@ -91,7 +107,26 @@ export function applyDashboardBatchResponse(
     clientStats: resolveSection('clients', batch.clients, prev.clientStats, []),
     serviceStats: resolveSection('services', batch.services, prev.serviceStats, []),
     dashboardStats: resolveSection('dashboard', batch.dashboard, prev.dashboardStats, null),
-    latestDownloads: resolveSection('downloads', batch.downloads, prev.latestDownloads, []),
+    latestDownloads: resolveSection(
+      'recentDownloads',
+      batch.recentDownloads,
+      prev.latestDownloads,
+      []
+    ),
+    downloadTotals: resolveSection(
+      'downloadTotals',
+      batch.downloadTotals,
+      prev.downloadTotals,
+      null
+    ),
+    filteredDownloadTotals: resolveSection(
+      'filteredDownloadTotals',
+      batch.filteredDownloadTotals,
+      prev.filteredDownloadTotals,
+      null
+    ),
+    serviceOptions: resolveSection('serviceOptions', batch.serviceOptions, prev.serviceOptions, []),
+    clientOptions: resolveSection('clientOptions', batch.clientOptions, prev.clientOptions, []),
     sparklines: resolveSection('sparklines', batch.sparklines, prev.sparklines, null),
     hourlyActivity: resolveSection(
       'hourlyActivity',

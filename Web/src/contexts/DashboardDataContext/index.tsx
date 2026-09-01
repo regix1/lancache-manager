@@ -24,6 +24,8 @@ import type {
   ServiceStat,
   DashboardStats,
   Download,
+  DownloadTotals,
+  ServiceFilterOption,
   Event,
   GameDetectionSummary,
   SparklineDataResponse,
@@ -32,9 +34,11 @@ import type {
 } from '../../types';
 import {
   DashboardDataContext,
+  DownloadFilterFetchContext,
   type DashboardDataProviderProps,
   type CachedDetectionResponse,
-  type DashboardBatchResponse
+  type DashboardBatchResponse,
+  type DownloadFilters
 } from './types';
 import {
   applyDashboardBatchResponse,
@@ -51,12 +55,20 @@ const FAILED_BATCH: DashboardBatchResponse = {
   clients: null,
   services: null,
   dashboard: null,
-  downloads: null,
+  downloadTotals: null,
+  filteredDownloadTotals: null,
+  serviceOptions: null,
+  clientOptions: null,
+  recentDownloads: null,
   detection: null,
   sparklines: null,
   hourlyActivity: null,
   cacheSnapshot: null
 };
+
+// The dropdowns spell "no filter" as 'all', and so does the endpoint, so an untouched provider
+// asks for exactly what it asked for before the filters existed.
+const UNFILTERED_DOWNLOADS: DownloadFilters = { service: 'all', client: 'all' };
 
 export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   children,
@@ -82,6 +94,17 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [latestDownloads, setLatestDownloads] = useState<Download[]>([]);
+  const [downloadTotals, setDownloadTotals] = useState<DownloadTotals | null>(null);
+  const [filteredDownloadTotals, setFilteredDownloadTotals] = useState<DownloadTotals | null>(null);
+  const [serviceOptions, setServiceOptions] = useState<ServiceFilterOption[]>([]);
+  const [clientOptions, setClientOptions] = useState<string[]>([]);
+  const [downloadFilters, setDownloadFiltersState] =
+    useState<DownloadFilters>(UNFILTERED_DOWNLOADS);
+  // A filter fetch asks for no skeleton, so `loading` stays false through it and the narrowed
+  // figures on screen read as current while they still belong to the previous selection. Counted
+  // rather than flagged: a second dropdown change starts its request before the first one settles,
+  // and the first settling must not report the second answered.
+  const [downloadFilterFetches, setDownloadFilterFetches] = useState(0);
   const [gameDetectionData, setGameDetectionData] = useState<CachedDetectionResponse | null>(null);
   const [gameDetectionLookup, setGameDetectionLookup] = useState<Map<
     number,
@@ -125,6 +148,15 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // they bypass the live-only gate but still coalesce bursts into one fetch.
   const forcedRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Compared by value before it is stored: the refetch effect below keys on the object's identity,
+  // so a caller re-sending the selection it already has would otherwise mint a new object and cost
+  // a full batch fan-out for a selection that did not move.
+  const setDownloadFilters = useCallback((filters: DownloadFilters) => {
+    setDownloadFiltersState((prev) =>
+      prev.service === filters.service && prev.client === filters.client ? prev : filters
+    );
+  }, []);
+
   const applyDetectionFromBatch = useCallback((detection: CachedDetectionResponse) => {
     setGameDetectionData(detection);
     const { byAppId, byName, byService } = buildDetectionLookupMaps(detection);
@@ -145,6 +177,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     setServiceStats(slices.serviceStats);
     setDashboardStats(slices.dashboardStats);
     setLatestDownloads(slices.latestDownloads);
+    setDownloadTotals(slices.downloadTotals);
+    setFilteredDownloadTotals(slices.filteredDownloadTotals);
+    setServiceOptions(slices.serviceOptions);
+    setClientOptions(slices.clientOptions);
     setSparklines(slices.sparklines);
     setHourlyActivity(slices.hourlyActivity);
     setCacheSnapshot(slices.cacheSnapshot);
@@ -165,12 +201,17 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const setTimeRangeRef = useRef(setTimeRange);
   const authLoadingRef = useRef(authLoading);
   const hasAccessRef = useRef(hasAccess);
+  const downloadFiltersRef = useRef<DownloadFilters>(downloadFilters);
   const slicesRef = useRef<DashboardSlices>({
     cacheInfo,
     clientStats,
     serviceStats,
     dashboardStats,
     latestDownloads,
+    downloadTotals,
+    filteredDownloadTotals,
+    serviceOptions,
+    clientOptions,
     sparklines,
     hourlyActivity,
     cacheSnapshot
@@ -185,12 +226,17 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   setTimeRangeRef.current = setTimeRange;
   authLoadingRef.current = authLoading;
   hasAccessRef.current = hasAccess;
+  downloadFiltersRef.current = downloadFilters;
   slicesRef.current = {
     cacheInfo,
     clientStats,
     serviceStats,
     dashboardStats,
     latestDownloads,
+    downloadTotals,
+    filteredDownloadTotals,
+    serviceOptions,
+    clientOptions,
     sparklines,
     hourlyActivity,
     cacheSnapshot
@@ -257,7 +303,14 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       const { startTime, endTime } = getTimeRangeParamsRef.current();
       const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
       const eventId = eventIds && eventIds.length > 0 ? eventIds[0] : undefined;
-      const rangeKey = buildRangeKey(startTime, endTime, eventId);
+      const downloadFilter = downloadFiltersRef.current;
+      const rangeKey = buildRangeKey(
+        startTime,
+        endTime,
+        eventId,
+        downloadFilter.service,
+        downloadFilter.client
+      );
       // A range change writes no slice here: clearing the snapshot at fetch start repainted the
       // used-space card for the length of the request and then put it back. The range check in the
       // apply below is what keeps one window's snapshot off another window's label.
@@ -287,7 +340,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           signal,
           startTime,
           endTime,
-          eventId
+          eventId,
+          undefined,
+          downloadFilter.service,
+          downloadFilter.client
         );
 
         // CRITICAL: Check if we're still the current request before modifying ANY state
@@ -484,6 +540,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           setServiceStats([]);
           setClientStats([]);
           setLatestDownloads([]);
+          setDownloadTotals(null);
+          setFilteredDownloadTotals(null);
+          setServiceOptions([]);
+          setClientOptions([]);
         }
       }
 
@@ -610,9 +670,28 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       setServiceStats(mockData.serviceStats);
       setDashboardStats(mockData.dashboardStats);
       setLatestDownloads(mockData.latestDownloads);
+      // Derived from the same rows the real sections are aggregated from, so demo mode keeps
+      // showing figures rather than the zeros an absent section would render as.
+      const mockTotals = {
+        cacheHitBytes: mockData.latestDownloads.reduce((sum, d) => sum + d.cacheHitBytes, 0),
+        cacheMissBytes: mockData.latestDownloads.reduce((sum, d) => sum + d.cacheMissBytes, 0),
+        count: mockData.latestDownloads.length
+      };
+      setDownloadTotals(mockTotals);
+      // Demo mode carries no dropdown selection, so the narrowed totals are the plain ones.
+      setFilteredDownloadTotals(mockTotals);
+      setServiceOptions(
+        Array.from(new Set(mockData.latestDownloads.map((d) => d.service))).map((service) => ({
+          service,
+          hasLargeFiles: mockData.latestDownloads.some(
+            (d) => d.service === service && d.totalBytes > 1024 * 1024
+          )
+        }))
+      );
+      setClientOptions(Array.from(new Set(mockData.latestDownloads.map((d) => d.clientIp))));
       setHourlyActivity(MockDataService.generateMockHourlyActivity());
+      setCacheSnapshot(MockDataService.generateMockCacheSnapshot());
       // Mock mode replaces every slice, so a real section failure must not report over mock data.
-      setCacheSnapshot(null);
       setFailedSectionKeys([]);
       setGameDetectionData(mockDetection);
       setGameDetectionLookup(byAppId);
@@ -691,6 +770,24 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     }
   }, [timeRange, mockMode, hasAccess, fetchAllData]);
 
+  // Download filter changes - the totals and the recent slice are computed under them server-side,
+  // so a new selection needs a new response. Forced for the same reason a range change is: the
+  // 250ms debounce and the in-progress guard would otherwise drop it.
+  const prevDownloadFiltersRef = useRef(downloadFilters);
+  useEffect(() => {
+    if (!mockMode && hasAccess && prevDownloadFiltersRef.current !== downloadFilters) {
+      prevDownloadFiltersRef.current = downloadFilters;
+      // Counted around the whole call, so a request that fails, times out or is aborted by the next
+      // dropdown change still gives its count back and the panel cannot be left waiting forever.
+      setDownloadFilterFetches((pending) => pending + 1);
+      fetchAllData({
+        showLoading: false,
+        forceRefresh: true,
+        trigger: 'downloadFilterChange'
+      }).finally(() => setDownloadFilterFetches((pending) => pending - 1));
+    }
+  }, [downloadFilters, mockMode, hasAccess, fetchAllData]);
+
   // Event filter changes - refetch when event filter is changed
   useEffect(() => {
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
@@ -706,11 +803,11 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   }, [selectedEventIds, mockMode, hasAccess, fetchAllData]);
 
   // The server groups the hourly buckets on the clock the request names and the marker is read
-  // from that same clock, so a zone change has to move both. [54]
+  // from that same clock, so a zone change has to move both.
   //
   // Subscribed to, not read from: without this hook React never re-runs the body and the
   // comparison below waits for an unrelated render. Not destructured either, because the request
-  // at api.service.ts:378 reads the preference itself and a second reader here would drift. [62]
+  // at api.service.ts:378 reads the preference itself and a second reader here would drift.
   useTimezone();
   const readerZone = getEffectiveTimezone();
   const prevReaderZoneRef = useRef(readerZone);
@@ -774,7 +871,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       clientStats?: (prev: ClientStat[]) => ClientStat[];
       serviceStats?: (prev: ServiceStat[]) => ServiceStat[];
       dashboardStats?: (prev: DashboardStats | null) => DashboardStats | null;
-      latestDownloads?: (prev: Download[]) => Download[];
     }) => {
       // React 18+ auto-batches setState calls in event handlers; no transition needed.
       if (updater.cacheInfo) {
@@ -789,9 +885,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       if (updater.dashboardStats) {
         setDashboardStats(updater.dashboardStats);
       }
-      if (updater.latestDownloads) {
-        setLatestDownloads(updater.latestDownloads);
-      }
     },
     []
   );
@@ -804,6 +897,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       serviceStats,
       dashboardStats,
       latestDownloads,
+      downloadTotals,
+      filteredDownloadTotals,
+      serviceOptions,
+      clientOptions,
       gameDetectionData,
       gameDetectionLookup,
       gameDetectionByName,
@@ -818,7 +915,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       dataStale,
       failedSectionKeys,
       refreshData,
-      updateData
+      updateData,
+      setDownloadFilters
     }),
     [
       cacheInfo,
@@ -826,6 +924,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       serviceStats,
       dashboardStats,
       latestDownloads,
+      downloadTotals,
+      filteredDownloadTotals,
+      serviceOptions,
+      clientOptions,
       gameDetectionData,
       gameDetectionLookup,
       gameDetectionByName,
@@ -840,9 +942,16 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       dataStale,
       failedSectionKeys,
       refreshData,
-      updateData
+      updateData,
+      setDownloadFilters
     ]
   );
 
-  return <DashboardDataContext.Provider value={value}>{children}</DashboardDataContext.Provider>;
+  return (
+    <DashboardDataContext.Provider value={value}>
+      <DownloadFilterFetchContext.Provider value={downloadFilterFetches > 0}>
+        {children}
+      </DownloadFilterFetchContext.Provider>
+    </DashboardDataContext.Provider>
+  );
 };

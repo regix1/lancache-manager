@@ -30,7 +30,7 @@ interface IpDownloadGroupProps {
 
 /**
  * Collapsible per-client-IP session list. The card view and the drawer render the
- * same markup, so the evicted treatment reaches both from one place. [25]
+ * same markup, so the evicted treatment reaches both from one place.
  */
 const IpDownloadGroup: React.FC<IpDownloadGroupProps> = ({
   ipGroups,

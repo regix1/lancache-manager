@@ -17,6 +17,7 @@ import ResolutionRibbon from './ResolutionRibbon';
 import ContentPathSummary from './ContentPathSummary';
 import { splitExamples } from './helpers';
 import { formatServiceLabel } from '@utils/serviceDisplayName';
+import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 import type { RibbonSegment, StatusCheckProgressEvent } from './types';
 
 interface VerdictCardProps {
@@ -477,7 +478,9 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
 
       {showMeta && heartbeat && !heartbeat.reachable && cacheNodes.length === 0 && (
         <p className="text-xs text-[var(--theme-warning)] mt-2">
-          {t(`${keys}.heartbeatFailed`, { error: heartbeat.error ?? t(`${keys}.unknownError`) })}
+          {t(`${keys}.heartbeatFailed`, {
+            error: translateStageKeyMessage(heartbeat.error, undefined, `${keys}.unknownError`)
+          })}
         </p>
       )}
 

@@ -68,6 +68,8 @@ public static class SteamLoginResponseMapper
             });
         }
 
-        return new BadRequestObjectResult(ApiResponse.Error(result.Message ?? "Authentication failed"));
+        var failure = ApiResponse.Error(result.Message ?? "Authentication failed");
+        failure.StageKey = result.StageKey;
+        return new BadRequestObjectResult(failure);
     }
 }

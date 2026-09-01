@@ -4,7 +4,7 @@ import i18n from '../../i18n';
 import type { UnifiedNotification } from '@contexts/notifications';
 import { VARIANT_BY_STATUS } from '@utils/statusVariant';
 import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
-import type { CancelKind } from '@contexts/notifications/types';
+import type { CancelKind, NotificationsContextType } from '@contexts/notifications/types';
 import { APP_EVENTS } from '@utils/constants';
 
 // ============================================================================
@@ -57,9 +57,16 @@ const notifyToastError = (i18nKey: string): void => {
   );
 };
 
+/**
+ * Every write below patches `details` from the card as it stands when the write runs, not from the
+ * card captured at click time. The cancel round trip is async and `updateNotification` merges at the
+ * top level, so a value-shaped patch built from the click-time card replaces the whole `details`
+ * object and erases anything the terminal handler wrote while the request was in flight - including
+ * the `cancelled: true` that makes the card read as canceled and draw gray.
+ */
 export const handleCancel = async (
   notification: UnifiedNotification,
-  updateNotification: (id: string, updates: Partial<UnifiedNotification>) => void,
+  updateNotification: NotificationsContextType['updateNotification'],
   removeNotification: (id: string) => void,
   getLiveNotification: (id: string) => UnifiedNotification | undefined
 ) => {
@@ -72,9 +79,9 @@ export const handleCancel = async (
   // cascade effect always observes the flag and cancels the live run - no
   // module-level registry bridge is needed.
   if (cancelKind === 'clientQueue') {
-    updateNotification(notification.id, {
-      details: { ...notification.details, cancelRequested: true, cancelling: true }
-    });
+    updateNotification(notification.id, (current) => ({
+      details: { ...current.details, cancelRequested: true, cancelling: true }
+    }));
     return;
   }
 
@@ -85,9 +92,9 @@ export const handleCancel = async (
 
   // Race case: user clicked X before operationId arrived. Remember intent; watchdog fires cancel when opId lands.
   if (!operationId) {
-    updateNotification(notification.id, {
-      details: { ...notification.details, cancelRequested: true }
-    });
+    updateNotification(notification.id, (current) => ({
+      details: { ...current.details, cancelRequested: true }
+    }));
     return;
   }
 
@@ -102,9 +109,9 @@ export const handleCancel = async (
   };
 
   if (!cancelRequested) {
-    updateNotification(notification.id, {
-      details: { ...notification.details, cancelRequested: true, cancelSent: true }
-    });
+    updateNotification(notification.id, (current) => ({
+      details: { ...current.details, cancelRequested: true, cancelSent: true }
+    }));
 
     try {
       const result = await ApiService.cancelOperation(operationId);
@@ -128,17 +135,17 @@ export const handleCancel = async (
         // running, so tell the user rather than leaving the reset X button as the only signal.
         // This is a module-level helper (no hooks available), so report via the show-toast bridge.
         notifyToastError('common.notifications.cancelOperationFailed');
-        updateNotification(notification.id, {
-          details: { ...notification.details, cancelRequested: false, cancelSent: false }
-        });
+        updateNotification(notification.id, (current) => ({
+          details: { ...current.details, cancelRequested: false, cancelSent: false }
+        }));
       }
     }
     return;
   }
 
-  updateNotification(notification.id, {
-    details: { ...notification.details, cancelSent: true }
-  });
+  updateNotification(notification.id, (current) => ({
+    details: { ...current.details, cancelSent: true }
+  }));
 
   try {
     await ApiService.forceKillOperation(operationId);

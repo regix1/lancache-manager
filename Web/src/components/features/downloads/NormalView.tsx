@@ -7,7 +7,7 @@ import Badge from '@components/ui/Badge';
 import { ChevronDown, ExternalLink } from 'lucide-react';
 import { formatBytes, formatCount, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
-import { getServiceDisplayName } from '@utils/serviceDisplayName';
+import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
 import BadgesRow from './BadgesRow';
 import { DownloadTimestamp } from './DownloadTimestamp';
 import { SteamIcon } from '@components/ui/SteamIcon';
@@ -40,7 +40,6 @@ import type { DownloadAssociations } from '@contexts/DownloadAssociationsContext
 import type { Download, DownloadGroup, EventSummary, GameDetectionSummary } from '../../../types';
 import { useFlatRows } from '@hooks/useFlatRows';
 import type { HeaderRowKind } from './types';
-import { isResolvedGameName } from './liveDownloadPreviews';
 import { cacheHitPercent, toGroup } from './downloadGrouping';
 
 interface NormalViewSectionLabels {
@@ -58,17 +57,20 @@ const getDefaultSectionLabels = (
 });
 
 /**
- * Unique events across every download in a group, in first-seen order. The card,
+ * Unique events across every session in a group, in first-seen order. The card,
  * grid and drawer layouts all badge a group with the same aggregate, so they share
  * this one pass instead of each keeping its own copy.
+ *
+ * Takes the ids rather than the group's `downloads`: a collapsed group carries only its newest
+ * session, so badging from those rows would drop every event tagged on the rest of the group.
  */
 const collectGroupEvents = (
-  downloads: Download[],
+  downloadIds: number[],
   getAssociations: (downloadId: number) => DownloadAssociations
 ): EventSummary[] => {
   const eventsMap = new Map<number, EventSummary>();
-  downloads.forEach((download) => {
-    getAssociations(download.id).events.forEach((event) => {
+  downloadIds.forEach((downloadId) => {
+    getAssociations(downloadId).events.forEach((event) => {
       if (!eventsMap.has(event.id)) {
         eventsMap.set(event.id, { ...event });
       }
@@ -195,14 +197,13 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const isEA = serviceLower === 'origin' || serviceLower === 'ea';
   const isBlizzard =
     serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';
-  const isXbox = serviceLower === 'xbox' || serviceLower === 'xboxlive';
+  const isXbox = getServiceFilterKey(serviceLower) === 'xbox';
   const isOtherService =
     !isSteam && !isWsus && !isRiot && !isEpic && !isEA && !isBlizzard && !isXbox;
   const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
   const epicAppId = primaryDownload?.epicAppId ?? null;
   const primaryName = primaryDownload?.gameName ?? '';
-  const isEvicted = group.downloads.every((d: Download) => d.isEvicted);
-  const isPartiallyEvicted = !isEvicted && group.downloads.some((d: Download) => d.isEvicted);
+  const { isEvicted, isPartiallyEvicted } = group;
   const detection = resolveGameDetection(
     primaryDownload?.gameAppId,
     primaryDownload?.gameName,
@@ -233,9 +234,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const placeholderIconSize = 64;
   // Render the name for resolved games and for the Unknown/Other bucket, whose
   // members have no real game name so the sentinel service drives it.
-  const hasRealGameName =
-    serviceLower === 'unknown' ||
-    group.downloads.some((d: Download) => isResolvedGameName(d.gameName, d.service));
+  const hasRealGameName = serviceLower === 'unknown' || group.hasRealGameName;
 
   React.useEffect(() => {
     if (!enableScrollIntoView) return;
@@ -260,11 +259,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
   // Fetch associations when group is rendered (not just when expanded)
   // This allows us to show event badges at the group level
   // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)
-  useGroupDownloadAssociations(group.downloads, fetchAssociations, refreshVersion);
+  useGroupDownloadAssociations(group.downloadIds, fetchAssociations, refreshVersion);
 
   const groupEvents = React.useMemo(
-    () => collectGroupEvents(group.downloads, getAssociations),
-    [group.downloads, getAssociations]
+    () => collectGroupEvents(group.downloadIds, getAssociations),
+    [group.downloadIds, getAssociations]
   );
 
   let bannerContent: React.ReactNode | null = null;
@@ -692,7 +691,7 @@ const GridCard: React.FC<GridCardProps> = ({
   const isEA = serviceLower === 'origin' || serviceLower === 'ea';
   const isBlizzard =
     serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';
-  const isXbox = serviceLower === 'xbox' || serviceLower === 'xboxlive';
+  const isXbox = getServiceFilterKey(serviceLower) === 'xbox';
   const isOtherService =
     !isSteam && !isWsus && !isRiot && !isEpic && !isEA && !isBlizzard && !isXbox;
   const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
@@ -710,15 +709,14 @@ const GridCard: React.FC<GridCardProps> = ({
         ? `${nameKeyed!.service}-${nameKeyed!.slug}`
         : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
-  const isEvicted = group.downloads.every((d: Download) => d.isEvicted);
-  const isPartiallyEvicted = !isEvicted && group.downloads.some((d: Download) => d.isEvicted);
+  const { isEvicted, isPartiallyEvicted } = group;
   const placeholderIconSize = 48;
 
-  useGroupDownloadAssociations(group.downloads, fetchAssociations, refreshVersion);
+  useGroupDownloadAssociations(group.downloadIds, fetchAssociations, refreshVersion);
 
   const groupEvents = React.useMemo(
-    () => collectGroupEvents(group.downloads, getAssociations),
-    [group.downloads, getAssociations]
+    () => collectGroupEvents(group.downloadIds, getAssociations),
+    [group.downloadIds, getAssociations]
   );
 
   // Build banner content for the card
@@ -915,7 +913,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   const isEA = serviceLower === 'origin' || serviceLower === 'ea';
   const isBlizzard =
     serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';
-  const isXbox = serviceLower === 'xbox' || serviceLower === 'xboxlive';
+  const isXbox = getServiceFilterKey(serviceLower) === 'xbox';
   const isOtherService =
     !isSteam && !isWsus && !isRiot && !isEpic && !isEA && !isBlizzard && !isXbox;
   const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
@@ -946,11 +944,11 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
     : null;
 
-  useGroupDownloadAssociations(group.downloads, fetchAssociations, refreshVersion);
+  useGroupDownloadAssociations(group.downloadIds, fetchAssociations, refreshVersion);
 
   const groupEvents = React.useMemo(
-    () => collectGroupEvents(group.downloads, getAssociations),
-    [group.downloads, getAssociations]
+    () => collectGroupEvents(group.downloadIds, getAssociations),
+    [group.downloadIds, getAssociations]
   );
 
   // Build banner for drawer header
@@ -1244,7 +1242,7 @@ const NormalView: React.FC<NormalViewProps> = ({
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
   const { imageErrors, handleImageError } = useImageErrors();
   const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
-  const [drawerItem, setDrawerItem] = useState<DownloadGroup | null>(null);
+  const [drawerGroupId, setDrawerGroupId] = useState<string | null>(null);
   const { startHoldTimer, stopHoldTimer } = useHoldTimer();
   const availableImages = useAvailableGameImages();
 
@@ -1271,12 +1269,40 @@ const NormalView: React.FC<NormalViewProps> = ({
     measureElement: (el) => el?.getBoundingClientRect().height ?? 240
   });
 
+  // Which rows are on screen, as a value that only changes when the rows do. Opening a group
+  // refetches its sessions and rebuilds `items`, so `flatRows` is a new array holding the same
+  // rows; resetting on the array itself sent the reader back to the top on every click. The card
+  // grid chunks the same items, so this identifies its row set too.
+  const rowSetKey = useMemo(() => flatRows.map((row) => row.id).join('\n'), [flatRows]);
+
   // Reset virtualized scroll to top when filters/sort change the row set, preventing a stale offset.
   useEffect(() => {
     if (virtualParentRef.current) {
       virtualParentRef.current.scrollTop = 0;
     }
-  }, [flatRows]);
+  }, [rowSetKey]);
+
+  // The card grid's drawer reads its group back out of the page rows every time they change rather
+  // than snapshotting it at click time, so the sessions fetched after the click reach the drawer
+  // while it is open. Recomputed only when the rows or the open group change: with a drawer open
+  // over an unpaged list this otherwise ran on every scroll frame.
+  const drawerItem = useMemo<DownloadGroup | null>(() => {
+    if (drawerGroupId === null) {
+      return null;
+    }
+    const row = items.find((item) => toGroup(item).id === drawerGroupId);
+    return row ? toGroup(row) : null;
+  }, [items, drawerGroupId]);
+
+  // A live refetch re-orders the page and can push the open group off it. The drawer is opened by
+  // the lookup above, so it would vanish without Mantine ever running `onClose`, leaving the id set
+  // and letting the next refetch that returns the group re-open the drawer on its own. Closing it
+  // here gives it one close path.
+  useEffect(() => {
+    if (drawerGroupId !== null && drawerItem === null) {
+      setDrawerGroupId(null);
+    }
+  }, [drawerGroupId, drawerItem]);
 
   // Card-grid virtualization: chunk flat `items` into rows of `gridCols` cards
   // and virtualize the resulting row list. Column count is measured from the
@@ -1346,7 +1372,7 @@ const NormalView: React.FC<NormalViewProps> = ({
     if (gridParentRef.current) {
       gridParentRef.current.scrollTop = 0;
     }
-  }, [gridRowGroups]);
+  }, [rowSetKey]);
 
   const renderSectionHeader = (variant: HeaderRowKind): React.ReactNode => {
     if (variant === 'multiple') {
@@ -1429,12 +1455,12 @@ const NormalView: React.FC<NormalViewProps> = ({
           ? 'card-grid-container card-size-large'
           : 'card-grid-container';
 
+    // A row carries only its newest session until DownloadsTab is told which group is open, so the
+    // click has to both open the drawer and ask for the rest.
     const handleGridCardClick = (groupId: string) => {
-      const group = items
-        .map((item: Download | DownloadGroup) => toGroup(item))
-        .find((g: DownloadGroup) => g.id === groupId);
-      if (group) {
-        setDrawerItem(group);
+      setDrawerGroupId(groupId);
+      if (expandedItem !== groupId) {
+        onItemClick(groupId);
       }
     };
 
@@ -1469,7 +1495,12 @@ const NormalView: React.FC<NormalViewProps> = ({
     const drawerNode = (
       <Drawer
         opened={drawerItem !== null}
-        onClose={() => setDrawerItem(null)}
+        onClose={() => {
+          if (expandedItem !== null && expandedItem === drawerGroupId) {
+            onItemClick(expandedItem);
+          }
+          setDrawerGroupId(null);
+        }}
         position="right"
         title={drawerItem?.name ?? ''}
         classNames={{

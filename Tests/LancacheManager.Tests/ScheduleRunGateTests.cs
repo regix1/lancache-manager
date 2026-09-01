@@ -333,7 +333,7 @@ public class ScheduleRunGateTests
         // The loop takes the pending Run Now flag before it asks the gate, so a click that is refused
         // at that point is already spent. It must not go quiet just because this schedule announced a
         // skip earlier in the same download, or the person is left with a response that said the run
-        // started and nothing after it. [57]
+        // started and nothing after it.
         using var service = new RunGateProbeService(EvictionKey);
         var announcements = new List<ScheduledRunCompleteEvent>();
         var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
@@ -387,9 +387,9 @@ public class ScheduleRunGateTests
     [Fact]
     public async Task DownloadsEndingReArmsTheAnnouncement_WithoutWaitingForAScheduleToPollAsync()
     {
-        // The gap finding 58 described: a skip is announced, downloads stop, another download starts,
+        // The gap this covers: a skip is announced, downloads stop, another download starts,
         // and no schedule asked the gate in between. The tracker sees that edge itself, so the
-        // announcement re-arms without anyone polling. [58]
+        // announcement re-arms without anyone polling.
         using var service = new RunGateProbeService(EvictionKey);
         var announcements = new List<ScheduledRunCompleteEvent>();
         var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
@@ -553,7 +553,7 @@ public class ScheduleRunGateTests
         Assert.Equal(DownloadReason, status.Message);
 
         // The waiting card must be told the run was declined, not that something took it over.
-        // Promoted removes the card without reading the reason, so the two cannot both be true. [61]
+        // Promoted removes the card without reading the reason, so the two cannot both be true.
         Assert.NotNull(waitingComplete);
         Assert.True(waitingComplete!.Skipped);
         Assert.False(waitingComplete.Promoted);
@@ -565,11 +565,11 @@ public class ScheduleRunGateTests
     {
         // Nothing is queued ahead of it, so the start delegate runs inline. A refusal there has to
         // come back out: the HTTP caller is waiting on it and its 400 with the reason is the answer,
-        // and swallowing it here would take that away. [72]
+        // and swallowing it here would take that away.
         //
         // It must ALSO stay quiet by default. The caller renders the exception, so announcing as
         // well puts two notices on screen for one click, the second of them describing the
-        // scheduled run rather than what was clicked. [78]
+        // scheduled run rather than what was clicked.
         var announcements = new List<string>();
         var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
         {
@@ -633,7 +633,7 @@ public class ScheduleRunGateTests
     {
         // The queue has no idea which card a schedule owns and is not given one. It reports the
         // refusal on the tracker, and the registry, already subscribed to that terminal hook, turns
-        // it into the same card a refused scheduled run produces. [72]
+        // it into the same card a refused scheduled run produces.
         var announced = new TaskCompletionSource<ScheduledRunCompleteEvent>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
@@ -701,7 +701,7 @@ public class ScheduleRunGateTests
     {
         // A write-permission re-check on a wrong PUID or PGID, and a datasource that cannot map
         // logical objects, both throw the base ValidationException at promotion. Reporting those as
-        // skips would leave a misconfigured install doing nothing and saying nothing. [63]
+        // skips would leave a misconfigured install doing nothing and saying nothing.
         var (status, waitingComplete) =
             await PromoteWithStartFailureAsync(new ValidationException("Cannot write to the cache directory"));
 

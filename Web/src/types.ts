@@ -96,6 +96,8 @@ export interface Download {
   isActive: boolean;
   gameName?: string;
   gameAppId?: number;
+  /** Banner art for the game, when one was resolved for it. */
+  gameImageUrl?: string;
   depotId?: number;
   epicAppId?: string;
   displayName?: string;
@@ -109,12 +111,36 @@ export interface Download {
   isEvicted: boolean;
 }
 
+/**
+ * Byte and row totals over a set of downloads. The shape is carried twice by the batch response,
+ * once over everything the visibility rules allow and once narrowed by the service and client
+ * filters, so which set it describes is a property of the field, not of this type.
+ */
+export interface DownloadTotals {
+  cacheHitBytes: number;
+  cacheMissBytes: number;
+  count: number;
+}
+
+/**
+ * One entry of the service filter dropdown. The name is the raw one the log parser wrote, so the
+ * aliases are folded here rather than on the server.
+ */
+export interface ServiceFilterOption {
+  service: string;
+  /** False for a service that only ever cached files under a megabyte. */
+  hasLargeFiles: boolean;
+}
+
 export interface DownloadGroup {
   id: string;
   name: string;
   type: 'game' | 'metadata' | 'content';
   service: string;
   downloads: Download[];
+  /** Every session in the group, by id. `downloads` holds only the newest one while the group is
+   *  collapsed, so anything that has to reach the whole membership reads this instead. */
+  downloadIds: number[];
   totalBytes: number; // Total bytes downloaded across all sessions
   totalDownloaded: number; // Total bytes downloaded across all sessions (same as totalBytes)
   cacheHitBytes: number;
@@ -124,6 +150,12 @@ export interface DownloadGroup {
   firstSeen: string;
   lastSeen: string;
   count: number;
+  /** Every member is evicted. Answered over the full membership when the group is built. */
+  isEvicted: boolean;
+  /** Some members are evicted and some are not. */
+  isPartiallyEvicted: boolean;
+  /** At least one member carries a resolved game name rather than a service fallback. */
+  hasRealGameName: boolean;
 }
 
 export interface ClientStat {

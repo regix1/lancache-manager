@@ -29,6 +29,7 @@ public class ProcessManager : IHostedService, IDisposable
 
         var killTasks = _activeProcesses.Values.Select(process => Task.Run(async () =>
         {
+            var processId = ReadProcessId(process);
             try
             {
                 KillProcessTree(process, "application shutdown", log: false);
@@ -36,7 +37,7 @@ public class ProcessManager : IHostedService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error terminating process {ProcessId}", process.Id);
+                _logger.LogWarning(ex, "Error terminating process {ProcessId}", processId);
             }
         }));
 
@@ -52,16 +53,73 @@ public class ProcessManager : IHostedService, IDisposable
     /// <summary>
     /// Removes a process from shutdown tracking once it has exited.
     /// </summary>
-    public void Untrack(Process process) => _activeProcesses.TryRemove(process.Id, out _);
+    /// <remarks>
+    /// The id is read defensively because <see cref="Dispose"/> disposes every tracked process
+    /// without untracking it, so a run still unwinding at shutdown reaches here holding a process
+    /// whose handle is already gone.
+    /// </remarks>
+    public void Untrack(Process process)
+    {
+        var processId = ReadProcessId(process);
+        if (processId.HasValue)
+        {
+            _activeProcesses.TryRemove(processId.Value, out _);
+        }
+    }
+
+    /// <summary>
+    /// Reads the process id, or null once the handle is gone.
+    /// </summary>
+    /// <remarks>
+    /// A disposed <see cref="Process"/> throws <see cref="InvalidOperationException"/> from every
+    /// member, <see cref="Process.Id"/> included, so a catch handler that reads the id to report the
+    /// first failure throws a second exception that escapes the method meant to contain it. Callers
+    /// read the id up front and log the local.
+    /// </remarks>
+    private static int? ReadProcessId(Process process)
+    {
+        try
+        {
+            return process.Id;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// True while the process is still running.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Process.HasExited"/> throws on a disposed process, so it cannot guard against the
+    /// state it throws in. A handle that can no longer be read means the process is no longer ours
+    /// to wait on or kill, which is what every caller here does with an exited one.
+    /// </remarks>
+    private static bool IsRunning(Process process)
+    {
+        try
+        {
+            return !process.HasExited;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Kills a process and its child processes. Safe to call when already exited or handle is stale.
     /// </summary>
     public bool KillProcessTree(Process process, string reason, bool log = true)
     {
+        // The kill races the run's own thread disposing the process, so the id is read while the
+        // handle is still readable and every catch below reports the local instead of the process.
+        var processId = ReadProcessId(process);
+
         try
         {
-            if (process.HasExited)
+            if (!IsRunning(process))
             {
                 return false;
             }
@@ -71,7 +129,7 @@ public class ProcessManager : IHostedService, IDisposable
                 _logger.LogWarning(
                     "Killing process tree {ProcessName} (PID: {ProcessId}): {Reason}",
                     process.ProcessName,
-                    process.Id,
+                    processId,
                     reason);
             }
 
@@ -85,12 +143,12 @@ public class ProcessManager : IHostedService, IDisposable
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogDebug(ex, "Process handle invalid while killing PID {ProcessId}", process.Id);
+            _logger.LogDebug(ex, "Process handle invalid while killing PID {ProcessId}", processId);
             return false;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to kill process tree PID {ProcessId}", process.Id);
+            _logger.LogWarning(ex, "Failed to kill process tree PID {ProcessId}", processId);
             return false;
         }
     }
@@ -106,7 +164,8 @@ public class ProcessManager : IHostedService, IDisposable
     /// </summary>
     public async Task WaitAfterKillAsync(Process process, TimeSpan timeout)
     {
-        if (process.HasExited)
+        var processId = ReadProcessId(process);
+        if (!IsRunning(process))
         {
             return;
         }
@@ -114,12 +173,18 @@ public class ProcessManager : IHostedService, IDisposable
         try
         {
             await process.WaitForExitAsync(CancellationToken.None).WaitAsync(timeout);
-            _logger.LogInformation("Process {ProcessId} terminated successfully", process.Id);
+            _logger.LogInformation("Process {ProcessId} terminated successfully", processId);
         }
         catch (TimeoutException)
         {
             _logger.LogWarning("Process {ProcessId} did not exit within {Seconds}s after kill signal",
-                process.Id, timeout.TotalSeconds);
+                processId, timeout.TotalSeconds);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // The Process object lost its child between the running check above and the wait, so
+            // there is nothing left to wait on and the caller's intent is already satisfied.
+            _logger.LogDebug(ex, "Process {ProcessId} was already released before its exit could be awaited", processId);
         }
     }
 
@@ -130,7 +195,8 @@ public class ProcessManager : IHostedService, IDisposable
     /// </summary>
     public async Task<bool> GracefulCancelAsync(Process process, TimeSpan gracePeriod, string reason)
     {
-        if (process.HasExited)
+        var processId = ReadProcessId(process);
+        if (!IsRunning(process))
         {
             return true;
         }
@@ -146,25 +212,32 @@ public class ProcessManager : IHostedService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "GracefulCancel: failed writing CANCEL to PID {ProcessId}", process.Id);
+            _logger.LogDebug(ex, "GracefulCancel: failed writing CANCEL to PID {ProcessId}", processId);
         }
 
         try
         {
             await process.WaitForExitAsync(CancellationToken.None).WaitAsync(gracePeriod);
-            _logger.LogInformation("Process {ProcessId} exited gracefully after CANCEL ({Reason})", process.Id, reason);
+            _logger.LogInformation("Process {ProcessId} exited gracefully after CANCEL ({Reason})", processId, reason);
             return true;
         }
         catch (TimeoutException)
         {
             _logger.LogWarning(
                 "Process {ProcessId} did not honor CANCEL within {Seconds}s — escalating to kill ({Reason})",
-                process.Id,
+                processId,
                 gracePeriod.TotalSeconds,
                 reason);
             KillProcessTree(process, reason);
             await WaitAfterKillAsync(process, TimeSpan.FromSeconds(5));
-            return process.HasExited;
+            return !IsRunning(process);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // The Process object lost its child between the running check above and the wait. It
+            // is gone, which is the outcome this method reports.
+            _logger.LogDebug(ex, "Process {ProcessId} was already released during CANCEL ({Reason})", processId, reason);
+            return true;
         }
     }
 

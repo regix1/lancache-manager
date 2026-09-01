@@ -35,7 +35,7 @@ public interface IOperationQueue
     /// two notices on screen for one click. Pass true only from a caller that swallows the
     /// exception, where the announcement is the only thing the reader would ever see. Refusals at
     /// promotion time are unaffected and always reported, because by then nobody is waiting on a
-    /// response. [78]</param>
+    /// response.</param>
     Task<QueuedOperationResponse> EnqueueAsync(
         OperationType type,
         ConflictScope scope,

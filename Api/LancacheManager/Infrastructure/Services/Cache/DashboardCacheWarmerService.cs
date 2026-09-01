@@ -80,7 +80,7 @@ public class DashboardCacheWarmerService : ScheduledBackgroundService
         var started = DateTime.UtcNow;
         // The reader's zone is part of the batch cache key, so a warm with no zone writes an entry
         // no browser ever asks for. This is the same id /api/system/config reports, which is what a
-        // reader on the default server clock sends back. [70]
+        // reader on the default server clock sends back.
         var serverZone = ServerTimeZone.IanaId(_configuration);
         var response = await _batchService.GetBatchAsync(null, null, null, serverZone, includeClientHostnames: true, reporter.Token);
         if (DashboardBatchService.HasFailedSection(response))

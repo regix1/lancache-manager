@@ -30,13 +30,21 @@ export function translateRecoveryStage(
   return fallback;
 }
 
-/** Translate a backend stage key, or pass through plain-text status messages. */
+/**
+ * Translate a backend stage key, or pass through plain-text status messages.
+ *
+ * `signalr.` names a progress stage and `errors.` names a refusal; both are keys the API sends for
+ * the browser to render, and both reach this function because an operation's status message carries
+ * whichever one the producer had. Anything else is a sentence the backend composed at runtime, such
+ * as a count or a path it filled in itself. There is no key to look up for those, so passing them
+ * through is the only thing left to do, and it is what the reader gets today.
+ */
 export function translateStageKeyMessage(
   stageKeyOrMessage: string | undefined | null,
   context?: StageInterpolation,
   fallbackKey?: string
 ): string {
-  if (stageKeyOrMessage?.startsWith('signalr.')) {
+  if (stageKeyOrMessage?.startsWith('signalr.') || stageKeyOrMessage?.startsWith('errors.')) {
     return i18n.t(stageKeyOrMessage, context ?? {});
   }
 

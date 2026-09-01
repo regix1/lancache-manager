@@ -354,7 +354,7 @@
 
    Each selector is doubled so one class out-ranks the base colour of whatever cell it lands in
    (`.clients-cell` and `.dash-readout-value` both set one) without depending on which stylesheet
-   the bundler happens to emit first. [18] */
+   the bundler happens to emit first. */
 .hit-tier-success.hit-tier-success {
   color: var(--theme-success-text);
 }

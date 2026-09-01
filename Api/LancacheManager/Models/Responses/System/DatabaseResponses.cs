@@ -85,6 +85,11 @@ public class DataImportStatusResponse
 public class MigrationImportResponse
 {
     public string Message { get; set; } = string.Empty;
+
+    /// <summary>i18n key for the localized headline, interpolated by the browser from the counts
+    /// below. The English <see cref="Message"/> stays as the fallback.</summary>
+    public string? StageKey { get; set; }
+
     public ulong TotalRecords { get; set; }
     public ulong Imported { get; set; }
     public ulong Skipped { get; set; }
@@ -98,6 +103,10 @@ public class ConnectionValidationResponse
 {
     public bool Valid { get; set; }
     public string Message { get; set; } = string.Empty;
+
+    /// <summary>i18n key for the localized <see cref="Message"/>. Null on the failure branch, whose
+    /// text is the database driver's own and cannot be keyed.</summary>
+    public string? StageKey { get; set; }
 
     /// <summary>Row count read from the source database's Downloads table. Null when <see cref="Valid"/> is false.</summary>
     public int? RecordCount { get; set; }

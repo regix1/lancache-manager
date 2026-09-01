@@ -1,4 +1,10 @@
 import { SERVICES } from '../utils/constants';
+import { getServiceFilterKey } from '../utils/serviceDisplayName';
+import type {
+  RetroDownloadDto,
+  RetroDownloadQueryParams,
+  RetroDownloadResponse
+} from '../services/api.service';
 import type {
   Download,
   CacheInfo,
@@ -11,7 +17,12 @@ import type {
   ServiceDetectionSummary,
   Event,
   EventCompareResponse,
-  SparklineDataResponse
+  SparklineDataResponse,
+  CacheSnapshotResponse,
+  ClientGroup,
+  DownloadSpeedSnapshot,
+  GameSpeedInfo,
+  ClientSpeedInfo
 } from '../types';
 import type { CachedDetectionResponse } from '../contexts/DashboardDataContext/types';
 
@@ -283,6 +294,463 @@ const MOCK_CLIENT_GROUPS: MockClientGroup[] = [
     separateMemberRows: true
   }
 ];
+
+/** The label the server gives unmapped Steam content, and the only name the hide-unknown and
+ *  group-unknown controls act on. */
+const MOCK_RETRO_UNKNOWN_NAME = 'Unknown/Other';
+
+/** What one mock retro row downloads. */
+interface MockRetroSource {
+  service: string;
+  appName: string;
+  steamAppId: number | null;
+  epicAppId: string | null;
+  sizeBytes: number;
+}
+
+/**
+ * The content the mock retro rows are built from. It deliberately carries every shape the retro
+ * controls act on: named Steam titles, unmapped Steam content under the Unknown/Other label, one
+ * title logged under two services so merging across services has something to merge, the
+ * xbox/xboxlive alias pair that folds into one service while wsus keeps its own, and the
+ * service-only rows that carry no title at all.
+ */
+const MOCK_RETRO_SOURCES: MockRetroSource[] = [
+  ...STEAM_GAMES.slice(0, 16).map((game) => ({
+    service: 'steam',
+    appName: game.name,
+    steamAppId: parseInt(game.appId, 10),
+    epicAppId: null,
+    sizeBytes: game.size
+  })),
+  {
+    service: 'steam',
+    appName: MOCK_RETRO_UNKNOWN_NAME,
+    steamAppId: null,
+    epicAppId: null,
+    sizeBytes: 3 * GIGABYTE
+  },
+  {
+    service: 'steam',
+    appName: MOCK_RETRO_UNKNOWN_NAME,
+    steamAppId: null,
+    epicAppId: null,
+    sizeBytes: 12 * GIGABYTE
+  },
+  {
+    service: 'epicgames',
+    appName: 'Fortnite',
+    steamAppId: null,
+    epicAppId: 'fortnite',
+    sizeBytes: 30 * GIGABYTE
+  },
+  {
+    service: 'epicgames',
+    appName: 'Rocket League',
+    steamAppId: null,
+    epicAppId: 'rocket-league',
+    sizeBytes: 20 * GIGABYTE
+  },
+  {
+    service: 'blizzard',
+    appName: 'Rocket League',
+    steamAppId: null,
+    epicAppId: null,
+    sizeBytes: 20 * GIGABYTE
+  },
+  {
+    service: 'blizzard',
+    appName: 'blizzard',
+    steamAppId: null,
+    epicAppId: null,
+    sizeBytes: 40 * GIGABYTE
+  },
+  { service: 'wsus', appName: 'wsus', steamAppId: null, epicAppId: null, sizeBytes: 6 * GIGABYTE },
+  { service: 'xbox', appName: 'xbox', steamAppId: null, epicAppId: null, sizeBytes: 18 * GIGABYTE },
+  {
+    service: 'xboxlive',
+    appName: 'xboxlive',
+    steamAppId: null,
+    epicAppId: null,
+    sizeBytes: 9 * GIGABYTE
+  },
+  { service: 'riot', appName: 'riot', steamAppId: null, epicAppId: null, sizeBytes: 15 * GIGABYTE },
+  {
+    service: 'origin',
+    appName: 'origin',
+    steamAppId: null,
+    epicAppId: null,
+    sizeBytes: 22 * GIGABYTE
+  }
+];
+
+/** Localhost joins the rotation so the hide-localhost control has rows to remove. */
+const MOCK_RETRO_CLIENTS = [...CLIENT_IPS, '127.0.0.1'];
+
+/** A generated retro row, plus the two facts the query filters on that the wire shape omits. */
+interface MockRetroRow extends RetroDownloadDto {
+  isActive: boolean;
+  eventIds: number[];
+}
+
+/** What a merged bucket stands for, which decides its name, its service and whether it can carry
+ *  a depot and an app id. Mirrors the endpoint's own three kinds. */
+type MockRetroBucketKind = 'game' | 'service' | 'unknown';
+
+/** The server's test for a resolved title: not blank, not the Unknown/Other label, not just the
+ *  service name repeated. */
+function isRealMockGameName(appName: string, service: string): boolean {
+  return (
+    appName.trim().length > 0 &&
+    appName !== MOCK_RETRO_UNKNOWN_NAME &&
+    appName.toLowerCase() !== service.toLowerCase()
+  );
+}
+
+/**
+ * The rows behind mock mode's retro page, one per depot-and-client group, which is the level the
+ * endpoint aggregates to before it filters and merges.
+ */
+function buildMockRetroRows(now: Date): MockRetroRow[] {
+  const eventSpecs = mockEventSpecs(now);
+  const rows: MockRetroRow[] = [];
+  const total = MOCK_RETRO_SOURCES.length * 3;
+
+  for (let index = 0; index < total; index++) {
+    const source = MOCK_RETRO_SOURCES[index % MOCK_RETRO_SOURCES.length];
+    const clientIp = MOCK_RETRO_CLIENTS[index % MOCK_RETRO_CLIENTS.length];
+    // Every seventh row is placed inside an event window, so the event filter and the header's
+    // time filter agree about which rows belong to an event instead of each seeing a different set.
+    const eventSpec =
+      index % 7 === 3 ? eventSpecs[Math.floor(index / 7) % eventSpecs.length] : null;
+    const startTime = eventSpec
+      ? new Date(eventSpec.start.getTime() + ((index % 5) + 1) * 15 * 60 * 1000)
+      : new Date(now.getTime() - Math.pow(index / total, 2) * 720 * 60 * 60 * 1000);
+
+    const requestCount = 1 + (index % 4);
+    const isActive = index % 19 === 5;
+    // A completed zero-byte session never reaches this endpoint - the server drops it before the
+    // query runs - so the metadata control only has rows to remove while a running one is listed.
+    const isZeroByte = isActive && index % 38 === 5;
+    const totalBytes = isZeroByte
+      ? 0
+      : index % 23 === 7
+        ? 512 * 1024
+        : Math.floor(source.sizeBytes * (0.3 + (index % 7) / 10));
+    // Three of every six rows land each side of the 50% line the hit/miss control splits on.
+    const cacheHitBytes = Math.floor(totalBytes * (0.15 + (index % 6) * 0.14));
+    const cacheMissBytes = totalBytes - cacheHitBytes;
+    const durationMs = (2 + (index % 25)) * 60 * 1000;
+    const endTime = new Date(startTime.getTime() + durationMs);
+    const evictedCount =
+      index % 13 === 4 ? requestCount : index % 13 === 9 && requestCount > 1 ? 1 : 0;
+    const depotId = source.steamAppId !== null ? source.steamAppId + 1 : null;
+
+    rows.push({
+      id:
+        depotId !== null
+          ? `depot-${depotId}-${clientIp}`
+          : `no-depot-${source.service}-${clientIp}-${index + 1}`,
+      startTimeUtc: startTime.toISOString(),
+      lastStartTimeUtc: new Date(
+        startTime.getTime() + (requestCount - 1) * 60 * 1000
+      ).toISOString(),
+      endTimeUtc: endTime.toISOString(),
+      depotId,
+      appName: source.appName,
+      steamAppId: source.steamAppId,
+      epicAppId: source.epicAppId,
+      service: source.service,
+      datasource: 'Default',
+      clientIp,
+      averageBytesPerSecond: totalBytes / (durationMs / 1000),
+      cacheHitBytes,
+      cacheMissBytes,
+      cacheHitPercent: totalBytes > 0 ? (cacheHitBytes * 100) / totalBytes : 0,
+      totalBytes,
+      requestCount,
+      downloadIds: Array.from({ length: requestCount }, (_, member) => index * 10 + member + 1),
+      clientIps: [clientIp],
+      depotIds: depotId !== null ? [depotId] : [],
+      isEvicted: evictedCount === requestCount,
+      isPartiallyEvicted: evictedCount > 0 && evictedCount !== requestCount,
+      primaryDownload: null,
+      hasRealGameName: false,
+      groupType: '',
+      isActive,
+      eventIds: eventSpecs
+        .filter((spec) => startTime >= spec.start && startTime <= spec.end)
+        .map((spec) => spec.id)
+    });
+  }
+
+  return rows;
+}
+
+/**
+ * The row-level filters, in the order the endpoint applies them: the ones it pushes into SQL
+ * before grouping, then the ones it runs over the grouped rows.
+ */
+function filterMockRetroRows(
+  rows: MockRetroRow[],
+  params: RetroDownloadQueryParams
+): MockRetroRow[] {
+  const clientIps =
+    params.client && params.client !== 'all'
+      ? params.client
+          .split(',')
+          .map((ip) => ip.trim())
+          .filter((ip) => ip.length > 0)
+      : null;
+  const serviceKey =
+    params.service && params.service !== 'all' ? getServiceFilterKey(params.service) : null;
+  const startMs = params.startTime !== undefined ? params.startTime * 1000 : null;
+  const endMs = params.endTime !== undefined ? params.endTime * 1000 : null;
+  const searchTerm = params.search ? params.search.toLowerCase() : null;
+
+  let filtered = rows.filter((row) => {
+    if (!params.includeActive && row.isActive) return false;
+    // Hiding evicted rows drops the fully evicted ones; a partly evicted row keeps the members
+    // that are still cached, so its badge goes with the members that were dropped.
+    if (params.hideEvicted && row.isEvicted) return false;
+    if (params.hideLocalhost && (row.clientIp === '127.0.0.1' || row.clientIp === '::1'))
+      return false;
+    if (serviceKey !== null && getServiceFilterKey(row.service) !== serviceKey) return false;
+    if (clientIps !== null && !clientIps.includes(row.clientIp)) return false;
+    if (params.showZeroBytes === false && row.totalBytes === 0) return false;
+    if (params.hideSmallFiles && row.totalBytes < 1048576) return false;
+    if (params.eventId !== undefined && !row.eventIds.includes(params.eventId)) return false;
+    if (startMs !== null || endMs !== null) {
+      const startedAt = new Date(row.startTimeUtc).getTime();
+      if (startMs !== null && startedAt < startMs) return false;
+      if (endMs !== null && startedAt > endMs) return false;
+    }
+    return true;
+  });
+
+  if (params.hideEvicted) {
+    filtered = filtered.map((row) =>
+      row.isPartiallyEvicted ? { ...row, isPartiallyEvicted: false } : row
+    );
+  }
+
+  if (searchTerm !== null) {
+    filtered = filtered.filter(
+      (row) =>
+        row.appName.toLowerCase().includes(searchTerm) ||
+        row.service.toLowerCase().includes(searchTerm) ||
+        (row.depotId !== null && String(row.depotId).includes(searchTerm)) ||
+        (row.steamAppId !== null && String(row.steamAppId).includes(searchTerm)) ||
+        row.clientIp.includes(searchTerm)
+    );
+  }
+
+  if (params.hideUnknown) {
+    filtered = filtered.filter((row) => row.appName !== MOCK_RETRO_UNKNOWN_NAME);
+  }
+
+  if (params.hitMiss === 'hit') {
+    filtered = filtered.filter((row) => row.cacheHitPercent >= 50);
+  } else if (params.hitMiss === 'miss') {
+    filtered = filtered.filter((row) => row.cacheHitPercent < 50);
+  }
+
+  return filtered;
+}
+
+/**
+ * The newest download behind a row, which is what a collapsed grouped row draws its session
+ * details from. A row stands for `requestCount` downloads, so one of them carries its share.
+ */
+function mockRetroPrimaryDownload(row: MockRetroRow): Download {
+  const cacheHitBytes = Math.floor(row.cacheHitBytes / row.requestCount);
+  const cacheMissBytes = Math.floor(row.cacheMissBytes / row.requestCount);
+  const totalBytes = cacheHitBytes + cacheMissBytes;
+  return {
+    id: row.downloadIds[row.downloadIds.length - 1],
+    service: row.service,
+    clientIp: row.clientIp,
+    startTimeUtc: row.lastStartTimeUtc,
+    endTimeUtc: row.isActive ? null : row.endTimeUtc,
+    cacheHitBytes,
+    cacheMissBytes,
+    totalBytes,
+    cacheHitPercent: totalBytes > 0 ? (cacheHitBytes * 100) / totalBytes : 0,
+    isActive: row.isActive,
+    gameName: isRealMockGameName(row.appName, row.service) ? row.appName : undefined,
+    gameAppId: row.steamAppId ?? undefined,
+    depotId: row.depotId ?? undefined,
+    epicAppId: row.epicAppId ?? undefined,
+    datasource: row.datasource,
+    averageBytesPerSecond: row.averageBytesPerSecond,
+    isEvicted: row.isEvicted
+  };
+}
+
+/** The merge key and bucket kind one row falls into, following the endpoint's own cascade. */
+function mockRetroMergeKey(
+  row: MockRetroRow,
+  params: RetroDownloadQueryParams
+): { key: string; kind: MockRetroBucketKind } {
+  const normalizedService = getServiceFilterKey(row.service);
+
+  if (params.groupByService) {
+    return { key: normalizedService, kind: 'game' };
+  }
+  if (params.mergeAcrossServices) {
+    if (row.steamAppId) return { key: `game-appid-${row.steamAppId}`, kind: 'game' };
+    if (isRealMockGameName(row.appName, row.service))
+      return { key: `game-${row.appName}`, kind: 'game' };
+    if (params.groupUnknownGames && row.appName === MOCK_RETRO_UNKNOWN_NAME)
+      return { key: 'unknown-other', kind: 'unknown' };
+    return { key: `service-${normalizedService}`, kind: 'service' };
+  }
+  if (row.steamAppId) return { key: `${normalizedService}-app-${row.steamAppId}`, kind: 'game' };
+  if (row.epicAppId) return { key: `${normalizedService}-epic-${row.epicAppId}`, kind: 'game' };
+  if (row.appName !== '' && row.appName !== row.service)
+    return { key: `${normalizedService}-name-${row.appName.toLowerCase()}`, kind: 'game' };
+  return { key: `${normalizedService}-unknown`, kind: 'game' };
+}
+
+/** Folds the filtered rows into the buckets the grouping controls ask for. */
+function mergeMockRetroRows(
+  rows: MockRetroRow[],
+  params: RetroDownloadQueryParams
+): MockRetroRow[] {
+  const buckets = new Map<string, MockRetroRow[]>();
+  const kinds = new Map<string, MockRetroBucketKind>();
+  const order: string[] = [];
+
+  for (const row of rows) {
+    const { key, kind } = mockRetroMergeKey(row, params);
+    const bucket = buckets.get(key);
+    if (bucket) {
+      bucket.push(row);
+      continue;
+    }
+    buckets.set(key, [row]);
+    kinds.set(key, kind);
+    order.push(key);
+  }
+
+  return order.map((key) => {
+    const bucket = buckets.get(key) as MockRetroRow[];
+    const kind = kinds.get(key) as MockRetroBucketKind;
+    const first = bucket[0];
+    const displayService = getServiceFilterKey(first.service);
+    // A game bucket names the service its title was logged under; a service bucket has to show
+    // the folded name or it would be labeled with one alias of the several it holds.
+    const bucketService =
+      params.mergeAcrossServices && kind === 'game' ? first.service : displayService;
+    // A service-level bucket spans many depots and titles, so a member's depot and app id would
+    // be misleading on it.
+    const hideRowIdentity = Boolean(params.groupByService) || kind !== 'game';
+    const cacheHitBytes = bucket.reduce((sum, row) => sum + row.cacheHitBytes, 0);
+    const cacheMissBytes = bucket.reduce((sum, row) => sum + row.cacheMissBytes, 0);
+    const totalBytes = bucket.reduce((sum, row) => sum + row.totalBytes, 0);
+    const weightedSpeed = bucket.reduce(
+      (sum, row) => sum + row.averageBytesPerSecond * row.totalBytes,
+      0
+    );
+    const newest = bucket.reduce((latest, row) =>
+      row.lastStartTimeUtc > latest.lastStartTimeUtc ? row : latest
+    );
+
+    return {
+      id: key,
+      startTimeUtc: bucket.reduce(
+        (earliest, row) => (row.startTimeUtc < earliest ? row.startTimeUtc : earliest),
+        first.startTimeUtc
+      ),
+      lastStartTimeUtc: newest.lastStartTimeUtc,
+      endTimeUtc: bucket.reduce(
+        (latest, row) => (row.endTimeUtc > latest ? row.endTimeUtc : latest),
+        first.endTimeUtc
+      ),
+      depotId: hideRowIdentity ? null : first.depotId,
+      appName:
+        kind === 'unknown'
+          ? MOCK_RETRO_UNKNOWN_NAME
+          : kind === 'service'
+            ? bucketService
+            : params.groupByService
+              ? displayService
+              : first.appName,
+      steamAppId: hideRowIdentity ? null : first.steamAppId,
+      epicAppId: hideRowIdentity ? null : first.epicAppId,
+      service: kind === 'unknown' ? 'unknown' : bucketService,
+      datasource: first.datasource,
+      clientIp: first.clientIp,
+      averageBytesPerSecond: totalBytes > 0 ? weightedSpeed / totalBytes : 0,
+      cacheHitBytes,
+      cacheMissBytes,
+      cacheHitPercent: totalBytes > 0 ? (cacheHitBytes * 100) / totalBytes : 0,
+      totalBytes,
+      requestCount: bucket.reduce((sum, row) => sum + row.requestCount, 0),
+      downloadIds: bucket.flatMap((row) => row.downloadIds),
+      clientIps: Array.from(new Set(bucket.flatMap((row) => row.clientIps))),
+      depotIds: Array.from(new Set(bucket.flatMap((row) => row.depotIds))),
+      isEvicted: bucket.every((row) => row.isEvicted),
+      isPartiallyEvicted:
+        bucket.some((row) => row.isEvicted || row.isPartiallyEvicted) &&
+        !bucket.every((row) => row.isEvicted),
+      // The collapsed row is drawn from the newest member, and the endpoint sends that member only
+      // when the buckets were keyed across services, which is when the grouped views ask for it.
+      primaryDownload: params.mergeAcrossServices ? mockRetroPrimaryDownload(newest) : null,
+      hasRealGameName:
+        kind === 'unknown' || bucket.some((row) => isRealMockGameName(row.appName, row.service)),
+      groupType: params.mergeAcrossServices ? (kind === 'game' ? 'game' : 'content') : '',
+      isActive: bucket.some((row) => row.isActive),
+      eventIds: Array.from(new Set(bucket.flatMap((row) => row.eventIds)))
+    };
+  });
+}
+
+/** Orders the rows the way the endpoint's sort switch does, including the frequency bucketing
+ *  that puts single-download groups last. */
+function sortMockRetroRows(rows: MockRetroRow[], params: RetroDownloadQueryParams): MockRetroRow[] {
+  const sort = params.sort ?? 'latest';
+  // These five impose their own full order, so frequency never buckets under them.
+  const bucketByFrequency =
+    Boolean(params.groupByFrequency) &&
+    !['service', 'alphabetical', 'efficiency', 'efficiency-low', 'sessions'].includes(sort);
+  const chronological = (row: MockRetroRow): string =>
+    params.mergeAcrossServices ? row.lastStartTimeUtc : row.endTimeUtc;
+
+  const within = (a: MockRetroRow, b: MockRetroRow): number => {
+    switch (sort) {
+      case 'oldest':
+        return a.startTimeUtc.localeCompare(b.startTimeUtc);
+      case 'largest':
+        return b.totalBytes - a.totalBytes;
+      case 'smallest':
+        return a.totalBytes - b.totalBytes;
+      case 'efficiency':
+        return b.cacheHitPercent - a.cacheHitPercent;
+      case 'efficiency-low':
+        return a.cacheHitPercent - b.cacheHitPercent;
+      case 'sessions':
+        return b.requestCount - a.requestCount;
+      case 'alphabetical':
+        return a.appName.toLowerCase().localeCompare(b.appName.toLowerCase());
+      case 'service':
+        return (
+          a.service.localeCompare(b.service) || chronological(b).localeCompare(chronological(a))
+        );
+      default:
+        return chronological(b).localeCompare(chronological(a));
+    }
+  };
+
+  return [...rows].sort((a, b) => {
+    if (bucketByFrequency) {
+      const bucketA = a.requestCount === 1 ? 1 : 0;
+      const bucketB = b.requestCount === 1 ? 1 : 0;
+      if (bucketA !== bucketB) return bucketA - bucketB;
+    }
+    return within(a, b);
+  });
+}
 
 class MockDataService {
   static generateMockData(downloadCount: number | 'unlimited' = 'unlimited'): MockData {
@@ -591,49 +1059,89 @@ class MockDataService {
     };
   }
 
-  static generateRealtimeUpdate(): Download {
-    const isMetadata = Math.random() < 0.15;
-    const nowIso = new Date().toISOString();
+  /**
+   * The live speed snapshot mock mode serves: three Steam titles downloading on three clients, in
+   * the shape SpeedContext hands its readers, so the Downloads Active tab and the Dashboard's live
+   * strip and active-download count show something without a socket or a poll behind them.
+   */
+  /**
+   * A week of hourly cache-size samples for the Cache Growth Trend widget, ending on the used size
+   * `generateMockData` reports so the widget and the stat cards agree.
+   */
+  /**
+   * The nicknamed client groups behind the mock client rows, so the Downloads client dropdown and
+   * the Clients page label the generated addresses with the same names their totals were folded
+   * under instead of with a real network's nicknames.
+   */
+  static generateMockClientGroups(): ClientGroup[] {
+    const createdAtUtc = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    return MOCK_CLIENT_GROUPS.map((group) => ({
+      id: group.id,
+      nickname: group.nickname,
+      separateMemberRows: group.separateMemberRows,
+      memberIps: [...group.memberIps],
+      createdAtUtc
+    }));
+  }
 
-    if (isMetadata) {
+  /** The downloads tagged to one mock event, for the list an expanded event opens. */
+  static generateMockEventDownloads(eventId: number): Download[] {
+    return buildMockRetroRows(new Date())
+      .filter((row) => row.eventIds.includes(eventId))
+      .map(mockRetroPrimaryDownload);
+  }
+
+  static generateMockCacheSnapshot(): CacheSnapshotResponse {
+    return {
+      hasData: true,
+      startUsedSize: 1320000000000,
+      endUsedSize: 1450000000000,
+      averageUsedSize: 1390000000000,
+      totalCacheSize: 2000000000000,
+      snapshotCount: 168,
+      isEstimate: false,
+      nextSnapshotUtc: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    };
+  }
+
+  static generateMockSpeedSnapshot(): DownloadSpeedSnapshot {
+    const windowSeconds = 10;
+    const gameSpeeds: GameSpeedInfo[] = STEAM_GAMES.slice(0, 3).map((game, index) => {
+      const bytesPerSecond = (90 - index * 25) * 1024 * 1024;
+      const totalBytes = bytesPerSecond * windowSeconds;
+      const cacheHitBytes = Math.floor(totalBytes * (0.85 - index * 0.25));
       return {
-        id: Date.now(),
-        service: SERVICES[Math.floor(Math.random() * SERVICES.length)],
-        clientIp: CLIENT_IPS[Math.floor(Math.random() * CLIENT_IPS.length)],
-        startTimeUtc: nowIso,
-        endTimeUtc: nowIso,
-        cacheHitBytes: 0,
-        cacheMissBytes: 0,
-        totalBytes: 0,
-        cacheHitPercent: 0,
-        isActive: false,
-        averageBytesPerSecond: 0,
-        isEvicted: false
+        depotId: parseInt(game.appId, 10) + 1,
+        gameName: game.name,
+        gameAppId: parseInt(game.appId, 10),
+        service: 'steam',
+        clientIp: CLIENT_IPS[index],
+        bytesPerSecond,
+        totalBytes,
+        requestCount: 12 + index * 7,
+        cacheHitBytes,
+        cacheMissBytes: totalBytes - cacheHitBytes,
+        cacheHitPercent: (cacheHitBytes / totalBytes) * 100
       };
-    }
+    });
 
-    // Pick a random real game for realistic updates
-    const game = STEAM_GAMES[Math.floor(Math.random() * STEAM_GAMES.length)];
-    const cacheHitRatio = 0.7 + Math.random() * 0.25;
-    const totalBytes = Math.floor(game.size * (0.1 + Math.random() * 0.9));
-    const cacheHitBytes = Math.floor(totalBytes * cacheHitRatio);
-    const cacheMissBytes = totalBytes - cacheHitBytes;
+    const clientSpeeds: ClientSpeedInfo[] = gameSpeeds.map((game, index) => ({
+      clientIp: CLIENT_IPS[index],
+      bytesPerSecond: game.bytesPerSecond,
+      totalBytes: game.totalBytes,
+      activeGames: 1,
+      cacheHitBytes: game.cacheHitBytes,
+      cacheMissBytes: game.cacheMissBytes
+    }));
 
     return {
-      id: Date.now(),
-      service: 'steam',
-      clientIp: CLIENT_IPS[Math.floor(Math.random() * CLIENT_IPS.length)],
-      startTimeUtc: nowIso,
-      endTimeUtc: null,
-      cacheHitBytes,
-      cacheMissBytes,
-      totalBytes,
-      cacheHitPercent: (cacheHitBytes / totalBytes) * 100,
-      isActive: true,
-      gameName: game.name,
-      gameAppId: parseInt(game.appId, 10),
-      averageBytesPerSecond: 0,
-      isEvicted: false
+      timestampUtc: new Date().toISOString(),
+      totalBytesPerSecond: gameSpeeds.reduce((sum, game) => sum + game.bytesPerSecond, 0),
+      gameSpeeds,
+      clientSpeeds,
+      windowSeconds,
+      entriesInWindow: gameSpeeds.reduce((sum, game) => sum + game.requestCount, 0),
+      hasActiveDownloads: true
     };
   }
 
@@ -868,195 +1376,35 @@ class MockDataService {
   }
 
   /**
-   * Generate mock retro view data (grouped by depot + client, matching the /api/downloads/retro shape)
+   * One page of `/api/downloads/retro`, generated in the browser so mock mode can serve the
+   * Downloads and Retro views without a request. It runs the endpoint's own order - the row
+   * filters, then the group filters, then the merge, then the sort, then the page - so every
+   * control on those pages changes what comes back here the way it does against a live server.
    */
-  static generateMockRetroData(
-    options: {
-      page?: number;
-      pageSize?: number;
-      sortOrder?: string;
-      service?: string;
-      client?: string;
-      search?: string;
-      hideLocalhost?: boolean;
-      hideMetadata?: boolean;
-      hideSmallFiles?: boolean;
-      hideUnknownGames?: boolean;
-    } = {}
-  ): {
-    items: {
-      id: string;
-      service: string;
-      gameName: string;
-      gameAppId: number | null;
-      epicAppId: string | null;
-      depotId: number | null;
-      clientIp: string;
-      startTimeUtc: string;
-      endTimeUtc: string;
-      cacheHitBytes: number;
-      cacheMissBytes: number;
-      totalBytes: number;
-      requestCount: number;
-      clientsSet: Set<string>;
-      datasource: string;
-      averageBytesPerSecond: number;
-      downloadIds: number[];
-    }[];
-    totalItems: number;
-    totalPages: number;
-    currentPage: number;
-    pageSize: number;
-  } {
-    const {
-      page = 1,
-      pageSize = 20,
-      sortOrder = 'latest',
-      service: filterService,
-      client: filterClient,
-      search,
-      hideLocalhost = false,
-      hideMetadata = false,
-      hideSmallFiles = false,
-      hideUnknownGames = false
-    } = options;
+  static generateMockRetroData(params: RetroDownloadQueryParams): RetroDownloadResponse {
+    const pageSize = Math.min(Math.max(params.pageSize, 1), 200);
+    const page = Math.max(params.page, 1);
 
-    const now = new Date();
-    const allItems: {
-      id: string;
-      service: string;
-      gameName: string;
-      gameAppId: number | null;
-      epicAppId: string | null;
-      depotId: number | null;
-      clientIp: string;
-      startTimeUtc: string;
-      endTimeUtc: string;
-      cacheHitBytes: number;
-      cacheMissBytes: number;
-      totalBytes: number;
-      requestCount: number;
-      clientsSet: Set<string>;
-      datasource: string;
-      averageBytesPerSecond: number;
-      downloadIds: number[];
-    }[] = [];
+    const filtered = filterMockRetroRows(buildMockRetroRows(new Date()), params);
+    const merged =
+      params.groupByService || params.groupByGame ? mergeMockRetroRows(filtered, params) : filtered;
+    const ordered = sortMockRetroRows(merged, params);
 
-    // Generate ~80 grouped depot entries using real Steam games
-    for (let i = 0; i < 80; i++) {
-      const game = STEAM_GAMES[i % STEAM_GAMES.length];
-      const clientIp = CLIENT_IPS[i % CLIENT_IPS.length];
-      const depotId = parseInt(game.appId, 10) + 1;
-
-      const hoursAgo = Math.pow(i / 80, 2) * 2160;
-      const startTime = new Date(
-        now.getTime() - hoursAgo * 60 * 60 * 1000 - Math.random() * 3600000
-      );
-      const durationMs = (1 + Math.random() * 30) * 60 * 1000;
-      const endTime = new Date(startTime.getTime() + durationMs);
-
-      const cacheHitRatio = Math.min(0.95, 0.1 + (hoursAgo / 2160) * 0.85);
-      const totalBytes = Math.floor(game.size * (0.3 + Math.random() * 0.7));
-      const cacheHitBytes = Math.floor(totalBytes * cacheHitRatio);
-      const cacheMissBytes = totalBytes - cacheHitBytes;
-      const requestCount = 1 + Math.floor(Math.random() * 10);
-      const speed = totalBytes > 0 ? totalBytes / (durationMs / 1000) : 0;
-
-      allItems.push({
-        id: `depot-${depotId}-${clientIp}`,
-        service: 'steam',
-        gameName: game.name,
-        gameAppId: parseInt(game.appId, 10),
-        epicAppId: null,
-        depotId,
-        clientIp,
-        startTimeUtc: startTime.toISOString(),
-        endTimeUtc: endTime.toISOString(),
-        cacheHitBytes,
-        cacheMissBytes,
-        totalBytes,
-        requestCount,
-        clientsSet: new Set([clientIp]),
-        datasource: 'Default',
-        averageBytesPerSecond: speed,
-        downloadIds: Array.from({ length: requestCount }, (_, j) => i * 10 + j + 1)
-      });
-    }
-
-    // Apply filters
-    let filtered = allItems;
-    if (filterService && filterService !== 'all') {
-      filtered = filtered.filter((item) => item.service === filterService);
-    }
-    if (filterClient && filterClient !== 'all') {
-      filtered = filtered.filter((item) => item.clientIp === filterClient);
-    }
-    if (search) {
-      const q = search.toLowerCase();
-      filtered = filtered.filter(
-        (item) =>
-          item.gameName.toLowerCase().includes(q) ||
-          item.clientIp.includes(q) ||
-          String(item.depotId).includes(q)
-      );
-    }
-    if (hideLocalhost) {
-      filtered = filtered.filter(
-        (item) => item.clientIp !== '127.0.0.1' && item.clientIp !== '::1'
-      );
-    }
-    if (hideMetadata) {
-      filtered = filtered.filter((item) => item.totalBytes > 0);
-    }
-    if (hideSmallFiles) {
-      filtered = filtered.filter((item) => item.totalBytes === 0 || item.totalBytes >= 1048576);
-    }
-    if (hideUnknownGames) {
-      filtered = filtered.filter((item) => item.gameName && item.gameName !== item.service);
-    }
-
-    // Sort
-    filtered.sort((a, b) => {
-      switch (sortOrder) {
-        case 'oldest':
-          return new Date(a.startTimeUtc).getTime() - new Date(b.startTimeUtc).getTime();
-        case 'largest':
-          return b.totalBytes - a.totalBytes;
-        case 'smallest':
-          return a.totalBytes - b.totalBytes;
-        case 'efficiency': {
-          const aEff = a.totalBytes > 0 ? a.cacheHitBytes / a.totalBytes : 0;
-          const bEff = b.totalBytes > 0 ? b.cacheHitBytes / b.totalBytes : 0;
-          return bEff - aEff;
-        }
-        case 'efficiency-low': {
-          const aEff = a.totalBytes > 0 ? a.cacheHitBytes / a.totalBytes : 0;
-          const bEff = b.totalBytes > 0 ? b.cacheHitBytes / b.totalBytes : 0;
-          return aEff - bEff;
-        }
-        case 'sessions':
-          return b.requestCount - a.requestCount;
-        case 'alphabetical':
-          return a.gameName.localeCompare(b.gameName);
-        case 'latest':
-        default:
-          return new Date(b.endTimeUtc).getTime() - new Date(a.endTimeUtc).getTime();
-      }
-    });
-
-    // Paginate
-    const totalItems = filtered.length;
-    const effectivePageSize = pageSize >= 10000 ? totalItems : pageSize;
-    const totalPages = Math.max(1, Math.ceil(totalItems / effectivePageSize));
-    const start = (page - 1) * effectivePageSize;
-    const items = filtered.slice(start, start + effectivePageSize);
+    const totalItems = ordered.length;
+    const start = (page - 1) * pageSize;
 
     return {
-      items,
+      // The two fields the rows carry for filtering are not on the wire, so they come off here.
+      items: ordered
+        .slice(start, start + pageSize)
+        .map(({ isActive: _isActive, eventIds: _eventIds, ...item }) => item),
       totalItems,
-      totalPages,
+      // Every row carries the downloads it stands for, so the download count is a sum over the
+      // whole filtered list rather than a second pass.
+      totalDownloads: ordered.reduce((sum, row) => sum + row.requestCount, 0),
+      totalPages: Math.max(1, Math.ceil(totalItems / pageSize)),
       currentPage: page,
-      pageSize: effectivePageSize
+      pageSize
     };
   }
 }

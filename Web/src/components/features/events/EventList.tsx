@@ -24,6 +24,8 @@ import { formatBytes } from '@utils/formatters';
 import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
 import { getEventColorVar, themeColorVar, type ColorToken } from '@utils/eventColors';
 import ApiService from '@services/api.service';
+import MockDataService from '@/test/mockData.service';
+import { useMockMode } from '@contexts/useMockMode';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import type { Event, Download } from '../../../types';
 import { APP_EVENTS } from '@utils/constants';
@@ -301,6 +303,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   const { t } = useTranslation();
   const clock = useReaderClock();
   const { setTimeRange, setSelectedEventIds } = useTimeFilter();
+  const { mockMode } = useMockMode();
   const { notifyError } = useErrorHandler();
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
   const [downloadsCache, setDownloadsCache] = useState<EventDownloadsCache>({});
@@ -375,8 +378,12 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
       }));
 
       try {
-        // Use taggedOnly=true to show only downloads explicitly tagged to this event
-        const downloads = await ApiService.getEventDownloads<Download[]>(eventId);
+        // Use taggedOnly=true to show only downloads explicitly tagged to this event.
+        // A mock event exists only in the browser, so the server has nothing tagged to it and the
+        // generated downloads inside its window are the answer.
+        const downloads = mockMode
+          ? MockDataService.generateMockEventDownloads(eventId)
+          : await ApiService.getEventDownloads<Download[]>(eventId);
         setDownloadsCache((prev) => ({
           ...prev,
           [eventId]: {
@@ -396,7 +403,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
         }));
       }
     },
-    [t, notifyError]
+    [mockMode, t, notifyError]
   );
 
   const handleExpandClick = useCallback(

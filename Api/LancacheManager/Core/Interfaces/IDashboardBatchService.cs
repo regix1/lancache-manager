@@ -23,13 +23,26 @@ public interface IDashboardBatchService
     /// every reader, and a name arrives in the same field as a nickname, so a reader who may not
     /// see names has to be served a body that never carried any.
     /// </param>
+    /// <param name="service">
+    /// Narrows the filtered download totals and the recent slice to one service, named by the
+    /// folded key the dropdown uses, so an "xbox" selection covers every raw alias behind it. Null
+    /// or "all" leaves them over every service. The plain download totals ignore this. Sits after
+    /// the token because the startup warmer asks for the unfiltered entry and passes neither.
+    /// </param>
+    /// <param name="client">
+    /// Narrows the same two sections to the given client addresses, comma-separated because a
+    /// dropdown entry can name a client group covering several. Null or "all" leaves them over
+    /// every client.
+    /// </param>
     Task<DashboardBatchResponse> GetBatchAsync(
         long? startTime,
         long? endTime,
         long? eventId,
         string? timeZoneId,
         bool includeClientHostnames,
-        CancellationToken ct);
+        CancellationToken ct,
+        string? service = null,
+        string? client = null);
 
     Task<EventCompareResponse> GetEventCompareAsync(
         IReadOnlyList<long> eventIds,

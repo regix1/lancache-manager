@@ -38,10 +38,10 @@ public abstract class ScheduledServiceBase : BackgroundService
     /// attempt: returns the reason the run may not start right now, or null when it may. Static and
     /// set once at startup, the same way ServiceExecutionStateChanged is wired, because this base has
     /// 21 concrete subclasses and a constructor parameter would have to be threaded through every one
-    /// of them. Null while nothing has set it, so every run proceeds. [3]
+    /// of them. Null while nothing has set it, so every run proceeds.
     ///
     /// The trigger travels with the question because a refused run that a person asked for has to be
-    /// reported every time, while a refused timer tick does not. [57]
+    /// reported every time, while a refused timer tick does not.
     /// </summary>
     public static Func<string, RunTrigger, string?>? ScheduleRunGate { get; set; }
 
@@ -50,7 +50,7 @@ public abstract class ScheduledServiceBase : BackgroundService
     /// what the download tracker reported rather than the tracker's silence. Takes the service's
     /// own key because only the schedules whose work walks the cache tree are worth waiting for.
     /// Static and set once for the same reason as the gate above; null while nothing has set it,
-    /// so every startup run asks straight away. [90]
+    /// so every startup run asks straight away.
     /// </summary>
     public static Func<string, CancellationToken, Task>? WaitForDownloadAnswer { get; set; }
 
@@ -470,10 +470,10 @@ public abstract class ScheduledServiceBase : BackgroundService
         // leaves LastRunUtc on the time of the last run that really happened, never flips
         // IsCurrentlyExecuting, and broadcasts no end for a run that had no start. RunFailed stays
         // false because a decline is not a failure, so the caller sleeps its ordinary interval
-        // instead of backing off and retrying a minute later. [6]
+        // instead of backing off and retrying a minute later.
         // The pending Run Now flag has already been taken by the loop above by the time this runs, so
         // a manual attempt refused here is gone. That is why the trigger is handed over: whoever
-        // answers has to report a refused manual attempt rather than let the click disappear. [57]
+        // answers has to report a refused manual attempt rather than let the click disappear.
         var runDenial = ScheduleRunGate?.Invoke(serviceKey, trigger);
         if (runDenial is not null)
         {

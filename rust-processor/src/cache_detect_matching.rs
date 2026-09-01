@@ -148,7 +148,7 @@ fn match_files_with_index_tracked(
 /// MAX(BytesServed) per URL and can be a single range for range-served objects) — the walk
 /// visits slice indices, collecting all that exist in the index, safe because non-existent
 /// candidates are simply not returned. The all-miss cost is bounded by CONSECUTIVE_MISS_LIMIT,
-/// not MAX_PROBE_CHUNKS (see existing_cache_digests_for_url).
+/// not MAX_OBJECT_CHUNKS (see existing_cache_digests_for_url).
 fn url_digests_in_index(
     service: &str,
     url: &str,

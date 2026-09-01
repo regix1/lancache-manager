@@ -34,6 +34,15 @@ public class PrefillCacheRemovalResponse
 }
 
 /// <summary>
+/// Result of the terminate-all sweep. Carries the count on its own rather than a sentence built
+/// around it, so the browser writes the line in the reader's language.
+/// </summary>
+public class TerminatedSessionsResponse
+{
+    public int Count { get; set; }
+}
+
+/// <summary>
 /// 404 body for "no running persistent session" lookups (<see cref="Controllers.PersistentPrefillController"/>).
 /// Distinguishes a session that exists but flipped to <see cref="DaemonSessionStatus.Error"/>
 /// (e.g. the daemon's socket dropped) from no session ever having been started, so the frontend
@@ -42,6 +51,16 @@ public class PrefillCacheRemovalResponse
 public class PersistentSessionNotFoundResponse
 {
     public string Error { get; set; } = string.Empty;
+
+    /// <summary>
+    /// i18n key naming the refusal, read by <c>getErrorMessage</c> so the reader sees it in their
+    /// own language; <see cref="Error"/> stays on the wire as the English fallback.
+    /// </summary>
+    public string? StageKey { get; set; }
+
+    /// <summary>Substitution values for the <see cref="StageKey"/> template.</summary>
+    public Dictionary<string, object?>? Context { get; set; }
+
     public PersistentSessionNotFoundState State { get; set; } = PersistentSessionNotFoundState.NotStarted;
 }
 

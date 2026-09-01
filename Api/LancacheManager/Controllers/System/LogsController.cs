@@ -311,7 +311,11 @@ public class LogsController : ControllerBase
                 }
 
                 _logger.LogWarning("Failed to start log processing for all datasources");
-                return StatusCode(500, new ErrorResponse { Error = "Failed to start log processing" });
+                return StatusCode(500, new ErrorResponse
+                {
+                    Error = "Failed to start log processing",
+                    StageKey = "errors.logs.startFailed"
+                });
             }
 
             _logger.LogInformation("Started log processing for all datasources (Operation: {OperationId})", operationId.Value);
@@ -388,7 +392,12 @@ public class LogsController : ControllerBase
                 }
 
                 _logger.LogWarning("Failed to start log processing for datasource '{Name}'", datasourceName);
-                return StatusCode(500, new ErrorResponse { Error = $"Failed to start log processing for '{datasourceName}'" });
+                return StatusCode(500, new ErrorResponse
+                {
+                    Error = $"Failed to start log processing for '{datasourceName}'",
+                    StageKey = "errors.logs.startFailedForDatasource",
+                    Context = new Dictionary<string, object?> { ["datasource"] = datasourceName }
+                });
             }
 
             _logger.LogInformation("Started log processing for datasource '{Name}' (Operation: {OperationId})", datasourceName, operationId.Value);
@@ -564,7 +573,16 @@ public class LogsController : ControllerBase
                     $"Log Removal ({service} @ {datasourceName})", StartDatasourceLogRemovalAsync, cancellationToken));
             }
 
-            return StatusCode(500, new ErrorResponse { Error = $"Failed to remove logs for service '{service}' from datasource '{datasourceName}'" });
+            return StatusCode(500, new ErrorResponse
+            {
+                Error = $"Failed to remove logs for service '{service}' from datasource '{datasourceName}'",
+                StageKey = "errors.logs.removeFailed",
+                Context = new Dictionary<string, object?>
+                {
+                    ["service"] = service,
+                    ["datasource"] = datasourceName
+                }
+            });
         }
 
         _logger.LogInformation(
@@ -614,7 +632,12 @@ public class LogsController : ControllerBase
         var deleteTarget = hasPerServiceSources ? datasource.LogPath : accessLogPath;
         if (!hasPerServiceSources && !System.IO.File.Exists(accessLogPath))
         {
-            return NotFound(new NotFoundResponse { Error = $"Log file not found: {accessLogPath}" });
+            return NotFound(new NotFoundResponse
+            {
+                Error = $"Log file not found: {accessLogPath}",
+                StageKey = "errors.logs.fileNotFound",
+                Context = new Dictionary<string, object?> { ["path"] = accessLogPath }
+            });
         }
 
         // C# retains authorization, datasource/read-only validation, state, and nginx

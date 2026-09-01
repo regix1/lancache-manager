@@ -81,7 +81,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     // service's ServiceName here too so OnServiceExecutionStateChangedAsync's tracked-service guard
     // recognizes the event when it arrives. It maps back to the schedule key, because the run gate
     // is also asked under the ServiceName and everything it looks the answer up in is keyed by the
-    // schedule key. [64]
+    // schedule key.
     private readonly Dictionary<string, string> _configurableServiceNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
@@ -171,7 +171,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         // Same one-time static wiring as the two events above. The registry answers because it is the
         // only place that knows which keys are user-configurable schedules; every other subclass of
-        // the scheduled bases, RustSpeedTrackerService included, is never asked and always runs. [4]
+        // the scheduled bases, RustSpeedTrackerService included, is never asked and always runs.
         // A registry built without the download gate has no answer to give, so it leaves the hook
         // alone rather than replacing a working one with a function that always says yes.
         if (_cacheScanGate is not null)
@@ -196,7 +196,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // because no schedule polled in the quiet gap between the two. The edge is computed from the
         // unfiltered snapshot, the same set the gate reads: the visible one goes empty while a
         // hidden client is still writing, and re-arming there would announce a skip the gate is
-        // still refusing. [58]
+        // still refusing.
         RustSpeedTrackerService.DownloadsEnded += OnDownloadsEnded;
     }
 
@@ -210,7 +210,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // A run declined before it started registers itself only to be reported and carries no
         // terminal broadcast of its own. This registry is already listening here and is the one
         // place that knows which card the schedule owns, so the refusal is announced from here
-        // rather than by giving the queue a dependency on schedules. [72]
+        // rather than by giving the queue a dependency on schedules.
         if (operation.Status == OperationStatus.Skipped
             && ReadDeclinedBeforeStart(operation.Metadata)
             && TryFindScheduleKey(operation.Type, out var declinedKey))
@@ -227,7 +227,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// Downloads have stopped, so every schedule may announce its next skip. The polled clear in
     /// <see cref="CheckScheduleRun"/> stays as the backstop for the cases this edge deliberately
     /// does not cover: a process that starts up with a download already in flight, and a tracker
-    /// that dies, which stops answering rather than reporting that anything finished. [58]
+    /// that dies, which stops answering rather than reporting that anything finished.
     /// </summary>
     private void OnDownloadsEnded()
     {
@@ -567,7 +567,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// Whether the schedule behind <paramref name="serviceKey"/> may start a run right now: the reason
     /// it may not, or null when it may. Only the keys in <see cref="_allowedServiceKeys"/> are asked,
     /// which is what keeps every other subclass of the two scheduled bases - the speed tracker that
-    /// produces the download answer among them - running exactly as it did. [3] [4]
+    /// produces the download answer among them - running exactly as it did.
     /// </summary>
     private string? CheckScheduleRun(string serviceKey)
     {
@@ -591,7 +591,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
 
         // A job that never walks the cache tree has no reason to wait for a download to finish, so it
-        // gets the same question and a different answer. [51]
+        // gets the same question and a different answer.
         return _cacheReadingOperations.Contains(operationType) ? downloadDenial : null;
     }
 
@@ -599,7 +599,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// Waits, before a startup run is asked about, for the tracker to have something to say. Only
     /// the schedules whose work walks the cache tree can be refused for a download, so every other
     /// service starts as promptly as it did before: the live log monitor and the dashboard warmer
-    /// both run on startup and neither has any reason to wait for a download answer. [90]
+    /// both run on startup and neither has any reason to wait for a download answer.
     /// </summary>
     private Task WaitForDownloadAnswer(string announcedKey, CancellationToken cancellationToken)
     {
@@ -630,7 +630,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // its ServiceKey, which is already the schedule key; ConfigurableScheduledService announces
         // its ServiceName, which is not, so it is translated through the same index the
         // execution-state guard uses. Without this every configurable schedule missed the lookup and
-        // was silently never asked. [64]
+        // was silently never asked.
         var serviceKey = _configurableServiceNames.TryGetValue(announcedKey, out var scheduleKey)
             ? scheduleKey
             : announcedKey;
@@ -644,7 +644,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // A run someone asked for is always reported. By the time the loop asks, it has already taken
         // the pending Run Now flag, so the click is spent: staying quiet here because this schedule
         // already announced a skip earlier in the same download would leave the person with a
-        // response that said the run started and nothing at all afterwards. [57]
+        // response that said the run started and nothing at all afterwards.
         if (trigger == RunTrigger.Manual || ClaimSkipAnnouncement(serviceKey))
         {
             RecordSkippedRun(serviceKey, denial);
@@ -658,7 +658,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// going on right now, false for every later refusal of the same schedule. See
     /// <see cref="_announcedSkips"/> for what re-arms it, which is downloads stopping, reported
     /// either by the tracker's own edge or by the next schedule to ask. The manual routes never come
-    /// through here: a person pressing a button is waiting on an answer and gets one every time. [52]
+    /// through here: a person pressing a button is waiting on an answer and gets one every time.
     /// </summary>
     private bool ClaimSkipAnnouncement(string serviceKey)
     {
@@ -689,7 +689,6 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// <summary>
     /// Announces a refused run on the schedule's own terminal event: a translation key for the card
     /// to render, and the gate's own sentence beside it for anything that reports the raw reason.
-    /// [14] [48]
     /// </summary>
     private async Task EmitSkippedRunAsync(string serviceKey, Guid operationId, string? reason)
     {
@@ -719,7 +718,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     public Task<(ScheduleRunStatus Status, string? SkippedReason)> TriggerRunAsync(string serviceKey)
     {
         // Asked before either TriggerImmediateRun below, so a run that would be declined never arms
-        // the pending-run flag and the loop is not woken only to turn around. [17]
+        // the pending-run flag and the loop is not woken only to turn around.
         var runDenial = CheckScheduleRun(serviceKey);
         if (runDenial is not null)
         {
@@ -810,7 +809,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         var alreadyRunningCount = 0;
         var skippedCount = 0;
         // Every schedule asks the identical question, so every skip in one call has the identical
-        // answer. One string says why without telling the reader which keys the answer applies to. [21]
+        // answer. One string says why without telling the reader which keys the answer applies to.
         string? skippedReason = null;
 
         foreach (var (key, service) in _scheduledServices)

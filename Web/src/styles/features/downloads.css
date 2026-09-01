@@ -1397,7 +1397,7 @@
   }
 
   /* The stripe reads the same four band inks as the gauge beside it, so one hit rate is one
-     colour everywhere it appears. [18] */
+     color everywhere it appears. */
   .retro-row-accent-success::before {
     background: var(--theme-success-text);
   }

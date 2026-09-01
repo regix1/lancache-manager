@@ -25,7 +25,7 @@ function tooltipRoot(): HTMLDivElement {
   tooltipNodes.set(document, node);
   // The position is read from the canvas rect at hover time and Chart.js does not re-run the
   // external callback on scroll or resize, so the tooltip would sit at the old spot while the
-  // canvas moves under it. Capture phase catches a scroll on any ancestor, not just the page. [72]
+  // canvas moves under it. Capture phase catches a scroll on any ancestor, not just the page.
   window.addEventListener('scroll', hideLineChartTooltip, true);
   window.addEventListener('resize', hideLineChartTooltip);
   return node;

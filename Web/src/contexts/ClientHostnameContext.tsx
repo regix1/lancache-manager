@@ -4,6 +4,7 @@ import ApiService, {
   type ClientHostnameSettings
 } from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
+import { useMockMode } from '@contexts/useMockMode';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { getErrorMessage } from '@utils/error';
@@ -24,6 +25,7 @@ interface ClientHostnameProviderProps {
 
 export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ children }) => {
   const { authMode, isLoading: authLoading } = useAuth();
+  const { mockMode } = useMockMode();
   const { on, off, isConnected } = useSignalR();
   const [hostnameLookup, setHostnameLookup] = useState<ClientHostnamesResponse>({
     enabled: false,
@@ -44,6 +46,19 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
   // Fetch the whole address-to-name map in one request. Rows read it from memory, so no row ever
   // waits on a lookup and a missing entry simply leaves the raw address showing.
   const refreshHostnames = useCallback(async () => {
+    // Reverse lookup names a real network's machines, so mock mode drops back to the raw generated
+    // addresses instead of labelling them with someone's real hostnames.
+    if (mockMode) {
+      setHostnameLookup({
+        enabled: false,
+        hostnames: {},
+        reason: 'none',
+        settings: DEFAULT_SETTINGS
+      });
+      setLoading(false);
+      setError(null);
+      return;
+    }
     const attempt = ++attemptRef.current;
     setLoading(true);
     setError(null);
@@ -65,7 +80,7 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
         setLoading(false);
       }
     }
-  }, []);
+  }, [mockMode]);
 
   // Every signed-in viewer asks, guest included. The server decides what a guest is told: it
   // answers one as though the lookup were off until an admin allows guests to see client names,

@@ -12,7 +12,7 @@ interface HiddenSeries {
 
 /**
  * The only record of which series are hidden: the dataset objects read `hidden` from it, so a
- * canvas that unmounts and comes back redraws with the series the legend says are hidden. [6]
+ * canvas that unmounts and comes back redraws with the series the legend says are hidden.
  */
 export function useHiddenSeries(): HiddenSeries {
   const [hiddenSeries, setHiddenSeries] = useState<ReadonlySet<number>>(() => new Set());

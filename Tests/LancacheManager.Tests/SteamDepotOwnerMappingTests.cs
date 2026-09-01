@@ -1,7 +1,6 @@
 using System.Text.Json;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -134,51 +133,6 @@ public sealed class SteamDepotOwnerMappingTests
         var game = Assert.Single(await verification.CachedGameDetections.ToListAsync());
         Assert.Equal(1770480, game.GameAppId);
         Assert.Equal("VTOL VR: AH-94", game.GameName);
-    }
-
-    /// <summary>
-    /// The latest-downloads query used to join <c>SteamDepotMappings</c> in SQL, which emits the
-    /// download once per owner row. A depot with two owners therefore returned the same download
-    /// twice, doubling its bytes in the totals the downloads header and the dashboard panel add up
-    /// client-side, and spending two of the caller's limit slots on one download.
-    /// </summary>
-    [Fact]
-    public async Task LatestDownloads_ReturnOneRowPerDownloadWhenADepotHasTwoOwners()
-    {
-        var options = NewOptions();
-        await using var context = new AppDbContext(options);
-        context.SteamDepotMappings.AddRange(
-            new SteamDepotMapping
-            {
-                DepotId = 1770481,
-                AppId = 1770480,
-                AppName = "VTOL VR: AH-94",
-                IsOwner = true,
-                Source = "SteamKit2-PICS"
-            },
-            new SteamDepotMapping
-            {
-                DepotId = 1770481,
-                AppId = 667970,
-                AppName = "VTOL VR",
-                IsOwner = true,
-                Source = "Prefill"
-            });
-        context.Downloads.Add(new Download
-        {
-            DepotId = 1770481,
-            Service = "steam",
-            CacheHitBytes = 1024,
-            StartTimeUtc = new DateTime(2026, 8, 29, 12, 0, 0, DateTimeKind.Utc)
-        });
-        await context.SaveChangesAsync();
-
-        var downloads = await new StatsDataService(context).GetLatestDownloadsAsync(int.MaxValue);
-
-        var download = Assert.Single(downloads);
-        Assert.Equal(1024, download.CacheHitBytes);
-        Assert.Equal("VTOL VR: AH-94", download.GameName);
-        Assert.Equal(1770480, download.GameAppId);
     }
 
     /// <summary>

@@ -12,7 +12,7 @@ interface TabPanelProps {
 
 // Management section wrapper shared by every tab's content, and by a section's own loading/error
 // early returns. animate-fade-in is a live keyframe (styles/utilities/animations.css:112), not dead
-// code - keep it. [21]
+// code - keep it.
 export const TabPanel: React.FC<TabPanelProps> = ({ tabId, className, children }) => (
   <div
     className={

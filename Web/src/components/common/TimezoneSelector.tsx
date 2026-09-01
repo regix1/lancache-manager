@@ -72,7 +72,7 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     if (!isGuest || loadingDefaults || !currentPreferences || hasAutoSwitched.current) return;
 
     // The clock the guest has stored, not the one on screen: useTimezone still reads its own
-    // defaults on the commit this load lands in. [75]
+    // defaults on the commit this load lands in.
     const storedValue = timeSettingFromClock(currentPreferences);
     const allowedFormats = getEffectiveAllowedFormats();
 
@@ -161,7 +161,7 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
               ? `${opt.label} (${t('common.timezoneSelector.defaultLabel')})`
               : opt.label,
           // A greyed row that still describes its clock face reads as broken. The row the reader
-          // cannot pick says why instead. [73]
+          // cannot pick says why instead.
           description: isAllowed ? opt.description : t('common.timezoneSelector.notAllowed'),
           disabled: !isAllowed
         };

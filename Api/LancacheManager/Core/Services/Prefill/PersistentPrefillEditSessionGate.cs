@@ -453,8 +453,18 @@ internal sealed class PersistentPrefillEditSessionGate
     {
         lock (_sync)
         {
+            var editSession = GetEditSession(editSessionId);
             var cleanup = GetCleanup(editSessionId, cleanupId);
             cleanup.Completion.TrySetResult();
+
+            // Cleanup has released every session this edit session owned, so its starts can no longer
+            // answer a stop check and only hold the later edit sessions back. The edit session itself
+            // stays behind as the tombstone BeginStart and BeginEditAction read, otherwise a request
+            // arriving after cleanup finished would create work nothing is left to compensate.
+            _starts.RemoveAll(start =>
+                string.Equals(start.EditSessionId, editSessionId, StringComparison.Ordinal));
+            editSession.Starts.Clear();
+            editSession.EditActions.Clear();
         }
     }
 

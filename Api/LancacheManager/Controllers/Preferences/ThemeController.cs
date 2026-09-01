@@ -469,6 +469,8 @@ public class ThemeController : ControllerBase
                 {
                     Error = $"Theme '{id}' not found on server",
                     Details = $"No files matching '{id}.toml' or '{id}.json' were found",
+                    StageKey = "errors.themes.notFound",
+                    Context = new Dictionary<string, object?> { ["id"] = id },
                     AvailableThemes = availableFiles.Select(f => Path.GetFileNameWithoutExtension(f) ?? "").Where(s => !string.IsNullOrEmpty(s)).Distinct().ToArray()
                 });
             }
@@ -479,7 +481,8 @@ public class ThemeController : ControllerBase
                 return StatusCode(500, new ErrorResponse
                 {
                     Error = "Failed to delete theme",
-                    Details = string.Join("; ", errors)
+                    Details = string.Join("; ", errors),
+                    StageKey = "errors.themes.deleteFailed"
                 });
             }
 
@@ -497,7 +500,11 @@ public class ThemeController : ControllerBase
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogError(ex, $"Permission denied when deleting theme {id}");
-            return StatusCode(500, new ErrorResponse { Error = "Permission denied - cannot delete theme file" });
+            return StatusCode(500, new ErrorResponse
+            {
+                Error = "Permission denied - cannot delete theme file",
+                StageKey = "errors.themes.deletePermission"
+            });
         }
         catch (IOException ex)
         {

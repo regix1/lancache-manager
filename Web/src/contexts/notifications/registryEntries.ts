@@ -151,7 +151,7 @@ export function errorOrStageKeyMessage<
  * Terminal resolver for an operation that can be declined before it starts. A declined run
  * reports `success: true`, so the completion handler resolves its card through the SUCCESS
  * message; without this the card would announce work that never happened. The reason travels in
- * `error`, with the event's stage key and a generic line behind it. [48]
+ * `error`, with the event's stage key and a generic line behind it.
  */
 export function skippedOrStageKeyMessage<
   TEvent extends TerminalStageKeyEvent & OperationStatusEvent = TerminalStageKeyEvent &

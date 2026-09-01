@@ -92,6 +92,14 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     []
   );
 
+  // The cached blob above was written by a live session and holds real depot numbers, so it is
+  // dropped the moment the reader switches to mock mode rather than staying on screen.
+  useEffect(() => {
+    if (mockMode) {
+      setProgress(null);
+    }
+  }, [mockMode]);
+
   // Initial fetch - only when auth is ready and user has access
   useEffect(() => {
     if (authLoading) {

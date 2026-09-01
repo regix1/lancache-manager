@@ -5,6 +5,8 @@ import type {
   ServiceStat,
   DashboardStats,
   Download,
+  DownloadTotals,
+  ServiceFilterOption,
   GameDetectionSummary,
   ServiceDetectionSummary,
   SparklineDataResponse,
@@ -17,11 +19,26 @@ export interface DashboardBatchResponse {
   clients: ClientStat[] | null;
   services: ServiceStat[] | null;
   dashboard: DashboardStats | null;
-  downloads: Download[] | null;
+  downloadTotals: DownloadTotals | null;
+  filteredDownloadTotals: DownloadTotals | null;
+  serviceOptions: ServiceFilterOption[] | null;
+  clientOptions: string[] | null;
+  recentDownloads: Download[] | null;
   detection: CachedDetectionResponse | null;
   sparklines: SparklineDataResponse | null;
   hourlyActivity: HourlyActivityResponse | null;
   cacheSnapshot: CacheSnapshotResponse | null;
+}
+
+/**
+ * The service and client that `filteredDownloadTotals` and the recent slice are narrowed to. Both
+ * carry 'all' rather than being absent, which is the value the dropdowns themselves use. A dropdown
+ * entry can name a client group, so `client` holds that group's member addresses comma-separated;
+ * a single address is that list with one member.
+ */
+export interface DownloadFilters {
+  service: string;
+  client: string;
 }
 
 /**
@@ -62,6 +79,10 @@ interface DashboardDataContextType {
 
   // Downloads
   latestDownloads: Download[];
+  downloadTotals: DownloadTotals | null;
+  filteredDownloadTotals: DownloadTotals | null;
+  serviceOptions: ServiceFilterOption[];
+  clientOptions: string[];
 
   // Game detection
   gameDetectionData: CachedDetectionResponse | null;
@@ -94,8 +115,9 @@ interface DashboardDataContextType {
     clientStats?: (prev: ClientStat[]) => ClientStat[];
     serviceStats?: (prev: ServiceStat[]) => ServiceStat[];
     dashboardStats?: (prev: DashboardStats | null) => DashboardStats | null;
-    latestDownloads?: (prev: Download[]) => Download[];
   }) => void;
+  /** Narrows the download totals and the recent slice, then refetches under the new filters. */
+  setDownloadFilters: (filters: DownloadFilters) => void;
 }
 
 export interface DashboardDataProviderProps {
@@ -104,3 +126,10 @@ export interface DashboardDataProviderProps {
 }
 
 export const DashboardDataContext = createContext<DashboardDataContextType | undefined>(undefined);
+
+/**
+ * True while a download-filter change is still being answered. Kept out of the value above because
+ * every dashboard card reads that one and would re-render on a flag only the recent-downloads panel
+ * has a use for.
+ */
+export const DownloadFilterFetchContext = createContext(false);

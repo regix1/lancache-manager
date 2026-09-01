@@ -26,7 +26,8 @@ public partial class SteamKit2Service
             return new AuthenticationResult
             {
                 Success = false,
-                Message = "A Steam sign-in is already in progress."
+                Message = "A Steam sign-in is already in progress.",
+                StageKey = "errors.steam.signInInProgress"
             };
         }
 
@@ -110,7 +111,8 @@ public partial class SteamKit2Service
                 new AuthenticationResult
                 {
                     Success = false,
-                    Message = "Sign-in was cancelled."
+                    Message = "Sign-in was cancelled.",
+                    StageKey = "errors.steam.signInCancelled"
                 });
         }
         catch (Exception ex) when (ex is AsyncJobFailedException or SteamConnectionLostException)
@@ -124,7 +126,8 @@ public partial class SteamKit2Service
                 new AuthenticationResult
                 {
                     Success = false,
-                    Message = "Steam's servers are busy right now. This is temporary, please wait a moment and try again."
+                    Message = "Steam's servers are busy right now. This is temporary, please wait a moment and try again.",
+                    StageKey = "errors.steam.serversBusy"
                 });
         }
         catch (SteamLogonException ex)
@@ -404,7 +407,8 @@ public partial class SteamKit2Service
                     {
                         Success = false,
                         RequiresMobileConfirmation = true,
-                        Message = "Mobile confirmation required"
+                        Message = "Mobile confirmation required",
+                        StageKey = "errors.steam.mobileConfirmationRequired"
                     }
                 };
             }
@@ -557,6 +561,13 @@ public partial class SteamKit2Service
         public bool RequiresMobileConfirmation { get; set; }
         public bool SessionExpired { get; set; }
         public string? Message { get; set; }
+
+        /// <summary>
+        /// i18n key naming the same reason as <see cref="Message"/>, written onto the refusal body
+        /// so the browser can show it in the reader's language. Null where the text came from Steam
+        /// itself, which no key can translate.
+        /// </summary>
+        public string? StageKey { get; set; }
         public string? AccountName { get; set; }
         public string? RefreshToken { get; set; }
 

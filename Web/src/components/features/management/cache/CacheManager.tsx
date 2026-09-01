@@ -369,7 +369,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   card says why the figures below cannot be brought up to date. It waits for a
                   definite answer, so nothing is claimed while the gate is still being read, and it
                   repeats the gate's sentence because only the server knows whether a download is
-                  writing or the tracker has yet to report. [80] */}
+                  writing or the tracker has yet to report. */}
               {(cacheSizeDenialReason || scanGate.blocked) && (
                 <Alert color="yellow">
                   <p className="text-sm">{cacheSizeDenialReason ?? scanGate.tooltip}</p>

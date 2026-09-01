@@ -35,8 +35,9 @@ public class DashboardController : ControllerBase
     /// Returns all dashboard data sets in a single response.
     /// </summary>
     /// <remarks>
-    /// Returns cache, clients, services, dashboard stats, downloads, detection, sparklines,
-    /// hourly activity, and cache snapshot in one call. Sub-queries execute in parallel inside the
+    /// Returns cache, clients, services, dashboard stats, download totals both plain and filtered,
+    /// the download filter options, the recent download slice, detection, sparklines, hourly
+    /// activity, and cache snapshot in one call. Sub-queries execute in parallel inside the
     /// service, and a sub-query that fails leaves its own field null instead of failing the whole
     /// request (see <see cref="DashboardBatchResponse"/>).
     /// </remarks>
@@ -48,6 +49,16 @@ public class DashboardController : ControllerBase
     /// The IANA zone the hourly activity buckets are grouped on. Omitted, or naming a zone this
     /// server does not know, they stay on the server's clock.
     /// </param>
+    /// <param name="service">
+    /// Narrows the filtered download totals and the recent slice to one service, named by the
+    /// folded key the dropdown shows. Omitted or "all" leaves them over every service, and the
+    /// plain download totals ignore it either way.
+    /// </param>
+    /// <param name="client">
+    /// Narrows the same two sections to the given client addresses, comma-separated because a
+    /// dropdown entry can name a client group covering several. Omitted or "all" leaves them over
+    /// every client.
+    /// </param>
     [HttpGet("batch")]
     [ProducesResponseType(typeof(DashboardBatchResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<DashboardBatchResponse>> GetBatchAsync(
@@ -55,6 +66,8 @@ public class DashboardController : ControllerBase
         [FromQuery] long? endTime = null,
         [FromQuery] long? eventId = null,
         [FromQuery] string? timeZoneId = null,
+        [FromQuery] string? service = null,
+        [FromQuery] string? client = null,
         CancellationToken ct = default)
     {
         // A cascade delete removes the event's EventDownloads rows, so an unknown id would
@@ -76,7 +89,7 @@ public class DashboardController : ControllerBase
             || _hostnameService.IsVisibleToGuests();
 
         var response = await _dashboardBatchService.GetBatchAsync(
-            startTime, endTime, eventId, timeZoneId, includeClientHostnames, ct);
+            startTime, endTime, eventId, timeZoneId, includeClientHostnames, ct, service, client);
         return Ok(response);
     }
 

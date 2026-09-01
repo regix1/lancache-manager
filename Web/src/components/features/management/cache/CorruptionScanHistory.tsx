@@ -192,6 +192,12 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
   const [deletingScanId, setDeletingScanId] = useState<string | null>(null);
 
   const loadHistory = useCallback(async () => {
+    // Mock mode has no scan history behind it, and deleting one is already blocked there.
+    if (mockMode) {
+      setEntries([]);
+      setListLoading(false);
+      return;
+    }
     const seq = ++listRequestSeqRef.current;
     setListLoading(true);
     setListError(false);
@@ -220,11 +226,11 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
     } finally {
       if (seq === listRequestSeqRef.current) setListLoading(false);
     }
-  }, [notifyError, t]);
+  }, [mockMode, notifyError, t]);
 
   useEffect(() => {
     void loadHistory();
-  }, [loadHistory, refreshKey]);
+  }, [loadHistory, mockMode, refreshKey]);
 
   const grouped = useMemo(() => {
     const byMethod = (method: CorruptionDetectionMethod) =>

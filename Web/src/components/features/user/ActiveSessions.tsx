@@ -45,6 +45,7 @@ import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService, { isAccountHolder } from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
+import { useMockMode } from '@contexts/useMockMode';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
@@ -237,6 +238,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 }) => {
   const { t } = useTranslation();
   const { refreshAuth } = useAuth();
+  const { mockMode } = useMockMode();
   const { notifyError } = useErrorHandler();
   const { on, off, isConnected } = useSignalR();
   // Session presence flows through the unified activity registry; the last-seen aging below still
@@ -337,6 +339,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   const loadSessions = useCallback(
     async (showLoading = false) => {
+      // Real people are signed in behind this list. Mock mode shows no sessions rather than
+      // putting their addresses and sign-in times on a screen meant to hold generated data.
+      if (mockMode) {
+        setSessions([]);
+        setLoading(false);
+        return;
+      }
       try {
         if (showLoading) {
           setLoading(true);
@@ -377,7 +386,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [setLoading, setSessions]
+    [mockMode, setLoading, setSessions]
   );
 
   // Restart at page 1 when type filter, text search, or page size changes so a

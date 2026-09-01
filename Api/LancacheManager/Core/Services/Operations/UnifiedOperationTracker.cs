@@ -291,12 +291,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return false;
         }
 
-        if (process.HasExited)
-        {
-            operation.AssociatedProcess = null;
-            return false;
-        }
-
+        // No HasExited pre-check here: the run's own thread disposes the process the moment its work
+        // ends, and HasExited throws on a disposed process, so the guard threw out of a method whose
+        // name promises it cannot. KillProcessTree makes the same check safely and returns false for
+        // an exited or disposed process, which drops through to the same cleanup below.
         var killed = _processManager.KillProcessTree(
             process,
             $"operation {operationId} ({operation.Type}: {operation.Name})");
@@ -371,7 +369,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         // token is linked to the host's and a shutdown arrives here exactly like a click.
         // A skipped run keeps whatever reason the caller supplied: a run stopped by a condition
         // outside itself has something to say, and the generic sentence below would replace it with
-        // nothing the reader can act on. No reason falls back to that sentence unchanged. [13]
+        // nothing the reader can act on. No reason falls back to that sentence unchanged.
         operation.Message = success
             ? (skipped ? (error ?? "Operation skipped - nothing to do") : "Operation completed successfully")
             : (error ?? (operation.Cancelled ? "Operation cancelled" : "Operation failed"));

@@ -700,7 +700,7 @@ public sealed class AccountManagementTests : IDisposable
     /// The owner's account is withheld from a second administrator and the unique index still
     /// refuses a second row holding its name, so both duplicate-name paths answer that name the
     /// way they answer a name a visible account holds. The probe behind them reads the whole table
-    /// on purpose: narrowed to the visible accounts, a taken name would answer 500. [10]
+    /// on purpose: narrowed to the visible accounts, a taken name would answer 500.
     /// </summary>
     [Fact]
     public async Task ANameTheOwnerHoldsIsRefusedLikeAnyOtherTakenName()

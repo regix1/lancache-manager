@@ -12,6 +12,10 @@ const slices = (overrides = {}) => ({
   serviceStats: [],
   dashboardStats: null,
   latestDownloads: [],
+  downloadTotals: null,
+  filteredDownloadTotals: null,
+  serviceOptions: [],
+  clientOptions: [],
   sparklines: null,
   hourlyActivity: null,
   cacheSnapshot: null,
@@ -25,7 +29,11 @@ const fullBatch = (overrides = {}) => ({
   clients: [{ clientIp: '10.0.0.1' }],
   services: [{ service: 'steam' }],
   dashboard: { period: { duration: 'live' } },
-  downloads: [{ id: 10 }, { id: 11 }],
+  downloadTotals: { cacheHitBytes: 900, cacheMissBytes: 100, count: 2 },
+  filteredDownloadTotals: { cacheHitBytes: 400, cacheMissBytes: 50, count: 1 },
+  serviceOptions: [{ service: 'steam', hasLargeFiles: true }],
+  clientOptions: ['10.0.0.1'],
+  recentDownloads: [{ id: 10 }, { id: 11 }],
   detection: { hasCachedResults: false },
   sparklines: { intervals: [] },
   hourlyActivity: { hours: [] },
@@ -41,12 +49,12 @@ test('failed downloads section keeps the previous list within the same range', (
   const prev = slices({ latestDownloads: prevDownloads });
   const { next, hadPartialFailure, failedSectionKeys } = applyDashboardBatchResponse(
     prev,
-    fullBatch({ downloads: null }),
+    fullBatch({ recentDownloads: null }),
     { rangeKey: LIVE_KEY, previousRangeKey: LIVE_KEY }
   );
   assert.equal(next.latestDownloads, prevDownloads);
   assert.equal(hadPartialFailure, true);
-  assert.ok(failedSectionKeys.includes('downloads'));
+  assert.ok(failedSectionKeys.includes('recentDownloads'));
 });
 
 test('failed clients and services sections keep previous within the same range', () => {
@@ -74,7 +82,11 @@ test('failed sections clear on a range change instead of keeping foreign-range d
   const { next, hadPartialFailure } = applyDashboardBatchResponse(
     prev,
     fullBatch({
-      downloads: null,
+      recentDownloads: null,
+      downloadTotals: null,
+      filteredDownloadTotals: null,
+      serviceOptions: null,
+      clientOptions: null,
       clients: null,
       dashboard: null,
       sparklines: null,
@@ -83,6 +95,10 @@ test('failed sections clear on a range change instead of keeping foreign-range d
     { rangeKey: LIVE_KEY, previousRangeKey: DAY_KEY }
   );
   assert.deepEqual(next.latestDownloads, []);
+  assert.equal(next.downloadTotals, null);
+  assert.equal(next.filteredDownloadTotals, null);
+  assert.deepEqual(next.serviceOptions, []);
+  assert.deepEqual(next.clientOptions, []);
   assert.deepEqual(next.clientStats, []);
   assert.equal(next.dashboardStats, null);
   assert.equal(next.sparklines, null);
@@ -97,7 +113,7 @@ test('successful empty lists apply over previous data', () => {
   });
   const { next, hadPartialFailure } = applyDashboardBatchResponse(
     prev,
-    fullBatch({ downloads: [], clients: [] }),
+    fullBatch({ recentDownloads: [], clients: [] }),
     { rangeKey: LIVE_KEY, previousRangeKey: LIVE_KEY }
   );
   assert.deepEqual(next.latestDownloads, []);
@@ -190,12 +206,66 @@ test('fully successful batch applies every section and reports no failure', () =
   assert.equal(next.clientStats, batch.clients);
   assert.equal(next.serviceStats, batch.services);
   assert.equal(next.dashboardStats, batch.dashboard);
-  assert.equal(next.latestDownloads, batch.downloads);
+  assert.equal(next.latestDownloads, batch.recentDownloads);
+  assert.equal(next.downloadTotals, batch.downloadTotals);
+  assert.equal(next.filteredDownloadTotals, batch.filteredDownloadTotals);
+  assert.equal(next.serviceOptions, batch.serviceOptions);
+  assert.equal(next.clientOptions, batch.clientOptions);
   assert.equal(next.sparklines, batch.sparklines);
   assert.equal(next.hourlyActivity, batch.hourlyActivity);
   assert.equal(next.cacheSnapshot, batch.cacheSnapshot);
   assert.equal(hadPartialFailure, false);
   assert.deepEqual(failedSectionKeys, []);
+});
+
+test('failed download totals and filter options keep the previous ones in the same range', () => {
+  const prevTotals = { cacheHitBytes: 5, cacheMissBytes: 5, count: 1 };
+  const prevServices = [{ service: 'epic', hasLargeFiles: false }];
+  const prevClients = ['10.0.0.9'];
+  const { next, failedSectionKeys } = applyDashboardBatchResponse(
+    slices({
+      downloadTotals: prevTotals,
+      serviceOptions: prevServices,
+      clientOptions: prevClients
+    }),
+    fullBatch({
+      downloadTotals: null,
+      filteredDownloadTotals: null,
+      serviceOptions: null,
+      clientOptions: null
+    }),
+    { rangeKey: LIVE_KEY, previousRangeKey: LIVE_KEY }
+  );
+  assert.equal(next.downloadTotals, prevTotals);
+  assert.equal(next.serviceOptions, prevServices);
+  assert.equal(next.clientOptions, prevClients);
+  assert.ok(failedSectionKeys.includes('downloadTotals'));
+  assert.ok(failedSectionKeys.includes('filteredDownloadTotals'));
+  assert.ok(failedSectionKeys.includes('serviceOptions'));
+  assert.ok(failedSectionKeys.includes('clientOptions'));
+});
+
+test('zeroed download totals and empty option lists apply as successful results', () => {
+  const emptyTotals = { cacheHitBytes: 0, cacheMissBytes: 0, count: 0 };
+  const { next, hadPartialFailure } = applyDashboardBatchResponse(
+    slices({
+      downloadTotals: { cacheHitBytes: 5, cacheMissBytes: 5, count: 1 },
+      serviceOptions: [{ service: 'epic', hasLargeFiles: false }],
+      clientOptions: ['10.0.0.9']
+    }),
+    fullBatch({
+      downloadTotals: emptyTotals,
+      filteredDownloadTotals: emptyTotals,
+      serviceOptions: [],
+      clientOptions: []
+    }),
+    { rangeKey: LIVE_KEY, previousRangeKey: LIVE_KEY }
+  );
+  assert.equal(next.downloadTotals, emptyTotals);
+  assert.equal(next.filteredDownloadTotals, emptyTotals);
+  assert.deepEqual(next.serviceOptions, []);
+  assert.deepEqual(next.clientOptions, []);
+  assert.equal(hadPartialFailure, false);
 });
 
 test('buildRangeKey is stable for live mode and distinct across windows', () => {

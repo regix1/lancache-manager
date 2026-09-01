@@ -133,7 +133,7 @@ public sealed class OperationQueueService : IOperationQueue
                     // caller, whose only handler logs it as an error for something that did not go
                     // wrong. Rethrown unchanged, because an HTTP caller is waiting on this and its
                     // 400 with the reason is the answer: dropping the throw would turn that into a
-                    // silent success, so this handler only looks redundant. [72]
+                    // silent success, so this handler only looks redundant.
                     _logger.LogInformation(
                         "{Type} '{Name}' declined before it started: {Reason}", type, displayName, ex.Message);
 
@@ -145,7 +145,7 @@ public sealed class OperationQueueService : IOperationQueue
                     // registry already share: the registry subscribes to the terminal hook and is
                     // the one place that knows which card this operation type's schedule owns. The
                     // dependency runs that way round on purpose, so nothing here has to know about
-                    // schedules and nothing there has to be injected into the queue. [72] [78]
+                    // schedules and nothing there has to be injected into the queue.
                     if (reportRefusal)
                     {
                         var declinedId = _tracker.RegisterOperation(
@@ -206,7 +206,7 @@ public sealed class OperationQueueService : IOperationQueue
                 // silent scheduled operations by removing their purple card at handoff.
                 // A declined run rides the success flag too, so it is excluded from Promoted and
                 // reported on its own: nothing started and nothing replaced the card, and saying
-                // otherwise removes the card without ever showing the reason. [61]
+                // otherwise removes the card without ever showing the reason.
                 onTerminalEmit: info => _notifications.NotifyAllAsync(
                     SignalREvents.OperationWaitingComplete,
                     new OperationWaitingCompleteNotification(
@@ -412,7 +412,7 @@ public sealed class OperationQueueService : IOperationQueue
                         // re-check, a datasource that cannot map logical objects - is a real
                         // problem the reader has to see, and falls through to the handler below.
                         // This catch must stay above that one; the derived type is unreachable
-                        // otherwise. [63]
+                        // otherwise.
                         startDeclined = true;
                         startError = ex.Message;
                         _logger.LogInformation(

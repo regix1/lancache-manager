@@ -73,7 +73,10 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         var existing = await _clientGroupsRepository.GetByNicknameAsync(request.Nickname, ct);
         if (existing != null)
         {
-            throw new ValidationException("A client group with this nickname already exists");
+            throw new ValidationException("A client group with this nickname already exists")
+            {
+                StageKey = "errors.clientGroups.nicknameTaken"
+            };
         }
     }
 
@@ -91,7 +94,10 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         var duplicate = await _clientGroupsRepository.GetByNicknameAsync(request.Nickname, ct);
         if (duplicate != null && duplicate.Id != id)
         {
-            throw new ValidationException("A client group with this nickname already exists");
+            throw new ValidationException("A client group with this nickname already exists")
+            {
+                StageKey = "errors.clientGroups.nicknameTaken"
+            };
         }
     }
 
@@ -238,6 +244,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
             return BadRequest(new InvalidClientIpsResponse
             {
                 Error = "One or more addresses are not valid. Please correct them and try again.",
+                StageKey = "errors.clientGroups.invalidAddresses",
                 InvalidIps = invalidIps
             });
         }

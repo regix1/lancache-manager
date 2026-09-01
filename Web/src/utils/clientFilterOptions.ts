@@ -79,7 +79,7 @@ export const buildClientFilterOptions = (
  * A selection outlives the group it points at: it is persisted, so it survives the group being
  * renamed away or deleted, and only the leading "all" and the plain addresses are guaranteed to
  * still mean something. Anything that is not a group id resolves to null rather than to a NaN that
- * silently matches nothing. [10]
+ * silently matches nothing.
  */
 export const findClientFilterGroup = (
   filterValue: string,

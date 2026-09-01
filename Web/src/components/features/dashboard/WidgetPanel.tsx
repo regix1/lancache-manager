@@ -10,7 +10,7 @@ interface WidgetPanelProps {
 
 // Dashboard widget shell. Wraps .widget-card (styles/components/cards.css:93), which now carries
 // the same background-clip, transition and light-theme shadow rules as .themed-card so a widget
-// panel matches a Card panel in the same grid. [23]
+// panel matches a Card panel in the same grid.
 export const WidgetPanel: React.FC<WidgetPanelProps> = ({
   children,
   glass = false,

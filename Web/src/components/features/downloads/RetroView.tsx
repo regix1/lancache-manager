@@ -88,7 +88,12 @@ interface RetroViewProps {
   serverMode?: boolean;
   /** Server-side filter: service name or 'all'. Only used when serverMode is true. */
   filterService?: string;
-  /** Server-side filter: client IP or 'all'. Only used when serverMode is true. */
+  /**
+   * Server-side filter: 'all', or one or more client addresses separated by commas. A dropdown
+   * entry can name a client group, which stands for several addresses; the caller expands it,
+   * because a group id means nothing to the server and used to match no row at all. Only used when
+   * serverMode is true.
+   */
   filterClient?: string;
   /** Server-side filter: free-text search. Only used when serverMode is true. */
   filterSearch?: string;
@@ -96,6 +101,10 @@ interface RetroViewProps {
   filterHideLocalhost?: boolean;
   /** Server-side filter: hide zero-byte rows. Only used when serverMode is true. */
   filterHideMetadata?: boolean;
+  /** Server-side filter: hide rows under 1 MB. Only used when serverMode is true. */
+  filterHideSmallFiles?: boolean;
+  /** Server-side filter: hide evicted rows. Only used when serverMode is true. */
+  filterHideEvicted?: boolean;
   /** Server-side filter: hide rows whose game name is unknown. Only used when serverMode is true. */
   filterHideUnknown?: boolean;
   /** Server-side filter: hit/miss bucket ('all' | 'hit' | 'miss'). Only used when serverMode is true. */
@@ -106,6 +115,12 @@ interface RetroViewProps {
   filterEndTime?: number;
   /** Server-side filter: event ID. Only used when serverMode is true. */
   filterEventId?: number;
+  /**
+   * How many rows the fetch below found. The page turns its own fetch off while this table is
+   * showing, so its export button reads this count instead. Sent only once a request has answered:
+   * before that the count on hand is a placeholder zero, not an empty table.
+   */
+  onTotalItemsChange: (totalItems: number) => void;
 }
 
 // Empty State Component
@@ -243,11 +258,14 @@ const RetroView = memo(
         filterSearch = '',
         filterHideLocalhost = false,
         filterHideMetadata = false,
+        filterHideSmallFiles = false,
+        filterHideEvicted = false,
         filterHideUnknown = false,
         filterHitMiss = 'all',
         filterStartTime,
         filterEndTime,
-        filterEventId
+        filterEventId,
+        onTotalItemsChange
       },
       ref
     ) => {
@@ -277,6 +295,8 @@ const RetroView = memo(
         search: filterSearch,
         hideLocalhost: filterHideLocalhost,
         hideMetadata: filterHideMetadata,
+        hideSmallFiles: filterHideSmallFiles,
+        hideEvicted: filterHideEvicted,
         hideUnknown: filterHideUnknown,
         hitMiss: filterHitMiss,
         groupByGame,
@@ -318,6 +338,15 @@ const RetroView = memo(
 
       // Total items for pagination footer label.
       const totalItems = serverRetro.totalItems;
+
+      // Reported up while this table owns the fetch. Held back until a request has answered, so the
+      // page never reads the placeholder zero this hook holds before that. The busy flags cannot
+      // stand in for it: both are false on the commit this table mounts in, because the fetch that
+      // sets them runs in a sibling effect whose update lands on the next commit.
+      useEffect(() => {
+        if (!serverMode || !serverRetro.hasResponse) return;
+        onTotalItemsChange(serverRetro.totalItems);
+      }, [serverMode, serverRetro.hasResponse, serverRetro.totalItems, onTotalItemsChange]);
 
       // Only show datasource column when there are multiple datasources
       const showDatasourceColumn = hasMultipleDatasources && showDatasourceLabels;

@@ -136,7 +136,7 @@ pub fn report_collection_progress(
 ///
 /// `remove_cache_files` deletes exactly this list, so `collect_cache_paths(..).len()` is
 /// the count of files a removal will delete and it reaches no delete loop. Deriving that
-/// number any other way would compute a cache key nginx never wrote. [6][7][8]
+/// number any other way would compute a cache key nginx never wrote.
 pub fn collect_cache_paths(
     cache_dir: &Path,
     url_data: &HashMap<String, (String, i64)>,
@@ -189,7 +189,7 @@ pub struct CacheFileCount {
 
 /// A count-only pass: walk exactly the list `remove_cache_files` would delete, report how many
 /// of those files exist on disk, and write the count report. The delete loop lives in a
-/// different function, so it is unreachable from here, and no path is derived a second way. [6][7][8]
+/// different function, so it is unreachable from here, and no path is derived a second way.
 ///
 /// `#[allow(dead_code)]`: see the `LogScope` note above. Only the bins that offer a count call this.
 #[allow(dead_code)]
@@ -538,7 +538,7 @@ impl RemovalReport {
     /// Build the report from a removal tail. Called on all three exit paths: the
     /// no-URLs early return passes a default (zeroed) tail, the verification/permission
     /// failure closure passes the partial tail, and the final success path passes the
-    /// completed tail. [17]
+    /// completed tail.
     pub fn from_tail(game_name: &str, tail: &RemovalTail) -> Self {
         Self {
             game_name: game_name.to_string(),

@@ -202,15 +202,19 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     /// <summary>
     /// Services whose cache log entries are written under a DIFFERENT Service name than their
     /// Downloads. Xbox downloads are tagged <c>Service='xbox'</c> but their cache (and therefore
-    /// their LogEntries) live under <c>'wsus'</c> because cache files key on (service, url). Such a
-    /// service never appears in the log-file service names under its own name, so it must NOT be
-    /// treated as orphaned - doing so would delete every Xbox download (a real named service).
-    /// Maps <c>Downloads.Service</c> -&gt; the LogEntries/cache Service alias that proves it is in use.
+    /// their LogEntries) live under the raw tag the traffic arrived with, because cache files key on
+    /// (service, url): <c>'wsus'</c> for Delivery Optimization clients and <c>'xboxlive'</c> for
+    /// prefill-daemon pulls. Either one proves the cache is in use, and a box that prefills carries
+    /// almost all of its Xbox traffic under <c>'xboxlive'</c> with only an aging <c>'wsus'</c> tail,
+    /// so keying on one alias loses every Xbox download the moment the other rotates out of the logs.
+    /// Such a service never appears in the log-file service names under its own name, so it must NOT
+    /// be treated as orphaned - doing so would delete every Xbox download (a real named service).
+    /// Maps <c>Downloads.Service</c> -&gt; the LogEntries/cache Service aliases that prove it is in use.
     /// </summary>
-    private static readonly Dictionary<string, string> _cacheSplitServiceAliases =
+    private static readonly Dictionary<string, string[]> _cacheSplitServiceAliases =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["xbox"] = "wsus"
+            ["xbox"] = ["wsus", "xboxlive"]
         };
 
     /// <summary>
@@ -359,9 +363,10 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 
     /// <summary>
     /// Returns the DB services that are absent from the log-file service names and therefore orphaned.
-    /// A service is considered present (not orphaned) when its own name OR its cache-split alias
-    /// (see <see cref="_cacheSplitServiceAliases"/>) appears in the log services, so cache-split
-    /// identities such as Xbox (cache stored under 'wsus') are never wrongly flagged and deleted.
+    /// A service is considered present (not orphaned) when its own name OR any of its cache-split
+    /// aliases (see <see cref="_cacheSplitServiceAliases"/>) appears in the log services, so
+    /// cache-split identities such as Xbox (cache stored under 'wsus' or 'xboxlive') are never
+    /// wrongly flagged and deleted.
     /// </summary>
     internal static List<string> ComputeOrphanedServices(
         IEnumerable<string> dbServices,
@@ -381,9 +386,9 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
             return true;
         }
 
-        // Cache-split service: present if the Service its cache lives under is present in the logs.
-        return _cacheSplitServiceAliases.TryGetValue(serviceLower, out var cacheAlias)
-            && logServiceNames.Contains(cacheAlias.ToLowerInvariant());
+        // Cache-split service: present if any Service its cache lives under is present in the logs.
+        return _cacheSplitServiceAliases.TryGetValue(serviceLower, out var cacheAliases)
+            && cacheAliases.Any(alias => logServiceNames.Contains(alias.ToLowerInvariant()));
     }
 
     /// <summary>

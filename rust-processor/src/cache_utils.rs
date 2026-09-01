@@ -23,14 +23,29 @@ pub const DEFAULT_MAX_CHUNKS: usize = 100;
 // let a single large URL (e.g. a 100 GB session sum mis-attributed to one URL) explode to ~100k
 // md5/stat candidates, multiplied across every unique (service, url) that genuinely misses.
 //
-// WHY 4096: DEFAULT_SLICE_SIZE is 1 MiB, so 4096 chunks == 4 GiB worth of slices. A single cached
-// lancache OBJECT (one Steam/Epic/Blizzard chunk file, one WSUS .psf range) is realistically far
-// smaller than 4 GiB — they are typically 1 MiB..256 MiB — so 4 GiB covers any realistic single
-// sliced object with large margin while never undercounting. Worst-case all-miss cost per unique
-// key is bounded at 4097 candidates (vs today's 101), each unique key is probed exactly once
-// scan-wide (memoized), and the present case still short-circuits on the first hit.
+// WHY 4096: DEFAULT_SLICE_SIZE is 1 MiB, so 4096 chunks == 4 GiB worth of slices. This is the
+// blind-enumeration budget an ABSENT url is allowed to burn, not a claim about how large a cached
+// object can be — an Xbox/WSUS package is delivered as one URL and runs well past 4 GiB. Sizing a
+// probe from `bytes_served` is a guess about a URL that may not be cached at all, so it stays
+// cheap: worst-case all-miss cost per unique key is bounded at 4097 candidates, each unique key is
+// probed exactly once scan-wide (memoized), and the present case short-circuits on the first hit.
+// Walks that advance only over slices which ACTUALLY EXIST use `MAX_OBJECT_CHUNKS` instead.
 #[allow(dead_code)]
 pub const MAX_PROBE_CHUNKS: usize = 4096;
+
+// Upper bound on the collect-all walks, which visit slice 0,1,2,… and stop after
+// `CONSECUTIVE_MISS_LIMIT` consecutive absences.
+//
+// WHY IT IS NOT MAX_PROBE_CHUNKS: these walks only advance while files keep EXISTING, so their
+// cost is one md5+lookup (or one stat) per file genuinely on disk, and a fully absent URL stops
+// after `CONSECUTIVE_MISS_LIMIT` probes without ever approaching this bound. Sharing the blind
+// probe's 4 GiB budget made the ceiling the answer: a 4.004 GiB Xbox title counted exactly 4096
+// files instead of its real slice count, and removal left the slices past 4 GiB on disk.
+//
+// WHY 262144: 1 MiB slices, so 256 GiB for a single URL. One Xbox/WSUS package is one URL and
+// current titles ship past 100 GB, so this covers them with headroom while still terminating a
+// walk that would otherwise be bounded only by the size of the cache.
+pub const MAX_OBJECT_CHUNKS: usize = 262_144;
 
 /// The byte-range shape observed in an access log. Only a complete, single inclusive HTTP
 /// range is accepted for sliced cache inference; unsupported range forms fail closed.
@@ -889,7 +904,7 @@ pub fn existing_bare_metal_keyed_paths_for_url(
 
     let mut consecutive_misses = 0usize;
     let mut chunk = 0usize;
-    while chunk < MAX_PROBE_CHUNKS {
+    while chunk < MAX_OBJECT_CHUNKS {
         let start = chunk as u64 * DEFAULT_SLICE_SIZE;
         let key = format!("{}bytes={}-{}", base, start, chunk_end(start));
         let path = hash_to_path(cache_dir, &calculate_md5(&key));
@@ -935,7 +950,7 @@ where
 
     let mut consecutive_misses = 0usize;
     let mut chunk = 0usize;
-    while chunk < MAX_PROBE_CHUNKS {
+    while chunk < MAX_OBJECT_CHUNKS {
         let start = chunk as u64 * DEFAULT_SLICE_SIZE;
         let key = format!("{}bytes={}-{}", base, start, chunk_end(start));
         let hash = calculate_md5(&key);
@@ -1004,7 +1019,7 @@ where
 
     let mut consecutive_misses = 0usize;
     let mut chunk = 0usize;
-    while chunk < MAX_PROBE_CHUNKS {
+    while chunk < MAX_OBJECT_CHUNKS {
         let start = chunk as u64 * DEFAULT_SLICE_SIZE;
         let key = format!("{}bytes={}-{}", base, start, chunk_end(start));
         let digest = calculate_md5_digest(&key);
@@ -1251,7 +1266,7 @@ where
     let mut key_buf = String::with_capacity(service.len() + url.len() + 40);
     let mut consecutive_misses = 0usize;
     let mut chunk = 0usize;
-    while chunk < MAX_PROBE_CHUNKS {
+    while chunk < MAX_OBJECT_CHUNKS {
         let start = chunk as u64 * DEFAULT_SLICE_SIZE;
         key_buf.clear();
         let _ = write!(
@@ -1288,7 +1303,7 @@ where
 /// all-miss URL the walk stops after exactly this many index probes (no `no_range`/`noslice` hit and
 /// chunk 0 absent ⇒ at most `CONSECUTIVE_MISS_LIMIT` index lookups, each O(1) on the index / one
 /// `stat` on the fs path), so the incremental/eviction all-miss cost stays tightly bounded and never
-/// walks to `MAX_PROBE_CHUNKS`.
+/// walks to `MAX_OBJECT_CHUNKS`.
 #[allow(dead_code)]
 pub const CONSECUTIVE_MISS_LIMIT: usize = 8;
 
@@ -1299,7 +1314,7 @@ pub const CONSECUTIVE_MISS_LIMIT: usize = 8;
 /// object each log row is ONE ~1 MiB range, so MAX can be a single slice and a size-derived chunk
 /// count would undercount. Instead we walk chunk indices 0,1,2,… and collect every present slice,
 /// stopping only after `CONSECUTIVE_MISS_LIMIT` consecutive absences (tolerating partial-eviction
-/// holes) and never past `MAX_PROBE_CHUNKS` (the perf ceiling). Over-enumeration is SAFE because we
+/// holes) and never past `MAX_OBJECT_CHUNKS` (the perf ceiling). Over-enumeration is SAFE because we
 /// only retain candidates that ACTUALLY EXIST — non-existent slices are skipped, not counted.
 ///
 /// Always probes the `no_range` + `::noslice` keys first (they have no byte range), then the ranged
@@ -1324,10 +1339,10 @@ where
     }
 
     // Ranged slices: walk 0,1,2,… collecting every present 1 MiB slice. Stop after a run of
-    // CONSECUTIVE_MISS_LIMIT absences (bridges partial-eviction holes) or at MAX_PROBE_CHUNKS.
+    // CONSECUTIVE_MISS_LIMIT absences (bridges partial-eviction holes) or at MAX_OBJECT_CHUNKS.
     let mut consecutive_misses = 0usize;
     let mut chunk = 0usize;
-    while chunk < MAX_PROBE_CHUNKS {
+    while chunk < MAX_OBJECT_CHUNKS {
         let start = chunk as u64 * DEFAULT_SLICE_SIZE;
         let hash = calculate_md5(&format!(
             "{}{}bytes={}-{}",
@@ -1370,7 +1385,7 @@ pub fn existing_cache_paths_for_url(cache_dir: &Path, service: &str, url: &str) 
 
     let mut consecutive_misses = 0usize;
     let mut chunk = 0usize;
-    while chunk < MAX_PROBE_CHUNKS {
+    while chunk < MAX_OBJECT_CHUNKS {
         let start = chunk as u64 * DEFAULT_SLICE_SIZE;
         let path = calculate_cache_path(cache_dir, &service, url, start, chunk_end(start));
         if path.exists() {
@@ -2078,6 +2093,33 @@ mod tests {
             probe_chunks_for_bytes(MAX_PROBE_CHUNKS as i64 * DEFAULT_SLICE_SIZE as i64),
             MAX_PROBE_CHUNKS
         );
+    }
+
+    /// One Xbox/WSUS package is served as a SINGLE URL and routinely runs past 4 GiB, so the
+    /// collect-all walk has to keep counting well beyond the blind-probe ceiling. Counting only
+    /// as far as `MAX_PROBE_CHUNKS` reported a 4.004 GiB title as exactly 4096 files - the
+    /// ceiling, not a measurement - and left the tail slices behind on removal.
+    #[test]
+    fn collect_all_walk_counts_every_slice_past_the_blind_probe_ceiling() {
+        const PRESENT_SLICES: usize = MAX_PROBE_CHUNKS + 5;
+        let service = "wsus";
+        let url = "/filestreamingservice/files/12345678-90ab-cdef-1234-567890abcdef";
+
+        let present: HashSet<u128> = (0..PRESENT_SLICES)
+            .map(|chunk| {
+                let start = chunk as u64 * DEFAULT_SLICE_SIZE;
+                calculate_md5_digest(&format!(
+                    "{}{}bytes={}-{}",
+                    service,
+                    url,
+                    start,
+                    chunk_end(start)
+                ))
+            })
+            .collect();
+
+        let hits = existing_cache_digests_for_url(service, url, |digest| present.contains(&digest));
+        assert_eq!(hits.len(), PRESENT_SLICES);
     }
 
     use std::borrow::Cow;

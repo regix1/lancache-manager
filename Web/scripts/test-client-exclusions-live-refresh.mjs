@@ -10,7 +10,7 @@ import { bindLifted, findSoleNode, liftHookCallback, parseSource } from './trans
  *
  * The panel also holds unsaved edits, so the reload has two windows in which the user can start
  * typing after it was decided on: the debounce, and the request itself. Losing what they typed is
- * worse than the staleness, so both are checked here against the arrows the component ships. [21] [22]
+ * worse than the staleness, so both are checked here against the arrows the component ships.
  */
 
 const COMPONENT_PATH = 'src/components/features/management/sections/ClientsSection.tsx';
@@ -120,6 +120,7 @@ test('a reply that lands after the user starts typing is dropped', async () => {
     liftHookCallback(COMPONENT_PATH, 'useCallback', 'ApiService.getStatsExclusions'),
     {
       isAdmin: true,
+      mockMode: false,
       hasExcludedChangesRef: editing,
       setLoadingExcluded: () => undefined,
       ApiService: {

@@ -167,7 +167,11 @@ public class EpicGameMappingController : ControllerBase
         {
             return Ok(new EpicRefreshCancelResponse { Cancelled = true, Message = "Epic catalog refresh cancelled" });
         }
-        return NotFound(new NotFoundResponse { Error = "No active refresh to cancel" });
+        return NotFound(new NotFoundResponse
+        {
+            Error = "No active refresh to cancel",
+            StageKey = "errors.epic.noActiveRefresh"
+        });
     }
 
     /// <summary>

@@ -1,13 +1,15 @@
 import { useEffect } from 'react';
-import type { Download } from '../types';
 
+/**
+ * Loads the event tags for a group's sessions. Takes the ids because a collapsed group carries
+ * only its newest session, and the badges it draws cover the whole membership.
+ */
 export function useGroupDownloadAssociations(
-  downloads: Download[],
+  downloadIds: number[],
   fetchAssociations: (downloadIds: number[]) => Promise<void>,
   refreshVersion: number
 ): void {
   useEffect(() => {
-    const downloadIds = downloads.map((download) => download.id);
     fetchAssociations(downloadIds);
-  }, [downloads, fetchAssociations, refreshVersion]);
+  }, [downloadIds, fetchAssociations, refreshVersion]);
 }

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useContext, useEffect } from 'react';
 import { Activity, Clock, Rows3 } from 'lucide-react';
 import { type TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
@@ -13,6 +13,12 @@ import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Tooltip } from '@components/ui/Tooltip';
+import LoadingSpinner from '@components/common/LoadingSpinner';
+import { useDownloads } from '@contexts/DashboardDataContext/hooks';
+import {
+  DownloadFilterFetchContext,
+  type DownloadFilters
+} from '@contexts/DashboardDataContext/types';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useClientHostnames } from '@contexts/useClientHostnames';
@@ -45,6 +51,9 @@ import type {
   GameDetectionSummary
 } from '@/types';
 import { resolveGameDetection } from '@utils/gameDetection';
+
+/** What the panel hands the provider back when it holds no selection of its own. */
+const UNFILTERED_DOWNLOADS: DownloadFilters = { service: 'all', client: 'all' };
 
 interface RecentDownloadsPanelProps {
   downloads: Download[];
@@ -346,17 +355,28 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const { getGroupForIp } = useClientGroups();
   const { getHostnameForIp } = useClientHostnames();
+  // The dropdowns list every service and client the range holds, so those two come back
+  // unfiltered; the totals and the rows below them come back narrowed by the selection.
+  const {
+    filteredDownloadTotals,
+    serviceOptions,
+    clientOptions: clientAddresses,
+    setDownloadFilters
+  } = useDownloads();
+  // Set while the answer to the current selection is still on its way. The rows below narrow
+  // themselves the moment a dropdown moves; the totals cannot, so they need a way to say so.
+  const downloadFilterFetching = useContext(DownloadFilterFetchContext);
   const { speedSnapshot, gameSpeeds, activeDownloadCount, isLoading: speedLoading } = useSpeed();
   const { timeRange: contextTimeRange, selectedEventIds } = useTimeFilter();
 
   // Match Dashboard/DownloadsTab: non-live time range or event filter disables live Active tab
   const isHistoricalView = contextTimeRange !== 'live' || selectedEventIds.length > 0;
 
-  // In-progress previews for the Recent view (live range, no event filter only). Matching
-  // runs against the FULL downloads list - reconciliation must see rows the panel
-  // filters hide - while the panel's own service/client filters are applied separately
-  // below. Previews never enter the recorded rows, the grouped items, the footer stats,
-  // or the association fetches.
+  // In-progress previews for the Recent view (live range, no event filter only). Matching runs
+  // against the slice the server sent, which carries every still-running row whatever its age -
+  // that row is what retires the preview beside it, and a preview the selection hides is dropped
+  // by the same predicates below, so neither can be left stranded. Previews never enter the
+  // recorded rows, the grouped items, the footer stats, or the association fetches.
   const livePreviews = useLiveDownloadPreviews(
     downloads,
     viewMode === 'recent' && !isHistoricalView
@@ -393,8 +413,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           groupName = download.gameName!;
           groupType = 'game';
         } else {
-          // Group by service for all platforms (including unmapped Steam)
-          const svcLower = (download.service ?? '').toLowerCase();
+          // Group by service for all platforms (including unmapped Steam). The folded key, so the
+          // Xbox aliases share the one row they already share a display name with. wsus is outside
+          // that fold and keeps its own row.
+          const svcLower = getServiceFilterKey(download.service ?? '');
           groupKey = `service-${svcLower}`;
           groupName =
             svcLower === 'epicgames'
@@ -412,6 +434,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             type: groupType,
             service: download.service,
             downloads: [],
+            downloadIds: [],
             totalBytes: 0,
             totalDownloaded: 0,
             cacheHitBytes: 0,
@@ -419,11 +442,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             clientsSet: new Set<string>(),
             firstSeen: download.startTimeUtc,
             lastSeen: download.startTimeUtc,
-            count: 0
+            count: 0,
+            // Answered over the whole membership once every member has been added.
+            isEvicted: true,
+            isPartiallyEvicted: false,
+            hasRealGameName: false
           };
         }
 
         groups[groupKey].downloads.push(download);
+        groups[groupKey].downloadIds.push(download.id);
         groups[groupKey].totalBytes += download.totalBytes;
         groups[groupKey].totalDownloaded += download.totalBytes;
         groups[groupKey].cacheHitBytes += download.cacheHitBytes;
@@ -439,7 +467,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         }
       });
 
-      return Object.values(groups);
+      const groupList = Object.values(groups);
+      groupList.forEach((group) => {
+        group.isEvicted = group.downloads.every((d) => d.isEvicted);
+        group.isPartiallyEvicted = !group.isEvicted && group.downloads.some((d) => d.isEvicted);
+        group.hasRealGameName = group.downloads.some((d) =>
+          isResolvedGameName(d.gameName, d.service)
+        );
+      });
+
+      return groupList;
     },
     [t]
   );
@@ -451,26 +488,24 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
   // Group raw service names by their folded display name (e.g. "xbox" and
   // "xboxlive" both fold to "Xbox") so the filter dropdown shows one entry
-  // per displayed name instead of one per raw alias.
+  // per displayed name instead of one per raw alias. The fold stays here
+  // because the server sends the raw names it recorded.
   const serviceFilterOptions = useMemo(() => {
     const representatives = new Map<string, string>();
-    downloads.forEach((d: Download) => {
-      const key = getServiceFilterKey(d.service);
+    serviceOptions.forEach(({ service }) => {
+      const key = getServiceFilterKey(service);
       if (!representatives.has(key)) {
-        representatives.set(key, d.service);
+        representatives.set(key, service);
       }
     });
     return Array.from(representatives.entries())
       .map(([key, service]) => ({ key, service }))
       .sort((a, b) => a.key.localeCompare(b.key));
-  }, [downloads]);
+  }, [serviceOptions]);
 
   const { clientGroups } = useClientGroups();
 
-  const availableClients = useMemo(() => {
-    const clients = new Set(downloads.map((d) => d.clientIp));
-    return Array.from(clients).sort();
-  }, [downloads]);
+  const availableClients = useMemo(() => [...clientAddresses].sort(), [clientAddresses]);
 
   const clientOptions = useMemo(
     () =>
@@ -483,43 +518,62 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     [availableClients, getGroupForIp, getHostnameForIp, t]
   );
 
-  const filteredDownloads = useMemo(() => {
-    // A selection naming a group that no longer exists falls through to the address branch,
-    // where it matches nothing, rather than quietly dropping the filter. [10]
-    const selectedGroup = findClientFilterGroup(selectedClient, clientGroups);
-    return downloads.filter((download) => {
-      if (selectedService !== 'all' && getServiceFilterKey(download.service) !== selectedService)
-        return false;
-      if (selectedClient !== 'all') {
-        if (selectedGroup) {
-          if (!selectedGroup.memberIps.includes(download.clientIp)) return false;
-        } else if (download.clientIp !== selectedClient) {
-          return false;
-        }
-      }
-      return true;
+  // A selection naming a group that no longer exists resolves to null and is sent on as a plain
+  // address, where it matches nothing, rather than quietly dropping the filter.
+  const selectedClientGroup = useMemo(
+    () => findClientFilterGroup(selectedClient, clientGroups),
+    [selectedClient, clientGroups]
+  );
+
+  // Both filters are query parameters now, so the totals and the rows arrive already narrowed.
+  // A group is sent as its member addresses, which the query takes as a list, so a group narrows
+  // the totals as exactly as a single address does.
+  useEffect(() => {
+    setDownloadFilters({
+      service: selectedService,
+      client: selectedClientGroup ? selectedClientGroup.memberIps.join(',') : selectedClient
     });
-  }, [downloads, selectedService, selectedClient, clientGroups]);
+  }, [selectedService, selectedClient, selectedClientGroup, setDownloadFilters]);
+
+  // The provider outlives this panel while the selection does not, so a filter left behind would
+  // narrow the batch for every other page.
+  useEffect(() => () => setDownloadFilters(UNFILTERED_DOWNLOADS), [setDownloadFilters]);
 
   // Panel filters applied to previews with the same predicates as the recorded rows.
   const visibleLivePreviews = useMemo(() => {
     if (livePreviews.length === 0) return livePreviews;
-    const selectedGroup = findClientFilterGroup(selectedClient, clientGroups);
     const clientFilter =
       selectedClient === 'all'
         ? { type: 'all' as const }
-        : selectedGroup
-          ? { type: 'group' as const, memberIps: selectedGroup.memberIps }
+        : selectedClientGroup
+          ? { type: 'group' as const, memberIps: selectedClientGroup.memberIps }
           : { type: 'ip' as const, ip: selectedClient };
     return filterLivePreviews(livePreviews, {
       serviceFilterKey: selectedService,
       clientFilter
     });
-  }, [livePreviews, selectedService, selectedClient, clientGroups]);
+  }, [livePreviews, selectedService, selectedClient, selectedClientGroup]);
+
+  // The server narrows these rows too, but only after a round trip, and the refetch leaves the
+  // previous rows on screen while it runs. Applying the same predicate here drops the rows the new
+  // selection excludes as soon as it is made; the response then replaces the list outright, and
+  // every row in it already satisfies this predicate, so it changes nothing once it lands. The
+  // footer totals are not computed from these rows - they stay the server's.
+  const visibleDownloads = useMemo(() => {
+    return downloads.filter((download) => {
+      if (selectedService !== 'all' && getServiceFilterKey(download.service) !== selectedService) {
+        return false;
+      }
+      if (selectedClient === 'all') return true;
+      return selectedClientGroup
+        ? selectedClientGroup.memberIps.includes(download.clientIp)
+        : download.clientIp === selectedClient;
+    });
+  }, [downloads, selectedService, selectedClient, selectedClientGroup]);
 
   const displayCount = 10;
   const groupedItems = useMemo(() => {
-    const allItems = createGroups(filteredDownloads);
+    const allItems = createGroups(visibleDownloads);
 
     allItems.sort((a, b) => {
       const aTime = Math.max(
@@ -535,7 +589,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       displayedItems: allItems.slice(0, displayCount),
       totalGroups: allItems.length
     };
-  }, [filteredDownloads, createGroups]);
+  }, [visibleDownloads, createGroups]);
 
   // Live previews render above the recorded rows and share the 10-row cap. Recorded rows
   // yield space to previews; footer stats and the association fetch stay recorded-only.
@@ -557,13 +611,17 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     }
   }, [groupedItems.displayedItems, fetchAssociations, refreshVersion]);
 
+  // Added up over the selection server-side, not over the rows on screen: those are the most
+  // recent slice of it, so summing them would read low on any busy range. The narrowed total is
+  // the one that moves with these dropdowns; the unfiltered one belongs to the downloads page,
+  // which shares this provider and must not see a dashboard selection.
   const stats = useMemo(() => {
-    const totalBytes = filteredDownloads.reduce((sum, d) => sum + d.totalBytes, 0);
-    const totalCacheHits = filteredDownloads.reduce((sum, d) => sum + d.cacheHitBytes, 0);
-    const overallHitRate = totalBytes > 0 ? (totalCacheHits / totalBytes) * 100 : 0;
-
+    if (!filteredDownloadTotals) return { totalBytes: 0, overallHitRate: 0 };
+    const totalBytes = filteredDownloadTotals.cacheHitBytes + filteredDownloadTotals.cacheMissBytes;
+    const overallHitRate =
+      totalBytes > 0 ? (filteredDownloadTotals.cacheHitBytes / totalBytes) * 100 : 0;
     return { totalBytes, overallHitRate };
-  }, [filteredDownloads]);
+  }, [filteredDownloadTotals]);
 
   // Active downloads data from speed context (same source as Active Downloads stat card)
   const activeGames = gameSpeeds;
@@ -641,7 +699,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 <Rows3 className="w-4 h-4" />
               </Button>
             </Tooltip>
-            {downloads.length > 0 && (
+            {serviceFilterOptions.length > 0 && (
               <>
                 <EnhancedDropdown
                   options={[
@@ -770,14 +828,24 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                     );
                   })
                 ) : displayedLivePreviews.length === 0 ? (
-                  <EmptyState
-                    variant="panel"
-                    icon={Clock}
-                    title={t('dashboard.downloadsPanel.emptyStates.noDownloads')}
-                    subtitle={t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
-                      period: getTimeRangeLabel.toLowerCase()
-                    })}
-                  />
+                  // A selection whose rows are all older than the slice held here empties the list
+                  // as soon as it is made, and the answer that refills it is a round trip away.
+                  // Saying nothing was recorded would be wrong for that stretch.
+                  downloadFilterFetching ? (
+                    <div className="flex items-center justify-center gap-2 py-4 text-sm text-themed-muted">
+                      <LoadingSpinner size="sm" inline />
+                      <span>{t('dashboard.downloadsPanel.emptyStates.loading')}</span>
+                    </div>
+                  ) : (
+                    <EmptyState
+                      variant="panel"
+                      icon={Clock}
+                      title={t('dashboard.downloadsPanel.emptyStates.noDownloads')}
+                      subtitle={t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
+                        period: getTimeRangeLabel.toLowerCase()
+                      })}
+                    />
+                  )
                 ) : null}
               </>
             )}
@@ -818,10 +886,21 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           ) : (
             <>
               <div className="dash-readout-item">
+                {/* The figure is the server's, computed over the whole selection, so until the new
+                    answer lands it is still the previous selection's. Muted and marked busy for
+                    that stretch rather than reading as the answer to the dropdown just moved. */}
                 <div
-                  className={`dash-readout-value${stats.totalBytes > 0 ? ` ${hitRateClass}` : ''}`}
+                  className={`dash-readout-value${
+                    downloadFilterFetching
+                      ? ' is-stale'
+                      : stats.totalBytes > 0
+                        ? ` ${hitRateClass}`
+                        : ''
+                  }`}
+                  aria-busy={downloadFilterFetching}
                 >
                   {stats.totalBytes > 0 ? formatPercent(stats.overallHitRate) : '—'}
+                  {downloadFilterFetching && <LoadingSpinner size="xs" inline />}
                 </div>
                 <div className="caps-label caps-label--wide dash-readout-label">
                   {t('dashboard.downloadsPanel.hitRate')}

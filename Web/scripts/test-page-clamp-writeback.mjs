@@ -10,8 +10,9 @@ import { bindLifted, liftHookCallback } from './transpile-module.mjs';
  * still 4. Add rows back and the view jumps to page 4 on its own, with nobody having touched the
  * pager. Writing the clamp back is what keeps the number and the view in step.
  *
- * Both lists count their rows from an array already in memory, so there is no not-yet-fetched state
- * to guard against here - unlike the server-paged retro list, which has to wait for its own answer.
+ * The two user lists count their rows from an array already in memory. The downloads tab does not
+ * any more: its page comes from the server, so it waits for the response to echo the page it asked
+ * for before it clamps, the same way the retro list does.
  */
 
 const DOWNLOADS_TAB = 'src/components/features/downloads/DownloadsTab.tsx';
@@ -31,13 +32,21 @@ const SITES = [
   }
 ];
 
-/** The write-back effect exactly as the component runs it. */
-const runWriteBack = (path, { currentPage, totalPages, viewMode = 'normal' }) => {
+/**
+ * The write-back effect exactly as the component runs it. `echoedPage` is the page the last
+ * response came back holding; it defaults to the page being asked for, which is the settled state
+ * the two user lists are always in.
+ */
+const runWriteBack = (
+  path,
+  { currentPage, totalPages, viewMode = 'normal', echoedPage = currentPage }
+) => {
   const pages = [];
   bindLifted(liftHookCallback(path, 'useEffect', 'setCurrentPage(totalPages)'), {
     currentPage,
     totalPages,
     settings: { viewMode },
+    serverPage: { currentPage: echoedPage },
     setCurrentPage: (page) => pages.push(page)
   })();
   return pages;
@@ -63,12 +72,21 @@ for (const site of SITES) {
   });
 }
 
+test('downloads: a page the server has not answered yet is left alone', () => {
+  // The total on hand belongs to the previous request until the response echoes the page that was
+  // asked for. Clamping before then takes a deep page away before its own rows ever arrive, which
+  // is exactly what breaks a link straight to page 30.
+  assert.deepEqual(
+    runWriteBack(DOWNLOADS_TAB, { currentPage: 30, totalPages: 1, echoedPage: 1 }),
+    []
+  );
+});
+
 /**
- * The downloads tab shows four views out of one page number, and only three of them are paginated
- * on the client. Retro asks the server for its page, so the total computed here counts a list that
- * is empty while retro is showing - it reads 1 no matter how many retro pages exist. Clamping
- * against it would pull a legitimate deep retro page back to the start on every render, which is
- * the exact failure the retro clamp in RetroView was written to avoid.
+ * The downloads tab shows four views out of one page number, and retro fetches its own page under
+ * its own grouping. Its page count is therefore a different number from the one computed here, and
+ * clamping against this one would pull a legitimate deep retro page back to the start on every
+ * render - the exact failure the clamp inside RetroView was written to avoid.
  */
 test('downloads: retro is left alone, because this total counts the wrong list', () => {
   assert.deepEqual(
@@ -77,9 +95,9 @@ test('downloads: retro is left alone, because this total counts the wrong list',
   );
 });
 
-test('downloads: leaving retro clamps the page against the client list it landed on', () => {
-  // Page 30 came from retro; the client list this view pages over has four pages, so the number has
-  // to come down or the first render shows an empty slice.
+test('downloads: leaving retro clamps the page against the list it landed on', () => {
+  // Page 30 came from retro; the grouped list this view pages over has four pages, so the number
+  // has to come down or the first render shows an empty page.
   assert.deepEqual(
     runWriteBack(DOWNLOADS_TAB, { currentPage: 30, totalPages: 4, viewMode: 'normal' }),
     [4]

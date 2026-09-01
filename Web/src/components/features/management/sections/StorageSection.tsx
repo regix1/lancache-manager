@@ -205,6 +205,15 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // post-scan) that should update the list in place rather than blanking it back to a skeleton.
   const hasLoadedEvictedItemsRef = useRef(false);
   const fetchEvictedItems = useCallback(async () => {
+    // The generated detection carries no evicted entries, so mock mode has an empty list to show
+    // and no reason to ask the server for a real one.
+    if (mockMode) {
+      setEvictedGames([]);
+      setEvictedServices([]);
+      hasLoadedEvictedItemsRef.current = true;
+      setEvictedItemsLoading(false);
+      return;
+    }
     if (!hasLoadedEvictedItemsRef.current) {
       setEvictedItemsLoading(true);
     }
@@ -225,7 +234,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       hasLoadedEvictedItemsRef.current = true;
       setEvictedItemsLoading(false);
     }
-  }, [notifyError, t]);
+  }, [mockMode, notifyError, t]);
 
   // Sync from API when refresh key changes - but NOT during active removal
   useEffect(() => {
@@ -553,6 +562,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
   const loadEvictionSettings = useCallback(
     async (signal?: AbortSignal) => {
+      // Mock mode has no stored settings behind it; the state defaults stand.
+      if (mockMode) {
+        setEvictionLoading(false);
+        return;
+      }
       setEvictionLoading(true);
       try {
         const response = await ApiService.getEvictionSettings(signal);
@@ -567,7 +581,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         setEvictionLoading(false);
       }
     },
-    [onError, t]
+    [mockMode, onError, t]
   );
 
   useEffect(() => {

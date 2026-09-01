@@ -58,10 +58,24 @@ public class DownloadCleanupServiceTests
     }
 
     [Fact]
-    public void ComputeOrphanedServices_XboxWithoutWsusInLogs_IsOrphaned()
+    public void ComputeOrphanedServices_XboxPresentViaXboxliveAlias_NotOrphaned()
     {
-        // The alias only protects xbox while its cache (wsus) is still present. With wsus gone too,
-        // xbox is genuinely orphaned - the guard is conditional, not an unconditional whitelist.
+        // Prefill-daemon traffic is tagged 'xboxlive' rather than 'wsus', and on a box that pulls its
+        // Xbox content that way 'wsus' is a small aging tail that rotates out of the logs first.
+        // Either alias proves the Xbox cache is still in use, so 'xboxlive' alone must protect it.
+        var orphans = DownloadCleanupService.ComputeOrphanedServices(
+            new[] { "xbox", "steam" },
+            new HashSet<string> { "steam", "xboxlive" });
+
+        Assert.DoesNotContain("xbox", orphans);
+        Assert.Empty(orphans);
+    }
+
+    [Fact]
+    public void ComputeOrphanedServices_XboxWithNoCacheAliasInLogs_IsOrphaned()
+    {
+        // The aliases only protect xbox while its cache is still present. With both wsus and xboxlive
+        // gone, xbox is genuinely orphaned - the guard is conditional, not an unconditional whitelist.
         var orphans = DownloadCleanupService.ComputeOrphanedServices(
             new[] { "xbox", "steam" },
             new HashSet<string> { "steam" });

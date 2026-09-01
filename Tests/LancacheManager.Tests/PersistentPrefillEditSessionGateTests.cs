@@ -328,6 +328,41 @@ public sealed class PersistentPrefillEditSessionGateTests
             PersistentPrefillEditResourceKind.Selection));
     }
 
+    [Fact]
+    public async Task CompletedCleanup_RetiresItsStarts_ButKeepsRejectingLateStarts()
+    {
+        var gate = new PersistentPrefillEditSessionGate();
+        var first = gate.BeginStart("edit-session-a", "start-a");
+        Assert.True(gate.HasPendingStart());
+        gate.CompleteStart(
+            "edit-session-a",
+            "start-a",
+            new PersistentPrefillEditSessionStartRecord("start-a", "session-a", CreatedByEditSession: true));
+        var firstRecord = await first.Completion;
+
+        var second = gate.BeginStart("edit-session-b", "start-b");
+        gate.CompleteStart(
+            "edit-session-b",
+            "start-b",
+            new PersistentPrefillEditSessionStartRecord("start-b", "session-b", CreatedByEditSession: true));
+        await second.Completion;
+
+        Assert.False(gate.CanStopStartedSession("edit-session-a", firstRecord));
+
+        var cleanup = gate.BeginCleanup("edit-session-b", "cleanup-b");
+        _ = await cleanup.PendingStarts.Single();
+        gate.CompleteCleanup("edit-session-b", "cleanup-b");
+        await cleanup.Completion;
+
+        Assert.True(gate.CanStopStartedSession("edit-session-a", firstRecord));
+        Assert.False(gate.BeginStart("edit-session-b", "start-late").Accepted);
+        Assert.False(gate.BeginEditAction(
+            "edit-session-b",
+            "selection-late",
+            PersistentPrefillEditActionKind.Selection,
+            "session-b").Accepted);
+    }
+
     private static PersistentPrefillEditActionKind ToActionKind(
         PersistentPrefillEditResourceKind resourceKind) =>
         resourceKind switch

@@ -110,13 +110,16 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
 
     try {
       const data = await ApiService.testSteamApiKey(apiKey.trim());
-      setTestResult({ valid: data.valid, message: data.message });
+      const verdict = data.valid
+        ? t('management.steamWebApi.test.valid')
+        : t('management.steamWebApi.test.invalid');
+      setTestResult({ valid: data.valid, message: verdict });
       if (data.valid) {
         settleWebApiCard('completed', t('signalr.steamWebApi.keyValid'), 'success');
       } else {
         settleWebApiCard(
           'failed',
-          t('signalr.steamWebApi.keyInvalid', { errorDetail: data.message }),
+          t('signalr.steamWebApi.keyInvalid', { errorDetail: verdict }),
           'error'
         );
       }

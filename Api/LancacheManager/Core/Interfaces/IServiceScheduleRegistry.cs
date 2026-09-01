@@ -34,7 +34,7 @@ public interface IServiceScheduleRegistry
     /// colliding with the run described by the returned status, not starting a new one.
     ///
     /// SkippedReason is set instead when the run was refused before it was armed, and is the sentence
-    /// to show the caller: nothing was triggered and no run will follow. [18]
+    /// to show the caller: nothing was triggered and no run will follow.
     /// </summary>
     Task<(ScheduleRunStatus Status, string? SkippedReason)> TriggerRunAsync(string serviceKey);
 
@@ -54,7 +54,7 @@ public interface IServiceScheduleRegistry
     /// rather than a second concurrent one, for the same single-pending-run reason as
     /// <see cref="TriggerRunAsync"/>). Services refused before they were armed are counted separately
     /// with the single reason they all share, so the fan-out still triggers everything that can run
-    /// rather than being blocked as a whole. [22]
+    /// rather than being blocked as a whole.
     /// </summary>
     Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason)> TriggerAllAsync();
 

@@ -611,7 +611,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         formatGameDetectionCompleteMessage(event),
       // The terminal handler resolves a declined run through the success path too, and that
       // payload carries no counts, so merging it would write undefined over the numbers the
-      // card is already showing. [70]
+      // card is already showing.
       getSuccessDetails: (event: GameDetectionCompleteEvent, existing) =>
         event.status === 'skipped'
           ? existing?.details
@@ -1037,10 +1037,16 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           `management.schedules.services.scheduledPrefill.config.services.${serviceKey}`
         );
 
+        // The backend names the one sentence this event puts on the card with `stageKey`, and
+        // sends the English it composed as `message` / `needsLoginReason`. A daemon's own text
+        // arrives with no key and passes through as it did before.
+        const sentence = (english: string | null | undefined) =>
+          translateStageKeyMessage(event.stageKey ?? english, event.stageContext ?? undefined);
+
         if (event.stage === 'skipped') {
           return i18n.t('management.schedules.services.scheduledPrefill.events.skipped', {
             service: serviceLabel,
-            reason: event.message
+            reason: sentence(event.message)
           });
         }
 
@@ -1050,7 +1056,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           return event.needsLoginReason
             ? i18n.t('management.schedules.services.scheduledPrefill.events.needsLoginWithReason', {
                 service: serviceLabel,
-                reason: event.needsLoginReason
+                reason: sentence(event.needsLoginReason)
               })
             : i18n.t('management.schedules.services.scheduledPrefill.events.needsLogin', {
                 service: serviceLabel
@@ -1059,7 +1065,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
 
         return i18n.t('management.schedules.services.scheduledPrefill.events.serviceProgress', {
           service: serviceLabel,
-          message: event.message
+          message: sentence(event.message)
         });
       },
       // Backend-computed run percent. It tracks the ACTIVE service only (games completed plus the
@@ -1088,7 +1094,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getCancelledMessage: () =>
         i18n.t('management.schedules.services.scheduledPrefill.events.cancelled'),
       getFailureMessage: (event: ScheduledPrefillCompletedEvent) =>
-        event.error ?? i18n.t('management.schedules.services.scheduledPrefill.events.failed')
+        translateStageKeyMessage(
+          event.stageKey ?? event.error,
+          undefined,
+          'management.schedules.services.scheduledPrefill.events.failed'
+        )
     }
   }),
 
@@ -1496,7 +1506,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     complete: {
       succeeded: true,
       // The same event announces a single download's game being resolved, carrying neither count.
-      // Without this gate that emission renders a card reporting nothing was added. [13]
+      // Without this gate that emission renders a card reporting nothing was added.
       shouldDisplay: (event: XboxGameMappingsUpdatedEvent) =>
         Boolean(event.newMappings || event.newPatterns),
       getSuccessMessage: () => i18n.t('notifications.xboxGameMappingsUpdated.title'),
@@ -1509,7 +1519,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   // the detail from the event's own stage key, the same reading every operation card uses. Keeping
   // the error-type mapping on the emitter leaves one copy of it rather than two that can disagree.
   // The card stays twice as long as the shared default because a dropped Steam session is
-  // something a person has to act on. [33]
+  // something a person has to act on.
   {
     type: 'steam_session_error',
     id: NOTIFICATION_IDS.STEAM_SESSION_ERROR,

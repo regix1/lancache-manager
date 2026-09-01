@@ -75,12 +75,12 @@ public class SteamApiStatusResponse
 }
 
 /// <summary>
-/// Response for API key test
+/// Response for API key test. Verdict only: the browser writes the sentence, in the reader's
+/// language, from this flag.
 /// </summary>
 public class ApiKeyTestResponse
 {
     public bool Valid { get; set; }
-    public string Message { get; set; } = string.Empty;
 }
 
 /// <summary>

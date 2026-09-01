@@ -264,7 +264,7 @@ public sealed class StatusCheckService : IStatusCheckService
                         result.EdgeProbe = await ProbeDomainEdgesAsync(originalEntry, result.Domain, token);
                         if (result.ResolvedIps.Count == 0)
                         {
-                            var reason = result.Error ?? "No A records returned";
+                            var reason = result.Error ?? "signalr.statusCheck.noARecords";
                             failureReasons.AddOrUpdate(reason, 1, static (_, count) => count + 1);
                             if (Interlocked.Increment(ref failureSamplesLogged) <= MaxLoggedFailureSamples)
                             {
@@ -534,7 +534,7 @@ public sealed class StatusCheckService : IStatusCheckService
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
         {
-            error = "DNS query timed out";
+            error = "signalr.statusCheck.dnsTimeout";
         }
         catch (SocketException ex)
         {
@@ -558,7 +558,7 @@ public sealed class StatusCheckService : IStatusCheckService
         // a null reason.
         if (resolvedIps.Count == 0 && error == null)
         {
-            error = "No A records returned";
+            error = "signalr.statusCheck.noARecords";
         }
 
         // Contract amendment v1.4: actively verify by probing /lancache-heartbeat on the resolved
@@ -608,7 +608,7 @@ public sealed class StatusCheckService : IStatusCheckService
                 Reachable = false,
                 ServedBy = null,
                 CacheIp = null,
-                Error = "No cache server IP could be determined (set Prefill__LancacheIp or ensure the lancache container is discoverable)."
+                Error = "errors.statusCheck.noCacheIp"
             };
         }
 

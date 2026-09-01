@@ -1011,7 +1011,7 @@ public partial class GameCacheDetectionService : IDisposable
     /// run never finished walking the cache, so once it has written detection rows the stored
     /// totals describe a cache those rows have moved past, and nothing else clears that column.
     /// A run that wrote no rows leaves the totals still matching what is stored beside them, so
-    /// they stay: clearing there would discard a measurement that is still true. [4]
+    /// they stay: clearing there would discard a measurement that is still true.
     /// An incremental run never clears: it measures no unmapped set even when it succeeds, so its
     /// failure says nothing about the last full scan's bucket.
     /// </summary>
@@ -1242,8 +1242,13 @@ public partial class GameCacheDetectionService : IDisposable
                 "[ServiceDetection] Service self-heal failed on startup - proceeding with stale data");
         }
 
+        // A named Xbox/Blizzard/Riot row is stored with GameAppId=0 and EpicAppId=null too - what
+        // separates it from a legacy leftover is the title in GameName, which is how it is addressed
+        // and the only thing a scan could rebuild it from. The GameName == "" term is therefore what
+        // keeps this from deleting every named game on every boot, and it matches the scheduled pass
+        // in DownloadCleanupService that drops the same nameless rows.
         var legacyZeroEntries = await dbContext.CachedGameDetections
-            .Where(g => g.GameAppId == 0 && g.EpicAppId == null)
+            .Where(g => g.GameAppId == 0 && g.EpicAppId == null && g.GameName == "")
             .ToListAsync();
         if (legacyZeroEntries.Count > 0)
         {
@@ -1287,9 +1292,14 @@ public partial class GameCacheDetectionService : IDisposable
         InvalidateDetectionCache();
     }
 
-    public async Task<DetectionOperationResponse?> GetCachedDetectionAsync()
+    /// <summary>
+    /// Serves the retained detection response, loading it once behind the cache lock. The wait and
+    /// the load both take the caller's token: a request that has already gone away otherwise holds
+    /// a dashboard sub-query on this lock behind whichever load is in front of it.
+    /// </summary>
+    public async Task<DetectionOperationResponse?> GetCachedDetectionAsync(CancellationToken cancellationToken = default)
     {
-        await _detectionCacheLock.WaitAsync();
+        await _detectionCacheLock.WaitAsync(cancellationToken);
         try
         {
             if (_cachedDetectionResponse != null)
@@ -1300,7 +1310,7 @@ public partial class GameCacheDetectionService : IDisposable
             // The retained cache deliberately excludes CacheFilePaths: across all rows the paths
             // are millions of strings, and no consumer of the cached response reads them.
             // Path-bearing responses are served per request by GetCachedDetectionWithPathsAsync.
-            var result = await LoadDetectionAsync(includeCacheFilePaths: false);
+            var result = await LoadDetectionAsync(cancellationToken, includeCacheFilePaths: false);
             _cachedDetectionResponse = result;
             return result;
         }
@@ -1393,7 +1403,7 @@ public partial class GameCacheDetectionService : IDisposable
                 }
 
                 _currentTrackerOperationId = persistedGuid;
-                _operationTracker.UpdateProgress(persistedGuid, 0, state.Message ?? "Resuming game cache detection...");
+                _operationTracker.UpdateProgress(persistedGuid, 0, state.Message ?? "signalr.gameDetect.resuming");
 
                 _logger.LogInformation("[GameDetection] Restored interrupted operation {OperationId}", persistedGuid);
 

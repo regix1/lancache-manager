@@ -478,10 +478,15 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
     }
     lastStatusesRef.current = next;
     if (transitioned && !open) {
-      const statusLabel = t(
-        `common.notifications.condensedStatus.${transitioned.notification.status}`,
-        { defaultValue: transitioned.notification.status }
-      );
+      // A canceled run still ends with status 'completed', which is why the color reads
+      // details.cancelled first. Speaking the raw status would say the opposite of the gray
+      // beside it.
+      const spokenStatus = transitioned.notification.details?.cancelled
+        ? 'cancelled'
+        : transitioned.notification.status;
+      const statusLabel = t(`common.notifications.condensedStatus.${spokenStatus}`, {
+        defaultValue: spokenStatus
+      });
       setLiveAssertive(transitioned.notification.status === 'failed');
       setLiveStatusText(
         t('common.notifications.condensedLive', {

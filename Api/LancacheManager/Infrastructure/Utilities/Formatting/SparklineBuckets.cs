@@ -9,7 +9,7 @@ internal static class SparklineBuckets
     /// <summary>
     /// The most buckets one series may carry. It has to stay above 81, the most any width produces
     /// across the span that selects it, so no picker range is ever trimmed. Past that it is a
-    /// drawing bound: a line chart a few hundred pixels wide has nowhere to put more points. [3]
+    /// drawing bound: a line chart a few hundred pixels wide has nowhere to put more points.
     /// </summary>
     private const int MaxBuckets = 1000;
 
@@ -132,7 +132,7 @@ internal static class SparklineBuckets
 
     /// <summary>
     /// The start of the first bucket that begins at or after <paramref name="utc"/>. A partial
-    /// bucket holds different amounts of real time per event, so equal offsets would not compare. [13]
+    /// bucket holds different amounts of real time per event, so equal offsets would not compare.
     /// </summary>
     private static DateTime AlignForward(DateTime utc, int bucketMinutes)
     {
@@ -144,7 +144,7 @@ internal static class SparklineBuckets
     /// <summary>
     /// The bucket-aligned window covering every row between <paramref name="firstUtc"/> and
     /// <paramref name="lastUtc"/>. The width comes from the hours that hold downloads, so the
-    /// window must too: one taken from the picker gave 2,881 slots for six points. [3]
+    /// window must too: one taken from the picker gave 2,881 slots for six points.
     /// </summary>
     public static (DateTime Start, DateTime End) CoveringWindow(
         DateTime firstUtc,
@@ -169,7 +169,7 @@ internal static class SparklineBuckets
         }
 
         // Only whole buckets are emitted: the one still filling at the window end holds less traffic
-        // purely because less time has passed, and draws as a drop that never happened. [17]
+        // purely because less time has passed, and draws as a drop that never happened.
         var end = DateTime.SpecifyKind(windowEndUtc, DateTimeKind.Utc);
         var start = AlignForward(windowStartUtc, bucketMinutes);
         var last = AlignStart(end.AddMinutes(-bucketMinutes), bucketMinutes);
@@ -177,7 +177,7 @@ internal static class SparklineBuckets
         {
             // No whole bucket has closed, so the filling one carries everything and returning
             // nothing would read as "no traffic" for a window with downloads in it. The
-            // under-scaling [17] guards against needs a neighbour, and this bucket has none.
+            // under-scaling this guards against needs a neighbor, and this bucket has none.
             return [
                 new Bucket(
                     start,
@@ -254,7 +254,7 @@ internal static class SparklineBuckets
         Func<Bucket, long> value)
     {
         // Elapsed 0 is the event's first whole bucket, which is the first one Fill emits. Measuring
-        // from the aligned start instead gave the event that began mid-bucket a shorter bucket 0. [13]
+        // from the aligned start instead gave the event that began mid-bucket a shorter bucket 0.
         var aligned = AlignForward(eventStart, bucketMinutes);
         var byElapsed = new Dictionary<int, long>(filled.Count);
         var lastElapsed = -1;

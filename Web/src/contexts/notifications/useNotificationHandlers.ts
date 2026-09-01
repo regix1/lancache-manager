@@ -340,7 +340,7 @@ export function useNotificationHandlers(
           }
           // A run declined at promotion never started, so it is neither a success nor a
           // failure. Its reason rides in `error` like the failure path; dropping the card
-          // instead would leave the reader with no trace of what happened. [61]
+          // instead would leave the reader with no trace of what happened.
           if (event.skipped) {
             return {
               ...n,

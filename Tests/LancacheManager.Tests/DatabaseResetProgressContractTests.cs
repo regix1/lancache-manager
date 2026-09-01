@@ -66,7 +66,7 @@ public class DatabaseResetProgressContractTests
     /// page still shows both connected after the sessions table was emptied. Neither LogoutAsync is
     /// virtual and DatabaseService holds both services by their concrete type, so nothing can stand
     /// in for them; leaving both out makes each call throw where the reset already catches it, and
-    /// the warning that follows is written from that catch and from nowhere else. [13][14]
+    /// the warning that follows is written from that catch and from nowhere else.
     /// </summary>
     [Fact]
     public async Task ClearingUserSessionsSignsOutEpicAndXboxAsync()

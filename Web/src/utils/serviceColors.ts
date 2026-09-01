@@ -177,6 +177,7 @@ const SERVICE_ID_BY_ALIAS: Record<string, string> = {
   windows: 'wsus',
   riotgames: 'riot',
   xboxlive: 'xbox',
+  microsoft: 'xbox',
   uplay: 'ubisoft'
 };
 

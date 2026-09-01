@@ -103,7 +103,7 @@ const ServiceRow: React.FC<{
 
   // No row-level click or keyboard action exists here - only the nested Checkbox and the
   // clear Button are interactive - so the row carries no hover/focus affordance suggesting
-  // otherwise. [28]
+  // otherwise.
   return (
     <div className="mgmt-row">
       {selectable && (
@@ -273,6 +273,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   }, [notifications, hasInitiallyLoaded]);
 
   const loadData = async (forceRefresh = false) => {
+    // Mock mode has no logs behind it and every remove button in this card is already disabled
+    // there, so the per-service counts stay empty rather than reporting a real machine's.
+    if (mockMode) {
+      markLoaded();
+      return;
+    }
     beginLoad(forceRefresh);
     try {
       const dsCounts = await ApiService.getServiceLogCountsByDatasource();

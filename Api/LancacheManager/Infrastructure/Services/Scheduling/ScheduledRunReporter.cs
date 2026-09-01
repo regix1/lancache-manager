@@ -314,10 +314,10 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             // supplied no error keeps one only while the key above is the run's all-outcomes complete
             // key, which reads as success text on a failed card. Once the key was picked for THIS
             // outcome the frontend translates it, but only while this field is null, so a generic
-            // English sentence here would take precedence and hide the real reason. [27]
+            // English sentence here would take precedence and hide the real reason.
             // A skipped run keeps whatever reason it was given and gains none it was not: it stopped
             // for something outside itself, and that sentence is the only part of the card worth
-            // reading. It never picks up the failure fallback below, because it did not fail. [14]
+            // reading. It never picks up the failure fallback below, because it did not fail.
             var error = info.Cancelled
                 ? null
                 : info.Skipped

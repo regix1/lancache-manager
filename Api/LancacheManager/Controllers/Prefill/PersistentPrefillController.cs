@@ -1032,7 +1032,11 @@ public class PersistentPrefillController : ControllerBase
             if (daemon.PersistentEditSessionGate.HasPendingLaterStart(editSessionId, start))
             {
                 throw new ConflictException(
-                    $"Edit-session cleanup is waiting for a later persistent start before releasing session {start.SessionId}.");
+                    $"Edit-session cleanup is waiting for a later persistent start before releasing session {start.SessionId}.")
+                {
+                    StageKey = "errors.prefill.editCleanupWaiting",
+                    Context = new() { ["sessionId"] = start.SessionId }
+                };
             }
 
             if (!daemon.PersistentEditSessionGate.CanStopStartedSession(editSessionId, start))
@@ -1064,7 +1068,11 @@ public class PersistentPrefillController : ControllerBase
             if (daemon.PersistentEditSessionGate.HasPendingStart())
             {
                 throw new ConflictException(
-                    $"Edit-session cleanup is waiting for a persistent start before releasing session {sessionId}.");
+                    $"Edit-session cleanup is waiting for a persistent start before releasing session {sessionId}.")
+                {
+                    StageKey = "errors.prefill.editCleanupWaiting",
+                    Context = new() { ["sessionId"] = sessionId }
+                };
             }
 
             if (!daemon.PersistentEditSessionGate.CanStopUntrackedSession(sessionId))
@@ -1177,6 +1185,8 @@ public class PersistentPrefillController : ControllerBase
             return (null, null, NotFound(new PersistentSessionNotFoundResponse
             {
                 Error = $"No running persistent session for service '{service}'",
+                StageKey = "errors.prefill.noRunningSession",
+                Context = new() { ["service"] = service },
                 State = erroredSession ? PersistentSessionNotFoundState.Errored : PersistentSessionNotFoundState.NotStarted
             }));
         }

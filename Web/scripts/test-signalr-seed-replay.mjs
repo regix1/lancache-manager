@@ -216,6 +216,10 @@ export class InfiniteBackoffRetryPolicy {
 
 const contextTypesStubUrl = toUrl(`export const SignalRContext = { Provider: 'provider' };`);
 
+const mockModeStubUrl = toUrl(`
+export const useMockMode = () => ({ mockMode: false, setMockMode: () => undefined });
+`);
+
 const typesUrl = await compileToUrl('../src/contexts/SignalRContext/types.ts');
 
 /**
@@ -240,6 +244,7 @@ const compileProvider = () => {
     '@microsoft/signalr': toUrl(signalRStubSource),
     '@utils/constants': constantsUrl,
     '@services/auth.service': authServiceStubUrl,
+    '@contexts/useMockMode': mockModeStubUrl,
     './types': typesUrl,
     './SignalRContext.types': contextTypesStubUrl,
     './retryPolicy': retryPolicyStubUrl

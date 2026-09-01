@@ -68,7 +68,7 @@ public class BattleNetMappingService
 
             // Count the candidates before loading them: the log pass calls this after every run, and
             // on a cache with no Blizzard traffic there is never anything to name, so the common case
-            // costs one count instead of a tracked load of every matching row. [11]
+            // costs one count instead of a tracked load of every matching row.
             var unresolvedCount = await db.Downloads
                 .CountAsync(d => EF.Functions.Like(d.Service, blizzardServicePattern)
                                  && d.GameName == null

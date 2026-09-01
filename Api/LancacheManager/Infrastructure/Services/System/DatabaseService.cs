@@ -251,7 +251,7 @@ public class DatabaseService
             // Start background task with cancellation token.
             // A full wipe empties every table at once, so it holds the cache lock for its whole run:
             // a cache or log operation writing rows into a table the wipe already emptied would
-            // leave the database half-cleared. [23]
+            // leave the database half-cleared.
             if (fullReset)
             {
                 _ = Task.Run(async () =>
@@ -270,7 +270,7 @@ public class DatabaseService
                     {
                         // Cancelled while a cache operation still held the lock, so DoResetAsync never
                         // ran and never released the operation. Without this the wipe stays in progress
-                        // forever and every later reset is refused. [23]
+                        // forever and every later reset is refused.
                         await ReportProgressAsync(
                             operationId,
                             false,
@@ -385,7 +385,7 @@ public class DatabaseService
             bool shouldBroadcastPreferencesReset = false;
 
             // Prefill daemons whose persistent login outlived the reset. Carried out of the table
-            // loop so the completion report can name them instead of claiming a clean sweep. [22]
+            // loop so the completion report can name them instead of claiming a clean sweep.
             var failedPersistentLogins = new List<string>();
 
             // Temporarily disable foreign key triggers for bulk deletion (PostgreSQL)
@@ -659,7 +659,7 @@ public class DatabaseService
                             {
                                 // The sweep threw before any daemon reported an outcome, so nothing is
                                 // known to be logged out. An empty list here would let the completion
-                                // message call the reset clean. [22]
+                                // message call the reset clean.
                                 failedPersistentLogins.AddRange(Enum.GetNames<PrefillPlatform>());
                                 _logger.LogWarning(prefillEx, "Error clearing prefill persistent logins during session reset");
                             }

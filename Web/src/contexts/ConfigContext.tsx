@@ -233,7 +233,7 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
         const data = await ApiService.handleResponse<Config>(response);
         // Written before the children render, because this provider gates them and a consumer that
         // reads the server zone during its first render would otherwise seed itself from the
-        // browser's zone and correct it a render later. [71]
+        // browser's zone and correct it a render later.
         setServerTimezone(data.timeZone);
         setConfig(data);
       } catch (err: unknown) {

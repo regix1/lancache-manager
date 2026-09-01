@@ -58,7 +58,7 @@ public class AntiforgeryFilter : IAsyncAuthorizationFilter
         catch (AntiforgeryValidationException ex)
         {
             // The framework's own category is silenced in both appsettings files, so without this a
-            // rejection leaves no server-side trace at all. The reason only, not the stack. [24]
+            // rejection leaves no server-side trace at all. The reason only, not the stack.
             _logger.LogWarning(
                 "Antiforgery validation refused {Method} {Path}: {Reason}",
                 method,

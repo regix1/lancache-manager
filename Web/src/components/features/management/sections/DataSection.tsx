@@ -353,8 +353,7 @@ const DataSection: React.FC<DataSectionProps> = ({
           onSuccess(t('common.notifications.willQueueBehindCurrent'));
         } else {
           onSuccess(
-            result.message ||
-              t('management.database.success.resetStarted', { count: selectedTables.length })
+            t('management.database.success.resetStarted', { count: selectedTables.length })
           );
         }
         setSelectedTables([]);

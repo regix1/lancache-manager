@@ -256,7 +256,9 @@ export function DatabaseImportForm({
             )
           }
         >
-          {validationResult.message}
+          {validationResult.stageKey
+            ? t(validationResult.stageKey, { defaultValue: validationResult.message })
+            : validationResult.message}
           {validationResult.recordCount != null &&
             ` ${t('initialization.importHistorical.foundRecords', {
               count: validationResult.recordCount ?? 0,
@@ -294,7 +296,14 @@ export function DatabaseImportForm({
           <p
             className={`font-medium mb-3 ${importResult.errors > 0 ? 'text-themed-warning' : 'text-themed-success'}`}
           >
-            {importResult.message}
+            {importResult.stageKey
+              ? t(importResult.stageKey, {
+                  imported: formatCount(importResult.imported),
+                  skipped: formatCount(importResult.skipped),
+                  errors: formatCount(importResult.errors),
+                  defaultValue: importResult.message
+                })
+              : importResult.message}
           </p>
           <div className="database-import-form__import-result-grid">
             <div>

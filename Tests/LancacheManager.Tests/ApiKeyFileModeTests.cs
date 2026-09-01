@@ -91,7 +91,7 @@ public sealed class ApiKeyFileModeTests : IDisposable
     /// The startup order, rather than <see cref="ApiKeyService.DisplayApiKey"/> handed a reveal flag the
     /// test chose. <see cref="ApiKeyService.WasNewKeyGenerated"/> is a by-value argument there, so it is
     /// read before the banner call runs the read that sets it, and startup has to read the key on its own
-    /// line first or a first start masks the key a new user needs to log in. [1]
+    /// line first or a first start masks the key a new user needs to log in.
     /// </summary>
     [Fact]
     public void TheStartupOrderRevealsTheKeyOnAFirstStart()

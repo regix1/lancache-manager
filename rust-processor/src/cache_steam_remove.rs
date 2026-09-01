@@ -415,7 +415,7 @@ async fn main() -> Result<()> {
     // A count run stops here. It walks the same list a removal would walk, reports how many of
     // those files exist on disk, and returns before the cache sweep, the directory cleanup, the
     // access.log purge and the database delete below are reachable. A game with no URLs reports
-    // zero rather than taking the no-URL exit, so the confirmation always has a number. [6][8]
+    // zero rather than taking the no-URL exit, so the confirmation always has a number.
     if args.count_only {
         // The same (service, bytes) projection the delete phase feeds to the shared tail; cache
         // paths are purely (service, url), and the depot set plays no part in either.
