@@ -93,8 +93,10 @@ public class SpeedsController : ControllerBase
 
         // Summed in the database rather than over loaded entities: a busy cache has hundreds of
         // thousands of downloads in a 24 hour window, and the response only needs these two numbers.
-        var withData = query.Where(d => d.TotalBytes > 0);
-        var totalBytes = await withData.SumAsync(d => d.TotalBytes);
+        // The sum is written out because TotalBytes is computed from these two columns and no
+        // column holds it.
+        var withData = query.Where(d => (d.CacheHitBytes + d.CacheMissBytes) > 0);
+        var totalBytes = await withData.SumAsync(d => d.CacheHitBytes + d.CacheMissBytes);
         var totalSessions = await withData.CountAsync();
         var totalDuration = (periodEnd - periodStart).TotalSeconds;
 

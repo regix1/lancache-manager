@@ -938,15 +938,6 @@ public partial class DashboardBatchService : IDashboardBatchService
     }
 
     /// <summary>
-    /// Aggregates the visible downloads per identity and client, so only group-level scalars cross
-    /// the database boundary. The identity columns are the ones the ingestion writes at insert:
-    /// a Steam row whose depot was mapped carries GameAppId and GameName, one whose depot was not
-    /// carries DepotId, an Epic row carries EpicAppId, an Xbox row carries XboxProductId, and a
-    /// row with none of them is told by its service. Every row therefore lands in exactly one
-    /// group and every group folds into exactly one game, so one pass over the range yields the
-    /// game's real totals with no window to fall outside of.
-    /// </summary>
-    /// <summary>
     /// The identities behind the newest <see cref="RecentGamePickRowLimit"/> rows of the range,
     /// newest first. It says which games the section lists and in what order, and nothing else: the
     /// rows carry the identity columns and the newest start time of each, and no sums, because a
@@ -986,14 +977,6 @@ public partial class DashboardBatchService : IDashboardBatchService
             .OrderByDescending(r => r.LastStartTimeUtc);
     }
 
-    /// <summary>
-    /// Narrows a downloads query to the rows of a set of identities. The filter is one list per
-    /// identity column rather than one term per identity, which keeps it to a single indexed pass;
-    /// it is therefore over-broad, and both callers match the whole identity again afterwards. The
-    /// last arm is the rows the ingestion could name nothing about, told apart by their service
-    /// alone. Every row of an identity in the set matches at least one arm, so no group is computed
-    /// over a partial set.
-    /// </summary>
     /// <summary>
     /// The identities a listed game's rows can also be stored under, so a game whose history is
     /// split across two of them is read whole. A Steam row ingested before its depot was mapped
@@ -1035,6 +1018,14 @@ public partial class DashboardBatchService : IDashboardBatchService
         return expanded;
     }
 
+    /// <summary>
+    /// Narrows a downloads query to the rows of a set of identities. The filter is one list per
+    /// identity column rather than one term per identity, which keeps it to a single indexed pass;
+    /// it is therefore over-broad, and both callers match the whole identity again afterwards. The
+    /// last arm is the rows the ingestion could name nothing about, told apart by their service
+    /// alone. Every row of an identity in the set matches at least one arm, so no group is computed
+    /// over a partial set.
+    /// </summary>
     private static IQueryable<Download> ApplyIdentityFilter(
         IQueryable<Download> query,
         IReadOnlyCollection<GroupMemberKey> identities)
@@ -1056,6 +1047,15 @@ public partial class DashboardBatchService : IDashboardBatchService
                                  && services.Contains(d.Service)));
     }
 
+    /// <summary>
+    /// Aggregates the visible downloads per identity and client, so only group-level scalars cross
+    /// the database boundary. The identity columns are the ones the ingestion writes at insert:
+    /// a Steam row whose depot was mapped carries GameAppId and GameName, one whose depot was not
+    /// carries DepotId, an Epic row carries EpicAppId, an Xbox row carries XboxProductId, and a
+    /// row with none of them is told by its service. Every row therefore lands in exactly one
+    /// group and every group folds into exactly one game, so one pass over the range yields the
+    /// game's real totals with no window to fall outside of.
+    /// </summary>
     private static IQueryable<DashboardGroupRow> BuildRecentGroupedQuery(IQueryable<Download> query)
     {
         return query
