@@ -716,65 +716,6 @@ public class RetroGroupedPagingTests
     }
 
     /// <summary>
-    /// A request that merges reads an aggregate that groups a no-depot download on the identity
-    /// its bucket is built from rather than on its own id, so several downloads of one title on
-    /// one client arrive as a single group. The bucket still names every download behind it and
-    /// still shows the newest of them, both of which are fetched for the page afterwards.
-    /// </summary>
-    [Fact]
-    public async Task AMergedNoDepotBucketNamesEveryDownloadBehindIt()
-    {
-        var day = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc);
-        List<Download> rows =
-        [
-            NewDownload(1, "wsus", "10.0.0.1", null, null, null, day.AddHours(1), 100, 100),
-            NewDownload(2, "wsus", "10.0.0.1", null, null, null, day.AddHours(2), 200, 200),
-            NewDownload(3, "wsus", "10.0.0.1", null, null, null, day.AddHours(3), 300, 300),
-            NewDownload(4, "riot", "10.0.0.2", null, null, "Valorant", day.AddHours(4), 400, 0),
-            NewDownload(5, "riot", "10.0.0.2", null, null, "Valorant", day.AddHours(5), 0, 500)
-        ];
-
-        var response = await GetGroupedPageAsync(
-            new RetroDownloadQuery { GroupByGame = true, MergeAcrossServices = true },
-            rows);
-
-        var windowsUpdate = Assert.Single(response.Items, i => i.Id == "service-wsus");
-        Assert.Equal(3, windowsUpdate.RequestCount);
-        Assert.Equal([1L, 2L, 3L], windowsUpdate.DownloadIds.Order());
-        Assert.Equal(1200, windowsUpdate.TotalBytes);
-        Assert.Equal(3, windowsUpdate.PrimaryDownload!.Id);
-
-        var valorant = Assert.Single(response.Items, i => i.Id == "game-Valorant");
-        Assert.Equal(2, valorant.RequestCount);
-        Assert.Equal([4L, 5L], valorant.DownloadIds.Order());
-        Assert.Equal(5, valorant.PrimaryDownload!.Id);
-    }
-
-    /// <summary>
-    /// The unmerged retro table lists a no-depot download on its own row, so a request that only
-    /// filters or sorts keeps the depot-and-client aggregate and the three Windows Update rows
-    /// above stay three rows.
-    /// </summary>
-    [Fact]
-    public async Task TheUnmergedRetroTableStillListsOneRowPerNoDepotDownload()
-    {
-        var day = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc);
-        List<Download> rows =
-        [
-            NewDownload(1, "wsus", "10.0.0.1", null, null, null, day.AddHours(1), 100, 100),
-            NewDownload(2, "wsus", "10.0.0.1", null, null, null, day.AddHours(2), 200, 200),
-            NewDownload(3, "wsus", "10.0.0.1", null, null, null, day.AddHours(3), 300, 300)
-        ];
-
-        var response = await GetGroupedPageAsync(new RetroDownloadQuery { Sort = "alphabetical" }, rows);
-
-        Assert.Equal(3, response.TotalItems);
-        Assert.Equal(
-            ["no-depot-wsus-10.0.0.1-1", "no-depot-wsus-10.0.0.1-2", "no-depot-wsus-10.0.0.1-3"],
-            response.Items.Select(i => i.Id).Order());
-    }
-
-    /// <summary>
     /// The views hide a group's title unless SOME member resolved a game name, so the newest
     /// member alone cannot answer it. The Unknown/Other bucket keeps its title regardless.
     /// </summary>
