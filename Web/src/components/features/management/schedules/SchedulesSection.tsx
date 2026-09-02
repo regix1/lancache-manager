@@ -13,6 +13,7 @@ import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { HelpPopover, HelpNote, HelpSection } from '@components/ui/HelpPopover';
 import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { LoadingState } from '@components/ui/ManagerCard';
 import ApiService, { type IncrementalViabilityCheck } from '@services/api.service';
 import { ApiError } from '@services/apiError';
@@ -1246,6 +1247,10 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const { isPending, markStarting, clearPending } = useOptimisticPending<string>();
   const [resetting, setResetting] = useState(false);
   const [runningAll, setRunningAll] = useState(false);
+  // Both header buttons fan out across every schedule and neither can be undone, so each asks
+  // first rather than acting on the click.
+  const [runAllConfirmOpen, setRunAllConfirmOpen] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   // Map of schedule key -> glow variant. `navigate` is the default (2-pulse attention
   // grab) used by Run Now and external View Schedule navigation. `subtle` is used by
   // Reset to Defaults where every row flashes at once and needs to feel like an
@@ -1611,6 +1616,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       });
     } finally {
       setResetting(false);
+      setResetConfirmOpen(false);
     }
   }, [fetchSchedules, flashAll, notifySuccess, addNotification, t]);
 
@@ -1671,6 +1677,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       });
     } finally {
       setRunningAll(false);
+      setRunAllConfirmOpen(false);
     }
   }, [fetchSchedules, flashAll, notifySuccess, addNotification, t]);
 
@@ -1781,7 +1788,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
             variant="filled"
             color="run"
             size="md"
-            onClick={handleRunAll}
+            onClick={() => setRunAllConfirmOpen(true)}
             disabled={!isAdmin || runningAll || resetting}
             loading={runningAll}
           >
@@ -1790,7 +1797,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           <Button
             variant="default"
             size="md"
-            onClick={handleResetDefaults}
+            onClick={() => setResetConfirmOpen(true)}
             disabled={!isAdmin || resetting || runningAll}
             loading={resetting}
           >
@@ -1848,6 +1855,32 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           completedVariant={completedKeys[prefillSchedule.key] ?? 'navigate'}
         />
       )}
+
+      <ConfirmationModal
+        opened={runAllConfirmOpen}
+        onClose={() => setRunAllConfirmOpen(false)}
+        onConfirm={() => void handleRunAll()}
+        title={t('management.schedules.runAllConfirmTitle')}
+        confirmLabel={t('management.schedules.runAllConfirmButton')}
+        confirmColor="run"
+        loading={runningAll}
+      >
+        <p className="text-sm text-themed-muted">
+          {t('management.schedules.runAllConfirmBody', { count: schedules.length })}
+        </p>
+      </ConfirmationModal>
+
+      <ConfirmationModal
+        opened={resetConfirmOpen}
+        onClose={() => setResetConfirmOpen(false)}
+        onConfirm={() => void handleResetDefaults()}
+        title={t('management.schedules.resetConfirmTitle')}
+        confirmLabel={t('management.schedules.resetConfirmButton')}
+        confirmColor="red"
+        loading={resetting}
+      >
+        <p className="text-sm text-themed-muted">{t('management.schedules.resetConfirmBody')}</p>
+      </ConfirmationModal>
     </TabPanel>
   );
 };
