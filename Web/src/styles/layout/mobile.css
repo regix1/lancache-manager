@@ -45,20 +45,4 @@
       display: block;
     }
   }
-
-  /* Mobile table improvements */
-  @media (max-width: 639.98px) {
-    .mobile-table th,
-    .mobile-table td {
-      @apply px-2 py-2 text-sm;
-    }
-    .mobile-table th:first-child,
-    .mobile-table td:first-child {
-      @apply pl-4;
-    }
-    .mobile-table th:last-child,
-    .mobile-table td:last-child {
-      @apply pr-4;
-    }
-  }
 }

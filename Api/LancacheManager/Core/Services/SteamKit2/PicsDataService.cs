@@ -414,33 +414,6 @@ public class PicsDataService
     }
 
     /// <summary>
-    /// Check if PICS JSON data needs updating (always use incremental).
-    /// Returns true (assume an update is needed) both when there is genuinely no data yet AND
-    /// when the check itself fails (logged as a warning) - a fail-safe default that triggers a
-    /// scan rather than silently skipping one.
-    /// </summary>
-    public async Task<bool> NeedsUpdateAsync()
-    {
-        try
-        {
-            var picsData = await LoadFromJsonAsync();
-            if (picsData?.Metadata == null)
-            {
-                return true; // No data exists, needs initial update
-            }
-
-            // Always return false to use incremental updates only
-            // The incremental system will handle new items and updates
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error checking if PICS data needs update, assuming it does");
-            return true;
-        }
-    }
-
-    /// <summary>
     /// Clear all depot mappings from the database
     /// </summary>
     public async Task ClearDepotMappingsAsync(CancellationToken cancellationToken = default, bool preserveOrphanResolved = false)

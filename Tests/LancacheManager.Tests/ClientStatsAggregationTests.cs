@@ -68,7 +68,9 @@ public sealed class ClientStatsAggregationTests
         Assert.Equal(20, row.TotalCacheMissBytes);
         Assert.Equal(100, row.TotalBytes);
         Assert.Equal(5, row.TotalDownloads);
-        Assert.Equal(10, row.TotalDurationSeconds);
+        // 100 bytes over the summed 4 + 6 seconds. Taking any single member's duration instead of
+        // the total gives a different speed, so this is what pins the sum.
+        Assert.Equal(10, row.AverageBytesPerSecond);
         // The most recent member activity represents the group.
         Assert.Equal(BaseActivity.AddMinutes(5), row.LastActivityUtc);
         Assert.Equal(DateTimeKind.Utc, row.LastActivityUtc.Kind);
@@ -240,7 +242,6 @@ public sealed class ClientStatsAggregationTests
 
         Assert.Equal(ungrouped.CacheHitPercent, separated.CacheHitPercent);
         Assert.Equal(ungrouped.AverageBytesPerSecond, separated.AverageBytesPerSecond);
-        Assert.Equal(ungrouped.TotalDurationSeconds, separated.TotalDurationSeconds);
     }
 
     [Fact]
@@ -258,7 +259,6 @@ public sealed class ClientStatsAggregationTests
 
         Assert.Equal(combined.TotalBytes, separated.TotalBytes);
         Assert.Equal(combined.TotalDownloads, separated.TotalDownloads);
-        Assert.Equal(combined.TotalDurationSeconds, separated.TotalDurationSeconds);
         Assert.Equal(combined.CacheHitPercent, separated.CacheHitPercent);
         Assert.Equal(combined.AverageBytesPerSecond, separated.AverageBytesPerSecond);
         Assert.Equal(combined.LastActivityUtc, separated.LastActivityUtc);

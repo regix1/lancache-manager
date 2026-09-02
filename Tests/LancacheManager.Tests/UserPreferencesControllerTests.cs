@@ -4,7 +4,6 @@ using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;

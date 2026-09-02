@@ -802,11 +802,7 @@ public class AuthController : ControllerBase
             EnabledByDefault = _sessionService.IsSteamPrefillEnabled(),
             DurationHours = _sessionService.GetGuestPrefillDurationHours(),
             MaxThreadCount = _stateService.GetDefaultGuestMaxThreadCount(),
-            EpicEnabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
-            EpicDurationHours = _stateService.GetEpicGuestPrefillDurationHours(),
-            EpicMaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount(),
-            BattlenetEnabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
-            BattlenetDurationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+            EpicMaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
         });
     }
 

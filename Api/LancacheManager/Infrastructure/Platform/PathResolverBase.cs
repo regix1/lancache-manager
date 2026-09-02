@@ -48,8 +48,6 @@ public abstract class PathResolverBase : IPathResolver
     /// </summary>
     protected abstract string RustExecutableExtension { get; }
 
-    public string GetBasePath() => BasePath;
-
     public virtual string GetDataDirectory()
     {
         var path = Path.GetFullPath(Path.Combine(BasePath, "data"));
@@ -103,8 +101,6 @@ public abstract class PathResolverBase : IPathResolver
         Directory.CreateDirectory(path);
         return path;
     }
-
-    public string GetDevicesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "devices"));
 
     public string GetThemesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "themes"));
 

@@ -57,7 +57,6 @@ public class PrefillAdminController : ControllerBase
     {
         Id = ban.Id,
         Username = ban.Username,
-        BannedUserId = ban.BannedUserId,
         BanReason = ban.BanReason,
         BannedBySessionId = TryParseGuid(ban.BannedBySessionId),
         BannedAtUtc = ban.BannedAtUtc,
@@ -363,7 +362,6 @@ public class PrefillAdminController : ControllerBase
         {
             Id = b.Id,
             Username = b.Username,
-            BannedUserId = b.BannedUserId,
             BanReason = b.BanReason,
             BannedBySessionId = TryParseGuid(b.BannedBySessionId) is { } bannedBySessionId
                 && !hiddenSessionIds.Contains(bannedBySessionId)

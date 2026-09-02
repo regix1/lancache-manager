@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Reflection;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -184,7 +183,6 @@ public class DatabaseResetProgressContractTests
                 case nameof(IUnifiedOperationTracker.GetWaitingOperations):
                     return Array.Empty<OperationInfo>();
                 case nameof(IUnifiedOperationTracker.GetOperation):
-                case nameof(IUnifiedOperationTracker.GetOperationByEntityKey):
                 case nameof(IUnifiedOperationTracker.GetOperationByScope):
                     return null;
                 case nameof(IUnifiedOperationTracker.CancelOperation):

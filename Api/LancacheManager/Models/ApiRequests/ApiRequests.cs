@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Text.Json;
 using LancacheManager.Core.Services.SteamPrefill;
 
 namespace LancacheManager.Models;
@@ -80,27 +79,6 @@ public class SetSecurityRequest
 public class SetGameLimitRequest
 {
     public int GameLimit { get; set; }
-}
-
-#endregion
-
-#region Operation State Requests
-
-public class SaveStateRequest
-{
-    public string Key { get; set; } = string.Empty;
-    public string? Type { get; set; }
-    public JsonElement? Data { get; set; }
-    public string? Status { get; set; }
-    public string? Message { get; set; }
-    public int? ExpirationMinutes { get; set; }
-}
-
-public class UpdateStateRequest
-{
-    public Dictionary<string, object>? Updates { get; set; }
-    public string? Status { get; set; }
-    public string? Message { get; set; }
 }
 
 #endregion

@@ -54,7 +54,6 @@ public class DepotsController : ControllerBase
     public async Task<ActionResult<DepotFullStatusResponse>> GetDepotStatusAsync()
     {
         var picsData = await _picsDataService.LoadFromJsonAsync();
-        var needsUpdate = await _picsDataService.NeedsUpdateAsync();
         var dbMappingCount = await _steamKit2Service.GetDepotMappingCountAsync();
 
         return Ok(new DepotFullStatusResponse
@@ -64,9 +63,7 @@ public class DepotsController : ControllerBase
                 Exists = picsData != null,
                 Path = _picsDataService.GetPicsJsonFilePath(),
                 LastUpdated = picsData?.Metadata?.LastUpdated,
-                TotalMappings = picsData?.Metadata?.TotalMappings ?? 0,
-                NextUpdateDue = picsData?.Metadata?.NextUpdateDue,
-                NeedsUpdate = needsUpdate
+                TotalMappings = picsData?.Metadata?.TotalMappings ?? 0
             },
             Database = new DepotDatabaseStatus
             {
@@ -126,8 +123,7 @@ public class DepotsController : ControllerBase
                     RequiresFullScan = true,
                     ChangeGap = viability.ChangeGap,
                     EstimatedApps = viability.EstimatedAppsToScan,
-                    Message = viability.Error ?? "Change gap is too large for incremental scan. A full scan is required.",
-                    ViabilityError = viability.Error
+                    Message = viability.Error ?? "Change gap is too large for incremental scan. A full scan is required."
                 });
             }
             else

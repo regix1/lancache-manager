@@ -12,5 +12,4 @@ public interface ICrudRepository<TEntity, TKey> where TEntity : class
     Task<TEntity> CreateAsync(TEntity entity, CancellationToken ct = default);
     Task<TEntity> UpdateAsync(TEntity entity, CancellationToken ct = default);
     Task DeleteAsync(TEntity entity, CancellationToken ct = default);
-    Task<bool> ExistsAsync(TKey id, CancellationToken ct = default);
 }

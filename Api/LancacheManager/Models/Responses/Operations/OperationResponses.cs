@@ -18,29 +18,11 @@ public class OperationResponse
 }
 
 /// <summary>
-/// Response for save state operation
-/// </summary>
-public class SaveStateResponse
-{
-    public bool Success { get; set; }
-    public string Key { get; set; } = string.Empty;
-}
-
-/// <summary>
 /// Response for operation state update
 /// </summary>
 public class StateUpdateResponse
 {
     public bool Success { get; set; }
-}
-
-/// <summary>
-/// Response for cleanup operation
-/// </summary>
-public class StateCleanupResponse
-{
-    public bool Success { get; set; }
-    public int ActiveStates { get; set; }
 }
 
 /// <summary>

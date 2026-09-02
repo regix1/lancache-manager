@@ -137,19 +137,9 @@ public interface IUnifiedOperationTracker
     void UpdateProgress(Guid operationId, double percent, string message);
 
     /// <summary>
-    /// Look up an operation by its entity key (e.g., appId for games, serviceName for services).
-    /// Uses the secondary index maintained internally.
-    /// Backward-compat wrapper over the kind-prefixed index - probes
-    /// <c>steam:</c>/<c>epic:</c>/<c>service:</c> variants in priority order based on <paramref name="type"/>.
-    /// New call sites should prefer <see cref="GetOperationByScope"/>.
-    /// </summary>
-    OperationInfo? GetOperationByEntityKey(OperationType type, string entityKey);
-
-    /// <summary>
-    /// Look up an operation by its canonical <see cref="ConflictScope"/>. Preferred over
-    /// <see cref="GetOperationByEntityKey"/> - uses an unambiguous <c>kind:key</c> lookup
-    /// so a <c>ServiceRemoval</c> on service "steam" cannot collide with a hypothetical
-    /// steam appId.
+    /// Look up an operation by its canonical <see cref="ConflictScope"/>. Uses an unambiguous
+    /// <c>kind:key</c> lookup so a <c>ServiceRemoval</c> on service "steam" cannot collide with a
+    /// hypothetical steam appId.
     /// </summary>
     OperationInfo? GetOperationByScope(OperationType type, ConflictScope scope);
 

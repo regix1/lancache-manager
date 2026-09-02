@@ -96,7 +96,6 @@ public class ClientStatsWithGroup
     public long TotalBytes { get; set; }
     public double CacheHitPercent { get; set; }
     public int TotalDownloads { get; set; }
-    public double TotalDurationSeconds { get; set; }
     public double AverageBytesPerSecond { get; set; }
 
     /// <summary>

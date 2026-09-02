@@ -87,9 +87,7 @@ public class ApiKeysController : ControllerBase
         {
             return Ok(new ApiKeyStatusResponse
             {
-                HasApiKey = false,
-                KeyType = "none",
-                HasPrimaryKey = false
+                HasApiKey = false
             });
         }
 
@@ -97,9 +95,7 @@ public class ApiKeysController : ControllerBase
 
         return Ok(new ApiKeyStatusResponse
         {
-            HasApiKey = isValid,
-            KeyType = isValid ? "admin" : "none",
-            HasPrimaryKey = isValid
+            HasApiKey = isValid
         });
     }
 

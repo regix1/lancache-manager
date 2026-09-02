@@ -10,7 +10,6 @@ public class SteamAuthStatusResponse
     public bool IsAuthenticated { get; set; }
     public string AuthMode { get; set; } = string.Empty;
     public bool IsConnected { get; set; }
-    public bool HasStoredCredentials { get; set; }
 }
 
 /// <summary>

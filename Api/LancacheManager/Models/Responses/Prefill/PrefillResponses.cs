@@ -163,7 +163,6 @@ public class PrefillSessionDto
 {
     public long Id { get; set; }
     public string SessionId { get; set; } = string.Empty;
-    public Guid CreatedBySessionId { get; set; }
     public string? ContainerId { get; set; }
     public string? ContainerName { get; set; }
     public string? AccountUsername { get; set; }
@@ -198,7 +197,6 @@ public class PrefillSessionDto
         {
             Id = entity.Id,
             SessionId = entity.SessionId,
-            CreatedBySessionId = entity.CreatedBySessionId,
             ContainerId = entity.ContainerId,
             ContainerName = entity.ContainerName,
             AccountUsername = liveSession?.AccountUsername ?? entity.AccountUsername,
@@ -227,9 +225,6 @@ public class BannedPrefillUserDto
 
     /// <summary>The banned account's username. Null when the ban was recorded against a session that had no resolved account username at the time.</summary>
     public string? Username { get; set; }
-
-    /// <summary>Resolved account id for the banned user, when one was known. Null when only a username was available.</summary>
-    public Guid? BannedUserId { get; set; }
 
     /// <summary>Admin-supplied reason for the ban. Null when none was given.</summary>
     public string? BanReason { get; set; }

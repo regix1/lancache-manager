@@ -357,14 +357,12 @@ public class PrefillDefaultsResponse
 {
     public List<string> OperatingSystems { get; set; } = new();
     public string MaxConcurrency { get; set; } = string.Empty;
-    public int ServerThreadCount { get; set; }
 
     /// <summary>
     /// The guest thread cap MaxConcurrency was clamped against. Null for an admin session, which has
     /// no thread limit.
     /// </summary>
     public int? MaxThreadLimit { get; set; }
-    public string EpicDefaultPrefillMaxConcurrency { get; set; } = string.Empty;
 }
 
 /// <summary>

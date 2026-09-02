@@ -147,51 +147,17 @@ public class SignalRNotificationService : ISignalRNotificationService
 
     // ===== Steam Prefill Hub Methods =====
 
-    public async Task NotifyPrefillClientAsync(string connectionId, string eventName, object? data = null)
-    {
-        await NotifyClientAsync(_steamHubContext.Clients, connectionId, eventName, data, "Steam prefill");
-    }
-
     public Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
         => SendRawAsync(_steamHubContext.Clients, connectionId, eventName, data);
 
     // ===== Epic Prefill Hub Methods =====
 
-    public async Task NotifyEpicPrefillClientAsync(string connectionId, string eventName, object? data = null)
-    {
-        await NotifyClientAsync(_epicHubContext.Clients, connectionId, eventName, data, "Epic prefill");
-    }
-
     public Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
         => SendRawAsync(_epicHubContext.Clients, connectionId, eventName, data);
 
     /// <summary>
-    /// Shared per-client notification helper. Sends to a specific connection on the provided hub clients,
-    /// with consistent debug logging and error handling. Does not rethrow on failure.
-    /// </summary>
-    private async Task NotifyClientAsync(
-        IHubClients hubClients,
-        string connectionId,
-        string eventName,
-        object? data,
-        string hubLabel)
-    {
-        try
-        {
-            await hubClients.Client(connectionId).SendAsync(eventName, data);
-            _logger.LogDebug("SignalR {HubLabel} notification sent to client {ConnectionId}: {EventName}", hubLabel, connectionId, eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR {HubLabel} notification to client {ConnectionId}: {EventName}", hubLabel, connectionId, eventName);
-        }
-    }
-
-    /// <summary>
     /// Shared per-client send that deliberately does NOT catch. The caller needs the failure to
-    /// detect a dead connection and drop it from its subscription list, so the exception must reach
-    /// it. This is the counterpart to <see cref="NotifyClientAsync"/>, which swallows and logs -
-    /// routing a raw send through that helper would silently turn a throwing path into a quiet one.
+    /// detect a dead connection and drop it from its subscription list, so the exception must reach it.
     /// </summary>
     private static async Task SendRawAsync(
         IHubClients hubClients,
@@ -234,11 +200,6 @@ public class SignalRNotificationService : ISignalRNotificationService
 
     // ===== Battle.net Prefill Hub Methods =====
 
-    public async Task NotifyBattleNetPrefillClientAsync(string connectionId, string eventName, object? data = null)
-    {
-        await NotifyClientAsync(_battleNetHubContext.Clients, connectionId, eventName, data, "Battle.net prefill");
-    }
-
     public Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
         => SendRawAsync(_battleNetHubContext.Clients, connectionId, eventName, data);
 
@@ -247,11 +208,6 @@ public class SignalRNotificationService : ISignalRNotificationService
 
     // ===== Riot Prefill Hub Methods =====
 
-    public async Task NotifyRiotPrefillClientAsync(string connectionId, string eventName, object? data = null)
-    {
-        await NotifyClientAsync(_riotHubContext.Clients, connectionId, eventName, data, "Riot prefill");
-    }
-
     public Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
         => SendRawAsync(_riotHubContext.Clients, connectionId, eventName, data);
 
@@ -259,11 +215,6 @@ public class SignalRNotificationService : ISignalRNotificationService
         => NotifyDaemonHubAsync(_riotHubContext.Clients, eventName, data, "riot");
 
     // ===== Xbox Prefill Hub Methods =====
-
-    public async Task NotifyXboxPrefillClientAsync(string connectionId, string eventName, object? data = null)
-    {
-        await NotifyClientAsync(_xboxHubContext.Clients, connectionId, eventName, data, "Xbox prefill");
-    }
 
     public Task SendToXboxPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
         => SendRawAsync(_xboxHubContext.Clients, connectionId, eventName, data);

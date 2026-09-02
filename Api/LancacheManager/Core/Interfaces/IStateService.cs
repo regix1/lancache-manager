@@ -152,7 +152,6 @@ public interface IStateService
     void SetSteamUsername(string? username);
     string? GetSteamRefreshToken();
     void SetSteamRefreshToken(string? token);
-    bool HasSteamRefreshToken();
 
     // Guest Session Duration Methods
     int? GetGuestSessionDurationHours();
@@ -211,7 +210,6 @@ public interface IStateService
     void SetClientHostnameDockerLookup(bool enabled);
 
     // Stats Exclusion Methods
-    List<string> GetExcludedClientIps();
     void SetExcludedClientIps(List<string> ips);
     List<ClientExclusionRule> GetExcludedClientRules();
     void SetExcludedClientRules(List<ClientExclusionRule> rules);
@@ -238,14 +236,6 @@ public interface IStateService
     string GetDefaultPrefillMaxConcurrency();
     void SetDefaultPrefillMaxConcurrency(string value);
 
-    // Setup Wizard State Methods
-    string? GetCurrentSetupStep();
-    void SetCurrentSetupStep(string? step);
-    string? GetDataSourceChoice();
-    void SetDataSourceChoice(string? choice);
-    string? GetCompletedPlatforms();
-    void SetCompletedPlatforms(string? platforms);
-
     // Epic Guest Prefill Permission Methods
     bool GetEpicGuestPrefillEnabledByDefault();
     void SetEpicGuestPrefillEnabledByDefault(bool enabled);
@@ -253,7 +243,6 @@ public interface IStateService
     void SetEpicGuestPrefillDurationHours(int hours);
     int? GetEpicDefaultGuestMaxThreadCount();
     void SetEpicDefaultGuestMaxThreadCount(int? value);
-    string GetEpicDefaultPrefillMaxConcurrency();
     void SetEpicDefaultPrefillMaxConcurrency(string value);
 
     // Battle.net Guest Prefill Permission Methods

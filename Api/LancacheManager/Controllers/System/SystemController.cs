@@ -822,19 +822,14 @@ public class SystemController : ControllerBase
     public ActionResult<PrefillDefaultsResponse> GetPrefillDefaults()
     {
         var steamMaxThreadLimit = SteamThreadLimit();
-        var epicMaxThreadLimit = EpicThreadLimit();
         var maxConcurrency = ClampConcurrency(
             _stateService.GetDefaultPrefillMaxConcurrency(), steamMaxThreadLimit);
-        var epicMaxConcurrency = ClampConcurrency(
-            _stateService.GetEpicDefaultPrefillMaxConcurrency(), epicMaxThreadLimit);
 
         return Ok(new PrefillDefaultsResponse
         {
             OperatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             MaxConcurrency = maxConcurrency,
-            ServerThreadCount = 256,
-            MaxThreadLimit = steamMaxThreadLimit,
-            EpicDefaultPrefillMaxConcurrency = epicMaxConcurrency
+            MaxThreadLimit = steamMaxThreadLimit
         });
     }
 
@@ -863,24 +858,19 @@ public class SystemController : ControllerBase
         }
 
         var steamMaxThreadLimit = SteamThreadLimit();
-        var epicMaxThreadLimit = EpicThreadLimit();
 
         await _notifications.NotifyAllAsync(SignalREvents.PrefillDefaultsChanged, new
         {
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
-            serverThreadCount = 256,
-            maxThreadLimit = steamMaxThreadLimit,
-            epicDefaultPrefillMaxConcurrency = _stateService.GetEpicDefaultPrefillMaxConcurrency()
+            maxThreadLimit = steamMaxThreadLimit
         });
 
         return Ok(new PrefillDefaultsResponse
         {
             OperatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             MaxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
-            ServerThreadCount = 256,
-            MaxThreadLimit = steamMaxThreadLimit,
-            EpicDefaultPrefillMaxConcurrency = _stateService.GetEpicDefaultPrefillMaxConcurrency()
+            MaxThreadLimit = steamMaxThreadLimit
         });
     }
 
@@ -895,17 +885,6 @@ public class SystemController : ControllerBase
         // Guest: check per-user override first, then system default
         var prefs = _userPreferencesService.GetPreferences(session.Id);
         return prefs?.SteamMaxThreadCount ?? _stateService.GetDefaultGuestMaxThreadCount();
-    }
-
-    private int? EpicThreadLimit()
-    {
-        var session = GetSession();
-        if (session == null) return null;
-        if (session.SessionType.IsAccountHolder()) return null;
-
-        // Guest: check per-user override first, then system default
-        var prefs = _userPreferencesService.GetPreferences(session.Id);
-        return prefs?.EpicMaxThreadCount ?? _stateService.GetEpicDefaultGuestMaxThreadCount();
     }
 
     /// <summary>

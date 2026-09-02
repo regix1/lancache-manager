@@ -121,8 +121,6 @@ public class SessionDto
 public class ApiKeyStatusResponse
 {
     public bool HasApiKey { get; set; }
-    public string KeyType { get; set; } = string.Empty;
-    public bool HasPrimaryKey { get; set; }
 }
 
 /// <summary>Response for POST api/api-keys/regenerate: confirms the key was rotated.</summary>
@@ -188,13 +186,9 @@ public class GuestPrefillConfigResponse
 
     /// <summary>Per-guest-session thread cap. Null when no cap is configured.</summary>
     public int? MaxThreadCount { get; set; }
-    public bool EpicEnabledByDefault { get; set; }
-    public int EpicDurationHours { get; set; }
 
     /// <summary>Per-guest-session thread cap for Epic prefill. Null when no cap is configured.</summary>
     public int? EpicMaxThreadCount { get; set; }
-    public bool BattlenetEnabledByDefault { get; set; }
-    public int BattlenetDurationHours { get; set; }
 }
 
 /// <summary>

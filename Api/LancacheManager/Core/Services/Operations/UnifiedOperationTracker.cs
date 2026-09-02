@@ -479,32 +479,6 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         }
     }
 
-    public OperationInfo? GetOperationByEntityKey(OperationType type, string entityKey)
-    {
-        // Phase 3: the secondary index is now prefixed with kind ("steam:480", "service:steam", ...).
-        // Preserve the raw-key signature used by existing callers by probing the common prefixes
-        // in priority order. This mirrors the canonicalization rules in ConflictScope.
-        // Priority matches historical usage: steam appIds > epic app ids > service names.
-        string[] candidateKeys = type switch
-        {
-            OperationType.GameRemoval => new[] { $"steam:{entityKey}", $"epic:{entityKey}" },
-            OperationType.ServiceRemoval => new[] { $"service:{entityKey}" },
-            OperationType.CorruptionRemoval => new[] { $"service:{entityKey}" },
-            OperationType.EvictionRemoval => new[] { $"steam:{entityKey}", $"epic:{entityKey}", $"service:{entityKey}" },
-            _ => new[] { $"steam:{entityKey}", $"epic:{entityKey}", $"service:{entityKey}" }
-        };
-
-        foreach (var candidate in candidateKeys)
-        {
-            if (_entityKeyIndex.TryGetValue((type, candidate), out var operationId))
-            {
-                return GetOperation(operationId);
-            }
-        }
-
-        return null;
-    }
-
     public OperationInfo? GetOperationByScope(OperationType type, ConflictScope scope)
     {
         if (_entityKeyIndex.TryGetValue((type, scope.ToTrackerKey()), out var operationId))

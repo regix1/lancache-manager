@@ -53,8 +53,7 @@ public class SteamAuthController : ControllerBase
             IsAuthenticated = !string.IsNullOrEmpty(username),
             // Legacy fields for backward compatibility
             AuthMode = authModeWire,
-            IsConnected = isConnected,
-            HasStoredCredentials = !string.IsNullOrEmpty(username)
+            IsConnected = isConnected
         });
     }
 

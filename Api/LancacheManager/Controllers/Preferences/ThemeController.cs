@@ -566,9 +566,7 @@ public class ThemeController : ControllerBase
         {
             Success = true,
             Message = $"Cleanup complete. Deleted {deletedThemes.Count} theme(s)",
-            DeletedThemes = deletedThemes,
-            Errors = errors,
-            RemainingThemes = _systemThemes
+            Errors = errors
         });
     }
 

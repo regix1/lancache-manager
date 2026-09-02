@@ -42,17 +42,7 @@ public interface ISignalRNotificationService
 
     /// <summary>
     /// Send a notification to a specific client by connection ID on the SteamDaemonHub.
-    /// Used for prefill session-specific notifications like auth challenges, progress, etc.
-    /// Errors are caught and logged; does not throw.
-    /// </summary>
-    /// <param name="connectionId">The SignalR connection ID</param>
-    /// <param name="eventName">Use SignalREvents constants</param>
-    /// <param name="data">Optional payload data</param>
-    Task NotifyPrefillClientAsync(string connectionId, string eventName, object? data = null);
-
-    /// <summary>
-    /// Send a notification to a specific client by connection ID on the SteamDaemonHub.
-    /// Unlike NotifyPrefillClientAsync, this throws exceptions on failure so the caller can handle them
+    /// Throws exceptions on failure so the caller can handle them
     /// (e.g., to remove dead connections from a subscription list).
     /// </summary>
     /// <param name="connectionId">The SignalR connection ID</param>
@@ -62,12 +52,6 @@ public interface ISignalRNotificationService
     Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
 
     // ===== Epic Prefill Hub Methods =====
-
-    /// <summary>
-    /// Send a notification to a specific client on the EpicPrefillDaemonHub.
-    /// Errors are caught and logged; does not throw.
-    /// </summary>
-    Task NotifyEpicPrefillClientAsync(string connectionId, string eventName, object? data = null);
 
     /// <summary>
     /// Send a notification to a specific client on the EpicPrefillDaemonHub.
@@ -91,12 +75,6 @@ public interface ISignalRNotificationService
 
     /// <summary>
     /// Send a notification to a specific client on the BattleNetDaemonHub.
-    /// Errors are caught and logged; does not throw.
-    /// </summary>
-    Task NotifyBattleNetPrefillClientAsync(string connectionId, string eventName, object? data = null);
-
-    /// <summary>
-    /// Send a notification to a specific client on the BattleNetDaemonHub.
     /// Throws exceptions on failure so caller can handle them.
     /// </summary>
     Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
@@ -111,12 +89,6 @@ public interface ISignalRNotificationService
 
     /// <summary>
     /// Send a notification to a specific client on the RiotDaemonHub.
-    /// Errors are caught and logged; does not throw.
-    /// </summary>
-    Task NotifyRiotPrefillClientAsync(string connectionId, string eventName, object? data = null);
-
-    /// <summary>
-    /// Send a notification to a specific client on the RiotDaemonHub.
     /// Throws exceptions on failure so caller can handle them.
     /// </summary>
     Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
@@ -128,12 +100,6 @@ public interface ISignalRNotificationService
     Task NotifyRiotHubAsync(string eventName, object? data = null);
 
     // ===== Xbox Prefill Hub Methods =====
-
-    /// <summary>
-    /// Send a notification to a specific client on the XboxPrefillDaemonHub.
-    /// Errors are caught and logged; does not throw.
-    /// </summary>
-    Task NotifyXboxPrefillClientAsync(string connectionId, string eventName, object? data = null);
 
     /// <summary>
     /// Send a notification to a specific client on the XboxPrefillDaemonHub.

@@ -22,7 +22,6 @@ public class DownloadEventAssociation
     public DateTime StartTimeUtc { get; set; }
     public DateTime EndTimeUtc { get; set; }
     public bool AutoTagged { get; set; }
-    public DateTime TaggedAtUtc { get; set; }
 }
 
 /// <summary>

@@ -215,7 +215,4 @@ public class ClientGroupsService : IClientGroupsService
 
     public async Task DeleteAsync(ClientGroup entity, CancellationToken ct = default)
         => await DeleteAsync(entity.Id, ct);
-
-    public async Task<bool> ExistsAsync(long id, CancellationToken ct = default)
-        => await _context.ClientGroups.AnyAsync(g => g.Id == id, ct);
 }

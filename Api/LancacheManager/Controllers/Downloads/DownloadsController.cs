@@ -84,8 +84,7 @@ public class DownloadsController : ControllerBase
             ColorIndex = ed.Event.ColorIndex,
             StartTimeUtc = ed.Event.StartTimeUtc,
             EndTimeUtc = ed.Event.EndTimeUtc,
-            AutoTagged = ed.AutoTagged,
-            TaggedAtUtc = ed.TaggedAtUtc
+            AutoTagged = ed.AutoTagged
         }).ToList();
 
         return Ok(new DownloadWithEventsResponse

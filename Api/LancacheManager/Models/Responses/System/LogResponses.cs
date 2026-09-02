@@ -121,13 +121,6 @@ public class DatasourceLogPositionResponse
     [JsonPropertyName("totalLines")]
     public long TotalLines { get; set; }
 
-    /// <summary>
-    /// True when <see cref="TotalLines"/> stopped at an unreadable source file during the
-    /// first-run count, so the total is only a clean prefix rather than the whole file.
-    /// </summary>
-    [JsonPropertyName("totalLinesPartial")]
-    public bool TotalLinesPartial { get; set; }
-
     [JsonPropertyName("logPath")]
     public string LogPath { get; set; } = string.Empty;
 

@@ -4,8 +4,6 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
-using LancacheManager.Security;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;

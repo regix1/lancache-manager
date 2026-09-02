@@ -16,11 +16,6 @@ public interface IPathResolver
     string NormalizePath(string path);
 
     /// <summary>
-    /// Gets the base directory for the application
-    /// </summary>
-    string GetBasePath();
-
-    /// <summary>
     /// Gets the data directory path
     /// </summary>
     string GetDataDirectory();
@@ -63,11 +58,6 @@ public interface IPathResolver
     /// Gets the cache directory path
     /// </summary>
     string GetCacheDirectory();
-
-    /// <summary>
-    /// Gets the devices directory path
-    /// </summary>
-    string GetDevicesDirectory();
 
     /// <summary>
     /// Gets the themes directory path

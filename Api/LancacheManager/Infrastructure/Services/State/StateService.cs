@@ -871,39 +871,6 @@ public class StateService : IStateService
         await signal.WaitAsync(cancellationToken);
     }
 
-    // Setup Wizard State Methods
-    public string? GetCurrentSetupStep()
-    {
-        return GetState().CurrentSetupStep?.ToWireString();
-    }
-
-    public void SetCurrentSetupStep(string? step)
-    {
-        var parsed = SetupStepExtensions.TryParseWire(step);
-        UpdateState(state => state.CurrentSetupStep = parsed);
-    }
-
-    public string? GetDataSourceChoice()
-    {
-        return GetState().DataSourceChoice?.ToWireString();
-    }
-
-    public void SetDataSourceChoice(string? choice)
-    {
-        var parsed = DataSourceChoiceExtensions.TryParseWire(choice);
-        UpdateState(state => state.DataSourceChoice = parsed);
-    }
-
-    public string? GetCompletedPlatforms()
-    {
-        return GetState().CompletedPlatforms;
-    }
-
-    public void SetCompletedPlatforms(string? platforms)
-    {
-        UpdateState(state => state.CompletedPlatforms = platforms);
-    }
-
     // Data Availability Methods
     public bool HasDataLoaded()
     {
@@ -1985,11 +1952,6 @@ public class StateService : IStateService
         });
     }
 
-    public bool HasSteamRefreshToken()
-    {
-        return !string.IsNullOrEmpty(_steamAuthStorage.GetAuthData().RefreshToken);
-    }
-
     // NOTE: GuardData methods removed - modern Steam auth uses refresh tokens only
     // GetSteamGuardData() and SetSteamGuardData() are no longer needed
 
@@ -2086,20 +2048,6 @@ public class StateService : IStateService
     }
 
     // Stats Exclusion Methods
-    /// <summary>
-    /// Gets IPs that should be excluded from statistics calculations (both hide and exclude modes).
-    /// Note: For row visibility filtering, use GetHiddenClientIps() instead to only filter hide mode.
-    /// </summary>
-    public List<string> GetExcludedClientIps()
-    {
-        var state = GetState();
-        var rules = ResolveExcludedClientRules(state);
-        return rules
-            .Where(rule => IsStatsExcludedMode(rule.Mode))
-            .Select(rule => rule.Ip)
-            .Distinct()
-            .ToList();
-    }
 
     /// <summary>
     /// Gets IPs that should be excluded from calculations but NOT hidden (exclude mode only).
@@ -2317,12 +2265,6 @@ public class StateService : IStateService
         }
 
         return normalized;
-    }
-
-    private static bool IsStatsExcludedMode(string? mode)
-    {
-        var normalized = NormalizeMode(mode);
-        return normalized == ClientExclusionModes.Hide || normalized == ClientExclusionModes.Exclude;
     }
 
     private static string NormalizeMode(string? mode)
@@ -2584,13 +2526,6 @@ public class StateService : IStateService
             value = Math.Min(value.Value, 256);
         }
         UpdateState(state => state.EpicDefaultGuestMaxThreadCount = value);
-    }
-
-    public string GetEpicDefaultPrefillMaxConcurrency()
-    {
-        var value = GetState().EpicDefaultPrefillMaxConcurrency ?? "auto";
-        // Backwards compat: migrate saved "default" to "auto"
-        return value.Equals("default", StringComparison.OrdinalIgnoreCase) ? "auto" : value;
     }
 
     public void SetEpicDefaultPrefillMaxConcurrency(string maxConcurrency)

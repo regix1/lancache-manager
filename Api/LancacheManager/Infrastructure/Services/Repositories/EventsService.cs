@@ -18,7 +18,7 @@ public class EventsService : IEventsService
         _logger = logger;
     }
 
-    public async Task<List<Event>> GetAllEventsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<Event>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         return (await _context.Events
             .AsNoTracking()
@@ -51,7 +51,7 @@ public class EventsService : IEventsService
             .WithUtcMarking();
     }
 
-    public async Task<Event?> GetEventByIdAsync(long id, CancellationToken cancellationToken = default)
+    public async Task<Event?> GetByIdAsync(long id, CancellationToken cancellationToken = default)
     {
         return (await _context.Events
             .AsNoTracking()
@@ -59,7 +59,7 @@ public class EventsService : IEventsService
             ?.WithUtcMarking();
     }
 
-    public async Task<Event> CreateEventAsync(Event evt, CancellationToken cancellationToken = default)
+    public async Task<Event> CreateAsync(Event evt, CancellationToken cancellationToken = default)
     {
         evt.CreatedAtUtc = DateTime.UtcNow;
         _context.Events.Add(evt);
@@ -69,7 +69,7 @@ public class EventsService : IEventsService
         return evt.WithUtcMarking();
     }
 
-    public async Task<Event> UpdateEventAsync(Event evt, CancellationToken cancellationToken = default)
+    public async Task<Event> UpdateAsync(Event evt, CancellationToken cancellationToken = default)
     {
         var existing = await _context.Events.FindAsync(new object[] { evt.Id }, cancellationToken);
         if (existing == null)
@@ -94,9 +94,9 @@ public class EventsService : IEventsService
         return existing.WithUtcMarking();
     }
 
-    public async Task DeleteEventAsync(long id, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(Event entity, CancellationToken cancellationToken = default)
     {
-        var evt = await _context.Events.FindAsync(new object[] { id }, cancellationToken);
+        var evt = await _context.Events.FindAsync(new object[] { entity.Id }, cancellationToken);
         if (evt != null)
         {
             _context.Events.Remove(evt);
@@ -229,25 +229,4 @@ public class EventsService : IEventsService
 
         return totalTagged;
     }
-
-
-    // ===== ICrudRepository-style Implementation =====
-
-    public Task<List<Event>> GetAllAsync(CancellationToken ct = default)
-        => GetAllEventsAsync(ct);
-
-    public Task<Event?> GetByIdAsync(long id, CancellationToken ct = default)
-        => GetEventByIdAsync(id, ct);
-
-    public Task<Event> CreateAsync(Event entity, CancellationToken ct = default)
-        => CreateEventAsync(entity, ct);
-
-    public Task<Event> UpdateAsync(Event entity, CancellationToken ct = default)
-        => UpdateEventAsync(entity, ct);
-
-    public async Task DeleteAsync(Event entity, CancellationToken ct = default)
-        => await DeleteEventAsync(entity.Id, ct);
-
-    public async Task<bool> ExistsAsync(long id, CancellationToken ct = default)
-        => await _context.Events.AnyAsync(e => e.Id == id, ct);
 }

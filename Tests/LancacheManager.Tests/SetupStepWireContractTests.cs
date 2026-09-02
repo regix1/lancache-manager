@@ -3,7 +3,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using LancacheManager.Models.ApiRequests;
 using Microsoft.AspNetCore.Http;

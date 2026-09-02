@@ -249,7 +249,6 @@ public static class ClientStatsAggregationHelper
             TotalBytes = totalBytes,
             CacheHitPercent = totalBytes > 0 ? (double)totalCacheHitBytes / totalBytes * 100 : 0,
             TotalDownloads = totalDownloads,
-            TotalDurationSeconds = totalDurationSeconds,
             AverageBytesPerSecond = totalDurationSeconds > 0 ? totalBytes / totalDurationSeconds : 0,
             LastActivityUtc = lastActivityUtc.AsUtc()
         };

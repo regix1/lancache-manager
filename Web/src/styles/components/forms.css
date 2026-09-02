@@ -372,11 +372,6 @@
     transform: translateX(22px);
   }
 
-  /* Themed checkbox/radio accent color */
-  .accent-themed {
-    accent-color: var(--theme-primary);
-  }
-
   /* Segmented Control. Squared to the base radius (not -lg) so it matches the icon
      buttons and dropdowns in the same control clusters. The inner button steps down by
      the container's 3px padding so the active pill still nests cleanly into the corners. */

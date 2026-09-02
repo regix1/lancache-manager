@@ -126,19 +126,14 @@ public sealed class BattleNetMappingLifecycleTests
         public Task NotifyOperationFailedAsync(string eventName, IOperationComplete failedEvent) =>
             NotifyAllAsync(eventName, failedEvent);
 
-        public Task NotifyPrefillClientAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyEpicPrefillClientAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifySteamHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyEpicHubAsync(string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyBattleNetPrefillClientAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyBattleNetHubAsync(string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyRiotPrefillClientAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyRiotHubAsync(string eventName, object? data = null) => Task.CompletedTask;
-        public Task NotifyXboxPrefillClientAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task SendToXboxPrefillClientRawAsync(string connectionId, string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyXboxHubAsync(string eventName, object? data = null) => Task.CompletedTask;
         public Task NotifyAdminAsync(string eventName, object? data = null) => Task.CompletedTask;
