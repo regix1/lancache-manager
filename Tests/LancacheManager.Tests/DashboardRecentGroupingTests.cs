@@ -17,7 +17,12 @@ namespace LancacheManager.Tests;
 /// </summary>
 public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
 {
-    private static readonly DateTime Anchor = new(2026, 8, 30, 12, 0, 0, DateTimeKind.Utc);
+    /// <summary>
+    /// Relative to now, not a fixed date. The live view reads a window measured back from the
+    /// current time, so rows pinned to a calendar date drift out of it as the clock moves and the
+    /// suite would start failing on a day nobody changed anything.
+    /// </summary>
+    private static readonly DateTime Anchor = DateTime.UtcNow.AddHours(-1);
 
     [Fact]
     public async Task OneLoudGameDoesNotCrowdTheOtherGamesOut()
@@ -110,6 +115,81 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The live view picks no range, so the panel's own queries fall back to a default window
+    /// instead of reading the whole table. Unbounded they measured seconds on a ten million row
+    /// table. A reader who asks for a wider range still gets it, which is what the second half
+    /// checks: the same rows, counted whole, once a start time is supplied.
+    /// </summary>
+    [Fact]
+    public async Task TheLiveViewCountsTheDefaultWindowAndAnExplicitRangeCountsWhatItAsksFor()
+    {
+        var options = NewDatabase();
+        var now = DateTime.UtcNow;
+        await using (var seed = new AppDbContext(options))
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                seed.Downloads.Add(NamedGame("steam", "10.0.0.1", now.AddHours(-1 - i), 731, 730, "Call of Duty"));
+            }
+            for (var i = 0; i < 2; i++)
+            {
+                seed.Downloads.Add(NamedGame("steam", "10.0.0.1", now.AddDays(-45 - i), 731, 730, "Call of Duty"));
+            }
+            await seed.SaveChangesAsync();
+        }
+
+        var live = Assert.Single(GroupsOf(await RecentSectionAsync(options)));
+        Assert.Equal(3, live.Count);
+        Assert.Equal(3, live.DownloadIds.Count);
+
+        var asked = Assert.Single(GroupsOf(await RecentSectionAsync(
+            options, startTime: new DateTimeOffset(now.AddDays(-60), TimeSpan.Zero).ToUnixTimeSeconds())));
+        Assert.Equal(5, asked.Count);
+        Assert.Equal(5, asked.DownloadIds.Count);
+    }
+
+    /// <summary>
+    /// An appended active game carries the range total, not a tally of the rows that happen to be
+    /// running. A prefill that has run several times over several days used to read as a count of
+    /// one while it ran, then jump to its real number the moment it finished and climbed into the
+    /// newest hundred, which is the same wrong number this whole change removes.
+    /// </summary>
+    [Fact]
+    public async Task AnAppendedActiveGameCountsItsWholeRangeNotOnlyItsActiveRows()
+    {
+        var options = NewDatabase();
+        await using (var seed = new AppDbContext(options))
+        {
+            for (var game = 0; game < 100; game++)
+            {
+                seed.Downloads.Add(NamedGame(
+                    "steam", "10.0.0.9", Anchor.AddMinutes(-game),
+                    6000 + game, 7000 + game, $"Newer Game {game}"));
+            }
+
+            for (var run = 1; run < 8; run++)
+            {
+                seed.Downloads.Add(NamedGame(
+                    "steam", "10.0.0.1", Anchor.AddDays(-3 - run), 999, 998, "Long Prefill"));
+            }
+            var running = NamedGame("steam", "10.0.0.1", Anchor.AddDays(-3), 999, 998, "Long Prefill");
+            running.IsActive = true;
+            seed.Downloads.Add(running);
+
+            await seed.SaveChangesAsync();
+        }
+
+        var groups = GroupsOf(await RecentSectionAsync(options));
+        var appended = Assert.Single(groups, g => g.Name == "Long Prefill");
+
+        Assert.Equal(101, groups.Count);
+        Assert.Equal(8, appended.Count);
+        Assert.Equal(8 * 2048, appended.CacheHitBytes);
+        Assert.Equal(8, appended.DownloadIds.Count);
+        Assert.Equal("Long Prefill", groups[^1].Name);
+    }
+
+    /// <summary>
     /// Every group gets its own five hundred rather than a share of one budget. A quiet game whose
     /// rows are all older than a loud neighbour's must still carry its own ids, because a group
     /// with no ids draws no event badges and nothing on screen or in the log says why. The loud
@@ -128,7 +208,7 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
             for (var i = 0; i < 3; i++)
             {
                 seed.Downloads.Add(NamedGame(
-                    "steam", "10.0.0.2", Anchor.AddDays(-30).AddMinutes(-i), 741, 740, "Quiet Game"));
+                    "steam", "10.0.0.2", Anchor.AddDays(-20).AddMinutes(-i), 741, 740, "Quiet Game"));
             }
             await seed.SaveChangesAsync();
         }
@@ -419,8 +499,8 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
 
     /// <summary>
     /// An active game older than every carried game still reaches the panel, because the server
-    /// folds the active rows a second time and appends what the cap left out. The browser builds no
-    /// groups of its own, so if this did not happen a long prefill would disappear from the panel.
+    /// appends the group the aggregate already built for it. The browser builds no groups of its
+    /// own, so if this did not happen a long prefill would disappear from the panel.
     /// </summary>
     [Fact]
     public async Task AnActiveGameOlderThanTheCarriedHundredIsAppended()
@@ -510,7 +590,8 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
 
     private static async Task<object> RecentSectionAsync(
         DbContextOptions<AppDbContext> options,
-        string evictedMode = "show")
+        string evictedMode = "show",
+        long? startTime = null)
     {
         var service = (DashboardBatchService)RuntimeHelpers.GetUninitializedObject(typeof(DashboardBatchService));
         typeof(DashboardBatchService)
@@ -522,7 +603,7 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
 
         return await (Task<object>)method.Invoke(
             service,
-            [null, null, new List<long>(), null, new List<string>(), evictedMode, null, null, CancellationToken.None])!;
+            [startTime, null, new List<long>(), null, new List<string>(), evictedMode, null, null, CancellationToken.None])!;
     }
 
     private static List<DashboardBatchService.DashboardGameGroup> GroupsOf(object section) =>

@@ -604,6 +604,21 @@ public partial class DashboardBatchService : IDashboardBatchService
     private const int RecentGroupDownloadIdLimit = 500;
 
     /// <summary>
+    /// How far back the recent panel's own two queries read when the reader picked no range. The
+    /// live view supplies no start and no end, so without this both would scan the whole table.
+    /// Measured on ten million rows: the aggregate took 4.2 seconds and the member query 8.7
+    /// seconds unbounded, against 338 ms and 769 ms over thirty days, and they returned 415,720
+    /// rows to draw a panel of a hundred games. Widening this window costs that pair of numbers,
+    /// and the growth is linear, crossing a second at about two million rows.
+    /// <para>
+    /// So a count on the live view means the game's total over this window, which is a boundary a
+    /// reader can be told. Capping the rows instead would understate a game whose older downloads
+    /// fell below the cap, and an unexplainable count is the thing this panel stopped reporting.
+    /// </para>
+    /// </summary>
+    private static readonly TimeSpan _recentLiveWindow = TimeSpan.FromDays(30);
+
+    /// <summary>
     /// How long a finished row keeps riding the raw array beside the active ones. A live preview
     /// retires when the row behind it comes back finished, so a row that simply vanished from the
     /// feed on the poll after it completed would leave its preview on screen until the client's
@@ -773,10 +788,19 @@ public partial class DashboardBatchService : IDashboardBatchService
 
         var showClean = evictedMode == EvictedDataMode.ShowClean.ToWireString();
 
-        // One aggregate pass over the whole range. The key is the identity the ingestion already
-        // wrote onto the row, so every member of a game reaches the same group whatever its age
-        // and the totals below are the game's real totals rather than what a window reached.
-        var groupRows = await BuildRecentGroupedQuery(query).ToListAsync(ct);
+        // The panel's own two queries, and only those, fall back to a default window when the
+        // reader picked no range. The raw rows below keep reading the unbounded query, so a
+        // long-running download is still carried whatever its age. An explicit range or an event
+        // filter already bounds the read, and narrowing either further would answer a different
+        // question than the one asked.
+        var windowedQuery = startTime.HasValue || endTime.HasValue || eventIdList.Count > 0
+            ? query
+            : query.Where(d => d.StartTimeUtc >= DateTime.UtcNow - _recentLiveWindow);
+
+        // One aggregate pass over the range. The key is the identity the ingestion already wrote
+        // onto the row, so every member of a game reaches the same group whatever its age and the
+        // totals below are the game's real totals rather than what a row cap reached.
+        var groupRows = await BuildRecentGroupedQuery(windowedQuery).ToListAsync(ct);
 
         var finishedCutoff = DateTime.UtcNow - _recentFinishedTail;
         var rows = await query
@@ -789,46 +813,24 @@ public partial class DashboardBatchService : IDashboardBatchService
             foreach (var d in rows) d.IsEvicted = false;
         }
 
-        // An active game whose newest download is older than the newest hundred still belongs on
-        // the panel, so its group is folded from the active rows and appended. Its totals cover
-        // its active members only, and it sorts after the hundred because it is older than they
-        // are. Doing it here keeps one owner for the fold rules instead of a second copy in the
-        // browser. Each copy is shaped exactly like an aggregate row of one member, so the fold
-        // cannot tell the two sources apart.
-        var activeGroupRows = rows.Where(d => d.IsActive).Select(d => new DashboardGroupRow
-        {
-            DepotId = d.DepotId,
-            ClientIp = d.ClientIp,
-            Service = d.Service,
-            GameName = d.GameName,
-            GameAppId = d.GameAppId,
-            EpicAppId = d.EpicAppId,
-            XboxProductId = d.XboxProductId,
-            CacheHitBytes = d.CacheHitBytes,
-            CacheMissBytes = d.CacheMissBytes,
-            LastStartTimeUtc = d.StartTimeUtc,
-            RequestCount = 1,
-            EvictedCount = d.IsEvicted ? 1 : 0
-        }).ToList();
-
         // The resolver writes a name onto a row that has none, so the stored identity is read off
         // both sets first. That identity is what the aggregate grouped on and what the member ids
         // are fetched by, and neither is the resolved name.
         var groupIdentities = groupRows.Select(GroupMemberKey.Of).ToList();
-        var activeIdentities = activeGroupRows.Select(GroupMemberKey.Of).ToList();
+        var activeIdentities = rows.Where(d => d.IsActive).Select(GroupMemberKey.Of).ToList();
 
-        // One resolve pass: the aggregate rows need names for the fold key, the raw rows carry
-        // theirs to the browser, and the active copies fold beside the aggregate rows.
-        await GameNameResolver.ResolveAsync(context, [.. groupRows, .. rows, .. activeGroupRows], ct);
+        // One resolve pass: the aggregate rows need names for the fold key and the raw rows carry
+        // theirs to the browser.
+        await GameNameResolver.ResolveAsync(context, [.. groupRows, .. rows], ct);
 
         var groupsByKey = new Dictionary<string, DashboardGameGroup>(StringComparer.Ordinal);
-        // Held as a set because an active row folded below can name an identity the aggregate
-        // already recorded for the same game, and reading one identity twice would list its
-        // members twice.
+        // Held as a set because one game can arrive under several identities, and reading one
+        // identity twice would list its members twice.
         var identitiesByKey = new Dictionary<string, HashSet<GroupMemberKey>>(StringComparer.Ordinal);
+        var keyByIdentity = new Dictionary<GroupMemberKey, string>();
         foreach (var (row, identity) in groupRows.Zip(groupIdentities))
         {
-            FoldIntoGameGroups(groupsByKey, identitiesByKey, row, identity, showClean);
+            keyByIdentity[identity] = FoldIntoGameGroups(groupsByKey, identitiesByKey, row, identity, showClean);
         }
 
         var groups = groupsByKey.Values
@@ -836,13 +838,18 @@ public partial class DashboardBatchService : IDashboardBatchService
             .Take(RecentGameGroupLimit)
             .ToList();
 
+        // An active game whose newest download is older than the newest hundred still belongs on
+        // the panel, and it sorts after the hundred because it is older than they are. The
+        // aggregate above already holds its whole group, active rows included, so the group is
+        // appended as it stands and its count is the range total like every other row's. A row
+        // inserted between the two reads is not in the aggregate yet and waits for the next poll.
         var carriedKeys = new HashSet<string>(groups.Select(g => g.Id), StringComparer.Ordinal);
-        var activeGroups = new Dictionary<string, DashboardGameGroup>(StringComparer.Ordinal);
-        foreach (var (row, identity) in activeGroupRows.Zip(activeIdentities))
+        foreach (var identity in activeIdentities)
         {
-            FoldIntoGameGroups(activeGroups, identitiesByKey, row, identity, showClean);
+            if (!keyByIdentity.TryGetValue(identity, out var key)) continue;
+            if (!carriedKeys.Add(key)) continue;
+            groups.Add(groupsByKey[key]);
         }
-        groups.AddRange(activeGroups.Values.Where(g => !carriedKeys.Contains(g.Id)));
 
         // The derived fields are stored rather than computed on read, because the browser's type
         // is checked against the properties this class declares and a computed one is not one.
@@ -855,7 +862,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             group.IsPartiallyEvicted = group.EvictedCount > 0 && group.EvictedCount < group.Count;
         }
 
-        await FillGroupDownloadIdsAsync(query, groups, identitiesByKey, ct);
+        await FillGroupDownloadIdsAsync(windowedQuery, groups, identitiesByKey, ct);
 
         // Projected onto the narrower row here rather than serialized as entities: LastUrl and
         // XboxProductId sit on every row and no client reads either.
@@ -928,9 +935,10 @@ public partial class DashboardBatchService : IDashboardBatchService
     /// service's bucket instead, which is the rule the panel applied while it did this grouping
     /// itself. ShowClean drops the evicted tally so the group's flags stay clear, matching what
     /// the raw rows get in that mode. The identity arrives separately because the resolver has
-    /// already overwritten the row's own name by the time the fold runs.
+    /// already overwritten the row's own name by the time the fold runs. Returns the group key it
+    /// folded into, which is how the caller finds the group an active row belongs to.
     /// </summary>
-    private static void FoldIntoGameGroups(
+    private static string FoldIntoGameGroups(
         Dictionary<string, DashboardGameGroup> groups,
         Dictionary<string, HashSet<GroupMemberKey>> identitiesByKey,
         DashboardGroupRow row,
@@ -992,6 +1000,8 @@ public partial class DashboardBatchService : IDashboardBatchService
             identitiesByKey[key] = identities;
         }
         identities.Add(identity);
+
+        return key;
     }
 
     /// <summary>
@@ -1152,6 +1162,10 @@ public partial class DashboardBatchService : IDashboardBatchService
         string ClientIp)
     {
         public static GroupMemberKey Of(DashboardGroupRow row) => new(
+            row.GameAppId, row.GameName, row.DepotId,
+            row.EpicAppId, row.XboxProductId, row.Service, row.ClientIp);
+
+        public static GroupMemberKey Of(Download row) => new(
             row.GameAppId, row.GameName, row.DepotId,
             row.EpicAppId, row.XboxProductId, row.Service, row.ClientIp);
     }

@@ -247,7 +247,7 @@ public sealed class DashboardBatchCacheContractTests
     {
         var source = BatchServiceSource();
         Assert.True(
-            source.Contains("await BuildRecentGroupedQuery(query).ToListAsync(ct);", StringComparison.Ordinal),
+            source.Contains("await BuildRecentGroupedQuery(windowedQuery).ToListAsync(ct);", StringComparison.Ordinal),
             "the aggregate behind the recent section must observe the request token");
         Assert.False(
             source.Contains(".Skip(scanned)", StringComparison.Ordinal),
@@ -449,7 +449,7 @@ public sealed class DashboardBatchCacheContractTests
         string[] requiredCallSites =
         [
             "await GetEventDownloadIdsAsync(eventIdList, ct)",
-            "await GameNameResolver.ResolveAsync(context, [.. groupRows, .. rows, .. activeGroupRows], ct);",
+            "await GameNameResolver.ResolveAsync(context, [.. groupRows, .. rows], ct);",
             "await activeQuery.CountAsync(ct)",
             ".Where(m => m.IsOwner && depotIds.Contains(m.DepotId))",
             ".ToListAsync(ct)",

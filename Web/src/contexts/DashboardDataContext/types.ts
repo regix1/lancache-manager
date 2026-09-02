@@ -47,8 +47,8 @@ export interface DashboardGameGroup {
   cacheMissBytes: number;
   /** How many downloads the group stands for, over the whole selected range. The server groups on
    *  the identity columns each row already carries, so a game downloaded both today and last week
-   *  counts both. The same goes for the bytes and the client list. An active game appended below
-   *  the hundred is counted over its active members alone. */
+   *  counts both. The same goes for the bytes and the client list, and for an active game appended
+   *  below the newest hundred, which carries its range total like every other row. */
   count: number;
   /** Start time of the newest member, which is what the panel orders on. */
   lastSeen: string;
