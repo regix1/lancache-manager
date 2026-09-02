@@ -544,14 +544,31 @@ class ApiService {
    * The download rows behind a set of ids, newest first. Serves the member list of a group the
    * reader has expanded: the grouped page carries the ids on the row and sends back one download
    * per group, so the rest are fetched only for the one group that was opened.
+   *
+   * The route answers at most 500 rows per request, so a group with more members than that is
+   * asked for in slices and the answers are joined. Each request sorts only the slice it was
+   * given, which leaves the joined rows ordered within a slice but not across them, so they are
+   * sorted once here on the same keys the route uses.
    */
   static async getDownloadsByIds(downloadIds: number[], signal?: AbortSignal): Promise<Download[]> {
+    const idsPerRequest = 500;
     try {
-      const res = await fetch(
-        `${API_BASE}/downloads/by-ids`,
-        this.getJsonFetchOptions({ downloadIds }, { signal, method: 'POST' })
+      const rows: Download[] = [];
+      for (let start = 0; start < downloadIds.length; start += idsPerRequest) {
+        const res = await fetch(
+          `${API_BASE}/downloads/by-ids`,
+          this.getJsonFetchOptions(
+            { downloadIds: downloadIds.slice(start, start + idsPerRequest) },
+            { signal, method: 'POST' }
+          )
+        );
+        rows.push(...(await this.handleResponse<Download[]>(res)));
+      }
+      rows.sort(
+        (left, right) =>
+          Date.parse(right.startTimeUtc) - Date.parse(left.startTimeUtc) || right.id - left.id
       );
-      return await this.handleResponse<Download[]>(res);
+      return rows;
     } catch (error: unknown) {
       if (!isAbortError(error)) {
         console.error('getDownloadsByIds error:', error);
@@ -2078,13 +2095,36 @@ class ApiService {
     if (downloadIds.length === 0) {
       return {};
     }
+    // The route answers the first 500 ids it is sent and drops the rest, so a group larger than
+    // that would leave its older rows permanently without their event tags. Send the ids in
+    // slices and join the answers. Keyed by download id, so the order requests complete in
+    // does not matter.
+    const idsPerRequest = 500;
     try {
-      // IMPORTANT: use getFetchOptions() to include credentials for HttpOnly session cookies.
-      const res = await fetch(
-        `${API_BASE}/downloads/batch-download-events`,
-        this.getJsonFetchOptions({ downloadIds }, { signal, method: 'POST' })
-      );
-      return await this.handleResponse(res);
+      const events: Record<
+        number,
+        { events: { id: number; name: string; colorIndex: number; autoTagged: boolean }[] }
+      > = {};
+      for (let start = 0; start < downloadIds.length; start += idsPerRequest) {
+        // IMPORTANT: use getFetchOptions() to include credentials for HttpOnly session cookies.
+        const res = await fetch(
+          `${API_BASE}/downloads/batch-download-events`,
+          this.getJsonFetchOptions(
+            { downloadIds: downloadIds.slice(start, start + idsPerRequest) },
+            { signal, method: 'POST' }
+          )
+        );
+        Object.assign(
+          events,
+          await this.handleResponse<
+            Record<
+              number,
+              { events: { id: number; name: string; colorIndex: number; autoTagged: boolean }[] }
+            >
+          >(res)
+        );
+      }
+      return events;
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
