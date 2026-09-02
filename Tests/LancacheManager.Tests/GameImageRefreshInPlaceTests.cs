@@ -47,7 +47,9 @@ public sealed class GameImageRefreshInPlaceTests
     {
         // Seeded bytes and served bytes are both 6000 zeros, so the refresh stores art identical to
         // what was already there.
-        var (emits, image) = await RunStalePassAsync(seededImage: new byte[6000], servedImage: new byte[6000]);
+        var (emits, images) = await RunStalePassAsync(
+            seededImage: new byte[6000], servedImage: new byte[6000], imageCount: 1);
+        var image = images.Single();
 
         // The banner URL is versioned by UpdatedAtUtc ?? FetchedAtUtc. It must stay back where it was,
         // or every client re-downloads a banner whose bytes are identical.
@@ -68,7 +70,9 @@ public sealed class GameImageRefreshInPlaceTests
     public async Task ArtThatActuallyChangedMovesItsVersionAndAnnouncesAsync()
     {
         var seeded = Enumerable.Repeat((byte)1, 6000).ToArray();
-        var (emits, image) = await RunStalePassAsync(seededImage: seeded, servedImage: new byte[6000]);
+        var (emits, images) = await RunStalePassAsync(
+            seededImage: seeded, servedImage: new byte[6000], imageCount: 1);
+        var image = images.Single();
 
         Assert.NotNull(image.UpdatedAtUtc);
         Assert.Equal(new byte[6000], image.ImageData);
@@ -78,9 +82,32 @@ public sealed class GameImageRefreshInPlaceTests
         Assert.Equal(2, emits);
     }
 
-    private static async Task<(int Emits, GameImage Image)> RunStalePassAsync(
+    /// <summary>
+    /// The stale phase works through its rows fifty at a time and clears the change tracker after
+    /// every save, so rows read before their own batch are detached by the time they are edited and
+    /// their new bytes are dropped on the floor. With more rows than fit in one batch, this is what
+    /// says every one of them actually reached the database.
+    /// </summary>
+    [Fact]
+    public async Task EveryStaleImagePastTheFirstBatchIsWrittenBackAsync()
+    {
+        var seeded = Enumerable.Repeat((byte)1, 6000).ToArray();
+        var (_, images) = await RunStalePassAsync(
+            seededImage: seeded, servedImage: new byte[6000], imageCount: 120);
+
+        Assert.Equal(120, images.Count);
+        foreach (var image in images)
+        {
+            Assert.Equal(new byte[6000], image.ImageData);
+            Assert.True(image.FetchedAtUtc > DateTime.UtcNow - StaleCutoff,
+                $"image {image.AppId} was never re-fetched");
+        }
+    }
+
+    private static async Task<(int Emits, List<GameImage> Images)> RunStalePassAsync(
         byte[] seededImage,
-        byte[] servedImage)
+        byte[] servedImage,
+        int imageCount)
     {
         var databaseName = $"image-refresh-{Guid.NewGuid():N}";
         var services = new ServiceCollection();
@@ -100,14 +127,18 @@ public sealed class GameImageRefreshInPlaceTests
                 ClientIp = "10.0.0.1",
                 GameName = "Some Origin Game"
             });
-            db.GameImages.Add(new GameImage
+            for (var i = 0; i < imageCount; i++)
             {
-                AppId = "570",
-                Service = "steam",
-                ImageData = seededImage,
-                SourceUrl = "https://example.com/570.jpg",
-                FetchedAtUtc = DateTime.UtcNow.AddDays(-10)
-            });
+                var appId = (570 + i).ToString();
+                db.GameImages.Add(new GameImage
+                {
+                    AppId = appId,
+                    Service = "steam",
+                    ImageData = seededImage,
+                    SourceUrl = $"https://example.com/{appId}.jpg",
+                    FetchedAtUtc = DateTime.UtcNow.AddDays(-10)
+                });
+            }
             await db.SaveChangesAsync();
         }
 
@@ -139,9 +170,9 @@ public sealed class GameImageRefreshInPlaceTests
 
         using var readScope = provider.CreateScope();
         var readDb = readScope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var image = await readDb.GameImages.AsNoTracking().SingleAsync();
+        var images = await readDb.GameImages.AsNoTracking().ToListAsync();
 
-        return (emits, image);
+        return (emits, images);
     }
 
     /// <summary>Hands out one HttpClient per requested name, all backed by the same handler.</summary>

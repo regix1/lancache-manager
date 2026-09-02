@@ -852,17 +852,31 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         ReportPhaseProgress report,
         CancellationToken ct)
     {
-        var staleImages = await db.GameImages
-            .Where(g => g.FetchedAtUtc < DateTime.UtcNow.AddDays(-7))
+        // Ids first, rows a batch at a time. Every stored image is older than seven days once the
+        // service has been up that long, so selecting the rows themselves would hold the whole image
+        // table, bytes included, for the length of the phase. The cutoff is read once so the set does
+        // not shrink underneath the loop as each batch moves FetchedAtUtc forward.
+        var staleCutoff = DateTime.UtcNow.AddDays(-7);
+        var staleIds = await db.GameImages
+            .AsNoTracking()
+            .Where(g => g.FetchedAtUtc < staleCutoff)
+            .Select(g => g.Id)
             .ToListAsync(ct);
 
         var done = 0;
         var refreshed = 0;
-        foreach (var batch in staleImages.Chunk(50))
+        foreach (var batch in staleIds.Chunk(50))
         {
             if (ct.IsCancellationRequested) return null;
 
-            var tasks = batch.Select(image =>
+            // Loaded inside the loop rather than before it: the tracker is cleared after each save
+            // below, so rows read ahead of their own batch would be detached by the time they were
+            // edited and their new bytes would never reach the database.
+            var images = await db.GameImages
+                .Where(g => batch.Contains(g.Id))
+                .ToListAsync(ct);
+
+            var tasks = images.Select(image =>
                 RefreshImageAsync(client, image, ct));
 
             var changedInBatch = (await Task.WhenAll(tasks)).Count(changed => changed);
@@ -884,7 +898,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             await EmitIncrementalBannerUpdateAsync(changedInBatch);
 
             done += batch.Length;
-            await report(done / (double)staleImages.Count, done, staleImages.Count);
+            await report(done / (double)staleIds.Count, done, staleIds.Count);
         }
 
         return refreshed;
