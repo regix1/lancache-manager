@@ -247,11 +247,12 @@ public sealed class DashboardBatchCacheContractTests
     {
         var source = BatchServiceSource();
         Assert.True(
-            source.Contains("await groupedQuery.Skip(scanned).Take(RecentScanPageSize).ToListAsync(ct);", StringComparison.Ordinal),
-            "the scan behind the recent section must observe the request token");
-        Assert.True(
-            source.Contains("scanned < RecentScanCeiling", StringComparison.Ordinal),
-            "the scan behind the recent section must stop at a ceiling instead of reading the whole table");
+            source.Contains("await BuildRecentGroupedQuery(query).ToListAsync(ct);", StringComparison.Ordinal),
+            "the aggregate behind the recent section must observe the request token");
+        Assert.False(
+            source.Contains(".Skip(scanned)", StringComparison.Ordinal),
+            "the aggregate must be read once for the range: paging it recomputed the grouping per "
+            + "page and left a game with rows outside the window understated");
     }
 
     /// <summary>
@@ -448,8 +449,7 @@ public sealed class DashboardBatchCacheContractTests
         string[] requiredCallSites =
         [
             "await GetEventDownloadIdsAsync(eventIdList, ct)",
-            "await GameNameResolver.ResolveAsync(context, page, ct);",
-            "await GameNameResolver.ResolveAsync(context, rows, ct);",
+            "await GameNameResolver.ResolveAsync(context, [.. groupRows, .. rows, .. activeGroupRows], ct);",
             "await activeQuery.CountAsync(ct)",
             ".Where(m => m.IsOwner && depotIds.Contains(m.DepotId))",
             ".ToListAsync(ct)",

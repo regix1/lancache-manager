@@ -46,8 +46,10 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The count on the row is the game's real total. The cap now falls on games rather than rows,
-    /// and one depot group counts every one of its members whatever the cap is.
+    /// The count on the row is the game's real total. The cap falls on games rather than rows, and
+    /// one group counts every one of its members whatever the cap is. The member ids are a
+    /// different matter: they are capped at five hundred, which is what the batch event route
+    /// answers in one call, so a group larger than that carries its newest five hundred.
     /// </summary>
     [Fact]
     public async Task TheCountIsTheGamesRealTotalNotTheSliceItFitsIn()
@@ -65,7 +67,185 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
         var group = Assert.Single(GroupsOf(await RecentSectionAsync(options)));
 
         Assert.Equal(620, group.Count);
-        Assert.Equal(620, group.DownloadIds.Count);
+        Assert.Equal(500, group.DownloadIds.Count);
+    }
+
+    /// <summary>
+    /// The outcome the change exists for. A game with rows today and rows weeks ago used to have
+    /// the older ones outside the window the scan stopped at, so its count, its bytes and its
+    /// client list all read low. Every other game here is newer than the older day, so the old
+    /// scan folded its hundred games and stopped before it ever reached those rows.
+    /// </summary>
+    [Fact]
+    public async Task AGameWithRowsOnTwoDistantDaysCountsBothOfThem()
+    {
+        var options = NewDatabase();
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.Downloads.Add(NamedGame("steam", "10.0.0.1", Anchor, 731, 730, "Call of Duty"));
+            for (var game = 0; game < 150; game++)
+            {
+                for (var i = 0; i < 20; i++)
+                {
+                    seed.Downloads.Add(NamedGame(
+                        "steam", "10.0.0.9", Anchor.AddHours(-1).AddMinutes(-i),
+                        6000 + game, 7000 + game, $"Newer Game {game}"));
+                }
+            }
+            for (var i = 0; i < 40; i++)
+            {
+                seed.Downloads.Add(NamedGame(
+                    "steam", "10.0.0.2", Anchor.AddDays(-21).AddMinutes(-i), 731, 730, "Call of Duty"));
+            }
+            await seed.SaveChangesAsync();
+        }
+
+        var groups = GroupsOf(await RecentSectionAsync(options));
+        var counted = Assert.Single(groups, g => g.Name == "Call of Duty");
+
+        Assert.Equal(41, counted.Count);
+        Assert.Equal(41 * 2048, counted.CacheHitBytes);
+        Assert.Equal(41 * 1024, counted.CacheMissBytes);
+        Assert.Equal(new[] { "10.0.0.1", "10.0.0.2" }, counted.ClientIps.Order());
+    }
+
+    /// <summary>
+    /// Every group gets its own five hundred rather than a share of one budget. A quiet game whose
+    /// rows are all older than a loud neighbour's must still carry its own ids, because a group
+    /// with no ids draws no event badges and nothing on screen or in the log says why. The loud
+    /// game here has more rows than any whole-read bound would have left room for.
+    /// </summary>
+    [Fact]
+    public async Task AQuietGroupKeepsItsMemberIdsBesideALoudOne()
+    {
+        var options = NewDatabase();
+        await using (var seed = new AppDbContext(options))
+        {
+            for (var i = 0; i < 1200; i++)
+            {
+                seed.Downloads.Add(NamedGame("steam", "10.0.0.1", Anchor.AddMinutes(-i), 731, 730, "Loud Game"));
+            }
+            for (var i = 0; i < 3; i++)
+            {
+                seed.Downloads.Add(NamedGame(
+                    "steam", "10.0.0.2", Anchor.AddDays(-30).AddMinutes(-i), 741, 740, "Quiet Game"));
+            }
+            await seed.SaveChangesAsync();
+        }
+
+        var groups = GroupsOf(await RecentSectionAsync(options));
+        var quiet = Assert.Single(groups, g => g.Name == "Quiet Game");
+        var loud = Assert.Single(groups, g => g.Name == "Loud Game");
+
+        Assert.Equal(3, quiet.Count);
+        Assert.Equal(3, quiet.DownloadIds.Count);
+        Assert.Equal(1200, loud.Count);
+        Assert.Equal(500, loud.DownloadIds.Count);
+    }
+
+    /// <summary>
+    /// The id list and the count are filled by two different queries, so nothing but this holds
+    /// them together. A badge is drawn per id, and an id the count does not cover would draw a
+    /// badge for a member the row says it does not have.
+    /// </summary>
+    [Fact]
+    public async Task NoGroupCarriesMoreMemberIdsThanItsCount()
+    {
+        var options = NewDatabase();
+        await using (var seed = new AppDbContext(options))
+        {
+            for (var i = 0; i < 30; i++)
+            {
+                seed.Downloads.Add(Row("wsus", "10.0.0.1", Anchor.AddMinutes(-i)));
+            }
+            for (var i = 0; i < 12; i++)
+            {
+                seed.Downloads.Add(NamedGame("steam", "10.0.0.2", Anchor.AddMinutes(-i), 731, 730, "Call of Duty"));
+            }
+
+            var prefill = NamedGame("steam", "10.0.0.3", Anchor.AddDays(-4), 999, 998, "Long Prefill");
+            prefill.IsActive = true;
+            seed.Downloads.Add(prefill);
+            for (var i = 0; i < 7; i++)
+            {
+                seed.Downloads.Add(NamedGame(
+                    "steam", "10.0.0.3", Anchor.AddDays(-4).AddMinutes(-i - 1), 999, 998, "Long Prefill"));
+            }
+            await seed.SaveChangesAsync();
+        }
+
+        var groups = GroupsOf(await RecentSectionAsync(options));
+
+        Assert.All(groups, g => Assert.True(
+            g.DownloadIds.Count <= g.Count,
+            $"{g.Id} carries {g.DownloadIds.Count} ids against a count of {g.Count}"));
+    }
+
+    /// <summary>
+    /// Rows with no depot used to form one aggregate group each, which is what drove the scan to
+    /// page dozens of times over a range full of Windows Update traffic. They fold on their
+    /// service now, so one client's whole run is one group and one set of member ids.
+    /// </summary>
+    [Fact]
+    public async Task NoDepotTrafficFormsOneGroupPerClientRatherThanOnePerRow()
+    {
+        var options = NewDatabase();
+        await using (var seed = new AppDbContext(options))
+        {
+            for (var i = 0; i < 400; i++)
+            {
+                seed.Downloads.Add(Row("wsus", i % 2 == 0 ? "10.0.0.1" : "10.0.0.2", Anchor.AddSeconds(-i)));
+            }
+            await seed.SaveChangesAsync();
+        }
+
+        var group = Assert.Single(GroupsOf(await RecentSectionAsync(options)));
+
+        Assert.Equal("service-wsus", group.Id);
+        Assert.Equal(400, group.Count);
+        Assert.Equal(2, group.ClientIps.Count);
+        Assert.Equal(400, group.DownloadIds.Count);
+    }
+
+    /// <summary>
+    /// Each shape the ingestion could not name keeps its own group: a Steam row on an unmapped
+    /// depot by that depot, an Epic row by its app id, an Xbox row by its product id. None of them
+    /// scatter and none of them collapse into one another.
+    /// </summary>
+    [Fact]
+    public async Task UnnamedRowsGroupOnTheColumnThatIdentifiesThem()
+    {
+        var options = NewDatabase();
+        await using (var seed = new AppDbContext(options))
+        {
+            var unmappedOne = Row("steam", "10.0.0.1", Anchor);
+            unmappedOne.DepotId = 100001;
+            seed.Downloads.Add(unmappedOne);
+            var unmappedTwo = Row("steam", "10.0.0.1", Anchor.AddMinutes(-1));
+            unmappedTwo.DepotId = 100002;
+            seed.Downloads.Add(unmappedTwo);
+
+            var epicOne = Row("epicgames", "10.0.0.1", Anchor.AddMinutes(-2));
+            epicOne.EpicAppId = "fortnite";
+            seed.Downloads.Add(epicOne);
+            var epicTwo = Row("epicgames", "10.0.0.1", Anchor.AddMinutes(-3));
+            epicTwo.EpicAppId = "rocketleague";
+            seed.Downloads.Add(epicTwo);
+
+            var xbox = Row("xboxlive", "10.0.0.1", Anchor.AddMinutes(-4));
+            xbox.XboxProductId = "9NBLGGH4R315";
+            seed.Downloads.Add(xbox);
+
+            await seed.SaveChangesAsync();
+        }
+
+        var groups = GroupsOf(await RecentSectionAsync(options));
+
+        // No mapping tables are seeded, so every row falls back to its service and the two service
+        // buckets are what the panel draws. What matters is that the five rows arrive whole.
+        Assert.Equal(5, groups.Sum(g => g.Count));
+        Assert.Equal(5, groups.Sum(g => g.DownloadIds.Count));
+        Assert.Equal(2, groups.Count(g => g.Id == "service-steam" || g.Id == "service-epicgames"));
     }
 
     /// <summary>
@@ -388,5 +568,66 @@ public sealed class DashboardRecentQueryTranslationTests
 
         Assert.Contains("GROUP BY", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ORDER BY", sql, StringComparison.OrdinalIgnoreCase);
+
+        // The identity columns are the change this test exists for. A key the provider cannot
+        // group on throws at the endpoint while every seeded test above stays green.
+        var groupBy = sql[sql.IndexOf("GROUP BY", StringComparison.OrdinalIgnoreCase)..];
+        foreach (var column in new[]
+                 {
+                     "GameAppId", "GameName", "DepotId", "EpicAppId", "XboxProductId",
+                     "Service", "ClientIp"
+                 })
+        {
+            Assert.Contains(column, groupBy, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// The member ids ride a second query whose filter has one arm per identity column and whose
+    /// per-group limit rests on a window function. LINQ has no window operator, so the limit only
+    /// stays per group while the provider keeps emitting ROW_NUMBER partitioned by the identity: a
+    /// rewrite that lost it would silently go back to a shared budget, where one loud game takes
+    /// the newest rows and a quiet one beside it draws no badges at all. That is what the
+    /// PARTITION BY assertion below is guarding, and no seeded test can see it.
+    /// </summary>
+    [Fact]
+    public void GroupMemberQuery_TranslatesToSql()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=translation_smoke_test")
+            .Options;
+
+        using var context = new AppDbContext(options);
+
+        var buildMemberQuery = typeof(DashboardBatchService)
+            .GetMethod("BuildGroupMemberQuery", BindingFlags.NonPublic | BindingFlags.Static)!;
+        DashboardBatchService.GroupMemberKey[] identities =
+        [
+            new(730, "Call of Duty", 731, null, null, "steam", "10.0.0.1"),
+            new(null, null, null, "fortnite", null, "epicgames", "10.0.0.2"),
+            new(null, null, null, null, "9NBLGGH4R315", "xboxlive", "10.0.0.3"),
+            new(null, null, null, null, null, "wsus", "10.0.0.4")
+        ];
+        var query = (IQueryable<DashboardBatchService.IdentityMembers>)buildMemberQuery.Invoke(
+            null, [context.Downloads.AsNoTracking(), identities, 500])!;
+
+        var sql = query.ToQueryString();
+
+        Assert.Contains("WHERE", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ROW_NUMBER() OVER(PARTITION BY", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ORDER BY d0.\"StartTimeUtc\" DESC)", sql, StringComparison.Ordinal);
+
+        // The window partitions on the same seven columns the aggregate groups on. A partition
+        // narrower than the group key would hand one group several windows of five hundred.
+        var partition = sql[sql.IndexOf("PARTITION BY", StringComparison.Ordinal)..];
+        partition = partition[..partition.IndexOf("ORDER BY", StringComparison.Ordinal)];
+        foreach (var column in new[]
+                 {
+                     "GameAppId", "GameName", "DepotId", "EpicAppId", "XboxProductId",
+                     "Service", "ClientIp"
+                 })
+        {
+            Assert.Contains(column, partition, StringComparison.Ordinal);
+        }
     }
 }

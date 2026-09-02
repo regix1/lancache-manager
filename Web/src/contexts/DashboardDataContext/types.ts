@@ -45,12 +45,10 @@ export interface DashboardGameGroup {
   totalBytes: number;
   cacheHitBytes: number;
   cacheMissBytes: number;
-  /** How many downloads the group stands for. Covers the depot groups the server's scan actually
-   *  read, which stops once it has a hundred games, so a game downloaded both today and last week
-   *  can have older members below the stop point and be understated here. The same goes for the
-   *  bytes and the client list. An active game appended below the hundred is counted over its
-   *  active members alone, while `downloadIds` still carries every member of the pairs it matched,
-   *  so `downloadIds.length` can exceed this. */
+  /** How many downloads the group stands for, over the whole selected range. The server groups on
+   *  the identity columns each row already carries, so a game downloaded both today and last week
+   *  counts both. The same goes for the bytes and the client list. An active game appended below
+   *  the hundred is counted over its active members alone. */
   count: number;
   /** Start time of the newest member, which is what the panel orders on. */
   lastSeen: string;
@@ -65,7 +63,9 @@ export interface DashboardGameGroup {
   /** The distinct client addresses that downloaded this game, so the dropdown can narrow without
    *  a refetch and the "N clients" text can read this list's length. */
   clientIps: string[];
-  /** Every member download id, so an event badge on an old member still resolves. */
+  /** Member download ids, newest first, so an event badge on an older member still resolves. The
+   *  server sends at most five hundred, which is what the batch event route answers in one call,
+   *  and never more than `count`. A badge on a member older than those five hundred is not drawn. */
   downloadIds: number[];
 }
 

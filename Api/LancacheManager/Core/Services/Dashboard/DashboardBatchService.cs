@@ -594,19 +594,14 @@ public partial class DashboardBatchService : IDashboardBatchService
     private const int RecentGameGroupLimit = 100;
 
     /// <summary>
-    /// One page of the depot-and-client aggregate the scan reads newest-first. The number of
-    /// depot groups standing behind a hundred games is not a constant: a row with no depot forms
-    /// a group on its own, and one game downloaded by many clients forms a group per client, so
-    /// the scan pages and folds until it has the games rather than reading a fixed window.
+    /// How many member ids one group carries, newest first. The aggregate covers the whole range,
+    /// so a group standing for weeks of Windows Update traffic would otherwise carry an id per
+    /// row. Five hundred is what the batch event route answers in one call
+    /// (<c>POST downloads/batch-download-events</c>), so a group never offers more ids than the
+    /// request that consumes them can ask about at once. A badge on a member older than the newest
+    /// five hundred does not resolve.
     /// </summary>
-    private const int RecentScanPageSize = 500;
-
-    /// <summary>
-    /// The scan stops here whatever it has folded so far. This stops a pathological range from
-    /// scanning the whole table; reaching it means the panel shows fewer than
-    /// <see cref="RecentGameGroupLimit"/> games, never wrong ones.
-    /// </summary>
-    private const int RecentScanCeiling = 20_000;
+    private const int RecentGroupDownloadIdLimit = 500;
 
     /// <summary>
     /// How long a finished row keeps riding the raw array beside the active ones. A live preview
@@ -778,37 +773,10 @@ public partial class DashboardBatchService : IDashboardBatchService
 
         var showClean = evictedMode == EvictedDataMode.ShowClean.ToWireString();
 
-        var groupsByKey = new Dictionary<string, DashboardGameGroup>(StringComparer.Ordinal);
-        // Held as a set because an active row folded below can name a depot pair the scan already
-        // recorded for the same game, and reading one pair twice would list its members twice.
-        var pairsByKey = new Dictionary<string, HashSet<(long DepotId, string ClientIp)>>(StringComparer.Ordinal);
-        var groupedQuery = BuildRecentGroupedQuery(query);
-
-        var scanned = 0;
-        while (groupsByKey.Count < RecentGameGroupLimit && scanned < RecentScanCeiling)
-        {
-            var page = await groupedQuery.Skip(scanned).Take(RecentScanPageSize).ToListAsync(ct);
-            if (page.Count == 0) break;
-            scanned += page.Count;
-
-            // Names are resolved a page at a time because the fold key depends on them: a name is
-            // NULL on the row until the depot, Epic and Xbox tables fill it, so the scan cannot
-            // know how many games it has until the page it just read has been folded.
-            await GameNameResolver.ResolveAsync(context, page, ct);
-            foreach (var row in page)
-            {
-                FoldIntoGameGroups(groupsByKey, pairsByKey, row, showClean);
-            }
-
-            if (page.Count < RecentScanPageSize) break;
-        }
-
-        // A game's rank by latest member start is the rank of its newest depot group, so folding a
-        // newest-first scan already yields the games in this order.
-        var groups = groupsByKey.Values
-            .OrderByDescending(g => g.LastSeen)
-            .Take(RecentGameGroupLimit)
-            .ToList();
+        // One aggregate pass over the whole range. The key is the identity the ingestion already
+        // wrote onto the row, so every member of a game reaches the same group whatever its age
+        // and the totals below are the game's real totals rather than what a window reached.
+        var groupRows = await BuildRecentGroupedQuery(query).ToListAsync(ct);
 
         var finishedCutoff = DateTime.UtcNow - _recentFinishedTail;
         var rows = await query
@@ -821,35 +789,58 @@ public partial class DashboardBatchService : IDashboardBatchService
             foreach (var d in rows) d.IsEvicted = false;
         }
 
-        // Resolve game names via Steam depot mappings + Epic lookup
-        await GameNameResolver.ResolveAsync(context, rows, ct);
-
         // An active game whose newest download is older than the newest hundred still belongs on
         // the panel, so its group is folded from the active rows and appended. Its totals cover
         // its active members only, and it sorts after the hundred because it is older than they
         // are. Doing it here keeps one owner for the fold rules instead of a second copy in the
-        // browser.
+        // browser. Each copy is shaped exactly like an aggregate row of one member, so the fold
+        // cannot tell the two sources apart.
+        var activeGroupRows = rows.Where(d => d.IsActive).Select(d => new DashboardGroupRow
+        {
+            DepotId = d.DepotId,
+            ClientIp = d.ClientIp,
+            Service = d.Service,
+            GameName = d.GameName,
+            GameAppId = d.GameAppId,
+            EpicAppId = d.EpicAppId,
+            XboxProductId = d.XboxProductId,
+            CacheHitBytes = d.CacheHitBytes,
+            CacheMissBytes = d.CacheMissBytes,
+            LastStartTimeUtc = d.StartTimeUtc,
+            RequestCount = 1,
+            EvictedCount = d.IsEvicted ? 1 : 0
+        }).ToList();
+
+        // The resolver writes a name onto a row that has none, so the stored identity is read off
+        // both sets first. That identity is what the aggregate grouped on and what the member ids
+        // are fetched by, and neither is the resolved name.
+        var groupIdentities = groupRows.Select(GroupMemberKey.Of).ToList();
+        var activeIdentities = activeGroupRows.Select(GroupMemberKey.Of).ToList();
+
+        // One resolve pass: the aggregate rows need names for the fold key, the raw rows carry
+        // theirs to the browser, and the active copies fold beside the aggregate rows.
+        await GameNameResolver.ResolveAsync(context, [.. groupRows, .. rows, .. activeGroupRows], ct);
+
+        var groupsByKey = new Dictionary<string, DashboardGameGroup>(StringComparer.Ordinal);
+        // Held as a set because an active row folded below can name an identity the aggregate
+        // already recorded for the same game, and reading one identity twice would list its
+        // members twice.
+        var identitiesByKey = new Dictionary<string, HashSet<GroupMemberKey>>(StringComparer.Ordinal);
+        foreach (var (row, identity) in groupRows.Zip(groupIdentities))
+        {
+            FoldIntoGameGroups(groupsByKey, identitiesByKey, row, identity, showClean);
+        }
+
+        var groups = groupsByKey.Values
+            .OrderByDescending(g => g.LastSeen)
+            .Take(RecentGameGroupLimit)
+            .ToList();
+
         var carriedKeys = new HashSet<string>(groups.Select(g => g.Id), StringComparer.Ordinal);
         var activeGroups = new Dictionary<string, DashboardGameGroup>(StringComparer.Ordinal);
-        foreach (var d in rows.Where(d => d.IsActive))
+        foreach (var (row, identity) in activeGroupRows.Zip(activeIdentities))
         {
-            FoldIntoGameGroups(activeGroups, pairsByKey, new DashboardGroupRow
-            {
-                // Shaped exactly like an aggregate row of one member, so the fold cannot tell the
-                // two sources apart: a depot-backed row names its pair and a no-depot one names
-                // its own id.
-                DepotId = d.DepotId,
-                RowKey = d.DepotId == null ? d.Id : 0L,
-                ClientIp = d.ClientIp,
-                Service = d.Service,
-                GameName = d.GameName,
-                GameAppId = d.GameAppId,
-                CacheHitBytes = d.CacheHitBytes,
-                CacheMissBytes = d.CacheMissBytes,
-                LastStartTimeUtc = d.StartTimeUtc,
-                RequestCount = 1,
-                EvictedCount = d.IsEvicted ? 1 : 0
-            }, showClean);
+            FoldIntoGameGroups(activeGroups, identitiesByKey, row, identity, showClean);
         }
         groups.AddRange(activeGroups.Values.Where(g => !carriedKeys.Contains(g.Id)));
 
@@ -864,7 +855,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             group.IsPartiallyEvicted = group.EvictedCount > 0 && group.EvictedCount < group.Count;
         }
 
-        await FillGroupDownloadIdsAsync(query, groups, pairsByKey, ct);
+        await FillGroupDownloadIdsAsync(query, groups, identitiesByKey, ct);
 
         // Projected onto the narrower row here rather than serialized as entities: LastUrl and
         // XboxProductId sit on every row and no client reads either.
@@ -892,53 +883,58 @@ public partial class DashboardBatchService : IDashboardBatchService
     }
 
     /// <summary>
-    /// Aggregates the visible downloads per (DepotId, ClientIp) so only group-level scalars cross
-    /// the database boundary, the same shape the retro page groups on. No-depot rows keep one
-    /// group per row via RowKey = Id. The order closes on the group key so paging the scan cannot
-    /// see one aggregate row twice or skip one.
+    /// Aggregates the visible downloads per identity and client, so only group-level scalars cross
+    /// the database boundary. The identity columns are the ones the ingestion writes at insert:
+    /// a Steam row whose depot was mapped carries GameAppId and GameName, one whose depot was not
+    /// carries DepotId, an Epic row carries EpicAppId, an Xbox row carries XboxProductId, and a
+    /// row with none of them is told by its service. Every row therefore lands in exactly one
+    /// group and every group folds into exactly one game, so one pass over the range yields the
+    /// game's real totals with no window to fall outside of.
     /// </summary>
     private static IQueryable<DashboardGroupRow> BuildRecentGroupedQuery(IQueryable<Download> query)
     {
         return query
             .GroupBy(d => new
             {
+                d.GameAppId,
+                d.GameName,
                 d.DepotId,
-                d.ClientIp,
-                RowKey = d.DepotId == null ? d.Id : 0L
+                d.EpicAppId,
+                d.XboxProductId,
+                d.Service,
+                d.ClientIp
             })
             .Select(g => new DashboardGroupRow
             {
+                GameAppId = g.Key.GameAppId,
+                GameName = g.Key.GameName,
                 DepotId = g.Key.DepotId,
+                EpicAppId = g.Key.EpicAppId,
+                XboxProductId = g.Key.XboxProductId,
+                Service = g.Key.Service,
                 ClientIp = g.Key.ClientIp,
-                RowKey = g.Key.RowKey,
-                Service = g.Max(d => d.Service)!,
-                GameName = g.Max(d => d.GameName),
-                GameAppId = g.Max(d => d.GameAppId),
-                EpicAppId = g.Max(d => d.EpicAppId),
-                XboxProductId = g.Max(d => d.XboxProductId),
                 CacheHitBytes = g.Sum(d => d.CacheHitBytes),
                 CacheMissBytes = g.Sum(d => d.CacheMissBytes),
                 LastStartTimeUtc = g.Max(d => d.StartTimeUtc),
                 RequestCount = g.Count(),
                 EvictedCount = g.Sum(d => d.IsEvicted ? 1 : 0)
             })
-            .OrderByDescending(r => r.LastStartTimeUtc)
-            .ThenBy(r => r.ClientIp)
-            .ThenBy(r => r.DepotId)
-            .ThenBy(r => r.RowKey);
+            .OrderByDescending(r => r.LastStartTimeUtc);
     }
 
     /// <summary>
-    /// Folds one depot-and-client aggregate into the game it belongs to, minting the group the
+    /// Folds one identity-and-client aggregate into the game it belongs to, minting the group the
     /// first time that game is seen. A row whose resolved name does not name a game lands in its
     /// service's bucket instead, which is the rule the panel applied while it did this grouping
     /// itself. ShowClean drops the evicted tally so the group's flags stay clear, matching what
-    /// the raw rows get in that mode.
+    /// the raw rows get in that mode. The identity arrives separately because the resolver has
+    /// already overwritten the row's own name by the time the fold runs.
     /// </summary>
     private static void FoldIntoGameGroups(
         Dictionary<string, DashboardGameGroup> groups,
-        Dictionary<string, HashSet<(long DepotId, string ClientIp)>> pairsByKey,
+        Dictionary<string, HashSet<GroupMemberKey>> identitiesByKey,
         DashboardGroupRow row,
+        GroupMemberKey identity,
         bool showClean)
     {
         var foldedService = ServiceBreakdownMerger.NormalizeXboxService(row.Service);
@@ -990,90 +986,185 @@ public partial class DashboardBatchService : IDashboardBatchService
         }
         group.ClientIps.Add(row.ClientIp);
 
-        if (row.DepotId is long depotId)
+        if (!identitiesByKey.TryGetValue(key, out var identities))
         {
-            if (!pairsByKey.TryGetValue(key, out var pairs))
-            {
-                pairs = [];
-                pairsByKey[key] = pairs;
-            }
-            pairs.Add((depotId, row.ClientIp));
+            identities = [];
+            identitiesByKey[key] = identities;
         }
-        else
-        {
-            group.DownloadIds.Add(row.RowKey);
-        }
+        identities.Add(identity);
     }
 
     /// <summary>
     /// Member ids for the groups that survived the cap, read in a second query the way the retro
     /// page fills its own. They are left off the aggregate deliberately: reading them there costs
-    /// one row per member over every group the scan touched rather than only the ones being sent.
+    /// one row per member over every group the pass touched rather than only the ones being sent.
+    /// The database hands back the newest <see cref="RecentGroupDownloadIdLimit"/> of each identity
+    /// separately, so no group's ids can be crowded out by a louder one. A group standing for
+    /// several identities is then trimmed here, newest first, to that same limit or to its own
+    /// count if that is smaller, so the id list can never be longer than the count drawn beside it.
     /// </summary>
     private static async Task FillGroupDownloadIdsAsync(
         IQueryable<Download> query,
         List<DashboardGameGroup> groups,
-        Dictionary<string, HashSet<(long DepotId, string ClientIp)>> pairsByKey,
+        Dictionary<string, HashSet<GroupMemberKey>> identitiesByKey,
         CancellationToken ct)
     {
-        var neededPairs = new HashSet<(long DepotId, string ClientIp)>();
+        var groupsByIdentity = new Dictionary<GroupMemberKey, DashboardGameGroup>();
         foreach (var group in groups)
         {
-            if (pairsByKey.TryGetValue(group.Id, out var pairs))
-            {
-                foreach (var pair in pairs) neededPairs.Add(pair);
-            }
+            if (!identitiesByKey.TryGetValue(group.Id, out var identities)) continue;
+            foreach (var identity in identities) groupsByIdentity[identity] = group;
         }
-        if (neededPairs.Count == 0) return;
+        if (groupsByIdentity.Count == 0) return;
 
-        // Over-fetched by depot list and ip list, with the pair-exact filtering done in memory
-        // below; both lists are bounded by the groups being sent, so this stays one indexed query.
-        var depotIdList = neededPairs.Select(p => p.DepotId).Distinct().ToList();
-        var clientIpList = neededPairs.Select(p => p.ClientIp).Distinct().ToList();
-
-        var memberRows = await query
-            .Where(d => d.DepotId != null
-                     && depotIdList.Contains(d.DepotId.Value)
-                     && clientIpList.Contains(d.ClientIp))
-            .Select(d => new { d.Id, DepotId = d.DepotId!.Value, d.ClientIp })
+        var identityRows = await BuildGroupMemberQuery(
+                query, groupsByIdentity.Keys, RecentGroupDownloadIdLimit)
             .ToListAsync(ct);
 
-        var idsByPair = new Dictionary<(long DepotId, string ClientIp), List<long>>();
-        foreach (var row in memberRows)
+        // Each identity's window arrives newest first, but a group can stand for several of them
+        // and the query does not interleave them, so they are merged by start time before the trim
+        // below drops anything.
+        var members = new List<(GroupMemberKey Identity, long Id, DateTime StartTimeUtc)>();
+        foreach (var row in identityRows)
         {
-            var pair = (row.DepotId, row.ClientIp);
-            if (!neededPairs.Contains(pair)) continue;
-            if (!idsByPair.TryGetValue(pair, out var ids))
+            var identity = new GroupMemberKey(
+                row.GameAppId, row.GameName, row.DepotId,
+                row.EpicAppId, row.XboxProductId, row.Service, row.ClientIp);
+            foreach (var member in row.Members)
             {
-                ids = [];
-                idsByPair[pair] = ids;
+                members.Add((identity, member.Id, member.StartTimeUtc));
             }
-            ids.Add(row.Id);
         }
 
-        foreach (var group in groups)
+        foreach (var member in members.OrderByDescending(m => m.StartTimeUtc))
         {
-            if (!pairsByKey.TryGetValue(group.Id, out var pairs)) continue;
-            foreach (var pair in pairs)
-            {
-                if (idsByPair.TryGetValue(pair, out var ids))
-                {
-                    group.DownloadIds.AddRange(ids);
-                }
-            }
+            if (!groupsByIdentity.TryGetValue(member.Identity, out var group)) continue;
+            if (group.DownloadIds.Count >= Math.Min(RecentGroupDownloadIdLimit, group.Count)) continue;
+            group.DownloadIds.Add(member.Id);
         }
     }
 
     /// <summary>
-    /// One depot-and-client aggregate of the recent scan. It carries the mapping columns as well
-    /// as the sums because <see cref="GameNameResolver"/> resolves names straight onto it, so one
-    /// representative object per depot group answers both the fold's key and its totals.
+    /// The newest rows of every identity in the set, at most <paramref name="perGroupLimit"/> each.
+    /// The limit is per identity rather than over the whole read, because a shared budget lets one
+    /// loud game take the newest rows and leaves a quiet one beside it with none of its own.
+    /// <para>
+    /// The filter narrows to the identities being sent. It is over-broad on purpose: one list per
+    /// identity column plus the client addresses, with the exact match done by the caller in
+    /// memory, which keeps it to one indexed pass. The last arm is the rows the ingestion could
+    /// name nothing about, told apart by their service alone. Every row of an identity in the set
+    /// matches at least one arm, so no group's window is computed over a partial set.
+    /// </para>
+    /// <para>
+    /// LINQ has no window operator. Grouping on the identity and taking the newest rows inside the
+    /// group is the shape the provider turns into ROW_NUMBER OVER (PARTITION BY the identity), and
+    /// it is the only shape found that both the database provider and the in-memory one used by
+    /// the seeded tests accept. A rewrite that loses the partition goes back to a shared budget.
+    /// </para>
+    /// </summary>
+    private static IQueryable<IdentityMembers> BuildGroupMemberQuery(
+        IQueryable<Download> query,
+        IReadOnlyCollection<GroupMemberKey> identities,
+        int perGroupLimit)
+    {
+        var appIds = identities.Where(k => k.GameAppId.HasValue).Select(k => k.GameAppId!.Value).Distinct().ToList();
+        var names = identities.Where(k => k.GameName != null).Select(k => k.GameName!).Distinct().ToList();
+        var depotIds = identities.Where(k => k.DepotId.HasValue).Select(k => k.DepotId!.Value).Distinct().ToList();
+        var epicAppIds = identities.Where(k => k.EpicAppId != null).Select(k => k.EpicAppId!).Distinct().ToList();
+        var xboxProductIds = identities.Where(k => k.XboxProductId != null).Select(k => k.XboxProductId!).Distinct().ToList();
+        var services = identities.Select(k => k.Service).Distinct().ToList();
+        var clientIps = identities.Select(k => k.ClientIp).Distinct().ToList();
+
+        var members = query
+            .Where(d => clientIps.Contains(d.ClientIp)
+                     && ((d.GameAppId != null && appIds.Contains(d.GameAppId.Value))
+                      || (d.GameName != null && names.Contains(d.GameName))
+                      || (d.DepotId != null && depotIds.Contains(d.DepotId.Value))
+                      || (d.EpicAppId != null && epicAppIds.Contains(d.EpicAppId))
+                      || (d.XboxProductId != null && xboxProductIds.Contains(d.XboxProductId))
+                      || (d.GameAppId == null && d.GameName == null && d.DepotId == null
+                          && d.EpicAppId == null && d.XboxProductId == null
+                          && services.Contains(d.Service))));
+
+        return members
+            .GroupBy(d => new
+            {
+                d.GameAppId,
+                d.GameName,
+                d.DepotId,
+                d.EpicAppId,
+                d.XboxProductId,
+                d.Service,
+                d.ClientIp
+            })
+            .Select(g => new IdentityMembers
+            {
+                GameAppId = g.Key.GameAppId,
+                GameName = g.Key.GameName,
+                DepotId = g.Key.DepotId,
+                EpicAppId = g.Key.EpicAppId,
+                XboxProductId = g.Key.XboxProductId,
+                Service = g.Key.Service,
+                ClientIp = g.Key.ClientIp,
+                Members = g.OrderByDescending(d => d.StartTimeUtc)
+                    .Take(perGroupLimit)
+                    .Select(d => new GroupMemberRow(d.Id, d.StartTimeUtc))
+                    .ToList()
+            });
+    }
+
+    /// <summary>
+    /// One identity and the newest of its rows, carrying the identity columns so the caller can
+    /// match it back to the group it belongs to.
+    /// </summary>
+    internal sealed class IdentityMembers
+    {
+        public long? GameAppId { get; init; }
+        public string? GameName { get; init; }
+        public long? DepotId { get; init; }
+        public string? EpicAppId { get; init; }
+        public string? XboxProductId { get; init; }
+        public string Service { get; init; } = string.Empty;
+        public string ClientIp { get; init; } = string.Empty;
+        public List<GroupMemberRow> Members { get; init; } = [];
+    }
+
+    /// <summary>
+    /// One member the ids are read from. The start time rides along so the ids stay newest first
+    /// when a group stands for more than one identity and their windows have to be interleaved.
+    /// </summary>
+    internal sealed record GroupMemberRow(long Id, DateTime StartTimeUtc);
+
+    /// <summary>
+    /// The stored identity of one aggregate row: the columns the ingestion wrote and the client
+    /// that pulled it. It is read before <see cref="GameNameResolver"/> runs, because the resolver
+    /// writes a name onto a row that has none and the member ids are fetched by what is stored.
+    /// Resolution and the fold that follows it read nothing but these columns, so one identity
+    /// always reaches exactly one group. That is what lets the member ids be looked up by it.
+    /// </summary>
+    internal sealed record GroupMemberKey(
+        long? GameAppId,
+        string? GameName,
+        long? DepotId,
+        string? EpicAppId,
+        string? XboxProductId,
+        string Service,
+        string ClientIp)
+    {
+        public static GroupMemberKey Of(DashboardGroupRow row) => new(
+            row.GameAppId, row.GameName, row.DepotId,
+            row.EpicAppId, row.XboxProductId, row.Service, row.ClientIp);
+    }
+
+    /// <summary>
+    /// One identity-and-client aggregate of the recent pass. It carries the mapping columns as
+    /// well as the sums because <see cref="GameNameResolver"/> resolves names straight onto it, so
+    /// one representative object per group answers both the fold's key and its totals.
     /// </summary>
     internal sealed class DashboardGroupRow : IGameNameRow
     {
         public long? DepotId { get; init; }
         public string ClientIp { get; init; } = string.Empty;
-        public long RowKey { get; init; }
         public string Service { get; init; } = string.Empty;
         public string? GameName { get; set; }
         public long? GameAppId { get; set; }
