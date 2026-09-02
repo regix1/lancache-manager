@@ -91,21 +91,11 @@ public class SpeedsController : ControllerBase
         // Apply eviction filter (hide/remove modes exclude evicted downloads)
         query = query.ApplyEvictedFilter(evictedMode);
 
-        var downloads = await query.ToListAsync();
-
-        if (downloads.Count == 0)
-        {
-            return Ok(new SpeedHistorySnapshot
-            {
-                PeriodStartUtc = periodStart,
-                PeriodEndUtc = periodEnd,
-                PeriodMinutes = minutes
-            });
-        }
-
-        // Calculate total bytes for the period (filter out 0-byte entries)
-        var downloadsWithData = downloads.Where(d => d.TotalBytes > 0).ToList();
-        var totalBytes = downloadsWithData.Sum(d => d.TotalBytes);
+        // Summed in the database rather than over loaded entities: a busy cache has hundreds of
+        // thousands of downloads in a 24 hour window, and the response only needs these two numbers.
+        var withData = query.Where(d => d.TotalBytes > 0);
+        var totalBytes = await withData.SumAsync(d => d.TotalBytes);
+        var totalSessions = await withData.CountAsync();
         var totalDuration = (periodEnd - periodStart).TotalSeconds;
 
         return Ok(new SpeedHistorySnapshot
@@ -115,7 +105,7 @@ public class SpeedsController : ControllerBase
             PeriodMinutes = minutes,
             TotalBytes = totalBytes,
             AverageBytesPerSecond = totalDuration > 0 ? totalBytes / totalDuration : 0,
-            TotalSessions = downloadsWithData.Count
+            TotalSessions = totalSessions
         });
     }
 }
