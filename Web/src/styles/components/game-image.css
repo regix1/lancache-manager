@@ -1,0 +1,24 @@
+@layer components {
+  /* A banner arrives dim and soft and sharpens into place over the tinted box every banner slot
+     already draws, so artwork blooms in as its bytes land instead of popping. Each image reveals
+     on its own load, so a page of them staggers naturally. One the browser already holds is marked
+     loaded on mount and skips the reveal: there is nothing to wait for, so nothing to animate. */
+  .game-image {
+    opacity: 0;
+    filter: blur(6px);
+    transition:
+      opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+      filter 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .game-image.is-loaded {
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .game-image {
+      transition: none;
+    }
+  }
+}

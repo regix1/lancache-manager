@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
@@ -68,15 +68,33 @@ export const GameImage: React.FC<GameImageProps> = ({
     }
   }, [failed, src, imageKey, onError]);
 
+  // The url whose bytes have landed, so replaced artwork reveals again on its own load while the
+  // url it replaced cannot leave the new one marked as shown. Keyed on the url rather than reset
+  // from an effect: an effect runs after the ref below has already marked a cached banner, and
+  // would wipe that mark for one frame.
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+
+  // A banner the browser already holds can be complete the moment the element gets its url, so it
+  // is asked on mount rather than made to wait for a load event it may have already fired.
+  const markIfComplete = useCallback((img: HTMLImageElement | null): void => {
+    if (img?.complete && img.naturalWidth > 0) {
+      setLoadedSrc(img.getAttribute('src'));
+    }
+  }, []);
+
   if (failed || !src) return null;
+
+  const isLoaded = loadedSrc === src;
 
   return (
     <img
+      ref={markIfComplete}
       src={src}
       sizes={sizes}
       alt={alt}
-      className={className}
+      className={`game-image${isLoaded ? ' is-loaded' : ''}${className ? ` ${className}` : ''}`}
       loading={loading}
+      onLoad={() => setLoadedSrc(src)}
       onError={() => setFailed(true)}
     />
   );
