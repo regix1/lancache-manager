@@ -881,6 +881,7 @@
       "loginFailedStatus": "Login failed: {{status}}",
       "networkDuringLogin": "Network error during login",
       "guestSessionFailed": "Failed to start guest session",
+      "logoutIncomplete": "Signed out on this device, but the server could not be reached. Sign out again when you are back online.",
       "network": "Network error"
     }
   },
@@ -3065,7 +3066,8 @@
         "unexpectedResponse": "Unexpected response when starting log removal for {{service}}",
         "readOnly": "Logs directory is read-only. Remove :ro from docker-compose volume mount.",
         "actionFailed": "Action failed",
-        "deleteFailed": "Failed to delete log file"
+        "deleteFailed": "Failed to delete log file",
+        "loadFailed": "Could not load the log counts. The list below may be incomplete."
       },
       "help": {
         "aboutTitle": "About"
@@ -3378,6 +3380,8 @@
         "createFailed": "Failed to create theme",
         "cleanupFailed": "Failed to clean up themes",
         "deleteFailed": "Failed to delete theme",
+        "loadFailed": "Some themes could not be loaded, so the list below may be incomplete.",
+        "preferenceChangeFailed": "That setting could not be applied.",
         "preferencesReset": "Preferences reset to defaults",
         "preferencesResetGuest": "Your preferences have been reset to defaults by an administrator"
       },
@@ -4064,7 +4068,8 @@
         "loggedOut": "Logged out successfully. This device slot is now available for another user."
       },
       "errors": {
-        "logoutFailed": "Failed to logout: {{message}}"
+        "logoutFailed": "Failed to logout: {{message}}",
+        "steamSignOutFailed": "Signed out, but the Steam login and Web API key could not be cleared from the server."
       }
     },
     "sessions": {},
@@ -7578,6 +7583,9 @@
     },
     "rateLimit": {
       "tooManyRequests": "Too many requests from this address. Wait for the limit to reset and try again."
+    },
+    "state": {
+      "saveFailed": "The state file could not be written, so your change was not saved. Check the server logs and the permissions on the data directory."
     },
     "stats": {
       "invalidExclusions": "One or more exclusions are not valid. Please correct them and try again.",

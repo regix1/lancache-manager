@@ -175,6 +175,11 @@ public class SteamWebApiService
     /// Test Steam Web API V2 availability (no API key required)
     /// Tests the ISteamApps/GetAppList/v2 endpoint which should work without authentication
     /// </summary>
+    /// <returns>
+    /// False both when the endpoint answered with something we did not recognize and when the
+    /// request never completed. This is a probe, so an unreachable endpoint and a broken one are
+    /// the same answer: do not use V2.
+    /// </returns>
     private async Task<bool> TestV2ApiAsync()
     {
         try
@@ -209,6 +214,10 @@ public class SteamWebApiService
     /// Test Steam Web API V1 availability with provided API key
     /// Uses IStoreService/GetAppList/v1 which validates the API key
     /// </summary>
+    /// <returns>
+    /// False both when the key was rejected and when the request never completed. Same as the V2
+    /// probe: both mean do not use V1.
+    /// </returns>
     private async Task<bool> TestV1ApiAsync(string apiKey)
     {
         try
@@ -298,6 +307,11 @@ public class SteamWebApiService
     /// <summary>
     /// Get app list from Steam Web API with automatic V2/V1 fallback
     /// </summary>
+    /// <returns>
+    /// Null when neither version could give us a list, whether because the API refused or because
+    /// the call failed. Never an empty list standing in for a failure: callers must not read null
+    /// as "Steam has no apps".
+    /// </returns>
     public async Task<List<SteamApp>?> GetAppListAsync()
     {
         var status = await GetApiStatusAsync();
@@ -415,6 +429,8 @@ public class SteamWebApiService
         return allApps;
     }
 
+    /// <summary>Fetches the full app list from the V2 endpoint.</summary>
+    /// <returns>Null when the V2 fetch failed or answered with a status we cannot use.</returns>
     private async Task<List<SteamApp>?> FetchV2AppListAsync()
     {
         try
@@ -444,6 +460,8 @@ public class SteamWebApiService
         _lastStatusCheck = DateTime.MinValue;
     }
 
+    /// <summary>Reads the app entries out of a V2 app-list response body.</summary>
+    /// <returns>Null when the response was not the shape V2 is supposed to send.</returns>
     private List<SteamApp>? ParseV2AppList(string json)
     {
         try
@@ -485,7 +503,10 @@ public class SteamWebApiService
     /// <summary>
     /// Parse a single page of V1 API response and extract pagination info
     /// </summary>
-    /// <returns>Tuple of (apps, hasMore, lastAppId)</returns>
+    /// <returns>
+    /// Tuple of (apps, hasMore, lastAppId). A null <c>apps</c> means the page could not be read,
+    /// not that the page was empty, and stops the paging rather than ending it cleanly.
+    /// </returns>
     private (List<SteamApp>? apps, bool hasMore, long lastAppId) ParseV1AppListPage(string json)
     {
         try

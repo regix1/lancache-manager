@@ -187,7 +187,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
         // A reply is a whole request old, and the user can have started editing inside that window.
         // What they typed is what they can see, so the server's copy waits for their next save.
         if (hasExcludedChangesRef.current) return;
-        const rules = response.rules ?? [];
+        const rules = response.rules;
         setExcludedRules(rules);
         setSavedExcludedRules(rules);
       } catch (err) {
@@ -280,7 +280,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     setSavingExcluded(true);
     try {
       const response = await ApiService.updateStatsExclusionRules(excludedRules);
-      const rules = response.rules ?? [];
+      const rules = response.rules;
       setExcludedRules(rules);
       setSavedExcludedRules(rules);
       onSuccess(t('management.sections.clients.excludedIpsUpdated'));

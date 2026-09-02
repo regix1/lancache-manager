@@ -154,7 +154,7 @@ type PresetType = 'pretty' | 'minimal' | 'showAll' | 'default' | 'custom';
 // "Unknown/Other" group rather than a named game. The grouped page answers this server-side; the
 // export reads raw rows and still has to decide it here.
 const isUnmappedSteam = (d: Download): boolean =>
-  (d.service ?? '').toLowerCase() === 'steam' &&
+  d.service.toLowerCase() === 'steam' &&
   (!d.gameName || d.gameName.trim() === '' || d.gameName.toLowerCase() === d.service.toLowerCase());
 
 // Preset configurations
@@ -299,7 +299,7 @@ const convertDownloadsToCSV = (
   downloads: Download[],
   clock: Omit<TimestampSettings, 'style'>
 ): string => {
-  if (!downloads || downloads.length === 0) return '';
+  if (downloads.length === 0) return '';
 
   // UTF-8 BOM for proper special character encoding (™, ®, etc.)
   const BOM = '\uFEFF';
@@ -563,7 +563,7 @@ const DownloadsTab: React.FC = () => {
       // Migrate removed "latest" (old Frequent First / buggy Newest) → chronological Newest
       sortOrder: (() => {
         const stored = storage.getItem(STORAGE_KEYS.SORT_ORDER);
-        if (!stored || stored === 'latest') return 'recent' as SortOrder;
+        if (!stored || stored === 'latest') return 'recent';
         return stored as SortOrder;
       })(),
       aestheticMode: storage.getItem(STORAGE_KEYS.AESTHETIC_MODE) === 'true',

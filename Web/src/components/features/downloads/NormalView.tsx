@@ -189,7 +189,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   });
   const hitPercent = cacheHitPercent(group.cacheHitBytes, group.totalBytes);
   const primaryDownload = group.downloads[0];
-  const serviceLower = (group.service ?? '').toLowerCase();
+  const serviceLower = group.service.toLowerCase();
   const isSteam = serviceLower === 'steam';
   const isWsus = serviceLower === 'wsus' || serviceLower === 'windows';
   const isRiot = serviceLower === 'riot' || serviceLower === 'riotgames';
@@ -228,7 +228,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
     : showEpicImage
       ? `epic-${epicAppId}`
       : showNameKeyedImage
-        ? `${nameKeyed!.service}-${nameKeyed!.slug}`
+        ? `${nameKeyed.service}-${nameKeyed.slug}`
         : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   const placeholderIconSize = 64;
@@ -274,8 +274,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
         <GameImage
           gameAppId={showNameKeyedImage ? undefined : showEpicImage ? epicAppId! : steamAppId!}
           epicAppId={showEpicImage ? epicAppId! : undefined}
-          nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
-          nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
+          nameKeyedService={showNameKeyedImage ? nameKeyed.service : undefined}
+          nameKeyedSlug={showNameKeyedImage ? nameKeyed.slug : undefined}
           alt={primaryName || group.name}
           className="dl-card-banner-img"
           sizes={
@@ -491,9 +491,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                           {t('downloads.tab.normal.stats.cacheFiles')}
                         </span>
                         <span className="text-sm font-bold text-[var(--theme-text-secondary)]">
-                          {detection?.cache_files_found != null
-                            ? formatCount(detection.cache_files_found)
-                            : '-'}
+                          {formatCount(detection.cache_files_found)}
                         </span>
                       </div>
                     </div>
@@ -683,7 +681,7 @@ const GridCard: React.FC<GridCardProps> = ({
   const cardRef = React.useRef<HTMLDivElement>(null);
   const hitPercent = cacheHitPercent(group.cacheHitBytes, group.totalBytes);
   const primaryDownload = group.downloads[0];
-  const serviceLower = (group.service ?? '').toLowerCase();
+  const serviceLower = group.service.toLowerCase();
   const isSteam = serviceLower === 'steam';
   const isEpic = serviceLower === 'epic' || serviceLower === 'epicgames';
   const isWsus = serviceLower === 'wsus' || serviceLower === 'windows';
@@ -706,7 +704,7 @@ const GridCard: React.FC<GridCardProps> = ({
     : showEpicImage
       ? `epic-${epicAppId}`
       : showNameKeyedImage
-        ? `${nameKeyed!.service}-${nameKeyed!.slug}`
+        ? `${nameKeyed.service}-${nameKeyed.slug}`
         : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   const { isEvicted, isPartiallyEvicted } = group;
@@ -730,8 +728,8 @@ const GridCard: React.FC<GridCardProps> = ({
         <GameImage
           gameAppId={showNameKeyedImage ? undefined : showEpicImage ? epicAppId! : steamAppId!}
           epicAppId={showEpicImage ? epicAppId! : undefined}
-          nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
-          nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
+          nameKeyedService={showNameKeyedImage ? nameKeyed.service : undefined}
+          nameKeyedSlug={showNameKeyedImage ? nameKeyed.slug : undefined}
           alt={primaryName || group.name}
           className="card-grid-banner-image"
           sizes="(max-width: 639px) 100vw, 360px"
@@ -905,7 +903,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   }, [group.id]);
   const hitPercent = cacheHitPercent(group.cacheHitBytes, group.totalBytes);
   const primaryDownload = group.downloads[0];
-  const serviceLower = (group.service ?? '').toLowerCase();
+  const serviceLower = group.service.toLowerCase();
   const isSteam = serviceLower === 'steam';
   const isEpic = serviceLower === 'epic' || serviceLower === 'epicgames';
   const isWsus = serviceLower === 'wsus' || serviceLower === 'windows';
@@ -937,7 +935,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     : showEpicImage
       ? `epic-${epicAppId}`
       : showNameKeyedImage
-        ? `${nameKeyed!.service}-${nameKeyed!.slug}`
+        ? `${nameKeyed.service}-${nameKeyed.slug}`
         : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   const storeLink = primaryDownload?.gameAppId
@@ -961,8 +959,8 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
       <GameImage
         gameAppId={showNameKeyedImage ? undefined : showEpicImage ? epicAppId! : steamAppId!}
         epicAppId={showEpicImage ? epicAppId! : undefined}
-        nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
-        nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
+        nameKeyedService={showNameKeyedImage ? nameKeyed.service : undefined}
+        nameKeyedSlug={showNameKeyedImage ? nameKeyed.slug : undefined}
         alt={primaryName || group.name}
         className="drawer-banner-image"
         sizes="(max-width: 639px) 100vw, 550px"
@@ -1080,9 +1078,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                     {t('downloads.tab.normal.stats.cacheFiles')}
                   </span>
                   <span className="text-sm font-bold text-[var(--theme-text-secondary)]">
-                    {detection?.cache_files_found != null
-                      ? formatCount(detection.cache_files_found)
-                      : '-'}
+                    {formatCount(detection.cache_files_found)}
                   </span>
                 </div>
               </div>
@@ -1465,7 +1461,7 @@ const NormalView: React.FC<NormalViewProps> = ({
     };
 
     const itemKey = (item: Download | DownloadGroup): string =>
-      'downloads' in item ? (item as DownloadGroup).id : `download-${(item as Download).id}`;
+      'downloads' in item ? item.id : `download-${item.id}`;
 
     const renderGridCard = (item: Download | DownloadGroup): React.ReactNode => {
       const group = toGroup(item);

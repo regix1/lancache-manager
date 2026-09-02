@@ -135,7 +135,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       return;
     }
 
-    if (!startDate || (startDate && endDate)) {
+    if (!startDate || endDate) {
       onStartDateChange(selectedDate);
       onEndDateChange(null);
     } else {

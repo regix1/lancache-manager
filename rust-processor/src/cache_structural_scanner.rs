@@ -388,7 +388,10 @@ impl ConcurrencyLimiter {
 
     fn set_limit(&self, limit: usize) {
         let limit = limit.max(1);
-        if let Ok(mut state) = self.state.lock() {
+        {
+            // Two counters behind the lock, neither left half-written by a panic, so a
+            // poisoned lock is recovered rather than silently dropping the new limit.
+            let mut state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             state.limit = limit;
             self.current_limit.store(limit, Ordering::Relaxed);
         }
@@ -398,7 +401,9 @@ impl ConcurrencyLimiter {
     /// Blocks until a slot frees up. Returns `None` once the pipeline is stopping, so a worker
     /// parked here during cancellation wakes and exits instead of stranding the scan.
     fn acquire(&self, stop: &AtomicBool) -> Option<ConcurrencyPermit<'_>> {
-        let mut state = self.state.lock().ok()?;
+        // `None` here means "the pipeline is stopping" and retires the worker, so a
+        // poisoned lock must be recovered rather than quietly ending the scan early.
+        let mut state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         loop {
             if stop.load(Ordering::Acquire) || cancel::is_cancelled() {
                 return None;
@@ -410,7 +415,7 @@ impl ConcurrencyLimiter {
             let (next, _) = self
                 .available
                 .wait_timeout(state, Duration::from_millis(50))
-                .ok()?;
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             state = next;
         }
     }
@@ -422,7 +427,15 @@ struct ConcurrencyPermit<'a> {
 
 impl Drop for ConcurrencyPermit<'_> {
     fn drop(&mut self) {
-        if let Ok(mut state) = self.limiter.state.lock() {
+        {
+            // Skipping this decrement would leak the slot and shrink the effective
+            // concurrency for the rest of the scan, so recover a poisoned lock instead.
+            // `into_inner` cannot panic, which matters inside Drop during an unwind.
+            let mut state = self
+                .limiter
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             state.in_flight = state.in_flight.saturating_sub(1);
         }
         self.limiter.available.notify_one();

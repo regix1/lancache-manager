@@ -179,7 +179,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       }
 
       // Check if processing failed
-      if (data.success === false) {
+      if (!data.success) {
         setNotice({
           tone: 'error',
           message: data.message || t('initialization.logProcessing.failedToProcess')

@@ -140,9 +140,9 @@ export async function buildApiError(response: Response): Promise<ApiError> {
   // structured conflict data survives on the thrown error.
   let cause: unknown;
   if (status === 409) {
-    const conflict = body as (ApiErrorData & Partial<OperationConflictBody>) | null;
+    const conflict = body;
     if (conflict && (conflict.code === 'OPERATION_CONFLICT' || conflict.stageKey)) {
-      cause = conflict as OperationConflictBody;
+      cause = conflict;
     }
   }
 

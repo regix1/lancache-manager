@@ -19,7 +19,7 @@ export const getEvictedServices = (services?: ServiceCacheInfo[]) =>
 // bytes still has its cache files on disk under a sibling entity that shares them, so it remains a
 // title the user can select and remove and must stay listed.
 export const getActiveGames = (games: GameCacheInfo[]) =>
-  games.filter((game) => !game.is_evicted && (game.cache_files_found ?? 0) > 0);
+  games.filter((game) => !game.is_evicted && game.cache_files_found > 0);
 
 // A service keeps its scan-time file count even when cache-path attribution awards every one of
 // those files to a game that claimed them first, leaving it with zero bytes. Unlike a game above,
@@ -29,5 +29,5 @@ export const getActiveGames = (games: GameCacheInfo[]) =>
 export const getActiveServices = (services: ServiceCacheInfo[]) =>
   services.filter(
     (service) =>
-      !service.is_evicted && (service.cache_files_found ?? 0) > 0 && service.total_size_bytes > 0
+      !service.is_evicted && service.cache_files_found > 0 && service.total_size_bytes > 0
   );

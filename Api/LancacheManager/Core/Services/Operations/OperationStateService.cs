@@ -162,6 +162,14 @@ public class OperationStateService : ScheduledBackgroundService
         return created;
     }
 
+    /// <summary>
+    /// Reads one persisted operation state back into the in-memory map.
+    /// </summary>
+    /// <returns>
+    /// Null both when nothing was persisted under this key and when reading it back failed. A
+    /// caller cannot tell the two apart, so it must treat null as "no state to resume", never as
+    /// proof the operation never ran.
+    /// </returns>
     private OperationState? LoadState(string key)
     {
         try

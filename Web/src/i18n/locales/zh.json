@@ -881,6 +881,7 @@
       "loginFailedStatus": "登录失败：{{status}}",
       "networkDuringLogin": "登录时发生网络错误",
       "guestSessionFailed": "无法启动访客会话",
+      "logoutIncomplete": "已在此设备上登出，但无法连接服务器。恢复网络后请再次登出。",
       "network": "网络错误"
     }
   },
@@ -3065,7 +3066,8 @@
         "unexpectedResponse": "启动 {{service}} 的日志移除时出现意外响应",
         "readOnly": "日志目录为只读。请从 docker-compose 卷挂载中移除 :ro。",
         "actionFailed": "操作失败",
-        "deleteFailed": "删除日志文件失败"
+        "deleteFailed": "删除日志文件失败",
+        "loadFailed": "无法加载日志计数，下方列表可能不完整。"
       },
       "help": {
         "aboutTitle": "关于"
@@ -3378,6 +3380,8 @@
         "createFailed": "创建主题失败",
         "cleanupFailed": "清理主题失败",
         "deleteFailed": "删除主题失败",
+        "loadFailed": "部分主题无法加载，下方列表可能不完整。",
+        "preferenceChangeFailed": "无法应用该设置。",
         "preferencesReset": "偏好设置已重置为默认值",
         "preferencesResetGuest": "管理员已将您的偏好设置重置为默认值"
       },
@@ -4064,7 +4068,8 @@
         "loggedOut": "已成功登出。此设备名额现在可供其他用户使用。"
       },
       "errors": {
-        "logoutFailed": "登出失败：{{message}}"
+        "logoutFailed": "登出失败：{{message}}",
+        "steamSignOutFailed": "已登出，但无法从服务器清除 Steam 登录信息和 Web API 密钥。"
       }
     },
     "sessions": {},
@@ -7544,6 +7549,9 @@
     },
     "rateLimit": {
       "tooManyRequests": "来自此地址的请求过多。请等待限制重置后重试。"
+    },
+    "state": {
+      "saveFailed": "无法写入状态文件，因此您的更改未被保存。请检查服务器日志以及数据目录的权限。"
     },
     "stats": {
       "invalidExclusions": "一个或多个排除项无效。请更正后重试。",

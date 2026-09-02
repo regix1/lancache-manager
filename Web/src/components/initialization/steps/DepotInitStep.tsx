@@ -125,7 +125,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     const checkActiveOperation = async () => {
       try {
         const status = await ApiService.getPicsStatus();
-        if (status?.steamKit2?.isRebuildRunning) {
+        if (status.steamKit2?.isRebuildRunning) {
           setInitializing(true);
           setDownloadStatus(t('initialization.depotInit.operationInProgress'));
         }
@@ -402,8 +402,8 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             </strong>{' '}
             {picsData.jsonFile?.exists &&
               t('initialization.depotInit.jsonMappings', {
-                count: picsData.jsonFile?.totalMappings ?? 0,
-                formattedCount: formatCount(picsData.jsonFile?.totalMappings ?? 0)
+                count: picsData.jsonFile.totalMappings ?? 0,
+                formattedCount: formatCount(picsData.jsonFile.totalMappings ?? 0)
               }) + ' '}
             {t('initialization.depotInit.dbMappings', {
               count: picsData.database?.totalMappings ?? 0,

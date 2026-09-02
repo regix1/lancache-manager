@@ -343,7 +343,7 @@ public class SetupController : ControllerBase
         // it into a shell command and an ALTER ROLE statement on the next start. Anything outside
         // letters, numbers and underscores would be running as the postgres superuser by then, so it
         // must never reach the file.
-        var username = (request.Username ?? string.Empty).Trim();
+        var username = request.Username.Trim();
         var usernameProblem = CheckUsername(username);
         if (usernameProblem != null)
             return BadRequest(ApiResponse.Error(usernameProblem));

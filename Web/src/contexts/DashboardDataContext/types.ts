@@ -24,7 +24,7 @@ export interface DashboardBatchResponse {
   serviceOptions: ServiceFilterOption[] | null;
   clientOptions: string[] | null;
   recentDownloads: RecentDownloadsSection | null;
-  detection: CachedDetectionResponse | null;
+  detection?: CachedDetectionResponse | null;
   sparklines: SparklineDataResponse | null;
   hourlyActivity: HourlyActivityResponse | null;
   cacheSnapshot: CacheSnapshotResponse | null;

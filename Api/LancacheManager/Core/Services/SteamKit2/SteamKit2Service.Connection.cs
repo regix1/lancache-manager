@@ -10,6 +10,10 @@ public partial class SteamKit2Service
     /// Check if the Steam Daemon is currently active/authenticated.
     /// Used to determine whether to use anonymous mode to avoid session conflicts.
     /// </summary>
+    /// <returns>
+    /// False both when no daemon is authenticated and when the check itself could not run. Both
+    /// send us down the anonymous path, which is the safe answer when we cannot tell.
+    /// </returns>
     private bool IsSteamDaemonActive()
     {
         try

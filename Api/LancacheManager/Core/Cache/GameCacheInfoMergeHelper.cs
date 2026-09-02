@@ -57,7 +57,7 @@ internal static class GameCacheInfoMergeHelper
         existing.CacheFilePaths ??= [];
         var knownPaths = new HashSet<string>(existing.CacheFilePaths, StringComparer.OrdinalIgnoreCase);
 
-        foreach (var path in incoming.CacheFilePaths ?? [])
+        foreach (var path in incoming.CacheFilePaths)
         {
             if (knownPaths.Add(path))
             {
@@ -80,7 +80,7 @@ internal static class GameCacheInfoMergeHelper
         existing.CacheFilePaths ??= [];
         var knownPaths = new HashSet<string>(existing.CacheFilePaths, StringComparer.OrdinalIgnoreCase);
 
-        foreach (var path in incoming.CacheFilePaths ?? [])
+        foreach (var path in incoming.CacheFilePaths)
         {
             if (knownPaths.Add(path))
             {

@@ -102,11 +102,8 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
     if (current.source === 'ui') {
       return t('user.guest.guestDurationToggle.source.ui');
     }
-    if (current.source === 'config') {
-      if (current.envVarValue !== current.durationHours) {
-        return t('user.guest.guestDurationToggle.source.config');
-      }
-      return t('user.guest.guestDurationToggle.source.default');
+    if (current.envVarValue !== current.durationHours) {
+      return t('user.guest.guestDurationToggle.source.config');
     }
     return t('user.guest.guestDurationToggle.source.default');
   };

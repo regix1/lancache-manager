@@ -232,7 +232,12 @@ public partial class CacheManagementService
         }
         catch (Exception ex)
         {
+            // Half of `info` is still at its zero default here, and zero is a value the cache can
+            // legitimately hold, so a caller reading the object back cannot tell a drive that
+            // could not be read from one that is genuinely empty. Named here because the message
+            // the funnel logs cannot say which read failed.
             _logger.LogError(ex, "Error getting cache info");
+            throw;
         }
 
         return info;
@@ -886,11 +891,6 @@ public partial class CacheManagementService
             // If the log file doesn't exist, return empty counts instead of throwing
             LogThrottledWarning($"Log file not accessible for datasource '{datasourceName}': {logDir}. Returning empty counts.");
             return counts;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error counting service logs for datasource '{DatasourceName}'", datasourceName);
-            throw;
         }
 
         return counts;

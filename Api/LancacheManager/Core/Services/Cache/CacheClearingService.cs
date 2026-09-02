@@ -807,9 +807,6 @@ public class CacheClearingService : ScheduledBackgroundService
         IReadOnlyCollection<(string DatasourceName, string CachePath)> clearedDatasources,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(dbContext);
-        ArgumentNullException.ThrowIfNull(pathResolver);
-
         // The scanner creates its own tables the first time it runs, so on an install that has
         // never scanned there is nothing to delete and the table does not exist yet. Clearing the
         // cache has to keep working there.

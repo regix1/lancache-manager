@@ -141,7 +141,7 @@ const Sparkline: React.FC<SparklineProps> = memo(
 
         // Update colors for theme changes
         chart.data.datasets[0].borderColor = gradientColor.solid;
-        if (showArea && canvasRef.current) {
+        if (showArea) {
           const updateCtx = canvasRef.current.getContext('2d');
           if (updateCtx) {
             const updatedGradient = updateCtx.createLinearGradient(0, 0, 0, SPARKLINE_HEIGHT);

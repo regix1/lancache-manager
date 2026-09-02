@@ -1389,6 +1389,11 @@ app.MapFallback(async context =>
 // Log depot count for diagnostics (non-blocking background task after scope is disposed)
 _ = Task.Run(async () =>
 {
+    // Resolved before the try so the failure below reports through the same logger as the count
+    // itself. Written to the console it carried no level and no category, so it was invisible to
+    // every log filter and to anyone reading the container log for a startup problem.
+    var backgroundLogger = app.Services.GetRequiredService<ILogger<Program>>();
+
     try
     {
         // Small delay to ensure app.Services is fully ready
@@ -1396,14 +1401,13 @@ _ = Task.Run(async () =>
 
         using var backgroundScope = app.Services.CreateScope();
         var backgroundContext = backgroundScope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var backgroundLogger = backgroundScope.ServiceProvider.GetRequiredService<ILogger<Program>>();
 
         var depotCount = await backgroundContext.SteamDepotMappings.CountAsync();
         backgroundLogger.LogInformation("Database has {DepotCount} depot mappings", depotCount);
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"Failed to check depot count: {ex.Message}");
+        backgroundLogger.LogWarning(ex, "Failed to check depot count");
     }
 });
 

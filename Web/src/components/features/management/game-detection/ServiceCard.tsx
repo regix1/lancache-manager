@@ -82,7 +82,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   const urlsForExpansion = isEvictedVariant
     ? (service.evicted_sample_urls ?? [])
     : service.sample_urls;
-  const pathsForExpansion = !isEvictedVariant ? (service.cache_file_paths ?? []) : [];
+  const pathsForExpansion = !isEvictedVariant ? service.cache_file_paths : [];
   const hasExpandableContent = urlsForExpansion.length > 0 || pathsForExpansion.length > 0;
 
   return (
@@ -119,7 +119,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
       />
 
       {/* Cache File Paths - only available for active (on-disk) items */}
-      {!isEvictedVariant && service.cache_file_paths && (
+      {!isEvictedVariant && (
         <ExpandableList
           items={service.cache_file_paths}
           maxInitial={MAX_INITIAL_PATHS}

@@ -146,11 +146,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       const data = await themeService.loadThemes();
       setThemes(data);
     } catch (error) {
-      console.error('Error loading themes:', error);
+      notifyError(t('management.themes.notifications.loadFailed'), error, {
+        logLabel: 'Error loading themes:'
+      });
     } finally {
       setLoading(false);
     }
-  }, [setLoading]);
+  }, [notifyError, setLoading, t]);
 
   // Reports whether the choice actually stuck. The slider needs the answer: it has to stay on the
   // stop it was on when a save fails, or the next release of that same stop is read as a repeat
@@ -193,7 +195,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       themeService.clearOriginalThemeBeforePreview();
       return true;
     } catch (error) {
-      console.error('Failed to change theme:', error);
+      // The slider snapping back to the previous stop is the only other sign anything went wrong.
+      notifyError(t('management.themes.notifications.failedToSave'), error, {
+        logLabel: 'Failed to change theme:'
+      });
       return false;
     }
   };
@@ -480,7 +485,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+    if (e.dataTransfer.files[0]) {
       handleFile(e.dataTransfer.files[0]);
     }
   };

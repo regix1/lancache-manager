@@ -398,8 +398,7 @@ export function ScheduledPrefillConfigModal({
       let retiredAny = false;
       for (const serviceKey of SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS) {
         const serviceId = getPersistentServiceId(serviceKey);
-        const serviceEditSession =
-          editSession.services[serviceId as ScheduledPrefillEditSessionServiceId];
+        const serviceEditSession = editSession.services[serviceId];
         if (serviceEditSession.login || serviceEditSession.start) {
           retirePersistentLoginState(serviceId);
           retiredAny = true;
@@ -598,7 +597,7 @@ export function ScheduledPrefillConfigModal({
     const selectedAppIdsByService = {} as Record<ScheduledPrefillEditSessionServiceId, string[]>;
     const sessionIdByService = {} as Record<ScheduledPrefillEditSessionServiceId, string | null>;
     for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
-      const serviceId = getPersistentServiceId(serviceKey) as ScheduledPrefillEditSessionServiceId;
+      const serviceId = getPersistentServiceId(serviceKey);
       selectedAppIdsByService[serviceId] = [...config[serviceKey].selectedAppIds];
       sessionIdByService[serviceId] =
         persistentContainerByService.get(serviceId)?.sessionId ?? null;
@@ -621,7 +620,7 @@ export function ScheduledPrefillConfigModal({
       const recorded = recordEditActionIntent(
         sessionStore,
         initializeEditSession(),
-        service as ScheduledPrefillEditSessionServiceId,
+        service,
         kind,
         sessionId,
         createScheduledPrefillEditSessionId
@@ -669,7 +668,7 @@ export function ScheduledPrefillConfigModal({
           (container) =>
             `${container.service}:${container.isRunning ? 1 : 0}:${
               container.isAuthenticated ? 1 : 0
-            }:${container.sessionId ?? ''}`
+            }:${container.sessionId}`
         )
         .join('|'),
     [persistentContainers]
@@ -1186,7 +1185,7 @@ export function ScheduledPrefillConfigModal({
     const updated = recordEditSessionStartResult(
       sessionStore,
       editSession,
-      serviceId as ScheduledPrefillEditSessionServiceId,
+      serviceId,
       editActionId,
       started.id
     );

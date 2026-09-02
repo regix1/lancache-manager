@@ -13,25 +13,17 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task ClearDownloadGameDataAsync()
     {
-        try
-        {
-            using var scopedDb = _scopeFactory.CreateScopedDbContext();
+        using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
-            _logger.LogInformation("Clearing game information from Downloads table (GameName, GameImageUrl, GameAppId)");
+        _logger.LogInformation("Clearing game information from Downloads table (GameName, GameImageUrl, GameAppId)");
 
-            await scopedDb.DbContext.Downloads
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(d => d.GameName, (string?)null)
-                    .SetProperty(d => d.GameImageUrl, (string?)null)
-                    .SetProperty(d => d.GameAppId, (long?)null));
+        await scopedDb.DbContext.Downloads
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(d => d.GameName, (string?)null)
+                .SetProperty(d => d.GameImageUrl, (string?)null)
+                .SetProperty(d => d.GameAppId, (long?)null));
 
-            _logger.LogInformation("Cleared game information from all downloads - ready for fresh mapping");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to clear download game data");
-            throw;
-        }
+        _logger.LogInformation("Cleared game information from all downloads - ready for fresh mapping");
     }
 
     /// <summary>
@@ -142,6 +134,11 @@ public partial class SteamKit2Service
     /// _depotOwners and carrying no IsOwner mapping row in the database. This handles
     /// delisted/removed games whose depots never appear in Steam's GetAppList API.
     /// </summary>
+    /// <returns>
+    /// An empty list both when nothing was orphaned and when the resolution failed. This pass is
+    /// an extra on top of the ordinary mapping, so an empty list leaves those depots unmapped
+    /// rather than failing the crawl.
+    /// </returns>
     private async Task<List<uint>> ResolveOrphanDepotsAsync(CancellationToken ct)
     {
         try
@@ -313,6 +310,10 @@ public partial class SteamKit2Service
     /// <summary>
     /// Update downloads that have depot IDs but no game information
     /// </summary>
+    /// <returns>
+    /// (0, 0) both when there was nothing to update and when the update failed part-way. Rows
+    /// already written stay written; the next crawl picks up whatever this pass did not reach.
+    /// </returns>
     private async Task<(int updated, int notFound)> ApplyDepotMappingsAsync(
         MappingOperationReporter? reporter,
         CancellationToken cancellationToken,

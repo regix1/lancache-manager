@@ -210,14 +210,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Note: Items with empty/missing datasources (legacy data) are shown regardless of filter.
   const activeGames = getActiveGames(games);
   const filteredGames = selectedDatasource
-    ? activeGames.filter(
-        (g) => !g.datasources?.length || g.datasources.includes(selectedDatasource)
-      )
+    ? activeGames.filter((g) => !g.datasources.length || g.datasources.includes(selectedDatasource))
     : activeGames;
   const activeServices = getActiveServices(services);
   const filteredServices = selectedDatasource
     ? activeServices.filter(
-        (s) => !s.datasources?.length || s.datasources.includes(selectedDatasource)
+        (s) => !s.datasources.length || s.datasources.includes(selectedDatasource)
       )
     : activeServices;
 
@@ -594,7 +592,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         return;
       }
 
-      const resultsSummary = snapshot ? buildLoadedResultsSummary(snapshot) : null;
+      const resultsSummary = buildLoadedResultsSummary(snapshot);
 
       addNotification({
         type: 'generic',

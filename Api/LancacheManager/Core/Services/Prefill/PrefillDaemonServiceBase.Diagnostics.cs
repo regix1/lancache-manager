@@ -50,6 +50,11 @@ public abstract partial class PrefillDaemonServiceBase
     /// <summary>
     /// Tests internet connectivity from inside a container by attempting to reach Steam API.
     /// </summary>
+    /// <returns>
+    /// Success false both when the container genuinely has no route out and when the test could
+    /// not be run at all. Error carries which of the two it was, so a caller reporting this to a
+    /// reader should show it rather than just the flag.
+    /// </returns>
     private async Task<(bool Success, string? Error)> TestInternetConnectivityAsync(string containerId, CancellationToken cancellationToken)
     {
         try

@@ -35,6 +35,14 @@ public class ImageCacheService : IImageCacheService
         _memoryCache = memoryCache;
     }
 
+    /// <summary>
+    /// Reads a stored banner, putting it in the memory cache on the way out.
+    /// </summary>
+    /// <returns>
+    /// Null both when no image is stored for this app and when reading the stored one failed.
+    /// The caller falls back to fetching the image again, so a failed read costs a re-fetch
+    /// rather than a broken banner.
+    /// </returns>
     public async Task<(byte[] imageBytes, string contentType, DateTime storedAtUtc)?> GetImageAsync(
         string appId,
         string platform,
@@ -80,26 +88,18 @@ public class ImageCacheService : IImageCacheService
 
     public async Task ClearCacheAsync()
     {
-        try
-        {
-            EvictMemoryCache();
+        EvictMemoryCache();
 
-            // Marked for re-fetch rather than deleted. Deleting emptied the table before the refill
-            // started, so /api/game-images/available reported only what had been re-stored so far and
-            // every banner past the first batch dropped to a placeholder for the length of the pass.
-            // Backdating FetchedAtUtc puts every row under the stale-refresh phase's cutoff instead,
-            // and that phase overwrites each row in place, so no banner ever leaves the screen and
-            // only art that genuinely changed produces a new version.
-            await using var db = await _dbContextFactory.CreateDbContextAsync();
-            var markedCount = await db.GameImages.ExecuteUpdateAsync(
-                setters => setters.SetProperty(g => g.FetchedAtUtc, DateTime.UnixEpoch));
-            _logger.LogInformation("[ImageCache] Marked {Count} cached images for re-fetch", markedCount);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[ImageCache] Error clearing cached images from the database");
-            throw;
-        }
+        // Marked for re-fetch rather than deleted. Deleting emptied the table before the refill
+        // started, so /api/game-images/available reported only what had been re-stored so far and
+        // every banner past the first batch dropped to a placeholder for the length of the pass.
+        // Backdating FetchedAtUtc puts every row under the stale-refresh phase's cutoff instead,
+        // and that phase overwrites each row in place, so no banner ever leaves the screen and
+        // only art that genuinely changed produces a new version.
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+        var markedCount = await db.GameImages.ExecuteUpdateAsync(
+            setters => setters.SetProperty(g => g.FetchedAtUtc, DateTime.UnixEpoch));
+        _logger.LogInformation("[ImageCache] Marked {Count} cached images for re-fetch", markedCount);
     }
 
     /// <inheritdoc />

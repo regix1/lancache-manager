@@ -21,9 +21,12 @@ import type {
   EvictionRemovalStartedEvent,
   EvictionRemovalCompleteEvent,
   EvictionRemovalProgressEvent,
+  GameRemovalProgressEvent,
   LogRemovalStartedEvent,
   LogRemovalCompleteEvent,
-  LogRemovalProgressEvent
+  LogRemovalProgressEvent,
+  ServiceRemovalStartedEvent,
+  ServiceRemovalProgressEvent
 } from '@contexts/SignalRContext/types';
 import type { OperationStatus } from '@/types/operations';
 import {
@@ -152,9 +155,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
         onItemStart: (entry, index, _total, notifId) => {
           currentIndex = index;
           const label =
-            entry.kind === 'service'
-              ? entry.service.service_name
-              : (entry.game.game_name ?? String(entry.game.game_app_id));
+            entry.kind === 'service' ? entry.service.service_name : entry.game.game_name;
           options.onProgress?.({ current: index, total, label });
           currentItemMessage = t('management.sections.data.gameCacheRemoveAllProgress', {
             current: index,
@@ -171,21 +172,19 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             const serviceName = entry.service.service_name;
             let operationId: string | null = null;
             const waitPromise = waitForSignalRCompletion<
-              { serviceName?: string; operationId?: string },
+              ServiceRemovalStartedEvent,
               { serviceName?: string },
-              { operationId?: string; percentComplete?: number }
+              ServiceRemovalProgressEvent
             >({
               signalR: { on, off },
               completeEvent: 'ServiceRemovalComplete',
               startedEvent: 'ServiceRemovalStarted',
-              match: (payload) => payload?.serviceName === serviceName,
+              match: (payload) => payload.serviceName === serviceName,
               // Until promotion rebinds it below, operationId still holds the waiting op's id,
               // which is exactly what a waiting-complete for this item carries.
               waitingOperationId: () => operationId,
               onStartedCapture: (payload) =>
-                payload?.serviceName === serviceName && typeof payload.operationId === 'string'
-                  ? { opId: payload.operationId }
-                  : null,
+                payload.serviceName === serviceName ? { opId: payload.operationId } : null,
               onOperationIdCaptured: (opId) => {
                 operationId = opId;
                 ctx.setOperationId(opId);
@@ -193,12 +192,12 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               },
               progressEvent: 'ServiceRemovalProgress',
               onProgress: (payload) => {
-                if (!operationId || payload?.operationId !== operationId) return;
+                if (!operationId || payload.operationId !== operationId) return;
                 updateBulkProgress({
                   bulkNotifId,
                   currentIndex,
                   total,
-                  inner: payload.percentComplete ?? 0,
+                  inner: payload.percentComplete,
                   updateNotification
                 });
               },
@@ -251,7 +250,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
                 service?: string | null;
                 operationId?: string;
               },
-              { operationId?: string; percentComplete?: number }
+              GameRemovalProgressEvent
             >({
               signalR: { on, off },
               completeEvent: 'GameRemovalComplete',
@@ -270,12 +269,12 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               },
               progressEvent: 'GameRemovalProgress',
               onProgress: (payload) => {
-                if (!currentOperationId || payload?.operationId !== currentOperationId) return;
+                if (!currentOperationId || payload.operationId !== currentOperationId) return;
                 updateBulkProgress({
                   bulkNotifId,
                   currentIndex,
                   total,
-                  inner: payload.percentComplete ?? 0,
+                  inner: payload.percentComplete,
                   updateNotification
                 });
               },
@@ -308,7 +307,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               currentOperationId = response.operationId;
             }
             const outcome = await waitPromise;
-            const label = game.game_name ?? game.game_app_id;
+            const label = game.game_name;
             const stillRunning = settleBatchItem({
               outcome,
               ctx,
@@ -404,9 +403,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
         onItemStart: (entry, index, _total, notifId) => {
           currentIndex = index;
           const label =
-            entry.kind === 'service'
-              ? entry.service.service_name
-              : (entry.game.game_name ?? String(entry.game.game_app_id));
+            entry.kind === 'service' ? entry.service.service_name : entry.game.game_name;
           options.onProgress?.({ current: index, total, label });
           currentItemMessage = t('management.sections.data.evictionRemoveSelectedProgress', {
             current: index,
@@ -472,16 +469,14 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             // instead of leaving it to time out ten minutes later.
             match: (payload) =>
               operationId !== null
-                ? payload?.operationId === operationId
-                : matchesEntryIdentity(payload?.context),
+                ? payload.operationId === operationId
+                : matchesEntryIdentity(payload.context),
             // Until promotion rebinds it below, operationId still holds the waiting op's id,
             // which is exactly what a waiting-complete for this item carries.
             waitingOperationId: () => operationId,
             startedEvent: 'EvictionRemovalStarted',
             onStartedCapture: (payload) =>
-              matchesEntryIdentity(payload?.context) && typeof payload.operationId === 'string'
-                ? { opId: payload.operationId }
-                : null,
+              matchesEntryIdentity(payload.context) ? { opId: payload.operationId } : null,
             onOperationIdCaptured: (opId) => {
               operationId = opId;
               ctx.setOperationId(opId);
@@ -489,7 +484,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             },
             progressEvent: 'EvictionRemovalProgress',
             onProgress: (payload) => {
-              if (!operationId || payload?.operationId !== operationId) return;
+              if (!operationId || payload.operationId !== operationId) return;
               updateBulkProgress({
                 bulkNotifId,
                 currentIndex,
@@ -544,7 +539,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
           if (!stillRunning) return;
           // A completion that reports failure (e.g. locked files) must count as failed,
           // not succeeded. Exclude server-side cancels, which the queue's cancel path owns.
-          if (outcome.event && outcome.event.success === false && !outcome.event.cancelled) {
+          if (outcome.event && !outcome.event.success && !outcome.event.cancelled) {
             throw new Error(outcome.event.error ?? 'Evicted removal failed');
           }
         },
@@ -653,15 +648,14 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             completeEvent: 'LogRemovalComplete',
             startedEvent: 'LogRemovalStarted',
             match: (payload) =>
-              operationId ? payload?.operationId === operationId : payload?.service === service,
+              operationId ? payload.operationId === operationId : payload.service === service,
             // Until promotion rebinds it below, operationId still holds the waiting op's id,
             // which is exactly what a waiting-complete for this item carries.
             waitingOperationId: () => operationId,
             onStartedCapture: (payload) => {
-              const startedService = payload?.context?.service;
-              return typeof payload?.operationId === 'string' &&
-                (startedService === undefined || startedService === service)
-                ? { opId: payload.operationId }
+              const startedService = payload.context?.service;
+              return startedService === undefined || startedService === service
+                ? { opId: payload.operationId ?? undefined }
                 : null;
             },
             onOperationIdCaptured: (opId) => {
@@ -671,12 +665,12 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             },
             progressEvent: 'LogRemovalProgress',
             onProgress: (payload) => {
-              if (!operationId || payload?.operationId !== operationId) return;
+              if (!operationId || payload.operationId !== operationId) return;
               updateBulkProgress({
                 bulkNotifId,
                 currentIndex,
                 total,
-                inner: payload.percentComplete ?? 0,
+                inner: payload.percentComplete,
                 updateNotification
               });
             },
@@ -708,7 +702,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
           if (!stillRunning) return;
           // A completion that reports failure (e.g. locked files) must count as failed,
           // not succeeded. Exclude server-side cancels, which the queue's cancel path owns.
-          if (outcome.event && outcome.event.success === false && !outcome.event.cancelled) {
+          if (outcome.event && !outcome.event.success && !outcome.event.cancelled) {
             throw new Error(outcome.event.message || `Log removal failed for ${service}`);
           }
         },

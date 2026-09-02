@@ -40,7 +40,7 @@ const toSingleDownloadGroup = (download: Download): DownloadGroup => {
  * the field only groups carry, so it is what tells the two apart.
  */
 export const toGroup = (item: Download | DownloadGroup): DownloadGroup =>
-  'downloads' in item ? (item as DownloadGroup) : toSingleDownloadGroup(item as Download);
+  'downloads' in item ? item : toSingleDownloadGroup(item);
 
 /**
  * Share of bytes served from cache, for either a single download or a whole group. A zero total

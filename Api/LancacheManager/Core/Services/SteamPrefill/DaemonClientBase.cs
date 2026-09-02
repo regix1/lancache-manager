@@ -663,6 +663,10 @@ public abstract class DaemonClientBase : IDaemonClient
     /// <summary>
     /// Get the current daemon status.
     /// </summary>
+    /// <returns>
+    /// Null both when the daemon answered with no status and when the call to it failed. The two
+    /// are the same answer to a caller: we do not know what the daemon is doing.
+    /// </returns>
     public async Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -705,7 +709,6 @@ public abstract class DaemonClientBase : IDaemonClient
         Action onCommandDispatched,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(onCommandDispatched);
         return StartLoginCoreAsync(timeout, onCommandDispatched, cancellationToken);
     }
 
@@ -1038,6 +1041,13 @@ public abstract class DaemonClientBase : IDaemonClient
     public Task CancelLoginAsync(CancellationToken cancellationToken = default)
         => CancelLoginWithOutcomeAsync(cancellationToken);
 
+    /// <summary>
+    /// Cancel pending login and report whether the daemon acknowledged it.
+    /// </summary>
+    /// <returns>
+    /// False both when the daemon refused the cancel and when the command never got through to
+    /// it. Either way the login may still be running, so false means "not confirmed cancelled".
+    /// </returns>
     public async Task<bool> CancelLoginWithOutcomeAsync(CancellationToken cancellationToken = default)
     {
         ClearPendingChallenges();

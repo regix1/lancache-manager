@@ -333,8 +333,7 @@ export function buildMappingOperationEntry<
       translationValidation: { kind: 'stageKey', cases: recoveryCases },
       apiEndpoint: `/api/system/schedules/${serviceKey}/run-status`,
       isProcessing: (data: MappingRunStatusResponse) => data.isRunning,
-      shouldSkip: (data: MappingRunStatusResponse) =>
-        data.isRunning && data.showNotification === false,
+      shouldSkip: (data: MappingRunStatusResponse) => data.isRunning && !data.showNotification,
       createNotification: (data: MappingRunStatusResponse) => ({
         message: translateRecoveryStage(
           data.stageKey,
@@ -449,8 +448,7 @@ export function buildScheduledRunEntry(
       // A silent run must not resurrect a card when the page reloads mid-run. Only skip an ACTIVE
       // silent run: an idle service reports showNotification=true so a persisted running card is
       // stale-completed on reconnect, never deleted, after a missed terminal (mirrors scheduledPrefill).
-      shouldSkip: (data: ScheduledRunStatusResponse) =>
-        data.isRunning && data.showNotification === false,
+      shouldSkip: (data: ScheduledRunStatusResponse) => data.isRunning && !data.showNotification,
       createNotification: (data: ScheduledRunStatusResponse) => ({
         message: translateRecoveryStage(
           data.stageKey,

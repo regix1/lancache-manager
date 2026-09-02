@@ -940,14 +940,20 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path, reporter: &Arc<P
             service_dirs.iter().map(|p| p.file_name().unwrap_or_default().to_string_lossy()).collect::<Vec<_>>());
 
         for service_dir in &service_dirs {
-            if let Ok(entries) = fs::read_dir(service_dir) {
-                for entry in entries.filter_map(|e| e.ok()) {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                        if is_hex(name) {
-                            hex_dirs.push(path);
-                        }
+            // A service directory that cannot be read would drop every one of its hex
+            // dirs from the scan, reporting a cache size far smaller than the real one.
+            let entries = fs::read_dir(service_dir).with_context(|| {
+                format!(
+                    "could not read service directory {}",
+                    service_dir.display()
+                )
+            })?;
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_dir() {
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if is_hex(name) {
+                        hex_dirs.push(path);
                     }
                 }
             }

@@ -148,7 +148,7 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const handleNavigateToTab = (event: Event) => {
       const customEvent = event as CustomEvent<{ tab: string }>;
-      if (customEvent.detail?.tab) {
+      if (customEvent.detail.tab) {
         handleTabChange(customEvent.detail.tab);
       }
     };
@@ -162,10 +162,8 @@ const AppContent: React.FC = () => {
 
   // Setup SignalR listeners for preferences and theme
   useEffect(() => {
-    if (signalR) {
-      preferencesService.setupSignalRListener(signalR);
-      themeService.setupPreferenceListeners();
-    }
+    preferencesService.setupSignalRListener(signalR);
+    themeService.setupPreferenceListeners();
   }, [signalR]);
 
   // Check if modal was dismissed this session
@@ -186,8 +184,8 @@ const AppContent: React.FC = () => {
     const handleShowFullScanModal = (event: Event) => {
       const requirement = (event as CustomEvent<PendingFullScan>).detail;
       sessionStore.removeItem('fullScanModalDismissed');
-      setFullScanModalChangeGap(requirement?.changeGap);
-      setFullScanModalEstimatedApps(requirement?.estimatedAppsToScan);
+      setFullScanModalChangeGap(requirement.changeGap);
+      setFullScanModalEstimatedApps(requirement.estimatedAppsToScan);
       setShowFullScanRequiredModal(true);
     };
 
@@ -198,7 +196,7 @@ const AppContent: React.FC = () => {
 
   // Listen for automatic scan skipped event via SignalR (for authenticated users)
   useEffect(() => {
-    if (!signalR || authMode !== 'authenticated') return;
+    if (authMode !== 'authenticated') return;
 
     const handleAutomaticScanSkipped = (event?: AutomaticScanSkippedEvent) => {
       // Only show if not already showing, not dismissed, and nothing is already running
@@ -511,7 +509,7 @@ const AppContent: React.FC = () => {
     !checkingAuth &&
     !checkingSetupStatus &&
     authMode === 'unauthenticated' &&
-    authenticationEnabled !== false &&
+    authenticationEnabled &&
     !adminAccountRequired
   ) {
     // The config fetched for this screen came back without the cache, logs and data paths, because

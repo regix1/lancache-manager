@@ -50,8 +50,6 @@ public interface IDaemonClient : IDisposable
         Action onCommandDispatched,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(onCommandDispatched);
-
         var challenge = await StartLoginAsync(timeout, cancellationToken);
         onCommandDispatched();
         return challenge;

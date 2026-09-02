@@ -94,12 +94,12 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
   // trustworthy and renders immediately (count changes bypass the throttle).
   const acceptSnapshot = useCallback(
     (data: DownloadSpeedSnapshot, options: { throttle: boolean }) => {
-      const timestampMs = Date.parse(data?.timestampUtc ?? '');
+      const timestampMs = Date.parse(data.timestampUtc);
       if (!Number.isFinite(timestampMs)) return;
       if (timestampMs < latestAcceptedTimestampRef.current) return;
       latestAcceptedTimestampRef.current = timestampMs;
 
-      const isActive = (data.entriesInWindow ?? 0) > 0 || (data.gameSpeeds?.length ?? 0) > 0;
+      const isActive = data.entriesInWindow > 0 || data.gameSpeeds.length > 0;
       clearExpiryTimer();
       if (isActive) {
         const windowMs = (data.windowSeconds || 2) * 1000;
@@ -110,7 +110,7 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
         );
       }
 
-      const newCount = data.gameSpeeds?.length ?? 0;
+      const newCount = data.gameSpeeds.length;
       const previousCount = lastActiveCountRef.current ?? 0;
       lastActiveCountRef.current = newCount;
 

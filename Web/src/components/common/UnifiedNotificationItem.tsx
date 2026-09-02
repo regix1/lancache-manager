@@ -153,7 +153,7 @@ const renderCompletionDetails = ({ notification, t, formatBytesLocal }: ContentR
             count: filesDeletedCount,
             formattedCount: filesDeletedFormatted
           })}
-          {notification.details?.bytesDeleted !== undefined &&
+          {notification.details.bytesDeleted !== undefined &&
             notification.details.bytesDeleted > 0 &&
             ` \u2022 ${t('common.notifications.freed', { value: formatBytesLocal(notification.details.bytesDeleted) })}`}
         </div>

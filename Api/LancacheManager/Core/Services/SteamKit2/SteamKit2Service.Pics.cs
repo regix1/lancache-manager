@@ -141,6 +141,10 @@ public partial class SteamKit2Service
     /// <summary>
     /// Cancel the current PICS rebuild if one is running
     /// </summary>
+    /// <returns>
+    /// False both when there was no rebuild to cancel and when the cancel itself failed. A caller
+    /// that needs the rebuild actually stopped has to read the crawl's own status, not this.
+    /// </returns>
     public async Task<bool> CancelRebuildAsync()
     {
         if (!IsRebuildRunning || _currentRebuildCts == null)
@@ -318,6 +322,13 @@ public partial class SteamKit2Service
     private static int ContextInt(Dictionary<string, object?>? context, string key) =>
         ContextNullableInt(context, key) ?? 0;
 
+    /// <summary>
+    /// Null when the key is absent, or when its value is not a number this progress context can
+    /// read. The three caught exceptions are the ones <see cref="Convert.ToInt32(object)"/> raises
+    /// for a value that is simply the wrong shape, which is an ordinary thing for the untrusted
+    /// context dictionary to hold; anything else is a fault in our own code and still propagates.
+    /// Deliberately not logged, since a line per non-numeric key would drown the run.
+    /// </summary>
     private static int? ContextNullableInt(Dictionary<string, object?>? context, string key)
     {
         if (context?.TryGetValue(key, out var value) != true || value is null)
@@ -329,7 +340,7 @@ public partial class SteamKit2Service
         {
             return Convert.ToInt32(value);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is FormatException or OverflowException or InvalidCastException)
         {
             return null;
         }
@@ -348,11 +359,6 @@ public partial class SteamKit2Service
         catch (OperationCanceledException)
         {
             // Cancellation is expected - don't retry, just rethrow
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to connect and build depot index");
             throw;
         }
     }
@@ -1024,53 +1030,45 @@ public partial class SteamKit2Service
     {
         _logger.LogInformation("Attempting to enumerate app IDs via Steam Web API (V2/V1 fallback)");
 
-        try
+        // Check if Web API is operational (force refresh to ensure latest configuration)
+        var status = await _steamWebApiService.GetApiStatusAsync(forceRefresh: true);
+
+        if (!status.IsFullyOperational)
         {
-            // Check if Web API is operational (force refresh to ensure latest configuration)
-            var status = await _steamWebApiService.GetApiStatusAsync(forceRefresh: true);
+            _logger.LogWarning("Steam Web API is not operational: {Message}", status.Message);
 
-            if (!status.IsFullyOperational)
+            // If V1 needs an API key but none is configured, provide helpful guidance
+            if (status.Version == SteamWebApiService.SteamApiVersion.V1NoKey)
             {
-                _logger.LogWarning("Steam Web API is not operational: {Message}", status.Message);
-
-                // If V1 needs an API key but none is configured, provide helpful guidance
-                if (status.Version == SteamWebApiService.SteamApiVersion.V1NoKey)
-                {
-                    throw new InvalidOperationException(
-                        "Cannot perform full PICS scan: Steam Web API V2 is currently unavailable and no V1 API key is configured. " +
-                        "To resolve this issue, either: " +
-                        "(1) Configure a Steam Web API key in the Management tab under 'Steam Web API Status', OR " +
-                        "(2) Download pre-created depot mappings from GitHub by clicking the 'Download Pre-created Data' button in the Depot Mapping section.");
-                }
-                else
-                {
-                    throw new InvalidOperationException(
-                        "Cannot perform full PICS scan: Steam Web API is currently unavailable. " +
-                        "To resolve this issue, download pre-created depot mappings from GitHub by clicking the 'Download Pre-created Data' button in the Depot Mapping section.");
-                }
+                throw new InvalidOperationException(
+                    "Cannot perform full PICS scan: Steam Web API V2 is currently unavailable and no V1 API key is configured. " +
+                    "To resolve this issue, either: " +
+                    "(1) Configure a Steam Web API key in the Management tab under 'Steam Web API Status', OR " +
+                    "(2) Download pre-created depot mappings from GitHub by clicking the 'Download Pre-created Data' button in the Depot Mapping section.");
             }
-
-            // Get app list from Web API (V2 or V1 with key)
-            var apps = await _steamWebApiService.GetAppListAsync();
-
-            if (apps == null || apps.Count == 0)
+            else
             {
-                _logger.LogError("Steam Web API returned no apps");
-                throw new InvalidOperationException("Steam Web API returned no apps - service may be temporarily unavailable");
+                throw new InvalidOperationException(
+                    "Cannot perform full PICS scan: Steam Web API is currently unavailable. " +
+                    "To resolve this issue, download pre-created depot mappings from GitHub by clicking the 'Download Pre-created Data' button in the Depot Mapping section.");
             }
-
-            _logger.LogInformation("Steam Web API enumeration complete using {Version}. Found {Count} apps",
-                status.Version, apps.Count);
-
-            // Convert to app IDs only
-            var appIds = apps.Select(a => (uint)a.AppId).OrderBy(id => id).ToList();
-            return appIds;
         }
-        catch (Exception ex)
+
+        // Get app list from Web API (V2 or V1 with key)
+        var apps = await _steamWebApiService.GetAppListAsync();
+
+        if (apps == null || apps.Count == 0)
         {
-            _logger.LogError(ex, "Failed to enumerate app IDs via Steam Web API");
-            throw;
+            _logger.LogError("Steam Web API returned no apps");
+            throw new InvalidOperationException("Steam Web API returned no apps - service may be temporarily unavailable");
         }
+
+        _logger.LogInformation("Steam Web API enumeration complete using {Version}. Found {Count} apps",
+            status.Version, apps.Count);
+
+        // Convert to app IDs only
+        var appIds = apps.Select(a => (uint)a.AppId).OrderBy(id => id).ToList();
+        return appIds;
     }
 
     private async Task<T> WaitForCallbackAsync<T>(AsyncJob<T> job, CancellationToken ct, TimeSpan? timeout = null) where T : CallbackMsg

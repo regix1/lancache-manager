@@ -68,7 +68,7 @@ const repeatsVisibleText = (trigger: HTMLElement | null, content: React.ReactNod
   if (typeof content !== 'string' || trigger === null) {
     return false;
   }
-  const visible = normalizeText(trigger.textContent ?? '');
+  const visible = normalizeText(trigger.textContent);
   return visible !== '' && visible === normalizeText(content);
 };
 

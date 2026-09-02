@@ -61,7 +61,6 @@ public abstract class PathResolverBase : IPathResolver
 
     public string GetStructuralCorruptionStateScope(string datasourceName, string cachePath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(datasourceName);
         ArgumentException.ThrowIfNullOrWhiteSpace(cachePath);
 
         var normalizedName = datasourceName.Trim().ToLowerInvariant();

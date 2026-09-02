@@ -647,7 +647,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                                 e.stopPropagation();
                                 setExpandedDay(
                                   expandedDay?.day === day &&
-                                    expandedDay?.weekIndex === week.weekIndex
+                                    expandedDay.weekIndex === week.weekIndex
                                     ? null
                                     : { day, weekIndex: week.weekIndex }
                                 );

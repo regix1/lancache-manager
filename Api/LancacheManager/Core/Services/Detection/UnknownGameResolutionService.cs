@@ -25,6 +25,15 @@ public sealed class UnknownGameResolutionService
         _logger = logger;
     }
 
+    /// <summary>
+    /// Puts names to the games already in the cache that detection could not identify.
+    /// </summary>
+    /// <returns>
+    /// How many unknown games were resolved. Zero both when there was nothing to resolve and when
+    /// the pass failed part-way; anything already resolved before the failure stays resolved, and
+    /// the next detection run picks up the rest. Cancellation is not folded in here - it
+    /// propagates.
+    /// </returns>
     public async Task<int> ResolveUnknownGamesAsync(CancellationToken cancellationToken = default)
     {
         try

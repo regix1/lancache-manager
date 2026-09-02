@@ -324,9 +324,16 @@ pub fn finish_or_exit(
 /// the wire format. Use `ProgressReporter`'s methods instead when emitting a tracked
 /// started/progress/complete/failed/cancelled operation.
 pub fn emit_json_line<T: Serialize>(value: &T) {
-    if let Ok(json) = serde_json::to_string(value) {
-        println!("{}", json);
-        let _ = std::io::stdout().flush();
+    match serde_json::to_string(value) {
+        Ok(json) => {
+            println!("{}", json);
+            let _ = std::io::stdout().flush();
+        }
+        // Unlike the envelope events above, `T` is whatever the caller hands over, so
+        // this really can fail. There is no operation id and no envelope to fall back
+        // to, and writing one would corrupt the raw stream the consumer parses, so the
+        // consumer still sees a gap in the stream — stderr is what says why.
+        Err(e) => eprintln!("could not serialize a stdout line: {e}"),
     }
 }
 

@@ -465,7 +465,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             const anchor: TooltipAnchor = {
               anchorX: canvasRect.left + tooltip.caretX,
               anchorY: canvasRect.top + tooltip.caretY,
-              isPositive: (tooltip.dataPoints?.[0]?.parsed?.x ?? 0) >= 0
+              isPositive: (tooltip.dataPoints[0]?.parsed?.x ?? 0) >= 0
             };
             anchorRef.current = anchor;
 
@@ -475,7 +475,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             positionTooltip(el, anchor);
             el.classList.add('is-visible');
 
-            const titleText = (tooltip.title ?? []).join(' ');
+            const titleText = tooltip.title.join(' ');
             const rows: TooltipRow[] = [];
             tooltip.body.forEach((entry, i) => {
               const colors = tooltip.labelColors[i];
@@ -490,7 +490,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
 
             // The key carries the text as well as the bar, so a pointer moving inside one bar still
             // skips the re-render while a refresh under a still pointer updates the byte counts.
-            const dp = tooltip.dataPoints?.[0];
+            const dp = tooltip.dataPoints[0];
             const rowText = rows.map((row) => row.text).join('|');
             const key = dp ? `${dp.datasetIndex}-${dp.dataIndex}|${titleText}|${rowText}` : '';
             if (key === lastDataKeyRef.current) return;
@@ -502,7 +502,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             title: (items) => {
               const item = items[0];
               if (!item) return '';
-              return services[item.dataIndex]?.service ?? item.label ?? '';
+              return services[item.dataIndex]?.service ?? item.label;
             },
             label: (context) => {
               const service = services[context.dataIndex];

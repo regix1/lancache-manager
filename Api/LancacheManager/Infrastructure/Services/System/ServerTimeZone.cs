@@ -23,8 +23,6 @@ public static class ServerTimeZone
 
     public static string IanaId(IConfiguration configuration)
     {
-        ArgumentNullException.ThrowIfNull(configuration);
-
         var configured = configuration.GetValue<string>("TZ") ?? configuration.GetValue<string>("TimeZone");
         if (!string.IsNullOrWhiteSpace(configured))
         {

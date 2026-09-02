@@ -1,5 +1,4 @@
 using LancacheManager.Core.Services.EpicMapping;
-using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -86,16 +85,8 @@ public class EpicGameMappingController : ControllerBase
     [ProducesResponseType(typeof(EpicLoginUrlResponse), StatusCodes.Status200OK)]
     public ActionResult<EpicLoginUrlResponse> StartLogin()
     {
-        try
-        {
-            var authorizationUrl = _epicMappingService.GetAuthorizationUrl();
-            return Ok(new EpicLoginUrlResponse { AuthorizationUrl = authorizationUrl });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to generate Epic authorization URL");
-            throw; // -> GlobalExceptionMiddleware -> 500 safe { error, details?, statusCode, traceId }
-        }
+        var authorizationUrl = _epicMappingService.GetAuthorizationUrl();
+        return Ok(new EpicLoginUrlResponse { AuthorizationUrl = authorizationUrl });
     }
 
     /// <summary>
@@ -124,22 +115,14 @@ public class EpicGameMappingController : ControllerBase
             return BadRequest(ApiResponse.Error("Authorization code is required"));
         }
 
-        try
+        await _epicMappingService.OnAuthCodeReceivedAsync(request.AuthorizationCode.Trim());
+        var status = _epicMappingService.GetAuthStatus();
+        return Ok(new EpicAuthCompleteResponse
         {
-            await _epicMappingService.OnAuthCodeReceivedAsync(request.AuthorizationCode.Trim());
-            var status = _epicMappingService.GetAuthStatus();
-            return Ok(new EpicAuthCompleteResponse
-            {
-                Message = "Game collection complete",
-                DisplayName = status.DisplayName,
-                GamesDiscovered = status.GamesDiscovered
-            });
-        }
-        catch (Exception ex) when (ex is not ConflictException)
-        {
-            _logger.LogError(ex, "Failed to complete Epic mapping auth");
-            throw; // -> GlobalExceptionMiddleware -> 500 safe { error, details?, statusCode, traceId }
-        }
+            Message = "Game collection complete",
+            DisplayName = status.DisplayName,
+            GamesDiscovered = status.GamesDiscovered
+        });
     }
 
     /// <summary>

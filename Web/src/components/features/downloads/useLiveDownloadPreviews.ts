@@ -36,7 +36,7 @@ export function useLiveDownloadPreviews(
     }
 
     const result = reconcileLivePreviews({
-      gameSpeeds: speedSnapshot.gameSpeeds ?? [],
+      gameSpeeds: speedSnapshot.gameSpeeds,
       windowSeconds: speedSnapshot.windowSeconds,
       downloads,
       ledger: ledgerRef.current,

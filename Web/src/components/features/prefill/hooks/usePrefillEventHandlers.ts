@@ -214,11 +214,7 @@ export function registerPrefillEventHandlers(
       // Seed the expected-app count from the daemon's totalApps the first time we learn it, so
       // the two-tier "Game X of N" overall bar can render even for prefill-all/recent jobs where
       // the count is not known up-front on the client.
-      if (
-        (expectedAppCountRef.current ?? 0) === 0 &&
-        progress.totalApps &&
-        progress.totalApps > 0
-      ) {
+      if (expectedAppCountRef.current === 0 && progress.totalApps && progress.totalApps > 0) {
         expectedAppCountRef.current = progress.totalApps;
       }
 

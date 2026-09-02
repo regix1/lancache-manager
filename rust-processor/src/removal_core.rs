@@ -293,8 +293,17 @@ pub fn remove_cache_files(
                     );
                 }
             } else {
-                if let Ok(metadata) = fs::metadata(path) {
-                    bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
+                match fs::metadata(path) {
+                    Ok(metadata) => {
+                        bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
+                    }
+                    // The file is still deleted below; only the freed-bytes total is
+                    // short by its size, so say which file it was short by.
+                    Err(e) => eprintln!(
+                        "  Warning: could not read the size of {}, it is missing from the freed total: {}",
+                        path.display(),
+                        e
+                    ),
                 }
 
                 match fs::remove_file(path) {

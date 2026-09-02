@@ -144,9 +144,9 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
     };
 
     const waitingCompleteHandler: EventHandler = (payload: OperationWaitingCompleteEvent) => {
-      if (settled || payload?.promoted === true) return;
+      if (settled || payload.promoted === true) return;
       const parkedId = waitingOperationId?.() ?? null;
-      if (parkedId === null || payload?.operationId !== parkedId) return;
+      if (parkedId === null || payload.operationId !== parkedId) return;
       finish({ dequeued: payload });
     };
 

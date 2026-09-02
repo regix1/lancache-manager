@@ -105,6 +105,10 @@ public class NginxLogRotationService
     /// and then the host signal path. The combined result is cached briefly because probing may
     /// spawn processes.
     /// </summary>
+    /// <returns>
+    /// False both when neither reopen path is usable and when the probe itself failed. Both mean
+    /// we must not promise a reopen, so the caller takes the same branch.
+    /// </returns>
     public async Task<bool> CanReopenNginxAsync()
     {
         try
@@ -659,6 +663,10 @@ public class NginxLogRotationService
     /// <summary>
     /// Execute a command inside a container using 'docker exec'
     /// </summary>
+    /// <returns>
+    /// False both when the command ran and failed and when docker could not be reached. The
+    /// caller tries the next reopen path either way, so it does not need to tell them apart.
+    /// </returns>
     private async Task<bool> ExecuteInContainerAsync(string containerName, params string[] command)
     {
         try
@@ -689,6 +697,10 @@ public class NginxLogRotationService
     /// Send a signal to a container using 'docker kill --signal'
     /// This sends signal to PID 1 in the container
     /// </summary>
+    /// <returns>
+    /// False both when docker kill returned a non-zero exit code and when the call itself failed.
+    /// Same as the exec path: the caller moves on to the next option.
+    /// </returns>
     private async Task<bool> SignalContainerAsync(string containerName, string signal)
     {
         try

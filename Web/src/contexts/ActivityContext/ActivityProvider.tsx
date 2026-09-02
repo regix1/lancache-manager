@@ -17,7 +17,7 @@ const buildMap = (event: ActivitySnapshotEvent): ActivityMap => {
       inner = new Map();
       map.set(bucket, inner);
     }
-    inner.set(item.key, item.activeCount ?? 1);
+    inner.set(item.key, item.activeCount);
   }
   return map;
 };
@@ -78,10 +78,6 @@ export const ActivityProvider: React.FC<ActivityProviderProps> = ({ children }) 
     };
 
     const handleActivityUpdated = (event: ActivitySnapshotEvent) => {
-      if (!event || typeof event.revision !== 'number' || !Array.isArray(event.activities)) {
-        return;
-      }
-
       const isResync = resyncRef.current;
       if (isResync) {
         // First snapshot after (re)connect: take it as the new baseline.

@@ -87,7 +87,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
   // The first DNS domain in the list is the primary/trigger domain for the service
   const primaryDomain = diagnostics.dnsResults.length > 0 ? diagnostics.dnsResults[0].domain : '';
   const primaryResult = diagnostics.dnsResults.length > 0 ? diagnostics.dnsResults[0] : undefined;
-  const hasPrimaryConfigured = primaryResult?.success && primaryResult?.isPrivateIp;
+  const hasPrimaryConfigured = primaryResult?.success && primaryResult.isPrivateIp;
   const hasDnsFailure = diagnostics.dnsResults.some((result) => !result.success);
 
   // IPv6 bypass is only an issue if the primary domain doesn't resolve to a private IP via IPv4

@@ -514,7 +514,7 @@ function ServicePrefillPanel({
               cachedIds,
               serviceBasePath
             );
-            cachedIds = cacheStatus?.upToDateAppIds?.length
+            cachedIds = cacheStatus.upToDateAppIds.length
               ? cacheStatus.upToDateAppIds.map((id: string) => String(id))
               : [];
           } catch {
@@ -1472,7 +1472,7 @@ function ServicePrefillPanel({
 
           {/* Network Status Card */}
           <div className="prefill-sec-network">
-            <NetworkStatusSection diagnostics={signalR.session?.networkDiagnostics} />
+            <NetworkStatusSection diagnostics={signalR.session.networkDiagnostics} />
           </div>
 
           {/* Background Completion Notification Banner */}

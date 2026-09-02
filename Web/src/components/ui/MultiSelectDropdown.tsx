@@ -236,7 +236,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
     if (!isOpen) return;
 
     const isEventInside = (event: Event) => {
-      const path = (event as Event & { composedPath?: () => EventTarget[] }).composedPath?.() || [];
+      const path = event.composedPath();
       if (dropdownRef.current && path.includes(dropdownRef.current)) return true;
       if (buttonRef.current && path.includes(buttonRef.current)) return true;
       return false;

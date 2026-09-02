@@ -2671,7 +2671,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         Action onCommandDispatched,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(onCommandDispatched);
         return StartLoginEntryAsync(sessionId, timeout, onCommandDispatched, cancellationToken);
     }
 
@@ -3626,11 +3625,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             _logger.LogInformation(
                 "Cancel-prefill request was cancelled for session {SessionId}",
                 sessionId);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error sending cancel-prefill to daemon for session {SessionId}", sessionId);
             throw;
         }
     }

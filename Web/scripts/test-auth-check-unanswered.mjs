@@ -27,7 +27,9 @@ const SIGNED_IN_ADMIN = {
 const loadAuthService = async () => {
   const authServiceUrl = await compileToUrl('../src/services/auth.service.ts', {
     '@/i18n': moduleUrl(`export default { t: (k) => k };`),
-    '@utils/constants': moduleUrl(`export const getApiUrl = () => '';`),
+    '@utils/constants': moduleUrl(
+      `export const getApiUrl = () => ''; export const APP_EVENTS = { SHOW_TOAST: 'show-toast' };`
+    ),
     '@utils/antiforgery': moduleUrl(`export const antiforgeryHeaders = () => ({});`),
     '@utils/error': moduleUrl(`export const isAbortError = (e) => e?.name === 'AbortError';`),
     '@utils/userInteractionTracker': moduleUrl(

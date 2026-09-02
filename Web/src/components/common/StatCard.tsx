@@ -107,13 +107,14 @@ const StatCard: React.FC<StatCardProps> = ({
   /* What the chart would have said if it could draw. A line needs two points and pointRadius is
      0, so one point paints nothing: say which case it is rather than leaving a blank strip. Only
      used when the card has no subtitle of its own. */
-  const chartNote = !Array.isArray(sparklineData)
-    ? null
-    : sparklineData.length === 0
-      ? t('common.statCard.noDataInRange')
-      : sparklineData.length === 1
-        ? t('common.statCard.notEnoughToChart')
-        : null;
+  const chartNote =
+    sparklineData === undefined
+      ? null
+      : sparklineData.length === 0
+        ? t('common.statCard.noDataInRange')
+        : sparklineData.length === 1
+          ? t('common.statCard.notEnoughToChart')
+          : null;
 
   const cardContent = (
     <div className={cardClasses} data-stat-card={title.toLowerCase().replace(/\s+/g, '')}>
@@ -157,7 +158,7 @@ const StatCard: React.FC<StatCardProps> = ({
       <div className="stat-card-chart">
         {loading ? (
           <div className="stat-card-skeleton-sparkline skeleton-shimmer h-8" />
-        ) : Array.isArray(sparklineData) && sparklineData.length > 1 ? (
+        ) : sparklineData !== undefined && sparklineData.length > 1 ? (
           <Sparkline
             data={sparklineData}
             color={resolvedSparklineColor}

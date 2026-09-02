@@ -40,8 +40,7 @@ export function useIsEntityBusy(
       if (identifierKind === 'namedGame') {
         return n.details?.service === service && n.details?.gameName === gameName;
       }
-      if (identifierKind === 'service') return n.details?.service === service;
-      return false;
+      return n.details?.service === service;
     });
   }, [notifications, kinds, identifierKind, gameAppId, epicAppId, gameName, service]);
 }

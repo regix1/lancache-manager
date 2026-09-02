@@ -46,7 +46,9 @@ export const moduleUrl = (source) =>
  * Compiles a TypeScript file to a data URL that `import()` can load.
  *
  * A data-URL import has no path aliases, so any aliased dependency has to be compiled first and its
- * own data URL substituted for the alias here.
+ * own data URL substituted for the alias here. Only the import specifiers are rewritten: a package
+ * whose name the file also compares against as a plain string (`format === 'toml'`) would otherwise
+ * have that comparison rewritten too, and the branch behind it would stop being reachable.
  *
  * @param {string} relativePath Path to the TypeScript file, relative to the scripts directory.
  * @param {Record<string, string>} [aliasUrls] Import alias to the data URL that replaces it.
@@ -55,7 +57,12 @@ export const moduleUrl = (source) =>
 export const compileToUrl = async (relativePath, aliasUrls = {}) => {
   const source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
   const resolved = Object.entries(aliasUrls).reduce(
-    (text, [alias, url]) => text.split(`'${alias}'`).join(`'${url}'`),
+    (text, [alias, url]) =>
+      ['from', 'import'].reduce(
+        (rewritten, keyword) =>
+          rewritten.split(`${keyword} '${alias}'`).join(`${keyword} '${url}'`),
+        text.split(`import('${alias}')`).join(`import('${url}')`)
+      ),
     transpile(source)
   );
   return moduleUrl(resolved);

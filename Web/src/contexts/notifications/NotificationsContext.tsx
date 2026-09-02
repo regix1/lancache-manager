@@ -314,7 +314,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         status: 'completed',
         message,
         details: {
-          notificationType: type || 'info'
+          notificationType: type
         }
       });
 

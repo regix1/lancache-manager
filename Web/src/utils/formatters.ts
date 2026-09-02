@@ -85,7 +85,7 @@ export function formatSpeedWithSeparatedUnit(
  * Format percentage
  */
 export function formatPercent(value: number, decimals = 1): string {
-  if (value === null || value === undefined || isNaN(value)) return '0%';
+  if (isNaN(value)) return '0%';
   return `${value.toFixed(decimals)}%`;
 }
 

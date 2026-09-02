@@ -258,7 +258,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getProgress: cappedProgress,
       // Not the shared three-status pattern: this pipeline reports a capitalized status.
       getStatus: (event: ProcessingProgressEvent) =>
-        event.status?.toLowerCase() === 'completed' ? 'completed' : undefined,
+        event.status.toLowerCase() === 'completed' ? 'completed' : undefined,
       getCompletedMessage: (event: ProcessingProgressEvent) =>
         formatLogProcessingCompletionMessage(event.entriesSaved)
     },

@@ -145,14 +145,13 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
           ? {
               ...prev,
               isProcessing: true,
-              status: event.status || prev.status,
+              status: event.status,
               totalApps: event.totalApps || prev.totalApps,
               processedApps: event.processedApps || prev.processedApps,
               totalBatches: event.totalBatches || prev.totalBatches,
               processedBatches: event.processedBatches || prev.processedBatches,
               // Backend sends 'percentComplete', map it to 'progressPercent'
-              progressPercent:
-                event.percentComplete ?? event.progressPercent ?? prev.progressPercent,
+              progressPercent: event.percentComplete,
               depotMappingsFound: event.depotMappingsFound || prev.depotMappingsFound,
               failedBatches: event.failedBatches,
               remainingApps: event.remainingApps
@@ -165,8 +164,8 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
       const now = new Date().toISOString();
 
       // Handle both success and failure cases
-      const isSuccess = event.success !== false && !event.cancelled;
-      const isCancelled = event.cancelled === true;
+      const isSuccess = event.success && !event.cancelled;
+      const isCancelled = event.cancelled;
 
       setProgress((prev) =>
         prev

@@ -273,6 +273,11 @@ public partial class EpicMappingService
     /// only re-fetches owned games (which updates ImageUrl via GetBestImageUrl) and
     /// propagates to Downloads table.
     /// </summary>
+    /// <returns>
+    /// How many image URLs were updated. Zero both when nothing needed updating and when the run
+    /// could not start - not authenticated, or the token refresh failed. The button that calls
+    /// this reports the count, so zero reads as "nothing to do" either way.
+    /// </returns>
     public async Task<int> RefreshImagesAsync(CancellationToken ct = default)
     {
         if (!_isAuthenticated || _currentTokens == null)

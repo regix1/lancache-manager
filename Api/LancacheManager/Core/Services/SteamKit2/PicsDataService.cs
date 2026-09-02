@@ -133,150 +133,142 @@ public class PicsDataService
     /// </summary>
     public async Task MergeToJsonAsync(Dictionary<uint, HashSet<uint>> newDepotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, bool validateExisting = true, Dictionary<uint, uint>? depotOwners = null, Dictionary<uint, string>? depotNames = null)
     {
-        try
+        // Load existing data or create new if doesn't exist
+        var existingData = await LoadFromJsonAsync() ?? new PicsJsonData
         {
-            // Load existing data or create new if doesn't exist
-            var existingData = await LoadFromJsonAsync() ?? new PicsJsonData
+            Metadata = new PicsMetadata
             {
-                Metadata = new PicsMetadata
+                LastUpdated = DateTime.MinValue,
+                TotalMappings = 0,
+                Version = "1.0",
+                NextUpdateDue = DateTime.UtcNow.AddHours(24),
+                LastChangeNumber = 0
+            },
+            DepotMappings = new Dictionary<string, PicsDepotMapping>()
+        };
+
+        var updatedCount = 0;
+        var newCount = 0;
+        var validatedCount = 0;
+        var removedCount = 0;
+
+        // Validate existing entries if requested
+        if (validateExisting && existingData.DepotMappings != null)
+        {
+            var keysToRemove = new List<string>();
+            foreach (var (depotKey, mapping) in existingData.DepotMappings)
+            {
+                // Check for corrupted entries
+                if (mapping?.AppIds == null || mapping.AppIds.Count == 0 ||
+                    mapping.AppNames == null || mapping.AppNames.Count != mapping.AppIds.Count)
                 {
-                    LastUpdated = DateTime.MinValue,
-                    TotalMappings = 0,
-                    Version = "1.0",
-                    NextUpdateDue = DateTime.UtcNow.AddHours(24),
-                    LastChangeNumber = 0
-                },
-                DepotMappings = new Dictionary<string, PicsDepotMapping>()
+                    keysToRemove.Add(depotKey);
+                    _logger.LogWarning($"Removing corrupted depot mapping: {depotKey}");
+                }
+                validatedCount++;
+            }
+
+            foreach (var key in keysToRemove)
+            {
+                existingData.DepotMappings.Remove(key);
+                removedCount++;
+            }
+        }
+
+        // Merge new depot mappings with existing ones
+        foreach (var (depotId, appIds) in newDepotMappings)
+        {
+            var depotKey = depotId.ToString();
+
+            // Ensure owner app is first in the list
+            var appIdsList = new List<uint>();
+            uint? ownerId = null;
+
+            if (depotOwners != null && depotOwners.TryGetValue(depotId, out var ownerAppId) && appIds.Contains(ownerAppId))
+            {
+                ownerId = ownerAppId;
+                // Add owner first
+                appIdsList.Add(ownerAppId);
+                // Add remaining apps
+                appIdsList.AddRange(appIds.Where(id => id != ownerAppId));
+            }
+            else
+            {
+                // No owner tracked, just convert as-is
+                appIdsList = appIds.ToList();
+            }
+
+            var appNamesList = appIdsList.Select(appId =>
+                appNames.TryGetValue(appId, out var name) ? name : $"App {appId}"
+            ).ToList();
+
+            // Get depot name if available
+            string? depotName = null;
+            depotNames?.TryGetValue(depotId, out depotName);
+
+            var newMapping = new PicsDepotMapping
+            {
+                OwnerId = ownerId,
+                DepotName = depotName,
+                AppIds = appIdsList,
+                AppNames = appNamesList,
+                Source = "SteamKit2-PICS",
+                DiscoveredAt = DateTime.UtcNow
             };
 
-            var updatedCount = 0;
-            var newCount = 0;
-            var validatedCount = 0;
-            var removedCount = 0;
-
-            // Validate existing entries if requested
-            if (validateExisting && existingData.DepotMappings != null)
+            if (existingData.DepotMappings?.ContainsKey(depotKey) == true)
             {
-                var keysToRemove = new List<string>();
-                foreach (var (depotKey, mapping) in existingData.DepotMappings)
-                {
-                    // Check for corrupted entries
-                    if (mapping?.AppIds == null || mapping.AppIds.Count == 0 ||
-                        mapping.AppNames == null || mapping.AppNames.Count != mapping.AppIds.Count)
-                    {
-                        keysToRemove.Add(depotKey);
-                        _logger.LogWarning($"Removing corrupted depot mapping: {depotKey}");
-                    }
-                    validatedCount++;
-                }
-
-                foreach (var key in keysToRemove)
-                {
-                    existingData.DepotMappings.Remove(key);
-                    removedCount++;
-                }
+                existingData.DepotMappings[depotKey] = newMapping;
+                updatedCount++;
             }
-
-            // Merge new depot mappings with existing ones
-            foreach (var (depotId, appIds) in newDepotMappings)
+            else
             {
-                var depotKey = depotId.ToString();
-
-                // Ensure owner app is first in the list
-                var appIdsList = new List<uint>();
-                uint? ownerId = null;
-
-                if (depotOwners != null && depotOwners.TryGetValue(depotId, out var ownerAppId) && appIds.Contains(ownerAppId))
+                if (existingData.DepotMappings == null)
                 {
-                    ownerId = ownerAppId;
-                    // Add owner first
-                    appIdsList.Add(ownerAppId);
-                    // Add remaining apps
-                    appIdsList.AddRange(appIds.Where(id => id != ownerAppId));
+                    existingData.DepotMappings = new Dictionary<string, PicsDepotMapping>();
                 }
-                else
-                {
-                    // No owner tracked, just convert as-is
-                    appIdsList = appIds.ToList();
-                }
-
-                var appNamesList = appIdsList.Select(appId =>
-                    appNames.TryGetValue(appId, out var name) ? name : $"App {appId}"
-                ).ToList();
-
-                // Get depot name if available
-                string? depotName = null;
-                depotNames?.TryGetValue(depotId, out depotName);
-
-                var newMapping = new PicsDepotMapping
-                {
-                    OwnerId = ownerId,
-                    DepotName = depotName,
-                    AppIds = appIdsList,
-                    AppNames = appNamesList,
-                    Source = "SteamKit2-PICS",
-                    DiscoveredAt = DateTime.UtcNow
-                };
-
-                if (existingData.DepotMappings?.ContainsKey(depotKey) == true)
-                {
-                    existingData.DepotMappings[depotKey] = newMapping;
-                    updatedCount++;
-                }
-                else
-                {
-                    if (existingData.DepotMappings == null)
-                    {
-                        existingData.DepotMappings = new Dictionary<string, PicsDepotMapping>();
-                    }
-                    existingData.DepotMappings[depotKey] = newMapping;
-                    newCount++;
-                }
+                existingData.DepotMappings[depotKey] = newMapping;
+                newCount++;
             }
-
-            // Update metadata
-            if (existingData.Metadata == null)
-            {
-                existingData.Metadata = new PicsMetadata();
-            }
-            existingData.Metadata.LastUpdated = DateTime.UtcNow;
-            existingData.Metadata.TotalMappings = existingData.DepotMappings?.Sum(kvp => kvp.Value.AppIds?.Count ?? 0) ?? 0;
-            existingData.Metadata.NextUpdateDue = DateTime.UtcNow.AddHours(24);
-            existingData.Metadata.LastChangeNumber = lastChangeNumber;
-
-            var jsonOptions = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            };
-
-            // Ensure data directory exists
-            var dataDir = Path.GetDirectoryName(_picsJsonFile);
-            if (!string.IsNullOrEmpty(dataDir) && !Directory.Exists(dataDir))
-            {
-                Directory.CreateDirectory(dataDir);
-            }
-
-            WritePicsJsonFile(existingData, jsonOptions);
-
-            // Clear cache so next load reads the new file
-            ClearCache();
-
-            _logger.LogInformation(
-                "Incrementally updated PICS JSON: {NewCount} new, {UpdatedCount} updated, {RemovedCount} removed corrupted, {TotalMappingPairs} total app mappings (shared depots included)",
-                newCount,
-                updatedCount,
-                removedCount,
-                existingData.Metadata.TotalMappings);
-
-            // Update state to indicate data is loaded with new count
-            _stateService.SetDataLoaded(true, existingData.Metadata.TotalMappings);
         }
-        catch (Exception ex)
+
+        // Update metadata
+        if (existingData.Metadata == null)
         {
-            _logger.LogError(ex, "Error merging PICS data to JSON file");
-            throw;
+            existingData.Metadata = new PicsMetadata();
         }
+        existingData.Metadata.LastUpdated = DateTime.UtcNow;
+        existingData.Metadata.TotalMappings = existingData.DepotMappings?.Sum(kvp => kvp.Value.AppIds?.Count ?? 0) ?? 0;
+        existingData.Metadata.NextUpdateDue = DateTime.UtcNow.AddHours(24);
+        existingData.Metadata.LastChangeNumber = lastChangeNumber;
+
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
+        // Ensure data directory exists
+        var dataDir = Path.GetDirectoryName(_picsJsonFile);
+        if (!string.IsNullOrEmpty(dataDir) && !Directory.Exists(dataDir))
+        {
+            Directory.CreateDirectory(dataDir);
+        }
+
+        WritePicsJsonFile(existingData, jsonOptions);
+
+        // Clear cache so next load reads the new file
+        ClearCache();
+
+        _logger.LogInformation(
+            "Incrementally updated PICS JSON: {NewCount} new, {UpdatedCount} updated, {RemovedCount} removed corrupted, {TotalMappingPairs} total app mappings (shared depots included)",
+            newCount,
+            updatedCount,
+            removedCount,
+            existingData.Metadata.TotalMappings);
+
+        // Update state to indicate data is loaded with new count
+        _stateService.SetDataLoaded(true, existingData.Metadata.TotalMappings);
     }
 
     /// <summary>
@@ -418,32 +410,24 @@ public class PicsDataService
     /// </summary>
     public async Task ClearDepotMappingsAsync(CancellationToken cancellationToken = default, bool preserveOrphanResolved = false)
     {
-        try
+        using var scopedDb = _scopeFactory.CreateScopedDbContext();
+
+        int count;
+        if (preserveOrphanResolved)
         {
-            using var scopedDb = _scopeFactory.CreateScopedDbContext();
+            // Preserve locally-resolved orphan depot mappings (delisted/removed games)
+            // These mappings were discovered via direct PICS queries and won't be in GitHub data
+            count = await scopedDb.DbContext.SteamDepotMappings
+                .Where(m => m.Source != "orphan-resolved")
+                .ExecuteDeleteAsync(cancellationToken);
 
-            int count;
-            if (preserveOrphanResolved)
-            {
-                // Preserve locally-resolved orphan depot mappings (delisted/removed games)
-                // These mappings were discovered via direct PICS queries and won't be in GitHub data
-                count = await scopedDb.DbContext.SteamDepotMappings
-                    .Where(m => m.Source != "orphan-resolved")
-                    .ExecuteDeleteAsync(cancellationToken);
-
-                var preserved = await scopedDb.DbContext.SteamDepotMappings.CountAsync(cancellationToken);
-                _logger.LogInformation("Cleared {Deleted} depot mappings from database (preserved {Preserved} orphan-resolved mappings)", count, preserved);
-            }
-            else
-            {
-                count = await scopedDb.DbContext.SteamDepotMappings.ExecuteDeleteAsync(cancellationToken);
-                _logger.LogInformation("Successfully cleared {Count} depot mappings from database", count);
-            }
+            var preserved = await scopedDb.DbContext.SteamDepotMappings.CountAsync(cancellationToken);
+            _logger.LogInformation("Cleared {Deleted} depot mappings from database (preserved {Preserved} orphan-resolved mappings)", count, preserved);
         }
-        catch (Exception ex)
+        else
         {
-            _logger.LogError(ex, "Failed to clear depot mappings");
-            throw;
+            count = await scopedDb.DbContext.SteamDepotMappings.ExecuteDeleteAsync(cancellationToken);
+            _logger.LogInformation("Successfully cleared {Count} depot mappings from database", count);
         }
     }
 
@@ -626,11 +610,6 @@ public class PicsDataService
         catch (OperationCanceledException)
         {
             _logger.LogInformation("PICS data import cancelled");
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error importing PICS JSON data to database");
             throw;
         }
     }

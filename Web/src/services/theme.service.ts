@@ -45,6 +45,20 @@ interface ApplyThemeOptions {
   persist?: boolean;
 }
 
+/**
+ * This module is not a hook or a component, so `useErrorHandler` is unreachable from it. The
+ * `show-toast` bridge is the documented escape hatch (NotificationsContext.tsx turns it into the
+ * same generic failed notification the hook would raise); it already carries the reset message
+ * further down this file.
+ */
+const notifyThemeError = (i18nKey: string): void => {
+  window.dispatchEvent(
+    new CustomEvent(APP_EVENTS.SHOW_TOAST, {
+      detail: { type: 'error', message: i18n.t(i18nKey) }
+    })
+  );
+};
+
 class ThemeService {
   // Get the best text color for a given background using theme colors
 
@@ -145,7 +159,9 @@ class ThemeService {
             break;
         }
       } catch (err) {
+        // The user just moved a switch and nothing happened; without this they get no reason.
         console.error(`[ThemeService] Error handling preference change for ${key}:`, err);
+        notifyThemeError('management.themes.notifications.preferenceChangeFailed');
       }
     });
 
@@ -202,6 +218,9 @@ class ThemeService {
 
     const apiThemes: Theme[] = [];
     const deletedThemeIds: string[] = [];
+    // Every path below leaves the caller with a shorter list than the server has. The list itself
+    // cannot say so - a theme that failed to load looks exactly like a theme nobody created.
+    let themesFailed = false;
 
     try {
       const response = await fetch(`${API_BASE}/themes`);
@@ -227,6 +246,7 @@ class ThemeService {
               }
             } catch (error) {
               console.error(`Failed to load theme ${themeInfo.id}:`, error);
+              themesFailed = true;
             }
           }
         }
@@ -240,9 +260,17 @@ class ThemeService {
             }
           }
         }
+      } else {
+        console.error('Failed to load themes from server:', response.status);
+        themesFailed = true;
       }
     } catch (error) {
       console.error('Failed to load themes from server:', error);
+      themesFailed = true;
+    }
+
+    if (themesFailed) {
+      notifyThemeError('management.themes.notifications.loadFailed');
     }
 
     const allThemes = [...builtInThemes];
@@ -277,8 +305,7 @@ class ThemeService {
     // Run colors through schema to ensure all keys are present (including derived colors)
     const complete = (
       colors: Record<string, string | undefined>
-    ): Record<string, string | undefined> =>
-      parseThemeColors(colors as Record<string, unknown>) as Record<string, string | undefined>;
+    ): Record<string, string | undefined> => parseThemeColors(colors);
 
     this._builtInThemesCache = [
       {
@@ -842,7 +869,7 @@ class ThemeService {
       }
 
       const theme = parsed as Theme;
-      theme.colors = parseThemeColors(theme.colors as Record<string, unknown>);
+      theme.colors = parseThemeColors(theme.colors);
       return theme;
     } catch (error) {
       console.error('Error parsing TOML theme:', error);
@@ -1175,8 +1202,6 @@ class ThemeService {
   }
 
   applyTheme(theme: Theme, options?: ApplyThemeOptions): void {
-    if (!theme || !theme.colors) return;
-
     const persist = options?.persist ?? true;
 
     // Remove any existing theme styles
@@ -1673,13 +1698,11 @@ class ThemeService {
     toml += '\n';
 
     toml += '[colors]\n';
-    if (theme.colors) {
-      Object.entries(theme.colors)
-        .filter(([, value]) => value !== undefined && value !== '')
-        .forEach(([key, value]) => {
-          toml += `${key} = "${value}"\n`;
-        });
-    }
+    Object.entries(theme.colors)
+      .filter(([, value]) => value !== undefined && value !== '')
+      .forEach(([key, value]) => {
+        toml += `${key} = "${value}"\n`;
+      });
     toml += '\n';
 
     if (theme.css?.content) {

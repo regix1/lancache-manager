@@ -52,8 +52,8 @@ interface ActivityTrackerReturn {
 }
 
 const getApiBase = (): string => {
-  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL as string;
+  if (typeof import.meta !== 'undefined' && import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
   }
   return '';
 };

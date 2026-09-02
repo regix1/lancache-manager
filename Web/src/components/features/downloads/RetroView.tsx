@@ -720,7 +720,7 @@ const RetroView = memo(
           const timeRangeTitle = formatTimeRange(data.startTimeUtc, data.endTimeUtc, clock);
 
           // Check if has game image
-          const serviceLower = (data.service ?? '').toLowerCase();
+          const serviceLower = data.service.toLowerCase();
           const isSteam = serviceLower === 'steam';
           const isEpicService = serviceLower === 'epic' || serviceLower === 'epicgames';
           const hasSteamImage =
@@ -762,8 +762,8 @@ const RetroView = memo(
             timeLines,
             timeRangeTitle,
             hasGameImage,
-            nameKeyedService: hasNameKeyedImage ? nameKeyed!.service : null,
-            nameKeyedSlug: hasNameKeyedImage ? nameKeyed!.slug : null,
+            nameKeyedService: hasNameKeyedImage ? nameKeyed.service : null,
+            nameKeyedSlug: hasNameKeyedImage ? nameKeyed.slug : null,
             onDiskSizeBytes: detection?.total_size_bytes ?? null
           };
         });

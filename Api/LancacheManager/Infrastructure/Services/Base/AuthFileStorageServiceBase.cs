@@ -107,32 +107,24 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
 
     private void EnsureDirectoryExists()
     {
-        try
+        if (!Directory.Exists(_authDirectory))
         {
-            if (!Directory.Exists(_authDirectory))
-            {
-                Directory.CreateDirectory(_authDirectory);
-                _logger.LogInformation("Created {DirectoryName} directory: {Directory}", AuthDirectoryName, _authDirectory);
+            Directory.CreateDirectory(_authDirectory);
+            _logger.LogInformation("Created {DirectoryName} directory: {Directory}", AuthDirectoryName, _authDirectory);
 
-                if (OperatingSystem.IsLinux())
+            if (OperatingSystem.IsLinux())
+            {
+                try
                 {
-                    try
-                    {
-                        File.SetUnixFileMode(
-                            _authDirectory,
-                            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to set Unix file permissions on {DirectoryName} directory", AuthDirectoryName);
-                    }
+                    File.SetUnixFileMode(
+                        _authDirectory,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to set Unix file permissions on {DirectoryName} directory", AuthDirectoryName);
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to create {DirectoryName} directory", AuthDirectoryName);
-            throw;
         }
     }
 
@@ -245,43 +237,35 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     {
         lock (_lock)
         {
-            try
+            EnsureDirectoryExists();
+
+            var persisted = EncryptForStorage(data);
+
+            var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
+
+            var tempFile = _authFilePath + ".tmp";
+            File.WriteAllText(tempFile, json);
+
+            using (var fs = File.OpenWrite(tempFile))
             {
-                EnsureDirectoryExists();
-
-                var persisted = EncryptForStorage(data);
-
-                var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
-
-                var tempFile = _authFilePath + ".tmp";
-                File.WriteAllText(tempFile, json);
-
-                using (var fs = File.OpenWrite(tempFile))
-                {
-                    fs.Flush(true);
-                }
-
-                File.Move(tempFile, _authFilePath, true);
-
-                if (OperatingSystem.IsLinux())
-                {
-                    try
-                    {
-                        File.SetUnixFileMode(_authFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to set Unix file permissions on {AuthDataLabel} auth file", AuthDataLabel);
-                    }
-                }
-
-                _cachedData = data;
+                fs.Flush(true);
             }
-            catch (Exception ex)
+
+            File.Move(tempFile, _authFilePath, true);
+
+            if (OperatingSystem.IsLinux())
             {
-                _logger.LogError(ex, "Failed to save {AuthDataLabel} auth data", AuthDataLabel);
-                throw;
+                try
+                {
+                    File.SetUnixFileMode(_authFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to set Unix file permissions on {AuthDataLabel} auth file", AuthDataLabel);
+                }
             }
+
+            _cachedData = data;
         }
     }
 

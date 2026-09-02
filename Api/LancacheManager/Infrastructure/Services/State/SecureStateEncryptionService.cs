@@ -57,17 +57,9 @@ public class SecureStateEncryptionService
             return null;
         }
 
-        try
-        {
-            var protector = GetProtector();
-            var encrypted = protector.Protect(plaintext);
-            return EncryptedPrefixV2 + encrypted; // Use v2 prefix for API-key-protected encryption
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to encrypt sensitive data");
-            throw;
-        }
+        var protector = GetProtector();
+        var encrypted = protector.Protect(plaintext);
+        return EncryptedPrefixV2 + encrypted; // Use v2 prefix for API-key-protected encryption
     }
 
     /// <summary>

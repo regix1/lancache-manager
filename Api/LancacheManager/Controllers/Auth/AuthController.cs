@@ -721,23 +721,15 @@ public class AuthController : ControllerBase
             return BadRequest(ApiResponse.Invalid("Duration must be between 1 and 720 hours"));
         }
 
-        try
+        if (request.DurationHours is null)
         {
-            if (request.DurationHours is null)
-            {
-                _sessionService.ClearDurationOverride();
-                _logger.LogInformation("Guest duration UI override cleared (will revert to env/appsettings default)");
-            }
-            else
-            {
-                _sessionService.SetGuestDurationHours(request.DurationHours.Value);
-                _logger.LogInformation("Default guest duration updated to {Hours}h (existing sessions unchanged)", request.DurationHours.Value);
-            }
+            _sessionService.ClearDurationOverride();
+            _logger.LogInformation("Guest duration UI override cleared (will revert to env/appsettings default)");
         }
-        catch (Exception ex)
+        else
         {
-            _logger.LogError(ex, "Failed to persist guest duration setting");
-            return StatusCode(503, ApiResponse.Error("state_persistence_disabled"));
+            _sessionService.SetGuestDurationHours(request.DurationHours.Value);
+            _logger.LogInformation("Default guest duration updated to {Hours}h (existing sessions unchanged)", request.DurationHours.Value);
         }
 
         // Broadcast the effective (post-merge) value, not the raw request value, so clients

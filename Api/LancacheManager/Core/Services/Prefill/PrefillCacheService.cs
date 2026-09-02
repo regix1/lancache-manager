@@ -27,7 +27,8 @@ public class PrefillCacheService
     /// </summary>
     /// <returns>
     /// True when this depot was newly recorded, false when an entry already covering the same
-    /// manifest only had its timestamp refreshed.
+    /// manifest only had its timestamp refreshed, and false as well when a concurrent writer won
+    /// the insert. All three mean the row is there, so false is not a failure to report upwards.
     /// </returns>
     public async Task<bool> RecordCachedDepotAsync(
         long appId,

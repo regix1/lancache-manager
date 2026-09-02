@@ -25,12 +25,7 @@ const LiveDownloadRows: React.FC<LiveDownloadRowsProps> = ({ previews, variant }
   // the fallback only before the first activity snapshot arrives.
   const activity = useActivityStatus();
   const isDownloading = (preview: LiveDownloadPreview): boolean =>
-    activity.isActiveOrFallback(
-      'download',
-      preview.key,
-      'downloading',
-      preview.status === 'in-progress'
-    );
+    activity.isActiveOrFallback('download', preview.key, 'downloading', true);
   // displayName carries the backend's own game name, which is never translated; only the
   // placeholder labels this app supplies for unidentified traffic have a key to render.
   const displayLabel = (preview: LiveDownloadPreview): string =>

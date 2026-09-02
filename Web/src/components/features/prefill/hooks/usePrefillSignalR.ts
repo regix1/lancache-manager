@@ -441,7 +441,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
         }
       }
-      const activeSession = existingSessions?.find((s) => s.status === 'Active');
+      const activeSession = existingSessions.find((s) => s.status === 'Active');
 
       if (activeSession) {
         addLog(

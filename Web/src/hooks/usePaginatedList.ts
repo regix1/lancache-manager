@@ -31,7 +31,7 @@ export function usePaginatedList<T>(
   } = options;
   const isControlled = controlledPage !== undefined;
   const [internalPage, setInternalPage] = useState<number>(initialPage);
-  const rawPage = isControlled ? (controlledPage as number) : internalPage;
+  const rawPage = isControlled ? controlledPage : internalPage;
 
   const totalItems = items.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / Math.max(1, pageSize)));

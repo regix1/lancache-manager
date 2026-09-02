@@ -285,16 +285,9 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
 
         _isRunning = false;
 
-        try
+        if (!_cancellationTokenSource.IsCancellationRequested)
         {
-            if (!_cancellationTokenSource.IsCancellationRequested)
-            {
-                _cancellationTokenSource.Cancel();
-            }
-        }
-        catch (ObjectDisposedException)
-        {
-            // Token source already disposed
+            _cancellationTokenSource.Cancel();
         }
 
         // Unsubscribe from prefill daemon events before disconnecting
@@ -356,14 +349,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         {
             if (!_cancellationTokenSource.IsCancellationRequested)
             {
-                try
-                {
-                    _cancellationTokenSource.Cancel();
-                }
-                catch (ObjectDisposedException)
-                {
-                    // The token source was already disposed by the host.
-                }
+                _cancellationTokenSource.Cancel();
             }
 
             _steamClient?.Disconnect();

@@ -5,6 +5,7 @@ using System.Text.Json.Serialization.Metadata;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Services.Scheduling;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -43,7 +44,13 @@ public class StateService : IStateService
     private static readonly TimeSpan _cacheClearOperationRetention = TimeSpan.FromHours(24);
     private static readonly TimeSpan _operationStateRetention = TimeSpan.FromHours(48);
 
-    public bool IsPersistenceAvailable => _consecutiveFailures <= 5;
+    // What a save failure says to whoever asked for the change, and the i18n key that says it in
+    // their language. One sentence for both the write that failed and the write that was refused
+    // after repeated failures: from the caller's side those are the same outcome, and the server
+    // log is where the difference between them is recorded.
+    private const string SaveFailedMessage =
+        "The state file could not be written, so your change was not saved. Check the server logs and the permissions on the data directory.";
+    private const string SaveFailedStageKey = "errors.state.saveFailed";
 
     public StateService(
         ILogger<StateService> logger,
@@ -137,7 +144,7 @@ public class StateService : IStateService
                         // the still-hand-repairable original with the recovered-and-defaulted state.
                         if (!loadedWithSectionRecovery)
                         {
-                            SaveState(_cachedState);
+                            SaveLoadedState(_cachedState);
                         }
                     }
 
@@ -145,7 +152,7 @@ public class StateService : IStateService
                 else
                 {
                     _cachedState = MigrateFromLegacyFiles();
-                    SaveState(_cachedState);
+                    SaveLoadedState(_cachedState);
                 }
             }
             catch (Exception ex)
@@ -169,7 +176,7 @@ public class StateService : IStateService
             var utcTimeFormatMigrated = MigrateAllowedTimeFormatsForUtc(loadedState);
             if ((anchorsSeeded || notificationModeMigrated || utcTimeFormatMigrated) && canPersistScheduledPrefillInit && !loadedWithSectionRecovery)
             {
-                SaveState(loadedState);
+                SaveLoadedState(loadedState);
             }
 
             return loadedState;
@@ -177,7 +184,11 @@ public class StateService : IStateService
     }
 
     /// <summary>
-    /// Saves the application state (encrypts sensitive fields before storage)
+    /// Saves the application state (encrypts sensitive fields before storage).
+    /// Throws <see cref="ServiceUnavailableException"/> when the state did not reach disk, so a
+    /// request that asked for the change is answered 503 instead of 200 for a setting that is gone
+    /// after the next restart. The load path calls <see cref="SaveLoadedState"/> instead, because it
+    /// must not fail every read in the app over a write it did not ask for.
     /// </summary>
     public void SaveState(AppState state)
     {
@@ -189,7 +200,7 @@ public class StateService : IStateService
                 _logger.LogError("State persistence is disabled after repeated save failures");
                 _stateSavesDisabledLogged = true;
             }
-            return;
+            throw new ServiceUnavailableException(SaveFailedMessage) { StageKey = SaveFailedStageKey };
         }
 
         lock (_lock)
@@ -234,7 +245,29 @@ public class StateService : IStateService
                 {
                     _logger.LogError("Too many consecutive save failures ({Count}), disabling state saves", _consecutiveFailures);
                 }
+
+                throw new ServiceUnavailableException(SaveFailedMessage) { StageKey = SaveFailedStageKey };
             }
+        }
+    }
+
+    /// <summary>
+    /// Saves state the load path produced itself - the legacy-file migration, the one-time state
+    /// migrations, the first-run anchors and the stale-operation cleanup - and logs a write failure
+    /// instead of throwing it. <see cref="GetState"/> backs every read in the application, so letting
+    /// a failed write out of it would turn an unwritable data directory into a failed startup and a
+    /// failure of every request, which is worse than running on state that is correct in memory and
+    /// stale on disk. Nobody asked for these writes, so there is nobody to tell.
+    /// </summary>
+    private void SaveLoadedState(AppState state)
+    {
+        try
+        {
+            SaveState(state);
+        }
+        catch (ServiceUnavailableException ex)
+        {
+            _logger.LogWarning(ex, "Could not persist state while loading it; continuing with the in-memory state");
         }
     }
 
@@ -1034,7 +1067,6 @@ public class StateService : IStateService
 
     public void SetServiceCustomSchedule(string serviceKey, CustomSchedule schedule)
     {
-        ArgumentNullException.ThrowIfNull(schedule);
         UpdateState(state =>
         {
             state.ServiceCustomSchedule[serviceKey] = schedule;
@@ -1057,7 +1089,6 @@ public class StateService : IStateService
 
     public void SetDatasourceCacheSizeOverride(string datasourceName, long? bytes)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(datasourceName);
         if (bytes < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(bytes), bytes, "Cache-size override cannot be negative.");
@@ -1161,8 +1192,6 @@ public class StateService : IStateService
 
     public void SetScheduledPrefillConfig(ScheduledPrefillConfigDto config)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
         // Validate before mutating state so an invalid config surfaces an explicit error to the
         // caller and never gets persisted. ToPersisted re-validates as a final guard.
         var validated = ScheduledPrefillConfigFactory.Validate(config);
@@ -1907,7 +1936,7 @@ public class StateService : IStateService
                 state.OperationStates.Remove(operation);
             }
 
-            SaveState(state);
+            SaveLoadedState(state);
             _logger.LogInformation("Cleaned up {Count} stale operations", staleOperations.Count);
         }
     }

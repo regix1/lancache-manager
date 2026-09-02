@@ -58,11 +58,7 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     if (userAllowedFormats && userAllowedFormats.length > 0) {
       return userAllowedFormats;
     }
-    if (
-      isGuest &&
-      guestDefaults.allowedTimeFormats &&
-      guestDefaults.allowedTimeFormats.length > 0
-    ) {
+    if (isGuest && guestDefaults.allowedTimeFormats.length > 0) {
       return guestDefaults.allowedTimeFormats;
     }
     return [];

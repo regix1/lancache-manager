@@ -29,8 +29,7 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
   // What the scan covered, for the heading's popover. The two facts are separate lines rather
   // than one run of prose: neither ends in a full stop, so joining them ran the timestamp
   // straight into the sample count. The truncation caveat is a note, not a third fact.
-  const hasScanScope =
-    !!report && report.availability === 'available' && (report.paths ?? []).length > 0;
+  const hasScanScope = !!report && report.availability === 'available' && report.paths.length > 0;
   const scanFacts = hasScanScope
     ? [
         report.checkedAtUtc
@@ -62,9 +61,9 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
     // scannedBytes separates the two no-sample stories: empty logs (nothing to scan) versus
     // traffic that never qualified as a completed download (polls, metadata checks, zero-byte
     // sessions). Bare-metal caches idle at the second state constantly via Windows Update.
-    const noSamplesKey = (report.scannedBytes ?? 0) > 0 ? 'noSamples' : 'logsEmpty';
+    const noSamplesKey = report.scannedBytes > 0 ? 'noSamples' : 'logsEmpty';
     body = <p className="status-check-content-state">{t(`${keys}.${noSamplesKey}`)}</p>;
-  } else if ((report.paths ?? []).length === 0) {
+  } else if (report.paths.length === 0) {
     body = (
       <div className="status-check-content-state status-check-content-state--stacked">
         <p>{t(`${keys}.noPaths`)}</p>

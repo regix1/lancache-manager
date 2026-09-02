@@ -241,7 +241,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
               fileName: file.name,
               content,
               meta: parsedTheme.meta,
-              colors: parsedTheme.colors as ColorPreview
+              colors: parsedTheme.colors
             };
           }
           return null;

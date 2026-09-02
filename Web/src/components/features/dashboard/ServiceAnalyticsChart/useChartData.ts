@@ -142,7 +142,7 @@ export function useChartData(
       };
     }
 
-    if (!serviceStats?.length) {
+    if (!serviceStats.length) {
       return { labels: [], datasets: [], total: 0, isEmpty: true };
     }
 

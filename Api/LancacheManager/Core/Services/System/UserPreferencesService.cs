@@ -70,6 +70,11 @@ public class UserPreferencesService
     /// <summary>
     /// Get user preferences for a session
     /// </summary>
+    /// <returns>
+    /// Null both when the session has no preferences row yet and when the read failed. Callers
+    /// fall back to the defaults either way, so a reader whose stored preferences could not be
+    /// read sees the defaults rather than an error.
+    /// </returns>
     public UserPreferencesDto? GetPreferences(Guid sessionId)
     {
         try
@@ -293,6 +298,11 @@ public class UserPreferencesService
     /// Applies every write in one SaveChanges, so no reader and no normalisation step ever sees part of a
     /// caller's choice landed and the rest still missing.
     /// </summary>
+    /// <returns>
+    /// The stored preferences, or null when nothing was written - either the save failed or both
+    /// attempts lost the row race. The controller turns null into a 500, so this failure does
+    /// reach the reader.
+    /// </returns>
     private async Task<UserPreferencesDto?> ApplyPreferenceWritesAsync(Guid sessionId, IReadOnlyList<PreferenceWrite> writes)
     {
         // A session carries no preferences row until its first write, and several keys can go out at once.
@@ -462,8 +472,6 @@ public class UserPreferencesService
     /// </summary>
     public static void NormalizeClockPreferences(ClockPreferences clock)
     {
-        ArgumentNullException.ThrowIfNull(clock);
-
         if (!clock.UseUtcTimezone)
         {
             return;
@@ -476,6 +484,10 @@ public class UserPreferencesService
     /// <summary>
     /// Delete user preferences
     /// </summary>
+    /// <returns>
+    /// True when a row was deleted. False both when there was no row to delete and when the
+    /// delete failed, so false does not promise the preferences are gone.
+    /// </returns>
     public async Task<bool> DeletePreferencesAsync(Guid sessionId)
     {
         try

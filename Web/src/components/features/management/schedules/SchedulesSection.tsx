@@ -148,12 +148,6 @@ interface DepotScanModeRequirement {
   helpKey: string;
 }
 
-/** Body the mode route answers with when the mode asked for cannot run on this install. */
-interface ScanModeRefusal {
-  stageKey?: string;
-  error?: string;
-}
-
 // The refusal names the requirement in the same stage key the dropdown shows for it, so a save the
 // server refuses says which requirement is missing rather than only that the save failed. The
 // browser's copy of the facts can be a moment behind the server's - a key removed in another tab,
@@ -162,7 +156,7 @@ const getScanModeRefusalKey = (error: unknown): string | null => {
   if (!(error instanceof ApiError) || error.status !== 400) {
     return null;
   }
-  const refusal = error.body as ScanModeRefusal | null;
+  const refusal = error.body;
   return typeof refusal?.stageKey === 'string' && refusal.stageKey.length > 0
     ? refusal.stageKey
     : null;
@@ -1349,7 +1343,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         pendingRefetchRef.current = false;
         const generationAtRequest = signalrGenerationRef.current;
         try {
-          const data = (await ApiService.getSchedules()) as ServiceScheduleInfo[];
+          const data = await ApiService.getSchedules();
           // A SignalR SchedulesUpdated arrived while this GET was in flight - it is fresher than this
           // snapshot, so drop the GET result rather than roll back the live state.
           if (signalrGenerationRef.current === generationAtRequest) {

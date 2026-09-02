@@ -156,14 +156,10 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         // Unsubscribe from Epic daemon events before cleanup
         UnsubscribeDaemonEvents();
 
-        try
+        if (!_cancellationTokenSource.IsCancellationRequested)
         {
-            if (!_cancellationTokenSource.IsCancellationRequested)
-            {
-                _cancellationTokenSource.Cancel();
-            }
+            _cancellationTokenSource.Cancel();
         }
-        catch (ObjectDisposedException) { }
 
         _startupAutoReconnectCompleted.TrySetResult(true);
 
@@ -260,8 +256,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         {
             if (!_cancellationTokenSource.IsCancellationRequested)
             {
-                try { _cancellationTokenSource.Cancel(); }
-                catch (ObjectDisposedException) { }
+                _cancellationTokenSource.Cancel();
             }
         }
         finally

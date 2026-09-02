@@ -760,8 +760,15 @@ fn count_services(
     // Calculate total size across all files for progress tracking
     let mut total_size = 0u64;
     for log_file in sources.iter().flat_map(|s| &s.files) {
-        if let Ok(metadata) = std::fs::metadata(&log_file.path) {
-            total_size += metadata.len();
+        match std::fs::metadata(&log_file.path) {
+            Ok(metadata) => total_size += metadata.len(),
+            // The file is still processed; only the progress denominator is short by
+            // its size, which makes the bar reach 100% before the work is done.
+            Err(e) => eprintln!(
+                "  Warning: could not read the size of {}, progress will run ahead: {}",
+                log_file.path.display(),
+                e
+            ),
         }
     }
 
@@ -1549,15 +1556,18 @@ fn check_cache_validity(log_path: &str, progress_path: &Path) -> Result<HashMap<
 
     // Check if any log file is newer than progress file
     for log_file in &log_files {
-        if let Ok(log_metadata) = fs::metadata(&log_file.path) {
-            if let Ok(log_modified) = log_metadata.modified() {
-                if log_modified > progress_modified {
-                    return Err(anyhow::anyhow!(
-                        "Log file {} is newer than progress file",
-                        log_file.path.display()
-                    ));
-                }
-            }
+        // A log whose timestamp cannot be read is no proof the cache is still fresh,
+        // so treat it like a newer log and regenerate instead of serving stale counts.
+        let log_metadata = fs::metadata(&log_file.path)
+            .with_context(|| format!("Cannot check {} against the progress file", log_file.path.display()))?;
+        let log_modified = log_metadata
+            .modified()
+            .with_context(|| format!("Cannot read the modified time of {}", log_file.path.display()))?;
+        if log_modified > progress_modified {
+            return Err(anyhow::anyhow!(
+                "Log file {} is newer than progress file",
+                log_file.path.display()
+            ));
         }
     }
 

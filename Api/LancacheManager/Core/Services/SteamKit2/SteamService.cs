@@ -40,6 +40,10 @@ public class SteamService : IDisposable
     /// <summary>
     /// Get game information using real Steam API data
     /// </summary>
+    /// <returns>
+    /// Null both when Steam knows nothing about the app and when the lookup failed. Callers treat
+    /// both as "no name yet" and try again on a later pass.
+    /// </returns>
     public async Task<GameInfo?> GetGameInfoAsync(long appId)
     {
         try
@@ -73,6 +77,14 @@ public class SteamService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Asks the Steam Store API for an app's details.
+    /// </summary>
+    /// <returns>
+    /// The store's answer, or <c>FallbackGameInfo</c> when the store could not be reached or read.
+    /// The fallback carries the app id and whatever name we already had, so it is a real answer
+    /// rather than a blank standing in for one, but it has no store fields on it.
+    /// </returns>
     private async Task<GameInfo?> GetDetailedGameInfoAsync(long appId, string? knownName = null)
     {
         await _apiSemaphore.WaitAsync();
@@ -112,6 +124,13 @@ public class SteamService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Turns a Steam Store API response body into a game record.
+    /// </summary>
+    /// <returns>
+    /// The parsed store record, or <c>FallbackGameInfo</c> when the response was not the shape we
+    /// expected. Same meaning as above: a name and an id, none of the store fields.
+    /// </returns>
     private GameInfo? ParseStoreApiResponse(string json, long appId, string? knownName = null)
     {
         try

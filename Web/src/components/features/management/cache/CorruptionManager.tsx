@@ -314,15 +314,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           'minStableAgeSeconds',
           'maxPrefixBytes'
         ]) &&
-        isOptionalNonNegativeInteger(settings?.threshold) &&
-        isOptionalNonNegativeInteger(settings?.lookbackDays) &&
-        isOptionalNonNegativeInteger(settings?.minStableAgeSeconds) &&
-        isOptionalNonNegativeInteger(settings?.maxPrefixBytes);
+        isOptionalNonNegativeInteger(settings.threshold) &&
+        isOptionalNonNegativeInteger(settings.lookbackDays) &&
+        isOptionalNonNegativeInteger(settings.minStableAgeSeconds) &&
+        isOptionalNonNegativeInteger(settings.maxPrefixBytes);
       const repeatedMissSettingsAreValid =
         detectionMethodIsValid &&
         cached.detectionMethod === 'repeated_miss' &&
         settingsAreValid &&
-        typeof settings?.threshold === 'number' &&
+        typeof settings.threshold === 'number' &&
         [3, 5, 10].includes(settings.threshold) &&
         typeof settings.lookbackDays === 'number' &&
         Number.isInteger(settings.lookbackDays) &&
@@ -334,7 +334,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         detectionMethodIsValid &&
         cached.detectionMethod === 'structural' &&
         settingsAreValid &&
-        settings?.threshold == null &&
+        settings.threshold == null &&
         settings.lookbackDays == null &&
         typeof settings.minStableAgeSeconds === 'number' &&
         settings.minStableAgeSeconds === 600 &&
@@ -703,7 +703,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           notification.type === 'corruption_removal' && notification.status === 'running'
       );
       if (runningRemoval) {
-        const service = (runningRemoval.details?.service as string | undefined) ?? '';
+        const service = runningRemoval.details?.service ?? '';
         clearServiceRemovalOnNotification(
           service,
           notifications,
@@ -744,7 +744,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     (notification) =>
       notification.type === 'corruption_removal' && notification.status === 'running'
   );
-  const removingService = (activeRemoval?.details?.service as string | undefined) ?? null;
+  const removingService = activeRemoval?.details?.service ?? null;
   const serviceKeys = projection.rows.map((row) => row.service);
   const selectedServices = [...selection.selected].filter((service) =>
     serviceKeys.includes(service)

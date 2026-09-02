@@ -799,7 +799,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             initialIps: pendingMemberIps,
             separateMemberRows
           });
-          const rejected = Array.isArray(created.rejectedIps) ? created.rejectedIps : [];
+          const rejected = created.rejectedIps;
           if (created.status === 'rejected') {
             // Not one address could be taken, so the nickname was rolled back and there is
             // nothing on the server to edit: no id is kept, or the next Save would write to a

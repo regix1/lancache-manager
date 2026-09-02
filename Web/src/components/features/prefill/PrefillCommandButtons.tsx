@@ -97,7 +97,7 @@ export function PrefillCommandButtons({
     availablePrefillCommands.find((cmd: CommandButton) => cmd.id === 'prefill') ??
     availablePrefillCommands[0];
   const presetCommands = availablePrefillCommands.filter(
-    (cmd: CommandButton) => cmd.id !== prefillPrimaryCommand?.id
+    (cmd: CommandButton) => cmd.id !== prefillPrimaryCommand.id
   );
 
   const cachedIdSet = new Set(cachedAppIds);
@@ -221,7 +221,7 @@ export function PrefillCommandButtons({
           </div>
 
           <div className="cmd-split-right">
-            {prefillPrimaryCommand && renderCommandTile(prefillPrimaryCommand, true)}
+            {renderCommandTile(prefillPrimaryCommand, true)}
             {hasTargetPlatforms && (
               <div className="cmd-settings-field">
                 <label className="caps-label cmd-settings-label">

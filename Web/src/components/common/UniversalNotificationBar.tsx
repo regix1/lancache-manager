@@ -65,7 +65,7 @@ const UniversalNotificationBar: React.FC = () => {
         n.status === 'running' &&
         CANCEL_CONFIG_BY_TYPE[n.type]?.cancelKind === 'serverOp' &&
         n.details?.cancelRequested &&
-        !n.details?.cancelSent &&
+        !n.details.cancelSent &&
         opId &&
         !deferredCancelFiredRef.current.has(n.id)
       ) {

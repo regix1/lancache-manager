@@ -220,9 +220,6 @@ internal sealed class PersistentPrefillEditSessionGate
 
     public PersistentPrefillEditSessionStartLease BeginStart(string editSessionId, string editActionId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(editSessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(editActionId);
-
         lock (_sync)
         {
             var editSession = GetOrCreateEditSession(editSessionId);
@@ -377,8 +374,6 @@ internal sealed class PersistentPrefillEditSessionGate
         string editSessionId,
         PersistentPrefillEditResourceKind kind)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(editSessionId);
-
         lock (_sync)
         {
             return _resourceOwners.Values
@@ -397,8 +392,6 @@ internal sealed class PersistentPrefillEditSessionGate
         string editSessionId,
         PersistentPrefillEditResourceOwnership ownership)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(editSessionId);
-
         lock (_sync)
         {
             var key = (ownership.Kind, ownership.SessionId);
@@ -418,9 +411,6 @@ internal sealed class PersistentPrefillEditSessionGate
 
     public PersistentPrefillEditSessionCleanupLease BeginCleanup(string editSessionId, string cleanupId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(editSessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(cleanupId);
-
         lock (_sync)
         {
             var editSession = GetOrCreateEditSession(editSessionId);

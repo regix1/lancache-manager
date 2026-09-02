@@ -2181,9 +2181,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     </label>
                     {(() => {
                       const currentFormats = editingPreferences.allowedTimeFormats;
-                      const defaultFormats: string[] = defaultGuestPrefs.allowedTimeFormats ?? [
-                        ...TIME_SETTING_VALUES
-                      ];
+                      const defaultFormats: string[] = defaultGuestPrefs.allowedTimeFormats;
                       const isUsingDefault =
                         !currentFormats ||
                         (currentFormats.length === defaultFormats.length &&
@@ -2227,10 +2225,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       ? t('activeSessions.preferencesModal.customFormats')
                       : t('activeSessions.preferencesModal.defaultFormats', {
                           formats:
-                            defaultGuestPrefs.allowedTimeFormats?.length === 4
+                            defaultGuestPrefs.allowedTimeFormats.length === 4
                               ? t('activeSessions.preferencesModal.allFormats')
                               : defaultGuestPrefs.allowedTimeFormats
-                                  ?.map(
+                                  .map(
                                     (f: string) =>
                                       timeFormatOptions.find(
                                         (o: { value: string; label: string }) => o.value === f

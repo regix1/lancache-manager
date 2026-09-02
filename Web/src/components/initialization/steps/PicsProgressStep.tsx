@@ -77,7 +77,7 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
   };
 
   useEffect(() => {
-    const status = progress?.status?.toLowerCase() || '';
+    const status = progress?.status.toLowerCase() || '';
     const isFinished = status === 'completed';
 
     if (progress && !progress.isProcessing && (isFinished || progress.progressPercent >= 99.5)) {
@@ -138,7 +138,6 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
             <p className="text-base font-medium text-themed-primary mb-1">{getStatusMessage()}</p>
             {!isInitializing() &&
               progress?.processedBatches !== undefined &&
-              progress?.totalBatches !== undefined &&
               progress.totalBatches > 0 && (
                 <p className="text-sm text-themed-secondary">
                   {t('initialization.picsProgress.batches', {

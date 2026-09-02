@@ -105,7 +105,7 @@ export const validateCorruptionScanHistory = (
   }
   const scans: unknown[] = value.scans;
   if (!scans.every(isHistoryEntry)) return null;
-  const entries = scans as CorruptionScanHistoryEntry[];
+  const entries = scans;
 
   const perMethod: Record<CorruptionDetectionMethod, number> = { repeated_miss: 0, structural: 0 };
   const currentPerMethod: Record<CorruptionDetectionMethod, number> = {

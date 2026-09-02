@@ -27,7 +27,7 @@ export function useFlatRows({ items, groupByFrequency }: UseFlatRowsOptions): Fl
       const isGroup = 'downloads' in item;
       if (groupByFrequency) {
         if (isGroup) {
-          const group = item as DownloadGroup;
+          const group = item;
           if (group.count > 1 && !multipleHeaderEmitted) {
             multipleHeaderEmitted = true;
             rows.push({ kind: 'header', id: 'header-multiple', variant: 'multiple' });
@@ -40,7 +40,7 @@ export function useFlatRows({ items, groupByFrequency }: UseFlatRowsOptions): Fl
           rows.push({ kind: 'header', id: 'header-individual', variant: 'individual' });
         }
       }
-      const rowId = isGroup ? (item as DownloadGroup).id : `download-${(item as Download).id}`;
+      const rowId = isGroup ? item.id : `download-${item.id}`;
       rows.push({ kind: 'item', id: rowId, item });
     }
     return rows;

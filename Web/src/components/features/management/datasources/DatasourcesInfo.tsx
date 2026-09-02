@@ -95,20 +95,18 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       setCacheSizeDraft((prev) => ({ ...prev, [name]: '' }));
       // Apply the endpoint's authoritative result to this row immediately so it updates even if the
       // config refresh below fails (the config provider keeps its last-good config silently on error).
-      if (config?.dataSources) {
-        updateConfig({
-          dataSources: config.dataSources.map((ds) =>
-            ds.name === name
-              ? {
-                  ...ds,
-                  cacheSizeOverrideBytes: result.cacheSizeOverrideBytes,
-                  resolvedCacheSizeBytes: result.resolvedCacheSizeBytes,
-                  cacheSizeSource: result.cacheSizeSource
-                }
-              : ds
-          )
-        });
-      }
+      updateConfig({
+        dataSources: config.dataSources.map((ds) =>
+          ds.name === name
+            ? {
+                ...ds,
+                cacheSizeOverrideBytes: result.cacheSizeOverrideBytes,
+                resolvedCacheSizeBytes: result.resolvedCacheSizeBytes,
+                cacheSizeSource: result.cacheSizeSource
+              }
+            : ds
+        )
+      });
       onSuccess?.(
         action === 'reset'
           ? t('management.datasources.cacheSize.resetDone')

@@ -208,49 +208,40 @@ const SessionCard: React.FC<{
   // Normalize session data between DaemonSessionDto and PrefillSessionDto
   const isDaemonSession = 'id' in session && !('sessionId' in session);
   const status = session.status;
-  const daemonSessionId = isDaemonSession ? (session as DaemonSessionDto).id : null;
+  const daemonSessionId = isDaemonSession ? session.id : null;
   const isPrefilling =
     (daemonSessionId !== null &&
       activity.isActive('prefillSession', daemonSessionId, 'downloading')) ||
-    (isDaemonSession ? (session as DaemonSessionDto).isPrefilling : false);
+    (isDaemonSession ? session.isPrefilling : false);
 
-  const platform = isDaemonSession
-    ? (session as DaemonSessionDto).platform || 'Steam'
-    : (session as PrefillSessionDto).platform || 'Steam';
+  const platform = isDaemonSession ? session.platform || 'Steam' : session.platform || 'Steam';
   const serviceId = resolveServiceId(platform);
   const isAnonymousService = isAnonymousServiceId(serviceId);
   const platformDisplayName = serviceDisplayName(serviceId);
   const isPersistentSession = isDaemonSession
-    ? ((session as DaemonSessionDto).isPersistent ?? false)
-    : ((session as PrefillSessionDto).isPersistent ?? false);
+    ? (session.isPersistent ?? false)
+    : (session.isPersistent ?? false);
 
   const displayUsername = isDaemonSession
-    ? (session as DaemonSessionDto).username || (session as DaemonSessionDto).accountUsername
-    : (session as PrefillSessionDto).username || (session as PrefillSessionDto).accountUsername;
-  const containerName = isDaemonSession
-    ? (session as DaemonSessionDto).containerName
-    : (session as PrefillSessionDto).containerName;
-  const createdAt = isDaemonSession
-    ? (session as DaemonSessionDto).createdAt
-    : (session as PrefillSessionDto).createdAtUtc;
-  const endedAt = isDaemonSession ? undefined : (session as PrefillSessionDto).endedAtUtc;
-  const ipAddress = isDaemonSession ? (session as DaemonSessionDto).ipAddress : undefined;
-  const operatingSystem = isDaemonSession
-    ? (session as DaemonSessionDto).operatingSystem
-    : undefined;
-  const browser = isDaemonSession ? (session as DaemonSessionDto).browser : undefined;
-  const currentAppName = isDaemonSession ? (session as DaemonSessionDto).currentAppName : undefined;
-  const totalBytesTransferred = isDaemonSession
-    ? (session as DaemonSessionDto).totalBytesTransferred
-    : undefined;
+    ? session.username || session.accountUsername
+    : session.username || session.accountUsername;
+  const containerName = isDaemonSession ? session.containerName : session.containerName;
+  const createdAt = isDaemonSession ? session.createdAt : session.createdAtUtc;
+  const endedAt = isDaemonSession ? undefined : session.endedAtUtc;
+  const ipAddress = isDaemonSession ? session.ipAddress : undefined;
+  const operatingSystem = isDaemonSession ? session.operatingSystem : undefined;
+  const browser = isDaemonSession ? session.browser : undefined;
+  const currentAppName = isDaemonSession ? session.currentAppName : undefined;
+  const totalBytesTransferred = isDaemonSession ? session.totalBytesTransferred : undefined;
   const isAuthenticated_ = isDaemonSession
-    ? (session as DaemonSessionDto).authState === 'Authenticated'
-    : (session as PrefillSessionDto).isAuthenticated;
+    ? session.authState === 'Authenticated'
+    : session.isAuthenticated;
 
-  const totalBytesFromHistory = historyData
-    ? historyData.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0)
-    : 0;
-  const gamesCount = historyData?.length || 0;
+  const totalBytesFromHistory = historyData.reduce(
+    (sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0),
+    0
+  );
+  const gamesCount = historyData.length || 0;
 
   const { paginatedItems: paginatedEntries, totalPages } = usePaginatedList<PrefillHistoryEntryDto>(
     {
@@ -420,7 +411,7 @@ const SessionCard: React.FC<{
               <LoadingSpinner inline size="xs" />
               {t('management.prefillSessions.labels.loadingHistory')}
             </div>
-          ) : !historyData || historyData.length === 0 ? (
+          ) : historyData.length === 0 ? (
             <p className="mgmt-scanmeta">
               {isLive
                 ? t('management.prefillSessions.labels.noPrefillHistoryYet')

@@ -104,7 +104,7 @@ export function useGroupPagination({
   // `<IpSessionList>` (which uses `usePaginatedList`) so that the "Items/IP"
   // dropdown acts as a page size rather than a hard cap.
   const ipGroups = useMemo<Record<string, Download[]>>(
-    () => Object.fromEntries(paginatedIpEntries) as Record<string, Download[]>,
+    () => Object.fromEntries(paginatedIpEntries),
     [paginatedIpEntries]
   );
 

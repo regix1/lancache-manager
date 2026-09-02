@@ -379,7 +379,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     const isService = 'service_name' in evictedTarget;
 
     if (isService) {
-      const service = evictedTarget as ServiceCacheInfo;
+      const service = evictedTarget;
       removalTargetRef.current = { serviceName: service.service_name };
       setEvictedTarget(null);
       try {
@@ -392,7 +392,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         onError(errorMsg);
       }
     } else {
-      const game = evictedTarget as GameCacheInfo;
+      const game = evictedTarget;
       const entity = classifyGameFromCacheInfo(game);
       const isEpic = entity.kind === 'epicGame';
       const isNamed = entity.kind === 'namedGame';
@@ -1128,17 +1128,15 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       {evictedTarget !== null &&
         (() => {
           const isService = 'service_name' in evictedTarget;
-          const name = isService
-            ? (evictedTarget as ServiceCacheInfo).service_name
-            : (evictedTarget as GameCacheInfo).game_name;
+          const name = isService ? evictedTarget.service_name : evictedTarget.game_name;
           const evictedCount = evictedTarget.evicted_downloads_count ?? 0;
           const evictedBytes = evictedTarget.evicted_bytes ?? 0;
           return (
             <CacheRemovalModal
               target={
                 isService
-                  ? { type: 'service', data: evictedTarget as ServiceCacheInfo }
-                  : { type: 'game', data: evictedTarget as GameCacheInfo }
+                  ? { type: 'service', data: evictedTarget }
+                  : { type: 'game', data: evictedTarget }
               }
               onClose={() => setEvictedTarget(null)}
               onConfirm={confirmEvictedRemoval}

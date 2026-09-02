@@ -506,11 +506,6 @@ public class ThemeController : ControllerBase
                 StageKey = "errors.themes.deletePermission"
             });
         }
-        catch (IOException ex)
-        {
-            _logger.LogError(ex, "IO error when deleting theme {ThemeId}", id);
-            throw; // -> GlobalExceptionMiddleware -> 500 safe { error, details?, statusCode, traceId }
-        }
     }
 
     /// <summary>

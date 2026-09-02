@@ -225,7 +225,7 @@ fn remove_cache_files_for_service(
     progress_path: &Path,
     reporter: &ProgressReporter,
     scheme: cache_utils::CacheKeyScheme,
-) -> Result<(usize, u64, usize, usize)> {
+) -> (usize, u64, usize, usize) {
     // Returns (deleted_count, bytes_freed, permission_errors, verification_skips).
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -278,8 +278,17 @@ fn remove_cache_files_for_service(
                             );
                         }
                     } else {
-                        if let Ok(metadata) = fs::metadata(&cache_path) {
-                            bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
+                        match fs::metadata(&cache_path) {
+                            Ok(metadata) => {
+                                bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
+                            }
+                            // The file is still deleted below; only the freed-bytes total
+                            // is short by its size, so say which file it was short by.
+                            Err(e) => eprintln!(
+                                "  Warning: could not read the size of {}, it is missing from the freed total: {}",
+                                cache_path.display(),
+                                e
+                            ),
                         }
 
                         match fs::remove_file(&cache_path) {
@@ -358,12 +367,12 @@ fn remove_cache_files_for_service(
         );
     }
 
-    Ok((
+    (
         final_deleted,
         final_bytes,
         final_permission_errors,
         final_verification_skips,
-    ))
+    )
 }
 
 async fn delete_service_from_database(pool: &PgPool, service: &str) -> Result<u64> {
@@ -476,7 +485,7 @@ async fn main() -> Result<()> {
         &progress_path,
         &reporter,
         key_scheme,
-    )?;
+    );
 
     // After cache removal: if cancellation arrived, flush partial progress and exit 0.
     // C# re-runs reconciliation/detection after a cancelled remove.
@@ -639,8 +648,7 @@ mod tests {
                 &progress_path,
                 &ProgressReporter::new(false),
                 cache_utils::CacheKeyScheme::BareMetal,
-            )
-            .unwrap();
+            );
 
         assert!(cache_path.exists(), "unverified file must remain untouched");
         assert_eq!(
@@ -707,8 +715,7 @@ mod tests {
                 &temp.path().join("progress.json"),
                 &ProgressReporter::new(false),
                 cache_utils::CacheKeyScheme::Monolithic,
-            )
-            .unwrap();
+            );
 
         assert_eq!((deleted, permission_errors, verification_skips), (counted, 0, 0));
         assert!(!no_range.exists());

@@ -110,8 +110,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
 
     // Detect transition from authenticated/guest to unauthenticated (logout/revocation)
     const wasLoggedOut =
-      (prevAuthMode.current === 'authenticated' || prevAuthMode.current === 'guest') &&
-      authMode === 'unauthenticated';
+      prevAuthMode.current === 'authenticated' || prevAuthMode.current === 'guest';
 
     if (wasLoggedOut) {
       setShowAuthModal(true);
@@ -266,10 +265,13 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
         setSteamAuthMode('anonymous');
         setUsername('');
       } catch (steamError) {
+        // The sign-out below still runs, so the app logs out either way - but the Steam login and
+        // Web API key may still be stored on the server, and only this says so.
         console.warn(
           '[AuthenticationManager] Failed to clear Steam auth during logout:',
-          steamError
+          getErrorMessage(steamError)
         );
+        onError?.(t('management.auth.errors.steamSignOutFailed'));
       }
 
       await authService.logout();
@@ -293,7 +295,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   // When authentication is disabled via Security:EnableAuthentication, the auth
   // context forces authMode to 'authenticated'. Surface a distinct DISABLED state
   // instead of falsely claiming the user is "Authenticated" with management features.
-  if (authenticationEnabled === false) {
+  if (!authenticationEnabled) {
     return (
       <Alert color="blue" icon={<Lock className="w-5 h-5" />}>
         <div className="flex-1 min-w-0">

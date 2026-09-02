@@ -1491,30 +1491,33 @@ pub fn cleanup_empty_directories(
             continue;
         }
 
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            if entries.count() == 0 {
-                if std::fs::remove_dir(&dir).is_ok() {
-                    removed_count += 1;
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(e) => {
+                eprintln!("  skipping dir {}: {}", dir.display(), e);
+                continue;
+            }
+        };
 
-                    if let Some(parent) = dir.parent() {
-                        if parent != cache_dir {
-                            match safe_path_under_root(cache_dir, parent) {
-                                Ok(_) => {
-                                    if let Ok(parent_entries) = std::fs::read_dir(parent) {
-                                        if parent_entries.count() == 0 {
-                                            std::fs::remove_dir(parent).ok();
-                                            removed_count += 1;
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!(
-                                        "  skipping unsafe parent {}: {}",
-                                        parent.display(),
-                                        e
-                                    );
+        if entries.count() == 0 && std::fs::remove_dir(&dir).is_ok() {
+            removed_count += 1;
+
+            if let Some(parent) = dir.parent() {
+                if parent != cache_dir {
+                    match safe_path_under_root(cache_dir, parent) {
+                        Ok(_) => match std::fs::read_dir(parent) {
+                            Ok(parent_entries) => {
+                                if parent_entries.count() == 0 {
+                                    std::fs::remove_dir(parent).ok();
+                                    removed_count += 1;
                                 }
                             }
+                            Err(e) => {
+                                eprintln!("  skipping parent {}: {}", parent.display(), e);
+                            }
+                        },
+                        Err(e) => {
+                            eprintln!("  skipping unsafe parent {}: {}", parent.display(), e);
                         }
                     }
                 }

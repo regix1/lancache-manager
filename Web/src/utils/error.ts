@@ -41,7 +41,7 @@ export function getErrorMessage(error: unknown): string {
     const message =
       error.message || error.body?.message || error.body?.error || `HTTP ${error.status}`;
     const stageKey = error.body?.stageKey;
-    return stageKey ? i18n.t(stageKey, { ...error.body?.context, defaultValue: message }) : message;
+    return stageKey ? i18n.t(stageKey, { ...error.body.context, defaultValue: message }) : message;
   }
   if (error instanceof Error) {
     return error.message;

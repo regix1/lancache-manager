@@ -319,7 +319,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   // sentences live in each slot's tooltip; a failed heartbeat with no node evidence
   // stays a visible warning line below the strip.
   const metaSlots: VerdictMetaSlot[] = [];
-  if (showMeta && lastResult) {
+  if (showMeta) {
     if (expectedCacheIps.length > 0) {
       metaSlots.push({
         id: 'expectedIp',

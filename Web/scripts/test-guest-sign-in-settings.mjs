@@ -104,7 +104,9 @@ test('a visitor with no session still gets the guest settings the install is set
 
   const authServiceUrl = await compileToUrl('../src/services/auth.service.ts', {
     '@/i18n': moduleUrl(`export default { t: (k) => k };`),
-    '@utils/constants': moduleUrl(`export const getApiUrl = () => '';`),
+    '@utils/constants': moduleUrl(
+      `export const getApiUrl = () => ''; export const APP_EVENTS = { SHOW_TOAST: 'show-toast' };`
+    ),
     '@utils/antiforgery': moduleUrl(`export const antiforgeryHeaders = () => ({});`),
     '@utils/error': moduleUrl(`export const isAbortError = () => false;`),
     '@utils/userInteractionTracker': moduleUrl(

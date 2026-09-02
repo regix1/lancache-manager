@@ -135,7 +135,7 @@ public class ClientHostnamesController : ControllerBase
         // The trailing dot is the root label and is accepted, because a name copied out of a zone
         // file carries one. Anything that is not a name is turned down here rather than sent on:
         // an address needs no lookup, and the picker offers it directly.
-        var hostname = (request.Hostname ?? string.Empty).Trim().TrimEnd('.');
+        var hostname = request.Hostname.Trim().TrimEnd('.');
         if (hostname.Length == 0 ||
             hostname.Length > MaxHostnameLength ||
             Uri.CheckHostName(hostname) != UriHostNameType.Dns)

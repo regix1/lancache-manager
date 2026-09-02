@@ -435,12 +435,6 @@ public class SystemController : ControllerBase
             _stateService.SetSetupCompleted(request.Completed!.Value);
         }
 
-        if (!_stateService.IsPersistenceAvailable)
-        {
-            return StatusCode(503, ApiResponse.Error(
-                "Setup state could not be persisted. Please check server logs and try again."));
-        }
-
         if (hasCompleted)
         {
             _logger.LogInformation("Setup status updated: {Completed}", request.Completed!.Value);
@@ -468,12 +462,6 @@ public class SystemController : ControllerBase
             state.DataSourceChoice = null;
             state.CompletedPlatforms = null;
         });
-
-        if (!_stateService.IsPersistenceAvailable)
-        {
-            return StatusCode(503, ApiResponse.Error(
-                "Setup state could not be persisted. Please check server logs and try again."));
-        }
 
         return Ok(new SetupUpdateResponse
         {
@@ -594,7 +582,7 @@ public class SystemController : ControllerBase
     [ProducesResponseType(typeof(RefreshRateResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<RefreshRateResponse>> SetDefaultGuestRefreshRateAsync([FromBody] SetRefreshRateRequest request)
     {
-        if (request == null || string.IsNullOrWhiteSpace(request.RefreshRate))
+        if (string.IsNullOrWhiteSpace(request.RefreshRate))
         {
             return BadRequest(ApiResponse.Error("Refresh rate is required"));
         }

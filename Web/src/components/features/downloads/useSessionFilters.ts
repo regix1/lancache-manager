@@ -63,7 +63,7 @@ function applyFilters(downloads: Download[], filters: SessionFilters): Download[
         case 'full':
           return d.cacheHitPercent >= 99.9;
         case 'evicted':
-          return d.isEvicted === true;
+          return d.isEvicted;
         default:
           return true;
       }

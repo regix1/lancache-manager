@@ -251,8 +251,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       // Only reload if we haven't already processed this completion. Key on the per-run
       // operationId - the notification id is the stable per-type 'log_removal', so keying
       // on it would block every clear after the first one.
-      const completionKey =
-        (completedLogRemoval.details?.operationId as string | undefined) ?? completedLogRemoval.id;
+      const completionKey = completedLogRemoval.details?.operationId ?? completedLogRemoval.id;
       if (lastProcessedCompletionRef.current !== completionKey) {
         lastProcessedCompletionRef.current = completionKey;
         void loadData(true);
@@ -285,7 +284,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       setDatasourceCounts(dsCounts);
       markLoaded();
     } catch (err: unknown) {
-      console.error('Failed to load log data:', err);
+      // markFailed only stops the spinner, which on its own reads as "this card has no logs".
+      console.error('Failed to load log data:', getErrorMessage(err));
+      onError?.(t('management.logRemoval.errors.loadFailed'));
       markFailed();
     }
   };
@@ -335,7 +336,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       }
     } catch (err: unknown) {
       const errMsg = getErrorMessage(err);
-      const errorMessage = errMsg?.includes('read-only')
+      const errorMessage = errMsg.includes('read-only')
         ? t('management.logRemoval.errors.readOnly')
         : errMsg || t('management.logRemoval.errors.actionFailed');
       onError?.(errorMessage);
@@ -369,7 +370,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       await loadData(true);
     } catch (err: unknown) {
       const errMsg = getErrorMessage(err);
-      const errorMessage = errMsg?.includes('read-only')
+      const errorMessage = errMsg.includes('read-only')
         ? t('management.logRemoval.errors.readOnly')
         : errMsg || t('management.logRemoval.errors.deleteFailed');
       onError?.(errorMessage);

@@ -60,7 +60,7 @@ function CacheEntityList<TItem>({
     () => filteredAndSortedItems.map(getItemKey),
     [filteredAndSortedItems, getItemKey]
   );
-  const canSelectAll = Boolean(selection?.allSelected && selection?.setMany);
+  const canSelectAll = Boolean(selection?.allSelected && selection.setMany);
   const allVisibleSelected = selection?.allSelected ? selection.allSelected(filteredKeys) : false;
 
   const handleSelectAllToggle = useCallback(() => {

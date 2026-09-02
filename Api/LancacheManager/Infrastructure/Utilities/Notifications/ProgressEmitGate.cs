@@ -15,7 +15,6 @@ internal sealed class ProgressEmitGate
 
     internal ProgressEmitGate(long minimumIntervalMs = RustProcessHelper.ProgressEmitMinIntervalMs)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(minimumIntervalMs);
         _minimumIntervalMs = minimumIntervalMs;
     }
 
@@ -24,8 +23,6 @@ internal sealed class ProgressEmitGate
 
     internal bool ShouldEmit(string stageKey, long revision, long nowTicks)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(stageKey);
-
         lock (_sync)
         {
             if (_hasEmitted

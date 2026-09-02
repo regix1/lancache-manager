@@ -247,7 +247,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
 
       // For the current session, correct stale values from SignalR race conditions
       const incomingUseLocal = newPrefs.useLocalTimezone;
-      const incomingUseUtc = newPrefs.useUtcTimezone ?? false;
+      const incomingUseUtc = newPrefs.useUtcTimezone;
       const incomingUse24Hour = newPrefs.use24HourFormat;
 
       const {

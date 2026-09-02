@@ -909,6 +909,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// it under (AppId = slug, Service = service). Applies the same MinImageBytes quality gate as
     /// the Steam/Epic passes. Returns true if an image was stored.
     /// </summary>
+    /// <returns>
+    /// False both when the CDN had no usable image and when the fetch failed. Runs once per game
+    /// inside a bulk pass, so the caller counts the falses and reports a total rather than
+    /// stopping; that is why the failure is logged at debug and not per-image at warning.
+    /// </returns>
     private async Task<bool> FetchNameKeyedImageAsync(
         AppDbContext db,
         HttpClient client,
@@ -1342,6 +1347,14 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         return null;
     }
 
+    /// <summary>
+    /// Fetches an Epic banner for one mapping and stores it, applying the same size gate as the
+    /// Steam pass.
+    /// </summary>
+    /// <returns>
+    /// False both when Epic had no usable image and when the fetch failed. Same bulk-pass
+    /// contract as the name-keyed fetch above.
+    /// </returns>
     private async Task<bool> FetchEpicImageAsync(
         AppDbContext db,
         HttpClient client,
@@ -1428,6 +1441,14 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         return changed;
     }
 
+    /// <summary>
+    /// Re-fetches an image already in the store and replaces it when the new one passes the size
+    /// gate.
+    /// </summary>
+    /// <returns>
+    /// False both when the re-fetched image failed the size gate and when the refresh failed. The
+    /// stored image is left as it was, so a false here means "still the old one", not "gone".
+    /// </returns>
     private async Task<bool> RefreshImageAsync(
         HttpClient client,
         GameImage image,

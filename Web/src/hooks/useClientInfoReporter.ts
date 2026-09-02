@@ -26,7 +26,7 @@ const collectClientInfo = (): {
 } => {
   let timezone: string | null = null;
   try {
-    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? null;
+    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   } catch {
     timezone = null;
   }

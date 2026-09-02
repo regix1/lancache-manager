@@ -7,7 +7,7 @@ export const API_BASE = import.meta.env.VITE_API_URL
  * same-origin. Callers that need the prefix should use API_BASE instead.
  */
 export function getApiUrl(): string {
-  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
+  if (typeof import.meta !== 'undefined' && import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
   return '';

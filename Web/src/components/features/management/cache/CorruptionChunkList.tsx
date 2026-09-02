@@ -515,7 +515,7 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
             )}
             <div className="mgmt-evidence__mapping-item">
               <dt>{t('management.corruption.structural.cacheVersion')}</dt>
-              <dd>{evidence.cacheVersion ?? '—'}</dd>
+              <dd>{evidence.cacheVersion}</dd>
             </div>
             <div className="mgmt-evidence__mapping-item">
               <dt>{t('management.corruption.structural.cacheKeyMd5')}</dt>

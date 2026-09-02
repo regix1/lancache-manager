@@ -207,7 +207,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
     return (
       <div
         data-index={dataIndex}
-        ref={measureRef as React.Ref<HTMLDivElement> | undefined}
+        ref={measureRef}
         className={isVirtual ? 'virtual-row' : undefined}
         style={isVirtual ? { transform: `translateY(${translateY}px)` } : undefined}
       >

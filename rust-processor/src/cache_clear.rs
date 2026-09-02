@@ -263,6 +263,7 @@ fn delete_directory_full(
 
 #[cfg(target_os = "linux")]
 fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<()> {
+    use anyhow::Context;
     use std::env;
     use std::process::Command;
 
@@ -319,14 +320,20 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
                 eprintln!("Warning: Could not parse deleted file count from rsync stats for {}", dir_path.display());
             }
 
-            // Check if directory still contains entries (e.g., rsync couldn't remove them)
-            if let Ok(mut entries) = fs::read_dir(dir_path) {
-                if entries.next().is_some() {
-                    anyhow::bail!(
-                        "rsync failed to completely clear {}. Directory still contains files. Please try again or switch to a different deletion mode.",
-                        dir_path.display()
-                    );
-                }
+            // Check if directory still contains entries (e.g., rsync couldn't remove them).
+            // A read failure here means the clear was never verified, so it must not be
+            // reported as a success.
+            let mut entries = fs::read_dir(dir_path).with_context(|| {
+                format!(
+                    "could not verify rsync cleared {}. Please try again or switch to a different deletion mode.",
+                    dir_path.display()
+                )
+            })?;
+            if entries.next().is_some() {
+                anyhow::bail!(
+                    "rsync failed to completely clear {}. Directory still contains files. Please try again or switch to a different deletion mode.",
+                    dir_path.display()
+                );
             }
 
             Ok(())
@@ -520,14 +527,31 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     // Start a background thread to update progress regularly
     let monitor_handle = std::thread::spawn(move || {
         let mut last_update = Instant::now();
+        // This loop ticks twice a second for the whole clear, and a free-space read that
+        // fails once usually keeps failing, so the reason is reported once, not per tick.
+        let mut free_space_error_reported = false;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(500));
 
             let processed = dirs_for_monitor.load(Ordering::Relaxed);
-            if let Ok(current_available) = get_available_bytes(&cache_dir_for_monitor) {
-                if current_available >= initial_available {
-                    let freed = current_available - initial_available;
-                    bytes_for_monitor.store(freed, Ordering::Relaxed);
+            match get_available_bytes(&cache_dir_for_monitor) {
+                Ok(current_available) => {
+                    if current_available >= initial_available {
+                        let freed = current_available - initial_available;
+                        bytes_for_monitor.store(freed, Ordering::Relaxed);
+                    }
+                }
+                // The reported "bytes freed" stops advancing when this fails. Say so,
+                // instead of leaving the number silently frozen for the whole run.
+                Err(e) => {
+                    if !free_space_error_reported {
+                        free_space_error_reported = true;
+                        eprintln!(
+                            "Could not read free space on {}, the bytes-freed total will stop advancing: {}",
+                            cache_dir_for_monitor.display(),
+                            e
+                        );
+                    }
                 }
             }
             let bytes = bytes_for_monitor.load(Ordering::Relaxed);
@@ -544,12 +568,12 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
             if last_update.elapsed().as_millis() > 500 {
                 let percent = (processed as f64 / total_dirs as f64) * 100.0;
 
-                // Get snapshot of active directories
-                let active_snapshot = if let Ok(active) = active_for_monitor.lock() {
-                    active.clone()
-                } else {
-                    Vec::new()
-                };
+                // Get snapshot of active directories. A poisoned lock still holds a valid
+                // list of names, so recover it rather than reporting "nothing is running".
+                let active_snapshot = active_for_monitor
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone();
                 let active_count = active_snapshot.len();
 
                 // Log active directories if any
@@ -605,9 +629,10 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         let dir_name_str = dir_name.to_string();
 
         // Add to active list
-        if let Ok(mut active) = active_for_workers.lock() {
-            active.push(dir_name_str.clone());
-        }
+        active_for_workers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(dir_name_str.clone());
 
         eprintln!("Processing directory {}", dir_name);
 
@@ -618,9 +643,10 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         };
 
         // Remove from active list
-        if let Ok(mut active) = active_for_workers.lock() {
-            active.retain(|d| d != &dir_name_str);
-        }
+        active_for_workers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .retain(|d| d != &dir_name_str);
 
         match result {
             Ok(()) => {

@@ -32,8 +32,6 @@ public static class ScheduleTiming
     /// </summary>
     public static DateTime? ComputeNextRun(CustomSchedule schedule, DateTime afterUtc)
     {
-        ArgumentNullException.ThrowIfNull(schedule);
-
         var expression = ParseExpression(schedule.Expression);
         if (expression is null)
         {
@@ -76,8 +74,6 @@ public static class ScheduleTiming
     /// </summary>
     public static bool IsWithinWindow(CustomSchedule schedule, DateTime instantUtc)
     {
-        ArgumentNullException.ThrowIfNull(schedule);
-
         if (schedule.WindowStart is not { } start || schedule.WindowEnd is not { } end)
         {
             return true;
@@ -108,8 +104,6 @@ public static class ScheduleTiming
     /// </summary>
     public static string? Validate(CustomSchedule schedule)
     {
-        ArgumentNullException.ThrowIfNull(schedule);
-
         if (string.IsNullOrWhiteSpace(schedule.Expression))
         {
             return "A custom schedule needs a repeat expression.";

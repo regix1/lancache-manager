@@ -282,11 +282,8 @@ const GrafanaEndpoints: React.FC = () => {
     if (security.source === 'ui') {
       return t('management.grafana.metricsToggle.source.ui');
     }
-    if (security.source === 'config') {
-      if (security.envVarValue !== security.requiresAuthentication) {
-        return t('management.grafana.metricsToggle.source.config');
-      }
-      return t('management.grafana.metricsToggle.source.default');
+    if (security.envVarValue !== security.requiresAuthentication) {
+      return t('management.grafana.metricsToggle.source.config');
     }
     return t('management.grafana.metricsToggle.source.default');
   };

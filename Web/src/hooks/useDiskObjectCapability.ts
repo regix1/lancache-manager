@@ -16,9 +16,7 @@ interface DiskObjectCapability {
 export function useDiskObjectCapability(): DiskObjectCapability {
   const { config } = useConfig();
   return useMemo<DiskObjectCapability>(() => {
-    const enabled = (config.dataSources ?? []).filter(
-      (datasource: DatasourceInfo) => datasource.enabled
-    );
+    const enabled = config.dataSources.filter((datasource: DatasourceInfo) => datasource.enabled);
     const available =
       enabled.length > 0 &&
       enabled.every((datasource: DatasourceInfo) => datasource.canMapLogicalObjects === true);

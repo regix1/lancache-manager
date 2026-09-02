@@ -2,7 +2,7 @@ import i18n from '@/i18n';
 import { assertOk, type ApiErrorData } from './apiError';
 import { isAbortError } from '@utils/error';
 import { antiforgeryHeaders } from '@utils/antiforgery';
-import { getApiUrl } from '@utils/constants';
+import { APP_EVENTS, getApiUrl } from '@utils/constants';
 import { hasRecentUserInteraction } from '@utils/userInteractionTracker';
 
 export type AuthMode = 'authenticated' | 'guest' | 'unauthenticated';
@@ -205,7 +205,7 @@ class AuthService {
           // Deliberate exception to the "throw ApiError" rule (documented in the error-handling
           // standard): this method's contract is to RETURN {success,message} so the caller can render
           // a form error, not to throw. It still parses the shared ApiErrorData shape.
-          const data: ApiErrorData = await response.json().catch(() => ({}) as ApiErrorData);
+          const data: ApiErrorData = await response.json().catch(() => ({}));
           return {
             success: false,
             message:
@@ -246,7 +246,7 @@ class AuthService {
 
         if (!response.ok) {
           // Same deliberate {success,message} return contract as login() above.
-          const data: ApiErrorData = await response.json().catch(() => ({}) as ApiErrorData);
+          const data: ApiErrorData = await response.json().catch(() => ({}));
           return {
             success: false,
             message: data.error || data.message || i18n.t('auth.errors.guestSessionFailed')
@@ -277,7 +277,14 @@ class AuthService {
           credentials: 'include'
         });
       } catch (error: unknown) {
+        // The finally below signs this device out regardless, so the UI says "logged out" while the
+        // session the server holds may still be live. Only this tells the user to try again.
         console.error('[AuthService] logout error:', error);
+        window.dispatchEvent(
+          new CustomEvent(APP_EVENTS.SHOW_TOAST, {
+            detail: { type: 'error', message: i18n.t('auth.errors.logoutIncomplete') }
+          })
+        );
       } finally {
         this.isAuthenticated = false;
         this.authMode = 'unauthenticated';

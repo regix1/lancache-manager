@@ -334,7 +334,7 @@ const Dashboard: React.FC = () => {
 
   // Filter client stats based on date range
   const filteredClientStats = useMemo(() => {
-    if (!clientStats || clientStats.length === 0) {
+    if (clientStats.length === 0) {
       return [];
     }
 
@@ -443,7 +443,7 @@ const Dashboard: React.FC = () => {
         // persisted state).  This prevents stale localStorage from a
         // previous version from overriding a new card's default.
         for (const key of Object.keys(DEFAULT_CARD_VISIBILITY)) {
-          if (DEFAULT_CARD_VISIBILITY[key] === false && !(key in parsed)) {
+          if (!DEFAULT_CARD_VISIBILITY[key] && !(key in parsed)) {
             merged[key] = false;
           }
         }
@@ -512,11 +512,11 @@ const Dashboard: React.FC = () => {
   const stats = useMemo(() => {
     // The titles already read the new range, so a missing batch yields null and renders an em dash
     // rather than pairing the new range with the old range's bytes.
-    const hasPeriodData = dashboardStats?.period !== undefined && dashboardStats?.period !== null;
+    const hasPeriodData = dashboardStats?.period != null;
 
     // Active stats read SpeedContext directly: the tracker's activity window now
     // follows real log-delivery cadence, so a reported value needs no extra smoothing here.
-    const activeClients = speedSnapshot?.clientSpeeds?.length ?? 0;
+    const activeClients = speedSnapshot?.clientSpeeds.length ?? 0;
     const totalActiveDownloads = activeDownloadCount;
 
     return {
@@ -553,7 +553,7 @@ const Dashboard: React.FC = () => {
       return null;
     }
 
-    const cacheScanTotal = cacheInfo?.cacheScanTotalBytes;
+    const cacheScanTotal = cacheInfo.cacheScanTotalBytes;
     const identifiedTotal = gameDetectionData?.identified_cache_bytes;
     if (
       cacheScanTotal === undefined ||
@@ -765,8 +765,8 @@ const Dashboard: React.FC = () => {
               ]
                 .filter(Boolean)
                 .join(' • '),
-        badge: hasCacheScan && cacheInfo?.scanStale ? staleScanBadge('cacheFiles') : undefined,
-        tone: hasCacheScan && cacheInfo?.scanStale ? 'warning' : undefined,
+        badge: hasCacheScan && cacheInfo.scanStale ? staleScanBadge('cacheFiles') : undefined,
+        tone: hasCacheScan && cacheInfo.scanStale ? 'warning' : undefined,
         icon: Files,
         color: 'blue' as const,
         visible: cardVisibility.cacheFiles,
@@ -807,7 +807,7 @@ const Dashboard: React.FC = () => {
         tone: gamesOnDiskStats?.isStale ? 'warning' : undefined,
         icon: HardDrive,
         color: 'blue' as const,
-        visible: cardVisibility.gamesOnDisk ?? false,
+        visible: cardVisibility.gamesOnDisk,
         tooltip: statTooltips.gamesOnDisk
       },
       // The other half of the identified footprint: bytes the scan matched to a service rather
@@ -833,7 +833,7 @@ const Dashboard: React.FC = () => {
         tone: gamesOnDiskStats?.isStale ? 'warning' : undefined,
         icon: Boxes,
         color: 'blue' as const,
-        visible: cardVisibility.servicesOnDisk ?? false,
+        visible: cardVisibility.servicesOnDisk,
         tooltip: statTooltips.servicesOnDisk
       }
     }),
@@ -1122,13 +1122,13 @@ const Dashboard: React.FC = () => {
           const cardSparklineData = sparklinesFailed
             ? undefined
             : card.key === 'bandwidthSaved'
-              ? sparklineData?.bandwidthSaved?.data
+              ? sparklineData?.bandwidthSaved.data
               : card.key === 'cacheHitRatio'
-                ? sparklineData?.cacheHitRatio?.data
+                ? sparklineData?.cacheHitRatio.data
                 : card.key === 'totalServed'
-                  ? sparklineData?.totalServed?.data
+                  ? sparklineData?.totalServed.data
                   : card.key === 'addedToCache'
-                    ? sparklineData?.addedToCache?.data
+                    ? sparklineData?.addedToCache.data
                     : undefined;
 
           return (

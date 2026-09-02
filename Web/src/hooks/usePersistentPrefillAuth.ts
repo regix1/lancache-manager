@@ -645,7 +645,7 @@ export function usePersistentPrefillAuth(
         challenge = usernameResult.challenge;
       }
 
-      if (challenge?.credentialType === 'password') {
+      if (challenge.credentialType === 'password') {
         const passwordResult = await submitChallenge(challenge, password);
         if (passwordResult.status === 'authenticated') {
           return true;
@@ -656,7 +656,7 @@ export function usePersistentPrefillAuth(
         challenge = passwordResult.challenge;
       }
 
-      if (challenge?.credentialType === 'device-confirmation') {
+      if (challenge.credentialType === 'device-confirmation') {
         const confirmationResult = await submitChallenge(challenge, DEVICE_CONFIRMATION_CREDENTIAL);
         return confirmationResult.status === 'authenticated';
       }

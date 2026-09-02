@@ -182,7 +182,7 @@ const previewDisplayName = (
   }
   const raw = normalizeService(game.service);
   return {
-    displayName: SERVICE_FALLBACK_LABELS[raw] ?? (game.service ?? '').trim(),
+    displayName: SERVICE_FALLBACK_LABELS[raw] ?? game.service.trim(),
     displayNameKey: SERVICE_LABEL_KEYS[raw] ?? null
   };
 };
@@ -218,7 +218,7 @@ const servicesCompatibleForNamedMatch = (a: string, b: string): boolean =>
 // requires the same client; generic service-only previews match only another generic row
 // of the same raw service.
 const matchesPreview = (preview: LiveDownloadPreview, download: Download): boolean => {
-  if ((download.clientIp ?? '').trim() !== preview.clientIp) return false;
+  if (download.clientIp.trim() !== preview.clientIp) return false;
   const downloadService = normalizeService(download.service);
   if (preview.gameAppId !== null) {
     return (

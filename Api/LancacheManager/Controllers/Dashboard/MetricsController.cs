@@ -95,15 +95,7 @@ public class MetricsController : ControllerBase
 
         var previousLimit = ReadGameLimit();
 
-        try
-        {
-            _stateRepository.SetTopGameCount(request.GameLimit);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to persist metrics game limit");
-            return StatusCode(503, ApiResponse.Error("state_persistence_disabled", "Failed to persist the metrics game limit. Your change was not saved."));
-        }
+        _stateRepository.SetTopGameCount(request.GameLimit);
 
         if (previousLimit != request.GameLimit)
         {
@@ -164,15 +156,7 @@ public class MetricsController : ControllerBase
     [ProducesResponseType(typeof(MetricsSecurityResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MetricsSecurityResponse>> SetSecurityAsync([FromBody] SetSecurityRequest request)
     {
-        try
-        {
-            _stateRepository.SetRequireAuthForMetrics(request.Enabled);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to persist metrics security setting");
-            return StatusCode(503, ApiResponse.Error("state_persistence_disabled", "Failed to persist the metrics security setting. Your change was not saved."));
-        }
+        _stateRepository.SetRequireAuthForMetrics(request.Enabled);
 
         // Broadcast updated state to all connected clients
         var configValue = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);

@@ -52,7 +52,7 @@ function renderLineChartTooltip(
   const node = tooltipRoot();
   const { chart, tooltip } = ctx;
 
-  if (tooltip.opacity === 0 || !tooltip.dataPoints?.length) {
+  if (tooltip.opacity === 0 || !tooltip.dataPoints.length) {
     node.hidden = true;
     return;
   }
@@ -60,7 +60,7 @@ function renderLineChartTooltip(
   node.hidden = false;
   node.replaceChildren();
 
-  if (tooltip.title?.length) {
+  if (tooltip.title.length) {
     const title = document.createElement('div');
     title.className = 'line-trend-tooltip-title';
     title.textContent = tooltip.title.join(' ');
@@ -76,7 +76,7 @@ function renderLineChartTooltip(
 
     const label = document.createElement('span');
     label.className = 'line-trend-legend-label';
-    label.textContent = tooltip.body?.[index]?.lines.join(' ') ?? '';
+    label.textContent = tooltip.body[index]?.lines.join(' ') ?? '';
 
     row.append(swatch, label);
     node.appendChild(row);

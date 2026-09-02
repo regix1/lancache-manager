@@ -45,12 +45,10 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
   if (!target) return null;
 
   const isGame = target.type === 'game';
-  const name = isGame
-    ? (target.data as GameCacheInfo).game_name
-    : (target.data as ServiceCacheInfo).service_name;
+  const name = isGame ? target.data.game_name : target.data.service_name;
   const filesCount = target.data.cache_files_found;
   const totalSize = target.data.total_size_bytes;
-  const depotCount = isGame ? (target.data as GameCacheInfo).depot_ids.length : 0;
+  const depotCount = isGame ? target.data.depot_ids.length : 0;
   const isEvictedRemoval = titleOverride !== undefined && evictedCount !== undefined;
 
   const modalTitle =
@@ -89,7 +87,7 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
 
   return (
     <ConfirmationModal
-      opened={target !== null}
+      opened={true}
       onClose={onClose}
       onConfirm={onConfirm}
       title={modalTitle}

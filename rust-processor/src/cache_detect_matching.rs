@@ -296,19 +296,19 @@ pub(crate) fn detect_service_cache_info(
     cache_files_index: &HashMap<u128, u64>,
     cache_dir: &Path,
     counter: &AtomicUsize,
-) -> Result<ServiceCacheInfo> {
+) -> ServiceCacheInfo {
     let found_files = match_files_with_index_tracked(service_urls, cache_files_index, counter);
     let total_size = total_size_from_index(&found_files, cache_files_index);
     let sample_urls =
         cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
 
-    Ok(ServiceCacheInfo {
+    ServiceCacheInfo {
         service_name: service_name.to_string(),
         cache_files_found: found_files.len(),
         total_size_bytes: total_size,
         sample_urls,
         cache_file_paths: cache_file_paths_from_digests(&found_files, cache_dir),
-    })
+    }
 }
 
 pub(crate) fn detect_service_cache_info_incremental(
@@ -316,19 +316,19 @@ pub(crate) fn detect_service_cache_info_incremental(
     service_urls: &[ServiceUrl],
     cache_dir: &Path,
     counter: &AtomicUsize,
-) -> Result<ServiceCacheInfo> {
+) -> ServiceCacheInfo {
     let found_files = match_files_in_cache_tracked(service_urls, cache_dir, counter);
     let total_size = total_size_from_filesystem(&found_files);
     let sample_urls =
         cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
 
-    Ok(ServiceCacheInfo {
+    ServiceCacheInfo {
         service_name: service_name.to_string(),
         cache_files_found: found_files.len(),
         total_size_bytes: total_size,
         sample_urls,
         cache_file_paths: cache_file_paths(&found_files),
-    })
+    }
 }
 
 fn build_steam_game_cache_info(
@@ -418,19 +418,19 @@ pub(crate) fn detect_epic_game_cache_info(
     service_urls: &[ServiceUrl],
     cache_files_index: &HashMap<u128, u64>,
     cache_dir: &Path,
-) -> Result<GameCacheInfo> {
+) -> GameCacheInfo {
     let found_files = match_files_with_index(service_urls, cache_files_index);
     let total_size = total_size_from_index(&found_files, cache_files_index);
     let paths = cache_file_paths_from_digests(&found_files, cache_dir);
 
-    Ok(build_epic_game_cache_info(
+    build_epic_game_cache_info(
         epic_app_id,
         game_name,
         service_urls,
         found_files.len(),
         total_size,
         paths,
-    ))
+    )
 }
 
 pub(crate) fn detect_epic_game_cache_info_incremental(
@@ -438,19 +438,19 @@ pub(crate) fn detect_epic_game_cache_info_incremental(
     game_name: &str,
     service_urls: &[ServiceUrl],
     cache_dir: &Path,
-) -> Result<GameCacheInfo> {
+) -> GameCacheInfo {
     let found_files = match_files_in_cache(service_urls, cache_dir);
     let total_size = total_size_from_filesystem(&found_files);
     let paths = cache_file_paths(&found_files);
 
-    Ok(build_epic_game_cache_info(
+    build_epic_game_cache_info(
         epic_app_id,
         game_name,
         service_urls,
         found_files.len(),
         total_size,
         paths,
-    ))
+    )
 }
 
 /// Build a `GameCacheInfo` for a name-keyed game (Blizzard/Riot). Unlike Epic, the
@@ -486,19 +486,19 @@ pub(crate) fn detect_named_game_cache_info(
     service_urls: &[ServiceUrl],
     cache_files_index: &HashMap<u128, u64>,
     cache_dir: &Path,
-) -> Result<GameCacheInfo> {
+) -> GameCacheInfo {
     let found_files = match_files_with_index(service_urls, cache_files_index);
     let total_size = total_size_from_index(&found_files, cache_files_index);
     let paths = cache_file_paths_from_digests(&found_files, cache_dir);
 
-    Ok(build_named_game_cache_info(
+    build_named_game_cache_info(
         service,
         game_name,
         service_urls,
         found_files.len(),
         total_size,
         paths,
-    ))
+    )
 }
 
 pub(crate) fn detect_named_game_cache_info_incremental(
@@ -506,19 +506,19 @@ pub(crate) fn detect_named_game_cache_info_incremental(
     game_name: &str,
     service_urls: &[ServiceUrl],
     cache_dir: &Path,
-) -> Result<GameCacheInfo> {
+) -> GameCacheInfo {
     let found_files = match_files_in_cache(service_urls, cache_dir);
     let total_size = total_size_from_filesystem(&found_files);
     let paths = cache_file_paths(&found_files);
 
-    Ok(build_named_game_cache_info(
+    build_named_game_cache_info(
         service,
         game_name,
         service_urls,
         found_files.len(),
         total_size,
         paths,
-    ))
+    )
 }
 
 #[cfg(test)]

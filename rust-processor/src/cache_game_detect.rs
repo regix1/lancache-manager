@@ -175,7 +175,7 @@ struct DetectionReport {
 /// index to ~24 bytes per entry instead of ~200. Report paths are reconstructed from the
 /// digest via `cache_utils::cache_path_for_digest` (the `levels=2:2` layout every fs-probing
 /// path in this binary already assumes).
-fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<u128, u64>> {
+fn scan_cache_directory(cache_dir: &Path) -> HashMap<u128, u64> {
     eprintln!("\n=== Phase 1: Scanning Cache Directory ===");
     eprintln!("Building in-memory index of cache files...");
 
@@ -224,7 +224,7 @@ fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<u128, u64>> {
         );
     }
 
-    Ok(cache_files)
+    cache_files
 }
 
 /// Identity of the detection row a late-attributed cache file belongs to. Values in
@@ -551,7 +551,7 @@ async fn main() -> Result<()> {
         // FULL SCAN: Build in-memory index of all cache files
         write_progress(progress_path.as_deref(), "scanning", "signalr.gameDetect.scan.inProgress", json!({}), 5.0, 0, 0)?;
         reporter.emit_progress(5.0, "signalr.gameDetect.scan.inProgress", json!({}));
-        let index = scan_cache_directory(&cache_dir)?;
+        let index = scan_cache_directory(&cache_dir);
         if index.is_empty() {
             eprintln!(
                 "WARNING: cache directory {} exists but contains no cache files - this scan carries no detection evidence (wrong mount or path?)",
@@ -734,7 +734,7 @@ async fn main() -> Result<()> {
             )?;
             reporter.emit_progress(epic_percent, "signalr.gameDetect.epic.progress", epic_context);
 
-            let result = if incremental_mode {
+            let info = if incremental_mode {
                 detect_epic_game_cache_info_incremental(epic_id, game_name, service_urls, &cache_dir)
             } else {
                 let cache_index = cache_files_index
@@ -743,28 +743,21 @@ async fn main() -> Result<()> {
                 detect_epic_game_cache_info(epic_id, game_name, service_urls, cache_index, &cache_dir)
             };
 
-            match result {
-                Ok(info) => {
-                    if info.cache_files_found > 0 {
-                        let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
-                        let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
+            if info.cache_files_found > 0 {
+                let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
+                let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
 
-                        if size_gb >= 1.0 {
-                            eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
-                        } else {
-                            eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
-                        }
+                if size_gb >= 1.0 {
+                    eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
+                } else {
+                    eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
+                }
 
-                        total_files_found += info.cache_files_found;
-                        total_bytes_found += info.total_size_bytes;
-                        detected_games.push(info);
-                    } else {
-                        eprintln!("no cache files found");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("ERROR: {}", e);
-                }
+                total_files_found += info.cache_files_found;
+                total_bytes_found += info.total_size_bytes;
+                detected_games.push(info);
+            } else {
+                eprintln!("no cache files found");
             }
         }
 
@@ -832,7 +825,7 @@ async fn main() -> Result<()> {
             )?;
             reporter.emit_progress(named_percent, "signalr.gameDetect.named.progress", named_context);
 
-            let result = if incremental_mode {
+            let info = if incremental_mode {
                 detect_named_game_cache_info_incremental(service, game_name, service_urls, &cache_dir)
             } else {
                 register_late_owner(
@@ -849,28 +842,21 @@ async fn main() -> Result<()> {
                 detect_named_game_cache_info(service, game_name, service_urls, cache_index, &cache_dir)
             };
 
-            match result {
-                Ok(info) => {
-                    if info.cache_files_found > 0 {
-                        let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
-                        let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
+            if info.cache_files_found > 0 {
+                let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
+                let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
 
-                        if size_gb >= 1.0 {
-                            eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
-                        } else {
-                            eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
-                        }
+                if size_gb >= 1.0 {
+                    eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
+                } else {
+                    eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
+                }
 
-                        total_files_found += info.cache_files_found;
-                        total_bytes_found += info.total_size_bytes;
-                        detected_games.push(info);
-                    } else {
-                        eprintln!("no cache files found");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("ERROR: {}", e);
-                }
+                total_files_found += info.cache_files_found;
+                total_bytes_found += info.total_size_bytes;
+                detected_games.push(info);
+            } else {
+                eprintln!("no cache files found");
             }
         }
 
@@ -1041,7 +1027,7 @@ async fn main() -> Result<()> {
                 })
             };
 
-            let result = if incremental_mode {
+            let info = if incremental_mode {
                 detect_service_cache_info_incremental(
                     &service_name,
                     &service_urls,
@@ -1096,28 +1082,21 @@ async fn main() -> Result<()> {
                 final_context,
             );
 
-            match result {
-                Ok(info) => {
-                    if info.cache_files_found > 0 {
-                        let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
-                        let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
+            if info.cache_files_found > 0 {
+                let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
+                let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
 
-                        if size_gb >= 1.0 {
-                            eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
-                        } else {
-                            eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
-                        }
+                if size_gb >= 1.0 {
+                    eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
+                } else {
+                    eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
+                }
 
-                        service_files_found += info.cache_files_found;
-                        service_bytes_found += info.total_size_bytes;
-                        detected_services.push(info);
-                    } else {
-                        eprintln!("no cache files found");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("ERROR: {}", e);
-                }
+                service_files_found += info.cache_files_found;
+                service_bytes_found += info.total_size_bytes;
+                detected_services.push(info);
+            } else {
+                eprintln!("no cache files found");
             }
         }
 

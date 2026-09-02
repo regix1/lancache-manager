@@ -238,7 +238,7 @@ function resolveInitialStep(
 
   const stored = setupStatus.currentSetupStep;
   const normalized = stored ? normalizeServerStep(stored) : null;
-  const baseStep = (normalized ?? 'database-setup') as InitStep;
+  const baseStep = normalized ?? 'database-setup';
   return resolveStepForPostgresMode(baseStep, setupStatus);
 }
 
@@ -713,7 +713,7 @@ export function useInitializationFlow({
   // step is needed, show "1 of 1" instead of "1 of 5". The account step on an installation
   // that upgraded into needing one is the same shape: one step, not a position in the first-run
   // flow it finished long ago.
-  const credentialsOnly = setupStatus?.isCompleted && setupStatus?.needsPostgresCredentials;
+  const credentialsOnly = setupStatus?.isCompleted && setupStatus.needsPostgresCredentials;
   const stepInfo = adminAccountRequired
     ? { number: 1, total: 1, title: buildStepInfoMap(t, dataSourceChoice)['admin-account'].title }
     : credentialsOnly

@@ -172,7 +172,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
   const availableImages = useAvailableGameImages();
   const hitPercent = cacheHitPercent(group.cacheHitBytes, group.totalBytes);
   const primaryDownload = group.downloads[0];
-  const serviceLower = (group.service ?? '').toLowerCase();
+  const serviceLower = group.service.toLowerCase();
   const isEpicService = serviceLower === 'epic' || serviceLower === 'epicgames';
   const isBlizzardService =
     serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';
@@ -184,12 +184,12 @@ const GroupRow: React.FC<GroupRowProps> = ({
   const showNameKeyedImage = nameKeyed !== null && availableImages.has(nameKeyed.slug);
   const showGameImage = showSteamImage || showEpicImage || showNameKeyedImage;
   const gameImageAppId = showNameKeyedImage
-    ? nameKeyed!.slug
+    ? nameKeyed.slug
     : showEpicImage
       ? primaryDownload?.epicAppId
       : primaryDownload?.gameAppId;
   const gameImageErrorKey = showNameKeyedImage
-    ? `${nameKeyed!.service}-${nameKeyed!.slug}`
+    ? `${nameKeyed.service}-${nameKeyed.slug}`
     : showEpicImage
       ? `epic-${primaryDownload?.epicAppId}`
       : String(primaryDownload?.gameAppId);
@@ -374,8 +374,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   <GameImage
                     gameAppId={showNameKeyedImage ? undefined : gameImageAppId}
                     epicAppId={showEpicImage ? primaryDownload.epicAppId! : undefined}
-                    nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
-                    nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
+                    nameKeyedService={showNameKeyedImage ? nameKeyed.service : undefined}
+                    nameKeyedSlug={showNameKeyedImage ? nameKeyed.slug : undefined}
                     alt={primaryDownload.gameName || group.name}
                     className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)]"
                     sizes="(max-width: 639px) 100%, 100px"

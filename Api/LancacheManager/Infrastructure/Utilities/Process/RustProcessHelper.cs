@@ -98,7 +98,6 @@ public partial class RustProcessHelper
         var startInfo = CreateProcessStartInfo(executablePath, string.Empty, workingDirectory);
         foreach (var argument in arguments)
         {
-            ArgumentNullException.ThrowIfNull(argument);
             startInfo.ArgumentList.Add(argument);
         }
 

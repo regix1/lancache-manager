@@ -4,7 +4,6 @@ import type {
   UnifiedNotification,
   SetNotifications,
   ScheduleAutoDismiss,
-  NotificationRegistryEntry,
   SimpleRecoveryConfig
 } from './types';
 import {
@@ -68,7 +67,7 @@ function mergeableDetails(
   const liveOnly = LIVE_ONLY_CANCEL_DETAIL_KEYS as readonly string[];
   return Object.fromEntries(
     Object.entries(details).filter(([key, value]) => value !== undefined && !liveOnly.includes(key))
-  ) as NonNullable<UnifiedNotification['details']>;
+  );
 }
 
 /**
@@ -161,7 +160,7 @@ function createWaitingOperationsRecoveryFunction(
 
         // Create cards for queued ops that have none (and whose slot isn't already a
         // running card - a promoted op's card must not be downgraded back to waiting).
-        for (const entry of NOTIFICATION_REGISTRY as NotificationRegistryEntry[]) {
+        for (const entry of NOTIFICATION_REGISTRY) {
           for (const row of waitingByType.get(entry.type) ?? []) {
             // One card slot per type, so a second unowned waiter of the same type stays
             // unreported until the first one leaves the queue. Skipping an occupied slot is
@@ -179,7 +178,7 @@ function createWaitingOperationsRecoveryFunction(
               const index = next.findIndex((n) => n.id === owningBulk.id);
               next[index] = {
                 ...owningBulk,
-                status: 'waiting' as NotificationStatus,
+                status: 'waiting',
                 message: waitingCardMessage(row),
                 details: { ...owningBulk.details, currentOperationId: row.operationId }
               };
@@ -188,7 +187,7 @@ function createWaitingOperationsRecoveryFunction(
             next.push({
               id: entry.id,
               type: entry.type,
-              status: 'waiting' as NotificationStatus,
+              status: 'waiting',
               message: waitingCardMessage(row),
               startedAt: new Date(),
               details: { operationId: row.operationId }
@@ -246,7 +245,7 @@ function createSimpleRecoveryFunction<TData>(
           const recovered: UnifiedNotification = {
             id: notificationId,
             type,
-            status: 'running' as NotificationStatus,
+            status: 'running',
             startedAt: new Date(),
             ...notificationData
           };
@@ -274,7 +273,7 @@ function createSimpleRecoveryFunction<TData>(
               return {
                 ...n,
                 id: notificationId,
-                status: 'completed' as NotificationStatus,
+                status: 'completed',
                 message: i18n.t(config.staleMessageKey),
                 progress: FULL_PROGRESS_PERCENT
               };
@@ -520,7 +519,7 @@ function recoverEvictionRemovals(
         const recovered: UnifiedNotification = {
           id: notificationId,
           type: 'eviction_removal' as const,
-          status: 'running' as NotificationStatus,
+          status: 'running',
           message,
           startedAt: op.startedAt ? new Date(op.startedAt) : new Date(),
           details: scopeDetails
@@ -586,7 +585,7 @@ function recoverOperations(
         const recovered: UnifiedNotification = {
           id: notificationId,
           type,
-          status: 'running' as NotificationStatus,
+          status: 'running',
           message: data.message,
           startedAt: op.startedAt ? new Date(op.startedAt) : new Date(),
           details: data.details
@@ -669,7 +668,7 @@ export function createRecoveryRunner(
   const recoveryFns: (() => Promise<void>)[] = [];
   let needsCacheRemovalsBatch = false;
 
-  for (const entry of NOTIFICATION_REGISTRY as NotificationRegistryEntry[]) {
+  for (const entry of NOTIFICATION_REGISTRY) {
     switch (entry.recovery.kind) {
       case 'simple':
         recoveryFns.push(

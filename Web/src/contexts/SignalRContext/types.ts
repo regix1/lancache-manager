@@ -375,7 +375,7 @@ export interface LogProcessingStartedEvent {
 }
 // Standardized Log Removal Events
 export interface LogRemovalStartedEvent {
-  operationId: string;
+  operationId: string | null;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -399,7 +399,7 @@ export interface LogRemovalProgressEvent {
 }
 
 export interface LogRemovalCompleteEvent {
-  operationId: string;
+  operationId: string | null;
   success: boolean;
   status: OperationStatus;
   stageKey?: string;
@@ -985,7 +985,7 @@ export interface DataImportCompleteEvent {
 export interface EpicGuestPrefillConfigChangedEvent {
   enabledByDefault: boolean;
   durationHours: number;
-  epicMaxThreadCount: number;
+  epicMaxThreadCount: number | null;
 }
 
 /**
