@@ -293,7 +293,7 @@ public class DownloadsController : ControllerBase
 
                 await GameNameResolver.ResolveAsync(_context, pageRows, HttpContext.RequestAborted);
 
-                var pageItems = pageRows.Select(r => BuildRetroRow(r, maskEviction)).ToList();
+                var pageItems = pageRows.Select(r => BuildRetroRow(r, maskEviction, true)).ToList();
                 var pagePairs = pageItems
                     .Where(r => r.DepotId.HasValue)
                     .ToDictionary(
@@ -301,7 +301,7 @@ public class DownloadsController : ControllerBase
                         r => new List<(long DepotId, string ClientIp)> { (r.DepotId!.Value, r.ClientIp) },
                         StringComparer.Ordinal);
 
-                await FillDownloadIdsAsync(query, pageItems, pagePairs);
+                await FillDownloadIdsAsync(query, pageItems, pagePairs, []);
 
                 return Ok(new RetroDownloadResponse
                 {
@@ -314,26 +314,42 @@ public class DownloadsController : ControllerBase
                 });
             }
 
+            // A request that merges reads the coarser aggregate: its no-depot rows are folded into
+            // one bucket regardless, so keying them on the identity behind that bucket returns one
+            // group per title per client rather than one per download. A request that only filters
+            // or sorts still shows one row per group, and the retro table lists a no-depot download
+            // on its own row, so it keeps the depot-and-client aggregate.
+            var mergeGroups = query.GroupByGame || query.GroupByService;
+
             // The whole grouped set, in the group key's order. The sorts below are stable, so the
             // ties they leave alone fall back to this order - the same order BuildRetroPagedQuery
             // spells out as its last tie-break, so a page boundary lands in the same place on
             // either path.
-            var groupedRows = await BuildRetroGroupedQuery(query)
+            var groupedRows = await (mergeGroups ? BuildRetroMergedQuery(query) : BuildRetroGroupedQuery(query))
                 .OrderBy(r => r.DepotId)
                 .ThenBy(r => r.ClientIp)
                 .ThenBy(r => r.RowKey)
                 .ToListAsync();
 
+            // The game name a no-depot group was keyed on, read before the resolver fills an empty
+            // one, so the downloads behind the page's rows can be fetched back on the same key.
+            var keyedGameNames = mergeGroups
+                ? groupedRows.Select(r => r.GameName).ToArray()
+                : [];
+
             // Resolve game names at group level over the same shared resolver the dashboard
             // batch uses, so both views pick the same owner when a depot has multiple mappings.
             await GameNameResolver.ResolveAsync(_context, groupedRows, HttpContext.RequestAborted);
 
-            var grouped = groupedRows.Select(r => BuildRetroRow(r, maskEviction)).ToList();
+            var grouped = groupedRows.Select(r => BuildRetroRow(r, maskEviction, !mergeGroups)).ToList();
 
             // Keep each row's byte-weighted speed accumulator alongside the DTO. A merged row has
             // to divide the summed weights after merging; averaging the already-divided per-row
             // averages (or picking one member's) reports a speed no download actually reached.
             var speedWeightsByRowId = new Dictionary<string, RetroSpeedWeights>(StringComparer.Ordinal);
+            // A merged no-depot group stands for every download of one title on one client, so the
+            // columns it was keyed on travel with it and FillDownloadIdsAsync reads them back.
+            var noDepotByRowId = new Dictionary<string, List<RetroNoDepotIdentity>>(StringComparer.Ordinal);
             for (var i = 0; i < grouped.Count; i++)
             {
                 speedWeightsByRowId[grouped[i].Id] = new RetroSpeedWeights
@@ -341,6 +357,19 @@ public class DownloadsController : ControllerBase
                     WeightedSpeedSum = groupedRows[i].WeightedSpeedSum,
                     SpeedBytesSum = groupedRows[i].SpeedBytesSum
                 };
+                if (mergeGroups && groupedRows[i].DepotId == null)
+                {
+                    noDepotByRowId[grouped[i].Id] =
+                    [
+                        new RetroNoDepotIdentity(
+                            groupedRows[i].Service,
+                            groupedRows[i].ClientIp,
+                            keyedGameNames[i],
+                            groupedRows[i].GameAppId,
+                            groupedRows[i].EpicAppId,
+                            groupedRows[i].XboxProductId)
+                    ];
+                }
             }
 
             // Filter: search by game name / service / depot / app id / client (all group-level
@@ -494,6 +523,7 @@ public class DownloadsController : ControllerBase
                     var depotIdsSet = new HashSet<uint>();
                     var allDownloadIds = new List<long>();
                     var mergedPairs = new List<(long DepotId, string ClientIp)>();
+                    var mergedNoDepot = new List<RetroNoDepotIdentity>();
                     var mergedWeightedSpeedSum = 0d;
                     var mergedSpeedBytesSum = 0d;
                     foreach (var row in bucket)
@@ -504,6 +534,10 @@ public class DownloadsController : ControllerBase
                         if (pairsByRowId.TryGetValue(row.Id, out var rowPairs))
                         {
                             mergedPairs.AddRange(rowPairs);
+                        }
+                        if (noDepotByRowId.TryGetValue(row.Id, out var rowNoDepot))
+                        {
+                            mergedNoDepot.AddRange(rowNoDepot);
                         }
                         if (speedWeightsByRowId.TryGetValue(row.Id, out var rowWeights))
                         {
@@ -519,6 +553,10 @@ public class DownloadsController : ControllerBase
                     if (mergedPairs.Count > 0)
                     {
                         pairsByRowId[key] = mergedPairs;
+                    }
+                    if (mergedNoDepot.Count > 0)
+                    {
+                        noDepotByRowId[key] = mergedNoDepot;
                     }
 
                     var displayService = ServiceBreakdownMerger.NormalizeXboxService(first.Service);
@@ -657,11 +695,12 @@ public class DownloadsController : ControllerBase
                 .Take(query.PageSize)
                 .ToList();
 
-            await FillDownloadIdsAsync(query, items, pairsByRowId);
+            var newestNoDepotDownloadIds = await FillDownloadIdsAsync(query, items, pairsByRowId, noDepotByRowId);
 
             if (query.MergeAcrossServices)
             {
-                await FillPrimaryDownloadsAsync(query, items, newestMemberByRowId);
+                await FillPrimaryDownloadsAsync(
+                    query, items, newestMemberByRowId, noDepotByRowId, newestNoDepotDownloadIds);
             }
 
             return Ok(new RetroDownloadResponse
@@ -734,6 +773,19 @@ public class DownloadsController : ControllerBase
         public double WeightedSpeedSum { get; set; }
         public double SpeedBytesSum { get; set; }
     }
+
+    /// <summary>
+    /// The columns a no-depot download is grouped on under the merged aggregate. A group is no
+    /// longer one download there, so the downloads behind the page's rows are fetched back on
+    /// these columns after pagination.
+    /// </summary>
+    private sealed record RetroNoDepotIdentity(
+        string Service,
+        string ClientIp,
+        string? GameName,
+        long? GameAppId,
+        string? EpicAppId,
+        string? XboxProductId);
 
     private const string UnknownOtherAppName = "Unknown/Other";
 
@@ -883,18 +935,55 @@ public class DownloadsController : ControllerBase
     /// </summary>
     private IQueryable<RetroGroupRow> BuildRetroGroupedQuery(RetroDownloadQuery query)
     {
-        return BuildRetroBaseQuery(query)
+        return SelectRetroGroupRows(BuildRetroBaseQuery(query)
             .GroupBy(d => new
             {
                 d.DepotId,
                 d.ClientIp,
                 RowKey = d.DepotId == null ? d.Id : 0L
-            })
+            }));
+    }
+
+    /// <summary>
+    /// The same aggregate one grain coarser, for the requests that merge groups into game or
+    /// service buckets. A no-depot download is keyed on the identity the merge folds it under
+    /// rather than on its own id, so a range full of Windows Update or Xbox traffic reads one
+    /// group per title per client instead of one per download. Steam keeps the depot-and-client
+    /// grain, because the hit/miss bucket, the search over depot ids and the unknown-game rule all
+    /// read a depot group the way they do today.
+    /// </summary>
+    private IQueryable<RetroGroupRow> BuildRetroMergedQuery(RetroDownloadQuery query)
+    {
+        return SelectRetroGroupRows(BuildRetroBaseQuery(query)
+            .GroupBy(d => new
+            {
+                d.DepotId,
+                d.ClientIp,
+                Service = d.DepotId == null ? d.Service : null,
+                GameName = d.DepotId == null ? d.GameName : null,
+                GameAppId = d.DepotId == null ? d.GameAppId : null,
+                EpicAppId = d.DepotId == null ? d.EpicAppId : null,
+                XboxProductId = d.DepotId == null ? d.XboxProductId : null
+            }));
+    }
+
+    /// <summary>
+    /// The group-level scalars both retro aggregates return. Every field is an aggregate rather
+    /// than a key member, so the two group keys share one projection and cannot drift apart.
+    /// DepotId, ClientIp and the row key sit in both keys, so their aggregate is that key value.
+    /// </summary>
+    private static IQueryable<RetroGroupRow> SelectRetroGroupRows<TKey>(
+        IQueryable<IGrouping<TKey, Download>> grouped)
+    {
+        return grouped
             .Select(g => new RetroGroupRow
             {
-                DepotId = g.Key.DepotId,
-                ClientIp = g.Key.ClientIp,
-                RowKey = g.Key.RowKey,
+                DepotId = g.Min(d => d.DepotId),
+                ClientIp = g.Min(d => d.ClientIp)!,
+                // Zero for a depot group, and the oldest member's id for a no-depot group, which
+                // is what its row id is spelled with. Under the merged key that group can hold
+                // more than one download, so the ids behind it are fetched for the page's rows.
+                RowKey = g.Min(d => d.DepotId == null ? d.Id : 0L),
                 Service = g.Max(d => d.Service)!,
                 Datasource = g.Max(d => d.Datasource)!,
                 GameName = g.Max(d => d.GameName),
@@ -961,8 +1050,11 @@ public class DownloadsController : ControllerBase
 
     /// <summary>
     /// The wire row for one aggregated group, after its game name has been resolved.
+    /// <paramref name="noDepotIsOneDownload"/> says whether a no-depot group stands for the single
+    /// download its row key names, which is true of every group the depot-and-client aggregate
+    /// returns and false under the merged key, where the ids are fetched for the page instead.
     /// </summary>
-    private static RetroDownloadDto BuildRetroRow(RetroGroupRow r, bool maskEviction)
+    private static RetroDownloadDto BuildRetroRow(RetroGroupRow r, bool maskEviction, bool noDepotIsOneDownload)
     {
         var totalBytes = r.CacheHitBytes + r.CacheMissBytes;
         var fullyEvicted = !maskEviction && r.EvictedCount == r.RequestCount;
@@ -991,8 +1083,11 @@ public class DownloadsController : ControllerBase
             AverageBytesPerSecond = r.SpeedBytesSum > 0 ? r.WeightedSpeedSum / r.SpeedBytesSum : 0,
             RequestCount = r.RequestCount,
             // Depot groups get their DownloadIds filled after pagination (page rows only);
-            // no-depot groups are single downloads whose id IS the row key.
-            DownloadIds = r.RowKey != 0 ? new List<long> { r.RowKey } : new List<long>(),
+            // a no-depot group under the depot-and-client key is a single download whose id IS
+            // the row key, and under the merged key it is filled after pagination as well.
+            DownloadIds = noDepotIsOneDownload && r.RowKey != 0
+                ? new List<long> { r.RowKey }
+                : new List<long>(),
             ClientIps = new List<string> { r.ClientIp },
             DepotIds = r.DepotId.HasValue && r.DepotId.Value != 0
                 ? new List<uint> { (uint)r.DepotId.Value }
@@ -1012,7 +1107,9 @@ public class DownloadsController : ControllerBase
     private async Task FillPrimaryDownloadsAsync(
         RetroDownloadQuery query,
         List<RetroDownloadDto> pageItems,
-        Dictionary<string, RetroDownloadDto> newestMemberByRowId)
+        Dictionary<string, RetroDownloadDto> newestMemberByRowId,
+        Dictionary<string, List<RetroNoDepotIdentity>> noDepotByRowId,
+        Dictionary<RetroNoDepotIdentity, long> newestNoDepotDownloadIds)
     {
         var pairs = new HashSet<(long DepotId, string ClientIp)>();
         var primaryIdByRowId = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -1025,8 +1122,17 @@ public class DownloadsController : ControllerBase
             }
             else if (member.DownloadIds.Count > 0)
             {
-                // A no-depot group is a single download and already names it.
+                // A no-depot group under the depot-and-client aggregate is a single download and
+                // already names it.
                 primaryIdByRowId[item.Id] = member.DownloadIds[0];
+            }
+            else if (noDepotByRowId.TryGetValue(member.Id, out var memberIdentities)
+                     && memberIdentities.Count == 1
+                     && newestNoDepotDownloadIds.TryGetValue(memberIdentities[0], out var newestId))
+            {
+                // A no-depot group under the merged aggregate covers several downloads, and the
+                // id fetch for this page already found the newest of them.
+                primaryIdByRowId[item.Id] = newestId;
             }
         }
 
@@ -1139,59 +1245,136 @@ public class DownloadsController : ControllerBase
     }
 
     /// <summary>
-    /// Fetches the underlying download IDs for the current page's depot-backed rows only.
-    /// No-depot rows already carry their single download id from the aggregate query.
+    /// Fetches the underlying download IDs for the current page's rows: the depot-backed ones by
+    /// depot and client, and, when the merged aggregate built the groups, the no-depot ones by the
+    /// identity they were keyed on. A no-depot group under the depot-and-client aggregate is a
+    /// single download and already carries its id, so nothing is fetched for it.
+    /// Returns the newest download behind each no-depot identity this page asked about, which
+    /// <see cref="FillPrimaryDownloadsAsync"/> needs and which this fetch already holds.
     /// </summary>
-    private async Task FillDownloadIdsAsync(
+    private async Task<Dictionary<RetroNoDepotIdentity, long>> FillDownloadIdsAsync(
         RetroDownloadQuery query,
         List<RetroDownloadDto> pageItems,
-        Dictionary<string, List<(long DepotId, string ClientIp)>> pairsByRowId)
+        Dictionary<string, List<(long DepotId, string ClientIp)>> pairsByRowId,
+        Dictionary<string, List<RetroNoDepotIdentity>> noDepotByRowId)
     {
         var neededPairs = new HashSet<(long DepotId, string ClientIp)>();
+        var neededIdentities = new HashSet<RetroNoDepotIdentity>();
         foreach (var item in pageItems)
         {
             if (pairsByRowId.TryGetValue(item.Id, out var pairs))
             {
                 foreach (var pair in pairs) neededPairs.Add(pair);
             }
+            if (noDepotByRowId.TryGetValue(item.Id, out var identities))
+            {
+                foreach (var identity in identities) neededIdentities.Add(identity);
+            }
         }
-        if (neededPairs.Count == 0) return;
 
-        // Over-fetch by depot list + ip list (pair-exact filtering happens in memory below);
-        // both lists are bounded by the page size, so this stays a small indexed query.
-        var depotIdList = neededPairs.Select(p => p.DepotId).Distinct().ToList();
-        var clientIpList = neededPairs.Select(p => p.ClientIp).Distinct().ToList();
+        if (neededPairs.Count > 0)
+        {
+            // Over-fetch by depot list + ip list (pair-exact filtering happens in memory below);
+            // both lists are bounded by the page size, so this stays a small indexed query.
+            var depotIdList = neededPairs.Select(p => p.DepotId).Distinct().ToList();
+            var clientIpList = neededPairs.Select(p => p.ClientIp).Distinct().ToList();
 
-        var detailRows = await BuildRetroBaseQuery(query)
-            .Where(d => d.DepotId != null
-                     && depotIdList.Contains(d.DepotId.Value)
-                     && clientIpList.Contains(d.ClientIp))
-            .Select(d => new { d.Id, DepotId = d.DepotId!.Value, d.ClientIp })
+            var detailRows = await BuildRetroBaseQuery(query)
+                .Where(d => d.DepotId != null
+                         && depotIdList.Contains(d.DepotId.Value)
+                         && clientIpList.Contains(d.ClientIp))
+                .Select(d => new { d.Id, DepotId = d.DepotId!.Value, d.ClientIp })
+                .ToListAsync();
+
+            var idsByPair = new Dictionary<(long DepotId, string ClientIp), List<long>>();
+            foreach (var row in detailRows)
+            {
+                var pair = (row.DepotId, row.ClientIp);
+                if (!neededPairs.Contains(pair)) continue;
+                if (!idsByPair.TryGetValue(pair, out var ids))
+                {
+                    ids = new List<long>();
+                    idsByPair[pair] = ids;
+                }
+                ids.Add(row.Id);
+            }
+
+            foreach (var item in pageItems)
+            {
+                if (!pairsByRowId.TryGetValue(item.Id, out var pairs)) continue;
+                foreach (var pair in pairs)
+                {
+                    if (idsByPair.TryGetValue(pair, out var ids))
+                    {
+                        item.DownloadIds.AddRange(ids);
+                    }
+                }
+            }
+        }
+
+        var newestByIdentity = new Dictionary<RetroNoDepotIdentity, long>();
+        if (neededIdentities.Count == 0) return newestByIdentity;
+
+        // The same over-fetch shape as the depot pairs above: the service and client lists are
+        // bounded by the page, the index behind them is the one the base query already uses, and
+        // the identity-exact match happens in memory.
+        var serviceList = neededIdentities.Select(i => i.Service).Distinct().ToList();
+        var identityClientIps = neededIdentities.Select(i => i.ClientIp).Distinct().ToList();
+
+        var noDepotRows = await BuildRetroBaseQuery(query)
+            .Where(d => d.DepotId == null
+                     && serviceList.Contains(d.Service)
+                     && identityClientIps.Contains(d.ClientIp))
+            .Select(d => new
+            {
+                d.Id,
+                d.Service,
+                d.ClientIp,
+                d.GameName,
+                d.GameAppId,
+                d.EpicAppId,
+                d.XboxProductId,
+                d.StartTimeUtc
+            })
             .ToListAsync();
 
-        var idsByPair = new Dictionary<(long DepotId, string ClientIp), List<long>>();
-        foreach (var row in detailRows)
+        var idsByIdentity = new Dictionary<RetroNoDepotIdentity, List<long>>();
+        var newestStartByIdentity = new Dictionary<RetroNoDepotIdentity, DateTime>();
+        foreach (var row in noDepotRows)
         {
-            var pair = (row.DepotId, row.ClientIp);
-            if (!neededPairs.Contains(pair)) continue;
-            if (!idsByPair.TryGetValue(pair, out var ids))
+            var identity = new RetroNoDepotIdentity(
+                row.Service, row.ClientIp, row.GameName, row.GameAppId, row.EpicAppId, row.XboxProductId);
+            if (!neededIdentities.Contains(identity)) continue;
+            if (!idsByIdentity.TryGetValue(identity, out var ids))
             {
                 ids = new List<long>();
-                idsByPair[pair] = ids;
+                idsByIdentity[identity] = ids;
             }
             ids.Add(row.Id);
+
+            // Newest by start time, ties broken by the higher id, which is the order the grouped
+            // views draw a collapsed row from.
+            if (!newestStartByIdentity.TryGetValue(identity, out var bestStart)
+                || row.StartTimeUtc > bestStart
+                || (row.StartTimeUtc == bestStart && row.Id > newestByIdentity[identity]))
+            {
+                newestStartByIdentity[identity] = row.StartTimeUtc;
+                newestByIdentity[identity] = row.Id;
+            }
         }
 
         foreach (var item in pageItems)
         {
-            if (!pairsByRowId.TryGetValue(item.Id, out var pairs)) continue;
-            foreach (var pair in pairs)
+            if (!noDepotByRowId.TryGetValue(item.Id, out var identities)) continue;
+            foreach (var identity in identities)
             {
-                if (idsByPair.TryGetValue(pair, out var ids))
+                if (idsByIdentity.TryGetValue(identity, out var ids))
                 {
                     item.DownloadIds.AddRange(ids);
                 }
             }
         }
+
+        return newestByIdentity;
     }
 }

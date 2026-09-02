@@ -13,19 +13,22 @@ namespace LancacheManager.Tests;
 public class RetroQueryTranslationTests
 {
     /// <summary>
-    /// Compiles the GroupBy + aggregate projection the retro endpoint runs through the Npgsql
-    /// provider, without opening a connection. Every retro request builds this query - the in-memory
-    /// path materializes it directly and the paged path wraps it - so a clause the provider cannot
-    /// translate (a TimeSpan.TotalSeconds or a conditional sum inside a grouped aggregate) fails
-    /// here instead of returning a 500 at runtime, which no in-memory-provider test can see.
+    /// Compiles both GroupBy + aggregate projections the retro endpoint runs through the Npgsql
+    /// provider, without opening a connection. Every retro request builds one of them - the paged
+    /// path wraps the depot-and-client aggregate, the in-memory path materializes it directly, and
+    /// a request that merges reads the coarser one - so a clause the provider cannot translate (a
+    /// TimeSpan.TotalSeconds or a conditional sum inside a grouped aggregate) fails here instead of
+    /// returning a 500 at runtime, which no in-memory-provider test can see.
     /// <para>
     /// It invokes the controller's own method rather than restating the query. The copy this
     /// replaced had already drifted: it was missing XboxProductId and the EvictedCount conditional
     /// sum, which is exactly the shape it existed to protect.
     /// </para>
     /// </summary>
-    [Fact]
-    public void RetroGroupedAggregateQuery_TranslatesToSql()
+    [Theory]
+    [InlineData("BuildRetroGroupedQuery")]
+    [InlineData("BuildRetroMergedQuery")]
+    public void RetroGroupedAggregateQuery_TranslatesToSql(string builderName)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql("Host=localhost;Database=translation_smoke_test")
@@ -42,7 +45,7 @@ public class RetroQueryTranslationTests
         };
 
         var buildGroupedQuery = typeof(DownloadsController)
-            .GetMethod("BuildRetroGroupedQuery", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            .GetMethod(builderName, BindingFlags.NonPublic | BindingFlags.Instance)!;
         var query = (IQueryable)buildGroupedQuery.Invoke(controller, [new RetroDownloadQuery()])!;
 
         var sql = query.ToQueryString();
