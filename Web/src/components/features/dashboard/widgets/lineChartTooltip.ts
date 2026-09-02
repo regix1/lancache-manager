@@ -28,6 +28,17 @@ function tooltipRoot(): HTMLDivElement {
   // canvas moves under it. Capture phase catches a scroll on any ancestor, not just the page.
   window.addEventListener('scroll', hideLineChartTooltip, true);
   window.addEventListener('resize', hideLineChartTooltip);
+  // Touch has no hover-out to hide the tooltip on, so a tap elsewhere on the page must close it.
+  // A tap on a canvas is left alone so Chart.js's own pointer handling can show/move the tooltip.
+  document.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (!(event.target instanceof Element) || !event.target.closest('canvas')) {
+        hideLineChartTooltip();
+      }
+    },
+    true
+  );
   return node;
 }
 

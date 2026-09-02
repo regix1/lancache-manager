@@ -63,11 +63,24 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
 
   useEffect(() => hideLineChartTooltip, [hasSeries, isCompare]);
 
+  // Full labels (used both on the axis and, unabbreviated, in the tooltip title) and their short
+  // form for a narrow plot. Only the 'stamp' style (bucketMinutes 180-1439) has room to shrink:
+  // 'timeOnly' is already short, and forcing 'dateShort' onto it would drop its only information.
+  const labels = useMemo(
+    () =>
+      starts.slice(0, pointCount).map((start) => bandwidthTickLabel(start, bucketMinutes, clock)),
+    [starts, pointCount, bucketMinutes, clock]
+  );
+  const narrowLabels = useMemo(
+    () =>
+      bucketMinutes >= 180 && bucketMinutes < 1440
+        ? starts.slice(0, pointCount).map((start) => bandwidthTickLabel(start, 1440, clock))
+        : labels,
+    [starts, pointCount, bucketMinutes, clock, labels]
+  );
+
   const chartData: ChartData<'line'> = useMemo(() => {
     void themeRevision;
-    const labels = starts
-      .slice(0, pointCount)
-      .map((start) => bandwidthTickLabel(start, bucketMinutes, clock));
     // Saved and missed are the cache-hit and cache-miss series, so they read the chart's own
     // hit/miss colours rather than the status green and amber. That is the vocabulary the rest
     // of the charts already use for these two words - the compare chart's hit/miss lines and
@@ -121,18 +134,7 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
         }
       ]
     };
-  }, [
-    bucketMinutes,
-    clock,
-    hiddenSeries,
-    missed,
-    pointCount,
-    saved,
-    served,
-    starts,
-    t,
-    themeRevision
-  ]);
+  }, [hiddenSeries, labels, missed, pointCount, saved, served, t, themeRevision]);
 
   const chartOptions: ChartOptions<'line'> = useMemo(() => {
     void themeRevision;
@@ -157,9 +159,9 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
           }
         })
       },
-      scales: lineChartScales()
+      scales: lineChartScales(narrowLabels)
     };
-  }, [themeRevision]);
+  }, [narrowLabels, themeRevision]);
 
   const legendItems = useMemo(
     () => [

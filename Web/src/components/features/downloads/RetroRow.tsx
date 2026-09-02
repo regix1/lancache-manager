@@ -409,7 +409,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                     isPartiallyEvicted={data.isPartiallyEvicted}
                   />
                   <div className="flex items-center gap-2 text-xs text-[var(--theme-text-muted)] min-w-0">
-                    <span className="truncate">
+                    <span className="truncate min-w-0">
                       <ClientIpDisplay clientIp={data.clientIp} className="inline" />
                       {data.depotsSet.size > 1 ? (
                         <>
@@ -445,7 +445,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                   justify-between, which parks a lone child on the LEFT once the timestamp is off. */}
               <div className="flex items-center text-xs min-w-0">
                 {showTimestamps && (
-                  <span className="retro-mono-value text-[var(--theme-text-secondary)] truncate">
+                  <span className="retro-mono-value text-[var(--theme-text-secondary)] truncate min-w-0">
                     {timeRangeTitle}
                   </span>
                 )}

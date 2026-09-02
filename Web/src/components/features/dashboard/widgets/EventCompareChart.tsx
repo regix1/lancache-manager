@@ -201,11 +201,14 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
     [visibleCompare]
   );
 
+  // Already short ("5m", "1h20m"), so the narrow-plot axis reuses these rather than a second form.
+  const labels = useMemo(
+    () => (visibleCompare?.elapsedMinutes ?? []).map((minutes) => elapsedLabel(minutes, t)),
+    [visibleCompare, t]
+  );
+
   const chartData: ChartData<'line'> = useMemo(() => {
     void themeRevision;
-    const labels = (visibleCompare?.elapsedMinutes ?? []).map((minutes) =>
-      elapsedLabel(minutes, t)
-    );
     return {
       labels,
       datasets: (visibleCompare?.series ?? []).map((series, index) => {
@@ -228,7 +231,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
         };
       })
     };
-  }, [visibleCompare, hiddenSeries, metric, repeatedColors, t, themeRevision]);
+  }, [visibleCompare, hiddenSeries, labels, metric, repeatedColors, themeRevision]);
 
   const chartOptions: ChartOptions<'line'> = useMemo(() => {
     void themeRevision;
@@ -256,9 +259,9 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
           }
         })
       },
-      scales: lineChartScales()
+      scales: lineChartScales(labels)
     };
-  }, [visibleCompare, repeatedColors, t, themeRevision]);
+  }, [labels, repeatedColors, t, themeRevision, visibleCompare]);
 
   const legendItems = useMemo(
     () =>

@@ -913,8 +913,11 @@ const RetroView = memo(
               {/* min-w-fit: when the grid template is wider than the viewport
                   this wrapper grows to the content width, so row backgrounds
                   (zebra, hover, accent stripes) span the full scrolled width
-                  instead of stopping at the visible edge. */}
-              <div className="min-w-fit">
+                  instead of stopping at the visible edge. Desktop only: the
+                  mobile stacked layout has no grid template to span, and
+                  min-w-fit there just drags the container as wide as the
+                  widest unshrunk child. */}
+              <div className={isDesktop ? 'min-w-fit' : undefined}>
                 {/* Desktop Table Header - only rendered on desktop via JS conditional */}
                 {isDesktop && (
                   <div className="retro-grid-row retro-header-row select-none min-w-fit">

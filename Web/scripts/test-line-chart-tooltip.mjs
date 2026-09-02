@@ -48,13 +48,38 @@ function createEl() {
   return el;
 }
 
+// Stand-in for a pointer event target: the tooltip only asks whether the target sits inside a
+// canvas, so a tag name and a one-level closest() are all it needs.
+class FakeElement {
+  constructor(tagName) {
+    this.tagName = tagName;
+  }
+
+  closest(selector) {
+    return this.tagName === selector ? this : null;
+  }
+}
+
 function installDom() {
   const body = createEl();
   body.isConnected = true;
+  globalThis.Element = FakeElement;
+  const documentListeners = [];
   globalThis.document = {
     body,
+    listeners: documentListeners,
     createElement() {
       return createEl();
+    },
+    addEventListener(type, handler, capture) {
+      documentListeners.push({ type, handler, capture });
+    },
+    fire(type, target) {
+      for (const listener of documentListeners) {
+        if (listener.type === type) {
+          listener.handler({ target });
+        }
+      }
     }
   };
   const listeners = [];
@@ -194,6 +219,21 @@ describe('line chart HTML tooltip', { concurrency: false }, () => {
     renderTooltip({ chart: chartHost(), tooltip: tooltipModel() }, { swatchClass });
     assert.equal(root.hidden, false);
     globalThis.window.fire('resize');
+    assert.equal(root.hidden, true);
+  });
+
+  test('hides the tooltip on a tap outside a canvas but not on the chart itself', () => {
+    installDom();
+    renderTooltip({ chart: chartHost(), tooltip: tooltipModel() }, { swatchClass });
+    const root = globalThis.document.body.children[0];
+
+    const pointerdown = globalThis.document.listeners.find((entry) => entry.type === 'pointerdown');
+    assert.equal(pointerdown.capture, true);
+
+    globalThis.document.fire('pointerdown', new FakeElement('canvas'));
+    assert.equal(root.hidden, false);
+
+    globalThis.document.fire('pointerdown', new FakeElement('button'));
     assert.equal(root.hidden, true);
   });
 
