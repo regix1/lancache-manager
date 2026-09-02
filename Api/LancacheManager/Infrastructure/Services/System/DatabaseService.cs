@@ -544,14 +544,17 @@ public class DatabaseService
                             _logger.LogInformation($"Cleared {mappingCount:N0} depot mappings");
                             deletedRows += mappingCount;
 
-                            // Also clear game information from Downloads table (since depot mappings are gone)
-                            _logger.LogInformation("Clearing game information from Downloads table (GameName, GameImageUrl, GameAppId)");
+                            // Also clear game information from the Steam downloads (since depot mappings are gone).
+                            // Only Steam traffic carries a DepotId, and Xbox, Blizzard, Riot and Epic rows keep
+                            // their identity in GameName, so wiping them here leaves those games unnamed for good.
+                            _logger.LogInformation("Clearing game information from Steam downloads (GameName, GameImageUrl, GameAppId)");
                             await context.Downloads
+                                .Where(d => d.DepotId != null)
                                 .ExecuteUpdateAsync(s => s
                                     .SetProperty(d => d.GameName, (string?)null)
                                     .SetProperty(d => d.GameImageUrl, (string?)null)
                                     .SetProperty(d => d.GameAppId, (uint?)null), cancellationToken);
-                            _logger.LogInformation("Cleared game information from all downloads");
+                            _logger.LogInformation("Cleared game information from Steam downloads");
 
                             // CRITICAL: Also delete the PICS JSON file to prevent re-import on next scan
                             // Without this, the JSON file would be imported back into the database

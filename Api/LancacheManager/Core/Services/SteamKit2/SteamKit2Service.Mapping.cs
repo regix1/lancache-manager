@@ -9,21 +9,25 @@ namespace LancacheManager.Core.Services.SteamKit2;
 public partial class SteamKit2Service
 {
     /// <summary>
-    /// Clear game information from all downloads (used before full scans/GitHub imports)
+    /// Clear game information from Steam downloads (used before full scans/GitHub imports)
     /// </summary>
     private async Task ClearDownloadGameDataAsync()
     {
         using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
-        _logger.LogInformation("Clearing game information from Downloads table (GameName, GameImageUrl, GameAppId)");
+        _logger.LogInformation("Clearing game information from Steam downloads (GameName, GameImageUrl, GameAppId)");
 
+        // Only Steam traffic carries a DepotId, and only Steam rows get a name back from depot
+        // mappings. Xbox, Blizzard, Riot and Epic rows keep their identity in GameName, so wiping
+        // them here leaves those games unnamed for good.
         await scopedDb.DbContext.Downloads
+            .Where(d => d.DepotId != null)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(d => d.GameName, (string?)null)
                 .SetProperty(d => d.GameImageUrl, (string?)null)
                 .SetProperty(d => d.GameAppId, (long?)null));
 
-        _logger.LogInformation("Cleared game information from all downloads - ready for fresh mapping");
+        _logger.LogInformation("Cleared game information from Steam downloads - ready for fresh mapping");
     }
 
     /// <summary>

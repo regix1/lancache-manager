@@ -202,7 +202,7 @@ public class EpicEmptyAppIdIdentityTests
         // Mirrors the unresolved-downloads query in EpicMappingService.ResolveDownloadsAsync.
         var sql = context.Downloads
             .Where(d => EF.Functions.Like(d.Service, "%epic%")
-                     && string.IsNullOrEmpty(d.EpicAppId)
+                     && (string.IsNullOrEmpty(d.EpicAppId) || d.GameName == null)
                      && d.LastUrl != null)
             .Select(d => d.Id)
             .ToQueryString();

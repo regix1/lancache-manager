@@ -21,11 +21,14 @@ public partial class EpicMappingService
         // older pattern row is not an Epic identity to GamesOnDiskCalculator.GetDownloadGameKey,
         // so a null-only test would leave it permanently stuck: never re-resolved here, yet still
         // treated as Epic by the layers that test the column against null.
+        // A row that kept its app id but lost its name is a candidate too. Clearing every GameName
+        // (a full Steam scan, or the mapping reset arm) left Epic rows with an id and no name, and
+        // cache detection needs both columns filled to bucket the row, so re-offer them here.
         // Count the candidates before loading them: the log pass calls this after every run, and on
         // a cache with no Epic traffic there is never anything to name, so the common case costs one
         // count instead of a tracked load plus the well-known pattern seed.
         var unresolvedCount = await db.Downloads
-            .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && string.IsNullOrEmpty(d.EpicAppId) && d.LastUrl != null, ct);
+            .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && (string.IsNullOrEmpty(d.EpicAppId) || d.GameName == null) && d.LastUrl != null, ct);
 
         if (unresolvedCount == 0)
         {
@@ -38,7 +41,7 @@ public partial class EpicMappingService
         await EnsureWellKnownPatternsAsync(ct);
 
         var unresolvedDownloads = await db.Downloads
-            .Where(d => EF.Functions.Like(d.Service, epicServicePattern) && string.IsNullOrEmpty(d.EpicAppId) && d.LastUrl != null)
+            .Where(d => EF.Functions.Like(d.Service, epicServicePattern) && (string.IsNullOrEmpty(d.EpicAppId) || d.GameName == null) && d.LastUrl != null)
             .ToListAsync(ct);
 
         if (unresolvedDownloads.Count == 0)
@@ -47,8 +50,10 @@ public partial class EpicMappingService
             return 0;
         }
 
+        // An id without a name is counted as unresolved below, so keep it out of this number or the
+        // two buckets in the same log line describe the same rows.
         var alreadyMapped = await db.Downloads
-            .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && !string.IsNullOrEmpty(d.EpicAppId), ct);
+            .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && !string.IsNullOrEmpty(d.EpicAppId) && d.GameName != null, ct);
         var nullUrls = await db.Downloads
             .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && d.LastUrl == null, ct);
 

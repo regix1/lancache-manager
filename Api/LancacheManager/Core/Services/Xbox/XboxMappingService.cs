@@ -72,7 +72,8 @@ public class XboxMappingService
     }
 
     /// <summary>
-    /// Resolves still-<c>wsus</c>/<c>xboxlive</c>, INACTIVE downloads against stored Xbox CDN patterns. On match,
+    /// Resolves INACTIVE downloads that are either still <c>wsus</c>/<c>xboxlive</c> or already an
+    /// <c>xbox</c> row that lost its name, against stored Xbox CDN patterns. On match,
     /// canonicalizes the row to <c>Service='xbox'</c>, sets <c>GameName</c> + <c>XboxProductId</c>,
     /// best-effort fetches/stores the DisplayCatalog banner, persists, and emits
     /// <see cref="SignalREvents.XboxGameMappingsUpdated"/> + <see cref="SignalREvents.DownloadsRefresh"/>.
@@ -103,15 +104,18 @@ public class XboxMappingService
             return 0;
         }
 
-        // Candidate rows: still tagged wsus (DO-client traffic) OR xboxlive (prefill-daemon traffic
-        // direct from assets1.xboxlive.com), no game name yet, have a LastUrl, and INACTIVE.
+        // Candidate rows: still tagged wsus (DO-client traffic), OR any xbox-ish service with no game
+        // name - that covers xboxlive (prefill-daemon traffic direct from assets1.xboxlive.com) and an
+        // already-canonicalized xbox row whose GameName was wiped by a Steam PICS scan or a database
+        // reset. Without the second case a wiped xbox row is never offered again and stays nameless
+        // forever, which drops it out of the Rust named-game detection queries.
         // Re-tagging an active row would split the in-flight download (the Rust ingest path owns
         // active rows), so we never touch them here.
         const string wsusServicePattern = "%wsus%";
-        const string xboxliveServicePattern = "%xboxlive%";
+        const string xboxServicePattern = "%xbox%";
         var candidates = await db.Downloads
             .Where(d => (EF.Functions.Like(d.Service, wsusServicePattern)
-                            || EF.Functions.Like(d.Service, xboxliveServicePattern))
+                            || EF.Functions.Like(d.Service, xboxServicePattern))
                         && d.GameName == null
                         && d.LastUrl != null
                         && !d.IsActive)
@@ -137,7 +141,7 @@ public class XboxMappingService
             {
                 if (!unmatchedSampleLogged)
                 {
-                    _logger.LogDebug("Unmatched wsus/xboxlive download stays generic (sample url: '{Url}')", download.LastUrl);
+                    _logger.LogDebug("Unmatched wsus/xbox download stays generic (sample url: '{Url}')", download.LastUrl);
                     unmatchedSampleLogged = true;
                 }
                 continue;
@@ -159,7 +163,7 @@ public class XboxMappingService
 
         await db.SaveChangesAsync(ct);
         _logger.LogInformation(
-            "Re-tagged {Count}/{Total} wsus/xboxlive downloads to Xbox titles",
+            "Re-tagged {Count}/{Total} wsus/xbox downloads to Xbox titles",
             resolvedCount, candidates.Count);
 
         // Best-effort: fetch banner art for the newly-resolved products via DisplayCatalog and

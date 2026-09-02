@@ -207,6 +207,96 @@ public class XboxEmptyTitleIdentityTests
     }
 
     // -----------------------------------------------------------------------------------------
+    // Recovery of a name that was wiped after the row had already been canonicalized to
+    // Service = "xbox". A full Steam PICS scan and the SteamDepotMappings arm of the database reset
+    // both clear GameName on every Downloads row, Xbox rows included. Such a row keeps its
+    // XboxProductId but the Rust detection queries only count a Download as a named game when
+    // GameName IS NOT NULL, so it has to be offered to the resolver again.
+    // -----------------------------------------------------------------------------------------
+
+    // An assets1.xboxlive.com package path: no /filestreamingservice/ marker, but two canonical
+    // GUIDs, which is the second shape IsValidFragment accepts.
+    private const string PackageFragment = "/4/" + Guid1 + "/" + Guid2 + "/1.0.23.1";
+
+    private static Download NewNamelessXboxDownload(bool isActive)
+        => new()
+        {
+            Service = "xbox",
+            GameName = null,
+            XboxProductId = "C19N0723PHFL",
+            ClientIp = "10.0.0.5",
+            StartTimeUtc = DateTime.UtcNow.AddMinutes(-10),
+            EndTimeUtc = DateTime.UtcNow.AddMinutes(-5),
+            CacheHitBytes = 1024,
+            IsActive = isActive,
+            LastUrl = $"http://assets1.xboxlive.com{PackageFragment}.{Guid1}/bo4-ww-en-fr_1.0.23.1_x64__ht1qfjb0gaftw"
+        };
+
+    private static void SeedBlackOps4Catalog(AppDbContext db)
+    {
+        // ImageUrl is set so the banner-art pass has nothing to fetch. Left empty it would send a
+        // real DisplayCatalog request from the test.
+        db.XboxGameMappings.Add(new XboxGameMapping
+        {
+            ProductId = "C19N0723PHFL",
+            Title = "Call of Duty®: Black Ops 4",
+            ImageUrl = "https://store-images.microsoft.com/image/apps.1.jpg"
+        });
+        db.XboxCdnPatterns.Add(new XboxCdnPattern
+        {
+            ProductId = "C19N0723PHFL",
+            Title = "Call of Duty®: Black Ops 4",
+            UrlFragment = PackageFragment,
+            CdnHost = "assets1.xboxlive.com"
+        });
+    }
+
+    [Fact]
+    public async Task ResolveDownloadsAsync_RenamesAnXboxRowWhoseNameWasWiped()
+    {
+        var options = NewInMemoryOptions();
+
+        await using (var seed = new AppDbContext(options))
+        {
+            SeedBlackOps4Catalog(seed);
+            seed.Downloads.Add(NewNamelessXboxDownload(isActive: false));
+            await seed.SaveChangesAsync();
+        }
+
+        var resolved = await NewMappingService(options).ResolveDownloadsAsync();
+
+        Assert.Equal(1, resolved);
+
+        await using var db = new AppDbContext(options);
+        var download = Assert.Single(await db.Downloads.ToListAsync());
+        Assert.Equal("Call of Duty®: Black Ops 4", download.GameName);
+        Assert.Equal("xbox", download.Service);
+        Assert.Equal("C19N0723PHFL", download.XboxProductId);
+    }
+
+    [Fact]
+    public async Task ResolveDownloadsAsync_LeavesANamelessActiveXboxRowAlone()
+    {
+        var options = NewInMemoryOptions();
+
+        await using (var seed = new AppDbContext(options))
+        {
+            SeedBlackOps4Catalog(seed);
+            seed.Downloads.Add(NewNamelessXboxDownload(isActive: true));
+            await seed.SaveChangesAsync();
+        }
+
+        var resolved = await NewMappingService(options).ResolveDownloadsAsync();
+
+        // The Rust ingest path owns an active row; naming it here would split the in-flight download.
+        Assert.Equal(0, resolved);
+
+        await using var db = new AppDbContext(options);
+        var download = Assert.Single(await db.Downloads.ToListAsync());
+        Assert.Null(download.GameName);
+    }
+
+    // -----------------------------------------------------------------------------------------
     // The detection cache: a game with no Steam id, no Epic id and no name fails the named test,
     // takes the Steam arm, and claims the GameAppId 0 slot - overwriting an unrelated App-0 row.
     // -----------------------------------------------------------------------------------------

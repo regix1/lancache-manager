@@ -450,8 +450,8 @@ public partial class SteamKit2Service
             _depotNames.Clear();
             _lastChangeNumberSeen = 0; // Reset to ensure Web API enumeration is used
 
-            // Clear game data from Downloads table so all downloads get fresh mappings
-            _logger.LogInformation("Full scan detected - clearing existing game data from downloads for fresh mapping");
+            // Clear game data from the Steam downloads so they get fresh mappings
+            _logger.LogInformation("Full scan detected - clearing existing game data from Steam downloads for fresh mapping");
             await ClearDownloadGameDataAsync();
         }
         else if (incrementalOnly)
