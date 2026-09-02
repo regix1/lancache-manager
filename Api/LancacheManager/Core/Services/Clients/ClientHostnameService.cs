@@ -642,9 +642,21 @@ public sealed class ClientHostnameService : IClientHostnameService
 
             if (resolvers.Count > 0)
             {
-                _logger.LogInformation(
-                    "Reverse DNS lookups will ask {ResolverIps}",
-                    string.Join(", ", resolvers.Select(resolver => resolver.Address)));
+                // A rebuild triggered by a new subnet often lands on the same chain, because the
+                // router it went looking for was already in the list as a gateway. An unchanged
+                // chain has nothing to announce.
+                var replaced = new HashSet<string>(
+                    cached?.Resolvers.Select(resolver => resolver.Address) ?? Enumerable.Empty<string>());
+                if (!replaced.SetEquals(resolvers.Select(resolver => resolver.Address)))
+                {
+                    // A new subnet always appends its own router guesses, so a changed chain is the
+                    // ordinary case rather than news. Only the first chain is announced; the rest
+                    // stay available to anyone who turns Debug on.
+                    _logger.Log(
+                        cached == null ? LogLevel.Information : LogLevel.Debug,
+                        "Reverse DNS lookups will ask {ResolverIps}",
+                        string.Join(", ", resolvers.Select(resolver => resolver.Address)));
+                }
             }
             else
             {
