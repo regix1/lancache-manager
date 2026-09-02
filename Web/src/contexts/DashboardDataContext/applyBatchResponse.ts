@@ -10,7 +10,7 @@ import type {
   HourlyActivityResponse,
   CacheSnapshotResponse
 } from '../../types';
-import type { DashboardBatchResponse } from './types';
+import type { DashboardBatchResponse, DashboardGameGroup, RecentDownloadsSection } from './types';
 
 /**
  * The dashboard state slices owned by the batch endpoint. Detection is applied
@@ -23,6 +23,7 @@ export interface DashboardSlices {
   serviceStats: ServiceStat[];
   dashboardStats: DashboardStats | null;
   latestDownloads: Download[];
+  downloadGroups: DashboardGameGroup[];
   downloadTotals: DownloadTotals | null;
   filteredDownloadTotals: DownloadTotals | null;
   serviceOptions: ServiceFilterOption[];
@@ -102,17 +103,22 @@ export function applyDashboardBatchResponse(
     failedSectionKeys.push('detection');
   }
 
+  // One section feeds two slices, so it resolves once here and is spread below. The kept branch
+  // hands back the previous arrays themselves, so React still bails out on both.
+  const recentDownloads: RecentDownloadsSection = resolveSection(
+    'recentDownloads',
+    batch.recentDownloads,
+    { groups: prev.downloadGroups, rows: prev.latestDownloads },
+    { groups: [], rows: [] }
+  );
+
   const next: DashboardSlices = {
     cacheInfo,
     clientStats: resolveSection('clients', batch.clients, prev.clientStats, []),
     serviceStats: resolveSection('services', batch.services, prev.serviceStats, []),
     dashboardStats: resolveSection('dashboard', batch.dashboard, prev.dashboardStats, null),
-    latestDownloads: resolveSection(
-      'recentDownloads',
-      batch.recentDownloads,
-      prev.latestDownloads,
-      []
-    ),
+    latestDownloads: recentDownloads.rows,
+    downloadGroups: recentDownloads.groups,
     downloadTotals: resolveSection(
       'downloadTotals',
       batch.downloadTotals,

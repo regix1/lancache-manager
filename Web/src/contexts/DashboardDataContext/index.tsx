@@ -38,6 +38,7 @@ import {
   type DashboardDataProviderProps,
   type CachedDetectionResponse,
   type DashboardBatchResponse,
+  type DashboardGameGroup,
   type DownloadFilters
 } from './types';
 import {
@@ -94,6 +95,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [latestDownloads, setLatestDownloads] = useState<Download[]>([]);
+  const [downloadGroups, setDownloadGroups] = useState<DashboardGameGroup[]>([]);
   const [downloadTotals, setDownloadTotals] = useState<DownloadTotals | null>(null);
   const [filteredDownloadTotals, setFilteredDownloadTotals] = useState<DownloadTotals | null>(null);
   const [serviceOptions, setServiceOptions] = useState<ServiceFilterOption[]>([]);
@@ -177,6 +179,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     setServiceStats(slices.serviceStats);
     setDashboardStats(slices.dashboardStats);
     setLatestDownloads(slices.latestDownloads);
+    setDownloadGroups(slices.downloadGroups);
     setDownloadTotals(slices.downloadTotals);
     setFilteredDownloadTotals(slices.filteredDownloadTotals);
     setServiceOptions(slices.serviceOptions);
@@ -208,6 +211,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     serviceStats,
     dashboardStats,
     latestDownloads,
+    downloadGroups,
     downloadTotals,
     filteredDownloadTotals,
     serviceOptions,
@@ -233,6 +237,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     serviceStats,
     dashboardStats,
     latestDownloads,
+    downloadGroups,
     downloadTotals,
     filteredDownloadTotals,
     serviceOptions,
@@ -670,6 +675,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       setServiceStats(mockData.serviceStats);
       setDashboardStats(mockData.dashboardStats);
       setLatestDownloads(mockData.latestDownloads);
+      setDownloadGroups(mockData.downloadGroups);
       // Derived from the same rows the real sections are aggregated from, so demo mode keeps
       // showing figures rather than the zeros an absent section would render as.
       const mockTotals = {
@@ -897,6 +903,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       serviceStats,
       dashboardStats,
       latestDownloads,
+      downloadGroups,
       downloadTotals,
       filteredDownloadTotals,
       serviceOptions,
@@ -924,6 +931,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       serviceStats,
       dashboardStats,
       latestDownloads,
+      downloadGroups,
       downloadTotals,
       filteredDownloadTotals,
       serviceOptions,

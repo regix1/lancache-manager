@@ -24,11 +24,15 @@ import type {
   GameSpeedInfo,
   ClientSpeedInfo
 } from '../types';
-import type { CachedDetectionResponse } from '../contexts/DashboardDataContext/types';
+import type {
+  CachedDetectionResponse,
+  DashboardGameGroup
+} from '../contexts/DashboardDataContext/types';
 
 interface MockData {
   cacheInfo: CacheInfo;
   latestDownloads: Download[];
+  downloadGroups: DashboardGameGroup[];
   clientStats: ClientStat[];
   serviceStats: ServiceStat[];
   dashboardStats: DashboardStats;
@@ -405,6 +409,84 @@ function isRealMockGameName(appName: string, service: string): boolean {
     appName !== MOCK_RETRO_UNKNOWN_NAME &&
     appName.toLowerCase() !== service.toLowerCase()
   );
+}
+
+/**
+ * The generated rows folded into the game groups the Recent panel draws, which the batch endpoint
+ * answers with in live mode. A row carrying a resolved title makes a game group; everything else
+ * falls into its service's bucket under the folded service key, so the Xbox aliases share the one
+ * row they share a display name with. Newest game first, the order the endpoint sends.
+ */
+function buildMockDownloadGroups(downloads: Download[]): DashboardGameGroup[] {
+  const groups = new Map<string, DashboardGameGroup>();
+
+  for (const download of downloads) {
+    const serviceKey = getServiceFilterKey(download.service);
+    // The server's own cascade: one game seen under two services stays one row, so the app id keys
+    // it whenever there is one and the title keys it otherwise. Anything unresolved keys on the
+    // folded service, so the Xbox aliases share one bucket.
+    const key = download.gameName
+      ? download.gameAppId
+        ? `game-appid-${download.gameAppId}`
+        : `game-${download.gameName}`
+      : `service-${serviceKey}`;
+
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        id: key,
+        // A game group's name is its title. A bucket's is the folded service itself, unformatted,
+        // because the panel writes the label around it in the reader's language.
+        name: download.gameName ?? serviceKey,
+        // Answered from the summed bytes in the pass below, the way the server answers it.
+        type: 'content',
+        // The folded service, matching the key, so an alias cannot land a group under one service
+        // while it is stored under another.
+        service: serviceKey,
+        totalBytes: 0,
+        cacheHitBytes: 0,
+        cacheMissBytes: 0,
+        count: 0,
+        lastSeen: download.startTimeUtc,
+        // Both flags are answered over the whole membership in the pass below.
+        isEvicted: true,
+        isPartiallyEvicted: false,
+        hasRealGameName: !!download.gameName,
+        gameAppId: download.gameAppId,
+        gameName: download.gameName,
+        clientIps: [],
+        downloadIds: []
+      };
+      groups.set(key, group);
+    }
+
+    group.totalBytes += download.totalBytes;
+    group.cacheHitBytes += download.cacheHitBytes;
+    group.cacheMissBytes += download.cacheMissBytes;
+    group.count += 1;
+    group.downloadIds.push(download.id);
+    if (!group.clientIps.includes(download.clientIp)) {
+      group.clientIps.push(download.clientIp);
+    }
+    if (download.startTimeUtc > group.lastSeen) {
+      group.lastSeen = download.startTimeUtc;
+    }
+    if (download.isEvicted) {
+      // Reads as "some member is evicted" until the pass below narrows it to "some but not all".
+      group.isPartiallyEvicted = true;
+    } else {
+      group.isEvicted = false;
+    }
+  }
+
+  const groupList = [...groups.values()];
+  groupList.forEach((group) => {
+    // A group of zero-byte rows is the metadata traffic the views draw differently.
+    group.type = group.totalBytes > 0 ? 'content' : 'metadata';
+    group.isPartiallyEvicted = !group.isEvicted && group.isPartiallyEvicted;
+  });
+
+  return groupList.sort((a, b) => (a.lastSeen < b.lastSeen ? 1 : -1));
 }
 
 /**
@@ -1053,6 +1135,7 @@ class MockDataService {
     return {
       cacheInfo,
       latestDownloads: downloads,
+      downloadGroups: buildMockDownloadGroups(downloads),
       clientStats,
       serviceStats,
       dashboardStats

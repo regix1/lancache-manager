@@ -23,11 +23,60 @@ export interface DashboardBatchResponse {
   filteredDownloadTotals: DownloadTotals | null;
   serviceOptions: ServiceFilterOption[] | null;
   clientOptions: string[] | null;
-  recentDownloads: Download[] | null;
+  recentDownloads: RecentDownloadsSection | null;
   detection: CachedDetectionResponse | null;
   sparklines: SparklineDataResponse | null;
   hourlyActivity: HourlyActivityResponse | null;
   cacheSnapshot: CacheSnapshotResponse | null;
+}
+
+/**
+ * One game's downloads folded into a single panel row, built server-side. Mirrors the C#
+ * `DashboardGameGroup` in `DashboardBatchService.cs`; `scripts/test-dashboard-batch-shape.mjs`
+ * compares the two field lists, because no compiler sees both halves of this wire contract.
+ */
+export interface DashboardGameGroup {
+  id: string;
+  name: string;
+  /** Content, or metadata when every member carried zero bytes. The server answers this from the
+   *  group's summed bytes, so it never spells a game; a game is told by the `game-` id prefix. */
+  type: 'content' | 'metadata';
+  service: string;
+  totalBytes: number;
+  cacheHitBytes: number;
+  cacheMissBytes: number;
+  /** How many downloads the group stands for. Covers the depot groups the server's scan actually
+   *  read, which stops once it has a hundred games, so a game downloaded both today and last week
+   *  can have older members below the stop point and be understated here. The same goes for the
+   *  bytes and the client list. An active game appended below the hundred is counted over its
+   *  active members alone, while `downloadIds` still carries every member of the pairs it matched,
+   *  so `downloadIds.length` can exceed this. */
+  count: number;
+  /** Start time of the newest member, which is what the panel orders on. */
+  lastSeen: string;
+  /** Every member is evicted. */
+  isEvicted: boolean;
+  /** Some members are evicted and some are not. */
+  isPartiallyEvicted: boolean;
+  /** The name is a resolved title rather than a service fallback. */
+  hasRealGameName: boolean;
+  gameAppId?: number;
+  gameName?: string;
+  /** The distinct client addresses that downloaded this game, so the dropdown can narrow without
+   *  a refetch and the "N clients" text can read this list's length. */
+  clientIps: string[];
+  /** Every member download id, so an event badge on an old member still resolves. */
+  downloadIds: number[];
+}
+
+/**
+ * The recent-downloads section of the batch. The groups are what the panel draws. The rows are the
+ * raw downloads the live previews fingerprint by id, which groups cannot answer, so the section
+ * carries both.
+ */
+export interface RecentDownloadsSection {
+  groups: DashboardGameGroup[];
+  rows: Download[];
 }
 
 /**
@@ -79,6 +128,7 @@ interface DashboardDataContextType {
 
   // Downloads
   latestDownloads: Download[];
+  downloadGroups: DashboardGameGroup[];
   downloadTotals: DownloadTotals | null;
   filteredDownloadTotals: DownloadTotals | null;
   serviceOptions: ServiceFilterOption[];

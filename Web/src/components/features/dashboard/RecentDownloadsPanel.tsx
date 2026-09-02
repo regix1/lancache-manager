@@ -17,6 +17,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useDownloads } from '@contexts/DashboardDataContext/hooks';
 import {
   DownloadFilterFetchContext,
+  type DashboardGameGroup,
   type DownloadFilters
 } from '@contexts/DashboardDataContext/types';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
@@ -43,19 +44,16 @@ import {
 } from '@utils/serviceDisplayName';
 import { buildClientFilterOptions, findClientFilterGroup } from '@utils/clientFilterOptions';
 import { efficiencyTier, HIT_TIER_CLASS } from '@utils/efficiencyTier';
-import type {
-  Download,
-  DownloadGroup,
-  EventSummary,
-  GameSpeedInfo,
-  GameDetectionSummary
-} from '@/types';
+import type { Download, EventSummary, GameSpeedInfo, GameDetectionSummary } from '@/types';
 import { resolveGameDetection } from '@utils/gameDetection';
 
 /** What the panel hands the provider back when it holds no selection of its own. */
 const UNFILTERED_DOWNLOADS: DownloadFilters = { service: 'all', client: 'all' };
 
 interface RecentDownloadsPanelProps {
+  /** The games the panel draws, folded and ordered by the server. */
+  groups: DashboardGameGroup[];
+  /** The raw rows behind them, which only the in-progress previews read. */
   downloads: Download[];
   /** The dashboard's range chip, shown beside the title. */
   badge?: React.ReactNode;
@@ -134,7 +132,7 @@ const ActiveDownloadItem: React.FC<{
 
 // Recent download item component
 interface RecentDownloadItemProps {
-  item: DownloadGroup | Download;
+  item: DashboardGameGroup | Download;
   events?: EventSummary[];
   detectionLookup?: Map<number, GameDetectionSummary> | null;
   detectionByName?: Map<string, GameDetectionSummary> | null;
@@ -154,27 +152,37 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
   detailed = false
 }) => {
   const { t } = useTranslation();
-  const isGroup = 'downloads' in item;
+  // The group carries no member rows, so the field that tells the two shapes apart has to be one
+  // only the group has. A test for a member array would be false for every group and would send
+  // each one down the single-download branch without failing anything.
+  const isGroup = 'downloadIds' in item;
+  // The group id says which kind of group it is: a resolved title keys on the game, anything else
+  // keys on the folded service.
+  const isServiceBucket = isGroup && item.id.startsWith('service-');
   const display = isGroup
     ? {
         service: item.service,
-        name: item.name,
+        // A game group's name is its resolved title and is printed as it arrived. A service
+        // bucket's name is the folded service itself, so the label around it is written here in
+        // the reader's language rather than shipped in English from the server.
+        name: isServiceBucket
+          ? item.name.toLowerCase() === 'epicgames'
+            ? 'Epic Games'
+            : t('dashboard.downloadsPanel.serviceGroup', {
+                service: formatServiceLabel(item.name)
+              })
+          : item.name,
         totalBytes: item.totalBytes,
-        cacheHitPercent:
-          item.totalDownloaded > 0 ? (item.cacheHitBytes / item.totalDownloaded) * 100 : 0,
+        cacheHitPercent: item.totalBytes > 0 ? (item.cacheHitBytes / item.totalBytes) * 100 : 0,
         cacheHitBytes: item.cacheHitBytes,
         startTime: item.lastSeen,
-        clientInfo: t('downloads.tab.normal.counts.clients', { count: item.clientsSet.size }),
+        clientInfo: t('downloads.tab.normal.counts.clients', { count: item.clientIps.length }),
         clientIp: null as string | null, // Multiple clients, no single IP
         count: item.count,
-        hasGameName: item.downloads.some((d: Download) =>
-          isResolvedGameName(d.gameName, d.service)
-        ),
-        isEvicted: item.downloads.every((d: Download) => d.isEvicted),
-        isPartiallyEvicted:
-          item.downloads.some((d: Download) => d.isEvicted) &&
-          !item.downloads.every((d: Download) => d.isEvicted),
-        gameAppId: item.downloads.find((d: Download) => d.gameAppId)?.gameAppId ?? null
+        isEvicted: item.isEvicted,
+        isPartiallyEvicted: item.isPartiallyEvicted,
+        gameAppId: item.gameAppId ?? null,
+        gameName: item.gameName ?? null
       }
     : {
         service: item.service,
@@ -191,14 +199,12 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
         clientInfo: item.clientIp, // Fallback for display
         clientIp: item.clientIp, // Single client IP for nickname lookup
         count: 1,
-        hasGameName: isResolvedGameName(item.gameName, item.service),
         isEvicted: item.isEvicted,
         isPartiallyEvicted: false,
-        gameAppId: item.gameAppId ?? null
+        gameAppId: item.gameAppId ?? null,
+        gameName: item.gameName ?? null
       };
 
-  const primaryDownload = isGroup ? (item as DownloadGroup).downloads[0] : (item as Download);
-  const isServiceBucket = isGroup && item.type !== 'game';
   const detection = isServiceBucket
     ? resolveGameDetection(
         null,
@@ -209,8 +215,8 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
         detectionByService
       )
     : resolveGameDetection(
-        primaryDownload?.gameAppId,
-        primaryDownload?.gameName ?? display.name,
+        display.gameAppId,
+        display.gameName ?? display.name,
         detectionLookup,
         detectionByName,
         display.service,
@@ -329,6 +335,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
 };
 
 const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
+  groups = [],
   downloads = [],
   badge,
   loading = false,
@@ -388,98 +395,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       setViewMode('recent');
     }
   }, [isHistoricalView, viewMode]);
-
-  // Fetch associations for visible downloads - moved after groupedItems is computed
-
-  // Grouping logic
-  const createGroups = useCallback(
-    (downloads: Download[]): DownloadGroup[] => {
-      const groups: Record<string, DownloadGroup> = {};
-
-      downloads.forEach((download) => {
-        let groupKey: string;
-        let groupName: string;
-        let groupType: 'game' | 'metadata' | 'content';
-
-        // Check if we have a valid game (either by appId or by name)
-        const hasValidGameAppId = !!download.gameAppId;
-        const hasValidGameName = isResolvedGameName(download.gameName, download.service);
-
-        if (hasValidGameName) {
-          // Only show as a named game when we have an actual resolved name
-          groupKey = hasValidGameAppId
-            ? `game-appid-${download.gameAppId}`
-            : `game-${download.gameName}`;
-          groupName = download.gameName!;
-          groupType = 'game';
-        } else {
-          // Group by service for all platforms (including unmapped Steam). The folded key, so the
-          // Xbox aliases share the one row they already share a display name with. wsus is outside
-          // that fold and keeps its own row.
-          const svcLower = getServiceFilterKey(download.service ?? '');
-          groupKey = `service-${svcLower}`;
-          groupName =
-            svcLower === 'epicgames'
-              ? 'Epic Games'
-              : t('dashboard.downloadsPanel.serviceGroup', {
-                  service: formatServiceLabel(download.service ?? '')
-                });
-          groupType = download.totalBytes === 0 ? 'metadata' : 'content';
-        }
-
-        if (!groups[groupKey]) {
-          groups[groupKey] = {
-            id: groupKey,
-            name: groupName,
-            type: groupType,
-            service: download.service,
-            downloads: [],
-            downloadIds: [],
-            totalBytes: 0,
-            totalDownloaded: 0,
-            cacheHitBytes: 0,
-            cacheMissBytes: 0,
-            clientsSet: new Set<string>(),
-            firstSeen: download.startTimeUtc,
-            lastSeen: download.startTimeUtc,
-            count: 0,
-            // Answered over the whole membership once every member has been added.
-            isEvicted: true,
-            isPartiallyEvicted: false,
-            hasRealGameName: false
-          };
-        }
-
-        groups[groupKey].downloads.push(download);
-        groups[groupKey].downloadIds.push(download.id);
-        groups[groupKey].totalBytes += download.totalBytes;
-        groups[groupKey].totalDownloaded += download.totalBytes;
-        groups[groupKey].cacheHitBytes += download.cacheHitBytes;
-        groups[groupKey].cacheMissBytes += download.cacheMissBytes;
-        groups[groupKey].clientsSet.add(download.clientIp);
-        groups[groupKey].count++;
-
-        if (download.startTimeUtc < groups[groupKey].firstSeen) {
-          groups[groupKey].firstSeen = download.startTimeUtc;
-        }
-        if (download.startTimeUtc > groups[groupKey].lastSeen) {
-          groups[groupKey].lastSeen = download.startTimeUtc;
-        }
-      });
-
-      const groupList = Object.values(groups);
-      groupList.forEach((group) => {
-        group.isEvicted = group.downloads.every((d) => d.isEvicted);
-        group.isPartiallyEvicted = !group.isEvicted && group.downloads.some((d) => d.isEvicted);
-        group.hasRealGameName = group.downloads.some((d) =>
-          isResolvedGameName(d.gameName, d.service)
-        );
-      });
-
-      return groupList;
-    },
-    [t]
-  );
 
   const getTimeRangeLabel = useMemo(() => {
     const key = `dashboard.downloadsPanel.timeRanges.${timeRange}` as const;
@@ -554,62 +469,47 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     });
   }, [livePreviews, selectedService, selectedClient, selectedClientGroup]);
 
-  // The server narrows these rows too, but only after a round trip, and the refetch leaves the
-  // previous rows on screen while it runs. Applying the same predicate here drops the rows the new
-  // selection excludes as soon as it is made; the response then replaces the list outright, and
-  // every row in it already satisfies this predicate, so it changes nothing once it lands. The
-  // footer totals are not computed from these rows - they stay the server's.
-  const visibleDownloads = useMemo(() => {
-    return downloads.filter((download) => {
-      if (selectedService !== 'all' && getServiceFilterKey(download.service) !== selectedService) {
+  // The server narrows these groups too, but only after a round trip, and the refetch leaves the
+  // previous rows on screen while it runs. Applying the same predicate here drops the groups the
+  // new selection excludes as soon as it is made; the response then replaces the list outright,
+  // and every group in it already satisfies this predicate, so it changes nothing once it lands.
+  // A group's totals stay the whole game's until that answer arrives. The footer totals are not
+  // computed from these groups - they stay the server's.
+  const visibleGroups = useMemo(() => {
+    return groups.filter((group) => {
+      if (selectedService !== 'all' && getServiceFilterKey(group.service) !== selectedService) {
         return false;
       }
       if (selectedClient === 'all') return true;
       return selectedClientGroup
-        ? selectedClientGroup.memberIps.includes(download.clientIp)
-        : download.clientIp === selectedClient;
+        ? group.clientIps.some((ip) => selectedClientGroup.memberIps.includes(ip))
+        : group.clientIps.includes(selectedClient);
     });
-  }, [downloads, selectedService, selectedClient, selectedClientGroup]);
+  }, [groups, selectedService, selectedClient, selectedClientGroup]);
 
   const displayCount = 10;
-  const groupedItems = useMemo(() => {
-    const allItems = createGroups(visibleDownloads);
-
-    allItems.sort((a, b) => {
-      const aTime = Math.max(
-        ...a.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime())
-      );
-      const bTime = Math.max(
-        ...b.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime())
-      );
-      return bTime - aTime;
-    });
-
-    return {
-      displayedItems: allItems.slice(0, displayCount),
-      totalGroups: allItems.length
-    };
-  }, [visibleDownloads, createGroups]);
 
   // Live previews render above the recorded rows and share the 10-row cap. Recorded rows
   // yield space to previews; footer stats and the association fetch stay recorded-only.
+  // The groups arrive newest game first, so the slice is the newest ones and nothing re-sorts.
   const displayedLivePreviews = visibleLivePreviews.slice(0, displayCount);
-  const visibleDbItems = groupedItems.displayedItems.slice(
+  const visibleDbItems = visibleGroups.slice(
     0,
     Math.max(0, displayCount - displayedLivePreviews.length)
   );
 
-  // Fetch associations for all downloads in displayed groups
+  // Fetch associations for every member of the displayed groups, not only the newest ones, so a
+  // badge on an old member still resolves.
   useEffect(() => {
     const downloadIds: number[] = [];
-    groupedItems.displayedItems.forEach((item) => {
-      item.downloads.forEach((d: Download) => downloadIds.push(d.id));
+    visibleGroups.slice(0, displayCount).forEach((group) => {
+      group.downloadIds.forEach((id) => downloadIds.push(id));
     });
 
     if (downloadIds.length > 0) {
       fetchAssociations(downloadIds);
     }
-  }, [groupedItems.displayedItems, fetchAssociations, refreshVersion]);
+  }, [visibleGroups, fetchAssociations, refreshVersion]);
 
   // Added up over the selection server-side, not over the rows on screen: those are the most
   // recent slice of it, so summing them would read low on any busy range. The narrowed total is
@@ -636,7 +536,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const showFooterReadout =
     viewMode === 'active'
       ? hasActiveDownloads && activeGames.length > 0
-      : !loading && groupedItems.displayedItems.length > 0;
+      : !loading && visibleGroups.length > 0;
 
   return (
     <Card glassmorphism={glassmorphism} className="recent-downloads-panel">
@@ -810,8 +710,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 ) : visibleDbItems.length > 0 ? (
                   visibleDbItems.map((item) => {
                     const events = Array.from(
-                      item.downloads.reduce((acc, d) => {
-                        getAssociations(d.id).events.forEach((e) => acc.set(e.id, e));
+                      item.downloadIds.reduce((acc, id) => {
+                        getAssociations(id).events.forEach((e) => acc.set(e.id, e));
                         return acc;
                       }, new Map<number, EventSummary>())
                     ).map(([, e]) => e);
@@ -906,10 +806,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                   {t('dashboard.downloadsPanel.hitRate')}
                 </div>
               </div>
-              {groupedItems.totalGroups > 0 && (
+              {visibleGroups.length > 0 && (
                 <div className="dash-readout-item">
                   <div className="dash-readout-value">
-                    {visibleDbItems.length} / {groupedItems.totalGroups}
+                    {visibleDbItems.length} / {visibleGroups.length}
                   </div>
                   <div className="caps-label caps-label--wide dash-readout-label">
                     {t('dashboard.downloadsPanel.showingLabel')}

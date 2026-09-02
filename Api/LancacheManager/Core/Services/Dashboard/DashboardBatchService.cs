@@ -6,6 +6,7 @@ using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Infrastructure.Utilities;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using LancacheManager.Controllers;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -586,11 +587,34 @@ public partial class DashboardBatchService : IDashboardBatchService
     }
 
     /// <summary>
-    /// How many of the newest rows the recent slice carries beside the active ones. Comfortably
-    /// above the member count of the ten groups the panel draws, so grouping the slice on the
-    /// client reproduces the groups it used to build from the whole table.
+    /// How many game groups the recent section carries. The rows are grouped before they are
+    /// capped, so one game producing hundreds of downloads can no longer crowd every other game
+    /// out of the section.
     /// </summary>
-    private const int RecentDownloadsLimit = 500;
+    private const int RecentGameGroupLimit = 100;
+
+    /// <summary>
+    /// One page of the depot-and-client aggregate the scan reads newest-first. The number of
+    /// depot groups standing behind a hundred games is not a constant: a row with no depot forms
+    /// a group on its own, and one game downloaded by many clients forms a group per client, so
+    /// the scan pages and folds until it has the games rather than reading a fixed window.
+    /// </summary>
+    private const int RecentScanPageSize = 500;
+
+    /// <summary>
+    /// The scan stops here whatever it has folded so far. This stops a pathological range from
+    /// scanning the whole table; reaching it means the panel shows fewer than
+    /// <see cref="RecentGameGroupLimit"/> games, never wrong ones.
+    /// </summary>
+    private const int RecentScanCeiling = 20_000;
+
+    /// <summary>
+    /// How long a finished row keeps riding the raw array beside the active ones. A live preview
+    /// retires when the row behind it comes back finished, so a row that simply vanished from the
+    /// feed on the poll after it completed would leave its preview on screen until the client's
+    /// own sticky timeout. This tail is twice that timeout, so a late poll still sees the row.
+    /// </summary>
+    private static readonly TimeSpan _recentFinishedTail = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// The downloads the dashboard's own surfaces are allowed to see. Composed from
@@ -735,10 +759,11 @@ public partial class DashboardBatchService : IDashboardBatchService
     }
 
     /// <summary>
-    /// The bounded slice the recent-activity panel draws and the live preview reconciles against.
-    /// Every active row is carried whatever its age: a prefill that has been running for hours is
-    /// old and still running, and it is that row's advancing byte count which retires the preview
-    /// sitting beside it, so an age-bounded slice would leave that preview on screen for good.
+    /// The recent-activity section: the newest games, grouped here rather than in the browser, and
+    /// beside them the raw rows the live previews reconcile against. Every active row is carried
+    /// whatever its age: a prefill that has been running for hours is old and still running, and
+    /// it is that row's advancing byte count which retires the preview sitting beside it, so an
+    /// age-bounded array would leave that preview on screen for good.
     /// </summary>
     private async Task<object> GetRecentDownloadsAsync(
         long? startTime, long? endTime,
@@ -751,31 +776,99 @@ public partial class DashboardBatchService : IDashboardBatchService
             BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode),
             service, client);
 
-        var active = await query.Where(d => d.IsActive).ToListAsync(ct);
-        var newest = await query
-            .OrderByDescending(d => d.StartTimeUtc)
-            .Take(RecentDownloadsLimit)
-            .ToListAsync(ct);
+        var showClean = evictedMode == EvictedDataMode.ShowClean.ToWireString();
 
-        // Read as two sets and merged here: a still-running download that also happens to be among
-        // the newest arrives in both, and the panel keys its rows on the id.
-        var downloads = active
-            .Concat(newest)
-            .DistinctBy(d => d.Id)
-            .OrderByDescending(d => d.StartTimeUtc)
+        var groupsByKey = new Dictionary<string, DashboardGameGroup>(StringComparer.Ordinal);
+        // Held as a set because an active row folded below can name a depot pair the scan already
+        // recorded for the same game, and reading one pair twice would list its members twice.
+        var pairsByKey = new Dictionary<string, HashSet<(long DepotId, string ClientIp)>>(StringComparer.Ordinal);
+        var groupedQuery = BuildRecentGroupedQuery(query);
+
+        var scanned = 0;
+        while (groupsByKey.Count < RecentGameGroupLimit && scanned < RecentScanCeiling)
+        {
+            var page = await groupedQuery.Skip(scanned).Take(RecentScanPageSize).ToListAsync(ct);
+            if (page.Count == 0) break;
+            scanned += page.Count;
+
+            // Names are resolved a page at a time because the fold key depends on them: a name is
+            // NULL on the row until the depot, Epic and Xbox tables fill it, so the scan cannot
+            // know how many games it has until the page it just read has been folded.
+            await GameNameResolver.ResolveAsync(context, page, ct);
+            foreach (var row in page)
+            {
+                FoldIntoGameGroups(groupsByKey, pairsByKey, row, showClean);
+            }
+
+            if (page.Count < RecentScanPageSize) break;
+        }
+
+        // A game's rank by latest member start is the rank of its newest depot group, so folding a
+        // newest-first scan already yields the games in this order.
+        var groups = groupsByKey.Values
+            .OrderByDescending(g => g.LastSeen)
+            .Take(RecentGameGroupLimit)
             .ToList();
 
-        if (evictedMode == EvictedDataMode.ShowClean.ToWireString())
+        var finishedCutoff = DateTime.UtcNow - _recentFinishedTail;
+        var rows = await query
+            .Where(d => d.IsActive || d.EndTimeUtc >= finishedCutoff)
+            .OrderByDescending(d => d.StartTimeUtc)
+            .ToListAsync(ct);
+
+        if (showClean)
         {
-            foreach (var d in downloads) d.IsEvicted = false;
+            foreach (var d in rows) d.IsEvicted = false;
         }
 
         // Resolve game names via Steam depot mappings + Epic lookup
-        await GameNameResolver.ResolveAsync(context, downloads, ct);
+        await GameNameResolver.ResolveAsync(context, rows, ct);
+
+        // An active game whose newest download is older than the newest hundred still belongs on
+        // the panel, so its group is folded from the active rows and appended. Its totals cover
+        // its active members only, and it sorts after the hundred because it is older than they
+        // are. Doing it here keeps one owner for the fold rules instead of a second copy in the
+        // browser.
+        var carriedKeys = new HashSet<string>(groups.Select(g => g.Id), StringComparer.Ordinal);
+        var activeGroups = new Dictionary<string, DashboardGameGroup>(StringComparer.Ordinal);
+        foreach (var d in rows.Where(d => d.IsActive))
+        {
+            FoldIntoGameGroups(activeGroups, pairsByKey, new DashboardGroupRow
+            {
+                // Shaped exactly like an aggregate row of one member, so the fold cannot tell the
+                // two sources apart: a depot-backed row names its pair and a no-depot one names
+                // its own id.
+                DepotId = d.DepotId,
+                RowKey = d.DepotId == null ? d.Id : 0L,
+                ClientIp = d.ClientIp,
+                Service = d.Service,
+                GameName = d.GameName,
+                GameAppId = d.GameAppId,
+                CacheHitBytes = d.CacheHitBytes,
+                CacheMissBytes = d.CacheMissBytes,
+                LastStartTimeUtc = d.StartTimeUtc,
+                RequestCount = 1,
+                EvictedCount = d.IsEvicted ? 1 : 0
+            }, showClean);
+        }
+        groups.AddRange(activeGroups.Values.Where(g => !carriedKeys.Contains(g.Id)));
+
+        // The derived fields are stored rather than computed on read, because the browser's type
+        // is checked against the properties this class declares and a computed one is not one.
+        foreach (var group in groups)
+        {
+            group.TotalBytes = group.CacheHitBytes + group.CacheMissBytes;
+            // A group of zero-byte rows is the metadata traffic the views draw differently.
+            group.Type = group.TotalBytes > 0 ? "content" : "metadata";
+            group.IsEvicted = group.EvictedCount == group.Count;
+            group.IsPartiallyEvicted = group.EvictedCount > 0 && group.EvictedCount < group.Count;
+        }
+
+        await FillGroupDownloadIdsAsync(query, groups, pairsByKey, ct);
 
         // Projected onto the narrower row here rather than serialized as entities: LastUrl and
         // XboxProductId sit on every row and no client reads either.
-        return downloads.Select(d => new DashboardDownloadRow
+        var wireRows = rows.Select(d => new DashboardDownloadRow
         {
             Id = d.Id,
             Service = d.Service,
@@ -794,6 +887,235 @@ public partial class DashboardBatchService : IDashboardBatchService
             Datasource = d.Datasource,
             DurationSeconds = d.DurationSeconds
         }).ToList();
+
+        return new { groups, rows = wireRows };
+    }
+
+    /// <summary>
+    /// Aggregates the visible downloads per (DepotId, ClientIp) so only group-level scalars cross
+    /// the database boundary, the same shape the retro page groups on. No-depot rows keep one
+    /// group per row via RowKey = Id. The order closes on the group key so paging the scan cannot
+    /// see one aggregate row twice or skip one.
+    /// </summary>
+    private static IQueryable<DashboardGroupRow> BuildRecentGroupedQuery(IQueryable<Download> query)
+    {
+        return query
+            .GroupBy(d => new
+            {
+                d.DepotId,
+                d.ClientIp,
+                RowKey = d.DepotId == null ? d.Id : 0L
+            })
+            .Select(g => new DashboardGroupRow
+            {
+                DepotId = g.Key.DepotId,
+                ClientIp = g.Key.ClientIp,
+                RowKey = g.Key.RowKey,
+                Service = g.Max(d => d.Service)!,
+                GameName = g.Max(d => d.GameName),
+                GameAppId = g.Max(d => d.GameAppId),
+                EpicAppId = g.Max(d => d.EpicAppId),
+                XboxProductId = g.Max(d => d.XboxProductId),
+                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                CacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                LastStartTimeUtc = g.Max(d => d.StartTimeUtc),
+                RequestCount = g.Count(),
+                EvictedCount = g.Sum(d => d.IsEvicted ? 1 : 0)
+            })
+            .OrderByDescending(r => r.LastStartTimeUtc)
+            .ThenBy(r => r.ClientIp)
+            .ThenBy(r => r.DepotId)
+            .ThenBy(r => r.RowKey);
+    }
+
+    /// <summary>
+    /// Folds one depot-and-client aggregate into the game it belongs to, minting the group the
+    /// first time that game is seen. A row whose resolved name does not name a game lands in its
+    /// service's bucket instead, which is the rule the panel applied while it did this grouping
+    /// itself. ShowClean drops the evicted tally so the group's flags stay clear, matching what
+    /// the raw rows get in that mode.
+    /// </summary>
+    private static void FoldIntoGameGroups(
+        Dictionary<string, DashboardGameGroup> groups,
+        Dictionary<string, HashSet<(long DepotId, string ClientIp)>> pairsByKey,
+        DashboardGroupRow row,
+        bool showClean)
+    {
+        var foldedService = ServiceBreakdownMerger.NormalizeXboxService(row.Service);
+        var isGame = !string.IsNullOrWhiteSpace(row.GameName)
+            && DownloadsController.IsRealGameName(row.GameName!, row.Service);
+
+        string key;
+        string name;
+        if (isGame)
+        {
+            // One game seen under two services stays one row, so the app id keys it whenever there
+            // is one and the title keys it otherwise.
+            key = row.GameAppId is > 0 ? $"game-appid-{row.GameAppId}" : $"game-{row.GameName}";
+            name = row.GameName!;
+        }
+        else
+        {
+            // The folded service itself, not a title. The bucket's label is written in the
+            // reader's language from the locale files, so a title rendered here in English would
+            // reach a reader who does not read English and no gate would notice.
+            key = $"service-{foldedService.ToLowerInvariant()}";
+            name = foldedService;
+        }
+
+        if (!groups.TryGetValue(key, out var group))
+        {
+            group = new DashboardGameGroup
+            {
+                Id = key,
+                Name = name,
+                Service = foldedService,
+                HasRealGameName = isGame,
+                GameAppId = isGame ? row.GameAppId : null,
+                GameName = isGame ? row.GameName : null
+            };
+            groups[key] = group;
+        }
+
+        group.CacheHitBytes += row.CacheHitBytes;
+        group.CacheMissBytes += row.CacheMissBytes;
+        group.Count += row.RequestCount;
+        if (!showClean)
+        {
+            group.EvictedCount += row.EvictedCount;
+        }
+        if (row.LastStartTimeUtc > group.LastSeen)
+        {
+            group.LastSeen = row.LastStartTimeUtc;
+        }
+        group.ClientIps.Add(row.ClientIp);
+
+        if (row.DepotId is long depotId)
+        {
+            if (!pairsByKey.TryGetValue(key, out var pairs))
+            {
+                pairs = [];
+                pairsByKey[key] = pairs;
+            }
+            pairs.Add((depotId, row.ClientIp));
+        }
+        else
+        {
+            group.DownloadIds.Add(row.RowKey);
+        }
+    }
+
+    /// <summary>
+    /// Member ids for the groups that survived the cap, read in a second query the way the retro
+    /// page fills its own. They are left off the aggregate deliberately: reading them there costs
+    /// one row per member over every group the scan touched rather than only the ones being sent.
+    /// </summary>
+    private static async Task FillGroupDownloadIdsAsync(
+        IQueryable<Download> query,
+        List<DashboardGameGroup> groups,
+        Dictionary<string, HashSet<(long DepotId, string ClientIp)>> pairsByKey,
+        CancellationToken ct)
+    {
+        var neededPairs = new HashSet<(long DepotId, string ClientIp)>();
+        foreach (var group in groups)
+        {
+            if (pairsByKey.TryGetValue(group.Id, out var pairs))
+            {
+                foreach (var pair in pairs) neededPairs.Add(pair);
+            }
+        }
+        if (neededPairs.Count == 0) return;
+
+        // Over-fetched by depot list and ip list, with the pair-exact filtering done in memory
+        // below; both lists are bounded by the groups being sent, so this stays one indexed query.
+        var depotIdList = neededPairs.Select(p => p.DepotId).Distinct().ToList();
+        var clientIpList = neededPairs.Select(p => p.ClientIp).Distinct().ToList();
+
+        var memberRows = await query
+            .Where(d => d.DepotId != null
+                     && depotIdList.Contains(d.DepotId.Value)
+                     && clientIpList.Contains(d.ClientIp))
+            .Select(d => new { d.Id, DepotId = d.DepotId!.Value, d.ClientIp })
+            .ToListAsync(ct);
+
+        var idsByPair = new Dictionary<(long DepotId, string ClientIp), List<long>>();
+        foreach (var row in memberRows)
+        {
+            var pair = (row.DepotId, row.ClientIp);
+            if (!neededPairs.Contains(pair)) continue;
+            if (!idsByPair.TryGetValue(pair, out var ids))
+            {
+                ids = [];
+                idsByPair[pair] = ids;
+            }
+            ids.Add(row.Id);
+        }
+
+        foreach (var group in groups)
+        {
+            if (!pairsByKey.TryGetValue(group.Id, out var pairs)) continue;
+            foreach (var pair in pairs)
+            {
+                if (idsByPair.TryGetValue(pair, out var ids))
+                {
+                    group.DownloadIds.AddRange(ids);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// One depot-and-client aggregate of the recent scan. It carries the mapping columns as well
+    /// as the sums because <see cref="GameNameResolver"/> resolves names straight onto it, so one
+    /// representative object per depot group answers both the fold's key and its totals.
+    /// </summary>
+    internal sealed class DashboardGroupRow : IGameNameRow
+    {
+        public long? DepotId { get; init; }
+        public string ClientIp { get; init; } = string.Empty;
+        public long RowKey { get; init; }
+        public string Service { get; init; } = string.Empty;
+        public string? GameName { get; set; }
+        public long? GameAppId { get; set; }
+        public string? EpicAppId { get; init; }
+        public string? XboxProductId { get; init; }
+        public long CacheHitBytes { get; init; }
+        public long CacheMissBytes { get; init; }
+        public DateTime LastStartTimeUtc { get; init; }
+        public int RequestCount { get; init; }
+        public int EvictedCount { get; init; }
+    }
+
+    /// <summary>
+    /// One game of the batch response's recent section, carrying what the panel's row draws and
+    /// nothing it computes from members: the eviction flags, the distinct client addresses the
+    /// dropdown narrows on, and the member ids the event badges are fetched with.
+    /// </summary>
+    internal sealed class DashboardGameGroup
+    {
+        public string Id { get; init; } = string.Empty;
+        public string Name { get; init; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public string Service { get; init; } = string.Empty;
+        public long TotalBytes { get; set; }
+        public long CacheHitBytes { get; set; }
+        public long CacheMissBytes { get; set; }
+        public int Count { get; set; }
+        public DateTime LastSeen { get; set; }
+        public bool IsEvicted { get; set; }
+        public bool IsPartiallyEvicted { get; set; }
+        public bool HasRealGameName { get; init; }
+        public long? GameAppId { get; init; }
+        public string? GameName { get; init; }
+        public HashSet<string> ClientIps { get; } = new(StringComparer.Ordinal);
+        public List<long> DownloadIds { get; } = [];
+
+        /// <summary>
+        /// Members that are evicted, counted while the group is folded. Internal rather than
+        /// public so it stays off the wire: the two flags above are what the panel reads, and the
+        /// browser's type declares every public member this class has.
+        /// </summary>
+        internal int EvictedCount { get; set; }
     }
 
     /// <summary>

@@ -191,7 +191,7 @@ const Dashboard: React.FC = () => {
     loading,
     failedSections
   } = useStats();
-  const { latestDownloads } = useDownloads();
+  const { latestDownloads, downloadGroups } = useDownloads();
   const {
     gameDetectionData,
     detectionLookup,
@@ -322,13 +322,15 @@ const Dashboard: React.FC = () => {
   const { cacheSnapshot: fetchedCacheSnapshot, failed: cacheSnapshotFailed } = useCacheSnapshot();
   const cacheSnapshot = cacheSnapshotFailed ? null : fetchedCacheSnapshot;
 
-  // Filter out evicted downloads when eviction mode is 'hide' (server may still return them until refetch)
-  const filteredLatestDownloads = useMemo(() => {
+  // Filter out evicted games when eviction mode is 'hide' (server may still return them until
+  // refetch). A partially evicted group still has members on disk, so only a wholly evicted one
+  // is hidden.
+  const filteredDownloadGroups = useMemo(() => {
     if (evictedDataMode !== 'hide') {
-      return latestDownloads;
+      return downloadGroups;
     }
-    return latestDownloads.filter((download) => !download.isEvicted);
-  }, [latestDownloads, evictedDataMode]);
+    return downloadGroups.filter((group) => !group.isEvicted);
+  }, [downloadGroups, evictedDataMode]);
 
   // Filter client stats based on date range
   const filteredClientStats = useMemo(() => {
@@ -1252,7 +1254,8 @@ const Dashboard: React.FC = () => {
         >
           <div className="w-full h-full">
             <RecentDownloadsPanel
-              downloads={filteredLatestDownloads}
+              groups={filteredDownloadGroups}
+              downloads={latestDownloads}
               badge={periodBadge}
               loading={loading}
               timeRange={timeRange}

@@ -12,6 +12,7 @@ const slices = (overrides = {}) => ({
   serviceStats: [],
   dashboardStats: null,
   latestDownloads: [],
+  downloadGroups: [],
   downloadTotals: null,
   filteredDownloadTotals: null,
   serviceOptions: [],
@@ -33,7 +34,8 @@ const fullBatch = (overrides = {}) => ({
   filteredDownloadTotals: { cacheHitBytes: 400, cacheMissBytes: 50, count: 1 },
   serviceOptions: [{ service: 'steam', hasLargeFiles: true }],
   clientOptions: ['10.0.0.1'],
-  recentDownloads: [{ id: 10 }, { id: 11 }],
+  // One section, two slices: the groups the panel draws and the raw rows the previews fingerprint.
+  recentDownloads: { groups: [{ id: 'game-appid-730' }], rows: [{ id: 10 }, { id: 11 }] },
   detection: { hasCachedResults: false },
   sparklines: { intervals: [] },
   hourlyActivity: { hours: [] },
@@ -46,13 +48,15 @@ const DAY_KEY = buildRangeKey(1_700_000_000, 1_700_086_400, undefined);
 
 test('failed downloads section keeps the previous list within the same range', () => {
   const prevDownloads = [{ id: 1 }, { id: 2 }];
-  const prev = slices({ latestDownloads: prevDownloads });
+  const prevGroups = [{ id: 'game-appid-570' }];
+  const prev = slices({ latestDownloads: prevDownloads, downloadGroups: prevGroups });
   const { next, hadPartialFailure, failedSectionKeys } = applyDashboardBatchResponse(
     prev,
     fullBatch({ recentDownloads: null }),
     { rangeKey: LIVE_KEY, previousRangeKey: LIVE_KEY }
   );
   assert.equal(next.latestDownloads, prevDownloads);
+  assert.equal(next.downloadGroups, prevGroups);
   assert.equal(hadPartialFailure, true);
   assert.ok(failedSectionKeys.includes('recentDownloads'));
 });
@@ -74,6 +78,7 @@ test('failed clients and services sections keep previous within the same range',
 test('failed sections clear on a range change instead of keeping foreign-range data', () => {
   const prev = slices({
     latestDownloads: [{ id: 1 }],
+    downloadGroups: [{ id: 'game-appid-570' }],
     clientStats: [{ clientIp: '10.0.0.9' }],
     dashboardStats: { period: { duration: '24h' } },
     sparklines: { intervals: [1] },
@@ -95,6 +100,7 @@ test('failed sections clear on a range change instead of keeping foreign-range d
     { rangeKey: LIVE_KEY, previousRangeKey: DAY_KEY }
   );
   assert.deepEqual(next.latestDownloads, []);
+  assert.deepEqual(next.downloadGroups, []);
   assert.equal(next.downloadTotals, null);
   assert.equal(next.filteredDownloadTotals, null);
   assert.deepEqual(next.serviceOptions, []);
@@ -113,10 +119,11 @@ test('successful empty lists apply over previous data', () => {
   });
   const { next, hadPartialFailure } = applyDashboardBatchResponse(
     prev,
-    fullBatch({ recentDownloads: [], clients: [] }),
+    fullBatch({ recentDownloads: { groups: [], rows: [] }, clients: [] }),
     { rangeKey: LIVE_KEY, previousRangeKey: LIVE_KEY }
   );
   assert.deepEqual(next.latestDownloads, []);
+  assert.deepEqual(next.downloadGroups, []);
   assert.deepEqual(next.clientStats, []);
   assert.equal(hadPartialFailure, false);
 });
@@ -206,7 +213,8 @@ test('fully successful batch applies every section and reports no failure', () =
   assert.equal(next.clientStats, batch.clients);
   assert.equal(next.serviceStats, batch.services);
   assert.equal(next.dashboardStats, batch.dashboard);
-  assert.equal(next.latestDownloads, batch.recentDownloads);
+  assert.equal(next.latestDownloads, batch.recentDownloads.rows);
+  assert.equal(next.downloadGroups, batch.recentDownloads.groups);
   assert.equal(next.downloadTotals, batch.downloadTotals);
   assert.equal(next.filteredDownloadTotals, batch.filteredDownloadTotals);
   assert.equal(next.serviceOptions, batch.serviceOptions);

@@ -1,6 +1,11 @@
 import { useMemo } from 'react';
 import { createContextHook } from '../createContextHook';
-import { DashboardDataContext, type CachedDetectionResponse, type DownloadFilters } from './types';
+import {
+  DashboardDataContext,
+  type CachedDetectionResponse,
+  type DashboardGameGroup,
+  type DownloadFilters
+} from './types';
 import type {
   CacheInfo,
   ClientStat,
@@ -70,6 +75,7 @@ export const useStats = (): {
 
 export const useDownloads = (): {
   latestDownloads: Download[];
+  downloadGroups: DashboardGameGroup[];
   downloadTotals: DownloadTotals | null;
   filteredDownloadTotals: DownloadTotals | null;
   serviceOptions: ServiceFilterOption[];
@@ -83,6 +89,7 @@ export const useDownloads = (): {
   const context = useDashboardDataContext();
   return {
     latestDownloads: context.latestDownloads,
+    downloadGroups: context.downloadGroups,
     downloadTotals: context.downloadTotals,
     filteredDownloadTotals: context.filteredDownloadTotals,
     serviceOptions: context.serviceOptions,

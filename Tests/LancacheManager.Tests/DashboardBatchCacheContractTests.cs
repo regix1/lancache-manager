@@ -247,11 +247,11 @@ public sealed class DashboardBatchCacheContractTests
     {
         var source = BatchServiceSource();
         Assert.True(
-            source.Contains("var active = await query.Where(d => d.IsActive).ToListAsync(ct);", StringComparison.Ordinal),
-            "the recent slice is the only sub-query still returning rows and must observe the request token");
+            source.Contains("await groupedQuery.Skip(scanned).Take(RecentScanPageSize).ToListAsync(ct);", StringComparison.Ordinal),
+            "the scan behind the recent section must observe the request token");
         Assert.True(
-            source.Contains(".Take(RecentDownloadsLimit)", StringComparison.Ordinal),
-            "the newest half of the recent slice must be bounded");
+            source.Contains("scanned < RecentScanCeiling", StringComparison.Ordinal),
+            "the scan behind the recent section must stop at a ceiling instead of reading the whole table");
     }
 
     /// <summary>
@@ -362,9 +362,11 @@ public sealed class DashboardBatchCacheContractTests
 
     /// <summary>
     /// A prefill that has been running for hours has an old start time and is still active. That
-    /// row is what retires the live preview drawn beside it, so the slice carries every active row
-    /// whatever its age; the five-minute window the active COUNT uses would drop it and leave a
-    /// duplicate row on screen for good.
+    /// row is what retires the live preview drawn beside it, so the raw array carries every active
+    /// row whatever its age; the five-minute window the active COUNT uses would drop it and leave a
+    /// duplicate row on screen for good. Beside them rides a short tail of freshly finished rows,
+    /// without which a download that completed between two polls vanishes with its preview still
+    /// drawn.
     /// </summary>
     [Fact]
     public void TheRecentSliceCarriesEveryActiveRowWhateverItsAge()
@@ -372,13 +374,12 @@ public sealed class DashboardBatchCacheContractTests
         var source = BatchServiceSource();
 
         var declaration = source.IndexOf("private async Task<object> GetRecentDownloadsAsync(", StringComparison.Ordinal);
-        var nextSection = source.IndexOf("internal sealed class DashboardDownloadRow", declaration, StringComparison.Ordinal);
+        var nextSection = source.IndexOf("private static IQueryable<DashboardGroupRow> BuildRecentGroupedQuery", declaration, StringComparison.Ordinal);
         var body = source[declaration..nextSection];
 
-        Assert.Contains("query.Where(d => d.IsActive)", body, StringComparison.Ordinal);
+        Assert.Contains("d.IsActive || d.EndTimeUtc >= finishedCutoff", body, StringComparison.Ordinal);
+        Assert.Contains("DateTime.UtcNow - _recentFinishedTail", body, StringComparison.Ordinal);
         Assert.DoesNotContain("activeThreshold", body, StringComparison.Ordinal);
-        Assert.DoesNotContain("EndTimeUtc >", body, StringComparison.Ordinal);
-        Assert.Contains(".DistinctBy(d => d.Id)", body, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -447,7 +448,8 @@ public sealed class DashboardBatchCacheContractTests
         string[] requiredCallSites =
         [
             "await GetEventDownloadIdsAsync(eventIdList, ct)",
-            "await GameNameResolver.ResolveAsync(context, downloads, ct);",
+            "await GameNameResolver.ResolveAsync(context, page, ct);",
+            "await GameNameResolver.ResolveAsync(context, rows, ct);",
             "await activeQuery.CountAsync(ct)",
             ".Where(m => m.IsOwner && depotIds.Contains(m.DepotId))",
             ".ToListAsync(ct)",
@@ -791,12 +793,15 @@ public sealed class DashboardBatchCacheContractTests
             await seed.SaveChangesAsync();
         }
 
-        var rows = Assert.IsType<List<DashboardBatchService.DashboardDownloadRow>>(
-            await InvokeSubQuery(BatchServiceOver(options), "GetRecentDownloadsAsync",
-                [null, null, new List<long>(), null, new List<string>(), "show", null, null, CancellationToken.None]));
+        var section = await InvokeSubQuery(BatchServiceOver(options), "GetRecentDownloadsAsync",
+            [null, null, new List<long>(), null, new List<string>(), "show", null, null, CancellationToken.None]);
+        var rows = (List<DashboardBatchService.DashboardDownloadRow>)section
+            .GetType().GetProperty("rows")!.GetValue(section)!;
 
         Assert.Single(rows, row => row.IsActive);
-        Assert.Equal(6, rows.Count);
+        // The array is the active rows plus the ones that finished in the last thirty seconds, so
+        // the newest completed row rides along and the four older ones do not.
+        Assert.Equal(2, rows.Count);
     }
 
     /// <summary>

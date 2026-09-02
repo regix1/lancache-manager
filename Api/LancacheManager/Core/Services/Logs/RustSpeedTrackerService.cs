@@ -339,9 +339,9 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     // the live-download status dots read activity by this exact client-qualified identity, so this and the
     // TypeScript version must stay in sync. Identity tiers: app id (Steam always keys by app, never by name),
     // then unresolved depot, then a resolved title for named services, then the service-only bucket.
-    private static readonly Regex _steamAppPlaceholder = new(@"^Steam App \d+$", RegexOptions.Compiled);
+    internal static readonly Regex _steamAppPlaceholder = new(@"^Steam App \d+$", RegexOptions.Compiled);
 
-    private static readonly Dictionary<string, string> _serviceFallbackLabels =
+    internal static readonly Dictionary<string, string> _serviceFallbackLabels =
         new(StringComparer.Ordinal)
         {
             ["epic"] = "Epic Games",

@@ -558,8 +558,14 @@ public class DownloadsController : ControllerBase
                         .ThenBy(r => r.Id, StringComparer.Ordinal)
                         .First();
                     newestMemberByRowId[key] = newestMember;
+                    // Not IsRealGameName: the views hide the title outright when this is false, so
+                    // a bucket named "Steam App 620" or "Epic Games" would render with no title at
+                    // all rather than with a weaker one. The flag asks only whether some member
+                    // carries a name of its own, which is what a title needs.
                     var hasRealGameName = kind == RetroBucketKind.Unknown
-                        || bucket.Any(r => IsRealGameName(r.AppName, r.Service));
+                        || bucket.Any(r => !string.IsNullOrWhiteSpace(r.AppName)
+                            && !string.Equals(r.AppName, UnknownOtherAppName, StringComparison.Ordinal)
+                            && !string.Equals(r.AppName, r.Service, StringComparison.OrdinalIgnoreCase));
                     // No "metadata" here, and that is not an omission: the views give that type to
                     // a zero-byte group, and ApplyEmptySessionFilter drops every zero-byte
                     // completed row before this endpoint ever sees it.
@@ -744,12 +750,17 @@ public class DownloadsController : ControllerBase
 
     /// <summary>
     /// Whether a resolved group name names a game rather than echoing the service back or standing
-    /// in for content that could not be identified.
+    /// in for content that could not be identified. The Steam placeholder and the per-service
+    /// fallback labels are read from <see cref="RustSpeedTrackerService"/>, which already owns both
+    /// tables, so the browser's copy of this rule has one counterpart here instead of several.
     /// </summary>
-    private static bool IsRealGameName(string appName, string service) =>
+    internal static bool IsRealGameName(string appName, string service) =>
         !string.IsNullOrWhiteSpace(appName)
         && !string.Equals(appName, UnknownOtherAppName, StringComparison.Ordinal)
-        && !string.Equals(appName, service, StringComparison.OrdinalIgnoreCase);
+        && !string.Equals(appName, service, StringComparison.OrdinalIgnoreCase)
+        && !RustSpeedTrackerService._steamAppPlaceholder.IsMatch(appName)
+        && !(RustSpeedTrackerService._serviceFallbackLabels.TryGetValue(service.ToLowerInvariant(), out var fallbackLabel)
+             && string.Equals(appName, fallbackLabel, StringComparison.Ordinal));
 
     /// <summary>
     /// Display name for a retro group. Unmapped Steam content (a Steam row with no resolved

@@ -72,6 +72,13 @@ const batchResponse = readFileSync(
   'utf8'
 );
 
+// The recent-downloads section is typed `object?` on the response above, so its group shape is
+// declared where it is built rather than beside the other sections.
+const batchService = readFileSync(
+  repoFile('Api/LancacheManager/Core/Services/Dashboard/DashboardBatchService.cs'),
+  'utf8'
+);
+
 test('every section the batch endpoint sends is a field the browser type declares', () => {
   assert.deepEqual(
     serializedNames(batchResponse, 'DashboardBatchResponse'),
@@ -83,6 +90,13 @@ test('the download totals the batch sends twice match the type both readers shar
   assert.deepEqual(
     serializedNames(batchResponse, 'DownloadTotals'),
     interfaceNames('src/types.ts', 'DownloadTotals')
+  );
+});
+
+test('a recent-downloads group carries the fields the panel row draws from', () => {
+  assert.deepEqual(
+    serializedNames(batchService, 'DashboardGameGroup'),
+    interfaceNames('src/contexts/DashboardDataContext/types.ts', 'DashboardGameGroup')
   );
 });
 
