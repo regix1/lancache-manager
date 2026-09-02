@@ -42,7 +42,6 @@ import { useRetroDownloads } from './useRetroDownloads';
 import { cacheHitPercent } from './downloadGrouping';
 import { efficiencyTier } from '@utils/efficiencyTier';
 import {
-  formatTimeRange,
   formatTimeRangeLines,
   mapDtoToDepotGroupedData,
   type DepotGroupedData
@@ -726,7 +725,6 @@ const RetroView = memo(
           const cacheMissBytes = data.cacheMissBytes || 0;
           const hitPercent = cacheHitPercent(cacheHitBytes, totalBytes);
           const timeLines = formatTimeRangeLines(data.startTimeUtc, data.endTimeUtc, clock);
-          const timeRangeTitle = formatTimeRange(data.startTimeUtc, data.endTimeUtc, clock);
 
           // Check if has game image
           const serviceLower = data.service.toLowerCase();
@@ -769,7 +767,6 @@ const RetroView = memo(
             cacheMissBytes,
             hitPercent,
             timeLines,
-            timeRangeTitle,
             hasGameImage,
             nameKeyedService: hasNameKeyedImage ? nameKeyed.service : null,
             nameKeyedSlug: hasNameKeyedImage ? nameKeyed.slug : null,

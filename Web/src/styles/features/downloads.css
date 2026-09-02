@@ -1447,6 +1447,27 @@
     color: var(--theme-text-muted);
   }
 
+  /* Phone row title: one line always. The size steps down (useFitTextSize) before the
+     ellipsis is allowed to appear, so most titles read in full at a smaller size rather
+     than being cut. Compound selectors so the step wins over the base in every chunk order. */
+  .retro-title-fit {
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--theme-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .retro-title-fit.retro-title-fit-xs {
+    font-size: 12px;
+  }
+
+  .retro-title-fit.retro-title-fit-2xs {
+    font-size: 11px;
+  }
+
   /* Mono numeric readouts (depot, client, speed) + small sub-lines */
   .retro-mono-value {
     font-family: var(--retro-mono);

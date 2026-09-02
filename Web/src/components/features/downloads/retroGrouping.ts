@@ -30,33 +30,9 @@ export interface DepotGroupedData {
 }
 
 /**
- * Format a time range with consistent year display
- * If either date is from a different year than now, both dates show the year
- * @param startTimeUtc - Start time
- * @param endTimeUtc - End time
- * @param clock - Which clock to render on, from the timezone context. See {@link ReaderClock}.
- * @param forceYear - If true, always include year in both dates (for measurement)
- */
-export const formatTimeRange = (
-  startTimeUtc: string,
-  endTimeUtc: string,
-  clock: ReaderClock,
-  forceYear = false
-): string => {
-  // Check if either date needs the year displayed
-  const needsYear =
-    forceYear || isFromDifferentYear(startTimeUtc) || isFromDifferentYear(endTimeUtc);
-
-  const startTime = formatTimestamp(startTimeUtc, { ...clock, forceYear: needsYear });
-  const endTime = formatTimestamp(endTimeUtc, { ...clock, forceYear: needsYear });
-
-  return startTime === endTime ? startTime : `${startTime} - ${endTime}`;
-};
-
-/**
- * Same range as formatTimeRange but split into stacked display lines so the
- * timestamp column never truncates: ["start", null] when both ends match,
- * otherwise ["start", "→ end"].
+ * A time range split into stacked display lines so the timestamp column never
+ * truncates: ["start", null] when both ends match, otherwise ["start", "→ end"].
+ * If either date is from a different year than now, both dates show the year.
  */
 export const formatTimeRangeLines = (
   startTimeUtc: string,

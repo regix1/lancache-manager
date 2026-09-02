@@ -19,6 +19,7 @@ import DownloadBadges from './DownloadBadges';
 import { efficiencyTier, type EfficiencyTier } from '@utils/efficiencyTier';
 import { cacheHitPercent } from './downloadGrouping';
 import { GAUGE_DIAL_SIZE } from './retroColumnSizing';
+import { useFitTextSize } from '@hooks/useFitTextSize';
 
 const getServiceIcon = (service: string, size = 24) => {
   const serviceLower = service.toLowerCase();
@@ -66,6 +67,9 @@ const GAUGE_TIER_CLASS: Record<EfficiencyTier, string> = {
   error: 'retro-gauge hit-tier-error',
   critical: 'retro-gauge hit-tier-critical'
 };
+
+// One class per useFitTextSize step: full size, then the two smaller steps.
+const TITLE_FIT_CLASS = ['', 'retro-title-fit-xs', 'retro-title-fit-2xs'];
 
 const ROW_ACCENT_CLASS: Record<EfficiencyTier, string> = {
   success: 'retro-row retro-row-accent-success',
@@ -186,7 +190,6 @@ const RetroRow: React.FC<RetroRowProps> = memo(
       cacheMissBytes,
       hitPercent,
       timeLines,
-      timeRangeTitle,
       hasGameImage,
       nameKeyedService,
       nameKeyedSlug,
@@ -196,6 +199,10 @@ const RetroRow: React.FC<RetroRowProps> = memo(
 
     const isVirtual = translateY !== undefined;
     const tier = efficiencyTier(hitPercent);
+    // The phone layout keeps the title on one line by stepping its size down before it
+    // would truncate; the desktop grid truncates inside its column instead.
+    const title = data.gameName || getServiceDisplayName(data.service);
+    const titleFit = useFitTextSize(title);
     const rowClasses = `${ROW_ACCENT_CLASS[tier]}${rowIndex % 2 === 1 ? ' retro-row-alt' : ''}${
       data.isEvicted ? ' retro-row-evicted' : ''
     }`;
@@ -378,28 +385,11 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                     </div>
                   ))}
                 <div className="flex-1 min-w-0 overflow-hidden">
-                  <div className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
-                    {data.gameName || getServiceDisplayName(data.service)}
-                    {onDiskSizeBytes ? (
-                      <span className="text-themed-muted text-xs ml-2">
-                        {t('dashboard.downloadsPanel.onDisk', {
-                          size: formatBytes(onDiskSizeBytes)
-                        })}
-                      </span>
-                    ) : null}
-                    {data.requestCount > 1 && (
-                      <span className="ml-2 text-xs text-[var(--theme-text-muted)]">
-                        (
-                        {t('downloads.tab.retro.clientCount', {
-                          count: data.clientsSet.size
-                        })}{' '}
-                        ·{' '}
-                        {t('downloads.tab.retro.requestCount', {
-                          count: data.requestCount
-                        })}
-                        )
-                      </span>
-                    )}
+                  <div
+                    ref={titleFit.ref}
+                    className={`retro-title-fit ${TITLE_FIT_CLASS[titleFit.step]}`}
+                  >
+                    {title}
                   </div>
                   <BadgesRow
                     service={data.service}
@@ -441,13 +431,36 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                 </div>
               </div>
 
-              {/* Timestamp and Speed. The speed holds the right edge with `ml-auto` rather than
-                  justify-between, which parks a lone child on the LEFT once the timestamp is off. */}
+              {/* Size on disk and session counts get their own line: beside the name they were
+                  the part that truncated first on a phone. */}
+              {(onDiskSizeBytes || data.requestCount > 1) && (
+                <div className="text-xs text-[var(--theme-text-muted)] min-w-0">
+                  {onDiskSizeBytes
+                    ? t('dashboard.downloadsPanel.onDisk', { size: formatBytes(onDiskSizeBytes) })
+                    : null}
+                  {onDiskSizeBytes && data.requestCount > 1 ? ' · ' : null}
+                  {data.requestCount > 1 && (
+                    <>
+                      {t('downloads.tab.retro.clientCount', { count: data.clientsSet.size })}
+                      {' · '}
+                      {t('downloads.tab.retro.requestCount', { count: data.requestCount })}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Timestamp and Speed. The range stacks start over end (the desktop column does
+                  the same) so neither line has to truncate against the speed, which holds the
+                  right edge with `ml-auto` rather than justify-between: that parks a lone child
+                  on the LEFT once the timestamp is off. */}
               <div className="flex items-center text-xs min-w-0">
                 {showTimestamps && (
-                  <span className="retro-mono-value text-[var(--theme-text-secondary)] truncate min-w-0">
-                    {timeRangeTitle}
-                  </span>
+                  <div className="retro-time text-[var(--theme-text-secondary)]">
+                    <span className="truncate">{timeLines[0]}</span>
+                    {timeLines[1] && (
+                      <span className="retro-time-end truncate">{timeLines[1]}</span>
+                    )}
+                  </div>
                 )}
                 <span className="retro-mono-value font-medium text-[var(--theme-text-primary)] flex-shrink-0 ml-auto">
                   {formatSpeed(data.averageBytesPerSecond)}
