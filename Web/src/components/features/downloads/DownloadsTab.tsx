@@ -497,6 +497,9 @@ const DownloadsTab: React.FC = () => {
   // How many rows the retro table's own fetch found. Null until it has answered, so a control that
   // reads a count of zero cannot act on it in the render before that table has fetched.
   const [retroTotalItems, setRetroTotalItems] = useState<number | null>(null);
+  // Whether the retro table's own fetch is running, so the toolbar's busy indicator shows for a
+  // page turn there the way it does for the page's own fetch.
+  const [retroFetching, setRetroFetching] = useState(false);
 
   // Page number is component state. It used to live in the URL, which meant the page and the page
   // size each had two owners; the size pair fought the retro cap below and rewrote each other
@@ -504,10 +507,6 @@ const DownloadsTab: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const nonRetroContentRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef(currentPage);
-  // Mirrors settings.viewMode so handlePageChange can branch without being
-  // recreated (and re-rendering memoized views) on every view-mode switch.
-  const viewModeRef = useRef<ViewMode>('normal');
-  const suppressExpandScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const settingsRef = useRef<HTMLDivElement>(null);
   const retroViewRef = useRef<RetroViewHandle>(null);
@@ -585,8 +584,6 @@ const DownloadsTab: React.FC = () => {
     };
   });
 
-  viewModeRef.current = settings.viewMode;
-
   // Keep the debounced retro search trailing the live input by 300ms.
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearchQuery(settings.searchQuery), 300);
@@ -652,20 +649,17 @@ const DownloadsTab: React.FC = () => {
   // depending on one side while reading both. With the retro cap below as a third writer they
   // never settled: the URL pushed the saved size back, the cap forced it down again, and the value
   // visibly flickered between the two.
-  // hasEverMounted refs for display:none pattern - keep views mounted once visited
-  const compactEverMounted = useRef(settings.viewMode === 'compact');
-  const cardEverMounted = useRef(settings.viewMode === 'card');
-  const normalEverMounted = useRef(settings.viewMode === 'normal');
+  // Retro alone is kept mounted behind display:none once visited. It is the only one of the four
+  // with anything to lose by unmounting: its own page fetch, its lazy chunk, and a canvas pass that
+  // measures every column against the theme's font. The other three take their rows from this
+  // component and are pure renderers, so keeping them mounted bought nothing and cost twice over -
+  // a page turn re-rendered every card in all three to repaint one, and the two behind
+  // display:none went on holding a page of rows apiece that nothing was reading.
   const retroEverMounted = useRef(settings.viewMode === 'retro');
 
-  // The refs above are written from an effect, which runs after the render that switched
-  // the view and does not schedule another one. Reading them alone therefore left the
-  // newly selected view empty until an unrelated state change repainted the page. Treat
-  // the active view as mounted in the same render that selects it, and keep the refs for
-  // the views the user has already been to so switching back stays instant.
-  const showCompactView = compactEverMounted.current || settings.viewMode === 'compact';
-  const showCardView = cardEverMounted.current || settings.viewMode === 'card';
-  const showNormalView = normalEverMounted.current || settings.viewMode === 'normal';
+  // The ref above is written from an effect, which runs after the render that switched the view and
+  // does not schedule another one. Reading it alone therefore left retro empty until an unrelated
+  // state change repainted the page.
   const showRetroView = retroEverMounted.current || settings.viewMode === 'retro';
 
   // Effect to save settings to localStorage
@@ -711,10 +705,7 @@ const DownloadsTab: React.FC = () => {
       const prevMode = prevViewModeRef.current;
       const newMode = settings.viewMode;
 
-      // Mark view as ever-mounted for display:none pattern
-      if (newMode === 'compact') compactEverMounted.current = true;
-      if (newMode === 'card') cardEverMounted.current = true;
-      if (newMode === 'normal') normalEverMounted.current = true;
+      // Mark retro as ever-mounted for display:none pattern
       if (newMode === 'retro') retroEverMounted.current = true;
 
       // When switching AWAY from retro, save current retro value and restore previous non-retro value
@@ -1064,51 +1055,32 @@ const DownloadsTab: React.FC = () => {
     }
   }, [settingsOpened]);
 
-  // Suppress scroll-into-view during page changes so pagination scroll isn't fought
-  const [suppressExpandScroll, setSuppressExpandScroll] = useState(false);
-
   useEffect(() => {
     currentPageRef.current = currentPage;
   }, [currentPage]);
 
+  // The rule the retro table already fades on: dim the rows while a fetch the reader asked for is
+  // running, and leave a background refresh alone. Written straight to the DOM rather than through
+  // state so the pagination bar above the rows does not repaint with every page turn.
   useEffect(() => {
-    return () => {
-      if (suppressExpandScrollTimeoutRef.current !== null) {
-        clearTimeout(suppressExpandScrollTimeoutRef.current);
-      }
-    };
+    nonRetroContentRef.current?.classList.toggle(
+      'page-fading',
+      serverPage.isFetching && !serverPage.isLoading
+    );
+  }, [serverPage.isFetching, serverPage.isLoading]);
+
+  // Every view keeps its previous rows on screen and fades while the next page is fetched, so the
+  // page turns immediately and no artificial delay is paid before the request starts.
+  const handlePageChange = useCallback((newPage: number) => {
+    if (newPage === currentPageRef.current) return;
+
+    // The open group's members belong to the page being left, and the row that carries them is not
+    // on the next one. Collapsing here is also what keeps a newly mounted card from scrolling
+    // itself into view under the reader on the rare page that repeats the same group id.
+    setExpandedItem(null);
+    currentPageRef.current = newPage;
+    setCurrentPage(newPage);
   }, []);
-
-  // Change client-side pages immediately while avoiding expansion-triggered scrolling.
-  const handlePageChange = useCallback(
-    (newPage: number) => {
-      if (newPage === currentPageRef.current) return;
-
-      // Retro server mode keeps previous rows visible and fades while the next
-      // page is fetched (handled inside RetroView), so switch immediately
-      // instead of paying the artificial fade delay before the fetch starts.
-      if (viewModeRef.current === 'retro') {
-        currentPageRef.current = newPage;
-        setCurrentPage(newPage);
-        return;
-      }
-
-      if (suppressExpandScrollTimeoutRef.current !== null) {
-        clearTimeout(suppressExpandScrollTimeoutRef.current);
-      }
-
-      // Suppress scroll-into-view on newly mounted items during page changes.
-      setSuppressExpandScroll(true);
-      suppressExpandScrollTimeoutRef.current = setTimeout(() => {
-        setSuppressExpandScroll(false);
-        suppressExpandScrollTimeoutRef.current = null;
-      }, 600);
-
-      currentPageRef.current = newPage;
-      setCurrentPage(newPage);
-    },
-    [setCurrentPage]
-  );
 
   // The one reader left of the row-level route. The views hold a page at a time now, so the rows
   // an export needs are no longer on hand and are fetched when the button is pressed. They arrive
@@ -1206,9 +1178,12 @@ const DownloadsTab: React.FC = () => {
     }
   };
 
-  const handleItemClick = (id: string) => {
-    setExpandedItem(expandedItem === id ? null : id);
-  };
+  // Stable across renders. The three views below are memoized and every other prop they take
+  // already is, so a handler rebuilt on each render was on its own enough to re-render all three
+  // of them - the two behind display:none included - every time anything on this page changed.
+  const handleItemClick = useCallback((id: string) => {
+    setExpandedItem((current) => (current === id ? null : id));
+  }, []);
 
   // Loading state with skeleton loader. The page fetch only reports loading on its first run, so a
   // background refresh replaces the rows underneath without the skeleton reappearing.
@@ -1393,7 +1368,7 @@ const DownloadsTab: React.FC = () => {
                 </div>
                 {/* A filter, a sort or a page size is a server round trip that rebuilds the whole
                     grouped list, and the rows already on screen stay there while it runs. */}
-                {serverPage.isFetching && <LoadingSpinner size="xs" inline />}
+                {(serverPage.isFetching || retroFetching) && <LoadingSpinner size="xs" inline />}
                 {/* Same menu the wide layout gets. A phone-only settings gear put a control
                     here that exists nowhere else in the app, and hid Export and Refresh
                     Images from phones entirely. */}
@@ -1964,6 +1939,7 @@ const DownloadsTab: React.FC = () => {
                   detectionByService={detectionByService}
                   serverMode={settings.viewMode === 'retro'}
                   onTotalItemsChange={setRetroTotalItems}
+                  onFetchingChange={setRetroFetching}
                   filterService={settings.selectedService}
                   filterClient={serverClientFilter}
                   filterSearch={debouncedSearchQuery}
@@ -1986,72 +1962,67 @@ const DownloadsTab: React.FC = () => {
             ref={nonRetroContentRef}
             style={{ display: settings.viewMode === 'retro' ? 'none' : 'block' }}
           >
-            {/* Content based on view mode with display:none pattern for instant switching */}
-            <div style={{ display: settings.viewMode === 'compact' ? 'block' : 'none' }}>
-              {showCompactView && (
-                <CompactView
-                  items={itemsToDisplay}
-                  expandedItem={expandedItem}
-                  onItemClick={handleItemClick}
-                  aestheticMode={settings.aestheticMode}
-                  groupByFrequency={settings.groupByFrequency}
-                  enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
-                  showDatasourceLabels={showDatasourceLabels}
-                  hasMultipleDatasources={hasMultipleDatasources}
-                  detectionLookup={detectionLookup}
-                  detectionByName={detectionByName}
-                  detectionByService={detectionByService}
-                />
-              )}
-            </div>
+            {/* One view renders at a time. Their rows come from this component, so the one being
+                switched to draws from the page already in hand rather than fetching again. */}
+            {settings.viewMode === 'compact' && (
+              <CompactView
+                items={itemsToDisplay}
+                expandedItem={expandedItem}
+                onItemClick={handleItemClick}
+                aestheticMode={settings.aestheticMode}
+                groupByFrequency={settings.groupByFrequency}
+                enableScrollIntoView={settings.enableScrollIntoView}
+                showDatasourceLabels={showDatasourceLabels}
+                hasMultipleDatasources={hasMultipleDatasources}
+                detectionLookup={detectionLookup}
+                detectionByName={detectionByName}
+                detectionByService={detectionByService}
+              />
+            )}
 
-            <div style={{ display: settings.viewMode === 'card' ? 'block' : 'none' }}>
-              {showCardView && (
-                <NormalView
-                  items={itemsToDisplay}
-                  expandedItem={expandedItem}
-                  onItemClick={handleItemClick}
-                  aestheticMode={false}
-                  fullHeightBanners={false}
-                  groupByFrequency={false}
-                  enableScrollIntoView={false}
-                  showDatasourceLabels={showDatasourceLabels}
-                  hasMultipleDatasources={hasMultipleDatasources}
-                  cardGridLayout={true}
-                  cardSize={settings.cardSize}
-                  showCacheHitBar={settings.showCacheHitBar}
-                  showEventBadges={settings.showEventBadges}
-                  bannerOnly={settings.bannerOnly}
-                  detectionLookup={detectionLookup}
-                  detectionByName={detectionByName}
-                  detectionByService={detectionByService}
-                />
-              )}
-            </div>
+            {settings.viewMode === 'card' && (
+              <NormalView
+                items={itemsToDisplay}
+                expandedItem={expandedItem}
+                onItemClick={handleItemClick}
+                aestheticMode={false}
+                fullHeightBanners={false}
+                groupByFrequency={false}
+                enableScrollIntoView={false}
+                showDatasourceLabels={showDatasourceLabels}
+                hasMultipleDatasources={hasMultipleDatasources}
+                cardGridLayout={true}
+                cardSize={settings.cardSize}
+                showCacheHitBar={settings.showCacheHitBar}
+                showEventBadges={settings.showEventBadges}
+                bannerOnly={settings.bannerOnly}
+                detectionLookup={detectionLookup}
+                detectionByName={detectionByName}
+                detectionByService={detectionByService}
+              />
+            )}
 
-            <div style={{ display: settings.viewMode === 'normal' ? 'block' : 'none' }}>
-              {showNormalView && (
-                <NormalView
-                  items={itemsToDisplay}
-                  expandedItem={expandedItem}
-                  onItemClick={handleItemClick}
-                  aestheticMode={settings.aestheticMode}
-                  fullHeightBanners={settings.fullHeightBanners}
-                  groupByFrequency={settings.groupByFrequency}
-                  enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
-                  showDatasourceLabels={showDatasourceLabels}
-                  hasMultipleDatasources={hasMultipleDatasources}
-                  cardGridLayout={false}
-                  cardSize={settings.cardSize}
-                  showCacheHitBar={settings.showCacheHitBar}
-                  showEventBadges={settings.showEventBadges}
-                  bannerOnly={settings.bannerOnly}
-                  detectionLookup={detectionLookup}
-                  detectionByName={detectionByName}
-                  detectionByService={detectionByService}
-                />
-              )}
-            </div>
+            {settings.viewMode === 'normal' && (
+              <NormalView
+                items={itemsToDisplay}
+                expandedItem={expandedItem}
+                onItemClick={handleItemClick}
+                aestheticMode={settings.aestheticMode}
+                fullHeightBanners={settings.fullHeightBanners}
+                groupByFrequency={settings.groupByFrequency}
+                enableScrollIntoView={settings.enableScrollIntoView}
+                showDatasourceLabels={showDatasourceLabels}
+                hasMultipleDatasources={hasMultipleDatasources}
+                cardGridLayout={false}
+                cardSize={settings.cardSize}
+                showCacheHitBar={settings.showCacheHitBar}
+                showEventBadges={settings.showEventBadges}
+                bannerOnly={settings.bannerOnly}
+                detectionLookup={detectionLookup}
+                detectionByName={detectionByName}
+                detectionByService={detectionByService}
+              />
+            )}
           </div>
         </>
       )}
