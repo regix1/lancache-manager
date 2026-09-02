@@ -1468,6 +1468,42 @@
     font-size: 11px;
   }
 
+  /* Phone row: the size / session-count line sits a step lighter than the client line
+     above it so the two gray lines read as two facts, not one run-on. */
+  .retro-row-meta {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--theme-text-muted);
+  }
+
+  /* Phone row: the dial is a summary beside a bar that already tells the story, so it
+     takes less height than the desktop column version. The svg carries a viewBox so it
+     scales with its box. */
+  .retro-mobile-gauge .retro-gauge-dial,
+  .retro-mobile-gauge .retro-gauge-dial svg {
+    width: 34px;
+    height: 34px;
+  }
+
+  .retro-mobile-gauge .retro-gauge-value {
+    font-size: 10px;
+  }
+
+  .retro-mobile-gauge .retro-gauge-label {
+    font-size: 8px;
+  }
+
+  /* Phone row: the speed sits beside the dates with no column header to name it, so it
+     carries the header's own label in the same small-caps mono voice. */
+  .retro-row-speed-label {
+    font-family: var(--retro-mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--theme-text-muted);
+  }
+
   /* Mono numeric readouts (depot, client, speed) + small sub-lines */
   .retro-mono-value {
     font-family: var(--retro-mono);

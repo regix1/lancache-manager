@@ -92,7 +92,12 @@ const EfficiencyGauge: React.FC<{ percent: number }> = ({ percent }) => {
   return (
     <div className={GAUGE_TIER_CLASS[tier]}>
       <div className="retro-gauge-dial">
-        <svg width={GAUGE_DIAL_SIZE} height={GAUGE_DIAL_SIZE} className="-rotate-90">
+        <svg
+          width={GAUGE_DIAL_SIZE}
+          height={GAUGE_DIAL_SIZE}
+          viewBox={`0 0 ${GAUGE_DIAL_SIZE} ${GAUGE_DIAL_SIZE}`}
+          className="-rotate-90"
+        >
           {/* Background track */}
           <circle
             cx={GAUGE_DIAL_SIZE / 2}
@@ -434,7 +439,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
               {/* Size on disk and session counts get their own line: beside the name they were
                   the part that truncated first on a phone. */}
               {(onDiskSizeBytes || data.requestCount > 1) && (
-                <div className="text-xs text-[var(--theme-text-muted)] min-w-0">
+                <div className="retro-row-meta min-w-0">
                   {onDiskSizeBytes
                     ? t('dashboard.downloadsPanel.onDisk', { size: formatBytes(onDiskSizeBytes) })
                     : null}
@@ -462,9 +467,14 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                     )}
                   </div>
                 )}
-                <span className="retro-mono-value font-medium text-[var(--theme-text-primary)] flex-shrink-0 ml-auto">
-                  {formatSpeed(data.averageBytesPerSecond)}
-                </span>
+                <div className="flex flex-col items-end flex-shrink-0 ml-auto">
+                  <span className="retro-row-speed-label">
+                    {t('downloads.tab.retro.headers.avgSpeed')}
+                  </span>
+                  <span className="retro-mono-value font-medium text-[var(--theme-text-primary)]">
+                    {formatSpeed(data.averageBytesPerSecond)}
+                  </span>
+                </div>
               </div>
 
               {/* Combined Progress Bar and Efficiency */}
@@ -476,7 +486,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                     totalBytes={totalBytes}
                   />
                 </div>
-                <div className="flex-shrink-0">
+                <div className="flex-shrink-0 retro-mobile-gauge">
                   <EfficiencyGauge percent={hitPercent} />
                 </div>
               </div>
