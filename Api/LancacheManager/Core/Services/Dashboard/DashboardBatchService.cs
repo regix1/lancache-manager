@@ -604,27 +604,19 @@ public partial class DashboardBatchService : IDashboardBatchService
     private const int RecentGroupDownloadIdLimit = 500;
 
     /// <summary>
-    /// How far back the recent panel's own two queries read when the reader picked no range. The
-    /// live view supplies no start and no end, so without this both would scan the whole table.
-    /// Measured on ten million rows: the aggregate took 4.2 seconds and the member query 8.7
-    /// seconds unbounded, against 338 ms and 769 ms over thirty days, and they returned 415,720
-    /// rows to draw a panel of a hundred games. Widening this window costs that pair of numbers,
-    /// and the growth is linear, crossing a second at about two million rows.
+    /// How many of the range's newest rows are read to decide which games the section lists. They
+    /// come back in StartTimeUtc order, which is indexed, so this is what keeps the cost of the
+    /// unbounded view flat: without it the aggregate scanned the whole table, which measured 4.2
+    /// seconds over ten million rows and returned 415,720 rows to draw a panel of a hundred games.
     /// <para>
-    /// So a count on the live view means the game's total over this window, which is a boundary a
-    /// reader can be told. Capping the rows instead would understate a game whose older downloads
-    /// fell below the cap, and an unexplainable count is the thing this panel stopped reporting.
-    /// </para>
-    /// <para>
-    /// One boundary this draws, named here so it is not rediscovered: an active download whose
-    /// start time is older than this window keeps its live preview, because the raw rows below are
-    /// read unbounded, but it gets no group row, because the group would come from the aggregate
-    /// and the aggregate no longer covers it. A download still running after a month describes one
-    /// that is stuck rather than one that is going, so it is left out deliberately. If that ever
-    /// stops being true, an <c>|| d.IsActive</c> arm on the window below restores it.
+    /// It bounds the list of games and no figure on it. Every game this slice names is then totalled
+    /// over the reader's whole range, so a count is the game's real count however old its downloads
+    /// are. A game is missing from the list only when the newest rows this many hold fewer than
+    /// <see cref="RecentGameGroupLimit"/> games, which takes one game to have written thousands of
+    /// rows more recently than every other, and a game with no recent row is not a recent game.
     /// </para>
     /// </summary>
-    private static readonly TimeSpan _recentLiveWindow = TimeSpan.FromDays(30);
+    private const int RecentGamePickRowLimit = 20000;
 
     /// <summary>
     /// How long a finished row keeps riding the raw array beside the active ones. A live preview
@@ -796,19 +788,26 @@ public partial class DashboardBatchService : IDashboardBatchService
 
         var showClean = evictedMode == EvictedDataMode.ShowClean.ToWireString();
 
-        // The panel's own two queries, and only those, fall back to a default window when the
-        // reader picked no range. The raw rows below keep reading the unbounded query, so a
-        // long-running download is still carried whatever its age. An explicit range or an event
-        // filter already bounds the read, and narrowing either further would answer a different
-        // question than the one asked.
-        var windowedQuery = startTime.HasValue || endTime.HasValue || eventIdList.Count > 0
-            ? query
-            : query.Where(d => d.StartTimeUtc >= DateTime.UtcNow - _recentLiveWindow);
+        // Which games the section lists, decided over a bounded slice of the range's newest rows.
+        // These rows carry no sums: the slice answers ordering, and a slice of newest rows cannot
+        // total a game whose older downloads fall outside it. So this fold is read for its keys and
+        // its LastSeen alone, and the groups the reader sees are built from the second pass below.
+        var pickRows = await BuildRecentPickQuery(query).ToListAsync(ct);
+        var pickIdentities = pickRows.Select(GroupMemberKey.Of).ToList();
+        await GameNameResolver.ResolveAsync(context, pickRows, ct);
 
-        // One aggregate pass over the range. The key is the identity the ingestion already wrote
-        // onto the row, so every member of a game reaches the same group whatever its age and the
-        // totals below are the game's real totals rather than what a row cap reached.
-        var groupRows = await BuildRecentGroupedQuery(windowedQuery).ToListAsync(ct);
+        var pickGroups = new Dictionary<string, DashboardGameGroup>(StringComparer.Ordinal);
+        var pickIdentitiesByKey = new Dictionary<string, HashSet<GroupMemberKey>>(StringComparer.Ordinal);
+        foreach (var (row, identity) in pickRows.Zip(pickIdentities))
+        {
+            FoldIntoGameGroups(pickGroups, pickIdentitiesByKey, row, identity, showClean);
+        }
+
+        var listedGroups = pickGroups.Values
+            .OrderByDescending(g => g.LastSeen)
+            .Take(RecentGameGroupLimit)
+            .ToList();
+        var listedKeys = listedGroups.Select(g => g.Id).ToHashSet(StringComparer.Ordinal);
 
         var finishedCutoff = DateTime.UtcNow - _recentFinishedTail;
         var rows = await query
@@ -824,8 +823,45 @@ public partial class DashboardBatchService : IDashboardBatchService
         // The resolver writes a name onto a row that has none, so the stored identity is read off
         // both sets first. That identity is what the aggregate grouped on and what the member ids
         // are fetched by, and neither is the resolved name.
-        var groupIdentities = groupRows.Select(GroupMemberKey.Of).ToList();
         var activeIdentities = rows.Where(d => d.IsActive).Select(GroupMemberKey.Of).ToList();
+
+        // A Steam depot that was not in the mapping table when a download was ingested leaves that
+        // row carrying a depot id and no app id, and the backfill fills it in later. So one game's
+        // history is routinely stored under two identities, and they only become one game after the
+        // resolver runs, which is after the query. The depots each listed game's app owns are read
+        // here so the filter below reaches both halves.
+        var listedAppIds = listedGroups
+            .Where(g => g.GameAppId is > 0)
+            .Select(g => g.GameAppId!.Value)
+            .Distinct()
+            .ToList();
+        List<SteamDepotMapping> ownedDepots = listedAppIds.Count == 0
+            ? []
+            : await context.SteamDepotMappings.AsNoTracking()
+                .Where(m => m.IsOwner && listedAppIds.Contains(m.AppId))
+                .ToListAsync(ct);
+
+        // The active rows join the games the slice listed, because an active game is appended to
+        // the section however old it is and the group it is appended as comes from the aggregate.
+        // A prefill that has been running for days has no row in the newest slice, so without this
+        // the aggregate would hold nothing for it.
+        var listedIdentities = listedKeys
+            .SelectMany(key => pickIdentitiesByKey[key])
+            .Concat(activeIdentities)
+            .Concat(ExpandListedIdentities(listedGroups, pickIdentitiesByKey, ownedDepots))
+            .Distinct()
+            .ToList();
+
+        // One aggregate pass over the range exactly as the reader chose it, narrowed to the games
+        // above. The key is the identity the ingestion already wrote onto the row, so every member
+        // of a game reaches the same group whatever its age and the totals are the game's real
+        // totals over that range. Narrowing to a hundred games is what makes the pass affordable
+        // where grouping the whole table was not.
+        List<DashboardGroupRow> groupRows = listedIdentities.Count == 0
+            ? []
+            : await BuildRecentGroupedQuery(ApplyIdentityFilter(query, listedIdentities)).ToListAsync(ct);
+
+        var groupIdentities = groupRows.Select(GroupMemberKey.Of).ToList();
 
         // One resolve pass: the aggregate rows need names for the fold key and the raw rows carry
         // theirs to the browser.
@@ -841,9 +877,13 @@ public partial class DashboardBatchService : IDashboardBatchService
             keyByIdentity[identity] = FoldIntoGameGroups(groupsByKey, identitiesByKey, row, identity, showClean);
         }
 
+        // The filter above admits rows of identities outside the listed games, because it matches
+        // one column list at a time rather than whole identities. Those fold into games of their
+        // own, and a game the slice did not list is dropped here rather than allowed to displace
+        // one it did.
         var groups = groupsByKey.Values
+            .Where(g => listedKeys.Contains(g.Id))
             .OrderByDescending(g => g.LastSeen)
-            .Take(RecentGameGroupLimit)
             .ToList();
 
         // An active game whose newest download is older than the newest hundred still belongs on
@@ -870,7 +910,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             group.IsPartiallyEvicted = group.EvictedCount > 0 && group.EvictedCount < group.Count;
         }
 
-        await FillGroupDownloadIdsAsync(windowedQuery, groups, identitiesByKey, ct);
+        await FillGroupDownloadIdsAsync(query, groups, identitiesByKey, ct);
 
         // Projected onto the narrower row here rather than serialized as entities: LastUrl and
         // XboxProductId sit on every row and no client reads either.
@@ -906,6 +946,116 @@ public partial class DashboardBatchService : IDashboardBatchService
     /// group and every group folds into exactly one game, so one pass over the range yields the
     /// game's real totals with no window to fall outside of.
     /// </summary>
+    /// <summary>
+    /// The identities behind the newest <see cref="RecentGamePickRowLimit"/> rows of the range,
+    /// newest first. It says which games the section lists and in what order, and nothing else: the
+    /// rows carry the identity columns and the newest start time of each, and no sums, because a
+    /// slice of the newest rows cannot total a game whose older downloads fall outside it.
+    /// <para>
+    /// An identity that appears in the slice has its newest row in the slice, since the slice is the
+    /// range's newest rows in order. So the start time here is that identity's real newest, which is
+    /// what the ordering rests on.
+    /// </para>
+    /// </summary>
+    private static IQueryable<DashboardGroupRow> BuildRecentPickQuery(IQueryable<Download> query)
+    {
+        return query
+            .OrderByDescending(d => d.StartTimeUtc)
+            .Take(RecentGamePickRowLimit)
+            .GroupBy(d => new
+            {
+                d.GameAppId,
+                d.GameName,
+                d.DepotId,
+                d.EpicAppId,
+                d.XboxProductId,
+                d.Service,
+                d.ClientIp
+            })
+            .Select(g => new DashboardGroupRow
+            {
+                GameAppId = g.Key.GameAppId,
+                GameName = g.Key.GameName,
+                DepotId = g.Key.DepotId,
+                EpicAppId = g.Key.EpicAppId,
+                XboxProductId = g.Key.XboxProductId,
+                Service = g.Key.Service,
+                ClientIp = g.Key.ClientIp,
+                LastStartTimeUtc = g.Max(d => d.StartTimeUtc)
+            })
+            .OrderByDescending(r => r.LastStartTimeUtc);
+    }
+
+    /// <summary>
+    /// Narrows a downloads query to the rows of a set of identities. The filter is one list per
+    /// identity column rather than one term per identity, which keeps it to a single indexed pass;
+    /// it is therefore over-broad, and both callers match the whole identity again afterwards. The
+    /// last arm is the rows the ingestion could name nothing about, told apart by their service
+    /// alone. Every row of an identity in the set matches at least one arm, so no group is computed
+    /// over a partial set.
+    /// </summary>
+    /// <summary>
+    /// The identities a listed game's rows can also be stored under, so a game whose history is
+    /// split across two of them is read whole. A Steam row ingested before its depot was mapped
+    /// carries the depot id alone; the same game's later rows carry the app id, and the backfill
+    /// eventually rewrites the earlier ones. Whichever half the newest slice happened to see, the
+    /// other half is stored under an identity the slice never named.
+    /// <para>
+    /// So each listed game contributes its resolved app id and every depot that app owns. The app
+    /// id reaches the rows stored with it and the depots reach the rows stored without it. Only the
+    /// read widens: a depot with more than one owner brings rows of a game that is not listed, and
+    /// those fold into that game and are dropped, because the fold still picks the owner by
+    /// <see cref="GameNameResolver"/>'s rule and this adds no second one.
+    /// </para>
+    /// <para>
+    /// The columns each key does not carry are taken from an identity the game already has, so a
+    /// key contributes one app id or one depot id to the filter and nothing else.
+    /// </para>
+    /// </summary>
+    private static List<GroupMemberKey> ExpandListedIdentities(
+        List<DashboardGameGroup> listedGroups,
+        Dictionary<string, HashSet<GroupMemberKey>> identitiesByKey,
+        List<SteamDepotMapping> ownedDepots)
+    {
+        var expanded = new List<GroupMemberKey>();
+        foreach (var group in listedGroups)
+        {
+            if (group.GameAppId is not > 0) continue;
+            if (!identitiesByKey.TryGetValue(group.Id, out var identities)) continue;
+
+            var identity = identities.First();
+            expanded.Add(identity with { GameAppId = group.GameAppId, DepotId = null });
+            foreach (var mapping in ownedDepots)
+            {
+                if (mapping.AppId != group.GameAppId.Value) continue;
+                expanded.Add(identity with { GameAppId = null, DepotId = mapping.DepotId });
+            }
+        }
+
+        return expanded;
+    }
+
+    private static IQueryable<Download> ApplyIdentityFilter(
+        IQueryable<Download> query,
+        IReadOnlyCollection<GroupMemberKey> identities)
+    {
+        var appIds = identities.Where(k => k.GameAppId.HasValue).Select(k => k.GameAppId!.Value).Distinct().ToList();
+        var names = identities.Where(k => k.GameName != null).Select(k => k.GameName!).Distinct().ToList();
+        var depotIds = identities.Where(k => k.DepotId.HasValue).Select(k => k.DepotId!.Value).Distinct().ToList();
+        var epicAppIds = identities.Where(k => k.EpicAppId != null).Select(k => k.EpicAppId!).Distinct().ToList();
+        var xboxProductIds = identities.Where(k => k.XboxProductId != null).Select(k => k.XboxProductId!).Distinct().ToList();
+        var services = identities.Select(k => k.Service).Distinct().ToList();
+
+        return query.Where(d => (d.GameAppId != null && appIds.Contains(d.GameAppId.Value))
+                             || (d.GameName != null && names.Contains(d.GameName))
+                             || (d.DepotId != null && depotIds.Contains(d.DepotId.Value))
+                             || (d.EpicAppId != null && epicAppIds.Contains(d.EpicAppId))
+                             || (d.XboxProductId != null && xboxProductIds.Contains(d.XboxProductId))
+                             || (d.GameAppId == null && d.GameName == null && d.DepotId == null
+                                 && d.EpicAppId == null && d.XboxProductId == null
+                                 && services.Contains(d.Service)));
+    }
+
     private static IQueryable<DashboardGroupRow> BuildRecentGroupedQuery(IQueryable<Download> query)
     {
         return query
@@ -1067,11 +1217,9 @@ public partial class DashboardBatchService : IDashboardBatchService
     /// The limit is per identity rather than over the whole read, because a shared budget lets one
     /// loud game take the newest rows and leaves a quiet one beside it with none of its own.
     /// <para>
-    /// The filter narrows to the identities being sent. It is over-broad on purpose: one list per
-    /// identity column plus the client addresses, with the exact match done by the caller in
-    /// memory, which keeps it to one indexed pass. The last arm is the rows the ingestion could
-    /// name nothing about, told apart by their service alone. Every row of an identity in the set
-    /// matches at least one arm, so no group's window is computed over a partial set.
+    /// The filter is <see cref="ApplyIdentityFilter"/> narrowed further to the client addresses in
+    /// the set, since a member id is only ever read for an identity that names one. Both are
+    /// over-broad, with the exact match done by the caller in memory.
     /// </para>
     /// <para>
     /// LINQ has no window operator. Grouping on the identity and taking the newest rows inside the
@@ -1085,26 +1233,10 @@ public partial class DashboardBatchService : IDashboardBatchService
         IReadOnlyCollection<GroupMemberKey> identities,
         int perGroupLimit)
     {
-        var appIds = identities.Where(k => k.GameAppId.HasValue).Select(k => k.GameAppId!.Value).Distinct().ToList();
-        var names = identities.Where(k => k.GameName != null).Select(k => k.GameName!).Distinct().ToList();
-        var depotIds = identities.Where(k => k.DepotId.HasValue).Select(k => k.DepotId!.Value).Distinct().ToList();
-        var epicAppIds = identities.Where(k => k.EpicAppId != null).Select(k => k.EpicAppId!).Distinct().ToList();
-        var xboxProductIds = identities.Where(k => k.XboxProductId != null).Select(k => k.XboxProductId!).Distinct().ToList();
-        var services = identities.Select(k => k.Service).Distinct().ToList();
         var clientIps = identities.Select(k => k.ClientIp).Distinct().ToList();
 
-        var members = query
-            .Where(d => clientIps.Contains(d.ClientIp)
-                     && ((d.GameAppId != null && appIds.Contains(d.GameAppId.Value))
-                      || (d.GameName != null && names.Contains(d.GameName))
-                      || (d.DepotId != null && depotIds.Contains(d.DepotId.Value))
-                      || (d.EpicAppId != null && epicAppIds.Contains(d.EpicAppId))
-                      || (d.XboxProductId != null && xboxProductIds.Contains(d.XboxProductId))
-                      || (d.GameAppId == null && d.GameName == null && d.DepotId == null
-                          && d.EpicAppId == null && d.XboxProductId == null
-                          && services.Contains(d.Service))));
-
-        return members
+        return ApplyIdentityFilter(query, identities)
+            .Where(d => clientIps.Contains(d.ClientIp))
             .GroupBy(d => new
             {
                 d.GameAppId,

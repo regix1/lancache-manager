@@ -247,8 +247,11 @@ public sealed class DashboardBatchCacheContractTests
     {
         var source = BatchServiceSource();
         Assert.True(
-            source.Contains("await BuildRecentGroupedQuery(windowedQuery).ToListAsync(ct);", StringComparison.Ordinal),
-            "the aggregate behind the recent section must observe the request token");
+            source.Contains(
+                "await BuildRecentGroupedQuery(ApplyIdentityFilter(query, listedIdentities)).ToListAsync(ct);",
+                StringComparison.Ordinal),
+            "the aggregate behind the recent section must observe the request token, and it must "
+            + "run over the reader's own query so its totals cover the range that was asked for");
         Assert.False(
             source.Contains(".Skip(scanned)", StringComparison.Ordinal),
             "the aggregate must be read once for the range: paging it recomputed the grouping per "

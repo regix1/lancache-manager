@@ -115,13 +115,14 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The live view picks no range, so the panel's own queries fall back to a default window
-    /// instead of reading the whole table. Unbounded they measured seconds on a ten million row
-    /// table. A reader who asks for a wider range still gets it, which is what the second half
-    /// checks: the same rows, counted whole, once a start time is supplied.
+    /// The live view picks no range and the header calls it all of history, so a count on it is
+    /// every download the game ever made, however old. This was a thirty-day window once, which
+    /// answered a narrower range than the reader had chosen while the panel went on labelling it
+    /// with the wider one. A reader who names a start time gets the same figures, which is what the
+    /// second half checks.
     /// </summary>
     [Fact]
-    public async Task TheLiveViewCountsTheDefaultWindowAndAnExplicitRangeCountsWhatItAsksFor()
+    public async Task TheLiveViewCountsRowsOlderThanAMonthAndSoDoesAnExplicitRange()
     {
         var options = NewDatabase();
         var now = DateTime.UtcNow;
@@ -139,8 +140,9 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
         }
 
         var live = Assert.Single(GroupsOf(await RecentSectionAsync(options)));
-        Assert.Equal(3, live.Count);
-        Assert.Equal(3, live.DownloadIds.Count);
+        Assert.Equal(5, live.Count);
+        Assert.Equal(5 * 2048, live.CacheHitBytes);
+        Assert.Equal(5, live.DownloadIds.Count);
 
         var asked = Assert.Single(GroupsOf(await RecentSectionAsync(
             options, startTime: new DateTimeOffset(now.AddDays(-60), TimeSpan.Zero).ToUnixTimeSeconds())));
@@ -562,6 +564,100 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
         Assert.True(grouped < flat, $"grouped section {grouped} bytes, five hundred row slice {flat} bytes");
     }
 
+    /// <summary>
+    /// A Steam game whose depot was unmapped when its older downloads were ingested has those rows
+    /// stored under the depot alone and its newer ones under the app id. That is the normal path
+    /// rather than an edge case, because the mapping backfill runs later than the ingestion. The
+    /// two halves are one game and the count has to say so.
+    /// </summary>
+    [Fact]
+    public async Task AGameStoredUnderBothADepotAndAnAppIdCountsAsOne()
+    {
+        var options = NewDatabase();
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.SteamDepotMappings.Add(new SteamDepotMapping
+            {
+                DepotId = 741,
+                AppId = 730,
+                AppName = "Call of Duty",
+                IsOwner = true
+            });
+
+            for (var i = 0; i < 3; i++)
+            {
+                seed.Downloads.Add(NamedGame(
+                    "steam", "10.0.0.1", Anchor.AddMinutes(-i), 731, 730, "Call of Duty"));
+            }
+
+            for (var i = 0; i < 4; i++)
+            {
+                var older = Row("steam", "10.0.0.1", Anchor.AddDays(-90).AddMinutes(-i));
+                older.DepotId = 741;
+                seed.Downloads.Add(older);
+            }
+
+            await seed.SaveChangesAsync();
+        }
+
+        var group = Assert.Single(GroupsOf(await RecentSectionAsync(options)));
+
+        Assert.Equal("Call of Duty", group.Name);
+        Assert.Equal(7, group.Count);
+        Assert.Equal(7 * 2048, group.CacheHitBytes);
+        Assert.Equal(7, group.DownloadIds.Count);
+    }
+
+    /// <summary>
+    /// The identities above are only reached because the listed game contributes its app id and the
+    /// depots that app owns to the filter the totals pass runs under. The seeded test cannot show
+    /// that on its own: its rows all fall inside the newest slice, so both halves would be named
+    /// there anyway. This checks the contribution itself, which is what carries a game whose older
+    /// half sits outside that slice.
+    /// </summary>
+    [Fact]
+    public void TheListedGamesContributeTheirAppIdAndEveryDepotItOwns()
+    {
+        var listed = new DashboardBatchService.DashboardGameGroup
+        {
+            Id = "game-appid-730",
+            Name = "Call of Duty",
+            Service = "steam",
+            HasRealGameName = true,
+            GameAppId = 730
+        };
+        var seen = new DashboardBatchService.GroupMemberKey(
+            null, null, 741, null, null, "steam", "10.0.0.1");
+        var identitiesByKey = new Dictionary<string, HashSet<DashboardBatchService.GroupMemberKey>>(StringComparer.Ordinal)
+        {
+            ["game-appid-730"] = [seen]
+        };
+        List<SteamDepotMapping> owned =
+        [
+            new() { DepotId = 741, AppId = 730, IsOwner = true },
+            new() { DepotId = 742, AppId = 730, IsOwner = true },
+            new() { DepotId = 999, AppId = 4000, IsOwner = true }
+        ];
+
+        var expand = typeof(DashboardBatchService)
+            .GetMethod("ExpandListedIdentities", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var expanded = (List<DashboardBatchService.GroupMemberKey>)expand.Invoke(
+            null, [new List<DashboardBatchService.DashboardGameGroup> { listed }, identitiesByKey, owned])!;
+
+        Assert.Contains(expanded, k => k.GameAppId == 730 && k.DepotId == null);
+        Assert.Contains(expanded, k => k.GameAppId == null && k.DepotId == 741);
+        Assert.Contains(expanded, k => k.GameAppId == null && k.DepotId == 742);
+        // A depot owned by another app is not this game's, so it stays out of the filter.
+        Assert.DoesNotContain(expanded, k => k.DepotId == 999);
+        // The columns it does not set come from an identity the game already has, so the key adds
+        // one value to the filter rather than widening the service and client lists as well.
+        Assert.All(expanded, k =>
+        {
+            Assert.Equal("steam", k.Service);
+            Assert.Equal("10.0.0.1", k.ClientIp);
+        });
+    }
+
     private static DbContextOptions<AppDbContext> NewDatabase() =>
         new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -710,5 +806,86 @@ public sealed class DashboardRecentQueryTranslationTests
         {
             Assert.Contains(column, partition, StringComparison.Ordinal);
         }
+    }
+
+    /// <summary>
+    /// The section decides which games it lists from a bounded slice of the range's newest rows,
+    /// which is a LIMIT feeding a GROUP BY. The in-memory provider evaluates that in process
+    /// whatever it looks like, so only this can say whether the database will take it.
+    /// </summary>
+    [Fact]
+    public void RecentPickQuery_TranslatesToSql()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=translation_smoke_test")
+            .Options;
+
+        using var context = new AppDbContext(options);
+
+        var buildPickQuery = typeof(DashboardBatchService)
+            .GetMethod("BuildRecentPickQuery", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var query = (IQueryable<DashboardBatchService.DashboardGroupRow>)buildPickQuery.Invoke(
+            null, [context.Downloads.AsNoTracking()])!;
+
+        var sql = query.ToQueryString();
+
+        Assert.Contains("LIMIT", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("GROUP BY", sql, StringComparison.OrdinalIgnoreCase);
+
+        // The slice has to be taken before the grouping. A LIMIT applied after it would cap the
+        // games rather than the rows read, which is the whole-table scan this replaced.
+        Assert.True(
+            sql.IndexOf("LIMIT", StringComparison.OrdinalIgnoreCase)
+                < sql.IndexOf("GROUP BY", StringComparison.OrdinalIgnoreCase),
+            sql);
+    }
+
+    /// <summary>
+    /// The totals pass narrows to the listed games before it groups. A filter the provider cannot
+    /// translate would leave the endpoint returning a 500 with every seeded test still green.
+    /// </summary>
+    [Fact]
+    public void ListedGameTotalsQuery_TranslatesToSql()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=translation_smoke_test")
+            .Options;
+
+        using var context = new AppDbContext(options);
+
+        DashboardBatchService.GroupMemberKey[] identities =
+        [
+            new(730, "Call of Duty", 731, null, null, "steam", "10.0.0.1"),
+            new(null, null, null, "fortnite", null, "epicgames", "10.0.0.2"),
+            new(null, null, null, null, "9NBLGGH4R315", "xboxlive", "10.0.0.3"),
+            new(null, null, null, null, null, "wsus", "10.0.0.4")
+        ];
+
+        var applyIdentityFilter = typeof(DashboardBatchService)
+            .GetMethod("ApplyIdentityFilter", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var narrowed = (IQueryable<Download>)applyIdentityFilter.Invoke(
+            null, [context.Downloads.AsNoTracking(), identities])!;
+
+        var buildGroupedQuery = typeof(DashboardBatchService)
+            .GetMethod("BuildRecentGroupedQuery", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var query = (IQueryable<DashboardBatchService.DashboardGroupRow>)buildGroupedQuery.Invoke(
+            null, [narrowed])!;
+
+        var sql = query.ToQueryString();
+
+        Assert.Contains("WHERE", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("GROUP BY", sql, StringComparison.OrdinalIgnoreCase);
+
+        // The depots the listed games' apps own are read to widen that filter, so a game stored
+        // under both a depot and an app id is counted whole. The read is compiled here beside the
+        // query it feeds.
+        List<long> listedAppIds = [730, 440];
+        var owned = context.SteamDepotMappings.AsNoTracking()
+            .Where(m => m.IsOwner && listedAppIds.Contains(m.AppId));
+
+        var ownedSql = owned.ToQueryString();
+
+        Assert.Contains("\"IsOwner\"", ownedSql, StringComparison.Ordinal);
+        Assert.Contains("\"AppId\"", ownedSql, StringComparison.Ordinal);
     }
 }
