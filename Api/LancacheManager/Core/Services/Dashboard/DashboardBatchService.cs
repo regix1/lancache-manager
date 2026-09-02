@@ -615,6 +615,14 @@ public partial class DashboardBatchService : IDashboardBatchService
     /// reader can be told. Capping the rows instead would understate a game whose older downloads
     /// fell below the cap, and an unexplainable count is the thing this panel stopped reporting.
     /// </para>
+    /// <para>
+    /// One boundary this draws, named here so it is not rediscovered: an active download whose
+    /// start time is older than this window keeps its live preview, because the raw rows below are
+    /// read unbounded, but it gets no group row, because the group would come from the aggregate
+    /// and the aggregate no longer covers it. A download still running after a month describes one
+    /// that is stuck rather than one that is going, so it is left out deliberately. If that ever
+    /// stops being true, an <c>|| d.IsActive</c> arm on the window below restores it.
+    /// </para>
     /// </summary>
     private static readonly TimeSpan _recentLiveWindow = TimeSpan.FromDays(30);
 
