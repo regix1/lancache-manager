@@ -190,22 +190,12 @@ public class ScheduledPrefillConfigController : ControllerBase
             return Conflict(ApiResponse.Conflict($"Scheduled prefill for {platform} is already running"));
         }
 
-        // A run already in flight holds the scheduling loop, so a platform outside that run's due set
-        // waits for it to finish rather than starting now. The caller needs to know which of the two
-        // happened, because telling the operator a service started when it is only queued behind a
-        // multi-hour download is the same lie the Run Now control used to tell. The flag is absent,
-        // not false, on the ordinary start path. [43]
-        var queuedBehindARun = active.Any(op => op.Metadata is not ScheduledPrefillServiceRunState);
-
-        _scheduledPrefill.TriggerServiceRun(platform);
-
-        if (queuedBehindARun)
+        // The run starts on its own task, so it no longer waits for a run already in flight and there is
+        // no queued outcome left to report. A false here means the claim was lost between the check
+        // above and the call, which is a second press landing in that window. [43][49]
+        if (!_scheduledPrefill.TriggerServiceRun(platform))
         {
-            return Accepted(new
-            {
-                message = $"Scheduled prefill queued for {platform}",
-                queued = true
-            });
+            return Conflict(ApiResponse.Conflict($"Scheduled prefill for {platform} is already running"));
         }
 
         return Accepted(ApiResponse.Message($"Scheduled prefill started for {platform}"));

@@ -1783,28 +1783,23 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
 
       try {
         const result = await ApiService.runScheduledPrefillService(platform);
-        // Three outcomes, three words. A run accepted behind one already in flight cannot start
-        // until that one finishes, so claiming it started would be the same dishonesty the
-        // whole-schedule Run Now was corrected for. A refused start is left pending on purpose:
-        // the platform is running, and clearing it here would re-enable the row before server
-        // truth lands.
+        // Two outcomes now: it started, or this platform was already running. A run started on its
+        // own task no longer waits behind another platform's run, so there is no queued outcome left
+        // to word. A refused start is left pending on purpose: the platform is running, and clearing
+        // it here would re-enable the row before server truth lands. [49]
         const runMessage = result.alreadyRunning
           ? t('management.schedules.services.scheduledPrefill.runServiceAlreadyRunning', {
               service: displayName
             })
-          : result.queued
-            ? t('management.schedules.services.scheduledPrefill.runServiceQueued', {
-                service: displayName
-              })
-            : t('management.schedules.services.scheduledPrefill.runServiceStarted', {
-                service: displayName
-              });
+          : t('management.schedules.services.scheduledPrefill.runServiceStarted', {
+              service: displayName
+            });
         addNotification({
           type: 'generic',
           status: 'completed',
           message: runMessage,
           details: {
-            notificationType: result.alreadyRunning || result.queued ? 'info' : 'success'
+            notificationType: result.alreadyRunning ? 'info' : 'success'
           }
         });
       } catch (err: unknown) {

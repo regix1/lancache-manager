@@ -522,49 +522,57 @@ public class ScheduledPrefillServiceTests
     // tracked operation for.
 
     [Fact]
-    public async Task TriggerServiceRun_RunsTheNamedPlatform_WithoutCostingDueSiblingsTheirTurn()
-    {
-        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
-        using var provider = harness.Provider;
-
-        // Battle.net and Riot are the two ENABLED services in the default config, and neither carries a
-        // last-run, so both are genuinely due on this tick. Naming Battle.net must ADD it to that tick
-        // rather than replace it: a per-row Run landing a second before the cadence used to drop every
-        // other due platform, so the run the operator was waiting for arrived a minute late. [44]
-        harness.Service.TriggerServiceRun(PrefillPlatform.BattleNet);
-        await InvokeExecuteWorkAsync(harness.Service);
-        harness.Service.Dispose();
-
-        Assert.Contains("Scheduled Prefill - BattleNet", harness.Tracker.RegisteredNames);
-        Assert.Contains("Scheduled Prefill - Riot", harness.Tracker.RegisteredNames);
-
-        // Still one run, and still nothing that is disabled.
-        Assert.Single(harness.Tracker.RegisteredNames, name => name == "Scheduled Prefill");
-        Assert.DoesNotContain("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
-        Assert.DoesNotContain("Scheduled Prefill - Epic", harness.Tracker.RegisteredNames);
-        Assert.DoesNotContain("Scheduled Prefill - Xbox", harness.Tracker.RegisteredNames);
-    }
-
-    [Fact]
-    public async Task TriggerServiceRun_DoesNotSweepInAnEnabledServiceThatIsNotDue()
+    public async Task TriggerServiceRun_RunsTheNamedPlatformOnItsOwn_WithoutWaitingForATick()
     {
         var harness = CreateRecordingHarness<EnabledServicesJustRanStateServiceProxy>();
         using var provider = harness.Provider;
 
-        // A per-row Run reaches the loop as the same MANUAL trigger the whole-schedule Run Now uses,
-        // and that trigger bypasses the due-check. The test above cannot see the difference because its
-        // stub has no last-runs, so every enabled service is due either way. Here BOTH enabled services
-        // ran a moment ago, so neither is due: naming Riot must run Riot on the strength of the request
-        // alone, and must not inherit the bypass and sweep Battle.net in with it. [44]
-        typeof(ScheduledServiceBase)
-            .GetProperty("CurrentRunTrigger", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(harness.Service, RunTrigger.Manual);
-        harness.Service.TriggerServiceRun(PrefillPlatform.Riot);
-        await InvokeExecuteWorkAsync(harness.Service);
+        // Both enabled services ran a moment ago, so neither is due and no tick is invoked here at all.
+        // Naming Riot must still run Riot, on the strength of the request and on its own task: the loop
+        // awaits one tick at a time, so a request that had to wait for a tick would wait behind whatever
+        // download that tick was holding. It must also not sweep in Battle.net, which is not due. [49]
+        Assert.True(harness.Service.TriggerServiceRun(PrefillPlatform.Riot));
+        await WaitForRegistrationAsync(harness.Tracker, "Scheduled Prefill - Riot");
         harness.Service.Dispose();
 
-        Assert.Contains("Scheduled Prefill - Riot", harness.Tracker.RegisteredNames);
         Assert.DoesNotContain("Scheduled Prefill - BattleNet", harness.Tracker.RegisteredNames);
+        Assert.DoesNotContain("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
+    }
+
+    [Fact]
+    public async Task TriggerServiceRun_StartsWhileAnotherPlatformIsAlreadyRunning()
+    {
+        var harness = CreateRecordingHarness<EnabledServicesJustRanStateServiceProxy>();
+        using var provider = harness.Provider;
+
+        // The whole point of the change. Two platforms asked for one after the other must BOTH run;
+        // before this, the second waited for the first run to finish, which for a real download meant
+        // hours. Neither is due, so each run here is the request's doing and nothing else. [49]
+        Assert.True(harness.Service.TriggerServiceRun(PrefillPlatform.Riot));
+        Assert.True(harness.Service.TriggerServiceRun(PrefillPlatform.BattleNet));
+
+        await WaitForRegistrationAsync(harness.Tracker, "Scheduled Prefill - Riot");
+        await WaitForRegistrationAsync(harness.Tracker, "Scheduled Prefill - BattleNet");
+        harness.Service.Dispose();
+    }
+
+    // The claim that stops one platform being run twice at once is deliberately NOT asserted here. A
+    // run in this harness resolves no daemon and finishes in microseconds, so the claim is released
+    // before a second call can observe it, and any test of it would pass on timing rather than on the
+    // guard. The user-visible half of that guarantee is covered by
+    // RunService_ForAPlatformAlreadyRunning_Refuses, which drives the route against the tracker. [49]
+
+    [Fact]
+    public void TriggerServiceRun_ForADisabledService_RefusesWithoutStartingAnything()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var provider = harness.Provider;
+
+        // Steam is disabled in the default config. [47]
+        Assert.False(harness.Service.TriggerServiceRun(PrefillPlatform.Steam));
+
+        harness.Service.Dispose();
+        Assert.DoesNotContain("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
     }
 
     // ---- A disabled service does not prefill, however the run was asked for ----
@@ -635,25 +643,22 @@ public class ScheduledPrefillServiceTests
     // reason. [47]
 
     [Fact]
-    public void RunService_BehindAnInFlightRun_AnswersQueued()
+    public void RunService_WhileADifferentPlatformRuns_StillStarts()
     {
         var (controller, active) = CreateRunServiceController();
         active.Add(RunLevelOperation());
 
-        var accepted = Assert.IsType<AcceptedResult>(controller.RunService(PrefillPlatform.BattleNet));
-
-        Assert.Equal(true, accepted.Value!.GetType().GetProperty("queued")!.GetValue(accepted.Value));
+        // A run in flight no longer holds this back, because the new run does not go through the
+        // scheduling loop that run is occupying. This used to answer "queued". [49]
+        Assert.IsType<AcceptedResult>(controller.RunService(PrefillPlatform.BattleNet));
     }
 
     [Fact]
-    public void RunService_WithNothingInFlight_AnswersStartedWithoutTheQueuedFlag()
+    public void RunService_WithNothingInFlight_Starts()
     {
         var (controller, _) = CreateRunServiceController();
 
-        var accepted = Assert.IsType<AcceptedResult>(controller.RunService(PrefillPlatform.BattleNet));
-
-        // The flag is absent, not false, on the ordinary start path.
-        Assert.Null(accepted.Value!.GetType().GetProperty("queued"));
+        Assert.IsType<AcceptedResult>(controller.RunService(PrefillPlatform.BattleNet));
     }
 
     [Fact]
@@ -841,6 +846,25 @@ public class ScheduledPrefillServiceTests
 
             return targetMethod?.ReturnType == typeof(Task) ? Task.CompletedTask : null;
         }
+    }
+
+    /// A per-row run executes on its own task, so the trigger returns before the run has registered
+    /// anything. Poll rather than await: the task is deliberately not exposed, and the alternative,
+    /// StopAsync, cancels the run it would be waiting for.
+    private static async Task WaitForRegistrationAsync(RecordingTrackerProxy tracker, string name)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (tracker.RegisteredNames.Contains(name))
+            {
+                return;
+            }
+
+            await Task.Delay(25);
+        }
+
+        Assert.Fail($"'{name}' was never registered. Registered: {string.Join(", ", tracker.RegisteredNames)}");
     }
 
     private static Task InvokeExecuteWorkAsync(ScheduledPrefillService service)

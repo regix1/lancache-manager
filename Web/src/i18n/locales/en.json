@@ -3940,8 +3940,7 @@
           "runService": "Run",
           "runServiceTooltip": "Run this service now",
           "runServiceStarted": "{{service}} started",
-          "runServiceAlreadyRunning": "{{service}} is already running",
-          "runServiceQueued": "{{service}} will run next"
+          "runServiceAlreadyRunning": "{{service}} is already running"
         },
         "epicMapping": {
           "displayName": "Epic Game Mapping",

@@ -43,12 +43,29 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     private readonly HashSet<PrefillPlatform> _ranThisProcess = new();
 
     /// <summary>
-    /// Platforms a per-row Run button has asked for since the loop last woke. A manual tick with
-    /// anything in here runs exactly those platforms instead of every enabled one, which is how a
-    /// single platform gets run without widening the argument-free
-    /// <see cref="ScheduledServiceBase.TriggerImmediateRun"/> that four other call sites share. [29]
+    /// Platforms with a run in flight right now, from the scheduling loop or from a per-row Run. The
+    /// claim is what makes one platform's run exclusive: two runs on one platform share a persistent
+    /// container, and the daemon's own <c>IsPrefilling</c> check is an unlocked read-then-write, so the
+    /// loser would overwrite the live session's selected apps before being rejected. The tracker check
+    /// in the controller cannot stand in for this, because it is not atomic with the loop's due pick.
+    /// Claimed before a platform joins a run and released when that platform's run ends. [49]
     /// </summary>
-    private readonly ConcurrentQueue<PrefillPlatform> _manualServiceRuns = new();
+    private readonly ConcurrentDictionary<PrefillPlatform, byte> _runningServices = new();
+
+    /// <summary>
+    /// Per-row runs execute OUTSIDE the scheduling loop. The loop awaits one tick at a time, so a tick
+    /// holding a multi-hour download made an on-demand run for a different platform wait for it to
+    /// finish. Each entry is one detached run, kept so <see cref="StopAsync"/> can await it: this
+    /// service is registered after the daemons and therefore stops FIRST, so a run left unawaited would
+    /// have its container torn down underneath it. [49]
+    /// </summary>
+    private readonly ConcurrentDictionary<PrefillPlatform, Task> _detachedRuns = new();
+
+    /// <summary>
+    /// Cancels the detached runs above. Tied to this service's own stop rather than the loop's tick
+    /// token, because a detached run outlives the tick that started it.
+    /// </summary>
+    private readonly CancellationTokenSource _detachedRunLifetime = new();
 
     /// <summary>
     /// Stable service key used by <see cref="ServiceScheduleRegistry"/> (read via reflection)
@@ -102,59 +119,106 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     public bool HasAnyServiceEnabled()
         => ScheduledPrefillRunGates.HasAnyEnabledService(_stateService.GetScheduledPrefillConfig().GetServicesInRunOrder());
 
-    /// <inheritdoc />
-    /// <remarks>
-    /// The whole-schedule Run Now runs every enabled service, so it drops any platform a per-row Run
-    /// button had queued. Left in place, one queued platform would narrow this run down to that
-    /// platform alone, because the loop honors a single pending-run flag whichever button set it.
-    /// </remarks>
-    public override void TriggerImmediateRun()
-    {
-        _manualServiceRuns.Clear();
-        base.TriggerImmediateRun();
-    }
-
     /// <summary>
-    /// Runs ONE platform immediately, outside the per-service due-check. Backs the Schedules page's
-    /// per-row Run button, which needs a run it can name a platform for: the shared
-    /// <see cref="ScheduledServiceBase.TriggerImmediateRun"/> takes no arguments and
-    /// <c>scheduledPrefill</c> is a single registry key, so neither can express one platform.
+    /// Runs ONE platform right now, on its own task, outside the scheduling loop. Backs the Schedules
+    /// page's per-row Run button. It cannot go through the loop: the loop awaits one tick at a time, so
+    /// a tick holding a multi-hour download would make this wait for that download to finish, which is
+    /// the opposite of what the button says. Returns true when a run was started, false when the
+    /// platform is disabled, unknown, or already running.
     /// Throws when <paramref name="serviceId"/> is not a configured platform, matching
     /// <see cref="ScheduledPrefillConfigDto.GetEffectivePersistenceMode"/>'s treatment of the same
-    /// bad input. [29]
+    /// bad input. [29][49]
     /// </summary>
-    public void TriggerServiceRun(PrefillPlatform serviceId)
+    public bool TriggerServiceRun(PrefillPlatform serviceId)
     {
         if (!Enum.IsDefined(serviceId))
         {
             throw new ArgumentOutOfRangeException(nameof(serviceId), serviceId, "Unknown scheduled prefill service id.");
         }
 
-        _manualServiceRuns.Enqueue(serviceId);
+        var config = _stateService.GetScheduledPrefillConfig();
+        var serviceConfig = config.GetServicesInRunOrder().FirstOrDefault(s => s.ServiceId == serviceId);
 
-        // base, not this: the override above exists to clear the queue for a whole-schedule run, and
-        // clearing the platform this call just queued would run every enabled service instead.
-        base.TriggerImmediateRun();
+        // A disabled service does not prefill, however the run was asked for. [47]
+        if (serviceConfig is null || !serviceConfig.Enabled)
+        {
+            return false;
+        }
+
+        // The claim is the whole guard. Losing it means this platform already has a run, from the loop
+        // or from another press, and a second one would share its container. [49]
+        if (!_runningServices.TryAdd(serviceId, 0))
+        {
+            return false;
+        }
+
+        _detachedRuns[serviceId] = RunOneServiceAsync(serviceConfig, config);
+        return true;
+    }
+
+    /// <summary>
+    /// The detached body behind <see cref="TriggerServiceRun"/>. Owns the claim taken by its caller and
+    /// releases it here rather than in <c>RunAndStampServiceAsync</c>, because this path claims before
+    /// the run exists. Never throws: an unobserved exception on a detached task is lost, and the
+    /// scheduling loop's own handler is not in this call chain. [49]
+    /// </summary>
+    private async Task RunOneServiceAsync(
+        ScheduledPrefillServiceConfigDto serviceConfig,
+        ScheduledPrefillConfigDto config)
+    {
+        try
+        {
+            // The platform list is passed explicitly, so this path never reads CurrentRunTrigger and
+            // cannot inherit the loop's manual-trigger bypass. [49]
+            await RunDueServicesAsync([serviceConfig], config, _detachedRunLifetime.Token);
+        }
+        catch (OperationCanceledException) when (_detachedRunLifetime.IsCancellationRequested)
+        {
+            _logger.LogInformation("[ScheduledPrefill] On-demand run for {Service} stopped at shutdown", serviceConfig.ServiceId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[ScheduledPrefill] On-demand run for {Service} failed", serviceConfig.ServiceId);
+        }
+        finally
+        {
+            _runningServices.TryRemove(serviceConfig.ServiceId, out _);
+            _detachedRuns.TryRemove(serviceConfig.ServiceId, out _);
+
+            // The loop broadcasts its own run-end; a detached run has no loop iteration behind it, so
+            // without this the Schedules status dot stays lit after it finishes. [49]
+            RaiseExecutionStateChanged();
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Detached per-row runs outlive the tick that started them, so the base stop is not enough. This
+    /// service is registered after the prefill daemons and therefore stops FIRST: returning while a run
+    /// is still going would let the daemons tear its session down underneath it. Cancel, then wait,
+    /// bounded by the caller's own shutdown token so a stuck run cannot hold the host open. [49]
+    /// </remarks>
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await _detachedRunLifetime.CancelAsync();
+
+        var running = _detachedRuns.Values.ToArray();
+        if (running.Length > 0)
+        {
+            _logger.LogInformation("[ScheduledPrefill] Waiting for {Count} on-demand run(s) to stop", running.Length);
+            await Task.WhenAny(Task.WhenAll(running), Task.Delay(Timeout.Infinite, cancellationToken));
+        }
+
+        await base.StopAsync(cancellationToken);
     }
 
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
         var config = _stateService.GetScheduledPrefillConfig();
 
-        // Platforms a per-row Run named since the last tick. A disabled service is never run, however
-        // it was asked for: the enabled flag is the operator's statement that this platform should not
-        // prefill, and an explicit request is not an exemption from it. The route rejects a disabled
-        // platform up front so the press still gets an answer instead of a silent no-op. [47]
-        var requestedServices = new HashSet<PrefillPlatform>();
-        while (_manualServiceRuns.TryDequeue(out var requestedService))
-        {
-            requestedServices.Add(requestedService);
-        }
-
         // Nothing enabled: skip the whole tick before building the due-set or touching any
         // daemon/session/tracker state. Saves the per-minute work while the feature is fully idle; the
-        // schedule resumes normally as soon as any service is re-enabled. A queued request cannot keep
-        // the tick alive on its own, because a disabled platform no longer runs on request. [47]
+        // schedule resumes normally as soon as any service is re-enabled.
         if (!ScheduledPrefillRunGates.HasAnyEnabledService(config.GetServicesInRunOrder()))
         {
             _logger.LogDebug("[ScheduledPrefill] Skipping tick - no services are enabled");
@@ -162,31 +226,33 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         }
 
         // A whole-schedule "Run Now"/"Run All" bypasses the due-check for this single tick and runs
-        // every enabled service. A per-row Run also arrives as a manual trigger, but it must NOT
-        // bypass: it asked for one platform, and sweeping in every enabled service would make the row
-        // button behave like the card-level one. The queue tells the two apart, because the
-        // whole-schedule path clears it on its way through TriggerImmediateRun. [29][44]
-        var bypassDueCheck = CurrentRunTrigger == RunTrigger.Manual && requestedServices.Count == 0;
+        // every enabled service. Per-row Runs no longer arrive here at all: they execute on their own
+        // task so they do not wait for a tick that is holding a long download, so a manual trigger
+        // reaching this loop can only be the card-level one. [29][49]
+        var bypassDueCheck = CurrentRunTrigger == RunTrigger.Manual;
         var now = DateTime.UtcNow;
 
-        // Build the DUE set: every platform a per-row Run named, UNIONED with each enabled service
-        // whose own custom schedule (when it has one) or IntervalHours, plus its persisted last-run,
-        // says it should run this tick (or every enabled service when a whole-schedule manual run
-        // bypassed the due-check). A union rather than a replacement: running one service on demand
-        // must not cost a genuinely due sibling its turn on the same tick. [44]
+        // Build the DUE set: each enabled service whose own custom schedule (when it has one) or
+        // IntervalHours, plus its persisted last-run, says it should run this tick, or every enabled
+        // service when a whole-schedule manual run bypassed the due-check.
         var dueServices = new List<ScheduledPrefillServiceConfigDto>();
         foreach (var serviceConfig in config.GetServicesInRunOrder())
         {
-            // The enabled flag is answered FIRST and it governs every path into a run, including an
-            // explicit per-row request. A disabled service does not prefill. [47]
+            // The enabled flag is answered FIRST and it governs every path into a run. A disabled
+            // service does not prefill. [47]
             if (!serviceConfig.Enabled)
             {
                 continue;
             }
 
-            if (requestedServices.Contains(serviceConfig.ServiceId))
+            // Skip a platform an on-demand run already holds. Both paths claim the same set, so this is
+            // what stops the loop starting a second run on a container that is already downloading. The
+            // claim is released when that platform's run ends. [49]
+            if (_runningServices.ContainsKey(serviceConfig.ServiceId))
             {
-                dueServices.Add(serviceConfig);
+                _logger.LogDebug(
+                    "[ScheduledPrefill] Skipping {Service} this tick - it already has a run in flight",
+                    serviceConfig.ServiceId);
                 continue;
             }
 
@@ -197,12 +263,24 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             }
 
             var lastRun = _stateService.GetScheduledPrefillServiceLastRun(serviceConfig.ServiceId.ToString());
-            var hasRunThisProcess = _ranThisProcess.Contains(serviceConfig.ServiceId);
+
+            // Locked: a detached run writes this set from outside the loop, so an unlocked read races a
+            // concurrent Add. [49]
+            bool hasRunThisProcess;
+            lock (_ranThisProcess)
+            {
+                hasRunThisProcess = _ranThisProcess.Contains(serviceConfig.ServiceId);
+            }
+
             if (ScheduledPrefillRunGates.IsServiceDue(serviceConfig.IntervalHours, lastRun, now, hasRunThisProcess, serviceConfig.CustomSchedule))
             {
                 dueServices.Add(serviceConfig);
             }
         }
+
+        // Claim each platform this tick is about to run, dropping any a detached run took between the
+        // check above and here. The claim is released as that platform's run ends. [49]
+        dueServices = dueServices.Where(s => _runningServices.TryAdd(s.ServiceId, 0)).ToList();
 
         // #1 HAZARD: an empty poll tick (no due service) must emit NO Started/Completed notification,
         // otherwise the 1-minute poll would spam the UI every minute. Only notify when >= 1 runs.
@@ -489,6 +567,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             {
                 StampScheduleBasis([serviceConfig]);
             }
+
+            // Release the in-flight claim this platform's caller took before the run started, so the
+            // next tick or the next button press may run it again. Released per service rather than
+            // per run: a fast skip must not stay claimed until its slowest sibling finishes. [49]
+            _runningServices.TryRemove(serviceConfig.ServiceId, out _);
 
             // Stamp the GENUINE last-run (the "Last run" the schedule view shows) ONLY when the
             // service actually ran its prefill to completion. A skip / needs-login / failure advances
