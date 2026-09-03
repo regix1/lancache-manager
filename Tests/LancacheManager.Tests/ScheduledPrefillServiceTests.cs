@@ -522,6 +522,32 @@ public class ScheduledPrefillServiceTests
     // tracked operation for.
 
     [Fact]
+    public async Task ARunThatThrowsBeforeItsServicesStart_StillLetsThemRunAgain()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var provider = harness.Provider;
+
+        // Platforms are claimed before the fan-out so the loop and an on-demand run cannot both take
+        // one. Anything between the claim and the fan-out can throw, including the run-level Started
+        // broadcast, and a claim left behind is permanent: the loop skips that platform on every
+        // later tick and the service silently stops running until the process restarts. The tick
+        // below is driven twice, and the second one has to still see its services. [54]
+        harness.Notifications.FailNextStarted = true;
+
+        var thrown = await Record.ExceptionAsync(() => InvokeExecuteWorkAsync(harness.Service));
+        Assert.NotNull(thrown);
+
+        await InvokeExecuteWorkAsync(harness.Service);
+        harness.Service.Dispose();
+
+        // Counted rather than merely present: the failed tick registers its own run-level operation
+        // before it throws, so asking whether one exists cannot tell the two ticks apart. A second
+        // one only exists if the second tick found services to run, which is exactly what a leaked
+        // claim prevents.
+        Assert.Equal(2, harness.Tracker.RegisteredNames.Count(name => name == "Scheduled Prefill"));
+    }
+
+    [Fact]
     public async Task TriggerServiceRun_RunsTheNamedPlatformOnItsOwn_WithoutWaitingForATick()
     {
         var harness = CreateRecordingHarness<EnabledServicesJustRanStateServiceProxy>();
@@ -879,12 +905,12 @@ public class ScheduledPrefillServiceTests
         where TStateService : DispatchProxy
     {
         var trackerProxy = DispatchProxy.Create<IUnifiedOperationTracker, RecordingTrackerProxy>();
-        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
+        var notificationsProxy = DispatchProxy.Create<ISignalRNotificationService, FailableNotificationsProxy>();
         var stateService = (IStateService)DispatchProxy.Create<IStateService, TStateService>();
 
         var services = new ServiceCollection();
         services.AddSingleton((IUnifiedOperationTracker)trackerProxy);
-        services.AddSingleton(notifications);
+        services.AddSingleton((ISignalRNotificationService)notificationsProxy);
         var provider = services.BuildServiceProvider();
 
         // No daemon is registered in this provider, so every due platform stops at the first gate and
@@ -895,13 +921,48 @@ public class ScheduledPrefillServiceTests
             provider.GetRequiredService<IServiceScopeFactory>(),
             stateService);
 
-        return new RecordingHarness(service, (RecordingTrackerProxy)trackerProxy, provider);
+        return new RecordingHarness(
+            service,
+            (RecordingTrackerProxy)trackerProxy,
+            (FailableNotificationsProxy)notificationsProxy,
+            provider);
     }
 
     private sealed record RecordingHarness(
         ScheduledPrefillService Service,
         RecordingTrackerProxy Tracker,
+        FailableNotificationsProxy Notifications,
         ServiceProvider Provider);
+
+    // No-ops like the null proxy, except that a test can make the next run-level Started throw. That
+    // is the reachable way into the window between claiming the platforms and starting them.
+    // Not sealed: DispatchProxy.Create derives the concrete proxy type from this class.
+    private class FailableNotificationsProxy : DispatchProxy
+    {
+        /// <summary>Makes the next run-level ScheduledPrefillStarted throw, then clears itself.</summary>
+        public bool FailNextStarted { get; set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (FailNextStarted
+                && targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
+                && args?[0] as string == SignalREvents.ScheduledPrefillStarted)
+            {
+                FailNextStarted = false;
+                throw new InvalidOperationException("hub send failed");
+            }
+
+            var returnType = targetMethod?.ReturnType;
+            if (returnType == typeof(void)) return null;
+            if (returnType == typeof(Task)) return Task.CompletedTask;
+            if (returnType is not null && returnType.IsValueType && Nullable.GetUnderlyingType(returnType) is null)
+            {
+                return Activator.CreateInstance(returnType);
+            }
+
+            return null;
+        }
+    }
 
     // Records the name every operation registers under, in order, without cancelling anything.
     // Not sealed: DispatchProxy.Create derives the concrete proxy type from this class.

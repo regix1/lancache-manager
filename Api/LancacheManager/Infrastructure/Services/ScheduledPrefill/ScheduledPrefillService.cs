@@ -472,6 +472,17 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
             // Tracker disposes the adopted CTS exactly once inside CompleteOperation; we must not.
             tracker.CompleteOperation(operationId, success, error, cancelled);
+
+            // Release every platform this run claimed. RunAndStampServiceAsync releases each one as it
+            // finishes, so this is a no-op for a run that got that far, and the point is the run that
+            // does NOT: the claims are taken before the fan-out, and anything between them and it can
+            // throw, including the run-level Started broadcast. A claim left behind is permanent, and
+            // the loop then skips that platform on every future tick, so the service silently stops
+            // running until the process restarts. [54]
+            foreach (var serviceConfig in dueServices)
+            {
+                _runningServices.TryRemove(serviceConfig.ServiceId, out _);
+            }
         }
 
         _logger.LogInformation("[ScheduledPrefill] Run complete");
