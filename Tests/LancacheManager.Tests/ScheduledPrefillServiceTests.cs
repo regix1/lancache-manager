@@ -599,6 +599,33 @@ public class ScheduledPrefillServiceTests
         Assert.IsType<ConflictObjectResult>(controller.RunService(PrefillPlatform.Steam));
     }
 
+    // ---- Running state on the schedule rows is PER SERVICE ----
+    // The services run concurrently, so a row that read a schedule-wide flag refused to start while any
+    // other service was downloading, which is one download blocking every other row's button. [48]
+
+    [Fact]
+    public void GetSchedule_ReportsRunningPerService_NotForTheWholeSchedule()
+    {
+        var (controller, active) = CreateRunServiceController();
+        active.Add(RunLevelOperation());
+        active.Add(new OperationInfo
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.ScheduledPrefill,
+            Name = "Scheduled Prefill - BattleNet",
+            Metadata = new ScheduledPrefillServiceRunState(PrefillPlatform.BattleNet)
+        });
+
+        var schedule = Assert.IsType<ScheduledPrefillServiceScheduleDto[]>(
+            Assert.IsType<OkObjectResult>(controller.GetSchedule().Result).Value);
+
+        // Battle.net is downloading. Riot is not, and the run-level operation must not make it look
+        // like it is: that is what disabled every other row's Run button mid-run.
+        Assert.True(schedule.Single(row => row.ServiceId == PrefillPlatform.BattleNet).IsRunning);
+        Assert.False(schedule.Single(row => row.ServiceId == PrefillPlatform.Riot).IsRunning);
+        Assert.False(schedule.Single(row => row.ServiceId == PrefillPlatform.Steam).IsRunning);
+    }
+
     // ---- The per-platform run route tells a start from a queue ----
     // A run already in flight holds the loop, so a platform outside it only queues. The row's toast
     // must say so rather than claim a start, which is what the response's queued flag carries.

@@ -433,6 +433,14 @@ export function ScheduledPrefillScheduleDetail({
       void refreshSchedule();
     };
 
+    // A start moves no timing, so the broadcast gate below cannot see it, yet each row's Run button
+    // reads a per-service running flag that only the schedule fetch carries. Without this a service
+    // started from its own row or by the cadence would keep an enabled button until the run ended.
+    // Still no progress lines on this card; this refetches the row state, nothing else. [48]
+    const handleStarted = () => {
+      void refreshSchedule();
+    };
+
     // The generic schedule broadcast carries the full ServiceScheduleInfo[] and fires on every
     // tracked service's work-tick (roughly once a minute) plus schedule mutations. Refetching
     // the per-service block on every one of those would hammer a constrained server, so gate
@@ -466,10 +474,12 @@ export function ScheduledPrefillScheduleDetail({
       }
     };
 
+    on('ScheduledPrefillStarted', handleStarted);
     on('ScheduledPrefillCompleted', handleCompleted);
     on('SchedulesUpdated', handleSchedulesUpdated);
 
     return () => {
+      off('ScheduledPrefillStarted', handleStarted);
       off('ScheduledPrefillCompleted', handleCompleted);
       off('SchedulesUpdated', handleSchedulesUpdated);
     };
@@ -568,6 +578,7 @@ export function ScheduledPrefillScheduleDetail({
       nextTiming: string;
       nextRunUtc: string | null;
       lastRunUtc: string | null;
+      isRunning: boolean;
     }[] = [];
     const containerByService = new Map<PersistentPrefillServiceId, PersistentPrefillContainerDto>(
       persistentContainers.map((container) => [container.service, container])
@@ -626,7 +637,8 @@ export function ScheduledPrefillScheduleDetail({
           customSchedule: enabled ? customSchedule : null
         }),
         nextRunUtc: upcomingNextRunUtc,
-        lastRunUtc: item.lastRunUtc
+        lastRunUtc: item.lastRunUtc,
+        isRunning: item.isRunning
       });
     }
     return rows;
@@ -722,7 +734,7 @@ export function ScheduledPrefillScheduleDetail({
                       lastRunUtc={row.lastRunUtc}
                       disabled={disabled}
                       runPending={isRunServicePending(row.serviceId)}
-                      runDisabled={runServiceDisabled}
+                      runDisabled={runServiceDisabled || row.isRunning}
                       onRun={onRunService}
                       onIntervalChange={(serviceKey, hours) =>
                         void handleServiceIntervalChange(serviceKey, hours)

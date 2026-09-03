@@ -60,6 +60,16 @@ public class ScheduledPrefillConfigController : ControllerBase
     {
         var config = _stateService.GetScheduledPrefillConfig();
 
+        // Which platforms have a run of their own in flight. One tracked operation per service means
+        // this is answerable per row; the schedule-wide flag cannot distinguish "Steam is downloading"
+        // from "Xbox may not start", which is what stopped a second service being run by hand. [48]
+        var runningServices = _operationTracker
+            .GetActiveOperations(OperationType.ScheduledPrefill)
+            .Select(op => op.Metadata)
+            .OfType<ScheduledPrefillServiceRunState>()
+            .Select(state => state.ServiceId)
+            .ToHashSet();
+
         var schedule = new List<ScheduledPrefillServiceScheduleDto>();
         foreach (var service in config.GetServicesInRunOrder())
         {
@@ -75,6 +85,7 @@ public class ScheduledPrefillConfigController : ControllerBase
                 ServiceId = service.ServiceId,
                 IntervalHours = service.IntervalHours,
                 Enabled = service.Enabled,
+                IsRunning = runningServices.Contains(service.ServiceId),
                 LastRunUtc = actualLastRun,
                 NextRunUtc = ScheduledPrefillRunGates.ComputeNextRunUtc(service.IntervalHours, scheduleBasis, service.CustomSchedule),
                 CustomSchedule = service.CustomSchedule
@@ -261,6 +272,13 @@ public sealed class ScheduledPrefillServiceScheduleDto
 
     /// <summary>Master on/off for this service.</summary>
     public required bool Enabled { get; init; }
+
+    /// <summary>
+    /// True while THIS platform has a run of its own in flight. Per service, not per schedule: the
+    /// services run concurrently, so a row must not read "something is running" as "I am running" and
+    /// refuse a second start. [48]
+    /// </summary>
+    public required bool IsRunning { get; init; }
 
     /// <summary>Last time this service actually ran (UTC), or null when it has never run.</summary>
     public DateTime? LastRunUtc { get; init; }

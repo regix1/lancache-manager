@@ -96,6 +96,9 @@ export interface ScheduledPrefillServiceScheduleDto {
    * having to fetch the whole config first. */
   customSchedule?: CustomSchedule | null;
   enabled: boolean;
+  /** True while THIS platform has a run in flight. Per service, not per schedule: the services run
+   * concurrently, so one running service must not disable another's Run button. */
+  isRunning: boolean;
   lastRunUtc: string | null;
   nextRunUtc: string | null;
 }

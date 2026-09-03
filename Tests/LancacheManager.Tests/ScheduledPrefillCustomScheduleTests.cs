@@ -116,6 +116,7 @@ public class ScheduledPrefillCustomScheduleTests
             ServiceId = PrefillPlatform.Steam,
             IntervalHours = 0d,
             Enabled = true,
+            IsRunning = false,
             LastRunUtc = null,
             NextRunUtc = new DateTime(2026, 1, 2, 2, 0, 0, DateTimeKind.Utc),
             CustomSchedule = DailySchedule

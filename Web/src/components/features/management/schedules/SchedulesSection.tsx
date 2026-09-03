@@ -1234,9 +1234,13 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
           runNowDisabled={isRunNowDisabled || isDimmed}
           onRunService={handleRunService}
           isRunServicePending={isRunServicePending}
-          /* Server truth only. A service whose notifications are silent emits events the browser
-             drops, so an event-derived running state would leave its row enabled mid-run. [34] */
-          runServiceDisabled={!isAdmin || service.isRunning}
+          /* Permission only. Whether a given row may start is per SERVICE, and each row applies its
+             own server-sent running flag: the services run concurrently, so gating every row on the
+             schedule-wide flag meant one download blocked starting any of the others by hand. Server
+             truth on both counts, because a service whose notifications are silent emits events the
+             browser drops, and an event-derived running state would leave its row enabled mid-run.
+             [34][48] */
+          runServiceDisabled={!isAdmin}
         />
       </Card>
     </HighlightGlow>
