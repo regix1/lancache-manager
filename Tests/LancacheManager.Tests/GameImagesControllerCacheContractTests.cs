@@ -276,6 +276,61 @@ public sealed class GameImagesControllerCacheContractTests
             controller.Response.Headers["Cache-Control"].ToString());
     }
 
+    [Fact]
+    public async Task AvailableImages_AdvertisesASteamFirstSlugThatHasNoRowOfItsOwnAsync()
+    {
+        // Minecraft Dungeons is Steam-first with NO Xbox row and no embedded banner, so neither the
+        // stored-row pass nor the curated pass reaches it, yet the serve route answers it from Steam's
+        // header. The row that decides whether to draw a banner asks by SLUG, so leaving the slug out
+        // read as "no artwork" for a game the server was serving perfectly well. Its Steam id was
+        // advertised the whole time, which is why only some Xbox games lost their art. [50]
+        const string slug = "minecraft-dungeons";
+        const string steamAppId = "1672970";
+        var steamStoredAtUtc = new DateTime(2026, 8, 3, 7, 15, 0, DateTimeKind.Utc);
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"game-images-steam-first-rowless-{Guid.NewGuid():N}")
+            .Options;
+        await using var context = new AppDbContext(options);
+        context.GameImages.Add(new GameImage
+        {
+            AppId = steamAppId,
+            Service = "steam",
+            ImageData = ArtBytes,
+            ContentType = "image/jpeg",
+            FetchedAtUtc = steamStoredAtUtc
+        });
+        await context.SaveChangesAsync();
+
+        var imageCacheService = CreateProxy<IImageCacheService>((method, args) =>
+            method.Name == nameof(IImageCacheService.GetImageAsync)
+                && (string)args![0]! == steamAppId
+                && (string)args[1]! == "steam"
+                    ? Task.FromResult<(byte[] imageBytes, string contentType, DateTime storedAtUtc)?>(
+                        (ArtBytes, "image/jpeg", steamStoredAtUtc))
+                    : DefaultReturn(method.ReturnType));
+
+        var controller = CreateController(
+            new BlockingServiceProvider(new ManualResetEventSlim(false), new ManualResetEventSlim(true)),
+            CreateDefaultProxy<IUnifiedOperationTracker>(),
+            conflict: null,
+            new RecordingOperationQueue(new QueuedOperationResponse()),
+            imageCacheService,
+            context);
+
+        var listed = Assert.IsType<AvailableGameImagesResponse>(
+            Assert.IsType<OkObjectResult>(
+                (await controller.GetAvailableImageIdsAsync(CancellationToken.None)).Result).Value);
+
+        // Advertised by slug, at the version of the bytes actually served.
+        var advertised = Assert.Contains(slug, (IDictionary<string, long>)listed.Images);
+        Assert.Equal(new DateTimeOffset(steamStoredAtUtc).ToUnixTimeSeconds(), advertised);
+
+        // And the route really does serve it, so the advertisement is not a promise nothing keeps.
+        Assert.IsType<FileContentResult>(
+            await controller.GetNameKeyedHeaderImageAsync("xbox", slug, advertised, CancellationToken.None));
+    }
+
     /// <summary>
     /// A curated banner with no row is versioned by the cache generation, and a row's version is the
     /// second its bytes were stored. Both were unix seconds, so they could land on the same number,

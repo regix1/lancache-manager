@@ -254,6 +254,25 @@ public class GameImagesController : ControllerBase
                 .FirstOrDefault(version => version != null) ?? EmbeddedBannerVersion;
         }
 
+        // Also advertise a curated slug the serve route answers Steam-first. Those games have no row
+        // of their own and no embedded banner, so neither loop above reaches them, yet the route
+        // returns Steam's header for them. The row deciding whether to draw a banner asks by slug, so
+        // a slug missing here reads as "no artwork" for a game whose banner the server would serve
+        // perfectly well - which is what left Minecraft Dungeons blank while its Steam id was
+        // advertised all along. Only slugs whose Steam header is actually stored qualify. [50]
+        foreach (var (service, slug, steamAppId) in NameKeyedSteamAppIds.SteamBackedSlugs())
+        {
+            if (images.ContainsKey(slug))
+            {
+                continue;
+            }
+
+            if (steamVersions.TryGetValue(steamAppId.ToString(), out var steamVersion))
+            {
+                images[slug] = steamVersion;
+            }
+        }
+
         return Ok(new AvailableGameImagesResponse { Images = images });
     }
 

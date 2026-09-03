@@ -24,6 +24,15 @@ public static class NameKeyedSteamAppIds
         new(LoadBySlug);
 
     /// <summary>
+    /// Every curated (service, slug) that resolves to a Steam appId. The serve route answers such a
+    /// slug from Steam's stored header even though nothing is stored under the slug itself, so
+    /// /available has to report those slugs too. Without this it advertised the Steam appId alone,
+    /// while the row asking whether a banner exists asks by slug, and the banner never rendered. [50]
+    /// </summary>
+    public static IEnumerable<(string Service, string Slug, long SteamAppId)> SteamBackedSlugs()
+        => _bySlug.Value.Select(entry => (entry.Key.Service, entry.Key.Slug, entry.Value));
+
+    /// <summary>
     /// Resolves the Steam appId for a name-keyed (service, gameName), or null when the service is
     /// not name-keyed, the name is empty, or no Steam mapping exists for that game (in which case
     /// the caller falls back to the curated embedded banner).
