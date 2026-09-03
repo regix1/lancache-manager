@@ -428,6 +428,9 @@ public abstract partial class PrefillDaemonServiceBase
         session.LastPrefillCompletedAt = null;
         session.LastPrefillDurationSeconds = null;
         session.LastPrefillStatus = null;
+        // The reason belongs to the run that produced it; a stale one would be reported as this
+        // run's failure reason by the scheduler. [6]
+        session.ErrorMessage = null;
         // Seed stall-watchdog state so a prefill that never moves is detectable from the start.
         // Written via Volatile so the cleanup-timer thread observes a torn-free tick value.
         Volatile.Write(ref session.LastProgressTicksUtc, DateTime.UtcNow.Ticks);
@@ -479,8 +482,11 @@ public abstract partial class PrefillDaemonServiceBase
         }
 
         // The terminal funnel is the SOLE setter of IsPrefilling=false (started/download keep it true).
-        session.IsPrefilling = false;
+        // The state is stamped FIRST because IsPrefilling is what the scheduler's run loop waits on:
+        // clearing the flag first leaves a window where the loop exits and reads the PREVIOUS state,
+        // so a failed run would look like a finished one and be reported as completed. [28]
         session.PrefillState = terminalState;
+        session.IsPrefilling = false;
         session.LastProgress = null;
         Volatile.Write(ref session.LastProgressTicksUtc, 0L);
         session.CurrentAppId = null;
@@ -881,6 +887,14 @@ public abstract partial class PrefillDaemonServiceBase
             if (!IsSessionLive(session))
             {
                 return;
+            }
+
+            // Carry the daemon's own words onto the session so the scheduler can tell the user why
+            // the run failed instead of a generic sentence. Mirrors the stall path, which stamps the
+            // same field before its terminal transition. [5]
+            if (terminalState == PrefillState.Failed && !string.IsNullOrWhiteSpace(progress.ErrorMessage))
+            {
+                session.ErrorMessage = progress.ErrorMessage;
             }
 
             await TransitionToTerminalAsync(session, terminalState);

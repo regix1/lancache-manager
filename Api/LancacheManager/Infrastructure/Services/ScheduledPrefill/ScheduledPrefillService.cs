@@ -974,6 +974,27 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 return ScheduledPrefillServiceRunResult.Cancelled;
             }
 
+            // A run the daemon ENDED WITH AN ERROR leaves the loop the same way a natural finish does,
+            // and it usually transferred zero bytes, so the completion message below classified it as
+            // "all selected games were already cached" and stamped a successful run. The terminal
+            // funnel is the sole writer of this state, so it is the authoritative outcome. [1]
+            if (session.PrefillState == PrefillState.Failed)
+            {
+                var daemonFailure = !string.IsNullOrWhiteSpace(session.ErrorMessage);
+                await ReportProgressAsync(
+                    notifications,
+                    serviceRun,
+                    "failed",
+                    daemonFailure ? session.ErrorMessage! : "Prefill failed",
+                    runShowNotification,
+                    downloadSessionId: sessionId,
+                    percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                    // The daemon's own text has no key to translate it by, so only the generic
+                    // sentence this method wrote itself carries one.
+                    stageKey: daemonFailure ? null : "signalr.scheduledPrefill.failed");
+                return ScheduledPrefillServiceRunResult.Failed;
+            }
+
             var completion = BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force);
             await ReportProgressAsync(
                 notifications,

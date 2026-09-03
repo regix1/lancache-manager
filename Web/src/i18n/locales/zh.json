@@ -7418,6 +7418,7 @@
       "downloadingGame": "正在下载 {{game}}（{{completed}}/{{total}} 个游戏）",
       "failedMaxRuntime": "已超过服务的最长运行时间",
       "failedStalled": "预填充已停滞（无进度）",
+      "failed": "预填充失败",
       "stopped": "预填充已停止",
       "completeWithBytes": "预填充完成（已下载 {{bytes}}）",
       "completeAllCached": "预填充完成，所选游戏均已缓存（0 字节）。启用强制重新下载可再次下载。",

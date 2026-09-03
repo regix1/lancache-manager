@@ -106,6 +106,28 @@ public class PrefillProgressLoginPhaseGuardTests
         Assert.Equal(1, terminalBroadcasts);
     }
 
+    /// <summary>
+    /// The daemon's own words are the only description of WHY a run failed, and the scheduler reads
+    /// them off the session after the run loop, so the error tick has to leave them there.
+    /// </summary>
+    [Fact]
+    public async Task ErrorProgress_SessionPrefilling_StampsTheDaemonReasonOnTheSession()
+    {
+        var (daemon, session, _) = CreateDaemonWithSession();
+
+        session.IsPrefilling = true;
+        session.PrefillState = PrefillState.Downloading;
+        session.PrefillStartedAt = DateTime.UtcNow.AddSeconds(-10);
+        session.TerminalCompletedFlag = 0;
+
+        await daemon.InvokeNotifyPrefillProgressAsync(
+            session,
+            new PrefillProgress { State = "error", ErrorMessage = "Prefill failed: Steam connection was lost" });
+
+        Assert.Equal(PrefillState.Failed, session.PrefillState);
+        Assert.Equal("Prefill failed: Steam connection was lost", session.ErrorMessage);
+    }
+
     [Fact]
     public async Task AppCompleted_ClearsCurrentAppBeforeHistoryWrite()
     {

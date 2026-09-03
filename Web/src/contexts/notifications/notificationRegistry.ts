@@ -1145,15 +1145,26 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
               message: event.error,
               stageKey: event.stageKey
             }))
-          : i18n.t('management.schedules.services.scheduledPrefill.events.completed', {
+          : // A finished service's last progress line IS its result sentence, and it is the only
+            // place the reason lives: the terminal event sends no stageKey and no error on success,
+            // so "everything was already cached (0 bytes)" exists nowhere else. Overwriting it with
+            // the bare "<service> completed" left the user unable to tell a successful no-op from a
+            // silent failure. Same shape as the skipped arm above. The generic sentence still covers
+            // a card that never saw that progress line, such as one rebuilt after a reload. [31]
+            (existing?.message ??
+            i18n.t('management.schedules.services.scheduledPrefill.events.completed', {
               service: scheduledPrefillServiceLabel(event.serviceId ?? '')
-            }),
+            })),
       // A stopped service is its own terminal, not a failure: the user caused it, so it must not
       // read as an error (and must not show its last progress line as the result).
       getCancelledMessage: (event: ScheduledPrefillCompletedEvent) =>
         i18n.t('management.schedules.services.scheduledPrefill.events.cancelled', {
           service: scheduledPrefillServiceLabel(event.serviceId ?? '')
         }),
+      // The bytes line is a LIVE counter for the game downloading right now, so a finished card
+      // kept showing a number that had stopped moving. The result sentence above already carries
+      // the run's total, so the terminal drops the line rather than restating it. [32]
+      getDetailMessage: () => undefined,
       getFailureMessage: (event: ScheduledPrefillCompletedEvent) =>
         i18n.t('management.schedules.services.scheduledPrefill.events.failed', {
           service: scheduledPrefillServiceLabel(event.serviceId ?? ''),

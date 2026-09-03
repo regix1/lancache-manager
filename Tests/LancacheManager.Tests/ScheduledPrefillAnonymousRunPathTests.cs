@@ -150,6 +150,43 @@ public class ScheduledPrefillAnonymousRunPathTests
     }
 
     /// <summary>
+    /// A run the daemon ends with an error transfers no bytes, which the completion message reads as
+    /// "everything was already cached" - so before this was fixed a total prefill outage was
+    /// announced as a success and stamped a successful last run.
+    /// </summary>
+    [Fact]
+    public async Task RunServiceAsync_DaemonEndedTheRunFailed_ReportsFailedWithTheDaemonReason()
+    {
+        const string daemonReason = "Prefill failed: Steam connection was lost before metadata could be loaded";
+        var (daemon, _) = CreateRunnablePersistentDaemon(
+            PrefillPlatform.BattleNet, terminalFailureMessage: daemonReason, transferredBytes: 0);
+
+        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
+        Assert.Equal("failed", recorder.Stages[^1]);
+        Assert.Equal(daemonReason, recorder.Messages[^1]);
+        Assert.Null(recorder.StageKeys[^1]);
+        Assert.DoesNotContain("completed", recorder.Stages);
+    }
+
+    /// <summary>
+    /// The counterpart the failure branch must not swallow: a run that really did finish with
+    /// everything already cached still transfers zero bytes, and still has to say it completed.
+    /// </summary>
+    [Fact]
+    public async Task RunServiceAsync_RunFinishedWithZeroBytes_StillReportsCompleted()
+    {
+        var (daemon, _) = CreateRunnablePersistentDaemon(PrefillPlatform.BattleNet, transferredBytes: 0);
+
+        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, result);
+        Assert.Equal("completed", recorder.Stages[^1]);
+        Assert.Equal("signalr.scheduledPrefill.completeNoBytes", recorder.StageKeys[^1]);
+    }
+
+    /// <summary>
     /// Drives the real <c>RunServiceAsync</c> against an already-prepared daemon and returns the run
     /// result with the notifications it emitted. The preset and selection fields are left empty
     /// because the busy gate answers at step 3, before step 4 ever reads them.
@@ -213,7 +250,9 @@ public class ScheduledPrefillAnonymousRunPathTests
             CancellationToken.None);
 
     private static (PrefillDaemonServiceBase Daemon, FakeAnonymousDaemonClient Client) CreateRunnablePersistentDaemon(
-        PrefillPlatform platform)
+        PrefillPlatform platform,
+        string? terminalFailureMessage = null,
+        long transferredBytes = 1024)
     {
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"anon_run_path_{Guid.NewGuid():N}")
@@ -249,7 +288,7 @@ public class ScheduledPrefillAnonymousRunPathTests
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddDays(30)
         };
-        var client = new FakeAnonymousDaemonClient(session);
+        var client = new FakeAnonymousDaemonClient(session, terminalFailureMessage, transferredBytes);
         session.Client = client;
 
         InjectSession(daemon, session);
@@ -380,6 +419,12 @@ public class ScheduledPrefillAnonymousRunPathTests
         /// </summary>
         public List<string?> StageKeys { get; } = new();
 
+        /// <summary>
+        /// The one sentence each recorded stage put on the card. It is what the user reads, so a
+        /// terminal line that names the daemon's own reason can only be asserted from here.
+        /// </summary>
+        public List<string> Messages { get; } = new();
+
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync) && args is { Length: >= 2 })
@@ -388,6 +433,12 @@ public class ScheduledPrefillAnonymousRunPathTests
                 if (stageProperty?.GetValue(args[1]) is string stage)
                 {
                     Stages.Add(stage);
+                }
+
+                var messageProperty = args[1]?.GetType().GetProperty("message");
+                if (messageProperty?.GetValue(args[1]) is string message)
+                {
+                    Messages.Add(message);
                 }
 
                 var stageKeyProperty = args[1]?.GetType().GetProperty("stageKey");
@@ -443,10 +494,14 @@ public class ScheduledPrefillAnonymousRunPathTests
     private sealed class FakeAnonymousDaemonClient : IDaemonClient
     {
         private readonly DaemonSession _session;
+        private readonly string? _terminalFailureMessage;
+        private readonly long _transferredBytes;
 
-        public FakeAnonymousDaemonClient(DaemonSession session)
+        public FakeAnonymousDaemonClient(DaemonSession session, string? terminalFailureMessage = null, long transferredBytes = 1024)
         {
             _session = session;
+            _terminalFailureMessage = terminalFailureMessage;
+            _transferredBytes = transferredBytes;
         }
 
         public List<string>? SelectedAppIdsSent { get; private set; }
@@ -530,8 +585,17 @@ public class ScheduledPrefillAnonymousRunPathTests
             // The real terminal transition (IsPrefilling -> false) is driven by a later socket
             // event; this fake has no socket, so it flips the flag itself to simulate a run that
             // completes instantaneously, letting RunServiceAsync's poll loop exit immediately.
+            //
+            // The daemon reports a failed run the same way it reports a finished one - the socket
+            // stops prefilling and the terminal funnel stamps the state - so the failure shape here
+            // differs only in the state and the reason it leaves behind.
             _session.IsPrefilling = false;
-            _session.TotalBytesTransferred = 1024;
+            _session.TotalBytesTransferred = _transferredBytes;
+            if (_terminalFailureMessage is not null)
+            {
+                _session.PrefillState = PrefillState.Failed;
+                _session.ErrorMessage = _terminalFailureMessage;
+            }
 
             return Task.FromResult(new PrefillResult { Success = true, TotalTime = TimeSpan.FromSeconds(1) });
         }

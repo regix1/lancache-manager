@@ -467,8 +467,10 @@ interface CompletionHandlerConfig<T> {
     existing?: UnifiedNotification
   ) => UnifiedNotification['details'];
   /**
-   * Optional function to get detail message (shown below main message). Returning undefined leaves
-   * the card's existing detail line in place (see the `?? n.detailMessage` fallbacks below).
+   * Optional function to get detail message (shown below main message). An entry that does not
+   * configure one leaves the card's existing detail line in place (see the fallbacks below). At a
+   * TERMINAL an entry that DOES configure one owns the line outright, so returning undefined there
+   * clears it - that is how a finished card drops the live byte counter it was showing while it ran.
    */
   getDetailMessage?: (event: T) => string | undefined;
   /** Optional function to get the failure message */
@@ -780,7 +782,11 @@ export function createCompletionHandler<
                 status: 'skipped' as const,
                 message: resolveSkippedMessage(n),
                 error: undefined,
-                detailMessage: config.getDetailMessage?.(event) ?? n.detailMessage,
+                // Same rule as the success branch below: a configured detail message owns the
+                // line, so returning undefined clears it. [33]
+                detailMessage: config.getDetailMessage
+                  ? config.getDetailMessage(event)
+                  : n.detailMessage,
                 details: {
                   ...n.details,
                   ...config.getSuccessDetails?.(event, n)
@@ -799,7 +805,13 @@ export function createCompletionHandler<
                 // prefill ended up presenting "Riot needs login..." (the last service's progress
                 // line) as the outcome of the run the user had just stopped.
                 message: config.getSuccessMessage?.(event, n) ?? n.message,
-                detailMessage: config.getDetailMessage?.(event) ?? n.detailMessage,
+                // Presence decides, not the return value: a card that finished was left showing the
+                // last live byte counter from while it was running, which reads as still in flight.
+                // An entry that configures a detail message for its terminal therefore owns the
+                // line, and clears it by returning undefined. [32]
+                detailMessage: config.getDetailMessage
+                  ? config.getDetailMessage(event)
+                  : n.detailMessage,
                 details: {
                   ...n.details,
                   ...config.getSuccessDetails?.(event, n)
@@ -815,7 +827,12 @@ export function createCompletionHandler<
               message: failureMessage,
               ...(!isCancelled && { error: failureMessage }),
               ...(isCancelled && { error: undefined }),
-              detailMessage: config.getDetailMessage?.(event) ?? n.detailMessage,
+              // Same rule as the success branch above. A failed card kept the live byte counter
+              // beside the failure sentence, so the user could not tell whether anything had
+              // transferred before it went wrong. [33]
+              detailMessage: config.getDetailMessage
+                ? config.getDetailMessage(event)
+                : n.detailMessage,
               ...(isCancelled && {
                 details: {
                   ...n.details,
