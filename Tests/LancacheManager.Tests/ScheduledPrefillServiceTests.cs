@@ -527,20 +527,20 @@ public class ScheduledPrefillServiceTests
         var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
         using var provider = harness.Provider;
 
-        // Steam is DISABLED in the default config while Battle.net and Riot are enabled with no
-        // last-run, which makes them genuinely due on this tick. Naming Steam must ADD Steam to that
-        // tick, not replace it: a per-row Run landing a second before the cadence used to drop the
-        // two due platforms, so the run the operator was waiting for arrived a minute late.
-        harness.Service.TriggerServiceRun(PrefillPlatform.Steam);
+        // Battle.net and Riot are the two ENABLED services in the default config, and neither carries a
+        // last-run, so both are genuinely due on this tick. Naming Battle.net must ADD it to that tick
+        // rather than replace it: a per-row Run landing a second before the cadence used to drop every
+        // other due platform, so the run the operator was waiting for arrived a minute late. [44]
+        harness.Service.TriggerServiceRun(PrefillPlatform.BattleNet);
         await InvokeExecuteWorkAsync(harness.Service);
         harness.Service.Dispose();
 
-        Assert.Contains("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
         Assert.Contains("Scheduled Prefill - BattleNet", harness.Tracker.RegisteredNames);
         Assert.Contains("Scheduled Prefill - Riot", harness.Tracker.RegisteredNames);
 
-        // Still one run, and still nothing that was neither named nor due.
+        // Still one run, and still nothing that is disabled.
         Assert.Single(harness.Tracker.RegisteredNames, name => name == "Scheduled Prefill");
+        Assert.DoesNotContain("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
         Assert.DoesNotContain("Scheduled Prefill - Epic", harness.Tracker.RegisteredNames);
         Assert.DoesNotContain("Scheduled Prefill - Xbox", harness.Tracker.RegisteredNames);
     }
@@ -548,29 +548,64 @@ public class ScheduledPrefillServiceTests
     [Fact]
     public async Task TriggerServiceRun_DoesNotSweepInAnEnabledServiceThatIsNotDue()
     {
-        var harness = CreateRecordingHarness<BattleNetJustRanStateServiceProxy>();
+        var harness = CreateRecordingHarness<EnabledServicesJustRanStateServiceProxy>();
         using var provider = harness.Provider;
 
         // A per-row Run reaches the loop as the same MANUAL trigger the whole-schedule Run Now uses,
-        // and that trigger bypasses the due-check. The test above cannot see the difference because
-        // its stub has no last-runs, so every enabled service is due either way. Here Battle.net is
-        // enabled but ran a moment ago: naming Steam must not inherit the bypass and sweep it in,
-        // while Riot, genuinely due, still takes its turn. [44]
+        // and that trigger bypasses the due-check. The test above cannot see the difference because its
+        // stub has no last-runs, so every enabled service is due either way. Here BOTH enabled services
+        // ran a moment ago, so neither is due: naming Riot must run Riot on the strength of the request
+        // alone, and must not inherit the bypass and sweep Battle.net in with it. [44]
         typeof(ScheduledServiceBase)
             .GetProperty("CurrentRunTrigger", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(harness.Service, RunTrigger.Manual);
+        harness.Service.TriggerServiceRun(PrefillPlatform.Riot);
+        await InvokeExecuteWorkAsync(harness.Service);
+        harness.Service.Dispose();
+
+        Assert.Contains("Scheduled Prefill - Riot", harness.Tracker.RegisteredNames);
+        Assert.DoesNotContain("Scheduled Prefill - BattleNet", harness.Tracker.RegisteredNames);
+    }
+
+    // ---- A disabled service does not prefill, however the run was asked for ----
+    // The enabled flag is the operator's statement that this platform should not prefill. It governs
+    // every path into a run, including an explicit per-row request, so the request is not an exemption.
+    // Temporary and guest prefill are a separate entity and carry no such restriction. [47]
+
+    [Fact]
+    public async Task TriggerServiceRun_ForADisabledService_DoesNotRunIt()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var provider = harness.Provider;
+
+        // Steam is disabled in the default config. Naming it must not run it, while the two enabled
+        // services still take their due turn on the same tick.
         harness.Service.TriggerServiceRun(PrefillPlatform.Steam);
         await InvokeExecuteWorkAsync(harness.Service);
         harness.Service.Dispose();
 
-        Assert.Contains("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
+        Assert.DoesNotContain("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
+        Assert.Contains("Scheduled Prefill - BattleNet", harness.Tracker.RegisteredNames);
         Assert.Contains("Scheduled Prefill - Riot", harness.Tracker.RegisteredNames);
-        Assert.DoesNotContain("Scheduled Prefill - BattleNet", harness.Tracker.RegisteredNames);
+    }
+
+    [Fact]
+    public void RunService_ForADisabledService_Refuses()
+    {
+        var (controller, _) = CreateRunServiceController();
+
+        // Answered at the route rather than in the loop, so the button press gets a reason instead of a
+        // silent no-op, and the loop is never woken for a platform it will drop.
+        Assert.IsType<ConflictObjectResult>(controller.RunService(PrefillPlatform.Steam));
     }
 
     // ---- The per-platform run route tells a start from a queue ----
     // A run already in flight holds the loop, so a platform outside it only queues. The row's toast
     // must say so rather than claim a start, which is what the response's queued flag carries.
+
+    // These three name Battle.net because it is ENABLED in the default config. A disabled platform is
+    // refused before either branch below is reached, so testing them with one would pass for the wrong
+    // reason. [47]
 
     [Fact]
     public void RunService_BehindAnInFlightRun_AnswersQueued()
@@ -578,7 +613,7 @@ public class ScheduledPrefillServiceTests
         var (controller, active) = CreateRunServiceController();
         active.Add(RunLevelOperation());
 
-        var accepted = Assert.IsType<AcceptedResult>(controller.RunService(PrefillPlatform.Epic));
+        var accepted = Assert.IsType<AcceptedResult>(controller.RunService(PrefillPlatform.BattleNet));
 
         Assert.Equal(true, accepted.Value!.GetType().GetProperty("queued")!.GetValue(accepted.Value));
     }
@@ -588,7 +623,7 @@ public class ScheduledPrefillServiceTests
     {
         var (controller, _) = CreateRunServiceController();
 
-        var accepted = Assert.IsType<AcceptedResult>(controller.RunService(PrefillPlatform.Epic));
+        var accepted = Assert.IsType<AcceptedResult>(controller.RunService(PrefillPlatform.BattleNet));
 
         // The flag is absent, not false, on the ordinary start path.
         Assert.Null(accepted.Value!.GetType().GetProperty("queued"));
@@ -603,11 +638,11 @@ public class ScheduledPrefillServiceTests
         {
             Id = Guid.NewGuid(),
             Type = OperationType.ScheduledPrefill,
-            Name = "Scheduled Prefill - Epic",
-            Metadata = new ScheduledPrefillServiceRunState(PrefillPlatform.Epic)
+            Name = "Scheduled Prefill - BattleNet",
+            Metadata = new ScheduledPrefillServiceRunState(PrefillPlatform.BattleNet)
         });
 
-        Assert.IsType<ConflictObjectResult>(controller.RunService(PrefillPlatform.Epic));
+        Assert.IsType<ConflictObjectResult>(controller.RunService(PrefillPlatform.BattleNet));
     }
 
     private static OperationInfo RunLevelOperation() => new()
@@ -989,13 +1024,14 @@ public class ScheduledPrefillServiceTests
     }
 
     // The default config's enabled services carry no last-run, so all of them are due on every tick.
-    // This stub gives Battle.net a last-run of right now, making it enabled but NOT due.
-    private class BattleNetJustRanStateServiceProxy : PrefillConfigStateServiceProxy
+    // This stub gives both of them a last-run of right now, leaving them enabled but NOT due, which is
+    // what isolates "ran because it was named" from "ran because it was due".
+    private class EnabledServicesJustRanStateServiceProxy : PrefillConfigStateServiceProxy
     {
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod?.Name == nameof(IStateService.GetScheduledPrefillServiceLastRun)
-                && args?[0] as string == nameof(PrefillPlatform.BattleNet))
+                && args?[0] is nameof(PrefillPlatform.BattleNet) or nameof(PrefillPlatform.Riot))
             {
                 return DateTime.UtcNow;
             }

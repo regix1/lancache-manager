@@ -141,20 +141,21 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     {
         var config = _stateService.GetScheduledPrefillConfig();
 
-        // Platforms a per-row Run named since the last tick. A named platform runs whether or not its
-        // schedule is enabled: the enabled flag governs the automatic cadence, and answering an
-        // explicit button press with a silent no-op tells the operator nothing at all.
+        // Platforms a per-row Run named since the last tick. A disabled service is never run, however
+        // it was asked for: the enabled flag is the operator's statement that this platform should not
+        // prefill, and an explicit request is not an exemption from it. The route rejects a disabled
+        // platform up front so the press still gets an answer instead of a silent no-op. [47]
         var requestedServices = new HashSet<PrefillPlatform>();
         while (_manualServiceRuns.TryDequeue(out var requestedService))
         {
             requestedServices.Add(requestedService);
         }
 
-        // Nothing enabled and nothing asked for: skip the whole tick before building the due-set or
-        // touching any daemon/session/tracker state. Saves the per-minute work while the feature is
-        // fully idle; the schedule resumes normally as soon as any service is re-enabled.
-        if (requestedServices.Count == 0
-            && !ScheduledPrefillRunGates.HasAnyEnabledService(config.GetServicesInRunOrder()))
+        // Nothing enabled: skip the whole tick before building the due-set or touching any
+        // daemon/session/tracker state. Saves the per-minute work while the feature is fully idle; the
+        // schedule resumes normally as soon as any service is re-enabled. A queued request cannot keep
+        // the tick alive on its own, because a disabled platform no longer runs on request. [47]
+        if (!ScheduledPrefillRunGates.HasAnyEnabledService(config.GetServicesInRunOrder()))
         {
             _logger.LogDebug("[ScheduledPrefill] Skipping tick - no services are enabled");
             return;
@@ -176,16 +177,16 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         var dueServices = new List<ScheduledPrefillServiceConfigDto>();
         foreach (var serviceConfig in config.GetServicesInRunOrder())
         {
-            // A named platform runs whether or not its schedule is enabled, so this is answered
-            // before the enabled filter below.
-            if (requestedServices.Contains(serviceConfig.ServiceId))
+            // The enabled flag is answered FIRST and it governs every path into a run, including an
+            // explicit per-row request. A disabled service does not prefill. [47]
+            if (!serviceConfig.Enabled)
             {
-                dueServices.Add(serviceConfig);
                 continue;
             }
 
-            if (!serviceConfig.Enabled)
+            if (requestedServices.Contains(serviceConfig.ServiceId))
             {
+                dueServices.Add(serviceConfig);
                 continue;
             }
 

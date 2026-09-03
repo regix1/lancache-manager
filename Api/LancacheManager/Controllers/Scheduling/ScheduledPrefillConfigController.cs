@@ -159,6 +159,19 @@ public class ScheduledPrefillConfigController : ControllerBase
     [ProducesResponseType(typeof(ConflictResponse), StatusCodes.Status409Conflict)]
     public ActionResult RunService(PrefillPlatform platform)
     {
+        // A disabled service does not prefill, however the run was asked for. Answered here rather than
+        // in the scheduling loop so the press gets a reason instead of a silent no-op, and so the loop
+        // is never woken for a platform it will drop. Temporary and guest prefill are a separate entity
+        // and carry no such restriction; nothing on this controller governs them. [47]
+        var service = _stateService.GetScheduledPrefillConfig()
+            .GetServicesInRunOrder()
+            .FirstOrDefault(s => s.ServiceId == platform);
+
+        if (service is not null && !service.Enabled)
+        {
+            return Conflict(ApiResponse.Conflict($"Scheduled prefill for {platform} is disabled"));
+        }
+
         var active = _operationTracker.GetActiveOperations(OperationType.ScheduledPrefill).ToList();
 
         if (active.Any(op => op.Metadata is ScheduledPrefillServiceRunState state && state.ServiceId == platform))
