@@ -79,53 +79,6 @@ public class ActiveDownloadSetChangeTests
             RustSpeedTrackerService.ActiveDepotSignature(both));
     }
 
-    [Fact]
-    public void AChangedSet_RefreshesTwice_SoARowCommittedAMomentLaterIsStillPickedUp()
-    {
-        // The speed tracker and the log processor are separate binaries tailing the same logs, so a
-        // download can appear in a speed snapshot before its row is committed. Refreshing only on
-        // the change itself can read the list too early and find nothing, and the set does not
-        // change a second time, so that download would never arrive. The follow-up is what makes the
-        // FIRST appearance of a row reliable rather than only the updates to one that exists. [52]
-        var refreshes = RefreshesFor([Idle, () => SnapshotOf(346110), () => SnapshotOf(346110), () => SnapshotOf(346110)]);
-
-        // One for the change, one follow-up, then silence while the same download continues.
-        Assert.Equal([false, true, true, false], refreshes);
-    }
-
-    [Fact]
-    public void AnUnchangingSet_RefreshesNothing()
-    {
-        var refreshes = RefreshesFor([() => SnapshotOf(346110), () => SnapshotOf(346110), () => SnapshotOf(346110)]);
-
-        Assert.Equal([true, true, false], refreshes);
-    }
-
-    /// <summary>
-    /// Replays the service's refresh decision over a run of snapshots: refresh when the active set
-    /// changed, plus one follow-up on the snapshot after a change.
-    /// </summary>
-    private static List<bool> RefreshesFor(IReadOnlyList<Func<DownloadSpeedSnapshot>> snapshots)
-    {
-        var previous = string.Empty;
-        var followUp = false;
-        var refreshes = new List<bool>();
-
-        foreach (var next in snapshots)
-        {
-            var signature = RustSpeedTrackerService.ActiveDepotSignature(next());
-            var changed = !string.Equals(signature, previous, StringComparison.Ordinal);
-
-            refreshes.Add(changed || followUp);
-            followUp = changed;
-            previous = signature;
-        }
-
-        return refreshes;
-    }
-
-    private static DownloadSpeedSnapshot Idle() => new();
-
     private static DownloadSpeedSnapshot SnapshotOf(params long[] depotIds) => new()
     {
         GameSpeeds = depotIds.Select(depotId => new GameSpeedInfo { DepotId = depotId }).ToList()

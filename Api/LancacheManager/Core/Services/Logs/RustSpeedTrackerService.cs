@@ -53,13 +53,6 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     // Keyed on depot rather than name because a name stays null until the download is mapped, so two
     // unmapped downloads would read as one set and the second would never refresh the list. [51]
     private string _previousActiveDepots = string.Empty;
-
-    // Armed when the active set changes, so the NEXT snapshot refreshes too. The speed tracker and
-    // the log processor are separate binaries tailing the same logs, so a download can appear in a
-    // speed snapshot before its row is committed. The refresh fired on the change alone could then
-    // read the list a moment too early, find nothing, and never fire again for that download, since
-    // the set does not change a second time. One follow-up a snapshot later covers that gap. [52]
-    private bool _refreshAgainNextSnapshot;
     // Tracks the same edge as _previousHadActivity but over the unfiltered set, so the end of the
     // last download is reported even when the only client downloading was a hidden one.
     private bool _previousHadUnfilteredActivity = false;
@@ -705,19 +698,12 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                         // one refresh at each end rather than one per snapshot. [51]
                         var activeDepots = ActiveDepotSignature(visibleSnapshot);
 
-                        var activeSetChanged =
-                            !string.Equals(activeDepots, _previousActiveDepots, StringComparison.Ordinal);
-
-                        // The follow-up is what makes a NEWLY created row arrive rather than a row
-                        // that already existed. A change alone can read the list before the log
-                        // processor has committed the row, and nothing would fire again. [52]
-                        if ((activeSetChanged || _refreshAgainNextSnapshot)
+                        if (!string.Equals(activeDepots, _previousActiveDepots, StringComparison.Ordinal)
                             && !(_previousHadActivity && !hasActivity))
                         {
                             await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, null);
                         }
 
-                        _refreshAgainNextSnapshot = activeSetChanged;
                         _previousActiveDepots = activeDepots;
 
                         _previousHadActivity = hasActivity;
