@@ -218,6 +218,31 @@ test('a banner is created at its own version, so one render pass makes one reque
   assert.equal(view.output.props.src, firstPaint, 'the src is not rewritten after first paint');
 });
 
+test('an id advertised in a different case still counts as available', async () => {
+  resetAvailableGameImages();
+  // Epic keeps whatever case it gave an id, so a download row asks for "Fortnite" while the same
+  // game is advertised as "fortnite". The row checks .has() before it renders anything, so a
+  // case-sensitive answer hid a banner whose bytes the server was serving perfectly well. Games with
+  // a hex-string id were unaffected, which is what made it look like only some titles broke.
+  const row = await loadAvailableImages({ fortnite: 1756000000, abc123def: 1755000000 }, 42);
+
+  assert.equal(row.output.has('Fortnite'), true, 'the row would otherwise render no banner at all');
+  assert.equal(row.output.has('fortnite'), true, 'the advertised spelling still matches');
+  assert.equal(row.output.has('abc123def'), true, 'an all-lower id is unaffected');
+  assert.equal(row.output.has('NotStored'), false, 'an id nobody advertised is still absent');
+
+  // The version has to survive the same mismatch, or the banner is requested at version 0 and the
+  // browser is handed a URL it can never keep.
+  assert.equal(row.output.versionOf('Fortnite'), 1756000000);
+
+  const view = mount(() =>
+    GameImage({ epicAppId: 'Fortnite', alt: 'Fortnite', onError: ignoreMiss })
+  );
+  view.render();
+  // The URL keeps the id's own case, because that is the spelling the image route answers.
+  assert.equal(view.output.props.src, '/api/game-images/epic/Fortnite/header/1756000000');
+});
+
 test('new artwork for one game changes only that banner url', async () => {
   resetAvailableGameImages();
   const row = await loadAvailableImages({ 730: 1756000000, 440: 1755000000 }, 10);

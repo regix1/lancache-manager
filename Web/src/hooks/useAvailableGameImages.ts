@@ -15,11 +15,27 @@ const STALE_AFTER_MS = 30_000;
  * game's artwork changes one URL and leaves every other banner in the browser's cache.
  */
 class AvailableGameImages extends Set<string> {
+  /** Keyed by lower-cased id. See the case note on `has`. */
   private readonly versions: Record<string, number>;
 
   constructor(versions: Record<string, number>) {
     super(Object.keys(versions));
-    this.versions = versions;
+    this.versions = {};
+    for (const [id, version] of Object.entries(versions)) {
+      this.versions[id.toLowerCase()] = version;
+    }
+  }
+
+  /**
+   * Matched without regard to case. An Epic id keeps whatever case Epic gave it, so a download row
+   * asks for "Fortnite" while the same game can be advertised as "fortnite", and a case-sensitive
+   * check answered no and hid a banner whose bytes the server was serving perfectly well. Games with
+   * a hex-string id were unaffected, which is what made this look like it only struck some titles.
+   * Ids are unique without case in every namespace here: Steam's are digits, Epic's never differ by
+   * case alone, and name-keyed slugs are already lower-cased.
+   */
+  override has(id: string): boolean {
+    return super.has(id) || this.versions[id.toLowerCase()] !== undefined;
   }
 
   /**
@@ -28,7 +44,7 @@ class AvailableGameImages extends Set<string> {
    * is answered with the current bytes and is never kept.
    */
   versionOf(id: string): number {
-    return this.versions[id] ?? 0;
+    return this.versions[id.toLowerCase()] ?? 0;
   }
 }
 
