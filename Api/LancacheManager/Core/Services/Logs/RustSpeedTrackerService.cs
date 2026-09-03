@@ -35,24 +35,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     // observed log-delivery cadence.
     private DownloadSpeedSnapshot _currentSnapshot = new() { WindowSeconds = 2 };
     private readonly object _snapshotLock = new();
-    /// <summary>
-    /// Identifies the set of downloads a snapshot reports, so a change in that set can be told from
-    /// the same downloads simply continuing. Ordered, so the tracker reporting the same downloads in
-    /// a different order is the same signature and raises no refresh. [51]
-    /// </summary>
-    internal static string ActiveDepotSignature(DownloadSpeedSnapshot snapshot) =>
-        string.Join(',', snapshot.GameSpeeds.Select(game => game.DepotId).OrderBy(depot => depot));
-
     private bool _previousHadActivity = false;
-
-    // Which downloads were active on the previous snapshot, as an ordered depot list. The speed
-    // events that follow a new download carry rates, not rows, so the DB-backed list had no reason
-    // to be re-read until every download STOPPED, and a download that began while the page was open
-    // did not appear until it finished. Refreshing when this set changes covers the first download
-    // starting and each later one joining, and sends nothing while a download simply continues.
-    // Keyed on depot rather than name because a name stays null until the download is mapped, so two
-    // unmapped downloads would read as one set and the second would never refresh the list. [51]
-    private string _previousActiveDepots = string.Empty;
     // Tracks the same edge as _previousHadActivity but over the unfiltered set, so the end of the
     // last download is reported even when the only client downloading was a hidden one.
     private bool _previousHadUnfilteredActivity = false;
@@ -689,22 +672,6 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                             // Downloads just ended - refresh the DB-backed active list once.
                             await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, null);
                         }
-
-                        // Refresh on any change to the set of active downloads, not only when the
-                        // last one stops. The falling edge above was the only signal that re-read
-                        // the DB-backed list, so a download starting while the page was open showed
-                        // no row until it had finished. The reader throttles this to its own refresh
-                        // rate, and an unchanged set sends nothing, so a long download still costs
-                        // one refresh at each end rather than one per snapshot. [51]
-                        var activeDepots = ActiveDepotSignature(visibleSnapshot);
-
-                        if (!string.Equals(activeDepots, _previousActiveDepots, StringComparison.Ordinal)
-                            && !(_previousHadActivity && !hasActivity))
-                        {
-                            await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, null);
-                        }
-
-                        _previousActiveDepots = activeDepots;
 
                         _previousHadActivity = hasActivity;
 
