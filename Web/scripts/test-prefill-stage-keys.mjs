@@ -89,18 +89,35 @@ const arrowFor = (label, marker) =>
       node.initializer.getText(registryFile).includes(marker)
   ).initializer.getText(registryFile);
 
-const scheduledPrefillMessage = bindLifted(
-  arrowFor('scheduled prefill getMessage', 'scheduledPrefill.events.serviceProgress'),
-  {
-    i18n: translator,
-    translateStageKeyMessage,
-    SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY
-  }
-);
+/** Source of a module-level `function <name>(...)`, which lifts like an arrow does. */
+const functionFor = (name) =>
+  findSoleNode(
+    registryFile,
+    `${name} declaration`,
+    (node) => ts.isFunctionDeclaration(node) && node.name?.getText(registryFile) === name
+  ).getText(registryFile);
+
+const scheduledPrefillServiceLabel = bindLifted(functionFor('scheduledPrefillServiceLabel'), {
+  i18n: translator,
+  SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY
+});
+
+// The progress event and the run-status response describe a service the same way, so the card's
+// wording lives in one function both compose from.
+const scheduledPrefillMessage = bindLifted(functionFor('scheduledPrefillServiceMessage'), {
+  i18n: translator,
+  translateStageKeyMessage,
+  scheduledPrefillServiceLabel
+});
 
 const scheduledPrefillFailure = bindLifted(
   arrowFor('scheduled prefill getFailureMessage', 'scheduledPrefill.events.failed'),
-  { translateStageKeyMessage }
+  {
+    i18n: translator,
+    translateStageKeyMessage,
+    scheduledPrefillServiceLabel,
+    GENERIC_FAILURE_I18N_KEY: 'signalr.generic.failed'
+  }
 );
 
 const cardFor = async (event, language) => {
@@ -187,21 +204,22 @@ test('a daemon sentence with no key still reaches the card instead of vanishing'
   assert.equal(await cardFor(event, 'zh'), 'Steam：SteamKit2 refused the depot manifest request');
 });
 
-test('the run-level failure reads in the reader language', async () => {
+test('a failed service names itself and its reason in the reader language', async () => {
   await translator.changeLanguage('zh');
   assert.equal(
     scheduledPrefillFailure({
+      serviceId: 'Steam',
       error: 'All due services need login',
       stageKey: 'signalr.scheduledPrefill.runAllNeedLogin'
     }),
-    '所有到期的服务都需要登录'
+    'Steam 失败：所有到期的服务都需要登录'
   );
 
   // A run that died on an exception has only .NET's own text, so the card shows that rather than
   // an empty line.
   assert.equal(
-    scheduledPrefillFailure({ error: 'The operation has timed out.' }),
-    'The operation has timed out.'
+    scheduledPrefillFailure({ serviceId: 'Steam', error: 'The operation has timed out.' }),
+    'Steam 失败：The operation has timed out.'
   );
 });
 

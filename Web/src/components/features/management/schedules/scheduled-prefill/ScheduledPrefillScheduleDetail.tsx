@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import StatusDot from '@components/common/StatusDot';
+import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import ApiService from '@services/api.service';
 import type {
@@ -31,6 +32,7 @@ import type {
   ScheduledPrefillConfigDto,
   ScheduledPrefillRowLoginState,
   ScheduledPrefillServiceConfigDto,
+  ScheduledPrefillServiceId,
   ScheduledPrefillServiceKey,
   ScheduledPrefillServiceScheduleDto
 } from './types';
@@ -50,10 +52,17 @@ interface ScheduledPrefillScheduleDetailProps {
   onRunNow: () => void;
   runNowLoading: boolean;
   runNowDisabled: boolean;
+  /** Starts one platform now, from that platform's own table row. */
+  onRunService: (serviceId: ScheduledPrefillServiceId) => void;
+  isRunServicePending: (serviceId: ScheduledPrefillServiceId) => boolean;
+  /** True while the whole prefill schedule is running server-side, or the reader is not an admin. */
+  runServiceDisabled: boolean;
 }
 
 interface ScheduledPrefillServiceScheduleRowProps {
   serviceKey: ScheduledPrefillServiceKey;
+  /** Backend platform name, which is what the per-service run route is addressed by. */
+  serviceId: ScheduledPrefillServiceId;
   label: string;
   enabled: boolean;
   containerRunning: boolean;
@@ -73,6 +82,9 @@ interface ScheduledPrefillServiceScheduleRowProps {
   nextRunUtc: string | null;
   lastRunUtc: string | null;
   disabled: boolean;
+  runPending: boolean;
+  runDisabled: boolean;
+  onRun: (serviceId: ScheduledPrefillServiceId) => void;
   onIntervalChange: (serviceKey: ScheduledPrefillServiceKey, hours: number) => void;
   onCustomScheduleChange: (
     serviceKey: ScheduledPrefillServiceKey,
@@ -90,6 +102,7 @@ interface ScheduledPrefillServiceScheduleRowProps {
  */
 function ScheduledPrefillServiceScheduleRow({
   serviceKey,
+  serviceId,
   label,
   enabled,
   containerRunning,
@@ -100,6 +113,9 @@ function ScheduledPrefillServiceScheduleRow({
   nextRunUtc,
   lastRunUtc,
   disabled,
+  runPending,
+  runDisabled,
+  onRun,
   onIntervalChange,
   onCustomScheduleChange
 }: ScheduledPrefillServiceScheduleRowProps) {
@@ -208,6 +224,27 @@ function ScheduledPrefillServiceScheduleRow({
           onCustomScheduleChange={(schedule) => onCustomScheduleChange(serviceKey, schedule)}
         />
       </div>
+      <div
+        role="cell"
+        className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--action"
+      >
+        {/* The tooltip hangs its handlers on the wrapper rather than the button, so a disabled
+            row still explains itself on hover. */}
+        <Tooltip content={t('management.schedules.services.scheduledPrefill.runServiceTooltip')}>
+          <Button
+            type="button"
+            variant="filled"
+            color="run"
+            size="sm"
+            onClick={() => onRun(serviceId)}
+            disabled={runDisabled || !enabled}
+            loading={runPending}
+            stableWidth
+          >
+            {t('management.schedules.services.scheduledPrefill.runService')}
+          </Button>
+        </Tooltip>
+      </div>
     </div>
   );
 }
@@ -217,7 +254,10 @@ export function ScheduledPrefillScheduleDetail({
   dimmed = false,
   onRunNow,
   runNowLoading,
-  runNowDisabled
+  runNowDisabled,
+  onRunService,
+  isRunServicePending,
+  runServiceDisabled
 }: ScheduledPrefillScheduleDetailProps) {
   const { t } = useTranslation();
   const { on, off, isConnected } = useSignalR();
@@ -518,6 +558,7 @@ export function ScheduledPrefillScheduleDetail({
 
     const rows: {
       key: ScheduledPrefillServiceKey;
+      serviceId: ScheduledPrefillServiceId;
       label: string;
       enabled: boolean;
       containerRunning: boolean;
@@ -560,6 +601,7 @@ export function ScheduledPrefillScheduleDetail({
       const activityPlatformKey = serviceKey.toLowerCase();
       rows.push({
         key: serviceKey,
+        serviceId: item.serviceId,
         label: t(`${baseKey}.services.${serviceKey}`),
         enabled,
         containerRunning:
@@ -660,11 +702,15 @@ export function ScheduledPrefillScheduleDetail({
                     <span role="columnheader">{t('management.schedules.nextRun')}</span>
                     <span role="columnheader">{t('management.schedules.lastRun')}</span>
                     <span role="columnheader">{t('management.schedules.runEvery')}</span>
+                    <span role="columnheader">
+                      {t('management.schedules.services.scheduledPrefill.runService')}
+                    </span>
                   </div>
                   {scheduleRows.map((row) => (
                     <ScheduledPrefillServiceScheduleRow
                       key={row.key}
                       serviceKey={row.key}
+                      serviceId={row.serviceId}
                       label={row.label}
                       enabled={row.enabled}
                       containerRunning={row.containerRunning}
@@ -675,6 +721,9 @@ export function ScheduledPrefillScheduleDetail({
                       nextRunUtc={row.nextRunUtc}
                       lastRunUtc={row.lastRunUtc}
                       disabled={disabled}
+                      runPending={isRunServicePending(row.serviceId)}
+                      runDisabled={runServiceDisabled}
+                      onRun={onRunService}
                       onIntervalChange={(serviceKey, hours) =>
                         void handleServiceIntervalChange(serviceKey, hours)
                       }

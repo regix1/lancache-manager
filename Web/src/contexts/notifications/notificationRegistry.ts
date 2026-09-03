@@ -78,7 +78,8 @@ import {
   errorOrStageKeyMessage,
   operationIdDetails,
   skippedOrStageKeyMessage,
-  stageKeyMessage
+  stageKeyMessage,
+  visibleWhenNotSilent
 } from './registryEntries';
 import { translateRecoveryStage, translateStageKeyMessage } from '@utils/stageKeyMessage';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
@@ -188,6 +189,68 @@ function prefixCorruptionRemovalService(
     return `${label} (${index}/${count}): ${message}`;
   }
   return `${label}: ${message}`;
+}
+
+// ============================================================================
+// Scheduled prefill: one card per service
+// ============================================================================
+// A scheduled run works several platforms at once and each gets its own tracked operation, so
+// each also gets its own card, keyed on the platform the payload already carries.
+
+/** The card this platform owns. Every scheduled-prefill event routes by platform, not by run. */
+function scheduledPrefillCardId(serviceId: string): string {
+  return `${NOTIFICATION_IDS.SCHEDULED_PREFILL}_${serviceId}`;
+}
+
+/** The platform's display name, as the Schedules page spells it. */
+function scheduledPrefillServiceLabel(serviceId: string): string {
+  const serviceKey = SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[serviceId] ?? serviceId;
+  return i18n.t(`management.schedules.services.scheduledPrefill.config.services.${serviceKey}`);
+}
+
+/**
+ * The one sentence a service's card shows while it runs. The progress event and the run-status
+ * response both describe a service the same way, so both compose their line here.
+ *
+ * The backend names the sentence with `stageKey` and sends the English it composed as `message` /
+ * `needsLoginReason`. A daemon's own text arrives with no key and passes through as it did before.
+ */
+function scheduledPrefillServiceMessage(service: {
+  serviceId: string;
+  stage: string;
+  message?: string | null;
+  stageKey?: string | null;
+  stageContext?: Record<string, string | number | boolean | null> | null;
+  needsLoginReason?: string | null;
+}): string {
+  const serviceLabel = scheduledPrefillServiceLabel(service.serviceId);
+  const sentence = (english: string | null | undefined): string =>
+    translateStageKeyMessage(service.stageKey ?? english, service.stageContext ?? undefined);
+
+  if (service.stage === 'skipped') {
+    return i18n.t('management.schedules.services.scheduledPrefill.events.skipped', {
+      service: serviceLabel,
+      reason: sentence(service.message)
+    });
+  }
+
+  if (service.stage === 'needs-login') {
+    // Keep the backend's precise prerequisite (container stopped vs running-but-logged-out)
+    // instead of collapsing every needs-login skip into the same generic line.
+    return service.needsLoginReason
+      ? i18n.t('management.schedules.services.scheduledPrefill.events.needsLoginWithReason', {
+          service: serviceLabel,
+          reason: sentence(service.needsLoginReason)
+        })
+      : i18n.t('management.schedules.services.scheduledPrefill.events.needsLogin', {
+          service: serviceLabel
+        });
+  }
+
+  return i18n.t('management.schedules.services.scheduledPrefill.events.serviceProgress', {
+    service: serviceLabel,
+    message: sentence(service.message)
+  });
 }
 
 // ============================================================================
@@ -1000,6 +1063,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   >({
     type: 'scheduled_prefill',
     id: NOTIFICATION_IDS.SCHEDULED_PREFILL,
+    // Every card belongs to one platform. The run-level events carry no platform and open no
+    // card, so they land on the type's own id, which no card of a run ever uses.
+    getId: (event: unknown) => {
+      const serviceId = (event as { serviceId?: string | null }).serviceId;
+      return serviceId ? scheduledPrefillCardId(serviceId) : NOTIFICATION_IDS.SCHEDULED_PREFILL;
+    },
     storageKey: NOTIFICATION_STORAGE_KEYS.SCHEDULED_PREFILL,
     eventPrefix: 'ScheduledPrefill',
     // This pipeline's terminal event is `...Completed`, not the `...Complete` the
@@ -1018,56 +1087,31 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         data.isRunning && data.showNotification !== false,
       shouldSkip: (data: ScheduledPrefillRunStatusResponse) =>
         data.isRunning && data.showNotification === false,
-      createNotification: (data: ScheduledPrefillRunStatusResponse) => ({
-        message: i18n.t('management.schedules.services.scheduledPrefill.events.started'),
-        details: { operationId: data.operationId ?? undefined }
-      }),
+      // One card per service still running, each on the operation that service's own cancel
+      // needs, so a reload mid-run comes back with the run it left rather than one card for it.
+      recoverCards: (data: ScheduledPrefillRunStatusResponse) =>
+        data.services.map((service) => ({
+          id: scheduledPrefillCardId(service.serviceId),
+          message: scheduledPrefillServiceMessage(service),
+          progress: service.percentComplete ?? undefined,
+          details: { operationId: service.operationId ?? undefined }
+        })),
       staleMessageKey: 'signalr.scheduledPrefill.stale'
     } satisfies SimpleRecoveryConfig<ScheduledPrefillRunStatusResponse>,
     started: {
       defaultMessage: 'Scheduled prefill started',
-      getMessage: () => i18n.t('management.schedules.services.scheduledPrefill.events.started'),
+      // The run-level start opens no card: it names no platform, and every card on screen is one
+      // platform's. Its per-service siblings are what open the cards.
+      shouldDisplay: (event: ScheduledPrefillStartedEvent) =>
+        visibleWhenNotSilent(event) && event.serviceId != null,
+      getMessage: (event: ScheduledPrefillStartedEvent) =>
+        i18n.t('management.schedules.services.scheduledPrefill.events.started', {
+          service: scheduledPrefillServiceLabel(event.serviceId ?? '')
+        }),
       replaceExisting: true
     },
     progress: {
-      getMessage: (event: ScheduledPrefillProgressEvent) => {
-        const serviceKey =
-          SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[event.serviceId] ?? event.serviceId;
-        const serviceLabel = i18n.t(
-          `management.schedules.services.scheduledPrefill.config.services.${serviceKey}`
-        );
-
-        // The backend names the one sentence this event puts on the card with `stageKey`, and
-        // sends the English it composed as `message` / `needsLoginReason`. A daemon's own text
-        // arrives with no key and passes through as it did before.
-        const sentence = (english: string | null | undefined) =>
-          translateStageKeyMessage(event.stageKey ?? english, event.stageContext ?? undefined);
-
-        if (event.stage === 'skipped') {
-          return i18n.t('management.schedules.services.scheduledPrefill.events.skipped', {
-            service: serviceLabel,
-            reason: sentence(event.message)
-          });
-        }
-
-        if (event.stage === 'needs-login') {
-          // Keep the backend's precise prerequisite (container stopped vs running-but-logged-out)
-          // instead of collapsing every needs-login skip into the same generic line.
-          return event.needsLoginReason
-            ? i18n.t('management.schedules.services.scheduledPrefill.events.needsLoginWithReason', {
-                service: serviceLabel,
-                reason: sentence(event.needsLoginReason)
-              })
-            : i18n.t('management.schedules.services.scheduledPrefill.events.needsLogin', {
-                service: serviceLabel
-              });
-        }
-
-        return i18n.t('management.schedules.services.scheduledPrefill.events.serviceProgress', {
-          service: serviceLabel,
-          message: sentence(event.message)
-        });
-      },
+      getMessage: (event: ScheduledPrefillProgressEvent) => scheduledPrefillServiceMessage(event),
       // Backend-computed run percent. It tracks the ACTIVE service only (games completed plus the
       // byte fraction of the game downloading right now), clamped 1-99 by ComputeRunPercent; 100
       // comes from the terminal Completed event. Keep only the null fallback here instead of
@@ -1087,18 +1131,38 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getStatus: () => undefined
     },
     complete: {
-      getSuccessMessage: () =>
-        i18n.t('management.schedules.services.scheduledPrefill.events.completed'),
-      // A stopped run is its own terminal, not a failure: the user caused it, so it must not read
-      // as an error (and must not show the last service's progress line as the result).
-      getCancelledMessage: () =>
-        i18n.t('management.schedules.services.scheduledPrefill.events.cancelled'),
+      // The run-level terminal closes no card, for the same reason its start opens none.
+      shouldDisplay: (event: ScheduledPrefillCompletedEvent) =>
+        visibleWhenNotSilent(event) && event.serviceId != null,
+      // A skipped service keeps the line its own progress already put on the card: that sentence
+      // names the service and the precise prerequisite, and the terminal has nothing better to say.
+      getSuccessMessage: (event: ScheduledPrefillCompletedEvent, existing) =>
+        event.status === 'skipped'
+          ? (existing?.message ??
+            scheduledPrefillServiceMessage({
+              serviceId: event.serviceId ?? '',
+              stage: 'skipped',
+              message: event.error,
+              stageKey: event.stageKey
+            }))
+          : i18n.t('management.schedules.services.scheduledPrefill.events.completed', {
+              service: scheduledPrefillServiceLabel(event.serviceId ?? '')
+            }),
+      // A stopped service is its own terminal, not a failure: the user caused it, so it must not
+      // read as an error (and must not show its last progress line as the result).
+      getCancelledMessage: (event: ScheduledPrefillCompletedEvent) =>
+        i18n.t('management.schedules.services.scheduledPrefill.events.cancelled', {
+          service: scheduledPrefillServiceLabel(event.serviceId ?? '')
+        }),
       getFailureMessage: (event: ScheduledPrefillCompletedEvent) =>
-        translateStageKeyMessage(
-          event.stageKey ?? event.error,
-          undefined,
-          'management.schedules.services.scheduledPrefill.events.failed'
-        )
+        i18n.t('management.schedules.services.scheduledPrefill.events.failed', {
+          service: scheduledPrefillServiceLabel(event.serviceId ?? ''),
+          reason: translateStageKeyMessage(
+            event.stageKey ?? event.error,
+            undefined,
+            GENERIC_FAILURE_I18N_KEY
+          )
+        })
     }
   }),
 

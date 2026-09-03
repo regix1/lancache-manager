@@ -58,6 +58,7 @@ const loadRecovery = async () => {
   const recoveryUrl = await compileToUrl('../src/contexts/notifications/recovery.ts', {
     './constants': constantsUrl,
     './handlers': handlersUrl,
+    './notificationStatus': statusUrl,
     './notificationRegistry': REGISTRY_STUB,
     './removalKind': removalKindUrl,
     '@utils/storage': storageUrl,

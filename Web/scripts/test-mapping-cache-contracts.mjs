@@ -150,7 +150,7 @@ test('catalog updates are completion-only registry entries carrying their own ca
 test('running progress updates persist the merged notification for reload recovery', () => {
   assert.match(
     handlers,
-    /const updatedNotification[\s\S]*?storage\.setItem\(\s*config\.storageKey,\s*JSON\.stringify\(updatedNotification\)[\s\S]*?return updatedNotification/
+    /const updatedNotification[\s\S]*?persistNotification\(\s*config\.storageKey,\s*updatedNotification[\s\S]*?return updatedNotification/
   );
 });
 

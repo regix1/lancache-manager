@@ -57,8 +57,9 @@ function buildStartedHandler(
   return createStartedHandler(
     {
       type: entry.type,
-      getId: () => entry.id,
+      getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
       storageKey: entry.storageKey,
+      storesCardsById: entry.getId !== undefined,
       shouldDisplay: started.shouldDisplay,
       defaultMessage: started.defaultMessage,
       getMessage: started.getMessage,
@@ -85,8 +86,9 @@ function buildProgressHandler(
   return createStatusAwareProgressHandler(
     {
       type: entry.type,
-      getId: () => entry.id,
+      getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
       storageKey: entry.storageKey,
+      storesCardsById: entry.getId !== undefined,
       shouldDisplay: progress.shouldDisplay,
       getMessage: progress.getMessage,
       getProgress: progress.getProgress,
@@ -121,8 +123,9 @@ function buildCompleteHandler(
   const baseHandler = createCompletionHandler(
     {
       type: entry.type,
-      getId: () => entry.id,
+      getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
       storageKey: entry.storageKey,
+      storesCardsById: entry.getId !== undefined,
       shouldDisplay: entry.complete.shouldDisplay,
       getSuccessMessage: entry.complete.getSuccessMessage,
       getSuccessDetails: entry.complete.getSuccessDetails,

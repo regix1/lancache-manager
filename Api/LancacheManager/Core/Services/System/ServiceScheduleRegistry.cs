@@ -752,7 +752,14 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             return null;
         }
 
-        var active = _tracker?.GetActiveOperations(operationType).FirstOrDefault();
+        // Scheduled prefill registers one tracked operation per due platform beside its run-level
+        // one, so several operations of the same type are active at once during a run. This card
+        // reports the RUN, so the per-platform operations are filtered out here: a bare
+        // FirstOrDefault would otherwise hand the card whichever operation the tracker happened to
+        // enumerate first, and its id is what the card's Cancel targets. [28]
+        var active = _tracker?
+            .GetActiveOperations(operationType)
+            .FirstOrDefault(op => op.Metadata is not ScheduledPrefillServiceRunState);
         if (active == null)
         {
             // An idle service is visible by default: recovery must stale-complete a persisted running

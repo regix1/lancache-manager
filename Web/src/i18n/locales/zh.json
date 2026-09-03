@@ -3926,17 +3926,22 @@
             }
           },
           "events": {
-            "started": "计划预填充已开始",
+            "started": "{{service}} 已开始",
             "progress": "计划预填充{{stage}}",
-            "completed": "计划预填充已完成",
-            "cancelled": "计划预填充已取消",
-            "failed": "计划预填充失败",
+            "completed": "{{service}} 已完成",
+            "cancelled": "{{service}} 已停止",
+            "failed": "{{service}} 失败：{{reason}}",
             "skipped": "{{service}} 已跳过：{{reason}}",
             "needsLogin": "{{service}} 需要登录后才能继续计划预填充",
             "needsLoginWithReason": "{{service}} 需要登录：{{reason}}",
             "serviceProgress": "{{service}}：{{message}}",
             "downloadedOfTotal": "{{downloaded}}/{{total}}"
-          }
+          },
+          "runService": "运行",
+          "runServiceTooltip": "立即运行此服务",
+          "runServiceStarted": "{{service}} 已开始",
+          "runServiceAlreadyRunning": "{{service}} 已在运行中",
+          "runServiceQueued": "{{service}} 将在下一个运行"
         },
         "epicMapping": {
           "displayName": "Epic 游戏映射",
@@ -7404,7 +7409,6 @@
       "skippedNoDaemon": "此服务没有注册的守护进程",
       "skippedNoContainer": "没有正在运行的持久容器。请先启动持久容器，再设置计划。",
       "skippedContainerNotReady": "持久容器正在运行，但尚未就绪。此平台无需登录，请等待容器启动完成。",
-      "skippedManualActive": "手动预填充会话正在进行中",
       "skippedAlreadyRunning": "预填充已在进行中",
       "needsPersistentContainer": "没有正在运行的持久容器。请先启动持久容器并在其中登录，再设置计划。",
       "needsPersistentLogin": "持久容器正在运行，但尚未登录。请先在持久容器中登录，再设置计划。",

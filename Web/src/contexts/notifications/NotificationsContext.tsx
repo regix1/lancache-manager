@@ -17,7 +17,7 @@ import {
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { createRecoveryRunner, type FetchWithAuth } from './recovery';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
-import { storage } from '@utils/storage';
+import { readPersistedCards } from './handlers';
 import { useNotificationHandlers } from './useNotificationHandlers';
 
 import { NotificationsContext } from './NotificationsContext.types';
@@ -69,9 +69,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     for (const key of persistentKeys) {
       try {
-        const saved = storage.getItem(key);
-        if (saved) {
-          const parsed = JSON.parse(saved) as UnifiedNotification;
+        // One key can hold several cards: a type that owns one card per entity persists them
+        // together, and every running one is restored.
+        for (const parsed of readPersistedCards(key)) {
           if (parsed.status === 'running') {
             // Strip cancel-intent flags: they are live-session UI state. A persisted
             // cancelRequested (X clicked before the operationId arrived) would re-arm the

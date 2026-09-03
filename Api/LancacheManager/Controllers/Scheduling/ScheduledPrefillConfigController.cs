@@ -1,4 +1,5 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
@@ -19,15 +20,18 @@ public class ScheduledPrefillConfigController : ControllerBase
     private readonly IStateService _stateService;
     private readonly IServiceScheduleRegistry _registry;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly ScheduledPrefillService _scheduledPrefill;
 
     public ScheduledPrefillConfigController(
         IStateService stateService,
         IServiceScheduleRegistry registry,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        ScheduledPrefillService scheduledPrefill)
     {
         _stateService = stateService;
         _registry = registry;
         _operationTracker = operationTracker;
+        _scheduledPrefill = scheduledPrefill;
     }
 
     /// <summary>
@@ -112,9 +116,12 @@ public class ScheduledPrefillConfigController : ControllerBase
     [ProducesResponseType(typeof(ScheduledPrefillRunStatusDto), StatusCodes.Status200OK)]
     public ActionResult<ScheduledPrefillRunStatusDto> GetRunStatus()
     {
-        var operation = _operationTracker
-            .GetActiveOperations(OperationType.ScheduledPrefill)
-            .FirstOrDefault();
+        var active = _operationTracker.GetActiveOperations(OperationType.ScheduledPrefill).ToList();
+
+        // A run registers one operation per due platform beside its run-level one, so the run-level
+        // operation is the one WITHOUT a per-platform state rather than whichever the tracker
+        // enumerated first.
+        var operation = active.FirstOrDefault(op => op.Metadata is not ScheduledPrefillServiceRunState);
 
         return Ok(new ScheduledPrefillRunStatusDto
         {
@@ -122,8 +129,62 @@ public class ScheduledPrefillConfigController : ControllerBase
             OperationId = operation?.Id.ToString(),
             ShowNotification = operation?.Metadata is ScheduledPrefillOperationMetadata metadata
                 ? metadata.ShowNotification
-                : true
+                : true,
+            Services = active
+                .Select(op => new { Operation = op, State = op.Metadata as ScheduledPrefillServiceRunState })
+                .Where(pair => pair.State is not null)
+                .Select(pair => new ScheduledPrefillRunServiceStatus
+                {
+                    ServiceId = pair.State!.ServiceId,
+                    OperationId = pair.Operation.Id.ToString(),
+                    Stage = pair.State.Stage,
+                    Message = pair.State.Message,
+                    StageKey = pair.State.StageKey,
+                    PercentComplete = pair.State.PercentComplete
+                })
+                .ToArray()
         });
+    }
+
+    /// <summary>
+    /// Runs one named platform's scheduled prefill immediately, leaving every other platform alone.
+    /// </summary>
+    /// <remarks>
+    /// Backs the per-service Run button on the Schedules page. The whole-schedule Run Now posts to
+    /// <c>POST api/system/schedules/{serviceKey}/run</c> and runs every enabled service, because
+    /// <c>scheduledPrefill</c> is one registry key and the trigger behind it takes no arguments.
+    /// </remarks>
+    [HttpPost("services/{platform}/run")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ConflictResponse), StatusCodes.Status409Conflict)]
+    public ActionResult RunService(PrefillPlatform platform)
+    {
+        var active = _operationTracker.GetActiveOperations(OperationType.ScheduledPrefill).ToList();
+
+        if (active.Any(op => op.Metadata is ScheduledPrefillServiceRunState state && state.ServiceId == platform))
+        {
+            return Conflict(ApiResponse.Conflict($"Scheduled prefill for {platform} is already running"));
+        }
+
+        // A run already in flight holds the scheduling loop, so a platform outside that run's due set
+        // waits for it to finish rather than starting now. The caller needs to know which of the two
+        // happened, because telling the operator a service started when it is only queued behind a
+        // multi-hour download is the same lie the Run Now control used to tell. The flag is absent,
+        // not false, on the ordinary start path. [43]
+        var queuedBehindARun = active.Any(op => op.Metadata is not ScheduledPrefillServiceRunState);
+
+        _scheduledPrefill.TriggerServiceRun(platform);
+
+        if (queuedBehindARun)
+        {
+            return Accepted(new
+            {
+                message = $"Scheduled prefill queued for {platform}",
+                queued = true
+            });
+        }
+
+        return Accepted(ApiResponse.Message($"Scheduled prefill started for {platform}"));
     }
 }
 
@@ -138,8 +199,40 @@ public sealed class ScheduledPrefillRunStatusDto
     /// <summary>Operation id of the active run (for cancel wiring), or null when idle.</summary>
     public string? OperationId { get; init; }
 
-    /// <summary>Whether the platform currently running should have a universal notification.</summary>
+    /// <summary>Whether this run should have a universal notification.</summary>
     public required bool ShowNotification { get; init; }
+
+    /// <summary>
+    /// One entry per platform currently prefilling in this run. Recovery rebuilds a notification card
+    /// from each after a page reload, so a browser that reconnected mid-run sees every running
+    /// platform rather than only the run itself. Empty when nothing is running. [25]
+    /// </summary>
+    public required IReadOnlyList<ScheduledPrefillRunServiceStatus> Services { get; init; }
+}
+
+/// <summary>
+/// One platform's live state inside a scheduled prefill run, as returned by
+/// <c>GET /api/system/schedules/scheduledPrefill/run-status</c>.
+/// </summary>
+public sealed class ScheduledPrefillRunServiceStatus
+{
+    /// <summary>Platform this entry describes (serializes as the PrefillPlatform name, e.g. "Steam").</summary>
+    public required PrefillPlatform ServiceId { get; init; }
+
+    /// <summary>This platform's own operation id, which its card is keyed on and its cancel targets.</summary>
+    public required string OperationId { get; init; }
+
+    /// <summary>The stage its last progress event reported, e.g. "running" or "needs-login".</summary>
+    public required string Stage { get; init; }
+
+    /// <summary>The English sentence that event put on the card.</summary>
+    public required string Message { get; init; }
+
+    /// <summary>The i18n key naming that same sentence, null when the text has no key.</summary>
+    public string? StageKey { get; init; }
+
+    /// <summary>The percent its bar was last moved to.</summary>
+    public required double PercentComplete { get; init; }
 }
 
 /// <summary>

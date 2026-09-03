@@ -14,12 +14,9 @@ public class ScheduledPrefillRunGatesTests
     [Fact]
     public void ShouldSkipForBusySessions_ReturnsFalse_WhenOnlyPersistentSystemSessionAuthenticated()
     {
-        var sessions = new[]
-        {
-            MakeSession(SystemUserId, isPersistent: true)
-        };
+        var session = MakeSession(SystemUserId, isPersistent: true);
 
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(sessions, SystemUserId, out var message, out var stageKey);
+        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(session, out var message, out var stageKey);
 
         Assert.False(shouldSkip);
         Assert.Equal(string.Empty, message);
@@ -27,26 +24,42 @@ public class ScheduledPrefillRunGatesTests
     }
 
     [Fact]
-    public void ShouldSkipForBusySessions_ReturnsTrue_WhenRealUserSessionActive()
+    public void ShouldSkipForBusySessions_ReturnsFalse_WhenRealUserSessionActive()
     {
-        var sessions = new[]
-        {
-            MakeSession(RealUserId, isPersistent: false)
-        };
+        // INVERTED on purpose. This used to skip on any session owned by somebody other than the
+        // scheduler, and that is the behavior being removed: a manual or guest container is a
+        // separate entity with its own container, so it must never hold up a scheduled run. The gate
+        // is also no longer handed a session list, so a manual session can only reach it by being
+        // passed as the persistent session, which is what this asserts is ignored.
+        var session = MakeSession(RealUserId, isPersistent: false);
 
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(sessions, SystemUserId, out var message, out var stageKey);
+        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(session, out var message, out var stageKey);
 
-        Assert.True(shouldSkip);
-        Assert.Equal("A manual prefill session is active", message);
-        Assert.Equal("signalr.scheduledPrefill.skippedManualActive", stageKey);
+        Assert.False(shouldSkip);
+        Assert.Equal(string.Empty, message);
+        Assert.Equal(string.Empty, stageKey);
     }
 
     [Fact]
-    public void ShouldSkipForBusySessions_ReturnsTrue_WhenSystemUserSessionIsPrefilling()
+    public void ShouldSkipForBusySessions_ReturnsFalse_WhenANonPersistentSessionIsPrefilling()
+    {
+        // The user's rule, stated as a test: a temporary or guest container actively downloading for
+        // somebody else says nothing about whether this platform's scheduled run can proceed.
+        var session = MakeSession(RealUserId, isPersistent: false, isPrefilling: true);
+
+        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(session, out var message, out var stageKey);
+
+        Assert.False(shouldSkip);
+        Assert.Equal(string.Empty, message);
+        Assert.Equal(string.Empty, stageKey);
+    }
+
+    [Fact]
+    public void ShouldSkipForBusySessions_ReturnsTrue_WhenThePersistentSessionIsPrefilling()
     {
         var session = MakeSession(SystemUserId, isPersistent: true, isPrefilling: true);
 
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions([session], SystemUserId, out var message, out var stageKey);
+        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(session, out var message, out var stageKey);
 
         Assert.True(shouldSkip);
         Assert.Equal("A prefill is already in progress", message);
@@ -54,31 +67,28 @@ public class ScheduledPrefillRunGatesTests
     }
 
     [Fact]
-    public void ShouldSkipForBusySessions_ReturnsFalse_WhenOnlyTerminatedSessions()
+    public void ShouldSkipForBusySessions_ReturnsFalse_WhenThereIsNoPersistentSession()
     {
-        var sessions = new[]
-        {
-            MakeSession(RealUserId, isPersistent: false, status: DaemonSessionStatus.Terminated),
-            MakeSession(SystemUserId, isPersistent: true, status: DaemonSessionStatus.Terminated)
-        };
-
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(sessions, SystemUserId, out var message, out var stageKey);
+        // The gate now takes the ONE session the run already resolved, so "no session list" and
+        // "every session was terminated" both arrive here as a null.
+        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(null, out var message, out var stageKey);
 
         Assert.False(shouldSkip);
         Assert.Equal(string.Empty, message);
         Assert.Equal(string.Empty, stageKey);
     }
 
-    [Fact]
-    public void ShouldSkipForBusySessions_ReturnsFalse_WhenOnlyErrorSessions()
+    [Theory]
+    [InlineData(DaemonSessionStatus.Terminated)]
+    [InlineData(DaemonSessionStatus.Error)]
+    public void ShouldSkipForBusySessions_ReturnsFalse_WhenThePersistentSessionIsNotActive(DaemonSessionStatus status)
     {
-        var sessions = new[]
-        {
-            MakeSession(RealUserId, isPersistent: false, status: DaemonSessionStatus.Error),
-            MakeSession(SystemUserId, isPersistent: true, status: DaemonSessionStatus.Error)
-        };
+        // Replaces the old terminated-sessions and error-sessions cases: with a single session in
+        // hand rather than a list, "not active" is the whole of what those two used to say. A
+        // terminated container's stale prefilling flag must not defer the run forever.
+        var session = MakeSession(SystemUserId, isPersistent: true, isPrefilling: true, status: status);
 
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(sessions, SystemUserId, out var message, out var stageKey);
+        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(session, out var message, out var stageKey);
 
         Assert.False(shouldSkip);
         Assert.Equal(string.Empty, message);
@@ -206,6 +216,65 @@ public class ScheduledPrefillRunGatesTests
 
         Assert.False(outcome.Success);
         Assert.Equal("All enabled services were skipped", outcome.Error);
+    }
+
+    // ---- Run classification (TallyRunResults) ----
+    // The reported bug: services now run side by side, and one stopped service reported the WHOLE run
+    // as stopped, burying the siblings that prefilled to completion.
+
+    [Fact]
+    public void TallyRunResults_ARanRanCancelledRun_DoesNotReportTheRunStopped()
+    {
+        var tally = ScheduledPrefillRunGates.TallyRunResults([
+            ScheduledPrefillServiceRunResult.Ran,
+            ScheduledPrefillServiceRunResult.Ran,
+            ScheduledPrefillServiceRunResult.Cancelled
+        ]);
+
+        Assert.Equal(2, tally.Ran);
+        Assert.Equal(1, tally.Cancelled);
+        Assert.False(tally.ReportsCancelled);
+
+        // A stopped service must not count as skipped or failed either, or the run summary would
+        // claim a failure the user caused on purpose.
+        Assert.Equal(0, tally.Skipped);
+        Assert.Equal(0, tally.Failed);
+        Assert.True(ScheduledPrefillRunGates.EvaluateRunOutcome(
+            tally.Ran, tally.NeedingLogin, tally.Skipped, tally.Failed).Success);
+    }
+
+    [Fact]
+    public void TallyRunResults_ReportsTheRunStopped_OnlyWhenNothingRan()
+    {
+        var nothingRan = ScheduledPrefillRunGates.TallyRunResults([
+            ScheduledPrefillServiceRunResult.Skipped,
+            ScheduledPrefillServiceRunResult.Cancelled
+        ]);
+
+        Assert.True(nothingRan.ReportsCancelled);
+    }
+
+    [Fact]
+    public void TallyRunResults_CountsEveryOtherResultIntoItsOwnBucket()
+    {
+        var tally = ScheduledPrefillRunGates.TallyRunResults([
+            ScheduledPrefillServiceRunResult.Ran,
+            ScheduledPrefillServiceRunResult.NeedsLogin,
+            ScheduledPrefillServiceRunResult.Skipped,
+            ScheduledPrefillServiceRunResult.Failed,
+            ScheduledPrefillServiceRunResult.Cancelled
+        ]);
+
+        Assert.Equal(new ScheduledPrefillRunTally(1, 1, 1, 1, 1), tally);
+    }
+
+    [Fact]
+    public void TallyRunResults_AnEmptyRunReportsNothing()
+    {
+        var tally = ScheduledPrefillRunGates.TallyRunResults([]);
+
+        Assert.Equal(default, tally);
+        Assert.False(tally.ReportsCancelled);
     }
 
     [Fact]

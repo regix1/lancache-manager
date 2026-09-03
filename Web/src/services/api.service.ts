@@ -73,6 +73,7 @@ import type {
 import type { CustomSchedule } from '../components/features/management/schedules/custom-schedule/types';
 import type {
   ScheduledPrefillConfigDto,
+  ScheduledPrefillServiceId,
   ScheduledPrefillServiceScheduleDto
 } from '../components/features/management/schedules/scheduled-prefill/types';
 import type { PersistentPrefillEditSessionCleanupRequest } from '../components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger';
@@ -3273,6 +3274,31 @@ class ApiService {
       } else {
         console.error('getScheduledPrefillSchedule error:', error);
       }
+      throw error;
+    }
+  }
+
+  /**
+   * Starts one scheduled-prefill platform immediately. Neither outcome below is a failure, so both
+   * come back as flags rather than being thrown: 409 means that platform is already running, and
+   * `queued` on an accepted run means it was enqueued behind a run already in flight and will
+   * follow it rather than starting now. `queued` is absent on the ordinary start path.
+   */
+  static async runScheduledPrefillService(
+    platform: ScheduledPrefillServiceId
+  ): Promise<{ alreadyRunning: boolean; queued: boolean }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/scheduledPrefill/services/${platform}/run`,
+        this.getFetchOptions({ method: 'POST' })
+      );
+      if (res.status === 409) {
+        return { alreadyRunning: true, queued: false };
+      }
+      const accepted = await this.handleResponse<{ queued?: boolean }>(res);
+      return { alreadyRunning: false, queued: accepted?.queued === true };
+    } catch (error: unknown) {
+      console.error('runScheduledPrefillService error:', error);
       throw error;
     }
   }

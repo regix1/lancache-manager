@@ -1,11 +1,15 @@
 using System.Reflection;
+using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -460,9 +464,12 @@ public class ScheduledPrefillServiceTests
         harness.Service.Dispose();
 
         Assert.Null(thrown);
-        Assert.Equal(2, harness.Tracker.RegisterCount);
-        // Cleanup preserved: each run still completes its tracked operation, marked as cancelled.
-        Assert.Equal(2, harness.Tracker.CompleteCount);
+        Assert.Equal(2, harness.Tracker.RunRegisterCount);
+        // A run also registers one operation per due platform (the default config enables Battle.net
+        // and Riot), so every operation it opened must be closed - the per-platform ones included, or
+        // their adopted token sources are never disposed.
+        Assert.Equal(harness.Tracker.RegisterCount, harness.Tracker.CompleteCount);
+        Assert.True(harness.Tracker.RegisterCount > harness.Tracker.RunRegisterCount);
         Assert.False(harness.Tracker.LastCompleteSuccess);
         Assert.DoesNotContain(harness.Logger.Entries, entry => entry.Level == LogLevel.Error);
         Assert.Contains(
@@ -485,7 +492,7 @@ public class ScheduledPrefillServiceTests
             // service is due) until it has executed work at least twice — proving a benign cancel on one
             // tick does not tear down the recurring schedule.
             var deadline = DateTime.UtcNow.AddSeconds(30);
-            while (harness.Tracker.RegisterCount < 2 && DateTime.UtcNow < deadline)
+            while (harness.Tracker.RunRegisterCount < 2 && DateTime.UtcNow < deadline)
             {
                 service.TriggerImmediateRun();
                 await Task.Delay(TimeSpan.FromMilliseconds(100));
@@ -498,14 +505,345 @@ public class ScheduledPrefillServiceTests
         }
 
         Assert.True(
-            harness.Tracker.RegisterCount >= 2,
-            $"Scheduling loop should keep running work after a benign cancel; it ran {harness.Tracker.RegisterCount} time(s).");
+            harness.Tracker.RunRegisterCount >= 2,
+            $"Scheduling loop should keep running work after a benign cancel; it ran {harness.Tracker.RunRegisterCount} time(s).");
         Assert.DoesNotContain(
             harness.Logger.Entries,
             entry => entry.Level == LogLevel.Error && entry.Message.Contains("error in scheduled work"));
         Assert.Contains(
             harness.Logger.Entries,
             entry => entry.Level == LogLevel.Information && entry.Message.Contains("cancelled"));
+    }
+
+    // ---- A per-row Run runs the platform it names and nothing else ----
+    // The Schedules page's per-service Run button posts to a per-platform route, and the shared
+    // TriggerImmediateRun it goes through takes no arguments, so the platform has to survive the trip
+    // some other way. These drive the real ExecuteWorkAsync and read back which platforms it opened a
+    // tracked operation for.
+
+    [Fact]
+    public async Task TriggerServiceRun_RunsTheNamedPlatform_WithoutCostingDueSiblingsTheirTurn()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var provider = harness.Provider;
+
+        // Steam is DISABLED in the default config while Battle.net and Riot are enabled with no
+        // last-run, which makes them genuinely due on this tick. Naming Steam must ADD Steam to that
+        // tick, not replace it: a per-row Run landing a second before the cadence used to drop the
+        // two due platforms, so the run the operator was waiting for arrived a minute late.
+        harness.Service.TriggerServiceRun(PrefillPlatform.Steam);
+        await InvokeExecuteWorkAsync(harness.Service);
+        harness.Service.Dispose();
+
+        Assert.Contains("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
+        Assert.Contains("Scheduled Prefill - BattleNet", harness.Tracker.RegisteredNames);
+        Assert.Contains("Scheduled Prefill - Riot", harness.Tracker.RegisteredNames);
+
+        // Still one run, and still nothing that was neither named nor due.
+        Assert.Single(harness.Tracker.RegisteredNames, name => name == "Scheduled Prefill");
+        Assert.DoesNotContain("Scheduled Prefill - Epic", harness.Tracker.RegisteredNames);
+        Assert.DoesNotContain("Scheduled Prefill - Xbox", harness.Tracker.RegisteredNames);
+    }
+
+    [Fact]
+    public async Task TriggerServiceRun_DoesNotSweepInAnEnabledServiceThatIsNotDue()
+    {
+        var harness = CreateRecordingHarness<BattleNetJustRanStateServiceProxy>();
+        using var provider = harness.Provider;
+
+        // A per-row Run reaches the loop as the same MANUAL trigger the whole-schedule Run Now uses,
+        // and that trigger bypasses the due-check. The test above cannot see the difference because
+        // its stub has no last-runs, so every enabled service is due either way. Here Battle.net is
+        // enabled but ran a moment ago: naming Steam must not inherit the bypass and sweep it in,
+        // while Riot, genuinely due, still takes its turn. [44]
+        typeof(ScheduledServiceBase)
+            .GetProperty("CurrentRunTrigger", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(harness.Service, RunTrigger.Manual);
+        harness.Service.TriggerServiceRun(PrefillPlatform.Steam);
+        await InvokeExecuteWorkAsync(harness.Service);
+        harness.Service.Dispose();
+
+        Assert.Contains("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
+        Assert.Contains("Scheduled Prefill - Riot", harness.Tracker.RegisteredNames);
+        Assert.DoesNotContain("Scheduled Prefill - BattleNet", harness.Tracker.RegisteredNames);
+    }
+
+    // ---- The per-platform run route tells a start from a queue ----
+    // A run already in flight holds the loop, so a platform outside it only queues. The row's toast
+    // must say so rather than claim a start, which is what the response's queued flag carries.
+
+    [Fact]
+    public void RunService_BehindAnInFlightRun_AnswersQueued()
+    {
+        var (controller, active) = CreateRunServiceController();
+        active.Add(RunLevelOperation());
+
+        var accepted = Assert.IsType<AcceptedResult>(controller.RunService(PrefillPlatform.Epic));
+
+        Assert.Equal(true, accepted.Value!.GetType().GetProperty("queued")!.GetValue(accepted.Value));
+    }
+
+    [Fact]
+    public void RunService_WithNothingInFlight_AnswersStartedWithoutTheQueuedFlag()
+    {
+        var (controller, _) = CreateRunServiceController();
+
+        var accepted = Assert.IsType<AcceptedResult>(controller.RunService(PrefillPlatform.Epic));
+
+        // The flag is absent, not false, on the ordinary start path.
+        Assert.Null(accepted.Value!.GetType().GetProperty("queued"));
+    }
+
+    [Fact]
+    public void RunService_ForAPlatformAlreadyRunning_Refuses()
+    {
+        var (controller, active) = CreateRunServiceController();
+        active.Add(RunLevelOperation());
+        active.Add(new OperationInfo
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.ScheduledPrefill,
+            Name = "Scheduled Prefill - Epic",
+            Metadata = new ScheduledPrefillServiceRunState(PrefillPlatform.Epic)
+        });
+
+        Assert.IsType<ConflictObjectResult>(controller.RunService(PrefillPlatform.Epic));
+    }
+
+    private static OperationInfo RunLevelOperation() => new()
+    {
+        Id = Guid.NewGuid(),
+        Type = OperationType.ScheduledPrefill,
+        Name = "Scheduled Prefill",
+        Metadata = new ScheduledPrefillOperationMetadata(showNotification: true)
+    };
+
+    private static (ScheduledPrefillConfigController Controller, List<OperationInfo> Active) CreateRunServiceController()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        var tracker = (ActiveOperationsTrackerProxy)DispatchProxy.Create<IUnifiedOperationTracker, ActiveOperationsTrackerProxy>();
+        var controller = new ScheduledPrefillConfigController(
+            (IStateService)DispatchProxy.Create<IStateService, PrefillConfigStateServiceProxy>(),
+            (IServiceScheduleRegistry)DispatchProxy.Create<IServiceScheduleRegistry, NullReturningProxy>(),
+            (IUnifiedOperationTracker)tracker,
+            harness.Service);
+
+        return (controller, tracker.Active);
+    }
+
+    // Answers GetActiveOperations from a list the test fills; every other member no-ops.
+    // Not sealed: DispatchProxy.Create derives the concrete proxy type from this class.
+    private class ActiveOperationsTrackerProxy : DispatchProxy
+    {
+        public List<OperationInfo> Active { get; } = [];
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(IUnifiedOperationTracker.GetActiveOperations))
+            {
+                return Active.AsEnumerable();
+            }
+
+            return targetMethod?.ReturnType == typeof(Guid) ? Guid.NewGuid() : null;
+        }
+    }
+
+    [Fact]
+    public async Task TriggerImmediateRun_AfterAPerRowRun_StillRunsEveryEnabledService()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var provider = harness.Provider;
+
+        // A whole-schedule Run Now landing on top of a queued per-row run must not be narrowed down
+        // to that one platform, which is what leaving the queued platform in place would do.
+        harness.Service.TriggerServiceRun(PrefillPlatform.Steam);
+        harness.Service.TriggerImmediateRun();
+        await InvokeExecuteWorkAsync(harness.Service);
+        harness.Service.Dispose();
+
+        Assert.DoesNotContain("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
+        Assert.Contains("Scheduled Prefill - BattleNet", harness.Tracker.RegisteredNames);
+        Assert.Contains("Scheduled Prefill - Riot", harness.Tracker.RegisteredNames);
+    }
+
+    // ---- The reason a service's card gives for closing ----
+    // The reported defect: a service that failed by throwing showed its last PROGRESS line as the
+    // reason, so the card read "Steam failed: Prefill in progress" and the real error was never seen.
+
+    [Fact]
+    public async Task CompleteServiceRun_AThrownFailure_ShowsTheExceptionRatherThanTheProgressLine()
+    {
+        var state = new ScheduledPrefillServiceRunState(PrefillPlatform.Steam);
+        // What the card held the moment the service threw.
+        state.Record("running", "Prefill in progress", "signalr.scheduledPrefill.running", 42d);
+
+        var terminal = await CompleteServiceRunForTestAsync(
+            state, ScheduledPrefillServiceRunResult.Failed, failureMessage: "Docker daemon is not reachable");
+
+        Assert.Equal("Docker daemon is not reachable", terminal.Error);
+        // The recorded key names the progress sentence, so carrying it would translate the card
+        // straight back into "Prefill in progress" for anyone not reading English.
+        Assert.Null(terminal.StageKey);
+        Assert.False(terminal.Success);
+    }
+
+    [Fact]
+    public async Task CompleteServiceRun_AThrowBeforeAnyProgress_StillNamesTheFailure()
+    {
+        // Nothing recorded yet, which used to degrade the card to the bare word "Failed".
+        var state = new ScheduledPrefillServiceRunState(PrefillPlatform.Steam);
+
+        var terminal = await CompleteServiceRunForTestAsync(
+            state, ScheduledPrefillServiceRunResult.Failed, failureMessage: "The socket connection was aborted");
+
+        Assert.Equal("The socket connection was aborted", terminal.Error);
+    }
+
+    [Fact]
+    public async Task CompleteServiceRun_AGatedFailure_KeepsTheReasonItsOwnProgressReported()
+    {
+        // The stall and max-runtime paths report themselves through a progress event and RETURN
+        // Failed without throwing, so their recorded line IS the reason and must survive.
+        var state = new ScheduledPrefillServiceRunState(PrefillPlatform.Steam);
+        state.Record("failed", "Prefill stalled (no progress)", "signalr.scheduledPrefill.failedStalled", 99d);
+
+        var terminal = await CompleteServiceRunForTestAsync(
+            state, ScheduledPrefillServiceRunResult.Failed, failureMessage: null);
+
+        Assert.Equal("Prefill stalled (no progress)", terminal.Error);
+        Assert.Equal("signalr.scheduledPrefill.failedStalled", terminal.StageKey);
+    }
+
+    [Fact]
+    public async Task CompleteServiceRun_ASkip_KeepsItsOwnReasonAndClosesAsSkipped()
+    {
+        var state = new ScheduledPrefillServiceRunState(PrefillPlatform.Xbox);
+        state.Record("skipped", "No running persistent container for Xbox", "signalr.scheduledPrefill.skippedNoContainer", 99d);
+
+        var terminal = await CompleteServiceRunForTestAsync(
+            state, ScheduledPrefillServiceRunResult.Skipped, failureMessage: null);
+
+        Assert.Equal("No running persistent container for Xbox", terminal.Error);
+        Assert.Equal("signalr.scheduledPrefill.skippedNoContainer", terminal.StageKey);
+        Assert.Equal("skipped", terminal.Status);
+    }
+
+    private sealed record ServiceTerminal(bool Success, string? Error, string? StageKey, string? Status);
+
+    private static async Task<ServiceTerminal> CompleteServiceRunForTestAsync(
+        ScheduledPrefillServiceRunState state,
+        ScheduledPrefillServiceRunResult result,
+        string? failureMessage)
+    {
+        var recorder = (TerminalRecordingProxy)DispatchProxy.Create<ISignalRNotificationService, TerminalRecordingProxy>();
+        var tracker = (IUnifiedOperationTracker)DispatchProxy.Create<IUnifiedOperationTracker, RecordingTrackerProxy>();
+
+        var serviceRun = new ScheduledPrefillServiceRun(
+            ScheduledPrefillConfigFactory.CreateDefault().GetServicesInRunOrder().First(s => s.ServiceId == state.ServiceId),
+            Guid.NewGuid(),
+            "op-1",
+            "run-1",
+            state,
+            CancellationToken.None);
+
+        var completeServiceRun = typeof(ScheduledPrefillService)
+            .GetMethod("CompleteServiceRunAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        await (Task)completeServiceRun.Invoke(
+            null,
+            new object?[] { serviceRun, tracker, (ISignalRNotificationService)recorder, result, true, failureMessage })!;
+
+        return recorder.Terminal ?? throw new InvalidOperationException("No terminal event was emitted.");
+    }
+
+    // Records the fields of the per-service terminal payload the card renders its closing line from.
+    // Not sealed: DispatchProxy.Create derives the concrete proxy type from this class.
+    private class TerminalRecordingProxy : DispatchProxy
+    {
+        public ServiceTerminal? Terminal { get; private set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
+                && args is { Length: >= 2 }
+                && args[0] as string == SignalREvents.ScheduledPrefillCompleted
+                && args[1] is { } payload)
+            {
+                var type = payload.GetType();
+                Terminal = new ServiceTerminal(
+                    type.GetProperty("success")?.GetValue(payload) as bool? ?? false,
+                    type.GetProperty("error")?.GetValue(payload) as string,
+                    type.GetProperty("stageKey")?.GetValue(payload) as string,
+                    type.GetProperty("status")?.GetValue(payload) as string);
+            }
+
+            return targetMethod?.ReturnType == typeof(Task) ? Task.CompletedTask : null;
+        }
+    }
+
+    private static Task InvokeExecuteWorkAsync(ScheduledPrefillService service)
+    {
+        var executeWork = typeof(ScheduledPrefillService)
+            .GetMethod("ExecuteWorkAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        return (Task)executeWork.Invoke(service, new object[] { CancellationToken.None })!;
+    }
+
+    private static RecordingHarness CreateRecordingHarness<TStateService>()
+        where TStateService : DispatchProxy
+    {
+        var trackerProxy = DispatchProxy.Create<IUnifiedOperationTracker, RecordingTrackerProxy>();
+        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
+        var stateService = (IStateService)DispatchProxy.Create<IStateService, TStateService>();
+
+        var services = new ServiceCollection();
+        services.AddSingleton((IUnifiedOperationTracker)trackerProxy);
+        services.AddSingleton(notifications);
+        var provider = services.BuildServiceProvider();
+
+        // No daemon is registered in this provider, so every due platform stops at the first gate and
+        // reports "no daemon". That is deliberate: these tests are about WHICH platforms a run opens
+        // an operation for, not about what happens once one is running.
+        var service = new ScheduledPrefillService(
+            NullLogger<ScheduledPrefillService>.Instance,
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            stateService);
+
+        return new RecordingHarness(service, (RecordingTrackerProxy)trackerProxy, provider);
+    }
+
+    private sealed record RecordingHarness(
+        ScheduledPrefillService Service,
+        RecordingTrackerProxy Tracker,
+        ServiceProvider Provider);
+
+    // Records the name every operation registers under, in order, without cancelling anything.
+    // Not sealed: DispatchProxy.Create derives the concrete proxy type from this class.
+    private class RecordingTrackerProxy : DispatchProxy
+    {
+        private readonly object _sync = new();
+        private readonly List<string> _registeredNames = [];
+
+        public IReadOnlyList<string> RegisteredNames
+        {
+            get { lock (_sync) return _registeredNames.ToArray(); }
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(IUnifiedOperationTracker.RegisterOperation)
+                && args?[1] is string name)
+            {
+                lock (_sync)
+                {
+                    _registeredNames.Add(name);
+                }
+
+                return Guid.NewGuid();
+            }
+
+            return targetMethod?.ReturnType == typeof(Guid) ? Guid.NewGuid() : null;
+        }
     }
 
     private static CancellingHarness CreateCancellingHarness()
@@ -572,9 +910,17 @@ public class ScheduledPrefillServiceTests
     private class CancellingTrackerProxy : DispatchProxy
     {
         private int _registerCount;
+        private int _runRegisterCount;
         private int _completeCount;
 
         public int RegisterCount => Volatile.Read(ref _registerCount);
+
+        /// <summary>
+        /// Registrations of the RUN itself, told apart from the one-per-platform operations a run
+        /// also opens by the name it registers under (args[1]).
+        /// </summary>
+        public int RunRegisterCount => Volatile.Read(ref _runRegisterCount);
+
         public int CompleteCount => Volatile.Read(ref _completeCount);
         public bool? LastCompleteSuccess { get; private set; }
 
@@ -584,6 +930,11 @@ public class ScheduledPrefillServiceTests
             {
                 case nameof(IUnifiedOperationTracker.RegisterOperation):
                     Interlocked.Increment(ref _registerCount);
+                    if (args?[1] as string == "Scheduled Prefill")
+                    {
+                        Interlocked.Increment(ref _runRegisterCount);
+                    }
+
                     // args[2] is the CancellationTokenSource the run hands over (RegisterOperation's
                     // third parameter). Cancelling it here stands in for the user pressing Cancel.
                     (args?[2] as CancellationTokenSource)?.Cancel();
@@ -634,6 +985,22 @@ public class ScheduledPrefillServiceTests
             }
 
             return null;
+        }
+    }
+
+    // The default config's enabled services carry no last-run, so all of them are due on every tick.
+    // This stub gives Battle.net a last-run of right now, making it enabled but NOT due.
+    private class BattleNetJustRanStateServiceProxy : PrefillConfigStateServiceProxy
+    {
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(IStateService.GetScheduledPrefillServiceLastRun)
+                && args?[0] as string == nameof(PrefillPlatform.BattleNet))
+            {
+                return DateTime.UtcNow;
+            }
+
+            return base.Invoke(targetMethod, args);
         }
     }
 

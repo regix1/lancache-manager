@@ -3926,17 +3926,22 @@
             }
           },
           "events": {
-            "started": "Scheduled prefill started",
+            "started": "{{service}} started",
             "progress": "Scheduled prefill {{stage}}",
-            "completed": "Scheduled prefill completed",
-            "cancelled": "Scheduled prefill cancelled",
-            "failed": "Scheduled prefill failed",
+            "completed": "{{service}} completed",
+            "cancelled": "{{service}} stopped",
+            "failed": "{{service}} failed: {{reason}}",
             "skipped": "{{service}} skipped: {{reason}}",
             "needsLogin": "{{service}} needs login before scheduled prefill can continue",
             "needsLoginWithReason": "{{service}} needs login: {{reason}}",
             "serviceProgress": "{{service}}: {{message}}",
             "downloadedOfTotal": "{{downloaded}} of {{total}}"
-          }
+          },
+          "runService": "Run",
+          "runServiceTooltip": "Run this service now",
+          "runServiceStarted": "{{service}} started",
+          "runServiceAlreadyRunning": "{{service}} is already running",
+          "runServiceQueued": "{{service}} will run next"
         },
         "epicMapping": {
           "displayName": "Epic Game Mapping",
@@ -7438,7 +7443,6 @@
       "skippedNoDaemon": "No daemon registered for this service",
       "skippedNoContainer": "No running persistent container. Start the persistent container before scheduling.",
       "skippedContainerNotReady": "The persistent container is running but has not reported ready yet. This platform needs no login, so wait for the container to finish starting.",
-      "skippedManualActive": "A manual prefill session is active",
       "skippedAlreadyRunning": "A prefill is already in progress",
       "needsPersistentContainer": "No running persistent container. Start and log in the persistent container before scheduling.",
       "needsPersistentLogin": "The persistent container is running but not logged in. Log in to the persistent container before scheduling.",

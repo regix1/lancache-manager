@@ -19,7 +19,17 @@ import { useScheduleDisplayModes } from '@hooks/useScheduleDisplayModes';
 import { CondensedNotificationStrip } from './CondensedNotificationStrip';
 import { UnifiedNotificationItem } from './UnifiedNotificationItem';
 import { CANCEL_CONFIG_BY_TYPE, getNotificationColor, handleCancel } from './notificationCancel';
+import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+
+/**
+ * The types whose registry entry computes a card id per event, so several of their cards can be
+ * on screen at once reporting different entities. Derived from the registry for the same reason
+ * the cancel config is: an entry that starts owning several cards must not also need a line here.
+ */
+const TYPES_WITH_A_CARD_PER_ENTITY = new Set<string>(
+  NOTIFICATION_REGISTRY.filter((entry) => entry.getId !== undefined).map((entry) => entry.type)
+);
 
 const UniversalNotificationBar: React.FC = () => {
   const { notifications, removeNotification, updateNotification } = useNotifications();
@@ -237,13 +247,19 @@ const UniversalNotificationBar: React.FC = () => {
   // run's own lifecycle notification fold into a single disclosure instead of stacking a line
   // per notification. Notifications without a serviceKey keep a line each. Map preserves the
   // sorted order via first insertion.
+  //
+  // A type that owns one card per entity is the exception, and keeps a line per card: its cards
+  // report DIFFERENT work under the same service, so folding them would show one of them and hide
+  // the rest. A scheduled prefill running four platforms at once is four lines, not one.
   const condensedGroups = new Map<string, UnifiedNotification[]>();
   for (const item of classified) {
     if (!item.condensed) {
       continue;
     }
     const groupKey =
-      item.serviceKey !== undefined ? `svc:${item.serviceKey}` : `id:${item.notification.id}`;
+      item.serviceKey !== undefined && !TYPES_WITH_A_CARD_PER_ENTITY.has(item.notification.type)
+        ? `svc:${item.serviceKey}`
+        : `id:${item.notification.id}`;
     const group = condensedGroups.get(groupKey);
     if (group) {
       group.push(item.notification);

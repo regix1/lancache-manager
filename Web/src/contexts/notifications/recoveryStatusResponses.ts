@@ -82,11 +82,23 @@ export interface LogRemovalStatusResponse {
   context?: StageContext;
 }
 
+/** One running service of the run, carrying what that service's card needs to be rebuilt. */
+interface ScheduledPrefillServiceRunStatus {
+  serviceId: string;
+  /** That service's own tracked operation, so the rebuilt card cancels only that service. */
+  operationId?: string | null;
+  stage: string;
+  message?: string | null;
+  stageKey?: string | null;
+  percentComplete?: number | null;
+}
+
 /** GET /api/system/schedules/scheduledPrefill/run-status - ScheduledPrefillRunStatusDto */
 export interface ScheduledPrefillRunStatusResponse {
   isRunning: boolean;
   operationId?: string | null;
   showNotification?: boolean;
+  services: ScheduledPrefillServiceRunStatus[];
 }
 
 /** GET /api/games/detect/active - ActiveDetectionResponse */

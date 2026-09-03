@@ -161,7 +161,84 @@ export function eventTargetsCard(existing: UnifiedNotification, event: unknown):
   return Boolean(cardOperationId && incomingOperationId && cardOperationId === incomingOperationId);
 }
 
-function clearPersistedNotificationIfTargeted(storageKey: string, event: unknown): boolean {
+/**
+ * The cards persisted under one storage key. A type with a singleton card stores that card on
+ * its own; a type that owns one card per entity stores a record of card id to card, so a page
+ * reload restores every one of them.
+ */
+export function readPersistedCards(storageKey: string): UnifiedNotification[] {
+  const persisted = storage.getItem(storageKey);
+  if (!persisted) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(persisted) as
+      | UnifiedNotification
+      | Record<string, UnifiedNotification>;
+    // A card carries its own id; a record of cards does not.
+    if (typeof (parsed as UnifiedNotification).id === 'string') {
+      return [parsed as UnifiedNotification];
+    }
+    return Object.values(parsed as Record<string, UnifiedNotification>);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The same cards keyed by id. A card written by a build that stored this key as a single card
+ * is folded into the record here, so an upgrade mid-run does not strand it.
+ */
+function readPersistedCardsById(storageKey: string): Record<string, UnifiedNotification> {
+  const cards: Record<string, UnifiedNotification> = {};
+  for (const card of readPersistedCards(storageKey)) {
+    cards[card.id] = card;
+  }
+  return cards;
+}
+
+function persistNotification(
+  storageKey: string,
+  notification: UnifiedNotification,
+  storesCardsById?: boolean
+): void {
+  if (!storesCardsById) {
+    storage.setItem(storageKey, JSON.stringify(notification));
+    return;
+  }
+
+  const cards = readPersistedCardsById(storageKey);
+  cards[notification.id] = notification;
+  storage.setItem(storageKey, JSON.stringify(cards));
+}
+
+function clearPersistedNotificationIfTargeted(
+  storageKey: string,
+  event: unknown,
+  notificationId: string,
+  storesCardsById?: boolean
+): boolean {
+  if (storesCardsById) {
+    const cards = readPersistedCardsById(storageKey);
+    const card = cards[notificationId];
+    if (!card) {
+      return true;
+    }
+    if (!eventTargetsCard(card, event)) {
+      return false;
+    }
+    delete cards[notificationId];
+    // The key goes away only once its last card does, so one service's terminal event cannot
+    // take the other services' persisted cards with it.
+    if (Object.keys(cards).length === 0) {
+      storage.removeItem(storageKey);
+    } else {
+      storage.setItem(storageKey, JSON.stringify(cards));
+    }
+    return true;
+  }
+
   const persisted = storage.getItem(storageKey);
   if (!persisted) {
     return true;
@@ -239,6 +316,8 @@ interface StartedHandlerConfig<T> {
   getId: (event: T) => string;
   /** localStorage key for persisting the notification */
   storageKey: string;
+  /** Set for a type that owns one card per entity: the key then holds a record of card id to card. */
+  storesCardsById?: boolean;
   /** Default message if getMessage is not provided or returns undefined */
   defaultMessage: string;
   /** Optional function to get a custom message from the event */
@@ -292,7 +371,12 @@ export function createStartedHandler<T>(
         const existing = prev.find((notification) => notification.id === notificationId);
         if (
           (existing && !eventTargetsCard(existing, event)) ||
-          !clearPersistedNotificationIfTargeted(config.storageKey, event)
+          !clearPersistedNotificationIfTargeted(
+            config.storageKey,
+            event,
+            notificationId,
+            config.storesCardsById
+          )
         ) {
           return prev;
         }
@@ -320,7 +404,7 @@ export function createStartedHandler<T>(
               // singleton card is already 'running'); strip stale cancel flags unconditionally.
               details: mergeEventDetails(existing.details, eventDetails, true)
             };
-            storage.setItem(config.storageKey, JSON.stringify(merged));
+            persistNotification(config.storageKey, merged, config.storesCardsById);
             return prev.map((n) => (n.id === notificationId ? merged : n));
           }
           return prev;
@@ -343,7 +427,7 @@ export function createStartedHandler<T>(
       };
 
       // Persist to localStorage for recovery on page refresh
-      storage.setItem(config.storageKey, JSON.stringify(newNotification));
+      persistNotification(config.storageKey, newNotification, config.storesCardsById);
 
       // Drop the old card on this id, then add the new running slot.
       const filtered = prev.filter((n) => n.id !== notificationId);
@@ -369,6 +453,8 @@ interface CompletionHandlerConfig<T> {
   getId: (event: T) => string;
   /** localStorage key to clear on completion */
   storageKey: string;
+  /** Set for a type that owns one card per entity: the key then holds a record of card id to card. */
+  storesCardsById?: boolean;
   /** Optional function to get the success message */
   getSuccessMessage?: (event: T, existing?: UnifiedNotification) => string;
   /** Optional function to get success details */
@@ -453,7 +539,12 @@ export function createCompletionHandler<
         const existing = prev.find((notification) => notification.id === notificationId);
         if (
           (existing && !eventTargetsCard(existing, event)) ||
-          !clearPersistedNotificationIfTargeted(config.storageKey, event)
+          !clearPersistedNotificationIfTargeted(
+            config.storageKey,
+            event,
+            notificationId,
+            config.storesCardsById
+          )
         ) {
           return prev;
         }
@@ -561,7 +652,14 @@ export function createCompletionHandler<
         if (existing && !eventTargetsCard(existing, event)) {
           return prev;
         }
-        if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+        if (
+          !clearPersistedNotificationIfTargeted(
+            config.storageKey,
+            event,
+            notificationId,
+            config.storesCardsById
+          )
+        ) {
           return prev;
         }
 
@@ -637,7 +735,14 @@ export function createCompletionHandler<
         // kind rather than another operation's: the two guards below would otherwise drop every
         // repeat and the newer announcement would never be shown.
         if (!existing || (config.announcement && isTerminalNotificationStatus(existing.status))) {
-          if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+          if (
+            !clearPersistedNotificationIfTargeted(
+              config.storageKey,
+              event,
+              notificationId,
+              config.storesCardsById
+            )
+          ) {
             return prev;
           }
           if (suppressNewItemCardDuringBulk(config.type, prev)) {
@@ -653,7 +758,14 @@ export function createCompletionHandler<
         if (!eventTargetsCard(existing, event) || isTerminalNotificationStatus(existing.status)) {
           return prev;
         }
-        if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+        if (
+          !clearPersistedNotificationIfTargeted(
+            config.storageKey,
+            event,
+            notificationId,
+            config.storesCardsById
+          )
+        ) {
           return prev;
         }
 
@@ -738,6 +850,8 @@ interface StatusAwareProgressConfig<T> {
   getId: (event: T) => string;
   /** localStorage key for persisting/clearing the notification */
   storageKey: string;
+  /** Set for a type that owns one card per entity: the key then holds a record of card id to card. */
+  storesCardsById?: boolean;
   /** Function to get the progress message */
   getMessage: (event: T) => string;
   /** Function to get progress percentage (0-100) */
@@ -806,7 +920,12 @@ export function createStatusAwareProgressHandler<T>(
         const existing = prev.find((notification) => notification.id === notificationId);
         if (
           (existing && !eventTargetsCard(existing, event)) ||
-          !clearPersistedNotificationIfTargeted(config.storageKey, event)
+          !clearPersistedNotificationIfTargeted(
+            config.storageKey,
+            event,
+            notificationId,
+            config.storesCardsById
+          )
         ) {
           return prev;
         }
@@ -824,7 +943,14 @@ export function createStatusAwareProgressHandler<T>(
         const existing = prev.find((n) => n.id === notificationId);
 
         if (!existing) {
-          if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+          if (
+            !clearPersistedNotificationIfTargeted(
+              config.storageKey,
+              event,
+              notificationId,
+              config.storesCardsById
+            )
+          ) {
             return prev;
           }
           if (suppressNewItemCardDuringBulk(config.type, prev)) {
@@ -854,7 +980,14 @@ export function createStatusAwareProgressHandler<T>(
         if (isTerminalNotificationStatus(existing.status) || !eventTargetsCard(existing, event)) {
           return prev;
         }
-        if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+        if (
+          !clearPersistedNotificationIfTargeted(
+            config.storageKey,
+            event,
+            notificationId,
+            config.storesCardsById
+          )
+        ) {
           return prev;
         }
 
@@ -880,7 +1013,12 @@ export function createStatusAwareProgressHandler<T>(
 
         // If notification doesn't exist, nothing to do
         if (!existing) {
-          clearPersistedNotificationIfTargeted(config.storageKey, event);
+          clearPersistedNotificationIfTargeted(
+            config.storageKey,
+            event,
+            notificationId,
+            config.storesCardsById
+          );
           return prev;
         }
 
@@ -889,7 +1027,14 @@ export function createStatusAwareProgressHandler<T>(
         if (isTerminalNotificationStatus(existing.status) || !eventTargetsCard(existing, event)) {
           return prev;
         }
-        if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+        if (
+          !clearPersistedNotificationIfTargeted(
+            config.storageKey,
+            event,
+            notificationId,
+            config.storesCardsById
+          )
+        ) {
           return prev;
         }
 
@@ -947,7 +1092,7 @@ export function createStatusAwareProgressHandler<T>(
                 // cancel flags are dropped when the operationId changed (see mergeEventDetails).
                 ...(eventDetails ? { details: mergeEventDetails(n.details, eventDetails) } : {})
               };
-              storage.setItem(config.storageKey, JSON.stringify(updatedNotification));
+              persistNotification(config.storageKey, updatedNotification, config.storesCardsById);
               return updatedNotification;
             }
             return n;
@@ -980,7 +1125,7 @@ export function createStatusAwareProgressHandler<T>(
           };
 
           // Persist to localStorage for recovery
-          storage.setItem(config.storageKey, JSON.stringify(newNotification));
+          persistNotification(config.storageKey, newNotification, config.storesCardsById);
 
           const filtered = prev.filter((n) => n.id !== notificationId);
           return [...filtered, newNotification];

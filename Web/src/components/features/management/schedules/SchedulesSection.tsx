@@ -49,6 +49,8 @@ import { useMockMode } from '@contexts/useMockMode';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import StatusDot from '@components/common/StatusDot';
 import { ScheduledPrefillScheduleDetail } from './scheduled-prefill/ScheduledPrefillScheduleDetail';
+import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from './scheduled-prefill/constants';
+import type { ScheduledPrefillServiceId } from './scheduled-prefill/types';
 
 interface SchedulesSectionProps {
   isAdmin: boolean;
@@ -1137,6 +1139,8 @@ interface ScheduledPrefillCardProps {
   service: ServiceScheduleInfo;
   isAdmin: boolean;
   onRunNow: (key: string) => Promise<void>;
+  onRunService: (platform: ScheduledPrefillServiceId) => Promise<void>;
+  isRunServicePending: (platform: ScheduledPrefillServiceId) => boolean;
   isPendingRun: boolean;
   justCompleted: boolean;
   completedVariant: HighlightGlowVariant;
@@ -1149,6 +1153,8 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
   service,
   isAdmin,
   onRunNow,
+  onRunService,
+  isRunServicePending,
   isPendingRun,
   justCompleted,
   completedVariant
@@ -1175,6 +1181,13 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
   const handleRunNow = useCallback(() => {
     onRunNow(service.key);
   }, [service.key, onRunNow]);
+
+  const handleRunService = useCallback(
+    (platform: ScheduledPrefillServiceId) => {
+      void onRunService(platform);
+    },
+    [onRunService]
+  );
 
   return (
     <HighlightGlow enabled={justCompleted} variant={completedVariant}>
@@ -1219,6 +1232,11 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
           onRunNow={handleRunNow}
           runNowLoading={isRunningOrPending}
           runNowDisabled={isRunNowDisabled || isDimmed}
+          onRunService={handleRunService}
+          isRunServicePending={isRunServicePending}
+          /* Server truth only. A service whose notifications are silent emits events the browser
+             drops, so an event-derived running state would leave its row enabled mid-run. [34] */
+          runServiceDisabled={!isAdmin || service.isRunning}
         />
       </Card>
     </HighlightGlow>
@@ -1749,6 +1767,57 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     [addNotification, t, markStarting, clearPending]
   );
 
+  // One scheduled-prefill platform, started from its own table row. The platform names and the
+  // twelve schedule keys share the pending set without colliding, so the same hook covers both.
+  const handleRunService = useCallback(
+    async (platform: ScheduledPrefillServiceId) => {
+      const serviceKey = SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[platform];
+      const displayName = t(
+        `management.schedules.services.scheduledPrefill.config.services.${serviceKey}`
+      );
+      markStarting(platform);
+
+      try {
+        const result = await ApiService.runScheduledPrefillService(platform);
+        // Three outcomes, three words. A run accepted behind one already in flight cannot start
+        // until that one finishes, so claiming it started would be the same dishonesty the
+        // whole-schedule Run Now was corrected for. A refused start is left pending on purpose:
+        // the platform is running, and clearing it here would re-enable the row before server
+        // truth lands.
+        const runMessage = result.alreadyRunning
+          ? t('management.schedules.services.scheduledPrefill.runServiceAlreadyRunning', {
+              service: displayName
+            })
+          : result.queued
+            ? t('management.schedules.services.scheduledPrefill.runServiceQueued', {
+                service: displayName
+              })
+            : t('management.schedules.services.scheduledPrefill.runServiceStarted', {
+                service: displayName
+              });
+        addNotification({
+          type: 'generic',
+          status: 'completed',
+          message: runMessage,
+          details: {
+            notificationType: result.alreadyRunning || result.queued ? 'info' : 'success'
+          }
+        });
+      } catch (err: unknown) {
+        clearPending(platform);
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message:
+            getErrorMessage(err) ||
+            t('management.schedules.runNowFailed', { service: displayName }),
+          details: { notificationType: 'error' }
+        });
+      }
+    },
+    [addNotification, t, markStarting, clearPending]
+  );
+
   if (isLoading) {
     return (
       <TabPanel tabId="schedules" className="schedules-loading">
@@ -1844,6 +1913,8 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           service={prefillSchedule}
           isAdmin={isAdmin}
           onRunNow={handleRunNow}
+          onRunService={handleRunService}
+          isRunServicePending={isPending}
           isPendingRun={isPending(prefillSchedule.key)}
           justCompleted={!!completedKeys[prefillSchedule.key]}
           completedVariant={completedKeys[prefillSchedule.key] ?? 'navigate'}

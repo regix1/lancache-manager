@@ -75,7 +75,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         // across due platforms is false, and every relayed event must carry showNotification=false.
         var result = await (Task<ScheduledPrefillServiceRunResult>)runServiceAsync.Invoke(
             scheduledPrefillService,
-            new object?[] { serviceConfig, "op-1", daemonProvider, notifications, config, false, CancellationToken.None })!;
+            new object?[] { MakeServiceRun(serviceConfig), daemonProvider, notifications, config, false })!;
 
         scheduledPrefillService.Dispose();
 
@@ -97,15 +97,16 @@ public class ScheduledPrefillAnonymousRunPathTests
     }
 
     /// <summary>
-    /// The busy gate hands its stage key back through an out-parameter, and
-    /// <c>ScheduledPrefillService.RunServiceAsync</c> is the only place that forwards it onto the
-    /// SignalR payload. Drop that forwarding and the gate's own tests stay green while the skip card
-    /// loses its translated sentence, so the two keys are checked here through the real run path.
-    /// A guest/manual session belongs to a real operator rather than the scheduler's system user,
-    /// which is the first branch <c>ShouldSkipForBusySessions</c> defers for.
+    /// INVERTED on purpose. This used to assert that a live guest/manual session deferred the run,
+    /// and that is the behavior being removed: a temporary or guest container is a separate entity
+    /// with its own container and its own download, so it must never hold up a scheduled run. Driven
+    /// through the real run path rather than the pure gate because the whole point is that the run no
+    /// longer even shows the gate the other sessions on the daemon.
     /// </summary>
-    [Fact]
-    public async Task RunServiceAsync_ManualSessionActive_SkipsWithManualActiveStageKey()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunServiceAsync_ManualSessionActive_StillRuns(bool manualSessionIsPrefilling)
     {
         var (daemon, _) = CreateRunnablePersistentDaemon(PrefillPlatform.BattleNet);
 
@@ -115,6 +116,7 @@ public class ScheduledPrefillAnonymousRunPathTests
             UserId = Guid.NewGuid(),
             Status = DaemonSessionStatus.Active,
             IsPersistent = false,
+            IsPrefilling = manualSessionIsPrefilling,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddHours(1)
         };
@@ -123,9 +125,10 @@ public class ScheduledPrefillAnonymousRunPathTests
 
         var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
 
-        Assert.Equal(ScheduledPrefillServiceRunResult.Skipped, result);
-        Assert.Equal(new List<string> { "skipped" }, recorder.Stages);
-        Assert.Equal(new List<string?> { "signalr.scheduledPrefill.skippedManualActive" }, recorder.StageKeys);
+        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, result);
+        Assert.Contains("completed", recorder.Stages);
+        Assert.DoesNotContain("skipped", recorder.Stages);
+        Assert.DoesNotContain("signalr.scheduledPrefill.skippedManualActive", recorder.StageKeys);
     }
 
     /// <summary>
@@ -186,14 +189,28 @@ public class ScheduledPrefillAnonymousRunPathTests
             scheduledPrefillService,
             new object?[]
             {
-                serviceConfig, "op-1", daemonProvider, notifications,
-                ScheduledPrefillConfigFactory.CreateDefault(), false, CancellationToken.None
+                MakeServiceRun(serviceConfig), daemonProvider, notifications,
+                ScheduledPrefillConfigFactory.CreateDefault(), false
             })!;
 
         scheduledPrefillService.Dispose();
 
         return (result, recorder);
     }
+
+    /// <summary>
+    /// The one platform's slice of a run that <c>RunServiceAsync</c> now takes instead of a bare
+    /// operation id: a real tracked run also carries its own cancellation token, but nothing in these
+    /// tests cancels, so <see cref="CancellationToken.None"/> stands in for it.
+    /// </summary>
+    private static ScheduledPrefillServiceRun MakeServiceRun(ScheduledPrefillServiceConfigDto serviceConfig)
+        => new(
+            serviceConfig,
+            Guid.Empty,
+            "op-1",
+            "run-1",
+            new ScheduledPrefillServiceRunState(serviceConfig.ServiceId),
+            CancellationToken.None);
 
     private static (PrefillDaemonServiceBase Daemon, FakeAnonymousDaemonClient Client) CreateRunnablePersistentDaemon(
         PrefillPlatform platform)

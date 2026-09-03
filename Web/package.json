@@ -14,6 +14,8 @@
     "lint": "eslint . --max-warnings 0 && npm run validate:notifications && node scripts/validate-badges.mjs && npm run validate:i18n-keys && npm run validate:i18n-strings && node scripts/validate-lancache-spelling.mjs",
     "lint:fix": "eslint . --fix",
     "test": "node --test \"scripts/test-*.mjs\"",
+    "test:card-identity": "node --test scripts/test-notification-card-identity.mjs",
+    "test:single-card": "node --test scripts/test-notification-single-card.mjs",
     "test:nginx-reopen": "node --test scripts/test-nginx-reopen-availability.mjs",
     "test:live-previews": "node --test scripts/test-live-download-previews.mjs",
     "test:apply-dashboard-batch": "node --test scripts/test-apply-dashboard-batch.mjs",

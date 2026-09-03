@@ -15,6 +15,7 @@ import {
   REMOVING_GAME_I18N_KEY
 } from './constants';
 import { findBulkCardOwningOperation, waitingCardMessage } from './handlers';
+import { isTerminalNotificationStatus } from './notificationStatus';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
 import { storage } from '@utils/storage';
@@ -239,6 +240,31 @@ function createSimpleRecoveryFunction<TData>(
       }
 
       if (config.isProcessing(data)) {
+        // A type that owns one card per entity rebuilds every entity still running; the
+        // response names them, so the ids come from the data and not from a fixed lambda.
+        if (config.recoverCards) {
+          const cards = config.recoverCards(data);
+          const rebuilt = new Set(cards.map((card) => card.id));
+          setNotifications((prev: UnifiedNotification[]) => {
+            const recovered = cards.map((card) =>
+              reconcileRecoveredCard(
+                prev.find((n) => n.id === card.id),
+                { type, status: 'running', startedAt: new Date(), ...card }
+              )
+            );
+            // A card this response does not name can still be a finished sibling waiting out its
+            // dismiss timer: the service that skipped instantly, or the one the user just stopped.
+            // Only running cards are the response's to replace, so a terminal one it does not
+            // name stays until its own timer removes it.
+            const kept = prev.filter(
+              (n) =>
+                n.type !== type || (!rebuilt.has(n.id) && isTerminalNotificationStatus(n.status))
+            );
+            return [...kept, ...recovered];
+          });
+          return;
+        }
+
         const notificationData = config.createNotification(data);
         setNotifications((prev: UnifiedNotification[]) => {
           const existing = prev.find((n) => n.type === type);
@@ -268,11 +294,22 @@ function createSimpleRecoveryFunction<TData>(
           const existing = prev.find((n) => n.type === type && n.status === 'running');
           if (!existing) return prev;
 
+          // A type that owns one card per entity keeps each card's own id: moving them all onto
+          // the entry's fixed id would collapse several stale cards into one.
+          const keepsOwnIds = config.recoverCards !== undefined;
+          if (keepsOwnIds) {
+            for (const n of prev) {
+              if (n.type === type && n.status === 'running') {
+                scheduleAutoDismiss(n.id);
+              }
+            }
+          }
+
           return prev.map((n) => {
             if (n.type === type && n.status === 'running') {
               return {
                 ...n,
-                id: notificationId,
+                ...(keepsOwnIds ? {} : { id: notificationId }),
                 status: 'completed',
                 message: i18n.t(config.staleMessageKey),
                 progress: FULL_PROGRESS_PERCENT

@@ -410,29 +410,45 @@ export type CancelKind = 'serverOp' | 'clientQueue' | 'none';
  */
 export type StageContext = Record<string, string | number | boolean | null>;
 
-export type RecoveryTranslationValidation =
+type RecoveryTranslationValidation =
   | {
       kind: 'stageKey';
       cases: readonly { stageKey: string; context: StageContext }[];
     }
   | { kind: 'dedicated' };
 
-export interface SimpleRecoveryConfig<TData = unknown> {
+interface SimpleRecoveryBase<TData> {
   kind: 'simple';
   /** Data-driven classification consumed by validate-stage-keys.mjs. */
   translationValidation: RecoveryTranslationValidation;
   apiEndpoint: string;
   isProcessing: (data: TData) => boolean;
   shouldSkip?: (data: TData) => boolean;
-  createNotification: (
-    data: TData
-  ) => Omit<UnifiedNotification, 'id' | 'type' | 'status' | 'startedAt'>;
   /**
    * Key rather than text: the registry is a module-level literal, so a translated string here
    * would freeze at import time and survive a language change.
    */
   staleMessageKey: string;
 }
+
+/**
+ * How many cards this type's status endpoint rebuilds. A singleton type re-seeds its one card
+ * from `createNotification`; a type that owns one card per entity names them itself in
+ * `recoverCards`, ids included, because the response is what knows which entities are running.
+ */
+export type SimpleRecoveryConfig<TData = unknown> = SimpleRecoveryBase<TData> &
+  (
+    | {
+        createNotification: (
+          data: TData
+        ) => Omit<UnifiedNotification, 'id' | 'type' | 'status' | 'startedAt'>;
+        recoverCards?: never;
+      }
+    | {
+        createNotification?: never;
+        recoverCards: (data: TData) => Omit<UnifiedNotification, 'type' | 'status' | 'startedAt'>[];
+      }
+  );
 
 /**
  * Marker recovery: this type is served by the single
@@ -487,6 +503,13 @@ export type NotificationRegistryEntry = CancelWiring & {
   type: NotificationType;
   /** Singleton notification ID */
   id: string;
+  /**
+   * Card id for THIS event, for a type that owns one live card per entity rather than a
+   * singleton. Left unset, every event of the type lands on {@link id}, which is what the
+   * other entries rely on. Setting it also makes the type's storage key hold a record of
+   * card id to card, so one entity's card can be cleared without destroying its siblings.
+   */
+  getId?: (event: unknown) => string;
   /** localStorage persistence key */
   storageKey: string;
   /** Recovery wiring (discriminated union). */

@@ -114,7 +114,7 @@ function standardGetStatus(event: OperationStatusEvent): string | undefined {
 }
 
 /** Display gate for services whose runs can be configured silent. */
-function visibleWhenNotSilent(event: SilentRunEvent): boolean {
+export function visibleWhenNotSilent(event: SilentRunEvent): boolean {
   return event.showNotification !== false;
 }
 
@@ -179,6 +179,8 @@ export function cappedProgress(event: PercentCompleteEvent): number {
 interface StandardOperationEntryOptions<TStarted, TProgress, TComplete> {
   type: NotificationType;
   id: string;
+  /** Set only by a type that owns one card per entity; see `getId` on the entry. */
+  getId?: (event: unknown) => string;
   storageKey: string;
   /** SignalR event-name prefix, e.g. 'DataImport' -> DataImportStarted/Progress/Complete. */
   eventPrefix: string;
@@ -213,6 +215,7 @@ export function buildStandardOperationEntry<TStarted, TProgress, TComplete>(
   const {
     type,
     id,
+    getId,
     storageKey,
     eventPrefix,
     completeEvent,
@@ -251,6 +254,9 @@ export function buildStandardOperationEntry<TStarted, TProgress, TComplete>(
   return {
     type,
     id,
+    // Omitted rather than set to undefined, so an entry that owns one card keeps exactly
+    // the shape it had before this option existed.
+    ...(getId ? { getId } : {}),
     storageKey,
     cancelKind: 'serverOp',
     cancelTooltipKey,

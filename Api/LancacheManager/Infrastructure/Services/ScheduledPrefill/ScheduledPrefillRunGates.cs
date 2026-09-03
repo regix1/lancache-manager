@@ -82,33 +82,25 @@ public static class ScheduledPrefillRunGates
         $"Persistent container for {serviceId} is not ready yet";
 
     /// <summary>
-    /// Returns true when a scheduled run for this daemon should defer. The persistent reuse target
-    /// and every other scheduler-owned session share <paramref name="systemUserId"/>, so an idle
-    /// authenticated persistent container does NOT block (Cause 2 / 19): only a genuinely-conflicting
-    /// non-system interactive (guest/manual) session, or a persistent container already mid-prefill
-    /// (a prior run still going), causes a skip.
+    /// Returns true when a scheduled run for this platform should defer. The only session that can
+    /// defer it is the persistent container the run has already resolved, asked one question: is it
+    /// itself prefilling, i.e. is a prior run still going? A temporary or guest container is a
+    /// separate entity with its own container and its own download, so whether it is active or
+    /// prefilling says nothing about whether this platform's scheduled run can proceed.
+    /// Classification is by <see cref="DaemonSession.IsPersistent"/> and never by
+    /// <see cref="DaemonSession.UserId"/>: a persistent container re-adopted on a manager restart
+    /// falls back to an empty owner id when its Docker label is missing, which would otherwise read
+    /// as somebody else's session and block the scheduler's own container forever. [13][14][15][16]
     /// </summary>
     /// <paramref name="skipStageKey"/> names the same reason as an i18n key, so the notification
     /// card can read in the operator's language; <paramref name="skipMessage"/> stays English for
     /// the server log.
     public static bool ShouldSkipForBusySessions(
-        IEnumerable<DaemonSession> sessions,
-        Guid systemUserId,
+        DaemonSession? persistentSession,
         out string skipMessage,
         out string skipStageKey)
     {
-        var activeSessions = sessions
-            .Where(s => s.Status == DaemonSessionStatus.Active)
-            .ToList();
-
-        if (activeSessions.Any(s => s.UserId != systemUserId))
-        {
-            skipMessage = "A manual prefill session is active";
-            skipStageKey = "signalr.scheduledPrefill.skippedManualActive";
-            return true;
-        }
-
-        if (activeSessions.Any(s => s.IsPrefilling))
+        if (persistentSession is { Status: DaemonSessionStatus.Active, IsPersistent: true, IsPrefilling: true })
         {
             skipMessage = "A prefill is already in progress";
             skipStageKey = "signalr.scheduledPrefill.skippedAlreadyRunning";
@@ -278,12 +270,53 @@ public static class ScheduledPrefillRunGates
     }
 
     /// <summary>
-    /// Maps the ACTIVE service's completion fraction (from <see cref="ComputeServiceFraction"/>) to
-    /// the percent shown on the universal notification. The bar deliberately tracks the service
-    /// currently doing work rather than slicing across every due service: needs-login and busy
-    /// services skip in milliseconds, so equal run-wide slices would leave a genuine multi-gigabyte
-    /// download crawling inside a fifth of the bar. Clamped to [1, 99] so the card starts at 1%
-    /// instead of an instant mid-bar jump and reserves 100% for the run's terminal
+    /// Counts a completed run's per-service results into the four counters
+    /// <see cref="EvaluateRunOutcome"/> takes, plus the stopped ones it deliberately does not.
+    /// Stopping one platform says nothing about the platforms that ran beside it, so a stopped
+    /// service is counted on its own and never inflates the skipped or failed totals. Extracted as a
+    /// pure function because the run's whole classification hangs on it and the orchestrator it used
+    /// to live inside needs a daemon, a tracker and a notification hub before it can be driven. [10]
+    /// </summary>
+    public static ScheduledPrefillRunTally TallyRunResults(IEnumerable<ScheduledPrefillServiceRunResult> results)
+    {
+        var ran = 0;
+        var needingLogin = 0;
+        var skipped = 0;
+        var failed = 0;
+        var cancelled = 0;
+
+        foreach (var result in results)
+        {
+            switch (result)
+            {
+                case ScheduledPrefillServiceRunResult.Ran:
+                    ran++;
+                    break;
+                case ScheduledPrefillServiceRunResult.NeedsLogin:
+                    needingLogin++;
+                    break;
+                case ScheduledPrefillServiceRunResult.Failed:
+                    failed++;
+                    break;
+                case ScheduledPrefillServiceRunResult.Cancelled:
+                    cancelled++;
+                    break;
+                default:
+                    skipped++;
+                    break;
+            }
+        }
+
+        return new ScheduledPrefillRunTally(ran, needingLogin, skipped, failed, cancelled);
+    }
+
+    /// <summary>
+    /// Maps this service's completion fraction (from <see cref="ComputeServiceFraction"/>) to the
+    /// percent shown on its own notification card. The bar tracks the one service the card belongs
+    /// to rather than slicing across every due service: needs-login and busy services skip in
+    /// milliseconds, so equal run-wide slices would leave a genuine multi-gigabyte download crawling
+    /// inside a fifth of the bar. Clamped to [1, 99] so the card starts at 1% instead of an instant
+    /// mid-bar jump and reserves 100% for that service's terminal
     /// <c>ScheduledPrefillCompleted</c> event.
     /// </summary>
     public static double ComputeRunPercent(double serviceFraction)
@@ -338,3 +371,23 @@ public enum ScheduledPrefillServiceRunResult
 /// so the notification card can show it in the reader's language.
 /// </summary>
 public readonly record struct ScheduledPrefillRunOutcome(bool Success, string? Error, string? StageKey = null);
+
+/// <summary>
+/// How many due services ended each way, produced by
+/// <see cref="ScheduledPrefillRunGates.TallyRunResults"/>.
+/// </summary>
+public readonly record struct ScheduledPrefillRunTally(
+    int Ran,
+    int NeedingLogin,
+    int Skipped,
+    int Failed,
+    int Cancelled)
+{
+    /// <summary>
+    /// True when the run as a whole should report as stopped rather than as a success or a failure.
+    /// One platform being stopped must not bury four siblings that prefilled to completion, so the
+    /// run only claims to have been stopped when nothing reached
+    /// <see cref="ScheduledPrefillServiceRunResult.Ran"/>. [8]
+    /// </summary>
+    public bool ReportsCancelled => Cancelled > 0 && Ran == 0;
+}

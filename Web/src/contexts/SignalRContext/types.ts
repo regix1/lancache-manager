@@ -1073,7 +1073,10 @@ export type RiotMappingProgressEvent = MappingProgressEvent;
 export type RiotMappingCompleteEvent = MappingCompleteEvent;
 
 export interface ScheduledPrefillStartedEvent {
+  /** This service's own operation, which is what its card cancels. */
   operationId: string;
+  /** The service this event opens a card for. Null on the run-level event, which has no card. */
+  serviceId?: string | null;
   serviceCount: number;
   showNotification?: boolean;
 }
@@ -1102,6 +1105,8 @@ export interface ScheduledPrefillProgressEvent {
 
 export interface ScheduledPrefillCompletedEvent {
   operationId: string | null;
+  /** The service whose card this closes. Null on the run-level event, which has no card. */
+  serviceId?: string | null;
   success: boolean;
   error?: string | null;
   /**
@@ -1111,6 +1116,8 @@ export interface ScheduledPrefillCompletedEvent {
   stageKey?: string | null;
   /** The run was stopped (the user stopped the active prefill, or cancelled the run itself). */
   cancelled?: boolean;
+  /** "skipped" when the service did nothing (no container, needs login); the card closes as skipped. */
+  status?: string | null;
   showNotification?: boolean;
 }
 

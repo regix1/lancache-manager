@@ -2,6 +2,7 @@ using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -61,11 +62,50 @@ public class ScheduledPrefillRunVisibilityTests
         Assert.NotEmpty(recorder.Events);
         Assert.All(recorder.Events, e => Assert.Equal(expectedVisible, e.ShowNotification));
 
-        // The terminal visibility must equal the Started visibility (the stuck-card invariant).
-        var started = recorder.Events.Single(e => e.EventName == SignalREvents.ScheduledPrefillStarted);
-        var completed = recorder.Events.Single(e => e.EventName == SignalREvents.ScheduledPrefillCompleted);
-        Assert.Equal(started.ShowNotification, completed.ShowNotification);
-        Assert.Equal(expectedVisible, started.ShowNotification);
+        // A run emits a Started and a Completed per due service beside its own run-level pair, so each
+        // service's card opens and closes on its own timing. Every one of them carries the run-level
+        // flag, and the counts match: a card that opened and never closed is the stuck-card defect.
+        var started = recorder.Events.Where(e => e.EventName == SignalREvents.ScheduledPrefillStarted).ToList();
+        var completed = recorder.Events.Where(e => e.EventName == SignalREvents.ScheduledPrefillCompleted).ToList();
+        Assert.Equal(3, started.Count);
+        Assert.Equal(started.Count, completed.Count);
+        Assert.All(started, e => Assert.Equal(expectedVisible, e.ShowNotification));
+        Assert.All(completed, e => Assert.Equal(expectedVisible, e.ShowNotification));
+    }
+
+    /// <summary>
+    /// A service that did nothing closes its card as skipped, not failed: the terminal carries the
+    /// same wire word the tracker uses, and reports success because a missing prerequisite is not an
+    /// error. Every other outcome leaves the status off the wire.
+    /// </summary>
+    [Theory]
+    [InlineData(ScheduledPrefillServiceRunResult.Skipped, "skipped", true)]
+    [InlineData(ScheduledPrefillServiceRunResult.NeedsLogin, "skipped", true)]
+    [InlineData(ScheduledPrefillServiceRunResult.Ran, null, true)]
+    [InlineData(ScheduledPrefillServiceRunResult.Failed, null, false)]
+    [InlineData(ScheduledPrefillServiceRunResult.Cancelled, null, false)]
+    public async Task CompleteServiceRunAsync_NamesASkipOnTheWire(
+        ScheduledPrefillServiceRunResult result, string? expectedStatus, bool expectedSuccess)
+    {
+        var recorder = (RecordingNotificationsProxy)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+        var tracker = (IUnifiedOperationTracker)DispatchProxy.Create<IUnifiedOperationTracker, NoopTrackerProxy>();
+        var serviceRun = new ScheduledPrefillServiceRun(
+            ScheduledPrefillConfigFactory.CreateDefault().Steam,
+            Guid.NewGuid(),
+            "op-1",
+            "run-1",
+            new ScheduledPrefillServiceRunState(PrefillPlatform.Steam),
+            CancellationToken.None);
+
+        var complete = typeof(ScheduledPrefillService)
+            .GetMethod("CompleteServiceRunAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
+        // The trailing null is the thrown-failure message, which only the throwing path supplies.
+        await (Task)complete.Invoke(null, new object?[] { serviceRun, tracker, (ISignalRNotificationService)recorder, result, true, null })!;
+
+        var completed = Assert.Single(recorder.Events);
+        Assert.Equal(SignalREvents.ScheduledPrefillCompleted, completed.EventName);
+        Assert.Equal(expectedStatus, completed.Status);
+        Assert.Equal(expectedSuccess, completed.Success);
     }
 
     private static ScheduledPrefillConfigDto BuildMixedConfig(NotificationMode steamMode, NotificationMode epicMode)
@@ -102,11 +142,12 @@ public class ScheduledPrefillRunVisibilityTests
             PersistenceMode = template.PersistenceMode
         };
 
-    private sealed record CapturedEvent(string EventName, bool ShowNotification);
+    private sealed record CapturedEvent(string EventName, bool ShowNotification, string? Status, bool? Success);
 
     /// <summary>
-    /// Records the event name and <c>showNotification</c> field of every <c>NotifyAllAsync</c> payload
-    /// the scheduled-prefill orchestrator emits. Every other member returns its type default.
+    /// Records the event name, the <c>showNotification</c> field, and the wire <c>status</c> and
+    /// <c>success</c> (null when the payload has none) of every <c>NotifyAllAsync</c> payload the
+    /// scheduled-prefill orchestrator emits. Every other member returns its type default.
     /// Not sealed: DispatchProxy.Create derives a runtime subclass.
     /// </summary>
     private class RecordingNotificationsProxy : DispatchProxy
@@ -127,9 +168,11 @@ public class ScheduledPrefillRunVisibilityTests
                 && args[1] is { } payload
                 && payload.GetType().GetProperty("showNotification")?.GetValue(payload) is bool showNotification)
             {
+                var status = payload.GetType().GetProperty("status")?.GetValue(payload) as string;
+                var success = payload.GetType().GetProperty("success")?.GetValue(payload) as bool?;
                 lock (_sync)
                 {
-                    _events.Add(new CapturedEvent(eventName, showNotification));
+                    _events.Add(new CapturedEvent(eventName, showNotification, status, success));
                 }
             }
 

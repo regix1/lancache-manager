@@ -679,7 +679,7 @@
    row collapses to a visually-hidden line for screen readers). */
 .scheduled-prefill-schedule-table {
   --scheduled-prefill-schedule-cols: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr)
-    minmax(10rem, 12rem);
+    minmax(10rem, 12rem) auto;
   min-width: 0;
 }
 
@@ -846,8 +846,11 @@
     background: var(--theme-bg-tertiary);
   }
 
+  /* The tile has no column ruler, so the run control takes its own full-width line at the
+     foot of the tile instead of sharing a half-width column with a timing value. */
   .scheduled-prefill-schedule-table__cell--service,
-  .scheduled-prefill-schedule-table__cell--interval {
+  .scheduled-prefill-schedule-table__cell--interval,
+  .scheduled-prefill-schedule-table__cell--action {
     grid-column: 1 / -1;
   }
 }
