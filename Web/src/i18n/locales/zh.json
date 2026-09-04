@@ -3764,6 +3764,11 @@
               "selectGames": "选择游戏",
               "clearGames": "清除所选"
             },
+            "discardChanges": {
+              "confirmTitle": "放弃更改？",
+              "confirmBody": "取消将关闭此窗口且不保存。您在此处更改的所有设置都会恢复为打开前的状态。",
+              "confirmButton": "放弃更改"
+            },
             "persistentContainer": {
               "help": "长期容器，用于游戏库、登录和下载。与预填充选项卡访客容器使用相同的守护进程命令。",
               "error": "持久预填充容器操作失败：{{error}}",

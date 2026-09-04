@@ -3764,6 +3764,11 @@
               "selectGames": "Select games",
               "clearGames": "Clear selection"
             },
+            "discardChanges": {
+              "confirmTitle": "Discard your changes?",
+              "confirmBody": "Cancelling closes this window without saving. Every setting you changed here goes back to what it was before you opened it.",
+              "confirmButton": "Discard changes"
+            },
             "persistentContainer": {
               "help": "Long-lived container for game library, login, and downloads. Uses the same daemon commands as the Prefill tab guest container.",
               "error": "Persistent prefill container action failed: {{error}}",

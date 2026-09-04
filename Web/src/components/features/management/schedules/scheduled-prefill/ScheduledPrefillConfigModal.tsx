@@ -282,6 +282,9 @@ export function ScheduledPrefillConfigModal({
   const [scrollAreaEl, setScrollAreaEl] = useState<HTMLDivElement | null>(null);
   const [scrollAreaHeight, setScrollAreaHeight] = useState<number | null>(null);
   const [config, setConfig] = useState<ScheduledPrefillConfigDto | null>(null);
+  /** The config as it arrived, to compare against on Cancel. */
+  const loadedConfigRef = useRef<string | null>(null);
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -332,7 +335,11 @@ export function ScheduledPrefillConfigModal({
     setLoadingConfig(true);
     try {
       const nextConfig = await ApiService.getScheduledPrefillConfig(signal);
-      setConfig(reconcileScheduledPrefillConfig(nextConfig));
+      const reconciled = reconcileScheduledPrefillConfig(nextConfig);
+      // Snapshot what was loaded so Cancel can tell an edited form from an untouched one and only
+      // warn about losing work when there is work to lose.
+      loadedConfigRef.current = JSON.stringify(reconciled);
+      setConfig(reconciled);
       setLoadError(null);
     } catch (error: unknown) {
       if (!isAbortError(error)) {
@@ -1596,6 +1603,25 @@ export function ScheduledPrefillConfigModal({
     }
   };
 
+  /** True when the form holds edits that Save has not committed. Both halves matter: the service
+   *  settings live in `config`, the login validity window is its own field saved by its own call. */
+  const hasUnsavedChanges = (): boolean => {
+    if (config && loadedConfigRef.current !== null) {
+      if (JSON.stringify(config) !== loadedConfigRef.current) return true;
+    }
+    return savedValidityDays !== null && persistentValidityDays !== savedValidityDays;
+  };
+
+  /** Cancel asks first when there is something to lose, and closes straight away when there is not. */
+  const handleCancel = () => {
+    if (saving || closingEditSession) return;
+    if (hasUnsavedChanges()) {
+      setDiscardConfirmOpen(true);
+      return;
+    }
+    handleClose();
+  };
+
   const handleClose = () => {
     if (saving || editSessionCleanupPromiseRef.current) {
       return;
@@ -1916,7 +1942,7 @@ export function ScheduledPrefillConfigModal({
               type="button"
               variant="default"
               size={SCHEDULED_PREFILL_BUTTON_SIZE}
-              onClick={handleClose}
+              onClick={handleCancel}
               disabled={saving || closingEditSession}
               loading={closingEditSession}
             >
@@ -1979,6 +2005,19 @@ export function ScheduledPrefillConfigModal({
         <p className="text-sm text-themed-muted">
           {t(`${baseKey}.settings.clearLogins.confirmBody`)}
         </p>
+      </ConfirmationModal>
+      <ConfirmationModal
+        opened={discardConfirmOpen}
+        onClose={() => setDiscardConfirmOpen(false)}
+        onConfirm={() => {
+          setDiscardConfirmOpen(false);
+          handleClose();
+        }}
+        title={t(`${baseKey}.discardChanges.confirmTitle`)}
+        confirmLabel={t(`${baseKey}.discardChanges.confirmButton`)}
+        confirmColor="red"
+      >
+        <p className="text-sm text-themed-muted">{t(`${baseKey}.discardChanges.confirmBody`)}</p>
       </ConfirmationModal>
     </>
   );
