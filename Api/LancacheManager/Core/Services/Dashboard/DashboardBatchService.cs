@@ -1373,11 +1373,14 @@ public partial class DashboardBatchService : IDashboardBatchService
         public long CacheMissBytes { get; set; }
         public int Count { get; set; }
         public DateTime LastSeen { get; set; }
-        /// <summary>True while any download behind this game is still running.</summary>
-        public bool IsActive { get; set; }
+        /// <summary>True while any download behind this game is still running. Internal, so it stays
+        /// off the wire: it orders the list here and the browser has no use for it, and this response
+        /// is charged its serialized length against the dashboard cache.</summary>
+        internal bool IsActive { get; set; }
         /// <summary>Earliest start behind this game, which is what orders the running block. It does
-        /// not move while the game downloads, so the row keeps its slot until it finishes.</summary>
-        public DateTime FirstSeen { get; set; } = DateTime.MaxValue;
+        /// not move while the game downloads, so the row keeps its slot until it finishes. Internal
+        /// for the same reason as <see cref="IsActive"/>.</summary>
+        internal DateTime FirstSeen { get; set; } = DateTime.MaxValue;
         public bool IsEvicted { get; set; }
         public bool IsPartiallyEvicted { get; set; }
         public bool HasRealGameName { get; init; }
