@@ -69,6 +69,45 @@ test('key priority: app id beats depot, name, and service', () => {
   ]);
 });
 
+test('rows hold fixed slots instead of reordering when speeds cross', () => {
+  const speeds = (fast) => [
+    game({
+      service: 'steam',
+      gameName: 'Baldur',
+      clientIp: '10.0.0.1',
+      gameAppId: 1,
+      bytesPerSecond: fast ? 9_000_000 : 1
+    }),
+    game({
+      service: 'epicgames',
+      gameName: 'Fortnite',
+      clientIp: '10.0.0.2',
+      gameAppId: 2,
+      bytesPerSecond: fast ? 1 : 9_000_000
+    }),
+    // One title under two app ids on one client. Service, display name and client are all equal,
+    // so the key is the only thing left to order them by. Fed in the REVERSE of the expected
+    // order on purpose: the ledger preserves insertion order, so dropping the key tie-break
+    // hands these two back exactly as written here and the assertion below fails.
+    game({ service: 'steam', gameName: 'Halo', clientIp: '10.0.0.3', gameAppId: 3 }),
+    game({ service: 'steam', gameName: 'Halo', clientIp: '10.0.0.3', gameAppId: 20 })
+  ];
+
+  const order = (fast) => run({ gameSpeeds: speeds(fast) }).previews.map((p) => p.key);
+  const expected = [
+    'epicgames|10.0.0.2|app:2',
+    'steam|10.0.0.1|app:1',
+    // app:20 sorts before app:3 because the key is compared as text, which is fine: the point is
+    // that the pair has ONE settled order, not which of the two leads.
+    'steam|10.0.0.3|app:20',
+    'steam|10.0.0.3|app:3'
+  ];
+
+  assert.deepEqual(order(true), expected);
+  // The speeds swap between the two snapshots; the order must not.
+  assert.deepEqual(order(false), expected);
+});
+
 test('service-only traffic is never treated as a resolved game', () => {
   const { previews } = run({
     gameSpeeds: [game({ service: 'wsus', gameName: 'Windows Update', clientIp: '10.0.0.4' })]

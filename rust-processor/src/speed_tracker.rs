@@ -732,8 +732,23 @@ impl SpeedTracker {
             game_speeds.push(build_game_speed_info(entries, 0, client_ip, service, Some(game_name), None, speed_divisor));
         }
 
-        // Sort by speed descending
-        game_speeds.sort_by(|a, b| b.bytes_per_second.partial_cmp(&a.bytes_per_second).unwrap_or(std::cmp::Ordering::Equal));
+        // Fixed slots: service, then title, then client. Sorting by speed instead put every row in
+        // motion, because concurrent downloads share the link and their rates cross constantly, so
+        // the list reordered on almost every 500ms snapshot and was unreadable while several
+        // services prefilled at once. This order also settles what the speed sort left arbitrary:
+        // the groups above come out of a HashMap, so equal speeds landed in whatever order the map
+        // yielded. The speed still updates in place, which is the number a reader is watching.
+        // The app and depot ids are what stop unresolved Steam depots swapping: those keep their own
+        // per-depot identity rather than merging, so several of them on one client share a service, a
+        // client and a null name, and without these two the HashMap's order decided which came first.
+        game_speeds.sort_by(|a, b| {
+            a.service
+                .cmp(&b.service)
+                .then_with(|| a.game_name.cmp(&b.game_name))
+                .then_with(|| a.client_ip.cmp(&b.client_ip))
+                .then_with(|| a.game_app_id.cmp(&b.game_app_id))
+                .then_with(|| a.depot_id.cmp(&b.depot_id))
+        });
 
         // Client speeds from the per-client aggregates computed before the grouping.
         let mut client_speeds: Vec<ClientSpeedInfo> = client_aggregates.into_iter()

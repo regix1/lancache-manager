@@ -372,10 +372,24 @@ export const reconcileLivePreviews = (
     }
   }
 
+  // Fixed slots: service, then title, then client. Mirrors the speed tracker's own ordering, and
+  // for the same reason: sorting these by current speed put every row in motion, because
+  // concurrent downloads share the link and their rates cross constantly. The speed still updates
+  // in place, which is the number a reader is watching.
   const previews = Array.from(nextLedger.values())
     .filter((entry) => !entry.reconciled)
     .map((entry) => entry.preview)
-    .sort((a, b) => b.bytesPerSecond - a.bytesPerSecond);
+    .sort(
+      (a, b) =>
+        a.service.localeCompare(b.service) ||
+        a.displayName.localeCompare(b.displayName) ||
+        a.clientIp.localeCompare(b.clientIp) ||
+        // Last resort, so nothing is left to insertion order. The three above already separate the
+        // usual rows, including two unresolved depots, whose display names carry their depot ids.
+        // What reaches here is two rows showing the same text for the same service and client, such
+        // as one title under two app ids; the key differs because it carries the identity tier.
+        a.key.localeCompare(b.key)
+    );
 
   return { previews, ledger: nextLedger };
 };

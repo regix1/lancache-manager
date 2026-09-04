@@ -30,6 +30,16 @@ const ActiveDownloadsView: React.FC = () => {
   const games = gameSpeeds;
   const clients = clientSpeeds;
 
+  // The green row means "fastest right now". It used to be whichever row came first, because the
+  // list arrived sorted by speed; the list now holds fixed slots so a row keeps its place while it
+  // downloads, and the fastest has to be picked out rather than assumed to be at the top.
+  const fastestGame =
+    games.length > 0
+      ? games.reduce((fastest, game) =>
+          game.bytesPerSecond > fastest.bytesPerSecond ? game : fastest
+        )
+      : null;
+
   const gameDownloading = (game: GameSpeedInfo): boolean =>
     activity.isActiveOrFallback(
       'download',
@@ -120,10 +130,10 @@ const ActiveDownloadsView: React.FC = () => {
       {/* Downloads List */}
       <div className="downloads-list">
         {viewMode === 'games'
-          ? games.map((game: GameSpeedInfo, index: number) => (
+          ? games.map((game: GameSpeedInfo) => (
               <div
                 key={`${game.service}-${game.gameAppId || game.gameName || game.depotId}-${game.clientIp ?? 'unknown'}`}
-                className={`download-item ${index === 0 ? 'top' : ''}`}
+                className={`download-item ${game === fastestGame ? 'top' : ''}`}
               >
                 <div className="download-avatar">
                   <HardDrive className="fallback-icon" size={20} />
