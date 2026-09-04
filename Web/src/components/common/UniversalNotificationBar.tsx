@@ -248,12 +248,15 @@ const UniversalNotificationBar: React.FC = () => {
       notification.id.startsWith(`${NOTIFICATION_IDS.SCHEDULED_PREFILL}_`)
         ? notification.id.slice(NOTIFICATION_IDS.SCHEDULED_PREFILL.length + 1)
         : undefined;
+    // A platform answers for itself and never inherits the schedule's own style. Scheduled prefill
+    // picks its style per platform in the config modal, so a platform that has chosen nothing takes
+    // the full-card default rather than a schedule-level value no screen can set any more.
     const resolvedDisplayMode =
       serviceKey === undefined
         ? undefined
-        : ((platform !== undefined
-            ? displayModes[platformDisplayModeKey(serviceKey, platform)]
-            : undefined) ?? displayModes[serviceKey]);
+        : platform !== undefined
+          ? displayModes[platformDisplayModeKey(serviceKey, platform)]
+          : displayModes[serviceKey];
     const condensedByService = !refusedManualRun && resolvedDisplayMode === 'condensed';
     const orderAmongFull = condensedByService ? -1 : fullOrder++;
     const condensedByCap = isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;
