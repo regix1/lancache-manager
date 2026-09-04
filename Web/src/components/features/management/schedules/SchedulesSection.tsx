@@ -21,6 +21,7 @@ import { useNotifications } from '@contexts/notifications';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import ScheduleIntervalPicker from './ScheduleIntervalPicker';
+import { getNotificationStyleOptions } from './constants';
 import type { CustomSchedule } from './custom-schedule/types';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -704,18 +705,7 @@ const ScheduleRow = memo(function ScheduleRow({
     }
   ];
 
-  const notificationStyleOptions: DropdownOption[] = [
-    {
-      value: 'full',
-      label: t('management.schedules.notificationStyle.full'),
-      description: t('management.schedules.notificationStyle.fullDescription')
-    },
-    {
-      value: 'condensed',
-      label: t('management.schedules.notificationStyle.condensed'),
-      description: t('management.schedules.notificationStyle.condensedDescription')
-    }
-  ];
+  const notificationStyleOptions = getNotificationStyleOptions(t);
 
   // NOTE: do NOT include a "saving" flag here. Toggling isDisabled on and off for the
   // ~50ms an API save is in flight causes every control on the row to briefly flash to
@@ -1139,6 +1129,7 @@ interface ScheduledPrefillCardProps {
   service: ServiceScheduleInfo;
   isAdmin: boolean;
   onRunNow: (key: string) => Promise<void>;
+  onNotificationDisplayModeChange: (key: string, mode: NotificationDisplayMode) => Promise<void>;
   onRunService: (platform: ScheduledPrefillServiceId) => Promise<void>;
   isRunServicePending: (platform: ScheduledPrefillServiceId) => boolean;
   isPendingRun: boolean;
@@ -1153,6 +1144,7 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
   service,
   isAdmin,
   onRunNow,
+  onNotificationDisplayModeChange,
   onRunService,
   isRunServicePending,
   isPendingRun,
@@ -1189,6 +1181,16 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
     [onRunService]
   );
 
+  const handleNotificationDisplayModeChange = useCallback(
+    (value: string) => {
+      if (!isNotificationDisplayMode(value)) return;
+      void onNotificationDisplayModeChange(service.key, value);
+    },
+    [service.key, onNotificationDisplayModeChange]
+  );
+
+  const notificationStyleOptions = getNotificationStyleOptions(t);
+
   return (
     <HighlightGlow enabled={justCompleted} variant={completedVariant}>
       <Card className="schedule-card">
@@ -1222,6 +1224,34 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
               <p className="schedule-card-description">
                 {t(`management.schedules.services.${service.key}.summary`)}
               </p>
+            </div>
+          </div>
+
+          {/* Full or condensed notifications. The table rows carry this control too, but scheduled
+              prefill is pulled out of that table into this card, so without it here the condensed
+              style the backend already stores had no way to be chosen. Deliberately NOT gated on
+              supportsNotifications the way the rows gate it: that flag is false here because the
+              run MODE is per-platform, while the display style is card-level and its endpoint
+              accepts every service key. */}
+          <div className="schedule-detail-row">
+            <Tooltip
+              content={t('management.schedules.notificationStyleHelp')}
+              position="bottom"
+              className="inline-flex flex-shrink-0"
+            >
+              <span className="schedule-detail-label">
+                {t('management.schedules.notificationStyleLabel')}
+              </span>
+            </Tooltip>
+            <div className="schedule-detail-control">
+              <EnhancedDropdown
+                options={notificationStyleOptions}
+                value={service.notificationDisplayMode}
+                onChange={handleNotificationDisplayModeChange}
+                disabled={isDisabled}
+                variant="button"
+                className="w-full"
+              />
             </div>
           </div>
         </div>
@@ -1912,6 +1942,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           service={prefillSchedule}
           isAdmin={isAdmin}
           onRunNow={handleRunNow}
+          onNotificationDisplayModeChange={handleNotificationDisplayModeChange}
           onRunService={handleRunService}
           isRunServicePending={isPending}
           isPendingRun={isPending(prefillSchedule.key)}

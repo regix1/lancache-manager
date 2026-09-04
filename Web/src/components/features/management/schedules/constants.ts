@@ -15,3 +15,18 @@ export const getScheduleIntervalOptions = (t: TFunction): DropdownOption[] => [
   { value: '720', label: t('management.schedules.intervals.monthly') },
   { value: 'custom', label: t('management.schedules.intervals.custom') }
 ];
+
+// Used by the schedule table rows and by scheduled prefill, which keeps its own card and so
+// cannot read a copy local to the rows.
+export const getNotificationStyleOptions = (t: TFunction): DropdownOption[] => [
+  {
+    value: 'full',
+    label: t('management.schedules.notificationStyle.full'),
+    description: t('management.schedules.notificationStyle.fullDescription')
+  },
+  {
+    value: 'condensed',
+    label: t('management.schedules.notificationStyle.condensed'),
+    description: t('management.schedules.notificationStyle.condensedDescription')
+  }
+];
