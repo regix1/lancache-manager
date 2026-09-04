@@ -1225,32 +1225,32 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
                 {t(`management.schedules.services.${service.key}.summary`)}
               </p>
             </div>
-          </div>
 
-          {/* Full or condensed notifications. The table rows carry this control too, but scheduled
-              prefill is pulled out of that table into this card, so without it here the condensed
-              style the backend already stores had no way to be chosen. Deliberately NOT gated on
-              supportsNotifications the way the rows gate it: that flag is false here because the
-              run MODE is per-platform, while the display style is card-level and its endpoint
-              accepts every service key. */}
-          <div className="schedule-detail-row">
-            <Tooltip
-              content={t('management.schedules.notificationStyleHelp')}
-              position="bottom"
-              className="inline-flex flex-shrink-0"
-            >
-              <span className="schedule-detail-label">
-                {t('management.schedules.notificationStyleLabel')}
-              </span>
-            </Tooltip>
-            <div className="schedule-detail-control">
+            {/* Full or condensed notifications. The table rows carry this control too, but
+                scheduled prefill is pulled out of that table into this card, so without it here the
+                condensed style the backend already stores had no way to be chosen. It sits in the
+                header beside the title because it configures the whole card: on its own row it was
+                one short control stranded on a full-width line. Deliberately NOT gated on
+                supportsNotifications the way the rows gate it: that flag is false here because the
+                run MODE is per-platform, while the display style is card-level and its endpoint
+                accepts every service key. */}
+            <div className="schedule-card-notification-style">
+              <Tooltip
+                content={t('management.schedules.notificationStyleHelp')}
+                position="bottom"
+                className="inline-flex flex-shrink-0"
+              >
+                <span className="schedule-detail-label schedule-card-notification-style__label">
+                  {t('management.schedules.notificationStyleLabel')}
+                </span>
+              </Tooltip>
               <EnhancedDropdown
                 options={notificationStyleOptions}
                 value={service.notificationDisplayMode}
                 onChange={handleNotificationDisplayModeChange}
                 disabled={isDisabled}
                 variant="button"
-                className="w-full"
+                className="schedule-card-notification-style__control"
               />
             </div>
           </div>

@@ -541,6 +541,38 @@
   gap: 0.75rem;
 }
 
+/* The card-level notification style, sitting in the header opposite the title. It cannot reuse
+   .schedule-detail-row: that row's label is a fixed 10.5rem track, which reads fine in the table
+   where several rows share the column but leaves a wide empty gap when one short control has a
+   full-width line to itself. Here the label takes its natural width and the pair stays together. */
+.schedule-card-notification-style {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.schedule-card-notification-style__label {
+  width: auto;
+}
+
+.schedule-card-notification-style__control {
+  width: 11rem;
+}
+
+/* Below the header's wrap point the control gets its own line anyway, so it takes the width
+   rather than sitting short against the card edge. */
+@media (max-width: 639.98px) {
+  .schedule-card-notification-style {
+    width: 100%;
+  }
+
+  .schedule-card-notification-style__control {
+    flex: 1;
+    width: auto;
+  }
+}
+
 .schedule-card-title-group {
   display: flex;
   flex-direction: column;
