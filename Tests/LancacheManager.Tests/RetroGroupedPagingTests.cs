@@ -354,6 +354,42 @@ public class RetroGroupedPagingTests
     }
 
     /// <summary>
+    /// A running download holds its slot while it runs. Its group's newest start keeps advancing as
+    /// it records sessions, which used to walk it to the top of the list a row at a time; the block
+    /// is ordered by the group's earliest start instead, which does not move. The finished rows keep
+    /// the newest-first order underneath.
+    /// </summary>
+    [Fact]
+    public async Task RunningDownloadsHoldTheTopInTheOrderTheyStarted()
+    {
+        var day = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc);
+        // Started first, so it leads the running block even though the other one is more recent.
+        var runningEarly = NewDownload(1, "steam", "10.0.0.1", null, null, "Alpha", day.AddHours(1), 100, 0);
+        runningEarly.IsActive = true;
+        var runningLate = NewDownload(2, "steam", "10.0.0.1", null, null, "Beta", day.AddHours(2), 100, 0);
+        runningLate.IsActive = true;
+        // Finished most recently of all, and still sorts below both running rows.
+        var finished = NewDownload(3, "steam", "10.0.0.1", null, null, "Gamma", day.AddHours(9), 100, 0);
+
+        var page = await GetGroupedPageAsync(
+            new RetroDownloadQuery { IncludeActive = true, GroupByGame = true, MergeAcrossServices = true },
+            [runningEarly, runningLate, finished]);
+
+        Assert.Equal(["Alpha", "Beta", "Gamma"], page.Items.Select(i => i.AppName));
+
+        // A later session on the first game moves its newest start past the second game's. The slot
+        // must not change, which is the whole point of ordering the block by the earliest start.
+        var laterSession = NewDownload(4, "steam", "10.0.0.1", null, null, "Alpha", day.AddHours(3), 100, 0);
+        laterSession.IsActive = true;
+
+        var after = await GetGroupedPageAsync(
+            new RetroDownloadQuery { IncludeActive = true, GroupByGame = true, MergeAcrossServices = true },
+            [runningEarly, runningLate, finished, laterSession]);
+
+        Assert.Equal(["Alpha", "Beta", "Gamma"], after.Items.Select(i => i.AppName));
+    }
+
+    /// <summary>
     /// A client group is several addresses, so the client filter takes the list of them. A single
     /// address is that list with one member.
     /// </summary>

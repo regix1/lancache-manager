@@ -887,10 +887,11 @@ public partial class DashboardBatchService : IDashboardBatchService
             .ToList();
 
         // An active game whose newest download is older than the newest hundred still belongs on
-        // the panel, and it sorts after the hundred because it is older than they are. The
-        // aggregate above already holds its whole group, active rows included, so the group is
-        // appended as it stands and its count is the range total like every other row's. A row
-        // inserted between the two reads is not in the aggregate yet and waits for the next poll.
+        // the panel, so it is carried in here rather than left out for being older than they are.
+        // The aggregate above already holds its whole group, active rows included, so the group
+        // joins the list as it stands and its count is the range total like every other row's. The
+        // sort below then places it among the running games rather than at the end. A row inserted
+        // between the two reads is not in the aggregate yet and waits for the next poll.
         var carriedKeys = new HashSet<string>(groups.Select(g => g.Id), StringComparer.Ordinal);
         foreach (var identity in activeIdentities)
         {
@@ -898,6 +899,18 @@ public partial class DashboardBatchService : IDashboardBatchService
             if (!carriedKeys.Add(key)) continue;
             groups.Add(groupsByKey[key]);
         }
+
+        // Running games hold a block at the top, ordered by when each started. Sorted after the
+        // append above so a running game older than the newest hundred joins that block instead of
+        // trailing the list. A running game's newest start keeps advancing while it downloads, which
+        // is what walked it up the panel a row at a time; its earliest start does not move, so the
+        // row keeps one slot until it finishes. Finished games all take MaxValue here, so their own
+        // order is left to LastSeen exactly as before.
+        groups = groups
+            .OrderBy(g => g.IsActive ? 0 : 1)
+            .ThenBy(g => g.IsActive ? g.FirstSeen : DateTime.MaxValue)
+            .ThenByDescending(g => g.LastSeen)
+            .ToList();
 
         // The derived fields are stored rather than computed on read, because the browser's type
         // is checked against the properties this class declares and a computed one is not one.
@@ -972,7 +985,9 @@ public partial class DashboardBatchService : IDashboardBatchService
                 XboxProductId = g.Key.XboxProductId,
                 Service = g.Key.Service,
                 ClientIp = g.Key.ClientIp,
-                LastStartTimeUtc = g.Max(d => d.StartTimeUtc)
+                LastStartTimeUtc = g.Max(d => d.StartTimeUtc),
+                FirstStartTimeUtc = g.Min(d => d.StartTimeUtc),
+                ActiveCount = g.Sum(d => d.IsActive ? 1 : 0)
             })
             .OrderByDescending(r => r.LastStartTimeUtc);
     }
@@ -1081,8 +1096,10 @@ public partial class DashboardBatchService : IDashboardBatchService
                 CacheHitBytes = g.Sum(d => d.CacheHitBytes),
                 CacheMissBytes = g.Sum(d => d.CacheMissBytes),
                 LastStartTimeUtc = g.Max(d => d.StartTimeUtc),
+                FirstStartTimeUtc = g.Min(d => d.StartTimeUtc),
                 RequestCount = g.Count(),
-                EvictedCount = g.Sum(d => d.IsEvicted ? 1 : 0)
+                EvictedCount = g.Sum(d => d.IsEvicted ? 1 : 0),
+                ActiveCount = g.Sum(d => d.IsActive ? 1 : 0)
             })
             .OrderByDescending(r => r.LastStartTimeUtc);
     }
@@ -1149,6 +1166,11 @@ public partial class DashboardBatchService : IDashboardBatchService
         if (row.LastStartTimeUtc > group.LastSeen)
         {
             group.LastSeen = row.LastStartTimeUtc;
+        }
+        group.IsActive |= row.ActiveCount > 0;
+        if (row.FirstStartTimeUtc < group.FirstSeen)
+        {
+            group.FirstSeen = row.FirstStartTimeUtc;
         }
         group.ClientIps.Add(row.ClientIp);
 
@@ -1327,8 +1349,12 @@ public partial class DashboardBatchService : IDashboardBatchService
         public long CacheHitBytes { get; init; }
         public long CacheMissBytes { get; init; }
         public DateTime LastStartTimeUtc { get; init; }
+        /// <summary>Earliest start in the group. Unlike the latest one it does not move while the
+        /// group is still downloading, which is what the panel orders its running rows by.</summary>
+        public DateTime FirstStartTimeUtc { get; init; }
         public int RequestCount { get; init; }
         public int EvictedCount { get; init; }
+        public int ActiveCount { get; init; }
     }
 
     /// <summary>
@@ -1347,6 +1373,11 @@ public partial class DashboardBatchService : IDashboardBatchService
         public long CacheMissBytes { get; set; }
         public int Count { get; set; }
         public DateTime LastSeen { get; set; }
+        /// <summary>True while any download behind this game is still running.</summary>
+        public bool IsActive { get; set; }
+        /// <summary>Earliest start behind this game, which is what orders the running block. It does
+        /// not move while the game downloads, so the row keeps its slot until it finishes.</summary>
+        public DateTime FirstSeen { get; set; } = DateTime.MaxValue;
         public bool IsEvicted { get; set; }
         public bool IsPartiallyEvicted { get; set; }
         public bool HasRealGameName { get; init; }

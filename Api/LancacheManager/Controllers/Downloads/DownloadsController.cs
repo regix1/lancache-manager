@@ -586,6 +586,7 @@ public class DownloadsController : ControllerBase
                         StartTimeUtc = bucket.Min(r => r.StartTimeUtc),
                         LastStartTimeUtc = bucket.Max(r => r.LastStartTimeUtc),
                         EndTimeUtc = bucket.Max(r => r.EndTimeUtc),
+                        IsActive = bucket.Any(r => r.IsActive),
                         CacheHitBytes = mergedHitBytes,
                         CacheMissBytes = mergedMissBytes,
                         CacheHitPercent = Math.Round(mergedCacheHitPercent, 1),
@@ -615,7 +616,22 @@ public class DownloadsController : ControllerBase
             // sole charge and the order is exactly what a plain OrderBy would give.
             var bucketByFrequency = query.GroupByFrequency
                 && query.Sort is not ("service" or "alphabetical" or "efficiency" or "efficiency-low" or "sessions");
-            var bucketed = effectiveList.OrderBy(g => bucketByFrequency && g.RequestCount == 1 ? 1 : 0);
+            // Running downloads hold a block at the top, ordered by when each one started, and every
+            // sort below applies to the finished rows underneath them. A running group keeps
+            // recording sessions, so each of the keys the reader can choose moves it while they are
+            // watching: its newest start advances, its size grows, its hit rate drifts. Ordering the
+            // block by the START of the group instead gives each row a slot it holds until it
+            // finishes, and a download that begins later joins the bottom of the block rather than
+            // displacing anything above it. MaxValue parks the finished rows on one constant key so
+            // this step leaves their order entirely to the chosen sort.
+            //
+            // Only the in-memory path needs this. BuildRetroPagedQuery serves requests with none of
+            // GroupByGame, GroupByService or MergeAcrossServices (see pageInSql), which is retro,
+            // and retro asks for no running rows at all.
+            var bucketed = effectiveList
+                .OrderBy(g => g.IsActive ? 0 : 1)
+                .ThenBy(g => g.IsActive ? g.StartTimeUtc : DateTime.MaxValue)
+                .ThenBy(g => bucketByFrequency && g.RequestCount == 1 ? 1 : 0);
 
             // The grouped Downloads views order by the newest member's START time; retro orders by
             // the group's latest END time. One list, two columns, chosen per request.
@@ -706,6 +722,7 @@ public class DownloadsController : ControllerBase
         public DateTime EndTimeUtc { get; set; }
         public int RequestCount { get; set; }
         public int EvictedCount { get; set; }
+        public int ActiveCount { get; set; }
         public double WeightedSpeedSum { get; set; }
         public double SpeedBytesSum { get; set; }
     }
@@ -908,6 +925,7 @@ public class DownloadsController : ControllerBase
                 EndTimeUtc = g.Max(d => d.EndTimeUtc),
                 RequestCount = g.Count(),
                 EvictedCount = g.Sum(d => d.IsEvicted ? 1 : 0),
+                ActiveCount = g.Sum(d => d.IsActive ? 1 : 0),
                 // Per-row speed is TotalBytes / (EndTime - StartTime); weight it by bytes the
                 // same way the previous in-memory grouping did.
                 WeightedSpeedSum = g.Sum(d =>
@@ -982,6 +1000,7 @@ public class DownloadsController : ControllerBase
             StartTimeUtc = r.StartTimeUtc,
             LastStartTimeUtc = r.LastStartTimeUtc,
             EndTimeUtc = r.EndTimeUtc,
+            IsActive = r.ActiveCount > 0,
             CacheHitBytes = r.CacheHitBytes,
             CacheMissBytes = r.CacheMissBytes,
             CacheHitPercent = totalBytes > 0

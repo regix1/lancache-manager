@@ -151,13 +151,13 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// An appended active game carries the range total, not a tally of the rows that happen to be
+    /// A carried active game carries the range total, not a tally of the rows that happen to be
     /// running. A prefill that has run several times over several days used to read as a count of
     /// one while it ran, then jump to its real number the moment it finished and climbed into the
     /// newest hundred, which is the same wrong number this whole change removes.
     /// </summary>
     [Fact]
-    public async Task AnAppendedActiveGameCountsItsWholeRangeNotOnlyItsActiveRows()
+    public async Task ACarriedActiveGameCountsItsWholeRangeNotOnlyItsActiveRows()
     {
         var options = NewDatabase();
         await using (var seed = new AppDbContext(options))
@@ -188,7 +188,8 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
         Assert.Equal(8, appended.Count);
         Assert.Equal(8 * 2048, appended.CacheHitBytes);
         Assert.Equal(8, appended.DownloadIds.Count);
-        Assert.Equal("Long Prefill", groups[^1].Name);
+        // Leads the panel because it is running. It used to sit last, being older than the hundred.
+        Assert.Equal("Long Prefill", groups[0].Name);
     }
 
     /// <summary>
@@ -501,11 +502,13 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
 
     /// <summary>
     /// An active game older than every carried game still reaches the panel, because the server
-    /// appends the group the aggregate already built for it. The browser builds no groups of its
-    /// own, so if this did not happen a long prefill would disappear from the panel.
+    /// carries in the group the aggregate already built for it. The browser builds no groups of its
+    /// own, so if this did not happen a long prefill would disappear from the panel. It then leads
+    /// the panel rather than trailing it: running games hold the top so a reader can watch one
+    /// without it drifting, and this one is older than all hundred finished games.
     /// </summary>
     [Fact]
-    public async Task AnActiveGameOlderThanTheCarriedHundredIsAppended()
+    public async Task AnActiveGameOlderThanTheCarriedHundredStillReachesThePanel()
     {
         var options = NewDatabase();
         await using (var seed = new AppDbContext(options))
@@ -526,9 +529,9 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
         var groups = GroupsOf(await RecentSectionAsync(options));
 
         Assert.Equal(101, groups.Count);
-        var appended = Assert.Single(groups, g => g.Name == "Long Prefill");
-        Assert.Equal(1, appended.Count);
-        Assert.Equal("Long Prefill", groups[^1].Name);
+        var carried = Assert.Single(groups, g => g.Name == "Long Prefill");
+        Assert.Equal(1, carried.Count);
+        Assert.Equal("Long Prefill", groups[0].Name);
     }
 
     /// <summary>

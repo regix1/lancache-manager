@@ -84,6 +84,11 @@ public class RetroDownloadDto
     /// <summary>All distinct depot IDs in this group (single-element, zero excluded, for non-merged rows)</summary>
     public List<uint> DepotIds { get; set; } = new();
 
+    /// <summary>True when any download in the group is still running. The grouped Downloads views
+    /// hold these rows in a block at the top, ordered by when each started, so a download that keeps
+    /// recording new sessions cannot climb over the others while a reader is looking at it.</summary>
+    public bool IsActive { get; set; }
+
     /// <summary>True when every download in the group has been evicted from the cache</summary>
     public bool IsEvicted { get; set; }
 
