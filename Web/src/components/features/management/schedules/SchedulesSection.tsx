@@ -1129,7 +1129,6 @@ interface ScheduledPrefillCardProps {
   service: ServiceScheduleInfo;
   isAdmin: boolean;
   onRunNow: (key: string) => Promise<void>;
-  onNotificationDisplayModeChange: (key: string, mode: NotificationDisplayMode) => Promise<void>;
   onRunService: (platform: ScheduledPrefillServiceId) => Promise<void>;
   isRunServicePending: (platform: ScheduledPrefillServiceId) => boolean;
   isPendingRun: boolean;
@@ -1144,7 +1143,6 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
   service,
   isAdmin,
   onRunNow,
-  onNotificationDisplayModeChange,
   onRunService,
   isRunServicePending,
   isPendingRun,
@@ -1180,16 +1178,6 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
     },
     [onRunService]
   );
-
-  const handleNotificationDisplayModeChange = useCallback(
-    (value: string) => {
-      if (!isNotificationDisplayMode(value)) return;
-      void onNotificationDisplayModeChange(service.key, value);
-    },
-    [service.key, onNotificationDisplayModeChange]
-  );
-
-  const notificationStyleOptions = getNotificationStyleOptions(t);
 
   return (
     <HighlightGlow enabled={justCompleted} variant={completedVariant}>
@@ -1227,33 +1215,9 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
             </div>
           </div>
 
-          {/* Full or condensed notifications. The table rows carry this control too, but scheduled
-              prefill is pulled out of that table into this card, so without it here the condensed
-              style the backend already stores had no way to be chosen. Deliberately NOT gated on
-              supportsNotifications the way the rows gate it: that flag is false here because the
-              run MODE is per-platform, while the display style is card-level and its endpoint
-              accepts every service key. */}
-          <div className="schedule-detail-row">
-            <Tooltip
-              content={t('management.schedules.notificationStyleHelp')}
-              position="bottom"
-              className="inline-flex flex-shrink-0"
-            >
-              <span className="schedule-detail-label">
-                {t('management.schedules.notificationStyleLabel')}
-              </span>
-            </Tooltip>
-            <div className="schedule-detail-control">
-              <EnhancedDropdown
-                options={notificationStyleOptions}
-                value={service.notificationDisplayMode}
-                onChange={handleNotificationDisplayModeChange}
-                disabled={isDisabled}
-                variant="button"
-                className="w-full"
-              />
-            </div>
-          </div>
+          {/* No notification style control here. Scheduled prefill runs five platforms under one
+              key and each picks its own style in the Configure modal, beside that platform's
+              notification mode. A card-level control would set a value no platform reads. */}
         </div>
 
         <ScheduledPrefillScheduleDetail
@@ -1942,7 +1906,6 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           service={prefillSchedule}
           isAdmin={isAdmin}
           onRunNow={handleRunNow}
-          onNotificationDisplayModeChange={handleNotificationDisplayModeChange}
           onRunService={handleRunService}
           isRunServicePending={isPending}
           isPendingRun={isPending(prefillSchedule.key)}
