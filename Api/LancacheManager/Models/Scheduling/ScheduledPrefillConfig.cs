@@ -122,6 +122,15 @@ public sealed class ScheduledPrefillServiceConfigDto
     public NotificationMode? NotificationMode { get; init; }
 
     /// <summary>
+    /// How this service's notification renders once <see cref="NotificationMode"/> has let it
+    /// through: the full card, or a condensed status line. Per service for the same reason the mode
+    /// is: a long Steam run is worth a card while four short ones are better as lines. Null means
+    /// the default (Full), which is also what every config saved before this field deserializes to,
+    /// so no migration is needed.
+    /// </summary>
+    public NotificationDisplayMode? NotificationDisplayMode { get; init; }
+
+    /// <summary>
     /// Per-service schedule cadence in hours, driving the independent due-check in
     /// <c>ScheduledPrefillService</c>. Follows the shared <c>ScheduleIntervalPicker</c> convention:
     /// <c>&gt; 0</c> = run every N hours, <c>0</c> = paused, <c>-1</c> = run once on startup only.
@@ -406,6 +415,9 @@ public static class ScheduledPrefillConfigFactory
             ShowNotification = service.ShowNotification,
 #pragma warning restore CS0618
             NotificationMode = migratedMode,
+            // Always null on the configs this path runs for (they predate the field), copied so the
+            // next rebuild written from this one starts out carrying it.
+            NotificationDisplayMode = service.NotificationDisplayMode,
             IntervalHours = service.IntervalHours,
             Preset = service.Preset,
             TopCount = service.TopCount,
@@ -435,6 +447,7 @@ public static class ScheduledPrefillConfigFactory
             ShowNotification = service.ShowNotification,
 #pragma warning restore CS0618
             NotificationMode = service.NotificationMode,
+            NotificationDisplayMode = service.NotificationDisplayMode,
             IntervalHours = intervalHours,
             Preset = service.Preset,
             TopCount = service.TopCount,
@@ -490,6 +503,10 @@ public static class ScheduledPrefillConfigFactory
             ShowNotification = service.ShowNotification,
 #pragma warning restore CS0618
             NotificationMode = mode,
+            // Cleared alongside the mode rather than by omission: a platform left on the condensed
+            // line would otherwise survive "Reset to Defaults", exactly the trap the mode reset above
+            // exists to close. Null reads as the default (full card).
+            NotificationDisplayMode = null,
             IntervalHours = service.IntervalHours,
             Preset = service.Preset,
             TopCount = service.TopCount,
@@ -646,6 +663,7 @@ public static class ScheduledPrefillConfigFactory
             ShowNotification = service.ShowNotification,
 #pragma warning restore CS0618
             NotificationMode = service.NotificationMode,
+            NotificationDisplayMode = service.NotificationDisplayMode,
             IntervalHours = service.IntervalHours,
             Preset = ScheduledPrefillPreset.All,
             TopCount = null,
@@ -714,6 +732,7 @@ public static class ScheduledPrefillConfigFactory
             ShowNotification = service.ShowNotification,
 #pragma warning restore CS0618
             NotificationMode = service.NotificationMode,
+            NotificationDisplayMode = service.NotificationDisplayMode,
             IntervalHours = service.IntervalHours,
             Preset = service.Preset,
             TopCount = service.TopCount,

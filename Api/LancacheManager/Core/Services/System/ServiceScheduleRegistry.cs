@@ -930,9 +930,18 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             var config = _stateService.GetScheduledPrefillConfig();
             DateTime? soonestNextRun = null;
             DateTime? latestLastRun = null;
+            // Only the platforms that have chosen a style. The rest are left out so the notification
+            // bar falls back to this schedule's own display mode rather than being told "full" by a
+            // value nobody set.
+            var platformDisplayModes = new Dictionary<string, NotificationDisplayMode>(StringComparer.Ordinal);
 
             foreach (var perService in config.GetServicesInRunOrder())
             {
+                if (perService.NotificationDisplayMode is { } platformDisplayMode)
+                {
+                    platformDisplayModes[perService.ServiceId.ToString()] = platformDisplayMode;
+                }
+
                 var actualLastRun = _stateService.GetScheduledPrefillServiceLastActualRun(perService.ServiceId.ToString());
                 if (actualLastRun is not null && (latestLastRun is null || actualLastRun.Value > latestLastRun.Value))
                 {
@@ -974,6 +983,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     RunOnStartup = service.RunOnStartup,
                     NotificationMode = service.EffectiveNotificationMode,
                     NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(key) ?? service.DefaultNotificationDisplayMode,
+                    PlatformNotificationDisplayModes = platformDisplayModes.Count > 0 ? platformDisplayModes : null,
                     SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
                     IsRunning = isRunning,
                     LastRunUtc = latestLastRun,
@@ -1001,6 +1011,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     RunOnStartup = service.RunOnStartup,
                     NotificationMode = service.EffectiveNotificationMode,
                     NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(key) ?? service.DefaultNotificationDisplayMode,
+                    PlatformNotificationDisplayModes = platformDisplayModes.Count > 0 ? platformDisplayModes : null,
                     SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
                     IsRunning = isRunning,
                     LastRunUtc = latestLastRun,
@@ -1017,6 +1028,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 RunOnStartup = service.RunOnStartup,
                 NotificationMode = service.EffectiveNotificationMode,
                 NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(key) ?? service.DefaultNotificationDisplayMode,
+                PlatformNotificationDisplayModes = platformDisplayModes.Count > 0 ? platformDisplayModes : null,
                 SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
                 IsRunning = isRunning,
                 LastRunUtc = latestLastRun,

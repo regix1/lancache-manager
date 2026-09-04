@@ -10,12 +10,13 @@ import {
 import themeService from '@services/theme.service';
 import {
   SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY,
-  MOBILE_FULL_CARD_CAP
+  MOBILE_FULL_CARD_CAP,
+  NOTIFICATION_IDS
 } from '@contexts/notifications/constants';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import { APP_EVENTS } from '@utils/constants';
 import { useMediaQuery } from '@hooks/useMediaQuery';
-import { useScheduleDisplayModes } from '@hooks/useScheduleDisplayModes';
+import { platformDisplayModeKey, useScheduleDisplayModes } from '@hooks/useScheduleDisplayModes';
 import { CondensedNotificationStrip } from './CondensedNotificationStrip';
 import { UnifiedNotificationItem } from './UnifiedNotificationItem';
 import { CANCEL_CONFIG_BY_TYPE, getNotificationColor, handleCancel } from './notificationCancel';
@@ -237,8 +238,23 @@ const UniversalNotificationBar: React.FC = () => {
     // the only answer that click gets, so it keeps its card whatever the service is set to. Routine
     // runs are unaffected: they never arrive as 'generic'.
     const refusedManualRun = notification.type === 'generic' && notification.status === 'skipped';
-    const condensedByService =
-      !refusedManualRun && serviceKey !== undefined && displayModes[serviceKey] === 'condensed';
+    // Scheduled prefill runs five platforms under one service key and each picks its own style, so
+    // its cards resolve per platform first. The platform is only on the card id, which is minted as
+    // `${NOTIFICATION_IDS.SCHEDULED_PREFILL}_${serviceId}` (notificationRegistry's
+    // scheduledPrefillCardId), and the suffix is the wire name the backend keys the map by. A
+    // platform that chose nothing is absent from the map and falls back to the service's own style.
+    const platform =
+      notification.type === 'scheduled_prefill' &&
+      notification.id.startsWith(`${NOTIFICATION_IDS.SCHEDULED_PREFILL}_`)
+        ? notification.id.slice(NOTIFICATION_IDS.SCHEDULED_PREFILL.length + 1)
+        : undefined;
+    const resolvedDisplayMode =
+      serviceKey === undefined
+        ? undefined
+        : ((platform !== undefined
+            ? displayModes[platformDisplayModeKey(serviceKey, platform)]
+            : undefined) ?? displayModes[serviceKey]);
+    const condensedByService = !refusedManualRun && resolvedDisplayMode === 'condensed';
     const orderAmongFull = condensedByService ? -1 : fullOrder++;
     const condensedByCap = isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;
     return { notification, serviceKey, condensed: condensedByService || condensedByCap };

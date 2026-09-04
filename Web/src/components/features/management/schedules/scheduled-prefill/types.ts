@@ -1,5 +1,5 @@
 import type { CustomSchedule } from '../custom-schedule/types';
-import type { NotificationMode } from '../types';
+import type { NotificationDisplayMode, NotificationMode } from '../types';
 
 export type ScheduledPrefillServiceKey = 'steam' | 'epic' | 'xbox' | 'battleNet' | 'riot';
 
@@ -62,6 +62,11 @@ export interface ScheduledPrefillServiceConfigDto {
    * union with the plain ScheduleCard notifications control for cross-surface consistency.
    */
   notificationMode?: NotificationMode | null;
+  /**
+   * How this platform's notification renders once the mode above has let it through: the full card
+   * or a condensed line. `null`/`undefined` means the default (full card).
+   */
+  notificationDisplayMode?: NotificationDisplayMode | null;
   /**
    * Per-service run interval in hours. `>0` = every N hours, `0` = paused,
    * `-1` = run on startup only. Saved via the whole-config round-trip.

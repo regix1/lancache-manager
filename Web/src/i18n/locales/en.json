@@ -3889,6 +3889,7 @@
               "intervalHelp": "How often this platform runs. Each platform schedules independently.",
               "notifications": "Notifications",
               "notificationsHelp": "Choose when this platform's prefill progress appears in the notification bar: for every run, manual runs only, or never.",
+              "notificationStyleHelp": "How this platform's notification looks once it is shown: the full card, or a thin status bar you can expand.",
               "persistenceModeOverride": "After a restart",
               "persistenceModeOverrideHelp": "Overrides the global \"After a restart\" setting for this platform only. Leave as \"Use global setting\" to follow the default above."
             },

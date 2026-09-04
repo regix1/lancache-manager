@@ -135,6 +135,43 @@ public class ScheduledPrefillConfigFactoryTests
             () => ScheduledPrefillConfigFactory.Validate(config));
     }
 
+    /// <summary>
+    /// Validate rebuilds a service DTO whenever it reconciles a preset or an operating-system list,
+    /// and it runs on every save and every load. A rebuild that forgets a field drops the user's
+    /// choice with no error anywhere, so the per-platform notification style is asserted to survive
+    /// the round trip rather than trusted to.
+    /// </summary>
+    [Fact]
+    public void Validate_KeepsThePerPlatformNotificationStyle()
+    {
+        var config = WithSteamNotificationDisplayMode(
+            ScheduledPrefillConfigFactory.CreateDefault(),
+            NotificationDisplayMode.Condensed);
+
+        ScheduledPrefillConfigFactory.Validate(config);
+
+        Assert.Equal(NotificationDisplayMode.Condensed, config.Steam.NotificationDisplayMode);
+        Assert.Null(config.Epic.NotificationDisplayMode);
+    }
+
+    /// <summary>
+    /// "Reset to Defaults" clears the per-platform style along with the mode. Without this a platform
+    /// left on the condensed line keeps it through a reset, which is the trap ResetNotificationModes
+    /// was written to close for the mode itself.
+    /// </summary>
+    [Fact]
+    public void ResetNotificationModes_ClearsThePerPlatformNotificationStyle()
+    {
+        var config = WithSteamNotificationDisplayMode(
+            ScheduledPrefillConfigFactory.CreateDefault(),
+            NotificationDisplayMode.Condensed);
+
+        var reset = ScheduledPrefillConfigFactory.ResetNotificationModes(config);
+
+        Assert.Null(reset.Steam.NotificationDisplayMode);
+        Assert.Equal(NotificationMode.All, reset.Steam.NotificationMode);
+    }
+
     [Fact]
     public void Validate_RejectsUndefinedNotificationModeValue()
     {
@@ -646,6 +683,43 @@ public class ScheduledPrefillConfigFactoryTests
                 Enabled = config.Steam.Enabled,
                 ShowNotification = config.Steam.ShowNotification,
                 NotificationMode = mode,
+                IntervalHours = config.Steam.IntervalHours,
+                Preset = config.Steam.Preset,
+                TopCount = config.Steam.TopCount,
+                SelectedAppIds = config.Steam.SelectedAppIds,
+                OperatingSystems = config.Steam.OperatingSystems,
+                Force = config.Steam.Force,
+                MaxConcurrency = config.Steam.MaxConcurrency,
+                PersistenceMode = config.Steam.PersistenceMode
+            },
+            Epic = config.Epic,
+            Xbox = config.Xbox,
+            BattleNet = config.BattleNet,
+            Riot = config.Riot
+        };
+    }
+
+    /// <summary>
+    /// Steam alone gets a notification style so the assertions can tell a carried value from a
+    /// blanket default, and so an untouched platform is checked to stay null.
+    /// </summary>
+    private static ScheduledPrefillConfigDto WithSteamNotificationDisplayMode(
+        ScheduledPrefillConfigDto config,
+        NotificationDisplayMode? displayMode)
+    {
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
+            Steam = new ScheduledPrefillServiceConfigDto
+            {
+                ServiceId = config.Steam.ServiceId,
+                Enabled = config.Steam.Enabled,
+                ShowNotification = config.Steam.ShowNotification,
+                NotificationMode = config.Steam.NotificationMode,
+                NotificationDisplayMode = displayMode,
                 IntervalHours = config.Steam.IntervalHours,
                 Preset = config.Steam.Preset,
                 TopCount = config.Steam.TopCount,

@@ -36,6 +36,12 @@ export interface ServiceScheduleInfo {
   nextRunUtc: string | null;
   notificationMode: NotificationMode;
   notificationDisplayMode: NotificationDisplayMode;
+  /**
+   * Only on scheduled prefill, the one service running several platforms under a single key. Keyed
+   * by the wire platform name (Steam, Epic, Xbox, BattleNet, Riot) and holding only the platforms
+   * that chose a style; a platform absent here falls back to `notificationDisplayMode`.
+   */
+  platformNotificationDisplayModes?: Record<string, NotificationDisplayMode> | null;
   supportsNotifications: boolean;
   /** Present on the Steam depot mapping schedule only, and only while a full scan is required. */
   pendingFullScan?: PendingFullScan | null;

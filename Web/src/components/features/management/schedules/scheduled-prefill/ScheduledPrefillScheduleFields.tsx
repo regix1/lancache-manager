@@ -7,7 +7,7 @@ import { NumberInput } from '@components/ui/NumberInput';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import ScheduleIntervalPicker from '../ScheduleIntervalPicker';
-import { isNotificationMode } from '../types';
+import { isNotificationDisplayMode, isNotificationMode } from '../types';
 import {
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
   SCHEDULED_PREFILL_OS_OPTIONS,
@@ -117,6 +117,7 @@ export function ScheduledPrefillScheduleFields({
   const concurrencyModeLabelId = `scheduled-prefill-concurrency-mode-label-${serviceKey}`;
   const persistenceLabelId = `scheduled-prefill-persistence-label-${serviceKey}`;
   const notificationsLabelId = `scheduled-prefill-notifications-label-${serviceKey}`;
+  const notificationStyleLabelId = `scheduled-prefill-notification-style-label-${serviceKey}`;
 
   /* Rows are grouped by control shape - dropdowns, then segmented controls, then the toggle
      pill - so the control column reads as three calm runs instead of alternating shapes. The
@@ -394,6 +395,51 @@ export function ScheduledPrefillScheduleFields({
             onChange={(value) => {
               if (!isNotificationMode(value)) return;
               updateConfig({ notificationMode: value });
+            }}
+            showLabels
+          />
+        </div>
+      </div>
+
+      {/* How the notification looks once the mode above has let it through. Disabled while the mode
+          is silent, because there is no notification left to style. */}
+      <div
+        className="scheduled-prefill-config-modal__setting-row"
+        role="group"
+        aria-labelledby={notificationStyleLabelId}
+      >
+        <div className="scheduled-prefill-config-modal__setting-copy">
+          <span
+            id={notificationStyleLabelId}
+            className="scheduled-prefill-config-modal__global-label"
+          >
+            {t('management.schedules.notificationStyleLabel')}
+          </span>
+          <p className="scheduled-prefill-config-modal__global-help">
+            {t(`${baseKey}.fields.notificationStyleHelp`)}
+          </p>
+        </div>
+        <div className="scheduled-prefill-config-modal__setting-actions">
+          <SegmentedControl
+            className="scheduled-prefill-segment-uniform"
+            options={[
+              {
+                value: 'full',
+                label: t('management.schedules.notificationStyle.full'),
+                tooltip: t('management.schedules.notificationStyle.fullDescription'),
+                disabled: disabled || config.notificationMode === 'silent'
+              },
+              {
+                value: 'condensed',
+                label: t('management.schedules.notificationStyle.condensed'),
+                tooltip: t('management.schedules.notificationStyle.condensedDescription'),
+                disabled: disabled || config.notificationMode === 'silent'
+              }
+            ]}
+            value={config.notificationDisplayMode ?? 'full'}
+            onChange={(value) => {
+              if (!isNotificationDisplayMode(value)) return;
+              updateConfig({ notificationDisplayMode: value });
             }}
             showLabels
           />

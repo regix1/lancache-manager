@@ -10,10 +10,22 @@ import type {
 
 type ScheduleDisplayModeMap = Record<string, NotificationDisplayMode>;
 
+/**
+ * A schedule that runs several platforms under one key contributes an entry per platform as well as
+ * its own, keyed `<serviceKey>:<platform>`. Scheduled prefill is the only one today.
+ */
+export const platformDisplayModeKey = (serviceKey: string, platform: string): string =>
+  `${serviceKey}:${platform}`;
+
 const toDisplayModeMap = (schedules: ServiceScheduleInfo[]): ScheduleDisplayModeMap => {
   const map: ScheduleDisplayModeMap = {};
   for (const schedule of schedules) {
     map[schedule.key] = schedule.notificationDisplayMode;
+    for (const [platform, mode] of Object.entries(
+      schedule.platformNotificationDisplayModes ?? {}
+    )) {
+      map[platformDisplayModeKey(schedule.key, platform)] = mode;
+    }
   }
   return map;
 };
