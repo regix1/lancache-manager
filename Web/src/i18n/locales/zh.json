@@ -4176,7 +4176,6 @@
         },
         "prefilling": "正在预填充 {{game}}",
         "prefillingGeneric": "正在预填充",
-        "tokenExpiresAt": "需在此前重新登录",
         "summary": "由计划任务页面管理的常驻守护容器。"
       },
       "tooltips": {

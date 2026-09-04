@@ -1406,7 +1406,12 @@ public sealed class PersistentPrefillSessionDto
     /// </summary>
     public required bool IsAuthenticated { get; init; }
 
-    /// <summary>UTC instant at which the persistent login validity expires (DaemonSession.ExpiresAt).</summary>
+    /// <summary>
+    /// The date the admin has to log in again by, and the one every screen shows. The EARLIER of the
+    /// manager's validity window (DaemonSession.ExpiresAt) and the daemon's real token expiry, capped
+    /// by <see cref="PersistentPrefillController.ComputeEffectiveRelogin"/> at display time so no
+    /// screen promises a window that outlives the token.
+    /// </summary>
     public required DateTime AuthExpiresAtUtc { get; init; }
 
     /// <summary>
@@ -1424,8 +1429,10 @@ public sealed class PersistentPrefillSessionDto
 
     /// <summary>
     /// The daemon's REAL underlying token expiry queried live from its <c>status</c> command
-    /// (Steam JWT ValidTo / Epic refresh_expires_at / Xbox refresh-token expiry). Distinct from
-    /// <see cref="AuthExpiresAtUtc"/>, which is the manager's 90-day persistent login-validity window.
+    /// (Steam JWT ValidTo / Epic refresh_expires_at / Xbox refresh-token expiry). One of the two
+    /// inputs <see cref="AuthExpiresAtUtc"/> is capped from, and NOT a date to show on its own: the
+    /// manager flags a session on its validity window, so this one can sit months past the login the
+    /// admin actually owes. The config modal reads it to preview what a changed window would produce.
     /// Null when the session is not running, the status call fails, or the daemon does not report it.
     /// </summary>
     public DateTimeOffset? DaemonAuthExpiresAtUtc { get; init; }

@@ -4176,7 +4176,6 @@
         },
         "prefilling": "Prefilling {{game}}",
         "prefillingGeneric": "Prefilling",
-        "tokenExpiresAt": "Re-login required by",
         "summary": "Long-lived daemon containers managed from Schedules."
       },
       "tooltips": {

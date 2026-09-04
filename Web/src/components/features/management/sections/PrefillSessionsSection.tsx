@@ -602,10 +602,14 @@ const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerD
                 : ''}
             </span>
           )}
-          {container.isRunning && !isAnonymous && container.daemonAuthExpiresAtUtc && (
+          {/* The same date the scheduled prefill card shows, because it is the same fact. This row
+              used to render the daemon's raw token expiry, which for Steam and Epic sits months
+              past the date the manager actually flags the session (ShouldFlagNeedsRelogin measures
+              the validity window, not the token), so it promised a login that was already due. */}
+          {container.isRunning && !isAnonymous && (
             <span>
-              {t(`${baseKey}.tokenExpiresAt`)}{' '}
-              <FormattedTimestamp timestamp={container.daemonAuthExpiresAtUtc} />
+              {t('prefill.persistent.reloginRequiredBy')}{' '}
+              <FormattedTimestamp timestamp={container.authExpiresAtUtc} />
             </span>
           )}
           <span className="font-mono">{container.sessionId}</span>
