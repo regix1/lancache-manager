@@ -30,6 +30,7 @@ const DOWNLOADS_TAB = 'src/components/features/downloads/DownloadsTab.tsx';
 
 const compactView = parseSource(COMPACT_VIEW, ts.ScriptKind.TSX);
 const normalView = parseSource(NORMAL_VIEW, ts.ScriptKind.TSX);
+const downloadsTab = parseSource(DOWNLOADS_TAB, ts.ScriptKind.TSX);
 
 /** Source text of the value a named `const` is declared with. */
 const initializerOf = (sourceFile, name) =>
@@ -360,33 +361,46 @@ test('a changed row set puts every virtualized list back at the top', () => {
   assert.equal(scrolledGrid.scrollTop, 0, 'the card grid');
 });
 
-// Opening a group rebuilds `items` so the fetched sessions can reach it, which hands every view a
-// brand new row array holding the same rows. Resetting on the array itself threw a reader far down
-// an All-sized list back to the top on every click, so the reset has to compare the rows.
-test('opening a group is not a changed row set', () => {
-  const rows = (ids) => ids.map((id) => ({ kind: 'item', id }));
-  const keyOf = (relativePath, flatRows) =>
-    bindLifted(liftHookCallback(relativePath, 'useMemo', 'flatRows.map((row) => row.id)'), {
-      flatRows
-    })();
+// Two things hand every view a brand new row array holding rows it already had: opening a group,
+// which refetches its sessions, and a running download, which makes the server reorder the page
+// every few seconds. Keying the reset on those rows threw a reader far down an All-sized list back
+// to the top on both. It now keys on what the READER chose instead, so neither can move them.
+test('the scroll reset ignores the rows entirely', () => {
+  assert.equal(effectDeps(compactView, 'virtualParentRef.current.scrollTop'), '[scrollResetKey]');
+  assert.equal(effectDeps(normalView, 'virtualParentRef.current.scrollTop'), '[scrollResetKey]');
+  assert.equal(effectDeps(normalView, 'gridParentRef.current.scrollTop'), '[scrollResetKey]');
 
-  for (const [label, relativePath] of [
-    ['the compact list', COMPACT_VIEW],
-    ['the normal list', NORMAL_VIEW]
+  for (const [label, source] of [
+    ['the compact list', compactView],
+    ['the normal list', normalView]
   ]) {
-    assert.equal(
-      keyOf(relativePath, rows(['game-1', 'game-2', 'game-3'])),
-      keyOf(relativePath, rows(['game-1', 'game-2', 'game-3'])),
-      `${label} stays put when the same rows arrive in a new array`
-    );
-    assert.notEqual(
-      keyOf(relativePath, rows(['game-1', 'game-2', 'game-3'])),
-      keyOf(relativePath, rows(['game-1', 'game-2', 'game-4'])),
-      `${label} still resets when a filter or sort changes the rows`
+    assert.ok(
+      !source.getFullText().includes('flatRows.map((row) => row.id)'),
+      `${label} no longer builds a reset key out of its rows`
     );
   }
+});
 
-  assert.equal(effectDeps(compactView, 'virtualParentRef.current.scrollTop'), '[rowSetKey]');
-  assert.equal(effectDeps(normalView, 'virtualParentRef.current.scrollTop'), '[rowSetKey]');
-  assert.equal(effectDeps(normalView, 'gridParentRef.current.scrollTop'), '[rowSetKey]');
+// The other half of the same rule: the key still has to change when the reader picks a different
+// filter, sort, page size or page, or a stale offset survives into a list it does not belong to.
+test('the scroll reset key carries every choice the reader can make', () => {
+  const key = initializerOf(downloadsTab, 'scrollResetKey');
+
+  for (const field of [
+    'settings.selectedService',
+    'serverClientFilter',
+    'debouncedSearchQuery',
+    'settings.sortOrder',
+    'settings.hitMissFilter',
+    'settings.groupByFrequency',
+    'settings.itemsPerPage',
+    'currentPage'
+  ]) {
+    assert.ok(key.includes(field), `scrollResetKey carries ${field}`);
+  }
+
+  // Nothing derived from the rows may creep back in, which is what made it reset on a reorder.
+  for (const rowish of ['flatRows', 'itemsToDisplay', 'serverPage.items', 'expandedItem']) {
+    assert.ok(!key.includes(rowish), `scrollResetKey stays clear of ${rowish}`);
+  }
 });
