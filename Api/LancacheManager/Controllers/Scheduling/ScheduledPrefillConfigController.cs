@@ -63,12 +63,14 @@ public class ScheduledPrefillConfigController : ControllerBase
         // Which platforms have a run of their own in flight. One tracked operation per service means
         // this is answerable per row; the schedule-wide flag cannot distinguish "Steam is downloading"
         // from "Xbox may not start", which is what stopped a second service being run by hand. [48]
+        // Keyed by platform and carrying the operation id, because the row needs both: the flag to
+        // word itself and disable Run, the id to cancel that service's run. A lookup rather than a
+        // dictionary so a duplicate registration cannot throw and take the whole schedule with it.
         var runningServices = _operationTracker
             .GetActiveOperations(OperationType.ScheduledPrefill)
-            .Select(op => op.Metadata)
-            .OfType<ScheduledPrefillServiceRunState>()
-            .Select(state => state.ServiceId)
-            .ToHashSet();
+            .Select(op => new { op.Id, State = op.Metadata as ScheduledPrefillServiceRunState })
+            .Where(pair => pair.State is not null)
+            .ToLookup(pair => pair.State!.ServiceId, pair => pair.Id);
 
         var schedule = new List<ScheduledPrefillServiceScheduleDto>();
         foreach (var service in config.GetServicesInRunOrder())
@@ -86,6 +88,7 @@ public class ScheduledPrefillConfigController : ControllerBase
                 IntervalHours = service.IntervalHours,
                 Enabled = service.Enabled,
                 IsRunning = runningServices.Contains(service.ServiceId),
+                OperationId = runningServices[service.ServiceId].Select(id => id.ToString()).FirstOrDefault(),
                 LastRunUtc = actualLastRun,
                 NextRunUtc = ScheduledPrefillRunGates.ComputeNextRunUtc(service.IntervalHours, scheduleBasis, service.CustomSchedule),
                 CustomSchedule = service.CustomSchedule
@@ -269,6 +272,12 @@ public sealed class ScheduledPrefillServiceScheduleDto
     /// refuse a second start. [48]
     /// </summary>
     public required bool IsRunning { get; init; }
+
+    /// <summary>
+    /// Operation id of this platform's in-flight run, or null when it is not running. The row cancels
+    /// through it: a silent run raises no notification, which used to leave no way to stop it.
+    /// </summary>
+    public string? OperationId { get; init; }
 
     /// <summary>Last time this service actually ran (UTC), or null when it has never run.</summary>
     public DateTime? LastRunUtc { get; init; }

@@ -1366,8 +1366,6 @@
   },
   "downloads": {
     "provisional": {
-      "inProgress": "进行中",
-      "liveSpeed": "实时",
       "lastSeconds": "近{{seconds}}秒",
       "windowTooltip": "当前 {{seconds}} 秒滚动窗口内观察到的流量，不计入已记录的统计。"
     },
@@ -3940,7 +3938,9 @@
           "runService": "运行",
           "runServiceTooltip": "立即运行此服务",
           "runServiceStarted": "{{service}} 已开始",
-          "runServiceAlreadyRunning": "{{service}} 已在运行中"
+          "runServiceAlreadyRunning": "{{service}} 已在运行中",
+          "cancelService": "取消",
+          "cancelServiceTooltip": "停止此服务的运行"
         },
         "epicMapping": {
           "displayName": "Epic 游戏映射",

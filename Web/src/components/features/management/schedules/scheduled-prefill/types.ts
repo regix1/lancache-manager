@@ -99,6 +99,8 @@ export interface ScheduledPrefillServiceScheduleDto {
   /** True while THIS platform has a run in flight. Per service, not per schedule: the services run
    * concurrently, so one running service must not disable another's Run button. */
   isRunning: boolean;
+  /** Operation id of this platform's in-flight run, null when idle. The row's Cancel cancels it. */
+  operationId: string | null;
   lastRunUtc: string | null;
   nextRunUtc: string | null;
 }

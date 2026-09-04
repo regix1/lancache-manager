@@ -1366,8 +1366,6 @@
   },
   "downloads": {
     "provisional": {
-      "inProgress": "In progress",
-      "liveSpeed": "Live",
       "lastSeconds": "Last {{seconds}}s",
       "windowTooltip": "Traffic observed in the current {{seconds}}-second rolling window. Not included in recorded totals."
     },
@@ -3940,7 +3938,9 @@
           "runService": "Run",
           "runServiceTooltip": "Run this service now",
           "runServiceStarted": "{{service}} started",
-          "runServiceAlreadyRunning": "{{service}} is already running"
+          "runServiceAlreadyRunning": "{{service}} is already running",
+          "cancelService": "Cancel",
+          "cancelServiceTooltip": "Stop this service's run"
         },
         "epicMapping": {
           "displayName": "Epic Game Mapping",

@@ -84,7 +84,11 @@ interface ScheduledPrefillServiceScheduleRowProps {
   disabled: boolean;
   runPending: boolean;
   runDisabled: boolean;
+  /** True while this service's own run is in flight, which is when Cancel replaces nothing and appears. */
+  isRunning: boolean;
+  cancelPending: boolean;
   onRun: (serviceId: ScheduledPrefillServiceId) => void;
+  onCancel: (serviceId: ScheduledPrefillServiceId) => void;
   onIntervalChange: (serviceKey: ScheduledPrefillServiceKey, hours: number) => void;
   onCustomScheduleChange: (
     serviceKey: ScheduledPrefillServiceKey,
@@ -115,7 +119,10 @@ function ScheduledPrefillServiceScheduleRow({
   disabled,
   runPending,
   runDisabled,
+  isRunning,
+  cancelPending,
   onRun,
+  onCancel,
   onIntervalChange,
   onCustomScheduleChange
 }: ScheduledPrefillServiceScheduleRowProps) {
@@ -236,6 +243,7 @@ function ScheduledPrefillServiceScheduleRow({
             variant="filled"
             color="run"
             size="sm"
+            className="pointer-target-44"
             onClick={() => onRun(serviceId)}
             disabled={runDisabled || !enabled}
             loading={runPending}
@@ -244,6 +252,28 @@ function ScheduledPrefillServiceScheduleRow({
             {t('management.schedules.services.scheduledPrefill.runService')}
           </Button>
         </Tooltip>
+        {/* Only while this service is running, because canceling is the one thing a silent run
+            offers nowhere else: it raises no notification, and the notification was the only place
+            a run could be stopped from. */}
+        {isRunning && (
+          <Tooltip
+            content={t('management.schedules.services.scheduledPrefill.cancelServiceTooltip')}
+          >
+            <Button
+              type="button"
+              variant="filled"
+              color="stop"
+              size="sm"
+              className="pointer-target-44"
+              onClick={() => onCancel(serviceId)}
+              disabled={disabled}
+              loading={cancelPending}
+              stableWidth
+            >
+              {t('management.schedules.services.scheduledPrefill.cancelService')}
+            </Button>
+          </Tooltip>
+        )}
       </div>
     </div>
   );
@@ -271,6 +301,8 @@ export function ScheduledPrefillScheduleDetail({
   const [schedule, setSchedule] = useState<ScheduledPrefillServiceScheduleDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Services whose cancel request is in flight, so the row can show it without waiting for SignalR. */
+  const [cancelingServices, setCancelingServices] = useState<ScheduledPrefillServiceId[]>([]);
   const [modalOpened, setModalOpened] = useState(false);
   // Relative labels ("in 2h", "Just now") are computed at render time, so without a clock they
   // freeze at whatever the last fetch produced. A minute tick matches their coarsest granularity
@@ -407,6 +439,30 @@ export function ScheduledPrefillScheduleDetail({
       await saveServiceConfig(serviceKey, { customSchedule: schedule });
     },
     [saveServiceConfig]
+  );
+
+  // Cancels one service's run through its tracked operation. The row is the only place a silent
+  // run can be stopped from: it raises no notification, and the notification carried the only
+  // cancel button. The schedule refreshes over SignalR when the run ends, so nothing is set here
+  // beyond clearing the pending flag.
+  const handleCancelService = useCallback(
+    async (serviceId: ScheduledPrefillServiceId) => {
+      const operationId = schedule.find((item) => item.serviceId === serviceId)?.operationId;
+      if (!operationId) return;
+      setCancelingServices((pending) => [...pending, serviceId]);
+      try {
+        await ApiService.cancelOperation(operationId);
+      } catch (cancelError) {
+        setError(getErrorMessage(cancelError));
+      } finally {
+        setCancelingServices((pending) => pending.filter((id) => id !== serviceId));
+        // Re-reads the rows rather than waiting for SignalR, which both drops the button as soon
+        // as the run is gone and clears a row still offering Cancel for an id the tracker has
+        // already reaped.
+        await refreshSchedule();
+      }
+    },
+    [schedule, refreshSchedule]
   );
 
   useEffect(() => {
@@ -579,6 +635,7 @@ export function ScheduledPrefillScheduleDetail({
       nextRunUtc: string | null;
       lastRunUtc: string | null;
       isRunning: boolean;
+      operationId: string | null;
     }[] = [];
     const containerByService = new Map<PersistentPrefillServiceId, PersistentPrefillContainerDto>(
       persistentContainers.map((container) => [container.service, container])
@@ -638,7 +695,8 @@ export function ScheduledPrefillScheduleDetail({
         }),
         nextRunUtc: upcomingNextRunUtc,
         lastRunUtc: item.lastRunUtc,
-        isRunning: item.isRunning
+        isRunning: item.isRunning,
+        operationId: item.operationId
       });
     }
     return rows;
@@ -735,7 +793,10 @@ export function ScheduledPrefillScheduleDetail({
                       disabled={disabled}
                       runPending={isRunServicePending(row.serviceId)}
                       runDisabled={runServiceDisabled || row.isRunning}
+                      isRunning={row.isRunning && row.operationId !== null}
+                      cancelPending={cancelingServices.includes(row.serviceId)}
                       onRun={onRunService}
+                      onCancel={(serviceId) => void handleCancelService(serviceId)}
                       onIntervalChange={(serviceKey, hours) =>
                         void handleServiceIntervalChange(serviceKey, hours)
                       }

@@ -690,6 +690,17 @@
   min-width: 0;
 }
 
+/* Run, plus Cancel beside it while that service is running. The shared cell rule above stacks its
+   children, which would drop Cancel onto a second line and make every row in the table taller. The
+   column is the grid's `auto` track, so it widens to fit both instead of squeezing them. On the
+   mobile tile this cell already spans the full width, where two buttons sit side by side easily. */
+.scheduled-prefill-schedule-table__cell--action {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 /* Service identity: brand icon tile spanning both text lines, name, then the
    enablement/container dots indented beneath the name. */
 .scheduled-prefill-schedule-table__cell--service {
