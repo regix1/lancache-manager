@@ -81,6 +81,8 @@ const collectGroupEvents = (
 
 interface NormalViewProps {
   items: (Download | DownloadGroup)[];
+  /** Changes when the reader picks a different filter, sort, page size or page. Scroll resets on it. */
+  scrollResetKey: string;
   expandedItem: string | null;
   onItemClick: (id: string) => void;
   sectionLabels?: NormalViewSectionLabels;
@@ -1216,6 +1218,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
 
 const NormalView: React.FC<NormalViewProps> = ({
   items,
+  scrollResetKey,
   expandedItem,
   onItemClick,
   sectionLabels,
@@ -1265,18 +1268,16 @@ const NormalView: React.FC<NormalViewProps> = ({
     measureElement: (el) => el?.getBoundingClientRect().height ?? 240
   });
 
-  // Which rows are on screen, as a value that only changes when the rows do. Opening a group
-  // refetches its sessions and rebuilds `items`, so `flatRows` is a new array holding the same
-  // rows; resetting on the array itself sent the reader back to the top on every click. The card
-  // grid chunks the same items, so this identifies its row set too.
-  const rowSetKey = useMemo(() => flatRows.map((row) => row.id).join('\n'), [flatRows]);
-
-  // Reset virtualized scroll to top when filters/sort change the row set, preventing a stale offset.
+  // Reset virtualized scroll to top when the reader changes what they are looking at, preventing a
+  // stale offset. Deliberately keyed on their choice rather than on the rows that came back: the
+  // rows are rebuilt by every background refetch and by opening a group, and while a download runs
+  // the server reorders them, which used to send the reader back to the top mid-read. The card grid
+  // chunks the same items, so its own reset below shares this key.
   useEffect(() => {
     if (virtualParentRef.current) {
       virtualParentRef.current.scrollTop = 0;
     }
-  }, [rowSetKey]);
+  }, [scrollResetKey]);
 
   // The card grid's drawer reads its group back out of the page rows every time they change rather
   // than snapshotting it at click time, so the sessions fetched after the click reach the drawer
@@ -1363,12 +1364,12 @@ const NormalView: React.FC<NormalViewProps> = ({
     }
   }, [gridCols, shouldVirtualizeGrid, gridVirtualizer]);
 
-  // Reset grid scroll when the item set changes.
+  // Reset grid scroll on the same reader-driven changes as the list above, and for the same reason.
   useEffect(() => {
     if (gridParentRef.current) {
       gridParentRef.current.scrollTop = 0;
     }
-  }, [rowSetKey]);
+  }, [scrollResetKey]);
 
   const renderSectionHeader = (variant: HeaderRowKind): React.ReactNode => {
     if (variant === 'multiple') {

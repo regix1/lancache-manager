@@ -969,6 +969,33 @@ const DownloadsTab: React.FC = () => {
     [serverPage.items, expandedMembers, toDownloadGroup]
   );
 
+  // What the reader chose to look at: a filter, the sort, the page size, or which page they turned
+  // to. The views reset their scroll to the top when this changes. A background refetch that brings
+  // the same view back in a different order leaves it alone, so a download that reorders the list
+  // while it runs no longer throws the reader back to the top mid-read. Rebuilt each render rather
+  // than memoized: it is a join of values the effects then compare by value.
+  const scrollResetKey = [
+    settings.selectedService,
+    serverClientFilter,
+    debouncedSearchQuery,
+    settings.sortOrder,
+    settings.hideMetadata,
+    settings.hideSmallFiles,
+    settings.hideLocalhost,
+    settings.hideUnknownGames,
+    // The same expression the fetch sends, not its two halves: switching the stored mode between
+    // show and showClean changes neither, so keying on them raw reset the scroll for no row change.
+    settings.hideEvicted || evictedDataMode === 'hide',
+    settings.hitMissFilter,
+    settings.groupUnknownGames,
+    settings.groupByFrequency,
+    settings.itemsPerPage,
+    currentPage,
+    retroTimeParams.startTime,
+    retroTimeParams.endTime,
+    retroEventId
+  ].join('|');
+
   // Floor of 1: an empty result would otherwise report 0 pages and put the pager out of range of
   // its own clamp.
   const totalPages = Math.max(1, serverPage.totalPages);
@@ -1967,6 +1994,7 @@ const DownloadsTab: React.FC = () => {
             {settings.viewMode === 'compact' && (
               <CompactView
                 items={itemsToDisplay}
+                scrollResetKey={scrollResetKey}
                 expandedItem={expandedItem}
                 onItemClick={handleItemClick}
                 aestheticMode={settings.aestheticMode}
@@ -1983,6 +2011,7 @@ const DownloadsTab: React.FC = () => {
             {settings.viewMode === 'card' && (
               <NormalView
                 items={itemsToDisplay}
+                scrollResetKey={scrollResetKey}
                 expandedItem={expandedItem}
                 onItemClick={handleItemClick}
                 aestheticMode={false}
@@ -2005,6 +2034,7 @@ const DownloadsTab: React.FC = () => {
             {settings.viewMode === 'normal' && (
               <NormalView
                 items={itemsToDisplay}
+                scrollResetKey={scrollResetKey}
                 expandedItem={expandedItem}
                 onItemClick={handleItemClick}
                 aestheticMode={settings.aestheticMode}
