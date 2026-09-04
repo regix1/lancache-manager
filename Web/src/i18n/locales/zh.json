@@ -3851,6 +3851,8 @@
                 "loginRequired": "需要登录"
               },
               "sections": {
+                "download": "下载设置",
+                "notifications": "通知",
                 "persistentContainer": "持久容器",
                 "schedule": "计划设置"
               },
@@ -3887,8 +3889,9 @@
               "maxConcurrencyValue": "固定连接数",
               "interval": "运行频率",
               "intervalHelp": "该平台的运行频率。每个平台独立排程。",
-              "notifications": "通知",
+              "notifications": "显示时机",
               "notificationsHelp": "选择此平台的预填充进度何时显示在通知栏中：每次运行、仅手动运行，或从不显示。",
+              "notificationStyle": "样式",
               "notificationStyleHelp": "通知显示时的外观：完整卡片，或可展开的细状态条。",
               "persistenceModeOverride": "重启后",
               "persistenceModeOverrideHelp": "覆盖上方的全局“重启后”设置，仅适用于此平台。保持“使用全局设置”以遵循上方的默认值。"

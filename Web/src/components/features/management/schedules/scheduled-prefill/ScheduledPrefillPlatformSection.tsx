@@ -3,7 +3,11 @@ import { Card } from '@components/ui/Card';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { ScheduledPrefillPersistentCard } from './ScheduledPrefillPersistentCard';
-import { ScheduledPrefillScheduleFields } from './ScheduledPrefillScheduleFields';
+import {
+  ScheduledPrefillDownloadFields,
+  ScheduledPrefillNotificationFields,
+  ScheduledPrefillScheduleFields
+} from './ScheduledPrefillPlatformFields';
 import { SCHEDULED_PREFILL_PLATFORM_UI } from './scheduledPrefillPlatformUi';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import type { ScheduledPrefillServiceConfigDto, ScheduledPrefillServiceKey } from './types';
@@ -58,6 +62,8 @@ export function ScheduledPrefillPlatformSection({
     onChange({ ...config, enabled: value === 'enabled' });
   };
 
+  const fieldsDisabled = disabled || !config.enabled;
+
   return (
     <section
       className={`scheduled-prefill-platform-section ${platformMeta.rowClassName}`}
@@ -102,7 +108,35 @@ export function ScheduledPrefillPlatformSection({
             <ScheduledPrefillScheduleFields
               serviceKey={serviceKey}
               config={config}
-              disabled={disabled || !config.enabled}
+              disabled={fieldsDisabled}
+              onChange={onChange}
+            />
+          </div>
+        </Card>
+
+        <Card padding="md" className="scheduled-prefill-platform-block">
+          <h4 className="scheduled-prefill-platform-block__title">
+            {t(`${baseKey}.platforms.sections.download`)}
+          </h4>
+          <div className="scheduled-prefill-config-modal__settings-list">
+            <ScheduledPrefillDownloadFields
+              serviceKey={serviceKey}
+              config={config}
+              disabled={fieldsDisabled}
+              onChange={onChange}
+            />
+          </div>
+        </Card>
+
+        <Card padding="md" className="scheduled-prefill-platform-block">
+          <h4 className="scheduled-prefill-platform-block__title">
+            {t(`${baseKey}.platforms.sections.notifications`)}
+          </h4>
+          <div className="scheduled-prefill-config-modal__settings-list">
+            <ScheduledPrefillNotificationFields
+              serviceKey={serviceKey}
+              config={config}
+              disabled={fieldsDisabled}
               onChange={onChange}
             />
           </div>

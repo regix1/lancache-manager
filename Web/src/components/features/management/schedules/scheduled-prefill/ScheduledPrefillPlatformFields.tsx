@@ -23,12 +23,20 @@ import type {
   ScheduledPrefillServiceKey
 } from './types';
 
-interface ScheduledPrefillScheduleFieldsProps {
+/**
+ * The three field groups below split one platform's settings by the question they answer -
+ * when it runs, what it downloads, and how it reports itself - so each renders into its own
+ * card in the platform section. They share this prop shape because each one patches the same
+ * per-service config object.
+ */
+interface ScheduledPrefillPlatformFieldsProps {
   serviceKey: ScheduledPrefillServiceKey;
   config: ScheduledPrefillServiceConfigDto;
   disabled?: boolean;
   onChange: (config: ScheduledPrefillServiceConfigDto) => void;
 }
+
+const baseKey = 'management.schedules.services.scheduledPrefill.config';
 
 /**
  * Sentinel + the 3 real modes, in dropdown order. `'useGlobal'` maps to a `null` DTO override
@@ -58,14 +66,101 @@ const isScheduledPrefillMaxConcurrencyMode = (
   value: string
 ): value is ScheduledPrefillMaxConcurrencyMode => value === 'Auto' || value === 'Fixed';
 
+/** When this platform runs, and what survives a manager restart between runs. */
 export function ScheduledPrefillScheduleFields({
   serviceKey,
   config,
   disabled = false,
   onChange
-}: ScheduledPrefillScheduleFieldsProps) {
+}: ScheduledPrefillPlatformFieldsProps) {
   const { t } = useTranslation();
-  const baseKey = 'management.schedules.services.scheduledPrefill.config';
+
+  const updateConfig = (patch: Partial<ScheduledPrefillServiceConfigDto>) => {
+    onChange({ ...config, ...patch });
+  };
+
+  const intervalLabelId = `scheduled-prefill-interval-label-${serviceKey}`;
+  const persistenceLabelId = `scheduled-prefill-persistence-label-${serviceKey}`;
+
+  return (
+    <>
+      <div
+        className="scheduled-prefill-config-modal__setting-row"
+        role="group"
+        aria-labelledby={intervalLabelId}
+      >
+        <div className="scheduled-prefill-config-modal__setting-copy">
+          <span id={intervalLabelId} className="scheduled-prefill-config-modal__global-label">
+            {t(`${baseKey}.fields.interval`)}
+          </span>
+          <p className="scheduled-prefill-config-modal__global-help">
+            {t(`${baseKey}.fields.intervalHelp`)}
+          </p>
+        </div>
+        <div className="scheduled-prefill-config-modal__setting-actions">
+          <ScheduleIntervalPicker
+            intervalHours={config.intervalHours}
+            isDisabled={disabled}
+            /* Clearing the schedule travels in the same patch as the interval. A second
+               updateConfig call in this tick would read the same stale config and undo the
+               first, and the backend runs a saved schedule in preference to the interval, so
+               a schedule left behind would swallow the interval the user just picked. */
+            onChange={(hours) => updateConfig({ intervalHours: hours, customSchedule: null })}
+            customSchedule={config.customSchedule ?? null}
+            onCustomScheduleChange={(schedule) => updateConfig({ customSchedule: schedule })}
+          />
+        </div>
+      </div>
+
+      <div
+        className="scheduled-prefill-config-modal__setting-row"
+        role="group"
+        aria-labelledby={persistenceLabelId}
+      >
+        <div className="scheduled-prefill-config-modal__setting-copy">
+          <span id={persistenceLabelId} className="scheduled-prefill-config-modal__global-label">
+            {t(`${baseKey}.fields.persistenceModeOverride`)}
+          </span>
+          <p className="scheduled-prefill-config-modal__global-help">
+            {t(`${baseKey}.fields.persistenceModeOverrideHelp`)}
+          </p>
+        </div>
+        <div className="scheduled-prefill-config-modal__setting-actions">
+          <EnhancedDropdown
+            className="scheduled-prefill-setting-fill"
+            options={PERSISTENCE_MODE_OVERRIDE_VALUES.map((value) => ({
+              value,
+              label: t(`${baseKey}.settings.persistenceMode.${value}`)
+            }))}
+            value={config.persistenceMode ?? 'useGlobal'}
+            onChange={(value) => {
+              if (!isPersistenceModeOverrideValue(value)) return;
+              updateConfig({ persistenceMode: value === 'useGlobal' ? null : value });
+            }}
+            disabled={disabled}
+            variant="button"
+            triggerAriaLabel={t(`${baseKey}.fields.persistenceModeOverride`)}
+          />
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
+ * What a run actually downloads and how hard it pulls. Rows are ordered by control shape -
+ * dropdown, then segmented controls, then the toggle pill - so the control column reads as
+ * calm runs instead of alternating shapes. The one deliberate exception: a conditional count
+ * input (Top count, Fixed connection count) stays immediately under the segmented control that
+ * reveals it, since separating a child input from its parent control would confuse more.
+ */
+export function ScheduledPrefillDownloadFields({
+  serviceKey,
+  config,
+  disabled = false,
+  onChange
+}: ScheduledPrefillPlatformFieldsProps) {
+  const { t } = useTranslation();
   const fixedConcurrency =
     config.maxConcurrency.mode === 'Fixed'
       ? config.maxConcurrency.value
@@ -110,50 +205,13 @@ export function ScheduledPrefillScheduleFields({
 
   const presetOverridden = config.selectedAppIds.length > 0;
 
-  const intervalLabelId = `scheduled-prefill-interval-label-${serviceKey}`;
   const presetLabelId = `scheduled-prefill-preset-label-${serviceKey}`;
   const osLabelId = `scheduled-prefill-os-label-${serviceKey}`;
   const forceLabelId = `scheduled-prefill-force-label-${serviceKey}`;
   const concurrencyModeLabelId = `scheduled-prefill-concurrency-mode-label-${serviceKey}`;
-  const persistenceLabelId = `scheduled-prefill-persistence-label-${serviceKey}`;
-  const notificationsLabelId = `scheduled-prefill-notifications-label-${serviceKey}`;
-  const notificationStyleLabelId = `scheduled-prefill-notification-style-label-${serviceKey}`;
 
-  /* Rows are grouped by control shape - dropdowns, then segmented controls, then the toggle
-     pill - so the control column reads as three calm runs instead of alternating shapes. The
-     one deliberate exception: a conditional count input (Top count, Fixed connection count)
-     stays immediately under the segmented control that reveals it, since separating a child
-     input from its parent control would be more confusing than the shape break. */
   return (
     <>
-      <div
-        className="scheduled-prefill-config-modal__setting-row"
-        role="group"
-        aria-labelledby={intervalLabelId}
-      >
-        <div className="scheduled-prefill-config-modal__setting-copy">
-          <span id={intervalLabelId} className="scheduled-prefill-config-modal__global-label">
-            {t(`${baseKey}.fields.interval`)}
-          </span>
-          <p className="scheduled-prefill-config-modal__global-help">
-            {t(`${baseKey}.fields.intervalHelp`)}
-          </p>
-        </div>
-        <div className="scheduled-prefill-config-modal__setting-actions">
-          <ScheduleIntervalPicker
-            intervalHours={config.intervalHours}
-            isDisabled={disabled}
-            /* Clearing the schedule travels in the same patch as the interval. A second
-               updateConfig call in this tick would read the same stale config and undo the
-               first, and the backend runs a saved schedule in preference to the interval, so
-               a schedule left behind would swallow the interval the user just picked. */
-            onChange={(hours) => updateConfig({ intervalHours: hours, customSchedule: null })}
-            customSchedule={config.customSchedule ?? null}
-            onCustomScheduleChange={(schedule) => updateConfig({ customSchedule: schedule })}
-          />
-        </div>
-      </div>
-
       {SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS[serviceKey].length > 0 && (
         <div
           className="scheduled-prefill-config-modal__setting-row"
@@ -180,38 +238,6 @@ export function ScheduledPrefillScheduleFields({
           </div>
         </div>
       )}
-
-      <div
-        className="scheduled-prefill-config-modal__setting-row"
-        role="group"
-        aria-labelledby={persistenceLabelId}
-      >
-        <div className="scheduled-prefill-config-modal__setting-copy">
-          <span id={persistenceLabelId} className="scheduled-prefill-config-modal__global-label">
-            {t(`${baseKey}.fields.persistenceModeOverride`)}
-          </span>
-          <p className="scheduled-prefill-config-modal__global-help">
-            {t(`${baseKey}.fields.persistenceModeOverrideHelp`)}
-          </p>
-        </div>
-        <div className="scheduled-prefill-config-modal__setting-actions">
-          <EnhancedDropdown
-            className="scheduled-prefill-setting-fill"
-            options={PERSISTENCE_MODE_OVERRIDE_VALUES.map((value) => ({
-              value,
-              label: t(`${baseKey}.settings.persistenceMode.${value}`)
-            }))}
-            value={config.persistenceMode ?? 'useGlobal'}
-            onChange={(value) => {
-              if (!isPersistenceModeOverrideValue(value)) return;
-              updateConfig({ persistenceMode: value === 'useGlobal' ? null : value });
-            }}
-            disabled={disabled}
-            variant="button"
-            triggerAriaLabel={t(`${baseKey}.fields.persistenceModeOverride`)}
-          />
-        </div>
-      </div>
 
       <div
         className="scheduled-prefill-config-modal__setting-row"
@@ -358,6 +384,53 @@ export function ScheduledPrefillScheduleFields({
       <div
         className="scheduled-prefill-config-modal__setting-row"
         role="group"
+        aria-labelledby={forceLabelId}
+      >
+        <div className="scheduled-prefill-config-modal__setting-copy">
+          <span id={forceLabelId} className="scheduled-prefill-config-modal__global-label">
+            {t(`${baseKey}.fields.force`)}
+          </span>
+          <p className="scheduled-prefill-config-modal__global-help">
+            {t(`${baseKey}.actions.forceDownload`)}
+          </p>
+        </div>
+        <div className="scheduled-prefill-config-modal__setting-actions">
+          <ToggleSwitch
+            options={[
+              { value: 'false', label: t(`${baseKey}.fields.toggleOff`), activeColor: 'default' },
+              { value: 'true', label: t(`${baseKey}.fields.toggleOn`), activeColor: 'warning' }
+            ]}
+            value={config.force ? 'true' : 'false'}
+            onChange={(value) => updateConfig({ force: value === 'true' })}
+            disabled={disabled}
+          />
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Whether this platform's run shows up in the notification bar, and what it looks like there. */
+export function ScheduledPrefillNotificationFields({
+  serviceKey,
+  config,
+  disabled = false,
+  onChange
+}: ScheduledPrefillPlatformFieldsProps) {
+  const { t } = useTranslation();
+
+  const updateConfig = (patch: Partial<ScheduledPrefillServiceConfigDto>) => {
+    onChange({ ...config, ...patch });
+  };
+
+  const notificationsLabelId = `scheduled-prefill-notifications-label-${serviceKey}`;
+  const notificationStyleLabelId = `scheduled-prefill-notification-style-label-${serviceKey}`;
+
+  return (
+    <>
+      <div
+        className="scheduled-prefill-config-modal__setting-row"
+        role="group"
         aria-labelledby={notificationsLabelId}
       >
         <div className="scheduled-prefill-config-modal__setting-copy">
@@ -413,7 +486,7 @@ export function ScheduledPrefillScheduleFields({
             id={notificationStyleLabelId}
             className="scheduled-prefill-config-modal__global-label"
           >
-            {t('management.schedules.notificationStyleLabel')}
+            {t(`${baseKey}.fields.notificationStyle`)}
           </span>
           <p className="scheduled-prefill-config-modal__global-help">
             {t(`${baseKey}.fields.notificationStyleHelp`)}
@@ -442,32 +515,6 @@ export function ScheduledPrefillScheduleFields({
               updateConfig({ notificationDisplayMode: value });
             }}
             showLabels
-          />
-        </div>
-      </div>
-
-      <div
-        className="scheduled-prefill-config-modal__setting-row"
-        role="group"
-        aria-labelledby={forceLabelId}
-      >
-        <div className="scheduled-prefill-config-modal__setting-copy">
-          <span id={forceLabelId} className="scheduled-prefill-config-modal__global-label">
-            {t(`${baseKey}.fields.force`)}
-          </span>
-          <p className="scheduled-prefill-config-modal__global-help">
-            {t(`${baseKey}.actions.forceDownload`)}
-          </p>
-        </div>
-        <div className="scheduled-prefill-config-modal__setting-actions">
-          <ToggleSwitch
-            options={[
-              { value: 'false', label: t(`${baseKey}.fields.toggleOff`), activeColor: 'default' },
-              { value: 'true', label: t(`${baseKey}.fields.toggleOn`), activeColor: 'warning' }
-            ]}
-            value={config.force ? 'true' : 'false'}
-            onChange={(value) => updateConfig({ force: value === 'true' })}
-            disabled={disabled}
           />
         </div>
       </div>
