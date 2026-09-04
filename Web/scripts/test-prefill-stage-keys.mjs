@@ -51,7 +51,7 @@ const { getErrorMessage } = await import(
   })
 );
 
-const { translateStageKeyMessage } = await import(
+const { translateStageKeyMessage, hasUnresolvedInterpolation } = await import(
   await compileToUrl('../src/utils/stageKeyMessage.ts', { '@/i18n': i18nStub })
 );
 
@@ -102,11 +102,18 @@ const scheduledPrefillServiceLabel = bindLifted(functionFor('scheduledPrefillSer
   SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY
 });
 
+// Both wordings below read the stage key through this, so it is lifted the same way they are.
+const scheduledPrefillSentence = bindLifted(functionFor('scheduledPrefillSentence'), {
+  translateStageKeyMessage,
+  hasUnresolvedInterpolation
+});
+
 // The progress event and the run-status response describe a service the same way, so the card's
 // wording lives in one function both compose from.
 const scheduledPrefillMessage = bindLifted(functionFor('scheduledPrefillServiceMessage'), {
   i18n: translator,
   translateStageKeyMessage,
+  scheduledPrefillSentence,
   scheduledPrefillServiceLabel
 });
 
@@ -115,6 +122,7 @@ const scheduledPrefillFailure = bindLifted(
   {
     i18n: translator,
     translateStageKeyMessage,
+    scheduledPrefillSentence,
     scheduledPrefillServiceLabel,
     GENERIC_FAILURE_I18N_KEY: 'signalr.generic.failed'
   }

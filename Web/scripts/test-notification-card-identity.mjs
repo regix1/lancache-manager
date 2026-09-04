@@ -127,7 +127,7 @@ const liftScheduledPrefillEntry = async () => {
       '../src/components/features/management/schedules/scheduled-prefill/constants.ts'
     )
   );
-  const { translateStageKeyMessage } = await import(
+  const { translateStageKeyMessage, hasUnresolvedInterpolation } = await import(
     await compileToUrl('../src/utils/stageKeyMessage.ts', {
       '@/i18n': moduleUrl('export default globalThis.testI18n;')
     })
@@ -140,9 +140,15 @@ const liftScheduledPrefillEntry = async () => {
     i18n: i18nStub,
     SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY
   });
+  // The card wording and the entry's failure line both read the stage key through this.
+  const scheduledPrefillSentence = registryFunction('scheduledPrefillSentence', {
+    translateStageKeyMessage,
+    hasUnresolvedInterpolation
+  });
   const scheduledPrefillServiceMessage = registryFunction('scheduledPrefillServiceMessage', {
     i18n: i18nStub,
     translateStageKeyMessage,
+    scheduledPrefillSentence,
     scheduledPrefillServiceLabel
   });
 
@@ -151,6 +157,7 @@ const liftScheduledPrefillEntry = async () => {
     visibleWhenNotSilent: registryEntries.visibleWhenNotSilent,
     translateStageKeyMessage,
     scheduledPrefillCardId,
+    scheduledPrefillSentence,
     scheduledPrefillServiceLabel,
     scheduledPrefillServiceMessage,
     formatScheduledPrefillDetailMessage: (event) => `bytes:${event.bytesDownloaded ?? 0}`,
