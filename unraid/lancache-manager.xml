@@ -10,7 +10,7 @@
     <Project>https://github.com/regix1/lancache-manager</Project>
     <Overview>LANCache Manager - web UI for monitoring and managing a LANCache server. Prefill Steam, Epic, Battle.net, Riot, and Xbox; process logs; clear and scan the cache; check DNS and cache health.</Overview>
     <Category>Tools: Network:Other</Category>
-    <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+    <WebUI>http://[IP]:[PORT:80]/</WebUI>
     <Icon>https://raw.githubusercontent.com/regix1/lancache-manager/main/Web/src/assets/icon.png</Icon>
     <ExtraParams/>
     <Description>LANCache Manager provides a web dashboard for monitoring and managing your LANCache. Includes embedded PostgreSQL, real-time SignalR updates, Scheduled Prefill for Steam/Epic/Battle.net/Riot/Xbox, Status Check, corruption detection, cache management, and Prometheus metrics. Docs: https://regix1.github.io/lancache-manager/</Description>
@@ -68,7 +68,7 @@
     <Config Name="Prefill Stall Timeout (Seconds)" Target="Prefill__StallTimeoutSeconds" Default="180" Mode="" Description="Advanced: no-progress time before a non-persistent session counts as stalled. Scheduled Prefill uses its own 30-minute cutoff." Type="Variable" Display="advanced" Required="false" Mask="false">180</Config>
     <Config Name="Prefill Daemon Base Path" Target="Prefill__DaemonBasePath" Default="/data/prefill" Mode="" Description="Container path where prefill session state is stored. Must stay under /data for sibling-container access." Type="Variable" Display="advanced" Required="false" Mask="false">/data/prefill</Config>
     <Config Name="Prefill Host Data Path" Target="Prefill__HostDataPath" Default="auto" Mode="" Description="Host path that maps to this container's /data volume. Auto-detected from mounts; set only if detection fails." Type="Variable" Display="advanced" Required="false" Mask="false">auto</Config>
-    <Config Name="Prefill Use TCP" Target="Prefill__UseTcp" Default="auto" Mode="" Description="Communicate with prefill daemons over TCP instead of a Unix socket. auto = true on Windows, false on Linux. Linux users only need this to force TCP." Type="Variable" Display="advanced" Required="false" Mask="false">auto</Config>
+    <Config Name="Prefill Use TCP" Target="Prefill__UseTcp" Default="auto" Mode="" Description="Communicate with prefill daemons over TCP instead of a Unix socket. auto = true on Windows, false on Linux. Linux users only need this to force TCP." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
     <Config Name="Prefill TCP Port" Target="Prefill__TcpPort" Default="45555" Mode="" Description="TCP port the daemon listens on inside its container. TCP mode only." Type="Variable" Display="advanced" Required="false" Mask="false">45555</Config>
     <Config Name="Prefill Host TCP Port" Target="Prefill__HostTcpPort" Default="" Mode="" Description="TCP port published on the host for prefill containers. Empty = random free port. TCP mode only." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
     <Config Name="Prefill TCP Host" Target="Prefill__TcpHost" Default="127.0.0.1" Mode="" Description="Host the daemon binds to and the manager connects to over TCP. TCP mode only." Type="Variable" Display="advanced" Required="false" Mask="false">127.0.0.1</Config>
