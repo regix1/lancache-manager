@@ -81,7 +81,11 @@ import {
   stageKeyMessage,
   visibleWhenNotSilent
 } from './registryEntries';
-import { translateRecoveryStage, translateStageKeyMessage } from '@utils/stageKeyMessage';
+import {
+  hasUnresolvedInterpolation,
+  translateRecoveryStage,
+  translateStageKeyMessage
+} from '@utils/stageKeyMessage';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { storage } from '@utils/storage';
 import { classifyRemovalKind, removalStageKey } from './removalKind';
@@ -215,6 +219,35 @@ function scheduledPrefillServiceLabel(serviceId: string): string {
  * The backend names the sentence with `stageKey` and sends the English it composed as `message` /
  * `needsLoginReason`. A daemon's own text arrives with no key and passes through as it did before.
  */
+/**
+ * Translate a scheduled-prefill stage key, falling back to the English sentence sent beside it when
+ * the key's placeholders cannot be filled.
+ *
+ * Two producers send the key WITHOUT the values it interpolates: the run-status endpoint recovery
+ * rebuilds a card from (`ScheduledPrefillRunServiceStatus` carries Message and StageKey but no
+ * context) and the per-service terminal event (`ScheduledPrefillCompleted` likewise). Translating
+ * `signalr.scheduledPrefill.runningWithCounts` without them put a literal
+ * "Prefill in progress ({{completed}} of {{total}} games)" on the card. The English beside the key
+ * is that same line already filled in, so it is what the reader gets instead. [35]
+ */
+function scheduledPrefillSentence(
+  stageKey: string | null | undefined,
+  stageContext: Record<string, string | number | boolean | null> | null | undefined,
+  english: string | null | undefined,
+  fallbackKey?: string
+): string {
+  const translated = translateStageKeyMessage(
+    stageKey ?? english,
+    stageContext ?? undefined,
+    fallbackKey
+  );
+  if (!hasUnresolvedInterpolation(translated)) {
+    return translated;
+  }
+
+  return translateStageKeyMessage(english, undefined, fallbackKey);
+}
+
 function scheduledPrefillServiceMessage(service: {
   serviceId: string;
   stage: string;
@@ -225,7 +258,7 @@ function scheduledPrefillServiceMessage(service: {
 }): string {
   const serviceLabel = scheduledPrefillServiceLabel(service.serviceId);
   const sentence = (english: string | null | undefined): string =>
-    translateStageKeyMessage(service.stageKey ?? english, service.stageContext ?? undefined);
+    scheduledPrefillSentence(service.stageKey, service.stageContext, english);
 
   if (service.stage === 'skipped') {
     return i18n.t('management.schedules.services.scheduledPrefill.events.skipped', {
@@ -1168,9 +1201,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getFailureMessage: (event: ScheduledPrefillCompletedEvent) =>
         i18n.t('management.schedules.services.scheduledPrefill.events.failed', {
           service: scheduledPrefillServiceLabel(event.serviceId ?? ''),
-          reason: translateStageKeyMessage(
-            event.stageKey ?? event.error,
+          reason: scheduledPrefillSentence(
+            event.stageKey,
             undefined,
+            event.error,
             GENERIC_FAILURE_I18N_KEY
           )
         })

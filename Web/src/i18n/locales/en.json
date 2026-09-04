@@ -7453,6 +7453,7 @@
       "failedMaxRuntime": "Exceeded maximum service runtime",
       "failedStalled": "Prefill stalled (no progress)",
       "failed": "Prefill failed",
+      "failedApps": "{{failed}} of {{total}} games failed to download",
       "stopped": "Prefill stopped",
       "completeWithBytes": "Prefill completed ({{bytes}} downloaded)",
       "completeAllCached": "Prefill completed, all selected games were already cached (0 bytes). Enable Force to re-download.",

@@ -171,6 +171,64 @@ public class ScheduledPrefillAnonymousRunPathTests
     }
 
     /// <summary>
+    /// The daemon finishes a run whose every app failed by reporting success: nothing threw, so its
+    /// result carries Success=true and the session never reaches a Failed state. Only its per-app
+    /// failure count says the run downloaded none of the games it was asked for.
+    /// </summary>
+    [Fact]
+    public async Task RunServiceAsync_EveryAppFailedButDaemonReportedSuccess_ReportsFailedWithTheCount()
+    {
+        var (daemon, _) = CreateRunnablePersistentDaemon(
+            PrefillPlatform.BattleNet, failedApps: 2, totalApps: 2, transferredBytes: 0);
+
+        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
+        Assert.Equal("failed", recorder.Stages[^1]);
+        Assert.Equal("2 of 2 games failed to download", recorder.Messages[^1]);
+        Assert.Equal("signalr.scheduledPrefill.failedApps", recorder.StageKeys[^1]);
+        Assert.DoesNotContain("completed", recorder.Stages);
+    }
+
+    /// <summary>
+    /// A run that lost some games but downloaded others is still a failed run, and the count has to
+    /// say which it was rather than implying everything failed.
+    /// </summary>
+    [Fact]
+    public async Task RunServiceAsync_SomeAppsFailed_ReportsFailedNamingHowMany()
+    {
+        var (daemon, _) = CreateRunnablePersistentDaemon(
+            PrefillPlatform.BattleNet, failedApps: 1, totalApps: 3, transferredBytes: 1024);
+
+        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
+        Assert.Equal("1 of 3 games failed to download", recorder.Messages[^1]);
+    }
+
+    /// <summary>
+    /// The daemon's own reported reason names the actual cause, so it must not be replaced by the
+    /// generic count when a run both failed outright and lost individual games.
+    /// </summary>
+    [Fact]
+    public async Task RunServiceAsync_DaemonErrorAndFailedApps_KeepsTheDaemonReason()
+    {
+        const string daemonReason = "Prefill failed: Steam connection was lost";
+        var (daemon, _) = CreateRunnablePersistentDaemon(
+            PrefillPlatform.BattleNet,
+            terminalFailureMessage: daemonReason,
+            failedApps: 2,
+            totalApps: 2,
+            transferredBytes: 0);
+
+        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
+        Assert.Equal(daemonReason, recorder.Messages[^1]);
+        Assert.Null(recorder.StageKeys[^1]);
+    }
+
+    /// <summary>
     /// The counterpart the failure branch must not swallow: a run that really did finish with
     /// everything already cached still transfers zero bytes, and still has to say it completed.
     /// </summary>
@@ -252,7 +310,9 @@ public class ScheduledPrefillAnonymousRunPathTests
     private static (PrefillDaemonServiceBase Daemon, FakeAnonymousDaemonClient Client) CreateRunnablePersistentDaemon(
         PrefillPlatform platform,
         string? terminalFailureMessage = null,
-        long transferredBytes = 1024)
+        long transferredBytes = 1024,
+        int failedApps = 0,
+        int totalApps = 0)
     {
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"anon_run_path_{Guid.NewGuid():N}")
@@ -288,7 +348,8 @@ public class ScheduledPrefillAnonymousRunPathTests
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddDays(30)
         };
-        var client = new FakeAnonymousDaemonClient(session, terminalFailureMessage, transferredBytes);
+        var client = new FakeAnonymousDaemonClient(
+            session, terminalFailureMessage, transferredBytes, failedApps, totalApps);
         session.Client = client;
 
         InjectSession(daemon, session);
@@ -496,12 +557,21 @@ public class ScheduledPrefillAnonymousRunPathTests
         private readonly DaemonSession _session;
         private readonly string? _terminalFailureMessage;
         private readonly long _transferredBytes;
+        private readonly int _failedApps;
+        private readonly int _totalApps;
 
-        public FakeAnonymousDaemonClient(DaemonSession session, string? terminalFailureMessage = null, long transferredBytes = 1024)
+        public FakeAnonymousDaemonClient(
+            DaemonSession session,
+            string? terminalFailureMessage = null,
+            long transferredBytes = 1024,
+            int failedApps = 0,
+            int totalApps = 0)
         {
             _session = session;
             _terminalFailureMessage = terminalFailureMessage;
             _transferredBytes = transferredBytes;
+            _failedApps = failedApps;
+            _totalApps = totalApps;
         }
 
         public List<string>? SelectedAppIdsSent { get; private set; }
@@ -589,6 +659,20 @@ public class ScheduledPrefillAnonymousRunPathTests
             // The daemon reports a failed run the same way it reports a finished one - the socket
             // stops prefilling and the terminal funnel stamps the state - so the failure shape here
             // differs only in the state and the reason it leaves behind.
+            // The per-app counters ride on the daemon's progress ticks, and the run picks the last
+            // one up through the relay's catch-up replay. Leaving the snapshot here is what a real
+            // run's final app_completed tick leaves behind.
+            if (_failedApps > 0 || _totalApps > 0)
+            {
+                _session.LastProgress = new PrefillProgress
+                {
+                    State = "app_completed",
+                    FailedApps = _failedApps,
+                    TotalApps = _totalApps
+                };
+                Interlocked.Increment(ref _session.ProgressSequence);
+            }
+
             _session.IsPrefilling = false;
             _session.TotalBytesTransferred = _transferredBytes;
             if (_terminalFailureMessage is not null)

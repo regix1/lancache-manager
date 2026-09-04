@@ -995,6 +995,34 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 return ScheduledPrefillServiceRunResult.Failed;
             }
 
+            // The daemon calls a run successful when every app in it failed individually: nothing
+            // threw, so its own result carries Success=true and the branch above never fires. Its
+            // per-app failure count is the only evidence left, and a run that downloaded none of the
+            // games it was asked for is not a completed run. Checked AFTER the daemon's own error so
+            // a reported reason, which names the actual cause, still wins over this count. [34]
+            var failedApps = relay.FailedApps;
+            if (failedApps > 0)
+            {
+                // The daemon reports TotalApps over the socket and can send 0 with an app_completed
+                // tick, which would read as "2 of 0 games". The failures themselves are the floor.
+                var attemptedApps = Math.Max(relay.TotalApps, failedApps);
+                await ReportProgressAsync(
+                    notifications,
+                    serviceRun,
+                    "failed",
+                    $"{failedApps} of {attemptedApps} games failed to download",
+                    runShowNotification,
+                    downloadSessionId: sessionId,
+                    percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                    stageKey: "signalr.scheduledPrefill.failedApps",
+                    stageContext: new Dictionary<string, object?>
+                    {
+                        ["failed"] = failedApps,
+                        ["total"] = attemptedApps
+                    });
+                return ScheduledPrefillServiceRunResult.Failed;
+            }
+
             var completion = BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force);
             await ReportProgressAsync(
                 notifications,
@@ -1068,6 +1096,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         private long _highestSequence = -1L;
         private long _revision;
         private int _appsCompleted;
+        private int _failedApps;
+        private int _totalApps;
         private double _highestPercent;
         private string? _lastEmittedMessage;
         private long _lastEmittedBytes = -1L;
@@ -1088,6 +1118,18 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             _selectedAppCount = serviceRun.ServiceConfig.SelectedAppIds.Count;
             _showNotification = showNotification;
         }
+
+        /// <summary>
+        /// Games this run's daemon reported as failed, highest seen. Read by the run's terminal to
+        /// decide whether a run the daemon called successful actually was.
+        /// </summary>
+        internal int FailedApps => _failedApps;
+
+        /// <summary>
+        /// Games this run set out to prefill, highest seen. Names the denominator in the terminal's
+        /// "N of M games failed to download".
+        /// </summary>
+        internal int TotalApps => _totalApps;
 
         internal void Arm() => _armed = true;
 
@@ -1129,6 +1171,27 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
             try
             {
+                // Completion counters advance even for an OVERTAKEN tick: dropping a stale
+                // app-completed payload must not lose the knowledge that the game actually finished,
+                // or "game X of N" would count backwards. Downloading ticks omit these counters, which
+                // is exactly why this is a running Math.Max and not a plain assignment.
+                //
+                // Counted BEFORE the terminal re-check below, which is about not DISPLAYING a live
+                // line on a finished card. Counting is not displaying, and the run's terminal reads
+                // these numbers to decide the outcome, so a tick that lands as the run ends must
+                // still be counted or a failure it reported would be lost.
+                _appsCompleted = Math.Max(
+                    _appsCompleted,
+                    progress.UpdatedApps + progress.AlreadyUpToDate + progress.FailedApps);
+
+                // Same running Math.Max, and for the same reason: the daemon finishes a run whose
+                // every app failed by reporting success, so this count is the only evidence the run
+                // is worth failing, and a downloading tick would otherwise reset it to zero.
+                _failedApps = Math.Max(_failedApps, progress.FailedApps);
+                _totalApps = Math.Max(
+                    _totalApps,
+                    _selectedAppCount > 0 ? _selectedAppCount : progress.TotalApps);
+
                 // Re-check inside the gate: the run's terminal path may have won the race while this
                 // tick was queued. A live line must never land on a card that is already terminal.
                 if (!_active
@@ -1138,14 +1201,6 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     return;
                 }
 
-                // Completion counters advance even for an OVERTAKEN tick: dropping a stale
-                // app-completed payload must not lose the knowledge that the game actually finished,
-                // or "game X of N" would count backwards. Downloading ticks omit these counters, which
-                // is exactly why this is a running Math.Max and not a plain assignment.
-                _appsCompleted = Math.Max(
-                    _appsCompleted,
-                    progress.UpdatedApps + progress.AlreadyUpToDate + progress.FailedApps);
-
                 if (sequence <= _highestSequence)
                 {
                     return;
@@ -1153,7 +1208,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
                 _highestSequence = sequence;
 
-                var totalApps = _selectedAppCount > 0 ? _selectedAppCount : progress.TotalApps;
+                var totalApps = _totalApps;
                 if (totalApps <= 0)
                 {
                     return;
