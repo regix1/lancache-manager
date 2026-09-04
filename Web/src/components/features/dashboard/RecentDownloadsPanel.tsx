@@ -689,7 +689,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               <>
                 {/* In-progress previews stay visible even while the recorded list is
                     loading or empty - they come from the speed snapshot, not the DB. */}
-                <LiveDownloadRows previews={displayedLivePreviews} variant="panel" />
+                <LiveDownloadRows previews={displayedLivePreviews} />
                 {loading ? (
                   <div className="recent-downloads-skeleton">
                     {Array.from({ length: 5 }).map((_, i) => (

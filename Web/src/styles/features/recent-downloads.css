@@ -166,14 +166,12 @@
   gap: 0.85rem;
   min-height: 3.25rem;
   padding: 0.6rem 1rem 0.6rem 0.85rem;
-  animation: rdl-row-in 0.25s ease backwards;
 }
 
-@keyframes rdl-row-in {
-  from {
-    opacity: 0;
-  }
-}
+/* No entry fade here on purpose. Moving a row to a new position is a remove and an insert as far
+   as the DOM is concerned, which cancels and restarts any animation on it, so a mount-only fade
+   replayed on every row the list reordered and read as a flicker. CSS cannot tell a row that was
+   just inserted from one that was moved, so the fade cannot be kept for new rows alone. */
 
 .rdl-row-clickable {
   cursor: pointer;
@@ -408,7 +406,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rdl-row,
   .rdl-live-dot,
   .rdl-pulse-ring {
     animation: none;
