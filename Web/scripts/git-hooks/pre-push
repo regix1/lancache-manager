@@ -37,3 +37,9 @@ dotnet build lancache-manager.sln \
   -m:1 \
   -p:SkipRustBuild=true \
   -warnaserror:CS8600,CS8601,CS8602,CS8603,CS8604
+echo "pre-push: running backend tests..."
+dotnet test lancache-manager.sln \
+  --no-build \
+  --artifacts-path .git/pre-push-build \
+  -m:1 \
+  -p:SkipRustBuild=true

@@ -254,7 +254,7 @@ public class PersistentLoginSessionPinningTests
             activeSessionId: "session-shared");
         daemon.GetSession("session-shared")!.IsPrefilling = true;
 
-        await Assert.ThrowsAsync<ConflictException>(() => controller.StartPrefillAsync(
+        var start = await controller.StartPrefillAsync(
             new PersistentStartPrefillRequest
             {
                 Service = PrefillPlatform.Steam,
@@ -263,7 +263,9 @@ public class PersistentLoginSessionPinningTests
                 EditSessionId = "edit-session-a",
                 EditActionId = "prefill-a"
             },
-            CancellationToken.None));
+            CancellationToken.None);
+
+        Assert.IsType<ConflictObjectResult>(start.Result);
 
         var cleanup = await controller.CleanupEditSessionAsync(
             new PersistentPrefillEditSessionCleanupRequest
@@ -290,10 +292,9 @@ public class PersistentLoginSessionPinningTests
         Assert.DoesNotContain(
             nameof(IDaemonClient.CancelPrefillAsync),
             activeClient.InvokedMethods);
-        Assert.Equal(
-            2,
-            activeClient.InvokedMethods.Count(
-                method => method == nameof(IDaemonClient.SetSelectedAppsAsync)));
+        Assert.DoesNotContain(
+            nameof(IDaemonClient.SetSelectedAppsAsync),
+            activeClient.InvokedMethods);
         Assert.True(daemon.GetSession("session-shared")!.IsPrefilling);
     }
 

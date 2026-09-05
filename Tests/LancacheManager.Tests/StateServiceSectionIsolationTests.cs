@@ -250,16 +250,24 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
     [Fact]
     public void RecoveryLoad_CorruptLastRunAnchorEntry_KeepsValidAnchors()
     {
+        var steamAnchor = new DateTime(2030, 1, 2, 3, 4, 5, DateTimeKind.Utc);
         var stateJson = BuildStateJson(root => root["ScheduledPrefillServiceLastRunUtc"] = new JsonObject
         {
-            ["Steam"] = JsonValue.Create(new DateTime(2030, 1, 2, 3, 4, 5, DateTimeKind.Utc)),
+            ["Steam"] = JsonValue.Create(steamAnchor),
             ["Epic"] = "not-a-date"
         });
 
         var (loaded, logger) = LoadWrittenState(stateJson);
 
-        Assert.True(loaded.ScheduledPrefillServiceLastRunUtc.ContainsKey("Steam"));
-        Assert.False(loaded.ScheduledPrefillServiceLastRunUtc.ContainsKey("Epic"));
+        var steamScheduleId = ScheduledPrefillConfigFactory
+            .GetDefaultScheduleId(PrefillPlatform.Steam)
+            .ToString("N");
+        Assert.Equal(steamAnchor, loaded.ScheduledPrefillServiceLastRunUtc[steamScheduleId]);
+
+        var epicScheduleId = ScheduledPrefillConfigFactory
+            .GetDefaultScheduleId(PrefillPlatform.Epic)
+            .ToString("N");
+        Assert.False(loaded.ScheduledPrefillServiceLastRunUtc.ContainsKey(epicScheduleId));
 
         AssertWarningNamingSection(logger, nameof(AppState.ScheduledPrefillServiceLastRunUtc));
     }

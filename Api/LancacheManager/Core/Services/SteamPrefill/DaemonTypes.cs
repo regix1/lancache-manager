@@ -368,6 +368,10 @@ public class EncryptedCredentialResponse
 
 public class PrefillResult
 {
+    /// <summary>
+    /// Identifier of the prefill run for this session. Null when this response does not start a
+    /// prefill run.
+    /// </summary>
     [JsonPropertyName("runId")]
     public Guid? RunId { get; set; }
 

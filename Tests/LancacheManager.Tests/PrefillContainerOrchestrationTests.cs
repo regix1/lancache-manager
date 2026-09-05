@@ -1018,9 +1018,29 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
     private static ScheduledPrefillConfigDto Config(PersistenceMode global, bool steamEnabled)
     {
         var b = ScheduledPrefillConfigFactory.CreateDefault();
+        var defaultSchedule = b.Steam.Schedules.Single();
         var steam = new ScheduledPrefillServiceConfigDto
         {
             ServiceId = b.Steam.ServiceId,
+            Schedules =
+            [
+                new ScheduledPrefillSchedule
+                {
+                    Id = defaultSchedule.Id,
+                    Name = defaultSchedule.Name,
+                    Enabled = steamEnabled,
+                    IntervalHours = defaultSchedule.IntervalHours,
+                    CustomSchedule = defaultSchedule.CustomSchedule,
+                    Preset = defaultSchedule.Preset,
+                    TopCount = defaultSchedule.TopCount,
+                    SelectedAppIds = defaultSchedule.SelectedAppIds,
+                    OperatingSystems = defaultSchedule.OperatingSystems,
+                    Force = defaultSchedule.Force,
+                    MaxConcurrency = defaultSchedule.MaxConcurrency,
+                    NotificationMode = defaultSchedule.NotificationMode,
+                    NotificationDisplayMode = defaultSchedule.NotificationDisplayMode
+                }
+            ],
             Enabled = steamEnabled,
             NotificationMode = b.Steam.NotificationMode,
             IntervalHours = b.Steam.IntervalHours,
