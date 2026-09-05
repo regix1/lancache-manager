@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
@@ -241,6 +242,7 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
           onKeyDown={handlePopoverKeyDown}
         >
           <input
+            {...noAutofill}
             ref={inputRef}
             type="number"
             min={MIN_CUSTOM_MINUTES}

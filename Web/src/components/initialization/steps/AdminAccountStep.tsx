@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useState, useCallback } from 'react';
 import { UserPlus, CheckCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -280,15 +281,13 @@ export const AdminAccountStep: React.FC = () => {
         >
           {(field) => (
             <input
+              {...noAutofill}
               {...field}
               type="password"
               value={form.apiKey}
               onChange={handleInputChange('apiKey')}
               placeholder={t('initialization.adminAccount.apiKeyPlaceholder')}
               className="themed-input setup-input"
-              // `new-password` rather than `off`: browsers ignore `off` on a password input and
-              // will still offer to remember the key and refill it on a later visit.
-              autoComplete="new-password"
               disabled={isSubmitting}
             />
           )}

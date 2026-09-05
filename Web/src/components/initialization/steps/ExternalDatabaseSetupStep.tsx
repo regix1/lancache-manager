@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useState, useCallback } from 'react';
 import { Database, CheckCircle, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -194,15 +195,13 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
         >
           {(field) => (
             <input
+              {...noAutofill}
               {...field}
               type="password"
               value={form.apiKey}
               onChange={handleFieldChange('apiKey')}
               placeholder={t('initialization.apiKey.placeholder')}
               disabled={isSubmitting}
-              // `new-password` rather than `off`: browsers ignore `off` on a password input and
-              // will still offer to remember the key and refill it on a later visit.
-              autoComplete="new-password"
               className="themed-input setup-input"
             />
           )}

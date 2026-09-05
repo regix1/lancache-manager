@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CalendarDays, Trash2, Calendar, Check } from 'lucide-react';
@@ -216,6 +217,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
             <FormField label={t('events.modal.labels.name')} required>
               {(field) => (
                 <input
+                  {...noAutofill}
                   {...field}
                   type="text"
                   value={name}
@@ -233,6 +235,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
             <FormField label={t('events.modal.labels.description')}>
               {(field) => (
                 <textarea
+                  {...noAutofill}
                   {...field}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}

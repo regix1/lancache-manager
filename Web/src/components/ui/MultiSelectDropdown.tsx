@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
@@ -333,6 +334,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
             {searchable && (
               <div className="px-2 py-2 border-b border-themed-secondary bg-themed-secondary">
                 <input
+                  {...noAutofill}
                   ref={searchInputRef}
                   type="text"
                   value={searchTerm}

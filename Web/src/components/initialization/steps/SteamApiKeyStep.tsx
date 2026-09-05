@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Key, ExternalLink, CheckCircle, XCircle, Shield } from 'lucide-react';
@@ -74,12 +75,9 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
         <FormField label={t('initialization.steamWebApiKey.label')}>
           {(field) => (
             <input
+              {...noAutofill}
               {...field}
               type="password"
-              // Keeps the browser's password manager from remembering the key and refilling it
-              // later. `new-password` is the value browsers honor on a secret field; `off` is
-              // widely ignored on password inputs.
-              autoComplete="new-password"
               value={apiKey}
               onChange={(e) => {
                 setApiKey(e.target.value);

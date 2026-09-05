@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ConfigContext } from './ConfigContext.types';
@@ -129,15 +130,13 @@ const PostgresPasswordRecovery: React.FC<PostgresPasswordRecoveryProps> = ({ onS
           <FormField label={t('modals.auth.labels.apiKey')}>
             {(field) => (
               <input
+                {...noAutofill}
                 {...field}
                 type="password"
                 className="themed-input config-error-recovery-input"
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 placeholder={t('app.configError.recovery.apiKeyPlaceholder')}
-                // `new-password` rather than `off`: browsers ignore `off` on a password input and
-                // will still offer to remember the key and refill it on a later visit.
-                autoComplete="new-password"
                 disabled={isSaving}
               />
             )}

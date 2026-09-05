@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
@@ -163,11 +164,9 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                   <FormField label={t('modals.epicAuth.authorizationCodeLabel')}>
                     {(field) => (
                       <input
+                        {...noAutofill}
                         {...field}
                         type="password"
-                        // A single-use authorization code, so there is nothing worth a password
-                        // manager remembering and refilling on a later visit.
-                        autoComplete="new-password"
                         value={authorizationCode}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                           setAuthorizationCode(e.target.value)

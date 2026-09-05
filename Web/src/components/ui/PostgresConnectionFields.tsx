@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import type { ChangeEvent } from 'react';
 import FormField from '@components/ui/FormField';
 import { PasswordField } from '@components/ui/PasswordField';
@@ -49,6 +50,7 @@ export const PostgresConnectionFields: React.FC<PostgresConnectionFieldsProps> =
           <FormField label={labels.host} error={errors?.host}>
             {(field) => (
               <input
+                {...noAutofill}
                 {...field}
                 type="text"
                 value={values.host}
@@ -63,6 +65,7 @@ export const PostgresConnectionFields: React.FC<PostgresConnectionFieldsProps> =
           <FormField label={labels.port} error={errors?.port}>
             {(field) => (
               <input
+                {...noAutofill}
                 {...field}
                 type="text"
                 inputMode="numeric"
@@ -79,6 +82,7 @@ export const PostgresConnectionFields: React.FC<PostgresConnectionFieldsProps> =
       <FormField label={labels.database} error={errors?.database}>
         {(field) => (
           <input
+            {...noAutofill}
             {...field}
             type="text"
             value={values.database}

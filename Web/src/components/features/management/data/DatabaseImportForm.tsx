@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import { useEffect, useState } from 'react';
 import { CheckCircle, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -174,6 +175,7 @@ export function DatabaseImportForm({
             <FormField label={t('initialization.importHistorical.connectionString')}>
               {(field) => (
                 <input
+                  {...noAutofill}
                   {...field}
                   type="text"
                   value={rawConnectionString}
@@ -225,6 +227,7 @@ export function DatabaseImportForm({
               {t('initialization.importHistorical.batchSize')}:
             </label>
             <input
+              {...noAutofill}
               type="number"
               value={batchSize}
               onChange={(e) => setBatchSize(parseInt(e.target.value) || 1000)}

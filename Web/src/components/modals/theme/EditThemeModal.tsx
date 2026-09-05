@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Save } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -171,6 +172,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
                   <FormField label={t('modals.theme.form.customCss')}>
                     {(field) => (
                       <textarea
+                        {...noAutofill}
                         {...field}
                         value={editedTheme.customCSS || ''}
                         onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>

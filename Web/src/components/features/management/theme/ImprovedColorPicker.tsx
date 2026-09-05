@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { HexColorPicker, HexColorInput } from 'react-colorful';
@@ -302,6 +303,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
 
         {/* Text input */}
         <input
+          {...noAutofill}
           type="text"
           value={value}
           onFocus={() => {

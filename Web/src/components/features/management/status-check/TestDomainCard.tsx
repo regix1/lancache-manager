@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useMemo, useState } from 'react';
 import '../managementSectionContent.css';
 import { useTranslation } from 'react-i18next';
@@ -90,6 +91,7 @@ const TestDomainCard: React.FC<TestDomainCardProps> = ({ groups }) => {
           className="sm:w-56 min-h-10"
         />
         <input
+          {...noAutofill}
           type="text"
           value={domain}
           onChange={(event: React.ChangeEvent<HTMLInputElement>) => setDomain(event.target.value)}

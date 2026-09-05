@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import { Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -21,6 +22,7 @@ export function SearchInput({ onClear, size = 'md', value, ...inputProps }: Sear
       <input
         type="text"
         {...inputProps}
+        {...noAutofill}
         value={value}
         className={`themed-input w-full pl-10 ${
           isCompact ? 'input-search-sm pr-9' : 'control-h-md py-2 pr-11 text-sm'

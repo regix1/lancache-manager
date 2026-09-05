@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useEffect } from 'react';
 import { Key, Lock, ExternalLink, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
@@ -114,13 +115,9 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
           <FormField label={t('modals.steamWebApi.labels.apiKey')}>
             {(field) => (
               <input
+                {...noAutofill}
                 {...field}
                 type="password"
-                // Keeps the browser's password manager from offering to remember the key and
-                // refilling it later, which would put a saved key back on screen for anyone at
-                // this browser. `new-password` is the value browsers actually honor here; `off`
-                // is widely ignored on password inputs.
-                autoComplete="new-password"
                 value={apiKey}
                 onChange={(e) => {
                   setApiKey(e.target.value);

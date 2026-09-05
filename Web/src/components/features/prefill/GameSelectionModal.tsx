@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import { useState, useMemo, useCallback, useEffect, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
@@ -361,6 +362,7 @@ export function GameSelectionModal({
               {t('prefill.gameSelection.importHelp')}
             </p>
             <textarea
+              {...noAutofill}
               value={importText}
               onChange={(e) => {
                 setImportText(e.target.value);

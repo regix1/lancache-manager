@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Plus, Users } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
@@ -1071,6 +1072,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           <FormField label={t('modals.clientGroup.labels.nickname')} required>
             {(field) => (
               <input
+                {...noAutofill}
                 {...field}
                 type="text"
                 value={nickname}
@@ -1091,6 +1093,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             <span className="text-themed-muted">({t('modals.clientGroup.labels.optional')})</span>
           </label>
           <textarea
+            {...noAutofill}
             id="description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}

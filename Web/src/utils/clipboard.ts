@@ -1,3 +1,5 @@
+import { noAutofill } from '@utils/autofill';
+
 /**
  * Copies text, and works on the page this app is usually reached from.
  *
@@ -25,6 +27,9 @@ export async function copyText(text: string): Promise<boolean> {
   }
 
   const field = document.createElement('textarea');
+  for (const [name, value] of Object.entries(noAutofill)) {
+    field.setAttribute(name, value);
+  }
   field.value = text;
   // readonly stops the mobile keyboard opening over the dialog before the copy happens.
   field.setAttribute('readonly', '');

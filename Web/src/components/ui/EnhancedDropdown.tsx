@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, {
   useState,
   useEffect,
@@ -752,6 +753,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                     highlight through rows the caret never enters, so the row Enter would take is
                     named here by id rather than by focus. */}
                 <input
+                  {...noAutofill}
                   ref={searchInputRef}
                   autoFocus
                   type="text"

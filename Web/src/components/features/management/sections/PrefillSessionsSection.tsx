@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -1458,6 +1459,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             {t('management.prefillSessions.modals.ban.reasonLabel')}
           </label>
           <input
+            {...noAutofill}
             type="text"
             value={banConfirm?.reason || ''}
             onChange={(e) => banConfirm && setBanConfirm({ ...banConfirm, reason: e.target.value })}

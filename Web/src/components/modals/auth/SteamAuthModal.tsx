@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useEffect } from 'react';
 import { Key } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
@@ -264,6 +265,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                 <FormField label={t('modals.steamAuth.labels.emailCode')}>
                   {(field) => (
                     <input
+                      {...noAutofill}
                       {...field}
                       type="text"
                       value={emailCode}
@@ -285,6 +287,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                 <FormField label={t('modals.steamAuth.labels.guardCode')}>
                   {(field) => (
                     <input
+                      {...noAutofill}
                       {...field}
                       type="text"
                       value={twoFactorCode}

@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import { useCallback, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronUp } from 'lucide-react';
@@ -79,6 +80,7 @@ export function NumberInput({
   return (
     <div className={`number-input-wrapper ${className}`.trim()}>
       <input
+        {...noAutofill}
         id={inputId}
         type="number"
         min={min}

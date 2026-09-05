@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Logs, PlayCircle, RotateCcw } from 'lucide-react';
@@ -511,6 +512,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                       {isAdmin && !mockMode && (
                         <div className="mgmt-row__actions">
                           <input
+                            {...noAutofill}
                             type="text"
                             className="themed-input themed-border-radius-sm min-h-8 w-28 px-3 py-1.5 text-sm"
                             placeholder={t('management.datasources.cacheSize.placeholder')}

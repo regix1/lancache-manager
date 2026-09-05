@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -889,6 +890,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
 
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <input
+                      {...noAutofill}
                       type="text"
                       value={excludeInput}
                       onChange={(e) => setExcludeInput(e.target.value)}
@@ -1065,6 +1067,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     {t('management.sections.clients.hostnames.resolverDescription')}
                   </p>
                   <input
+                    {...noAutofill}
                     type="text"
                     value={hostnameForm.resolver}
                     onChange={(e) =>

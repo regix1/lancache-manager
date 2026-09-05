@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@components/ui/Checkbox';
 import FormField from '@components/ui/FormField';
@@ -67,6 +68,7 @@ export const ThemeFields: React.FC<ThemeFieldsProps> = ({
           <FormField label={t('modals.theme.form.themeName')}>
             {(field) => (
               <input
+                {...noAutofill}
                 {...field}
                 type="text"
                 value={name}
@@ -81,6 +83,7 @@ export const ThemeFields: React.FC<ThemeFieldsProps> = ({
           <FormField label={t('modals.theme.form.author')}>
             {(field) => (
               <input
+                {...noAutofill}
                 {...field}
                 type="text"
                 value={author}
@@ -96,6 +99,7 @@ export const ThemeFields: React.FC<ThemeFieldsProps> = ({
         <FormField label={t('modals.theme.form.description')}>
           {(field) => (
             <input
+              {...noAutofill}
               {...field}
               type="text"
               value={description}

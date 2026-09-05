@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, ExternalLink, KeyRound, Shield } from 'lucide-react';
@@ -135,11 +136,9 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
           <FormField label={t('initialization.epicAuth.codeLabel')}>
             {(field) => (
               <input
+                {...noAutofill}
                 {...field}
                 type="password"
-                // A single-use authorization code, so there is nothing worth a password manager
-                // remembering and refilling on a later visit.
-                autoComplete="new-password"
                 value={state.authorizationCode}
                 onChange={handleAuthorizationCodeChange}
                 onKeyDown={(event) => {

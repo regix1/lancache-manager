@@ -1,3 +1,4 @@
+import { noAutofill } from '@utils/autofill';
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight } from 'lucide-react';
@@ -997,6 +998,7 @@ function CustomScheduleModal({
                           {t(`${BASE_KEY}.advanced.positions.${position}`)}
                         </label>
                         <input
+                          {...noAutofill}
                           id={`${expressionId}-${position}`}
                           ref={(node) => {
                             positionInputs.current[index] = node;
@@ -1008,7 +1010,6 @@ function CustomScheduleModal({
                           onPaste={(event) => handlePositionPaste(index, event)}
                           disabled={isDisabled}
                           spellCheck={false}
-                          autoComplete="off"
                           className={`themed-input control-h-md w-full px-2 tabular-nums custom-schedule-cron-input${
                             positionErrors?.[index] ? ' has-error' : ''
                           }`}
