@@ -167,12 +167,11 @@ public sealed class SteamDepotOwnerMappingTests
     /// stay disjoint. The unknown branch claims every depot row with no owned mapping and the
     /// mapped branch claims the rest, so the service query must leave depot rows alone entirely
     /// and take only rows carrying no depot id. Letting it match them again would not double-count
-    /// bytes - <c>GamesOnDiskCalculator.ComputeAttributedCacheFromDisk</c> walks games
-    /// before services over one shared path set - but it would leave the steam service row
-    /// reporting the file count of objects whose bytes the game claimed, because
-    /// <c>RefreshDiskSummaryCoreAsync</c> recomputes a service's <c>TotalSizeBytes</c> and keeps
-    /// its scan-time <c>CacheFilesFound</c>. Editing either gate alone reopens that, so both are
-    /// asserted together here.
+    /// bytes - the scan claims each slice for the first row that matches it, and the game phases
+    /// run before the service phase - but it would leave the steam service row reporting the file
+    /// count of objects whose bytes the game claimed, because a row keeps its scan-time
+    /// <c>CacheFilesFound</c> even when it claimed no bytes of its own. Editing either gate alone
+    /// reopens that, so both are asserted together here.
     /// </summary>
     [Fact]
     public void ServiceQueryLeavesEveryDepotRowToTheGameQueries()

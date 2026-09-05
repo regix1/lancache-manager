@@ -83,7 +83,6 @@ public class EpicEmptyAppIdIdentityTests
             EpicAppId = epicAppId,
             CacheFilesFound = 1,
             TotalSizeBytes = 1024,
-            CacheFilePaths = new List<string> { $"/cache/{gameName}" },
             Datasources = new List<string> { "default" }
         };
 

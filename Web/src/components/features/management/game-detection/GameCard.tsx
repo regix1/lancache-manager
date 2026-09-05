@@ -27,7 +27,6 @@ interface GameCardProps {
   onSelectToggle?: () => void;
 }
 
-const MAX_INITIAL_PATHS = 50;
 const MAX_INITIAL_URLS = 20;
 
 const GameCard: React.FC<GameCardProps> = ({
@@ -140,11 +139,8 @@ const GameCard: React.FC<GameCardProps> = ({
 
   const depotIdsForExpansion = isEvictedVariant ? (game.evicted_depot_ids ?? []) : game.depot_ids;
   const urlsForExpansion = isEvictedVariant ? (game.evicted_sample_urls ?? []) : game.sample_urls;
-  const pathsForExpansion = !isEvictedVariant ? game.cache_file_paths : [];
   const hasExpandableContent =
-    (isSteam && depotIdsForExpansion.length > 0) ||
-    urlsForExpansion.length > 0 ||
-    pathsForExpansion.length > 0;
+    (isSteam && depotIdsForExpansion.length > 0) || urlsForExpansion.length > 0;
 
   return (
     <div className={isEvicted ? 'game-card-evicted' : undefined}>
@@ -199,16 +195,6 @@ const GameCard: React.FC<GameCardProps> = ({
           labelKey="management.gameDetection.sampleUrls"
           showingLabelKey="management.gameDetection.showingUrls"
         />
-
-        {/* Cache File Paths - only available for active (on-disk) items */}
-        {!isEvictedVariant && (
-          <ExpandableList
-            items={game.cache_file_paths}
-            maxInitial={MAX_INITIAL_PATHS}
-            labelKey="management.gameDetection.cacheFileLocations"
-            showingLabelKey="management.gameDetection.showingPaths"
-          />
-        )}
       </ExpandableItemCard>
     </div>
   );

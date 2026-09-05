@@ -682,13 +682,9 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         }
         className={`ed-trigger w-full px-3 ${triggerSizeClass} themed-border-radius-sm border text-left flex items-center justify-between text-sm text-themed-primary ${
           variant === 'button' ? 'bg-themed-surface hover:bg-themed-surface-hover' : 'themed-card'
-        } ${
-          isOpen
-            ? 'ed-trigger--open border-themed-focus'
-            : variant === 'button'
-              ? 'border-themed-secondary'
-              : 'border-themed-primary'
-        } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+        } ${isOpen ? 'ed-trigger--open border-themed-focus' : ''} ${
+          disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+        }`}
       >
         <div
           className={`flex items-center flex-1 truncate ${iconOnly ? 'justify-center' : 'gap-1.5'}`}

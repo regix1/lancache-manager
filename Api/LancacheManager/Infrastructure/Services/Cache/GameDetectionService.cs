@@ -54,6 +54,22 @@ public class GameDetectionService : ScheduledBackgroundService
         // run; the detection service carries it verbatim through every lifecycle event.
         var showNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
 
+        // Resolve the run once. Hybrid picks incremental or full from the clock, so asking twice could
+        // log one scan and start the other. Read at the top of each run rather than held on this
+        // instance, so a mode saved while a run is in flight takes effect on the next run and not
+        // partway through this one.
+        var incremental = _stateService.GetGameDetectionScanMode().IsIncremental(
+            _stateService.GetGameDetectionLastFullScan(), DateTime.UtcNow);
+
+        // Reported where the mode is resolved rather than beside the outcome below. A run the
+        // detection service refuses - a datasource whose cache-key scheme cannot be determined -
+        // throws out of EnqueueAsync, so the outcome line never runs and the scan a refused run
+        // would have performed was the one thing the log could not answer.
+        _logger.LogInformation(
+            "[GameDetection] {RunKind} run resolved to the {ScanMode} scan",
+            runKind,
+            incremental ? "incremental" : "full");
+
         // Exceptions must PROPAGATE to the queue: a thrown start (capability denial) is a
         // permanent refusal for this run, and the queue fails the waiting card immediately with
         // the real reason. Mapping it to null instead re-labels it as the transient
@@ -61,7 +77,7 @@ public class GameDetectionService : ScheduledBackgroundService
         // shows a stale blocker, before failing with an unrelated "start gate" error. A null
         // return stays reserved for the genuinely transient case (a detection already active).
         Task<Guid?> StartDetectionAsync() =>
-            _detectionService.StartDetectionAsync(incremental: true, showNotification: showNotification);
+            _detectionService.StartDetectionAsync(incremental: incremental, showNotification: showNotification);
 
         var outcome = await _operationQueue.EnqueueAsync(
             OperationType.GameDetection,
@@ -161,7 +177,7 @@ public class GameDetectionService : ScheduledBackgroundService
                 return;
             }
 
-            _logger.LogInformation("[GameDetection] No cached game detection data found, requesting incremental detection scan");
+            _logger.LogInformation("[GameDetection] No cached game detection data found, requesting a detection scan");
             await QueueDetectionAsync("Startup", stoppingToken);
         }
         catch (OperationCanceledException)

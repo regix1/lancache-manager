@@ -251,10 +251,6 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<string>("CacheFilePathsJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<int>("CacheFilesFound")
                         .HasColumnType("integer");
 
@@ -314,10 +310,6 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .HasColumnType("bigint");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("CacheFilePathsJson")
-                        .IsRequired()
-                        .HasColumnType("text");
 
                     b.Property<int>("CacheFilesFound")
                         .HasColumnType("integer");

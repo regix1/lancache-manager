@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@components/ui/Button';
@@ -10,6 +10,9 @@ import {
 } from '@components/ui/ActionMenu';
 import Badge from '@components/ui/Badge';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import FormField from '@components/ui/FormField';
+import { TextInput } from '@components/ui/TextInput';
+import { noAutofill } from '@utils/autofill';
 import type {
   PersistentIntegrationLoginAvailability,
   PersistentPrefillContainerDto
@@ -48,8 +51,8 @@ interface ScheduledPrefillPlatformsPanelProps {
     serviceKey: ScheduledPrefillServiceKey,
     schedule: ScheduledPrefillSchedule
   ) => void;
-  onAddSchedule: (serviceKey: ScheduledPrefillServiceKey) => void;
-  onDuplicateSchedule: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
+  onAddSchedule: (serviceKey: ScheduledPrefillServiceKey) => string;
+  onDuplicateSchedule: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => string;
   onDeleteSchedule: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
   onStart: (serviceKey: ScheduledPrefillServiceKey) => void;
   onStop: (serviceKey: ScheduledPrefillServiceKey) => void;
@@ -93,7 +96,11 @@ export function ScheduledPrefillPlatformsPanel({
     useState<ScheduledPrefillServiceKey>(initialServiceKey);
   const [selectedScheduleId, setSelectedScheduleId] = useState(initialScheduleId ?? '');
   const [actionsOpen, setActionsOpen] = useState(false);
+  const pendingFocusScheduleId = useRef<string | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const activeService = config[activeServiceKey];
+  const activePlatform = SCHEDULED_PREFILL_PLATFORM_UI[activeServiceKey];
+  const ActivePlatformIcon = activePlatform.icon;
   const activeSchedule = useMemo(
     () =>
       activeService.schedules.find((schedule) => schedule.id === selectedScheduleId) ??
@@ -114,6 +121,27 @@ export function ScheduledPrefillPlatformsPanel({
       setSelectedScheduleId(initialScheduleId);
     }
   }, [initialServiceKey, initialScheduleId]);
+
+  // A record the user just created is only worth creating if they can see it, so it becomes the
+  // shown one and its name is where the caret lands, ready to be typed over.
+  const showNewSchedule = (scheduleId: string): void => {
+    pendingFocusScheduleId.current = scheduleId;
+    setSelectedScheduleId(scheduleId);
+  };
+
+  useEffect(() => {
+    const scheduleId = pendingFocusScheduleId.current;
+    // The section renders one schedule at a time, so the name input only exists once the new
+    // record is the shown one. A creator that found nothing to copy leaves the selection where it
+    // was, and this waits rather than focusing another record's name.
+    if (!scheduleId || activeSchedule?.id !== scheduleId) {
+      return;
+    }
+    pendingFocusScheduleId.current = null;
+    contentRef.current
+      ?.querySelector<HTMLInputElement>('.scheduled-prefill-platforms__record-name')
+      ?.focus();
+  }, [activeSchedule]);
 
   const getNavHint = (serviceKey: ScheduledPrefillServiceKey): string | null => {
     const serviceConfig = config[serviceKey];
@@ -222,26 +250,63 @@ export function ScheduledPrefillPlatformsPanel({
           })}
         </nav>
 
-        <div className="scheduled-prefill-platforms__content">
-          <div className="scheduled-prefill-platforms__records">
-            <EnhancedDropdown
-              options={activeService.schedules.map((schedule) => ({
-                value: schedule.id,
-                label: schedule.name
-              }))}
-              value={activeSchedule?.id ?? ''}
-              onChange={setSelectedScheduleId}
-              disabled={disabled || activeService.schedules.length === 0}
-              variant="button"
-              triggerAriaLabel={t(`${baseKey}.records.label`)}
-              size="md"
-            />
+        <div className="scheduled-prefill-platforms__content" ref={contentRef}>
+          {/* One header row per platform: who it is, which saved schedule is open, what that
+              schedule is called, what else can be done with it, and whether it is on. The two
+              captioned fields carry the app's form-label voice; everything else centers on the
+              same control line. */}
+          <div className={`scheduled-prefill-platforms__records ${activePlatform.rowClassName}`}>
+            <div className="scheduled-prefill-platforms__platform">
+              <span className="scheduled-prefill-platforms__platform-icon" aria-hidden="true">
+                <ActivePlatformIcon size={24} />
+              </span>
+              <h3 className="scheduled-prefill-platforms__platform-title">
+                {t(`${baseKey}.services.${activeServiceKey}`)}
+              </h3>
+            </div>
+            <div className="scheduled-prefill-platforms__record-field">
+              <span className="form-field-label">{t(`${baseKey}.records.label`)}</span>
+              <EnhancedDropdown
+                options={activeService.schedules.map((schedule) => ({
+                  value: schedule.id,
+                  label: schedule.name
+                }))}
+                value={activeSchedule?.id ?? ''}
+                onChange={setSelectedScheduleId}
+                disabled={disabled || activeService.schedules.length === 0}
+                variant="button"
+                triggerAriaLabel={t(`${baseKey}.records.label`)}
+                size="md"
+              />
+            </div>
+            {activeSchedule && (
+              <div className="scheduled-prefill-platforms__record-field scheduled-prefill-platforms__record-field--name">
+                <FormField label={t(`${baseKey}.records.name`)}>
+                  {(field) => (
+                    <TextInput
+                      {...field}
+                      {...noAutofill}
+                      className="scheduled-prefill-platforms__record-name"
+                      size="md"
+                      value={activeSchedule.name}
+                      onChange={(event) =>
+                        onScheduleChange(activeServiceKey, {
+                          ...activeSchedule,
+                          name: event.target.value
+                        })
+                      }
+                      disabled={disabled}
+                    />
+                  )}
+                </FormField>
+              </div>
+            )}
             <div className="scheduled-prefill-platforms__record-actions">
               <ActionMenu
                 isOpen={actionsOpen}
                 onClose={() => setActionsOpen(false)}
                 align="right"
-                width="w-44"
+                width="w-48"
                 trigger={
                   <Button
                     type="button"
@@ -262,7 +327,7 @@ export function ScheduledPrefillPlatformsPanel({
                 <ActionMenuItem
                   onClick={() => {
                     setActionsOpen(false);
-                    onAddSchedule(activeServiceKey);
+                    showNewSchedule(onAddSchedule(activeServiceKey));
                   }}
                 >
                   {t(`${baseKey}.records.new`)}
@@ -271,11 +336,26 @@ export function ScheduledPrefillPlatformsPanel({
                   onClick={() => {
                     if (!activeSchedule) return;
                     setActionsOpen(false);
-                    onDuplicateSchedule(activeServiceKey, activeSchedule.id);
+                    showNewSchedule(onDuplicateSchedule(activeServiceKey, activeSchedule.id));
                   }}
                   disabled={!activeSchedule}
                 >
                   {t(`${baseKey}.records.saveAs`)}
+                </ActionMenuItem>
+                <ActionMenuItem
+                  onClick={() => {
+                    if (!activeSchedule) return;
+                    setActionsOpen(false);
+                    onScheduleChange(activeServiceKey, {
+                      ...activeSchedule,
+                      enabled: !activeSchedule.enabled
+                    });
+                  }}
+                  disabled={!activeSchedule}
+                >
+                  {t(
+                    `${baseKey}.records.${activeSchedule?.enabled ? 'disableSchedule' : 'enableSchedule'}`
+                  )}
                 </ActionMenuItem>
                 <ActionMenuDivider />
                 <ActionMenuDangerItem
@@ -286,7 +366,7 @@ export function ScheduledPrefillPlatformsPanel({
                   }}
                   disabled={!activeSchedule || activeService.schedules.length === 1}
                 >
-                  {t('common.delete')}
+                  {t(`${baseKey}.records.delete`)}
                 </ActionMenuDangerItem>
               </ActionMenu>
             </div>

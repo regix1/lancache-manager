@@ -1203,6 +1203,40 @@ public class StateService : IStateService
         });
     }
 
+    // Game Detection Scan Mode Methods
+    public GameDetectionScanMode GetGameDetectionScanMode()
+    {
+        return GetState().GameDetectionScanMode;
+    }
+
+    public void SetGameDetectionScanMode(GameDetectionScanMode mode)
+    {
+        UpdateState(state => state.GameDetectionScanMode = mode);
+    }
+
+    public DateTime? GetGameDetectionLastFullScan()
+    {
+        return GetState().GameDetectionLastFullScanUtc;
+    }
+
+    public void SetGameDetectionLastFullScan(DateTime scanTime)
+    {
+        UpdateState(state => state.GameDetectionLastFullScanUtc = scanTime);
+    }
+
+    public CacheClearRate? GetCacheClearRate(CacheDeleteMode mode)
+    {
+        // A hand-edited entry with no files or no seconds would put a division by zero into the
+        // size response, and NaN does not serialize; it reads as "never measured" instead.
+        var rate = GetState().CacheClearRates.GetValueOrDefault(mode.ToWireString());
+        return rate is { FilesDeleted: > 0, DurationSeconds: > 0 } ? rate : null;
+    }
+
+    public void SetCacheClearRate(CacheDeleteMode mode, CacheClearRate rate)
+    {
+        UpdateState(state => state.CacheClearRates[mode.ToWireString()] = rate);
+    }
+
     // Scheduled Prefill Config Methods
     public ScheduledPrefillConfigDto GetScheduledPrefillConfig()
     {

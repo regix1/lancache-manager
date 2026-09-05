@@ -11,6 +11,16 @@ export const isNotificationDisplayMode = (value: string): value is NotificationD
   value === 'full' || value === 'condensed';
 
 /**
+ * The scan the game detection schedule runs on each automatic tick and on its Run Now button.
+ * `hybrid` names no single run: it scans incrementally until the last full scan is a week old, then
+ * runs one full scan and re-anchors on it.
+ */
+export type GameDetectionScanMode = 'full' | 'incremental' | 'hybrid';
+
+export const isGameDetectionScanMode = (value: string): value is GameDetectionScanMode =>
+  value === 'full' || value === 'incremental' || value === 'hybrid';
+
+/**
  * What the backend measured when it abandoned a scheduled incremental depot scan. It is also the
  * detail of the SHOW_FULL_SCAN_MODAL window event, so the Full Scan Required prompt shows the
  * figures the server found rather than any the client made up.
@@ -43,6 +53,13 @@ export interface ServiceScheduleInfo {
    */
   platformNotificationDisplayModes?: Record<string, NotificationDisplayMode> | null;
   supportsNotifications: boolean;
+  /**
+   * Present on the game detection schedule only, which is the one service whose run type the user
+   * chooses. Its presence is what tells the card to render the scan-mode dropdown, so it is absent
+   * rather than defaulted on every other schedule. Never null on game detection: a state file
+   * written before the setting existed reads as `full`.
+   */
+  scanMode?: GameDetectionScanMode | null;
   /** Present on the Steam depot mapping schedule only, and only while a full scan is required. */
   pendingFullScan?: PendingFullScan | null;
   /**

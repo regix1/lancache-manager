@@ -96,7 +96,7 @@ public class CachedDetectionResponse
     public ulong IdentifiedServiceBytes { get; set; }
 
     /// <summary>
-    /// When deduplicated on-disk totals were last computed from cache file paths. Null when
+    /// When the on-disk totals were last aggregated from the detection rows. Null when
     /// <see cref="HasCachedResults"/> is false, or when no summary timestamp was recorded for
     /// this scan.
     /// </summary>

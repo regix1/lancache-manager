@@ -486,6 +486,13 @@ public partial class GameCacheDetectionService : IDisposable
             var fullScanReports = 0;
             var emptyIndexFullScanReports = 0;
 
+            // Each datasource is scanned by its own process, which sizes only the files under the
+            // root it was given, and the per-identity merge below ADDS those figures. Two
+            // datasources configured with the same root would therefore report its bytes twice, so
+            // the second one is skipped. Compared as configured, with no path normalization: two
+            // spellings of one directory still read as two roots.
+            var firstDatasourceByCachePath = new Dictionary<string, string>(StringComparer.Ordinal);
+
             // Scan each datasource
             var datasourceIndex = 0;
             progressFilePath = Path.Combine(operationsDir, $"game_detection_progress_{operationId}.json");
@@ -495,6 +502,23 @@ public partial class GameCacheDetectionService : IDisposable
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var cachePath = datasource.CachePath;
+                if (firstDatasourceByCachePath.TryGetValue(cachePath, out var firstDatasourceName))
+                {
+                    _logger.LogWarning(
+                        "[GameDetection] Skipping datasource '{DatasourceName}': cache path {CachePath} was already scanned for datasource '{FirstDatasourceName}'",
+                        datasource.Name,
+                        cachePath,
+                        firstDatasourceName);
+
+                    // The progress band below divides 30-70% by datasources.Count, which counts
+                    // the skipped ones too. Leaving the index behind would stop the bar short of
+                    // 70% by one datasource's worth for the rest of the scan.
+                    datasourceIndex++;
+                    continue;
+                }
+
+                firstDatasourceByCachePath[cachePath] = datasource.Name;
+
                 var outputJson = Path.Combine(operationsDir, $"game_detection_{operationId}_{datasource.Name}.json");
                 outputJsonFiles.Add(outputJson);
 
@@ -611,8 +635,8 @@ public partial class GameCacheDetectionService : IDisposable
                     throw new FileNotFoundException($"Output file not found: {outputJson}");
                 }
 
-                // Deserialize straight off the stream: the full-scan report carries every matched
-                // cache path, so ReadAllText would first materialize hundreds of MB as one string.
+                // Deserialize straight off the stream so a large report is never materialized as
+                // one string first.
                 GameDetectionResult? detectionResult;
                 await using (var outputStream = File.OpenRead(outputJson))
                 {
@@ -663,7 +687,9 @@ public partial class GameCacheDetectionService : IDisposable
                     }
                     else
                     {
-                        // Game already found in another datasource - merge without double-counting files
+                        // Game already found in another datasource - add this datasource's file
+                        // count and bytes to it. The two roots hold different files, and the skip
+                        // above is what keeps one root from being scanned twice.
                         GameCacheInfoMergeHelper.MergeGame(existingGame, game, datasource.Name);
                     }
 
@@ -700,7 +726,8 @@ public partial class GameCacheDetectionService : IDisposable
                     }
                     else
                     {
-                        // Service already found in another datasource - merge without double-counting files
+                        // Service already found in another datasource - add this datasource's file
+                        // count and bytes to it, for the same reason as the game merge above.
                         var existingService = aggregatedServices.First(s =>
                             s.ServiceName.Equals(service.ServiceName, StringComparison.OrdinalIgnoreCase));
                         GameCacheInfoMergeHelper.MergeService(existingService, service, datasource.Name);
@@ -1284,11 +1311,9 @@ public partial class GameCacheDetectionService : IDisposable
     /// Recomputes persisted disk-summary totals and clears the in-memory detection cache.
     /// Call once after batch detection mutations (evictions, removals, scans).
     /// </summary>
-    public async Task RefreshDiskSummaryAndInvalidateAsync(
-        CancellationToken cancellationToken = default,
-        Action<int, int>? onPathProgress = null)
+    public async Task RefreshDiskSummaryAndInvalidateAsync(CancellationToken cancellationToken = default)
     {
-        await _detectionDataService.RefreshDiskSummaryAsync(cancellationToken, onPathProgress);
+        await _detectionDataService.RefreshDiskSummaryAsync(cancellationToken);
         InvalidateDetectionCache();
     }
 
@@ -1307,10 +1332,7 @@ public partial class GameCacheDetectionService : IDisposable
                 return _cachedDetectionResponse;
             }
 
-            // The retained cache deliberately excludes CacheFilePaths: across all rows the paths
-            // are millions of strings, and no consumer of the cached response reads them.
-            // Path-bearing responses are served per request by GetCachedDetectionWithPathsAsync.
-            var result = await LoadDetectionAsync(cancellationToken, includeCacheFilePaths: false);
+            var result = await _detectionDataService.LoadDetectionAsync(cancellationToken);
             _cachedDetectionResponse = result;
             return result;
         }
@@ -1319,20 +1341,6 @@ public partial class GameCacheDetectionService : IDisposable
             _detectionCacheLock.Release();
         }
     }
-
-    /// <summary>
-    /// Loads detection results INCLUDING per-entity cache file paths. Never cached: the paths are
-    /// the dominant allocation, so they are materialized per request and reclaimed by the GC
-    /// instead of living on this singleton.
-    /// </summary>
-    public Task<DetectionOperationResponse?> GetCachedDetectionWithPathsAsync(
-        CancellationToken cancellationToken = default) =>
-        LoadDetectionAsync(cancellationToken, includeCacheFilePaths: true);
-
-    private Task<DetectionOperationResponse?> LoadDetectionAsync(
-        CancellationToken cancellationToken = default,
-        bool includeCacheFilePaths = true) =>
-        _detectionDataService.LoadDetectionAsync(cancellationToken, includeCacheFilePaths);
 
     public async Task InvalidateCacheAsync()
     {

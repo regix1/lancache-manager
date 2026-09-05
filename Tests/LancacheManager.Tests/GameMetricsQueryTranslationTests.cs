@@ -190,14 +190,13 @@ public class GameMetricsQueryTranslationTests
     }
 
     /// <summary>
-    /// The games-on-disk query must project column by column. Reading the entity would pull
-    /// CacheFilePathsJson, which holds every cache path a game matched and is by far the largest
-    /// column in the table. It also drops rows carrying no app id, no Epic id and no name: those
-    /// all key on the same bucket, which the download side never produces, so they would publish a
-    /// game named after its own app id with no partner series.
+    /// The games-on-disk query must project column by column. Reading the entity would pull the
+    /// JSON list columns the metrics never use. It also drops rows carrying no app id, no Epic id
+    /// and no name: those all key on the same bucket, which the download side never produces, so
+    /// they would publish a game named after its own app id with no partner series.
     /// </summary>
     [Fact]
-    public void GamesOnDiskQuery_TranslatesAndOmitsTheCachePathColumn()
+    public void GamesOnDiskQuery_Translates()
     {
         using var context = CreateContext();
 
@@ -221,7 +220,6 @@ public class GameMetricsQueryTranslationTests
 
         Assert.Contains("ORDER BY", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("LIMIT", sql, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("CacheFilePathsJson", sql, StringComparison.Ordinal);
         Assert.DoesNotContain("SampleUrlsJson", sql, StringComparison.Ordinal);
     }
 

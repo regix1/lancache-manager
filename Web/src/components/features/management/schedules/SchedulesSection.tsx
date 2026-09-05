@@ -33,8 +33,10 @@ import { TabPanel } from '@components/features/management/TabPanel';
 import {
   isNotificationMode,
   isNotificationDisplayMode,
+  isGameDetectionScanMode,
   type NotificationMode,
   type NotificationDisplayMode,
+  type GameDetectionScanMode,
   type PendingFullScan,
   type ServiceScheduleInfo
 } from './types';
@@ -276,6 +278,57 @@ const DepotScheduleModeDropdown = memo(function DepotScheduleModeDropdown({
   const handleChange = useCallback(
     (value: string) => {
       onChange(value as DepotScheduledScanMode);
+    },
+    [onChange]
+  );
+
+  return (
+    <EnhancedDropdown
+      options={options}
+      value={mode}
+      onChange={handleChange}
+      disabled={isDisabled}
+      variant="button"
+      className="w-full"
+    />
+  );
+});
+
+interface GameDetectionModeDropdownProps {
+  mode: GameDetectionScanMode;
+  isDisabled: boolean;
+  onChange: (mode: GameDetectionScanMode) => void;
+}
+
+const GameDetectionModeDropdown = memo(function GameDetectionModeDropdown({
+  mode,
+  isDisabled,
+  onChange
+}: GameDetectionModeDropdownProps) {
+  const { t } = useTranslation();
+  // Full leads because it is what an install that has never chosen runs, so the selected option on
+  // first open is the top one rather than a value the user has to hunt for. Hybrid sits next to
+  // incremental because it is the answer to the note incremental carries. Unlike the depot modes,
+  // none of these can be unavailable: detection reads the cache directory this app already owns, so
+  // there is no key or baseline to be missing and no option is ever disabled.
+  const options: DropdownOption[] = [
+    { value: 'full', label: t('management.schedules.services.gameDetection.modes.full') },
+    {
+      value: 'incremental',
+      label: t('management.schedules.services.gameDetection.modes.incremental'),
+      description: t('management.schedules.services.gameDetection.modes.incrementalNote')
+    },
+    {
+      value: 'hybrid',
+      label: t('management.schedules.services.gameDetection.modes.hybrid'),
+      description: t('management.schedules.services.gameDetection.modes.hybridNote')
+    }
+  ];
+
+  const handleChange = useCallback(
+    (value: string) => {
+      if (!isGameDetectionScanMode(value)) return;
+      onChange(value);
     },
     [onChange]
   );
@@ -546,6 +599,7 @@ interface ScheduleRowProps {
   depotScheduledMode: DepotScheduledScanMode;
   depotScanModeAvailability: DepotScanModeAvailability;
   onDepotScanModeChange: (mode: DepotScheduledScanMode) => Promise<void>;
+  onScanModeChange: (key: string, mode: GameDetectionScanMode) => Promise<void>;
   onRunNow: (key: string) => Promise<void>;
   /** True while this row's own click is covering the gap between the POST resolving and the
    * SignalR SchedulesUpdated push that flips service.isRunning - see isRunningDot below. */
@@ -570,6 +624,7 @@ const ScheduleRow = memo(function ScheduleRow({
   depotScheduledMode,
   depotScanModeAvailability,
   onDepotScanModeChange,
+  onScanModeChange,
   onRunNow,
   isPendingRun,
   justCompleted,
@@ -589,6 +644,10 @@ const ScheduleRow = memo(function ScheduleRow({
   const isRunningDot = activity.isActive('schedule', service.key, 'running') || service.isRunning;
 
   const isDepotMapping = service.key === 'depotMapping';
+  // Sent only on the schedule that has a scan mode, so its presence is the gate rather than a
+  // second key comparison the server could disagree with. Never null on that schedule: an install
+  // that has never chosen reads as full.
+  const scanMode = service.scanMode ?? null;
   const isCacheReconciliation = service.key === 'cacheReconciliation';
   // The Xbox sign-in registers a tracked XboxMapping operation for the whole device-code wait, which
   // is what turns isRunningOrPending true below and greys out Run Now. Without this the button looks
@@ -613,6 +672,7 @@ const ScheduleRow = memo(function ScheduleRow({
     hasStartupToggle ||
     service.supportsNotifications ||
     isDepotMapping ||
+    scanMode !== null ||
     (isCacheReconciliation && !!onNavigateToEvictionSettings);
 
   const toggleDetail = useCallback(() => {
@@ -655,6 +715,13 @@ const ScheduleRow = memo(function ScheduleRow({
       onDepotScanModeChange(value);
     },
     [onDepotScanModeChange]
+  );
+
+  const handleScanModeChange = useCallback(
+    (value: GameDetectionScanMode) => {
+      void onScanModeChange(service.key, value);
+    },
+    [service.key, onScanModeChange]
   );
 
   // Cancelling the Full Scan Required prompt hides it for the rest of the browser tab, on purpose.
@@ -723,7 +790,8 @@ const ScheduleRow = memo(function ScheduleRow({
 
   // Settings-at-a-glance under the task name; the detail well below stays the place
   // where they are edited.
-  const hasSettingsFlags = hasStartupToggle || service.supportsNotifications || isDepotMapping;
+  const hasSettingsFlags =
+    hasStartupToggle || service.supportsNotifications || isDepotMapping || scanMode !== null;
 
   return (
     <HighlightGlow enabled={justCompleted} variant={completedVariant}>
@@ -821,6 +889,16 @@ const ScheduleRow = memo(function ScheduleRow({
                     >
                       <Badge variant="neutral" className="schedule-task-flag">
                         {t(`management.depotMapping.modes.${depotScheduledMode}`)}
+                      </Badge>
+                    </Tooltip>
+                  )}
+                  {scanMode !== null && (
+                    <Tooltip
+                      content={`${t('management.schedules.services.gameDetection.scanModeLabel')}: ${t(`management.schedules.services.gameDetection.modes.${scanMode}`)}`}
+                      className="schedule-flag-slot"
+                    >
+                      <Badge variant="neutral" className="schedule-task-flag">
+                        {t(`management.schedules.services.gameDetection.modes.${scanMode}`)}
                       </Badge>
                     </Tooltip>
                   )}
@@ -1012,6 +1090,30 @@ const ScheduleRow = memo(function ScheduleRow({
                     {t('management.schedules.services.depotMapping.configureSteamApi')}
                   </Button>
                 )}
+              </div>
+            )}
+
+            {/* Same row, label and control the depot mapping card uses for its scan mode, and the
+            same position: directly under Run on startup, because both answer how a run behaves
+            rather than whether one happens. */}
+            {scanMode !== null && (
+              <div className="schedule-detail-row">
+                <Tooltip
+                  content={t('management.schedules.services.gameDetection.scanModeHelp')}
+                  position="bottom"
+                  className="inline-flex flex-shrink-0"
+                >
+                  <span className="schedule-detail-label">
+                    {t('management.schedules.services.gameDetection.scanModeLabel')}
+                  </span>
+                </Tooltip>
+                <div className="schedule-detail-control">
+                  <GameDetectionModeDropdown
+                    mode={scanMode}
+                    isDisabled={isDisabled}
+                    onChange={handleScanModeChange}
+                  />
+                </div>
               </div>
             )}
 
@@ -1542,6 +1644,30 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     [fetchSchedules, addNotification, t]
   );
 
+  const handleScanModeChange = useCallback(
+    async (key: string, mode: GameDetectionScanMode) => {
+      const displayName = t(`management.schedules.services.${key}.displayName`);
+      // Optimistic update so the dropdown flips immediately even before the server responds
+      setSchedules((prev) => prev.map((s) => (s.key === key ? { ...s, scanMode: mode } : s)));
+      try {
+        await ApiService.setScheduleScanMode(key, mode);
+        await fetchSchedules();
+      } catch {
+        // Revert optimistic update by refetching authoritative state
+        await fetchSchedules();
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: t('management.schedules.services.gameDetection.scanModeFailed', {
+            service: displayName
+          }),
+          details: { notificationType: 'error' }
+        });
+      }
+    },
+    [fetchSchedules, addNotification, t]
+  );
+
   const handleDepotScanModeChange = useCallback(
     async (mode: DepotScheduledScanMode) => {
       // The mode route accepts any well-formed value without checking whether that mode can run,
@@ -1885,6 +2011,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
               }
               depotScanModeAvailability={depotScanModeAvailability}
               onDepotScanModeChange={handleDepotScanModeChange}
+              onScanModeChange={handleScanModeChange}
               onRunNow={handleRunNow}
               isPendingRun={isPending(service.key)}
               justCompleted={!!completedKeys[service.key]}

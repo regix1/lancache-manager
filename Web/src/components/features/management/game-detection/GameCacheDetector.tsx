@@ -317,7 +317,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             ...game,
             depot_ids: [],
             sample_urls: [],
-            cache_file_paths: [],
             datasources: ['Default']
           }))
         );
@@ -325,7 +324,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           (detection.services ?? []).map((service) => ({
             ...service,
             sample_urls: [],
-            cache_file_paths: [],
             datasources: ['Default']
           }))
         );

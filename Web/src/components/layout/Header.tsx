@@ -11,6 +11,7 @@ import Badge from '@components/ui/Badge';
 import LancacheIcon from '../ui/LancacheIcon';
 import LoadingSpinner from '../common/LoadingSpinner';
 import { useMockMode } from '@contexts/useMockMode';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { formatSessionTimeRemaining } from '@utils/timeFormatters';
@@ -18,14 +19,18 @@ import { formatSessionTimeRemaining } from '@utils/timeFormatters';
 interface HeaderProps {
   title?: string;
   subtitle?: string;
-  connectionStatus?: 'connected' | 'disconnected' | 'reconnecting';
 }
 
-const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'connected' }) => {
+const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
   const { t } = useTranslation();
   const { mockMode } = useMockMode();
   const { authMode, sessionExpiresAt } = useAuth();
   const { isRefreshing, dataStale } = useStats();
+  const { connectionState } = useSignalR();
+  // The badge reports the live socket. It used to follow the dashboard fetch, so a heavy operation
+  // that pushed one batch read past its timeout showed "Disconnected" while every push still
+  // arrived. Mock mode opens no socket and reads as connected, as that fetch did.
+  const connectionStatus = mockMode ? 'connected' : connectionState;
   const showStaleData = connectionStatus === 'connected' && dataStale;
   const isGuestMode = authMode === 'guest';
   const [timeRemaining, setTimeRemaining] = useState<string | null>(null);

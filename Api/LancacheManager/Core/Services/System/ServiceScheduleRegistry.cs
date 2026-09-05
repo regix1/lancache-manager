@@ -62,6 +62,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     // handler is configured. The gate's sentence still travels, on the error field beside it.
     private const string SkippedWhileDownloadingStageKey = "management.gameDetection.blockedWhileDownloading";
 
+    // The one schedule whose run type the user chooses. Named here because both the setter and the
+    // mapper below have to agree on which card carries a scan mode, and they are far apart.
+    private const string ScanModeServiceKey = "gameDetection";
+
     // The terminal event each cache scan's own card already listens on. A refused run announces
     // itself on the key's existing event rather than on one of its own, so the browser needs no new
     // event name and a skip lands on the card that key would have used had it run.
@@ -205,6 +209,18 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         if (_runStatusOperationTypes.ContainsValue(operation.Type))
         {
             NotifySchedulesChanged();
+        }
+
+        // Hybrid counts its week from the last full detection scan, and this is the only place that
+        // learns a scan finished without the detection service taking a dependency on state. Stamped
+        // after the scan finishes rather than when it starts, so a run that died partway through does
+        // not push the next hybrid full scan out by a week. Manual full scans stamp it too: switching
+        // to hybrid the day after any full scan should wait a week, not start a second one.
+        if (operation.Type == OperationType.GameDetection
+            && operation.Status == OperationStatus.Completed
+            && operation.Metadata is GameDetectionMetrics { ScanType: DetectionScanType.Full })
+        {
+            _stateService.SetGameDetectionLastFullScan(DateTime.UtcNow);
         }
 
         // A run declined before it started registers itself only to be reported and carries no
@@ -473,6 +489,20 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         _stateService.SetServiceNotificationDisplayMode(serviceKey, mode);
     }
 
+    public bool SetScanMode(string serviceKey, GameDetectionScanMode mode)
+    {
+        if (!string.Equals(serviceKey, ScanModeServiceKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // As with SetNotificationDisplayMode, no live service instance holds this value: the
+        // detection loop reads it from state at the top of each run, so persistence here is the
+        // entire write path and a run already in flight keeps the mode it started with.
+        _stateService.SetGameDetectionScanMode(mode);
+        return true;
+    }
+
     public bool SetCustomSchedule(string serviceKey, CustomSchedule? schedule)
     {
         // Both loop bases compute their next run through ScheduleTiming, so either kind of service can
@@ -554,6 +584,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // the currently-enabled services to now — a reset returns to a "wait one full interval" baseline
         // rather than leaving stale next-run times or triggering an immediate run.
         _stateService.ClearScheduledPrefillServiceLastRun();
+
+        // Game detection's scan mode is a single value rather than a per-service entry, so the loops
+        // above never reach it. Left behind, a schedule the user had switched to incremental would go
+        // on running incrementally after a reset that restored everything else.
+        _stateService.SetGameDetectionScanMode(GameDetectionScanMode.Full);
 
         // Scheduled prefill's notification mode lives per-platform in the config DTO, not in the
         // base-class override the loop above already reset (that reset is a no-op for this service -
@@ -894,6 +929,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             RunOnStartup = service.RunOnStartup,
             NotificationMode = service.EffectiveNotificationMode,
             NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(service.ServiceKey) ?? service.DefaultNotificationDisplayMode,
+            // Left null on every other card so its presence alone tells the browser which card
+            // renders the scan-mode dropdown, the way PendingFullScan and AwaitingSignIn already do.
+            ScanMode = string.Equals(service.ServiceKey, ScanModeServiceKey, StringComparison.OrdinalIgnoreCase)
+                ? _stateService.GetGameDetectionScanMode()
+                : null,
             SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
             IsRunning = scheduledIsRunning,
             LastRunUtc = service.LastRunUtc,

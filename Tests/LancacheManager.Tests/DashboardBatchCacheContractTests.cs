@@ -517,7 +517,7 @@ public sealed class DashboardBatchCacheContractTests
         Assert.Contains("_gameCacheDetectionService.GetCachedDetectionAsync(ct)", batchSource, StringComparison.Ordinal);
         Assert.Contains("_detectionCacheLock.WaitAsync(cancellationToken)", detectionSource, StringComparison.Ordinal);
         Assert.Contains(
-            "LoadDetectionAsync(cancellationToken, includeCacheFilePaths: false)",
+            "_detectionDataService.LoadDetectionAsync(cancellationToken)",
             detectionSource,
             StringComparison.Ordinal);
     }

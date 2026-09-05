@@ -205,6 +205,24 @@ public class AppState
     // service reads this, so it has no per-service compiled default to fall back to.
     public Dictionary<string, NotificationDisplayMode> ServiceNotificationDisplayMode { get; set; } = new();
 
+    // The scan the game detection schedule runs. Not keyed by ServiceKey like the settings above
+    // because game detection is the only schedule that has one - a dictionary that can only ever
+    // hold a single key would invite writing the others. A state file written before this setting
+    // existed has no value here, and the initializer is what makes those installs read as Full.
+    public GameDetectionScanMode GameDetectionScanMode { get; set; } = GameDetectionScanMode.Full;
+
+    // When a full game detection scan last finished, which is what hybrid mode counts its week from.
+    // Kept apart from the schedule's own LastRunUtc because that one is stamped by every mode and so
+    // cannot answer "when was the last FULL scan". Null means no full scan has been recorded, so the
+    // next hybrid run is full.
+    public DateTime? GameDetectionLastFullScanUtc { get; set; }
+
+    // What the last successful cache clear in each delete mode ("preserve" / "full" / "rsync")
+    // actually took. The scanner's own estimate comes from deleting freshly written 11-byte files,
+    // which is page-cache-hot work that runs several times faster than unlinking a cold cache on a
+    // NAS. A real clear is the only measurement that includes that cost, so its rate wins.
+    public Dictionary<string, CacheClearRate> CacheClearRates { get; set; } = new();
+
     // Set the first time the legacy EvictionScanNotifications flag is migrated into
     // ServiceNotificationMode["cacheReconciliation"]. Absence of the per-service key alone can't
     // tell "never migrated" apart from "user reset to defaults" - Reset to Defaults removes the
@@ -348,6 +366,15 @@ public class CacheClearOperation
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public string? Error { get; set; }
+}
+
+/// <summary>
+/// One completed cache clear as measured on the wall clock: files removed and seconds taken.
+/// </summary>
+public class CacheClearRate
+{
+    public long FilesDeleted { get; set; }
+    public double DurationSeconds { get; set; }
 }
 
 /// <summary>

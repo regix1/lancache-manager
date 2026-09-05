@@ -75,21 +75,21 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
         stop: 'action-stop',
         destructive: 'action-delete',
         primary: 'themed-button-primary',
-        secondary: 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary',
+        secondary: 'btn-field-surface text-themed-primary',
         blue: 'themed-button-primary',
         green: 'action-process',
         red: 'action-delete',
         yellow: 'action-reset',
         purple: 'themed-button-primary',
-        gray: 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary',
+        gray: 'btn-field-surface text-themed-primary',
         orange: 'action-reset',
-        default: 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary'
+        default: 'btn-field-surface text-themed-primary'
       };
       return colors[color];
     }
     if (variant === 'subtle') {
-      // Borderless muted solid (no transparent look) — same neutral fill for every color.
-      return 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary';
+      // Muted solid (no transparent look) — the same field surface for every color.
+      return 'btn-field-surface text-themed-primary';
     }
     if (variant === 'transparent') {
       return '';
@@ -99,12 +99,12 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
         ? 'bg-themed-accent-subtle text-themed-accent'
         : 'bg-transparent hover:bg-themed-tertiary text-themed-muted';
     }
-    if (variant === 'menu') {
-      return open
-        ? 'bg-themed-primary-subtle text-themed-primary'
-        : 'bg-themed-surface hover:bg-themed-surface-hover text-themed-secondary';
-    }
-    return 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary';
+    // Everything left over — the plain default variant and the menu triggers — wears the
+    // shared field surface with primary text. Primary text at rest matters for a menu
+    // trigger: the secondary tone is what a disabled control fades toward, so a live
+    // trigger wearing it read as switched off. A menu trigger's open wash and its open
+    // text color come from its own rules in buttons.css, which outrank this one class.
+    return 'btn-field-surface text-themed-primary';
   };
 
   // min-height per size = the text-button height, so an icon-only button (a shorter glyph)

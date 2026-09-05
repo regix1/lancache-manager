@@ -349,10 +349,5 @@ public sealed class UnknownGameResolutionService
         var sourceDepots = JsonSerializer.Deserialize<List<uint>>(source.DepotIdsJson) ?? new List<uint>();
         targetDepots.AddRange(sourceDepots);
         target.DepotIdsJson = JsonSerializer.Serialize(targetDepots.Distinct().ToList());
-
-        var targetPaths = GameCacheDetectionDataService.DeserializeStringList(target.CacheFilePathsJson, _logger);
-        var sourcePaths = GameCacheDetectionDataService.DeserializeStringList(source.CacheFilePathsJson, _logger);
-        targetPaths.AddRange(sourcePaths);
-        target.CacheFilePathsJson = JsonSerializer.Serialize(targetPaths.Distinct().ToList());
     }
 }

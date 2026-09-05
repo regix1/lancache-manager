@@ -169,6 +169,33 @@ public class ScheduleController : ControllerBase
     }
 
     /// <summary>
+    /// Updates the scan the schedule runs on each automatic tick and on Run Now.
+    /// </summary>
+    /// <remarks>
+    /// Game detection is the only schedule with a scan mode, so every other key is refused rather
+    /// than silently no-op'd: a direct call or a stale page storing a mode under another key would
+    /// write a value the user can never see or clear, behind a card that shows no dropdown.
+    /// </remarks>
+    [HttpPut("{serviceKey}/scanMode")]
+    [Authorize(Policy = "AccountHolder")]
+    public async Task<ActionResult> SetScanModeAsync(string serviceKey, [FromBody] GameDetectionScanMode mode)
+    {
+        var info = _registry.Get(serviceKey);
+        if (info == null)
+        {
+            return NotFound(ApiResponse.NotFound("Schedule"));
+        }
+
+        if (!_registry.SetScanMode(serviceKey, mode))
+        {
+            return Conflict(ApiResponse.Conflict("This schedule does not have a scan mode."));
+        }
+
+        await _registry.BroadcastSchedulesAsync();
+        return NoContent();
+    }
+
+    /// <summary>
     /// Returns the live run status for a service.
     /// </summary>
     /// <remarks>

@@ -112,6 +112,21 @@ public interface IStateService
     void SetServiceNotificationDisplayMode(string serviceKey, NotificationDisplayMode mode);
     void ClearServiceNotificationDisplayMode(string serviceKey);
 
+    // Game Detection Scan Mode Methods (a state file written before this setting existed reads as
+    // Full; there is no separate absent case to resolve, so this returns the mode and not a nullable)
+    GameDetectionScanMode GetGameDetectionScanMode();
+    void SetGameDetectionScanMode(GameDetectionScanMode mode);
+
+    // When a full game detection scan last finished, which is what hybrid mode counts its week from.
+    // Null until one has finished, so the first hybrid run is a full scan.
+    DateTime? GetGameDetectionLastFullScan();
+    void SetGameDetectionLastFullScan(DateTime scanTime);
+
+    // What the last successful cache clear in the given delete mode measured. Null until that mode
+    // has cleared something, so the size scan's calibrated estimate stays in use until then.
+    CacheClearRate? GetCacheClearRate(CacheDeleteMode mode);
+    void SetCacheClearRate(CacheDeleteMode mode, CacheClearRate rate);
+
     // Scheduled Prefill Config Methods
     // Get returns a validated, default-constructed-if-missing config; Set validates before persisting
     // (both throw ScheduledPrefillConfigValidationException on invalid config).

@@ -6,11 +6,6 @@ namespace LancacheManager.Models;
 /// Database-persisted cache of service detection results
 /// Stores results from service cache detection to survive backend restarts
 /// </summary>
-/// <remarks>
-/// Adding a column? GameCacheDetectionDataService.LoadServiceEntitiesAsync projects this entity
-/// column-by-column for the paths-excluded load - list the new column there too, or it will
-/// silently read as default on that path.
-/// </remarks>
 public class CachedServiceDetection
 {
     [Key]
@@ -28,11 +23,6 @@ public class CachedServiceDetection
     /// JSON-serialized list of sample URLs
     /// </summary>
     public string SampleUrlsJson { get; set; } = "[]";
-
-    /// <summary>
-    /// JSON-serialized list of cache file paths
-    /// </summary>
-    public string CacheFilePathsJson { get; set; } = "[]";
 
     /// <summary>
     /// JSON-serialized list of datasource names where this service was found

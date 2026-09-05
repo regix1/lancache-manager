@@ -76,12 +76,17 @@
     }
   }
 
-  /* EnhancedDropdown / MultiSelectDropdown — shared trigger surface */
+  /* EnhancedDropdown / MultiSelectDropdown — shared trigger surface.
+     A closed dropdown is a field, so it takes the same fill and edge as .themed-input
+     instead of the neutral button surface: standing in a row beside a text input the two
+     used to read as different kinds of control. The fill keeps its !important because it
+     has to beat the themed-card class the non-button variant carries; the border does not
+     need it, because this bundle loads after cards.css and the two selectors tie. Hover,
+     focus and the open state below still swap off this base. */
   .ed-trigger,
   .msd-trigger {
-    /* Raised control fill — beats the themed-card class the non-button variant
-       carries, same as the hover rule below (uniform with Button neutrals) */
-    background-color: var(--theme-bg-surface) !important;
+    background-color: var(--theme-input-bg) !important;
+    border-color: var(--theme-input-border);
     transition:
       background-color 0.15s ease,
       border-color 0.15s ease;

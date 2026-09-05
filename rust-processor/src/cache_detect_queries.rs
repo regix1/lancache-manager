@@ -33,7 +33,7 @@ pub struct EpicDownloadRecord {
 ///
 /// `service` (Downloads.Service) is the IDENTITY used for the (service, game_name) key and the
 /// removal gate. `cache_service` (LogEntries.Service) is the CACHE-HASH service used to derive
-/// cache file paths, because cache files are hashed `(service, url)`. For Blizzard/Riot the two
+/// cache keys, because cache files are hashed `(service, url)`. For Blizzard/Riot the two
 /// are equal; for Xbox the identity is `xbox` while the cache-hash service stays `wsus` (Xbox
 /// content is delivered as lancache-tagged `wsus` traffic). Splitting them is load-bearing — using
 /// the identity for hashing would miss every Xbox cache file.
@@ -293,8 +293,8 @@ pub async fn query_service_downloads(
     // its mapped branch (an owned mapping exists) and its unknown branch (none does), and
     // those two tests are exact complements, so a depot row always belongs to one of them.
     // Taking any depot row here as well would leave the steam service row reporting the file
-    // count of objects whose bytes a game claimed first, because the disk-summary refresh
-    // recomputes a service's TotalSizeBytes but keeps its scan-time CacheFilesFound. Steam
+    // count of objects whose bytes a game claimed first: the scan sizes a file under the first
+    // row that matches it, so the service would show a large file count against no bytes. Steam
     // URLs with no depot id stay service bytes, which is right: neither game branch takes
     // them, and only steam traffic is given a DepotId in the first place (parser.rs).
     //

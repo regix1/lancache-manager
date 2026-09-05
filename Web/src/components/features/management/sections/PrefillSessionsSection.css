@@ -59,9 +59,9 @@
   padding: 0.5rem 0.75rem;
   border-radius: var(--theme-border-radius);
   font-size: var(--font-size-md);
-  background-color: var(--theme-bg-tertiary);
+  background-color: var(--theme-input-bg);
   color: var(--theme-text-primary);
-  border: 1px solid var(--theme-border-primary);
+  border: 1px solid var(--theme-input-border);
 }
 
 .prefill-input:focus:not(:focus-visible) {

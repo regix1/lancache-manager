@@ -539,6 +539,18 @@ public class CacheClearingService : ScheduledBackgroundService
             _completionDatasourcesCleared = validCachePaths.Count;
             _completionDuration = duration;
 
+            // The next size scan estimates this mode from this run instead of from the scanner's
+            // synthetic benchmark. An already-empty cache, or a run whose tracker entry is gone,
+            // measured nothing.
+            if (totalFilesDeleted > 0 && duration > 0)
+            {
+                _stateService.SetCacheClearRate(_deleteMode, new CacheClearRate
+                {
+                    FilesDeleted = totalFilesDeleted,
+                    DurationSeconds = duration
+                });
+            }
+
             // Every Rust deletion process has now returned success. Disk deletion is irreversible,
             // so a cancellation arriving after this boundary must not strand the database in its
             // pre-clear state. Finish the short reconciliation consistently, then publish success.

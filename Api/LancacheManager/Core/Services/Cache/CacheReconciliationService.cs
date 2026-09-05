@@ -628,10 +628,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 // pre-scan snapshot until an unrelated operation invalidates it.
                 if (scanResult.Evicted > 0 || scanResult.UnEvicted > 0)
                 {
-                    // The disk-summary recompute is the long pole of the whole scan on large
-                    // databases. Give it its own labeled stage at 92% and stream the parallel
-                    // path-stat counts into 92-99% so the bar visibly moves instead of sitting
-                    // frozen while millions of files are checked.
                     await ReportScanProgressAsync(
                         operationId,
                         92.0,
@@ -639,24 +635,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         scanResult,
                         showNotification: !silent);
 
-                    // The callback fires from Parallel.ForEach worker threads (already
-                    // throttled inside the calculator), so notify fire-and-forget.
-                    Action<int, int>? onPathProgress = (statted, totalPaths) =>
-                        {
-                            var percent = totalPaths > 0
-                                ? 92.0 + (statted / (double)totalPaths) * 7.0
-                                : 92.0;
-                            _ = ReportScanProgressAsync(
-                                operationId,
-                                percent,
-                                "signalr.evictionScan.refreshingSummaryCounted",
-                                scanResult,
-                                showNotification: !silent,
-                                filesChecked: statted,
-                                filesTotal: totalPaths);
-                        };
-
-                    await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken, onPathProgress);
+                    await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
                 }
                 else if (prunedOrphans > 0)
                 {
@@ -849,9 +828,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         double percentComplete,
         string stageKey,
         EvictionScanResult scanResult,
-        bool showNotification,
-        int? filesChecked = null,
-        int? filesTotal = null)
+        bool showNotification)
     {
         var context = new Dictionary<string, object?>
         {
@@ -859,16 +836,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             ["totalEvicted"] = scanResult.Evicted,
             ["totalUnEvicted"] = scanResult.UnEvicted
         };
-
-        // Live counts for the disk-summary refresh stage (refreshingSummaryCounted).
-        if (filesChecked.HasValue)
-        {
-            context["filesChecked"] = filesChecked.Value.ToString("N0");
-        }
-        if (filesTotal.HasValue)
-        {
-            context["filesTotal"] = filesTotal.Value.ToString("N0");
-        }
 
         _operationTracker.UpdateProgress(operationId, percentComplete, stageKey);
 
@@ -1614,9 +1581,20 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         "removing_log_entries",
                         "signalr.evictionRemove.removingLogs");
 
-                    logEntriesDeleted = await context.LogEntries
-                        .Where(le => le.DownloadId != null && le.Download != null && le.Download.IsEvicted)
-                        .ExecuteDeleteAsync(stoppingToken);
+                    // One statement over every evicted download's log entries ran past the
+                    // command timeout on a production removal, and the retry strategy re-ran the
+                    // same statement three times before giving up. A statement per batch of
+                    // downloads stays short whatever the table holds.
+                    var evictedDownloadIds = await context.Downloads
+                        .Where(d => d.IsEvicted)
+                        .Select(d => d.Id)
+                        .ToListAsync(stoppingToken);
+                    foreach (var batch in evictedDownloadIds.Chunk(200))
+                    {
+                        logEntriesDeleted += await context.LogEntries
+                            .Where(le => le.DownloadId != null && batch.Contains(le.DownloadId.Value))
+                            .ExecuteDeleteAsync(stoppingToken);
+                    }
 
                     // Step 3: delete evicted Downloads.
                     await ReportRemovalProgressAsync(
@@ -1656,23 +1634,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 downloadsRemoved: downloadsDeleted,
                 logEntriesRemoved: logEntriesDeleted);
 
-            // Refresh persisted disk-summary totals so dashboard reads reflect post-removal
-            // state, streaming the parallel path-stat counts into 90-99% (callback fires from
-            // worker threads, already throttled inside the calculator - fire-and-forget).
-            await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(
-                stoppingToken,
-                (statted, totalPaths) => _ = ReportRemovalProgressAsync(
-                    opId,
-                    totalPaths > 0 ? 90.0 + (statted / (double)totalPaths) * 9.0 : 90.0,
-                    "refreshing_detection",
-                    "signalr.evictionRemove.refreshingDetectionCounted",
-                    downloadsRemoved: downloadsDeleted,
-                    logEntriesRemoved: logEntriesDeleted,
-                    context: new Dictionary<string, object?>
-                    {
-                        ["filesChecked"] = statted.ToString("N0"),
-                        ["filesTotal"] = totalPaths.ToString("N0")
-                    }));
+            // Refresh persisted disk-summary totals so dashboard reads reflect post-removal state.
+            await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
             _logger.LogDebug("[EvictedRemoval] Detection cache refreshed after bulk removal");
 
             // The current corruption scans are snapshots of cache files and access-log evidence
@@ -1767,14 +1730,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 return;
             }
 
-            // Collect distinct URLs from LogEntries that belong to evicted downloads.
-            var urls = await context.LogEntries
-                .Where(le => le.DownloadId != null && evictedDownloadIds.Contains(le.DownloadId.Value))
-                .Select(le => le.Url)
-                .Where(u => u != null && u != string.Empty)
-                .Distinct()
-                .ToListAsync(stoppingToken);
-
             // Collect candidate depot IDs from the evicted Downloads only.
             var evictedDepotIds = await context.Downloads
                 .Where(d => d.IsEvicted && d.DepotId != null)
@@ -1808,6 +1763,19 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             }
 
             var depotIds = safeDepotIds;
+
+            // URLs cover the lines the depot list cannot: downloads with no depot (every non-Steam
+            // service) and the partially evicted depots narrowed out above. A Steam line's depot is
+            // parsed from its own URL, so the lines of a download whose depot is in the list already
+            // match on the depot, and sending their URLs as well only multiplies the payload: one
+            // bulk removal shipped 3.7 M URLs beside 337 depots and the purge was killed for memory.
+            var urls = await context.LogEntries
+                .Where(le => le.DownloadId != null && evictedDownloadIds.Contains(le.DownloadId.Value))
+                .Where(le => le.Download!.DepotId == null || !depotIds.Contains(le.Download.DepotId.Value))
+                .Select(le => le.Url)
+                .Where(u => u != null && u != string.Empty)
+                .Distinct()
+                .ToListAsync(stoppingToken);
 
             if (urls.Count == 0 && depotIds.Count == 0)
             {
@@ -2436,14 +2404,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             var detectionService = _serviceProvider.GetService<GameCacheDetectionService>();
             if (detectionService != null)
             {
-                // The disk-summary recompute stats every persisted cache path of every ACTIVE
-                // detection row (minutes on large caches) but reads nothing from evicted rows,
-                // so deleting an evicted entity's rows cannot change its result. It is needed
-                // only when this removal flipped rows back to active (partial eviction clears
-                // IsEvicted, or the self-heal un-evicted entities whose files reappeared).
-                // Otherwise invalidating the in-memory detection cache is enough for the
-                // frontend refetch to see the deleted rows, and the op completes in seconds
-                // instead of sitting at 90% through a full path-stat walk.
+                // The disk-summary re-aggregation reads the sizes of the ACTIVE detection rows and
+                // nothing from evicted ones, so deleting an evicted entity's rows cannot change
+                // its result. It is needed only when this removal flipped rows back to active
+                // (partial eviction clears IsEvicted, or the self-heal un-evicted entities whose
+                // files reappeared). Otherwise invalidating the in-memory detection cache is
+                // enough for the frontend refetch to see the deleted rows.
                 var summaryDirty = (anyRemaining && detectionRowsChanged > 0)
                     || deletedActiveDetectionRow
                     || unevictedRows > 0;
@@ -2457,20 +2423,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         downloadsRemoved: downloadsDeleted,
                         logEntriesRemoved: logEntriesDeleted);
 
-                    await detectionService.RefreshDiskSummaryAndInvalidateAsync(
-                        stoppingToken,
-                        (statted, totalPaths) => _ = ReportRemovalProgressAsync(
-                            opId,
-                            totalPaths > 0 ? 90.0 + (statted / (double)totalPaths) * 9.0 : 90.0,
-                            "refreshing_detection",
-                            "signalr.evictionRemove.refreshingDetectionCounted",
-                            downloadsRemoved: downloadsDeleted,
-                            logEntriesRemoved: logEntriesDeleted,
-                            context: new Dictionary<string, object?>
-                            {
-                                ["filesChecked"] = statted.ToString("N0"),
-                                ["filesTotal"] = totalPaths.ToString("N0")
-                            }));
+                    await detectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
                 }
                 else
                 {

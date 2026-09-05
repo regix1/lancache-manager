@@ -626,17 +626,15 @@ public class GamesController : ControllerBase
     /// Gets cached game detection results.
     /// </summary>
     /// <remarks>
-    /// Returns the full (non-slim) shape, including per-game cache_file_paths, which the
-    /// dashboard's slim variant deliberately omits to keep its payload small. Used by the admin
-    /// management screen, which needs the actual file paths to act on.
+    /// Returns the full (non-slim) shape, including the sample URLs, depot ids and datasource
+    /// names the dashboard's slim variant omits to keep its payload small. Used by the admin
+    /// management screen.
     /// </remarks>
     [HttpGet("detect/cached")]
     [ProducesResponseType(typeof(CachedDetectionResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<CachedDetectionResponse>> GetCachedDetectionAsync()
     {
-        // Non-slim response carries cache_file_paths, which the singleton cache deliberately
-        // omits - load them per request instead.
-        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionWithPathsAsync(HttpContext.RequestAborted);
+        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync(HttpContext.RequestAborted);
 
         if (cachedResults == null)
         {

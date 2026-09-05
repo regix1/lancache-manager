@@ -975,11 +975,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           },
           { stageKey: 'signalr.evictionScan.finalizing', context: {} },
           { stageKey: 'signalr.evictionScan.postProcessing', context: {} },
-          { stageKey: 'signalr.evictionScan.refreshingSummary', context: {} },
-          {
-            stageKey: 'signalr.evictionScan.refreshingSummaryCounted',
-            context: { filesChecked: 10, filesTotal: 100 }
-          }
+          { stageKey: 'signalr.evictionScan.refreshingSummary', context: {} }
         ]
       },
       apiEndpoint: '/api/stats/eviction/scan/status',

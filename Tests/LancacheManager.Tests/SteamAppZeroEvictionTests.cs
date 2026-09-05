@@ -106,7 +106,7 @@ public class SteamAppZeroEvictionTests
             await seed.SaveChangesAsync();
         }
 
-        var response = await NewDataService(options).LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await NewDataService(options).LoadDetectionAsync();
 
         Assert.NotNull(response);
         Assert.Single(response!.Games!, g => g.GameAppId == 730);
@@ -128,7 +128,7 @@ public class SteamAppZeroEvictionTests
             await seed.SaveChangesAsync();
         }
 
-        var response = await NewDataService(options).LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await NewDataService(options).LoadDetectionAsync();
 
         Assert.NotNull(response);
         var row = Assert.Single(response!.Games!, g => g.GameAppId == 0);

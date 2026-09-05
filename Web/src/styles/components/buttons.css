@@ -131,33 +131,62 @@
     color: var(--theme-text-primary);
   }
 
-  /* Accordion expand: wash of the chevron's accent, no edge. Beats
-     .bg-themed-accent-subtle (0,1,0) in the same layer. */
-  .btn-icon-square[data-variant='accordion'],
-  .btn-icon-square[data-variant='accordion']:focus-visible {
-    border: none;
-    outline: none;
+  /* Accordion expand: no edge at rest. Given up by color and at a lower specificity than
+     .btn-icon-square:focus-visible above, so the square's reserved 1px can still take the
+     focus color: clearing `border` set that width to 0 and left an accordion square with
+     no keyboard focus indicator at all, and restating `outline: none` on :focus-visible
+     suppressed the fallback ring too. A non-square accordion button carries no border
+     utility, so its width stays 0 either way and it keeps the global 2px ring. */
+  button[data-variant='accordion'] {
+    border-color: transparent;
   }
 
+  /* Wash of the chevron's accent. Beats .bg-themed-accent-subtle (0,1,0) in the same
+     layer; carries no border or outline, which would outrank the focus edge above. */
   .btn-icon-square.is-open[data-variant='accordion'] {
     background-color: var(--theme-accent-subtle);
     color: var(--theme-text-accent);
-    border: none;
-    outline: none;
   }
 
-  /* Menu triggers (⋯, gear): surface at rest, primary tint when open, no edge. */
-  button[data-variant='menu'],
-  button[data-variant='menu']:focus-visible {
-    border: none;
-    outline: none;
+  /* Menu triggers (⋯, gear): primary tint when open. The edge comes from the shared field
+     surface below as an inset ring, so `border` is cleared here rather than colored.
+     No `outline` rule: this selector outranks nothing but ties with the global
+     button:focus-visible ring and sits after it, so clearing the outline here left every
+     menu trigger with no keyboard focus indicator at all. Mouse focus is still ring-free
+     through the global *:focus:not(:focus-visible) rule in reset.css.
+     The edge is given up by color, not by `border: none`: an icon-square reserves a 1px
+     border for its own focus color, and clearing the border outright set that width to 0,
+     so a square menu trigger had nothing left to paint a focus edge with. A labeled
+     trigger carries no border utility, so its width stays 0 either way. */
+  button[data-variant='menu'] {
+    border-color: transparent;
   }
 
+  /* Only the wash: restating border and outline here outranked the icon-square's focus
+     edge and the global focus ring, so an open trigger reached by keyboard went bare. */
   button[data-variant='menu'].is-open {
     background-color: var(--theme-primary-subtle);
     color: var(--theme-primary);
-    border: none;
-    outline: none;
+  }
+
+  /* One surface for everything that is not a primary or a colored action: the secondary,
+     gray and default filled buttons, every subtle button, the plain default variant and
+     every menu trigger. They stand in the same rows as inputs and dropdown triggers, so
+     they take the input fill and the input edge instead of a button-only neutral. Primary
+     keeps the accent fill, the action colors keep theirs, and the transparent and
+     accordion variants stay bare.
+     The edge is an inset ring rather than a border because the menu rule above holds its
+     border transparent and an icon-square reserves its own 1px edge for the focus color,
+     so a real border here would either be overpainted or double up on the focus edge. An
+     inset ring changes no box, so a square stays square and a 40px row stays 40px. The
+     open wash is left to the variant rules, which outrank this one class. */
+  .btn-field-surface {
+    background-color: var(--theme-input-bg);
+    box-shadow: inset 0 0 0 1px var(--theme-input-border);
+  }
+
+  .btn-field-surface:not(.is-open):not(:disabled):hover {
+    background-color: var(--theme-bg-surface-hover);
   }
 
   /* Phone: the same 44px touch minimum dropdowns.css gives button.ed-trigger and forms.css gives

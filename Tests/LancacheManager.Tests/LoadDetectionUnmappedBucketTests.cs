@@ -58,7 +58,7 @@ public class LoadDetectionUnmappedBucketTests
         // to synthesize evicted projections from, and a stored remainder covering every file.
         await dataService.SaveUnmappedServicesAsync([Wsus(18_575, 415_000_000_000)]);
 
-        var response = await dataService.LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await dataService.LoadDetectionAsync();
 
         Assert.NotNull(response);
         var unmapped = Assert.Single(response!.UnmappedServices!);
@@ -71,7 +71,7 @@ public class LoadDetectionUnmappedBucketTests
     {
         var options = NewInMemoryOptions();
 
-        var response = await NewDataService(options).LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await NewDataService(options).LoadDetectionAsync();
 
         Assert.Null(response);
     }

@@ -29,6 +29,15 @@ public class ServiceScheduleInfo
     public FullScanRequirement? PendingFullScan { get; set; }
 
     /// <summary>
+    /// Set only on the game detection schedule, which is the one service whose run type the user
+    /// chooses: the full scan, the incremental one, or hybrid, which picks between them from the
+    /// clock. Null on every other service, so its presence alone answers "does this card offer a
+    /// scan mode". Never null on game detection - a state file written before the setting existed
+    /// reads as Full.
+    /// </summary>
+    public GameDetectionScanMode? ScanMode { get; set; }
+
+    /// <summary>
     /// Set only on the Xbox mapping schedule, and only while its sign-in is waiting for the user to
     /// approve a device code. The wait registers a tracked XboxMapping operation, which is what turns
     /// <see cref="IsRunning"/> true and greys out Run Now, so its presence alone answers "why is this

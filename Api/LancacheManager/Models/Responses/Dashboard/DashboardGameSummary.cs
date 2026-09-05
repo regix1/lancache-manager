@@ -6,7 +6,7 @@ namespace LancacheManager.Models;
 /// Slim DTO for dashboard-only detection payloads.
 /// Mirrors the JSON shape of <see cref="GameCacheInfo"/> for the subset of fields
 /// the Dashboard tab actually reads, intentionally dropping unbounded list fields
-/// (<c>cache_file_paths</c>, <c>sample_urls</c>, <c>evicted_sample_urls</c>,
+/// (<c>sample_urls</c>, <c>evicted_sample_urls</c>,
 /// <c>datasources</c>, <c>depot_ids</c>, <c>evicted_depot_ids</c>) and the less
 /// frequently read <c>evicted_bytes</c>. The Management tab keeps consuming the
 /// full <see cref="GameCacheInfo"/> via <c>/api/games/cached-detection</c>.
@@ -57,7 +57,7 @@ public class DashboardGameSummary
 /// Slim DTO for dashboard-only detection service aggregates.
 /// Mirrors the JSON shape of <see cref="ServiceCacheInfo"/> for the subset the
 /// Dashboard tab reads, intentionally dropping unbounded list fields
-/// (<c>cache_file_paths</c>, <c>sample_urls</c>, <c>evicted_sample_urls</c>,
+/// (<c>sample_urls</c>, <c>evicted_sample_urls</c>,
 /// <c>datasources</c>) and the less frequently read <c>evicted_bytes</c>.
 /// Retained fields (verified via dashboard/utils/context consumer scan):
 ///   <list type="bullet">

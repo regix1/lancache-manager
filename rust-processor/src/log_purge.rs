@@ -48,7 +48,9 @@ use crate::service_utils;
 /// `is_candidate` can never match the removal predicate and is written
 /// through without UTF-8 validation or regex parsing.
 pub struct RemovalPrefilter {
-    automaton: AhoCorasick,
+    /// None when the pattern set is too large to index: every line is then a candidate and the
+    /// full parse decides alone.
+    automaton: Option<AhoCorasick>,
 }
 
 /// One exact stored corruption observation. Matching every field keeps log cleanup inside the
@@ -179,9 +181,19 @@ impl RemovalPrefilter {
         I: IntoIterator<Item = P>,
         P: AsRef<[u8]>,
     {
+        // The automaton costs a multiple of the total pattern bytes in memory and walks a table
+        // of that size for every line, so past this budget it is slower than the parse it exists
+        // to skip and it is what the kernel kills first: a bulk purge handed 3.7 M URLs exited 137
+        // while building it. Above the budget every line takes the full-parse path instead.
+        const MAX_INDEXED_PATTERN_BYTES: usize = 8 * 1024 * 1024;
+        let patterns: Vec<P> = patterns.into_iter().collect();
+        let pattern_bytes: usize = patterns.iter().map(|pattern| pattern.as_ref().len()).sum();
+        if pattern_bytes > MAX_INDEXED_PATTERN_BYTES {
+            return Ok(Self { automaton: None });
+        }
         let automaton =
             AhoCorasick::new(patterns).context("Failed to build Aho-Corasick removal prefilter")?;
-        Ok(Self { automaton })
+        Ok(Self { automaton: Some(automaton) })
     }
 
     /// Returns true when the line might match the removal predicate and must
@@ -189,7 +201,10 @@ impl RemovalPrefilter {
     /// `normalize_url` collapses consecutive slashes, so the stored target URL
     /// may not appear literally in the raw line (false-negative hazard).
     pub(crate) fn is_candidate(&self, raw_line: &[u8]) -> bool {
-        line_contains_double_slash(raw_line) || self.automaton.is_match(raw_line)
+        match &self.automaton {
+            Some(automaton) => line_contains_double_slash(raw_line) || automaton.is_match(raw_line),
+            None => true,
+        }
     }
 }
 
@@ -1114,6 +1129,19 @@ mod tests {
         // Doubled slash forces the full-parse path even though the literal
         // pattern is not a substring of the raw line
         assert!(prefilter.is_candidate(log_line("/depot/123456//chunk/abc", "HIT").as_bytes()));
+    }
+
+    #[test]
+    fn prefilter_past_the_pattern_budget_sends_every_line_to_the_full_parse() {
+        // One pattern larger than the budget: no automaton, so a line that matches nothing is
+        // still a candidate and the exact predicate stays the only thing that can drop it.
+        let oversized = vec![b'x'; 8 * 1024 * 1024 + 1];
+        let prefilter = RemovalPrefilter::new([oversized.as_slice()]).unwrap();
+        assert!(prefilter.is_candidate(log_line("/depot/999/chunk/zzz", "HIT").as_bytes()));
+
+        // Under the budget the automaton is built and non-matching lines are still skipped.
+        let prefilter = RemovalPrefilter::new([b"/depot/123456/chunk/abc".as_slice()]).unwrap();
+        assert!(!prefilter.is_candidate(log_line("/depot/999/chunk/zzz", "HIT").as_bytes()));
     }
 
     #[test]

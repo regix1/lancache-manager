@@ -80,17 +80,17 @@ test('plain text input preserves caller-owned autofill exclusions', async () => 
   );
   assert.ok(nativeInput.getText(textInput).includes('{...inputProps}'));
 
-  const platformSection = parseSource(
-    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPlatformSection.tsx',
+  const platformsPanel = parseSource(
+    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPlatformsPanel.tsx',
     ts.ScriptKind.TSX
   );
   const [scheduleName] = collectNodes(
-    platformSection,
+    platformsPanel,
     (node) =>
-      ts.isJsxSelfClosingElement(node) && node.tagName.getText(platformSection) === 'TextInput'
+      ts.isJsxSelfClosingElement(node) && node.tagName.getText(platformsPanel) === 'TextInput'
   );
-  assert.ok(scheduleName.getText(platformSection).includes('{...noAutofill}'));
-  assert.ok(scheduleName.getText(platformSection).includes('size="sm"'));
+  assert.ok(scheduleName.getText(platformsPanel).includes('{...noAutofill}'));
+  assert.ok(scheduleName.getText(platformsPanel).includes('size="md"'));
   assert.deepEqual(noAutofill, {
     autoComplete: 'off',
     'data-bwignore': 'true',

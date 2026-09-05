@@ -465,7 +465,7 @@ export function GameSelectionModal({
                 setImportResult(null);
               }}
               placeholder={t('prefill.placeholders.bulkInput')}
-              className="w-full px-3 py-2 text-sm rounded-lg resize-none transition-[border-color] duration-150 ease-out bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)] min-h-[52px]"
+              className="themed-input w-full px-3 py-2 text-sm resize-none transition-[border-color] duration-150 ease-out min-h-[52px]"
             />
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-1">
               <Button

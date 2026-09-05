@@ -1,8 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ChevronDown } from 'lucide-react';
+import {
+  ActionMenu,
+  ActionMenuDangerItem,
+  ActionMenuDivider,
+  ActionMenuItem
+} from '@components/ui/ActionMenu';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
-import { Tooltip } from '@components/ui/Tooltip';
 import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -78,6 +84,7 @@ export function ScheduledPrefillPersistentCard({
   container,
   selectedGamesCount,
   disabled = false,
+  scheduleEnabled,
   statusLoading = false,
   authenticating = false,
   integrationLoginAvailability,
@@ -130,13 +137,16 @@ export function ScheduledPrefillPersistentCard({
   // running; authenticated services are only ready once login succeeds.
   const isReady = isAnonymous || isAuthenticated;
   const isAuthInProgress = !isAnonymous && isRunning && !isAuthenticated && authenticating;
-  const reuseIntegrationUnavailableReason = integrationLoginAvailability?.reason ?? 'unknown';
   const reuseIntegrationDisabled =
     disabled ||
     isAuthInProgress ||
     integrationLoginAvailabilityLoading ||
     !integrationLoginAvailability?.available;
   const isGameSelectionBlocked = isRunning && !isReady;
+  // What this schedule downloads, and downloading it by hand, belong to the schedule: both grey
+  // out while it is switched off. Starting, stopping and logging the container in or out do not,
+  // because the container serves every schedule on the platform.
+  const selectionDisabled = disabled || !scheduleEnabled;
   // Initial container probe with nothing resolved yet — show the loading view.
   const isContainerLoading = statusLoading && container === undefined;
 
@@ -153,6 +163,7 @@ export function ScheduledPrefillPersistentCard({
   const actionsRef = useRef<HTMLElement>(null);
   const wasRunningRef = useRef(isRunning);
   const startRequestedRef = useRef(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   useEffect(() => {
     const wasRunning = wasRunningRef.current;
@@ -219,6 +230,66 @@ export function ScheduledPrefillPersistentCard({
     }
     return t(`${containersKey}.workflow.ready`);
   })();
+
+  // The one visible action is the workflow's next step, the same step the hint above the footer
+  // names in words: start the container, log in, then download (or cancel the download running).
+  let primaryAction: ReactNode;
+  if (!isRunning) {
+    primaryAction = (
+      <Button
+        type="button"
+        variant="filled"
+        color="run"
+        size={SCHEDULED_PREFILL_BUTTON_SIZE}
+        onClick={onStart}
+        disabled={disabled || action === 'stop'}
+        loading={action === 'start'}
+      >
+        {t('prefill.persistent.actions.start')}
+      </Button>
+    );
+  } else if (!isReady) {
+    primaryAction = (
+      <Button
+        type="button"
+        variant="filled"
+        color="primary"
+        size={SCHEDULED_PREFILL_BUTTON_SIZE}
+        onClick={() => onLogin(false)}
+        disabled={disabled || isAuthInProgress}
+      >
+        {t(`${containersKey}.manualLogin`)}
+      </Button>
+    );
+  } else if (isPrefilling) {
+    primaryAction = (
+      <Button
+        type="button"
+        variant="filled"
+        color="stop"
+        size={SCHEDULED_PREFILL_BUTTON_SIZE}
+        onClick={onCancelDownload}
+        disabled={disabled || action === 'download' || !container?.runId}
+        loading={action === 'cancel'}
+      >
+        {t(`${baseKey}.persistentContainer.cancelDownload`)}
+      </Button>
+    );
+  } else {
+    primaryAction = (
+      <Button
+        type="button"
+        variant="filled"
+        color="run"
+        size={SCHEDULED_PREFILL_BUTTON_SIZE}
+        onClick={onDownload}
+        disabled={selectionDisabled || action === 'cancel'}
+        loading={action === 'download'}
+      >
+        {t(`${baseKey}.persistentContainer.downloadNow`)}
+      </Button>
+    );
+  }
 
   return (
     <Card padding="md" className="scheduled-prefill-persistent-card">
@@ -346,163 +417,88 @@ export function ScheduledPrefillPersistentCard({
           )}
 
           <footer ref={actionsRef} className="scheduled-prefill-persistent-card__actions">
-            <div className="scheduled-prefill-persistent-card__action-group cluster">
-              {isRunning ? (
+            {/* Everything but the next step lives in one menu, in a fixed order, so the footer
+                reads the same in every state: an action that cannot run right now is disabled
+                rather than missing. The two items that undo work, clearing the selection and
+                stopping the container, sit together behind a divider in the danger register. */}
+            <ActionMenu
+              isOpen={actionsOpen}
+              onClose={() => setActionsOpen(false)}
+              align="right"
+              width="w-48"
+              trigger={
                 <Button
                   type="button"
-                  variant="filled"
-                  color="stop"
+                  variant="menu"
                   size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                  onClick={onStop}
-                  disabled={disabled || action === 'start'}
-                  loading={action === 'stop'}
+                  open={actionsOpen}
+                  className="w-full"
+                  disabled={
+                    disabled || action === 'stop' || action === 'logout' || gameSelectionLoading
+                  }
+                  onClick={() => setActionsOpen((open) => !open)}
+                  aria-expanded={actionsOpen}
+                  aria-haspopup="menu"
+                  rightSection={<ChevronDown size={16} aria-hidden="true" />}
                 >
-                  {t('prefill.persistent.actions.stop')}
+                  {t('management.actions.menuLabel')}
                 </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="filled"
-                  color="run"
-                  size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                  onClick={onStart}
-                  disabled={disabled || action === 'stop'}
-                  loading={action === 'start'}
-                >
-                  {t('prefill.persistent.actions.start')}
-                </Button>
-              )}
-            </div>
-
-            <div className="scheduled-prefill-persistent-card__action-group cluster">
+              }
+            >
+              <ActionMenuItem
+                onClick={() => {
+                  setActionsOpen(false);
+                  onSelectGames();
+                }}
+                disabled={selectionDisabled || !isRunning || isGameSelectionBlocked}
+              >
+                {t(`${baseKey}.actions.selectGames`)}
+              </ActionMenuItem>
               {isRunning && !isReady && (
-                <>
-                  {(() => {
-                    const reuseButton = (
-                      <Button
-                        type="button"
-                        variant="filled"
-                        color="secondary"
-                        size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                        onClick={() => onLogin(true)}
-                        disabled={reuseIntegrationDisabled}
-                        loading={integrationLoginAvailabilityLoading}
-                      >
-                        {t(`${containersKey}.reuseIntegrationLogin`)}
-                      </Button>
-                    );
-                    return reuseIntegrationDisabled ? (
-                      <Tooltip
-                        content={t(
-                          integrationLoginAvailabilityLoading
-                            ? `${containersKey}.reuseIntegrationChecking`
-                            : `${containersKey}.reuseIntegrationUnavailable.${reuseIntegrationUnavailableReason}`,
-                          {
-                            defaultValue: t(`${containersKey}.reuseIntegrationUnavailable.unknown`)
-                          }
-                        )}
-                        className="inline-flex scheduled-prefill-persistent-card__action-slot"
-                      >
-                        {reuseButton}
-                      </Tooltip>
-                    ) : (
-                      reuseButton
-                    );
-                  })()}
-                  <Button
-                    type="button"
-                    variant="filled"
-                    color="primary"
-                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                    onClick={() => onLogin(false)}
-                    disabled={disabled || isAuthInProgress}
-                  >
-                    {t(`${containersKey}.manualLogin`)}
-                  </Button>
-                </>
+                <ActionMenuItem
+                  onClick={() => {
+                    setActionsOpen(false);
+                    onLogin(true);
+                  }}
+                  disabled={reuseIntegrationDisabled}
+                >
+                  {t(`${containersKey}.reuseIntegrationLogin`)}
+                </ActionMenuItem>
               )}
               {!isAnonymous && isRunning && isAuthenticated && (
-                <Button
-                  type="button"
-                  variant="filled"
-                  color="secondary"
-                  size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                  onClick={onLogout}
+                <ActionMenuItem
+                  onClick={() => {
+                    setActionsOpen(false);
+                    onLogout();
+                  }}
                   disabled={disabled || isPrefilling || action === 'start' || action === 'stop'}
-                  loading={action === 'logout'}
                 >
                   {t('prefill.persistent.logOut')}
-                </Button>
+                </ActionMenuItem>
               )}
-              {/* While game selection is blocked the button is disabled, so the shared
-              Tooltip wrapper (whose trigger div still receives hover) carries the
-              "log in first" hint instead of a native title attribute. */}
-              {(() => {
-                const selectGamesButton = (
-                  <Button
-                    type="button"
-                    variant="filled"
-                    color="secondary"
-                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                    onClick={onSelectGames}
-                    disabled={disabled || !isRunning || isGameSelectionBlocked}
-                    loading={gameSelectionLoading}
-                  >
-                    {t(`${baseKey}.actions.selectGames`)}
-                  </Button>
-                );
-                return isGameSelectionBlocked ? (
-                  <Tooltip
-                    content={t('prefill.persistent.loginToSelectGames')}
-                    className="inline-flex scheduled-prefill-persistent-card__action-slot"
-                  >
-                    {selectGamesButton}
-                  </Tooltip>
-                ) : (
-                  selectGamesButton
-                );
-              })()}
-              <Button
-                type="button"
-                variant="filled"
-                color="destructive"
-                size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                onClick={onClearGames}
-                disabled={disabled || selectedGamesCount === 0 || isPrefilling}
+              <ActionMenuDivider />
+              <ActionMenuDangerItem
+                onClick={() => {
+                  setActionsOpen(false);
+                  onClearGames();
+                }}
+                disabled={selectionDisabled || selectedGamesCount === 0 || isPrefilling}
               >
                 {t(`${baseKey}.actions.clearGames`)}
-              </Button>
-            </div>
-
-            {isRunning && isReady && (
-              <div className="scheduled-prefill-persistent-card__action-group scheduled-prefill-persistent-card__action-group--primary cluster">
-                {isPrefilling ? (
-                  <Button
-                    type="button"
-                    variant="filled"
-                    color="stop"
-                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                    onClick={onCancelDownload}
-                    disabled={disabled || action === 'download' || !container?.runId}
-                    loading={action === 'cancel'}
-                  >
-                    {t(`${baseKey}.persistentContainer.cancelDownload`)}
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="filled"
-                    color="run"
-                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                    onClick={onDownload}
-                    disabled={disabled || action === 'cancel'}
-                    loading={action === 'download'}
-                  >
-                    {t(`${baseKey}.persistentContainer.downloadNow`)}
-                  </Button>
-                )}
-              </div>
-            )}
+              </ActionMenuDangerItem>
+              {isRunning && (
+                <ActionMenuDangerItem
+                  onClick={() => {
+                    setActionsOpen(false);
+                    onStop();
+                  }}
+                  disabled={disabled || action === 'start'}
+                >
+                  {t('prefill.persistent.actions.stop')}
+                </ActionMenuDangerItem>
+              )}
+            </ActionMenu>
+            {primaryAction}
           </footer>
         </>
       )}

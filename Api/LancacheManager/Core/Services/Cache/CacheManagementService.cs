@@ -1754,6 +1754,51 @@ public partial class CacheManagementService
         };
     }
 
+    /// <summary>
+    /// Replaces the scanner's calibrated estimate for every delete mode that has completed a real
+    /// clear with the time this cache would take at that clear's measured rate. The calibration
+    /// deletes freshly written 11-byte files, which is page-cache-hot work that runs several times
+    /// faster than unlinking a cold cache on a NAS; a measured run is the only number that carries
+    /// that cost. Modes that have never run keep the calibrated estimate.
+    /// </summary>
+    internal static void ApplyMeasuredClearRates(
+        CacheSizeResponse result,
+        CacheClearRate? preserve,
+        CacheClearRate? full,
+        CacheClearRate? rsync)
+    {
+        var times = result.EstimatedDeletionTimes;
+        if (preserve != null)
+        {
+            times.PreserveSeconds = SecondsAtMeasuredRate(result.TotalFiles, preserve);
+            times.PreserveFormatted = FormatEstimatedDuration(times.PreserveSeconds);
+        }
+        if (full != null)
+        {
+            times.FullSeconds = SecondsAtMeasuredRate(result.TotalFiles, full);
+            times.FullFormatted = FormatEstimatedDuration(times.FullSeconds);
+        }
+        if (rsync != null)
+        {
+            times.RsyncSeconds = SecondsAtMeasuredRate(result.TotalFiles, rsync);
+            times.RsyncFormatted = FormatEstimatedDuration(times.RsyncSeconds);
+        }
+    }
+
+    private void ApplyMeasuredClearRates(CacheSizeResponse result)
+    {
+        ApplyMeasuredClearRates(
+            result,
+            _stateService.GetCacheClearRate(CacheDeleteMode.Preserve),
+            _stateService.GetCacheClearRate(CacheDeleteMode.Full),
+            _stateService.GetCacheClearRate(CacheDeleteMode.Rsync));
+    }
+
+    private static double SecondsAtMeasuredRate(long totalFiles, CacheClearRate rate)
+    {
+        return totalFiles * rate.DurationSeconds / rate.FilesDeleted;
+    }
+
     private static string FormatEstimatedDuration(double seconds)
     {
         if (seconds < 1)
@@ -2150,6 +2195,7 @@ public partial class CacheManagementService
                     usedCacheSizeAtScan,
                     usedCacheSizeByMount);
                 freshResult.IsCached = false;
+                ApplyMeasuredClearRates(freshResult);
                 return freshResult;
             }
             // Cancelled/failed force scan: fall back to the last good result (stale is
@@ -2191,6 +2237,7 @@ public partial class CacheManagementService
         // Return a copy: IsCached belongs to this response, not to the shared persisted object.
         var cachedResult = CopyCacheSizeResponse(_cachedCacheScan.ScanResult, isCached: true);
         SyncScanTimestamp(cachedResult, _cachedCacheScan.ScannedAtUtc);
+        ApplyMeasuredClearRates(cachedResult);
         return cachedResult;
     }
 

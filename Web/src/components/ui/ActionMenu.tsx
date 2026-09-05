@@ -38,7 +38,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   const triggerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { present, closing, position } = useAnchoredPanel({
+  const { present, closing, position, anchorWidth } = useAnchoredPanel({
     open: isOpen,
     anchorRef: triggerRef,
     panelRef: dropdownRef,
@@ -179,6 +179,10 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
             style={{
               top: position.top,
               left: position.left,
+              // A panel narrower than its trigger sticks out past the trigger's far edge and
+              // reads as misplaced, so the trigger's measured width is the panel's floor, the
+              // same way EnhancedDropdown sizes its own listbox.
+              minWidth: anchorWidth,
               pointerEvents: closing ? 'none' : undefined
             }}
             onKeyDown={handleMenuKeyDown}

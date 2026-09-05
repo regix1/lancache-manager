@@ -56,8 +56,16 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import StatusDot from '@components/common/StatusDot';
 import '../managementSectionContent.css';
-import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
+import type {
+  PersistentPrefillContainerDto,
+  PersistentPrefillServiceId
+} from '@components/features/prefill/persistentPrefillTypes';
 import { usePersistentPrefillContainerSignalR } from '@components/features/management/schedules/scheduled-prefill/usePersistentPrefillContainerSignalR';
+import { SCHEDULED_PREFILL_SERVICE_RUN_ORDER } from '@components/features/management/schedules/scheduled-prefill/constants';
+import type {
+  ScheduledPrefillConfigDto,
+  ScheduledPrefillSchedule
+} from '@components/features/management/schedules/scheduled-prefill/types';
 import type {
   DaemonSessionCreatedEvent,
   DaemonSessionUpdatedEvent,
@@ -549,12 +557,56 @@ const BannedUserCard: React.FC<{
   );
 };
 
+/**
+ * The saved schedules that run inside one container, in the order the config stores them: the
+ * platform's primary schedule (named "Default", written first by the server's v6 migration) and
+ * then the ones added after it, which both creators append. A container's `service` and a config
+ * service's `serviceId` are the same union, so the platform is matched on that value directly.
+ */
+const persistentContainerSchedules = (
+  config: ScheduledPrefillConfigDto | null,
+  service: PersistentPrefillServiceId
+): ScheduledPrefillSchedule[] =>
+  SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((serviceKey) => config?.[serviceKey]).find(
+    (serviceConfig) => serviceConfig?.serviceId === service
+  )?.schedules ?? [];
+
+/**
+ * How often a saved schedule runs, in the words the Schedules page uses for the same schedule: the
+ * two interval sentinels read as that page's next-run summary, a plain interval as its interval
+ * label. A saved recurrence is decided first because it runs in preference to the interval it sits
+ * beside, which would otherwise claim the line and word it as paused.
+ */
+const scheduleIntervalLabel = (
+  schedule: ScheduledPrefillSchedule,
+  t: ReturnType<typeof useTranslation>['t']
+): string => {
+  const nextRunKey = 'management.schedules.services.scheduledPrefill.config.nextRunSummary';
+  if (schedule.customSchedule) {
+    return t(`${nextRunKey}.customSchedule`);
+  }
+  if (schedule.intervalHours === 0) {
+    return t(`${nextRunKey}.paused`);
+  }
+  if (schedule.intervalHours === -1) {
+    return t(`${nextRunKey}.startupOnly`);
+  }
+  if (schedule.intervalHours < 1) {
+    return t('management.schedules.everyNMinutes', {
+      count: Math.round(schedule.intervalHours * 60)
+    });
+  }
+  return t('management.schedules.everyNHours', { count: schedule.intervalHours });
+};
+
 // Persistent container card — read-only monitoring, dot-row status idiom (tone dot + plain
 // text, no pill wall) modeled on ScheduledPrefillPersistentCard's status line but split into
 // two facts (running state, login state) since both need to be independently scannable here.
-const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerDto }> = ({
-  container
-}) => {
+// The row expands to the schedules that run in the container, mirroring SessionCard's disclosure.
+const PersistentContainerCard: React.FC<{
+  container: PersistentPrefillContainerDto;
+  schedules: ScheduledPrefillSchedule[];
+}> = ({ container, schedules }) => {
   const { t } = useTranslation();
   const baseKey = 'management.prefillSessions.persistentSessions';
   const serviceId = resolveServiceId(container.service);
@@ -584,38 +636,104 @@ const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerD
 
   const isPrefilling = isRunning && (container.isPrefilling ?? false);
 
+  const [isSchedulesExpanded, setIsSchedulesExpanded] = useState(false);
+  const toggleSchedules = () => setIsSchedulesExpanded((expanded) => !expanded);
+
   return (
-    <div className="mgmt-row">
-      <StatusDot tone={runTone} label={runLabel} />
-      <div className="mgmt-row__body">
-        <div className="session-row__titleline">
-          <span className="mgmt-row__title">{displayName}</span>
+    <div className="session-item">
+      <div
+        className="mgmt-row mgmt-row--interactive focus-ring--inset session-row"
+        aria-expanded={isSchedulesExpanded}
+        {...rowToggleHandlers(toggleSchedules)}
+      >
+        <StatusDot tone={runTone} label={runLabel} />
+        <div className="mgmt-row__body">
+          <div className="session-row__titleline">
+            <span className="mgmt-row__title">{displayName}</span>
+            <Badge
+              variant="neutral"
+              className="badge-count"
+              ariaLabel={t(`${baseKey}.scheduleCount`, { count: schedules.length })}
+            >
+              {schedules.length}
+            </Badge>
+          </div>
+          <div className="mgmt-row__meta session-row__meta">
+            {showLoginState && <span>{loginLabel}</span>}
+            {isPrefilling && (
+              <span>
+                {container.currentAppName
+                  ? t(`${baseKey}.prefilling`, { game: container.currentAppName })
+                  : t(`${baseKey}.prefillingGeneric`)}
+                {(container.totalBytesTransferred ?? 0) > 0
+                  ? ` · ${formatBytes(container.totalBytesTransferred ?? 0)}`
+                  : ''}
+              </span>
+            )}
+            {/* The same date the scheduled prefill card shows, because it is the same fact. This row
+                used to render the daemon's raw token expiry, which for Steam and Epic sits months
+                past the date the manager actually flags the session (ShouldFlagNeedsRelogin measures
+                the validity window, not the token), so it promised a login that was already due. */}
+            {container.isRunning && !isAnonymous && (
+              <span>
+                {t('prefill.persistent.reloginRequiredBy')}{' '}
+                <FormattedTimestamp timestamp={container.authExpiresAtUtc} />
+              </span>
+            )}
+            <span className="font-mono">{container.sessionId}</span>
+          </div>
         </div>
-        <div className="mgmt-row__meta session-row__meta">
-          {showLoginState && <span>{loginLabel}</span>}
-          {isPrefilling && (
-            <span>
-              {container.currentAppName
-                ? t(`${baseKey}.prefilling`, { game: container.currentAppName })
-                : t(`${baseKey}.prefillingGeneric`)}
-              {(container.totalBytesTransferred ?? 0) > 0
-                ? ` · ${formatBytes(container.totalBytesTransferred ?? 0)}`
-                : ''}
-            </span>
-          )}
-          {/* The same date the scheduled prefill card shows, because it is the same fact. This row
-              used to render the daemon's raw token expiry, which for Steam and Epic sits months
-              past the date the manager actually flags the session (ShouldFlagNeedsRelogin measures
-              the validity window, not the token), so it promised a login that was already due. */}
-          {container.isRunning && !isAnonymous && (
-            <span>
-              {t('prefill.persistent.reloginRequiredBy')}{' '}
-              <FormattedTimestamp timestamp={container.authExpiresAtUtc} />
-            </span>
-          )}
-          <span className="font-mono">{container.sessionId}</span>
-        </div>
+        <Button
+          type="button"
+          variant="accordion"
+          size="sm"
+          open={isSchedulesExpanded}
+          className="session-row__chevron btn-icon-square btn-icon-square--sm pointer-target-44"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleSchedules();
+          }}
+          aria-label={
+            isSchedulesExpanded
+              ? t('ui.accordion.collapseSection')
+              : t('ui.accordion.expandSection')
+          }
+          aria-expanded={isSchedulesExpanded}
+        >
+          <ChevronDown
+            className={`w-4 h-4 transition duration-200 ease-out${
+              isSchedulesExpanded ? ' rotate-180 text-themed-accent' : ' rotate-0 text-themed-muted'
+            }`}
+          />
+        </Button>
       </div>
+
+      <CollapsibleRegion open={isSchedulesExpanded} contentClassName="mgmt-row-detail">
+        <div className="session-detail">
+          <p className="mgmt-subhead caps-label">{t(`${baseKey}.schedules`)}</p>
+          {schedules.length === 0 ? (
+            <EmptyState variant="text" title={t(`${baseKey}.noSchedules`)} />
+          ) : (
+            <div className="mgmt-list divided-list">
+              {schedules.map((schedule) => (
+                <div key={schedule.id} className="mgmt-row">
+                  <div className="mgmt-row__body">
+                    <div className="session-row__titleline">
+                      <span className="mgmt-row__title block truncate">{schedule.name}</span>
+                      <Badge variant={schedule.enabled ? 'success' : 'neutral'}>
+                        {schedule.enabled ? t('common.on') : t('common.off')}
+                      </Badge>
+                    </div>
+                    <div className="mgmt-row__meta session-row__meta">
+                      <span>{scheduleIntervalLabel(schedule, t)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </CollapsibleRegion>
     </div>
   );
 };
@@ -651,6 +769,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   );
   const [loadingPersistent, setLoadingPersistent] = useState(true);
   const [persistentError, setPersistentError] = useState<string | null>(null);
+  // The saved schedules each container runs. Stays null against a server that predates named
+  // schedules, where getScheduledPrefillConfig throws rather than return a v5 config
+  // (api.service.ts:372-376); the rows then list nothing and the panel is otherwise unaffected.
+  const [scheduledPrefillConfig, setScheduledPrefillConfig] =
+    useState<ScheduledPrefillConfigDto | null>(null);
 
   // Sessions state
   const [sessions, setSessions] = useState<PrefillSessionDto[]>([]);
@@ -773,13 +896,18 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     }
   }, [onError]);
 
-  // Load persistent containers (system-owned; separate list from guest live sessions)
+  // Load persistent containers (system-owned; separate list from guest live sessions) together
+  // with the schedules they run, so a row and its schedule count land in the same render.
   const loadPersistentContainers = useCallback(async () => {
     setLoadingPersistent(true);
     setPersistentError(null);
     try {
-      const containers = await ApiService.getPersistentPrefillContainers();
+      const [containers, config] = await Promise.all([
+        ApiService.getPersistentPrefillContainers(),
+        ApiService.getScheduledPrefillConfig().catch(() => null)
+      ]);
       setPersistentContainers(containers);
+      setScheduledPrefillConfig(config);
     } catch (error) {
       setPersistentError(getErrorMessage(error));
       onError(getErrorMessage(error));
@@ -1199,7 +1327,14 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             ) : (
               <div className="mgmt-list divided-list">
                 {persistentContainers.map((container) => (
-                  <PersistentContainerCard key={container.sessionId} container={container} />
+                  <PersistentContainerCard
+                    key={container.sessionId}
+                    container={container}
+                    schedules={persistentContainerSchedules(
+                      scheduledPrefillConfig,
+                      container.service
+                    )}
+                  />
                 ))}
               </div>
             )}

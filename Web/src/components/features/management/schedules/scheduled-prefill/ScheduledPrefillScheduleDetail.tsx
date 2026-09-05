@@ -6,6 +6,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { ChevronDown } from 'lucide-react';
 import StatusDot from '@components/common/StatusDot';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useNotifications } from '@contexts/notifications';
 import ApiService from '@services/api.service';
 import type {
   PersistentPrefillContainerDto,
@@ -88,10 +89,13 @@ interface ScheduledPrefillServiceScheduleRowProps {
   /** True while this service's own run is in flight, which is when Cancel replaces nothing and appears. */
   isRunning: boolean;
   cancelPending: boolean;
+  /** True while this row's Enable or Disable save is in flight, which holds the Actions cluster disabled until it lands. */
+  enablePending: boolean;
   onRun: (serviceId: ScheduledPrefillServiceId, scheduleId: string) => void;
   onCancel: (serviceId: ScheduledPrefillServiceId, scheduleId: string) => void;
   onOpen: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
-  onEnable: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
+  /** Flips the schedule between on and off and saves it. */
+  onToggleEnabled: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
   onIntervalChange: (
     serviceKey: ScheduledPrefillServiceKey,
     scheduleId: string,
@@ -130,10 +134,11 @@ function ScheduledPrefillServiceScheduleRow({
   runDisabled,
   isRunning,
   cancelPending,
+  enablePending,
   onRun,
   onCancel,
   onOpen,
-  onEnable,
+  onToggleEnabled,
   onIntervalChange,
   onCustomScheduleChange
 }: ScheduledPrefillServiceScheduleRowProps) {
@@ -143,6 +148,13 @@ function ScheduledPrefillServiceScheduleRow({
   const platformUi = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
   const ServiceIcon = platformUi.icon;
   const [actionsOpen, setActionsOpen] = useState(false);
+  // One rule for the whole Actions cluster, read by the trigger and by every item. The trigger
+  // alone is not enough: the menu is portalled, so one left open when the card turns disabled (a
+  // config reload that drops the version gate, or the page-level disable) keeps its items mounted
+  // and clickable. An Enable save in flight disables them for the same reason, so a second click
+  // cannot race the first one's whole-config round-trip. A schedule that is merely switched off
+  // is NOT disabled here, because the Enable item is what brings it back.
+  const actionsDisabled = disabled || enablePending;
 
   return (
     <div role="row" className={`scheduled-prefill-schedule-table__row ${platformUi.rowClassName}`}>
@@ -261,7 +273,7 @@ function ScheduledPrefillServiceScheduleRow({
               size="md"
               open={actionsOpen}
               className="w-full"
-              disabled={disabled}
+              disabled={actionsDisabled}
               onClick={() => setActionsOpen((open) => !open)}
               aria-expanded={actionsOpen}
               aria-haspopup="menu"
@@ -271,24 +283,27 @@ function ScheduledPrefillServiceScheduleRow({
             </Button>
           }
         >
-          {isRunning ? (
+          {isRunning && (
             <ActionMenuDangerItem
               onClick={() => {
                 setActionsOpen(false);
                 onCancel(serviceId, scheduleId);
               }}
-              disabled={cancelPending}
+              disabled={actionsDisabled || cancelPending}
             >
               {cancelPending && <LoadingSpinner inline size="xs" />}
               {t('management.schedules.services.scheduledPrefill.cancelService')}
             </ActionMenuDangerItem>
-          ) : (
+          )}
+          {/* Run only belongs to a schedule that is switched on; an off row offers Open and
+              Enable, and a run already in flight keeps its Cancel whatever the switch says. */}
+          {!isRunning && enabled && (
             <ActionMenuItem
               onClick={() => {
                 setActionsOpen(false);
                 onRun(serviceId, scheduleId);
               }}
-              disabled={runDisabled || runPending}
+              disabled={actionsDisabled || runDisabled || runPending}
             >
               {runPending && <LoadingSpinner inline size="xs" />}
               {t('management.schedules.services.scheduledPrefill.runService')}
@@ -299,19 +314,19 @@ function ScheduledPrefillServiceScheduleRow({
               setActionsOpen(false);
               onOpen(serviceKey, scheduleId);
             }}
+            disabled={actionsDisabled}
           >
             {t(`${baseKey}.records.open`)}
           </ActionMenuItem>
-          {!enabled && (
-            <ActionMenuItem
-              onClick={() => {
-                setActionsOpen(false);
-                onEnable(serviceKey, scheduleId);
-              }}
-            >
-              {t(`${baseKey}.records.enable`)}
-            </ActionMenuItem>
-          )}
+          <ActionMenuItem
+            onClick={() => {
+              setActionsOpen(false);
+              onToggleEnabled(serviceKey, scheduleId);
+            }}
+            disabled={actionsDisabled}
+          >
+            {t(`${baseKey}.records.${enabled ? 'disable' : 'enable'}`)}
+          </ActionMenuItem>
         </ActionMenu>
       </div>
     </div>
@@ -330,6 +345,7 @@ export function ScheduledPrefillScheduleDetail({
 }: ScheduledPrefillScheduleDetailProps) {
   const { t } = useTranslation();
   const { on, off, isConnected } = useSignalR();
+  const { addNotification } = useNotifications();
   // Persistent-container run/login state now flows through the unified activity registry; the
   // fetched container list stays the pre-seed fallback (activity.isActive(...) || existing).
   const activity = useActivityStatus();
@@ -342,6 +358,8 @@ export function ScheduledPrefillScheduleDetail({
   const [error, setError] = useState<string | null>(null);
   /** Services whose cancel request is in flight, so the row can show it without waiting for SignalR. */
   const [cancelingServices, setCancelingServices] = useState<ScheduledPrefillServiceId[]>([]);
+  /** Schedules whose Enable save is in flight, so the row's Actions button shows the wait. */
+  const [enablingSchedules, setEnablingSchedules] = useState<string[]>([]);
   const [modalOpened, setModalOpened] = useState(false);
   const [modalRecord, setModalRecord] = useState<{
     serviceKey: ScheduledPrefillServiceKey;
@@ -440,15 +458,17 @@ export function ScheduledPrefillScheduleDetail({
   });
 
   // Card-level per-service save. Goes through the same whole-config round-trip the Configure
-  // modal uses; optimistic so the control never flashes back to the old value.
+  // modal uses; optimistic so the control never flashes back to the old value. Returns whether
+  // the server took it, because a failure only reverts and surfaces the message here - a caller
+  // that announces its own outcome has no other way to tell the two apart.
   const saveServiceConfig = useCallback(
     async (
       serviceKey: ScheduledPrefillServiceKey,
       scheduleId: string,
       patch: { enabled?: boolean; intervalHours?: number; customSchedule?: CustomSchedule | null }
-    ) => {
+    ): Promise<boolean> => {
       if (!config) {
-        return;
+        return false;
       }
 
       const previous = config;
@@ -466,9 +486,11 @@ export function ScheduledPrefillScheduleDetail({
       try {
         await ApiService.updateScheduledPrefillConfig(updated);
         await refreshSchedule();
+        return true;
       } catch (saveError: unknown) {
         setConfig(previous);
         setError(getErrorMessage(saveError));
+        return false;
       }
     },
     [config, refreshSchedule]
@@ -774,11 +796,35 @@ export function ScheduledPrefillScheduleDetail({
     setModalOpened(true);
   };
 
-  const handleEnableSchedule = async (
+  // Enable and Disable are the row actions whose whole effect is a saved config change, so
+  // without an announcement they read as nothing happening: the row flips a dot and the menu
+  // has already closed. The pending list holds the trigger disabled for the round-trip (no
+  // spinner: it flashed for a split second on every click), then the page's own notification
+  // convention carries the outcome. A failure needs nothing extra here - saveServiceConfig
+  // reverts the row and writes the reason into the summary error line.
+  const handleToggleSchedule = async (
     serviceKey: ScheduledPrefillServiceKey,
     scheduleId: string
   ) => {
-    await saveServiceConfig(serviceKey, scheduleId, { enabled: true });
+    const schedule = config?.[serviceKey].schedules.find((item) => item.id === scheduleId);
+    const enabled = !schedule?.enabled;
+    setEnablingSchedules((pending) => [...pending, scheduleId]);
+    const saved = await saveServiceConfig(serviceKey, scheduleId, { enabled });
+    setEnablingSchedules((pending) => pending.filter((id) => id !== scheduleId));
+    if (!saved) {
+      return;
+    }
+    addNotification({
+      type: 'generic',
+      status: 'completed',
+      message: t(`${baseKey}.records.${enabled ? 'enabled' : 'disabled'}`, {
+        service: t(`${baseKey}.services.${serviceKey}`),
+        name: schedule?.name
+      }),
+      // The Schedules-page key this card owns, so the toast picks up the card's notification
+      // style. The per-platform key names no service on that page.
+      details: { notificationType: 'success', serviceKey: 'scheduledPrefill' }
+    });
   };
 
   const isInitialLoading = loading && !config;
@@ -871,13 +917,14 @@ export function ScheduledPrefillScheduleDetail({
                       runDisabled={runServiceDisabled || backendUpdateRequired || row.isRunning}
                       isRunning={row.isRunning && row.operationId !== null}
                       cancelPending={cancelingServices.includes(row.serviceId)}
+                      enablePending={enablingSchedules.includes(row.scheduleId)}
                       onRun={onRunService}
                       onCancel={(serviceId, scheduleId) =>
                         void handleCancelService(serviceId, scheduleId)
                       }
                       onOpen={handleOpenSchedule}
-                      onEnable={(serviceKey, scheduleId) =>
-                        void handleEnableSchedule(serviceKey, scheduleId)
+                      onToggleEnabled={(serviceKey, scheduleId) =>
+                        void handleToggleSchedule(serviceKey, scheduleId)
                       }
                       onIntervalChange={(serviceKey, scheduleId, hours) =>
                         void handleServiceIntervalChange(serviceKey, scheduleId, hours)

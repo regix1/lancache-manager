@@ -3032,8 +3032,6 @@
       "showLess": "Show less",
       "loadMore": "Load more ({{count}})",
       "showingUrls": "Showing {{showing}} of {{total}} URLs",
-      "cacheFileLocations": "Cache File Locations ({{count}}):",
-      "showingPaths": "Showing {{showing}} of {{total}} paths",
       "unknownGameBadge": "Unknown",
       "partialEvictedBadge": "{{count}} evicted",
       "removeEvictedTooltip": "Remove evicted download records and log entries. Active cached files will not be deleted.",
@@ -3907,15 +3905,22 @@
             "modalDescription": "Configure each platform in one place: login, persistent container, and schedule settings.",
             "servicesTitle": "Services",
             "records": {
-              "label": "Saved schedules",
+              "label": "Saved schedule",
               "name": "Schedule name",
-              "new": "New schedule",
+              "new": "Add a new schedule",
               "newName": "New schedule",
               "open": "Open",
               "enable": "Enable",
-              "saveAs": "Save as",
+              "disable": "Disable",
+              "enableSchedule": "Enable this schedule",
+              "disableSchedule": "Disable this schedule",
+              "delete": "Delete this schedule",
+              "saveAs": "Copy schedule",
               "copySuffix": "copy",
               "nameRequired": "Enter a schedule name before saving.",
+              "nameTaken": "A schedule named \"{{name}}\" already exists for {{service}}. Choose a different name.",
+              "enabled": "{{service}} schedule \"{{name}}\" is now enabled.",
+              "disabled": "{{service}} schedule \"{{name}}\" is now disabled.",
               "confirmEnabledSaveTitle": "Save changes to an enabled schedule?",
               "confirmEnabledSaveBody": "At least one schedule that is enabled on the server will be changed or removed. It can run with the updated settings as soon as its next run is due."
             },
@@ -3988,14 +3993,6 @@
               "loadingStatus": "Loading container status...",
               "manualLogin": "Log in manually",
               "reuseIntegrationLogin": "Use my saved login",
-              "reuseIntegrationChecking": "Checking integration login availability...",
-              "reuseIntegrationUnavailable": {
-                "not-authenticated": "Sign in on the Integrations page before reusing this login.",
-                "credentials-incomplete": "Complete the integration sign-in before reusing this login.",
-                "account-required": "Sign in with an individual user account to save or reuse logins.",
-                "no-saved-login": "Sign in with your account to save a reusable login.",
-                "unknown": "The integration login is unavailable."
-              },
               "pipelineLabel": "Container status",
               "steps": {
                 "container": "Container",
@@ -4209,7 +4206,17 @@
           "description": "Scans your cache directory and labels each chunk of cached data with the game it belongs to, using the Steam and Epic depot mappings. Incremental scans skip games already detected; previously 'Unknown' depots are resolved as new mappings arrive.",
           "summary": "Labels cached data with the game it belongs to.",
           "gain": "Newly downloaded games appear in the game list sooner, and previously unknown depots are resolved as new mappings arrive",
-          "loss": "Games downloaded between scans won't show up in the game list until the next detection run"
+          "loss": "Games downloaded between scans won't show up in the game list until the next detection run",
+          "scanModeLabel": "Scheduled Scan Mode",
+          "scanModeHelp": "Controls automatic runs and this task's Run Now button.",
+          "scanModeFailed": "Failed to update scheduled scan mode for {{service}}",
+          "modes": {
+            "full": "Full",
+            "incremental": "Incremental",
+            "hybrid": "Hybrid",
+            "incrementalNote": "Only scans content cached since the last detection run, so games already detected are skipped.",
+            "hybridNote": "Keeps running incremental scans until the last full scan is a week old, then runs one full scan."
+          }
         },
         "gameImageFetch": {
           "displayName": "Game Artwork",
@@ -4400,7 +4407,11 @@
         },
         "prefilling": "Prefilling {{game}}",
         "prefillingGeneric": "Prefilling",
-        "summary": "Long-lived daemon containers managed from Schedules."
+        "summary": "Long-lived daemon containers managed from Schedules.",
+        "schedules": "Schedules",
+        "noSchedules": "No saved schedules",
+        "scheduleCount": "{{count}} schedule",
+        "scheduleCount_other": "{{count}} schedules"
       },
       "tooltips": {
         "gamesPrefilled": "{{count}} game prefilled",
@@ -7419,8 +7430,7 @@
       "complete": "Eviction removal complete.",
       "cancelled": "Eviction removal cancelled.",
       "failed": "Eviction removal failed.",
-      "refreshingDetection": "Refreshing cache detection data...",
-      "refreshingDetectionCounted": "Refreshing cache detection data ({{filesChecked}} of {{filesTotal}} files checked)..."
+      "refreshingDetection": "Refreshing cache detection data..."
     },
     "evictionScan": {
       "scanning": "Scanning cache files...",
@@ -7429,7 +7439,6 @@
       "finalizing": "Reconciling evicted downloads...",
       "postProcessing": "Updating detection records...",
       "refreshingSummary": "Refreshing detection summary of cached files...",
-      "refreshingSummaryCounted": "Refreshing detection summary ({{filesChecked}} of {{filesTotal}} files checked)...",
       "complete": "Scan complete: {{totalProcessed}} processed, {{totalEvicted}} evicted, {{totalUnEvicted}} un-evicted",
       "cancelled": "Eviction scan cancelled",
       "error": {

@@ -67,6 +67,7 @@ import {
   type ScheduledPrefillEditActionKind,
   type ScheduledPrefillEditSessionServiceId
 } from './scheduledPrefillEditSessionLedger';
+import { uniqueScheduleName } from './scheduleNames';
 import { createUuid } from '@utils/uuid';
 import { MS_PER_DAY } from '../custom-schedule/customSchedulePreview';
 import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
@@ -1106,7 +1107,20 @@ export function ScheduledPrefillConfigModal({
 
     for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
       const serviceName = t(`${baseKey}.services.${serviceKey}`);
+      // The server checks names on every schedule of a platform, switched off ones included, and
+      // rejects the whole config over one collision. validateServiceConfig stands down for a
+      // disabled schedule, so the name rules cannot live inside it.
+      const seenNames = new Set<string>();
       for (const schedule of config[serviceKey].schedules) {
+        const name = schedule.name.trim();
+        if (!name) {
+          return t(`${baseKey}.records.nameRequired`);
+        }
+        if (seenNames.has(name.toLowerCase())) {
+          return t(`${baseKey}.records.nameTaken`, { name, service: serviceName });
+        }
+        seenNames.add(name.toLowerCase());
+
         const error = validateServiceConfig(schedule, serviceKey, serviceName, t);
         if (error) {
           return error;
@@ -1253,7 +1267,10 @@ export function ScheduledPrefillConfigModal({
     setSaveError(null);
   };
 
-  const handleAddSchedule = (serviceKey: ScheduledPrefillServiceKey) => {
+  // Both creators mint the id before the state update and hand it back: the panel selects the
+  // record it just made, which is the only sign the user gets that anything happened.
+  const handleAddSchedule = (serviceKey: ScheduledPrefillServiceKey): string => {
+    const createdScheduleId = createUuid();
     setConfig((current) => {
       const source = current?.[serviceKey].schedules[0];
       if (!current || !source) {
@@ -1267,8 +1284,11 @@ export function ScheduledPrefillConfigModal({
             ...current[serviceKey].schedules,
             {
               ...source,
-              id: createUuid(),
-              name: t(`${baseKey}.records.newName`),
+              id: createdScheduleId,
+              name: uniqueScheduleName(
+                t(`${baseKey}.records.newName`),
+                current[serviceKey].schedules.map((schedule) => schedule.name)
+              ),
               enabled: false
             }
           ]
@@ -1277,9 +1297,14 @@ export function ScheduledPrefillConfigModal({
     });
     setValidationError(null);
     setSaveError(null);
+    return createdScheduleId;
   };
 
-  const handleDuplicateSchedule = (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => {
+  const handleDuplicateSchedule = (
+    serviceKey: ScheduledPrefillServiceKey,
+    scheduleId: string
+  ): string => {
+    const createdScheduleId = createUuid();
     setConfig((current) => {
       const source = current?.[serviceKey].schedules.find((schedule) => schedule.id === scheduleId);
       if (!current || !source) {
@@ -1293,9 +1318,11 @@ export function ScheduledPrefillConfigModal({
             ...current[serviceKey].schedules,
             {
               ...source,
-              id: createUuid(),
-              name: `${source.name} ${t(`${baseKey}.records.copySuffix`)}`,
-              enabled: false
+              id: createdScheduleId,
+              name: uniqueScheduleName(
+                `${source.name} ${t(`${baseKey}.records.copySuffix`)}`,
+                current[serviceKey].schedules.map((schedule) => schedule.name)
+              )
             }
           ]
         }
@@ -1303,6 +1330,7 @@ export function ScheduledPrefillConfigModal({
     });
     setValidationError(null);
     setSaveError(null);
+    return createdScheduleId;
   };
 
   const handleDeleteSchedule = (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => {

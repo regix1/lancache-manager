@@ -153,8 +153,7 @@ public sealed partial class GameCacheDetectionDataService
     }
 
     public async Task<DetectionOperationResponse?> LoadDetectionAsync(
-        CancellationToken cancellationToken = default,
-        bool includeCacheFilePaths = true)
+        CancellationToken cancellationToken = default)
     {
         // A summary is derived state. Repair a missing row before returning cached detections so
         // existing detection rows can never be presented with authoritative zero totals.
@@ -162,8 +161,8 @@ public sealed partial class GameCacheDetectionDataService
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var cachedGames = await LoadGameEntitiesAsync(dbContext, includeCacheFilePaths, cancellationToken);
-        var cachedServices = await LoadServiceEntitiesAsync(dbContext, includeCacheFilePaths, cancellationToken);
+        var cachedGames = await dbContext.CachedGameDetections.AsNoTracking().ToListAsync(cancellationToken);
+        var cachedServices = await dbContext.CachedServiceDetections.AsNoTracking().ToListAsync(cancellationToken);
 
         var games = cachedGames.Select(ToGameCacheInfo).ToList();
         var services = cachedServices.Select(ToServiceCacheInfo).ToList();
@@ -818,17 +817,17 @@ public sealed partial class GameCacheDetectionDataService
     }
 
     /// <summary>
-    /// Recomputes deduplicated on-disk totals from persisted detection rows and stores the singleton summary row.
+    /// Re-aggregates the singleton summary row from the sizes already persisted on the detection
+    /// rows, zeroing rows the eviction flow has since marked evicted. Touches no cache file.
     /// Runs after detection mutations and when a read discovers that the derived row is missing.
     /// </summary>
     public async Task RefreshDiskSummaryAsync(
-        CancellationToken cancellationToken = default,
-        Action<int, int>? onPathProgress = null)
+        CancellationToken cancellationToken = default)
     {
         await _summaryRefreshLock.WaitAsync(cancellationToken);
         try
         {
-            await RefreshDiskSummaryCoreAsync(cancellationToken, onPathProgress);
+            await RefreshDiskSummaryCoreAsync(cancellationToken);
         }
         finally
         {
@@ -870,18 +869,12 @@ public sealed partial class GameCacheDetectionDataService
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task RefreshDiskSummaryCoreAsync(
-        CancellationToken cancellationToken,
-        Action<int, int>? onPathProgress = null)
+    private async Task RefreshDiskSummaryCoreAsync(CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Ordered by Id so path-claiming attribution (first entity to see a shared path wins it)
-        // is deterministic across refreshes instead of depending on Postgres's unspecified
-        // default row order, which would otherwise let per-row bytes flap between runs for
-        // games/services that share cache paths.
         var cachedGames = await dbContext.CachedGameDetections.OrderBy(g => g.Id).ToListAsync(cancellationToken);
         var cachedServices = await dbContext.CachedServiceDetections.OrderBy(s => s.Id).ToListAsync(cancellationToken);
 
@@ -898,83 +891,55 @@ public sealed partial class GameCacheDetectionDataService
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var games = cachedGames.Select(ToGameCacheInfo).ToList();
-        var services = cachedServices.Select(ToServiceCacheInfo).ToList();
-        var attributed = GamesOnDiskCalculator.ComputeAttributedCacheFromDisk(games, services, onPathProgress);
+        // Sizes come from the last scan that measured them: detection already resolved which row
+        // owns each shared cache file, so re-deriving sizes here would only repeat that work.
+        // Eviction is the one state change this refresh knows about, so an evicted row drops to
+        // zero and a partially evicted row keeps its scanned size until the next full detection.
+        ulong gameBytes = 0;
+        var activeGameCount = 0;
 
-        ulong retainedGameBytes = 0;
-        var retainedGameKeys = new List<string>();
-
-        for (var i = 0; i < cachedGames.Count; i++)
+        foreach (var cached in cachedGames)
         {
-            var cached = cachedGames[i];
-            cancellationToken.ThrowIfCancellationRequested();
             if (cached.IsEvicted)
             {
                 cached.TotalSizeBytes = 0;
                 continue;
             }
 
-            // games is index-aligned with cachedGames (Select above); computing the key from it
-            // avoids re-deserializing every row's CacheFilePathsJson a second time just for the key.
-            var key = GamesOnDiskCalculator.GetGameKey(games[i]);
-            if (attributed.GameBytesByKey.TryGetValue(key, out var bytes))
+            gameBytes += cached.TotalSizeBytes;
+            if (cached.TotalSizeBytes > 0)
             {
-                cached.TotalSizeBytes = bytes;
-            }
-            else if (cached.CacheFilesFound > 0 && !attributed.ClaimedElsewhereGameKeys.Contains(key))
-            {
-                // Re-attribution found none of this game's persisted cache paths on disk right now
-                // (e.g. the underlying cache files were reclaimed between the Rust scan and this
-                // refresh), but the game itself was not evicted through the tracked eviction flow.
-                // Trust the last Rust-computed size instead of clobbering it with 0. Excluded here:
-                // games that contributed 0 bytes because at least one of their paths was already
-                // claimed by an earlier active game/service this pass (even if another of their
-                // paths was merely missing from disk) - those bytes are already counted under the
-                // earlier claimant, so retaining this row's persisted size too would double-count
-                // it in the aggregate.
-                retainedGameBytes += cached.TotalSizeBytes;
-                retainedGameKeys.Add(key);
-            }
-            else
-            {
-                cached.TotalSizeBytes = 0;
+                activeGameCount++;
             }
         }
 
-        for (var i = 0; i < cachedServices.Count; i++)
+        ulong serviceBytes = 0;
+        var activeServiceCount = 0;
+
+        foreach (var cached in cachedServices)
         {
-            var cached = cachedServices[i];
-            cancellationToken.ThrowIfCancellationRequested();
             if (cached.IsEvicted)
             {
                 cached.TotalSizeBytes = 0;
                 continue;
             }
 
-            var key = GamesOnDiskCalculator.GetServiceKey(services[i]);
-            cached.TotalSizeBytes = attributed.ServiceBytesByKey.TryGetValue(key, out var bytes) ? bytes : 0;
+            serviceBytes += cached.TotalSizeBytes;
+            if (cached.TotalSizeBytes > 0)
+            {
+                activeServiceCount++;
+            }
         }
 
-        var aggregate = retainedGameBytes == 0
-            ? attributed.Aggregate
-            : attributed.Aggregate with
-            {
-                TotalBytes = attributed.Aggregate.TotalBytes + retainedGameBytes,
-                GameBytes = attributed.Aggregate.GameBytes + retainedGameBytes,
-                ActiveGameCount = attributed.Aggregate.ActiveGameCount + retainedGameKeys.Count
-            };
+        var aggregate = new IdentifiedCacheAggregate(
+            gameBytes + serviceBytes,
+            gameBytes,
+            serviceBytes,
+            activeGameCount,
+            activeServiceCount);
 
         await UpsertDetectionSummaryAsync(dbContext, aggregate, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
-
-        if (retainedGameKeys.Count > 0)
-        {
-            _logger.LogWarning(
-                "[GameDetection] Retained persisted size for {Count} non-evicted game(s) whose cache paths did not resolve on disk during refresh: {Keys}",
-                retainedGameKeys.Count,
-                string.Join(", ", retainedGameKeys));
-        }
 
         _logger.LogInformation(
             "[GameDetection] Refreshed disk summary: {GameCount} games ({GameGb:F2} GB), {ServiceCount} services ({ServiceGb:F2} GB), {IdentifiedGb:F2} GB identified total",
@@ -1265,7 +1230,6 @@ public sealed partial class GameCacheDetectionDataService
                 TotalSizeBytes = game.TotalSizeBytes,
                 DepotIdsJson = JsonSerializer.Serialize(game.DepotIds),
                 SampleUrlsJson = JsonSerializer.Serialize(game.SampleUrls),
-                CacheFilePathsJson = JsonSerializer.Serialize(game.CacheFilePaths),
                 DatasourcesJson = JsonSerializer.Serialize(game.Datasources),
                 Service = game.Service,
                 EpicAppId = game.EpicAppId,
@@ -1295,7 +1259,6 @@ public sealed partial class GameCacheDetectionDataService
                 existing.TotalSizeBytes = cachedGame.TotalSizeBytes;
                 existing.DepotIdsJson = cachedGame.DepotIdsJson;
                 existing.SampleUrlsJson = cachedGame.SampleUrlsJson;
-                existing.CacheFilePathsJson = cachedGame.CacheFilePathsJson;
                 existing.DatasourcesJson = cachedGame.DatasourcesJson;
                 existing.Service = cachedGame.Service;
                 existing.EpicAppId = cachedGame.EpicAppId;
@@ -1519,7 +1482,6 @@ public sealed partial class GameCacheDetectionDataService
                 CacheFilesFound = 0,
                 TotalSizeBytes = 0,
                 SampleUrlsJson = "[]",
-                CacheFilePathsJson = "[]",
                 DatasourcesJson = $"[\"{svc.Datasource}\"]",
                 IsEvicted = true,
                 LastDetectedUtc = now,
@@ -1595,7 +1557,6 @@ public sealed partial class GameCacheDetectionDataService
                 existing.CacheFilesFound = service.CacheFilesFound;
                 existing.TotalSizeBytes = service.TotalSizeBytes;
                 existing.SampleUrlsJson = JsonSerializer.Serialize(service.SampleUrls);
-                existing.CacheFilePathsJson = JsonSerializer.Serialize(service.CacheFilePaths);
                 existing.DatasourcesJson = JsonSerializer.Serialize(service.Datasources);
                 existing.LastDetectedUtc = now;
 
@@ -1616,7 +1577,6 @@ public sealed partial class GameCacheDetectionDataService
                     CacheFilesFound = service.CacheFilesFound,
                     TotalSizeBytes = service.TotalSizeBytes,
                     SampleUrlsJson = JsonSerializer.Serialize(service.SampleUrls),
-                    CacheFilePathsJson = JsonSerializer.Serialize(service.CacheFilePaths),
                     DatasourcesJson = JsonSerializer.Serialize(service.Datasources),
                     LastDetectedUtc = now,
                     CreatedAtUtc = now
@@ -1680,7 +1640,7 @@ public sealed partial class GameCacheDetectionDataService
     /// Deserializes a persisted JSON string-array column. Returns an empty list both when the
     /// column is genuinely empty AND when the JSON fails to parse (logged as a warning) - the two
     /// cases are indistinguishable to callers by design: this backs best-effort display fields
-    /// (sample URLs, cache file paths, datasources), not a required value.
+    /// (sample URLs, datasources), not a required value.
     /// Every service that reads these columns shares this one implementation so the
     /// parse-failure logging cannot drift between them.
     /// </summary>
@@ -1703,103 +1663,6 @@ public sealed partial class GameCacheDetectionDataService
     }
 
     /// <summary>
-    /// Loads game detection rows, optionally excluding the CacheFilePathsJson column at the SQL
-    /// level. That column dominates the table (one JSON element per cache file, millions of paths
-    /// across all rows), so consumers that never read the paths must not pull it into memory.
-    /// Reconstructed entities keep the column at its "[]" default in that case, which
-    /// <see cref="ToGameCacheInfo"/> turns into an empty list.
-    /// </summary>
-    private static async Task<List<CachedGameDetection>> LoadGameEntitiesAsync(
-        AppDbContext dbContext,
-        bool includeCacheFilePaths,
-        CancellationToken cancellationToken)
-    {
-        if (includeCacheFilePaths)
-        {
-            return await dbContext.CachedGameDetections.AsNoTracking().ToListAsync(cancellationToken);
-        }
-
-        var rows = await dbContext.CachedGameDetections.AsNoTracking()
-            .Select(g => new
-            {
-                g.Id,
-                g.GameAppId,
-                g.GameName,
-                g.CacheFilesFound,
-                g.TotalSizeBytes,
-                g.DepotIdsJson,
-                g.SampleUrlsJson,
-                g.DatasourcesJson,
-                g.Service,
-                g.EpicAppId,
-                g.LastDetectedUtc,
-                g.CreatedAtUtc,
-                g.IsEvicted
-            })
-            .ToListAsync(cancellationToken);
-
-        return rows.Select(g => new CachedGameDetection
-        {
-            Id = g.Id,
-            GameAppId = g.GameAppId,
-            GameName = g.GameName,
-            CacheFilesFound = g.CacheFilesFound,
-            TotalSizeBytes = g.TotalSizeBytes,
-            DepotIdsJson = g.DepotIdsJson,
-            SampleUrlsJson = g.SampleUrlsJson,
-            DatasourcesJson = g.DatasourcesJson,
-            Service = g.Service,
-            EpicAppId = g.EpicAppId,
-            LastDetectedUtc = g.LastDetectedUtc,
-            CreatedAtUtc = g.CreatedAtUtc,
-            IsEvicted = g.IsEvicted
-        }).ToList();
-    }
-
-    /// <summary>
-    /// Service-detection counterpart of <see cref="LoadGameEntitiesAsync"/>; a single popular
-    /// service row (e.g. steam) can carry hundreds of thousands of paths in CacheFilePathsJson.
-    /// </summary>
-    private static async Task<List<CachedServiceDetection>> LoadServiceEntitiesAsync(
-        AppDbContext dbContext,
-        bool includeCacheFilePaths,
-        CancellationToken cancellationToken)
-    {
-        if (includeCacheFilePaths)
-        {
-            return await dbContext.CachedServiceDetections.AsNoTracking().ToListAsync(cancellationToken);
-        }
-
-        var rows = await dbContext.CachedServiceDetections.AsNoTracking()
-            .Select(s => new
-            {
-                s.Id,
-                s.ServiceName,
-                s.CacheFilesFound,
-                s.TotalSizeBytes,
-                s.SampleUrlsJson,
-                s.DatasourcesJson,
-                s.LastDetectedUtc,
-                s.CreatedAtUtc,
-                s.IsEvicted
-            })
-            .ToListAsync(cancellationToken);
-
-        return rows.Select(s => new CachedServiceDetection
-        {
-            Id = s.Id,
-            ServiceName = s.ServiceName,
-            CacheFilesFound = s.CacheFilesFound,
-            TotalSizeBytes = s.TotalSizeBytes,
-            SampleUrlsJson = s.SampleUrlsJson,
-            DatasourcesJson = s.DatasourcesJson,
-            LastDetectedUtc = s.LastDetectedUtc,
-            CreatedAtUtc = s.CreatedAtUtc,
-            IsEvicted = s.IsEvicted
-        }).ToList();
-    }
-
-    /// <summary>
     /// Projects a persisted game-detection row onto the wire/domain shape. Single owner for the
     /// projection: the detection service reads the same rows and must produce identical output.
     /// </summary>
@@ -1816,7 +1679,6 @@ public sealed partial class GameCacheDetectionDataService
             TotalSizeBytes = cached.TotalSizeBytes,
             DepotIds = JsonSerializer.Deserialize<List<uint>>(cached.DepotIdsJson) ?? new List<uint>(),
             SampleUrls = DeserializeStringList(cached.SampleUrlsJson, _logger),
-            CacheFilePaths = DeserializeStringList(cached.CacheFilePathsJson, _logger),
             Datasources = DeserializeStringList(datasourcesJson, _logger),
             Service = cached.Service,
             EpicAppId = cached.EpicAppId,
@@ -1838,7 +1700,6 @@ public sealed partial class GameCacheDetectionDataService
             CacheFilesFound = cached.CacheFilesFound,
             TotalSizeBytes = cached.TotalSizeBytes,
             SampleUrls = DeserializeStringList(cached.SampleUrlsJson, _logger),
-            CacheFilePaths = DeserializeStringList(cached.CacheFilePathsJson, _logger),
             Datasources = DeserializeStringList(datasourcesJson, _logger),
             IsEvicted = cached.IsEvicted
         };

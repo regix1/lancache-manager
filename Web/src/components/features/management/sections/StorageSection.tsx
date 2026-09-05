@@ -157,7 +157,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // Local state for evicted items - same pattern as GameCacheDetector's games/services.
   // Items only disappear when explicitly filtered by notification completion.
   // StorageSection needs the FULL GameCacheInfo shape (depot_ids, sample_urls,
-  // cache_file_paths) to render cards correctly, so we fetch directly from
+  // datasources) to render cards correctly, so we fetch directly from
   // /api/games/cached-detection instead of the slim dashboard batch context.
   const [evictedGames, setEvictedGames] = useState<GameCacheInfo[]>([]);
   const [evictedServices, setEvictedServices] = useState<ServiceCacheInfo[]>([]);

@@ -37,12 +37,12 @@
 
   .schedule-interval-picker--ghost .ed-trigger:hover:not(:disabled),
   .schedule-interval-picker--ghost .ed-trigger:focus-visible {
-    background-color: var(--theme-bg-surface) !important;
-    border-color: var(--theme-border-secondary);
+    background-color: var(--theme-input-bg) !important;
+    border-color: var(--theme-input-border);
   }
 
   .schedule-interval-picker--ghost .ed-trigger.ed-trigger--open {
-    background-color: var(--theme-bg-surface) !important;
+    background-color: var(--theme-input-bg) !important;
     border-color: var(--theme-border-focus);
   }
 }
@@ -69,9 +69,9 @@
 .schedule-interval-picker-input {
   width: 4.5rem;
   padding: 5px 0.5rem;
-  background-color: var(--theme-bg-tertiary);
+  background-color: var(--theme-input-bg);
   color: var(--theme-text-primary);
-  border: 1px solid var(--theme-border-primary);
+  border: 1px solid var(--theme-input-border);
   border-radius: var(--theme-border-radius);
   font-size: var(--font-size-md);
   line-height: 1.25rem;

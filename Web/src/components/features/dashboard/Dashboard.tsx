@@ -964,7 +964,7 @@ const Dashboard: React.FC = () => {
                           onChange={(e) => setSearchQuery(e.target.value)}
                           placeholder={t('dashboard.searchHiddenCards')}
                           aria-label={t('dashboard.searchHiddenCards')}
-                          className="w-full pl-10 pr-3 py-2 themed-border-radius-sm text-sm bg-themed-tertiary text-themed-primary border border-themed-primary"
+                          className="themed-input w-full pl-10 pr-3 py-2 text-sm"
                           autoFocus
                         />
                       </div>

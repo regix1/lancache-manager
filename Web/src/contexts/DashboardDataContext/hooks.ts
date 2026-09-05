@@ -38,7 +38,6 @@ export const useStats = (): {
   loading: boolean;
   isRefreshing: boolean;
   error: string | null;
-  connectionStatus: string;
   dataStale: boolean;
   failedSections: { cache: boolean; clients: boolean; services: boolean; dashboard: boolean };
   refreshStats: (forceRefresh?: boolean) => Promise<void>;
@@ -65,7 +64,6 @@ export const useStats = (): {
     loading: context.loading,
     isRefreshing: context.isRefreshing,
     error: context.error,
-    connectionStatus: context.connectionStatus,
     dataStale: context.dataStale,
     failedSections,
     refreshStats: context.refreshData,

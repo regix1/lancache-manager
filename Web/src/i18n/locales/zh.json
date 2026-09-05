@@ -3032,8 +3032,6 @@
       "showLess": "显示较少",
       "loadMore": "加载更多（{{count}}）",
       "showingUrls": "显示 {{total}} 个 URL 中的 {{showing}} 个",
-      "cacheFileLocations": "缓存文件位置（{{count}}）：",
-      "showingPaths": "显示 {{total}} 个路径中的 {{showing}} 个",
       "unknownGameBadge": "未知",
       "partialEvictedBadge": "{{count}} 个已淘汰",
       "removeEvictedTooltip": "移除被淘汰的下载记录和日志条目。活跃的缓存文件不会被删除。",
@@ -3909,13 +3907,20 @@
             "records": {
               "label": "已保存的计划",
               "name": "计划名称",
-              "new": "新建计划",
+              "new": "新增一个计划",
               "newName": "新建计划",
               "open": "打开",
               "enable": "启用",
-              "saveAs": "另存为",
+              "disable": "禁用",
+              "enableSchedule": "启用此计划",
+              "disableSchedule": "禁用此计划",
+              "delete": "删除此计划",
+              "saveAs": "复制计划",
               "copySuffix": "副本",
               "nameRequired": "请先输入计划名称再保存。",
+              "nameTaken": "{{service}} 已存在名为“{{name}}”的计划。请改用其他名称。",
+              "enabled": "{{service}} 计划“{{name}}”已启用。",
+              "disabled": "{{service}} 计划“{{name}}”已禁用。",
               "confirmEnabledSaveTitle": "保存对此已启用计划的更改？",
               "confirmEnabledSaveBody": "服务器上至少一个已启用的计划将被更改或删除。它可能会在下一次到期运行时使用更新后的设置。"
             },
@@ -3988,14 +3993,6 @@
               "loadingStatus": "正在加载容器状态…",
               "manualLogin": "手动登录",
               "reuseIntegrationLogin": "使用我保存的登录",
-              "reuseIntegrationChecking": "正在检查集成登录是否可用…",
-              "reuseIntegrationUnavailable": {
-                "not-authenticated": "请先在“集成”页面登录，再复用此登录。",
-                "credentials-incomplete": "请先完成集成登录，再复用此登录。",
-                "account-required": "请使用个人用户账户登录，以保存或复用登录。",
-                "no-saved-login": "请使用您的账户登录，以保存可复用的登录。",
-                "unknown": "集成登录不可用。"
-              },
               "pipelineLabel": "容器状态",
               "steps": {
                 "container": "容器",
@@ -4209,7 +4206,17 @@
           "description": "扫描您的缓存目录，并使用 Steam 和 Epic 仓库映射将每个缓存数据块标记为所属游戏。增量扫描跳过已检测到的游戏；先前\"未知\"的仓库在新映射到达时被解析。",
           "summary": "识别缓存数据所属的游戏。",
           "gain": "新下载的游戏更快出现在游戏列表中，先前未知的仓库在新映射到达时被解析",
-          "loss": "扫描间隔期间下载的游戏不会出现在游戏列表中，直到下次检测运行"
+          "loss": "扫描间隔期间下载的游戏不会出现在游戏列表中，直到下次检测运行",
+          "scanModeLabel": "计划扫描模式",
+          "scanModeHelp": "控制自动运行和此任务的\"立即运行\"按钮。",
+          "scanModeFailed": "更新 {{service}} 的计划扫描模式失败",
+          "modes": {
+            "full": "完整",
+            "incremental": "增量",
+            "hybrid": "混合",
+            "incrementalNote": "仅扫描自上次检测运行以来缓存的内容，因此会跳过已检测到的游戏。",
+            "hybridNote": "持续运行增量扫描，直到距上次完整扫描满一周，然后运行一次完整扫描。"
+          }
         },
         "gameImageFetch": {
           "displayName": "游戏封面",
@@ -4400,7 +4407,11 @@
         },
         "prefilling": "正在预填充 {{game}}",
         "prefillingGeneric": "正在预填充",
-        "summary": "由计划任务页面管理的常驻守护容器。"
+        "summary": "由计划任务页面管理的常驻守护容器。",
+        "schedules": "计划任务",
+        "noSchedules": "没有已保存的计划任务",
+        "scheduleCount": "{{count}} 个计划任务",
+        "scheduleCount_other": "{{count}} 个计划任务"
       },
       "tooltips": {
         "gamesPrefilled": "已预填充 {{count}} 个游戏",
@@ -7385,8 +7396,7 @@
       "complete": "淘汰移除完成。",
       "cancelled": "淘汰移除已取消。",
       "failed": "淘汰移除失败。",
-      "refreshingDetection": "正在刷新缓存检测数据...",
-      "refreshingDetectionCounted": "正在刷新缓存检测数据（已检查 {{filesChecked}} / {{filesTotal}} 个文件）..."
+      "refreshingDetection": "正在刷新缓存检测数据..."
     },
     "evictionScan": {
       "scanning": "正在扫描缓存文件...",
@@ -7395,7 +7405,6 @@
       "finalizing": "正在核对已淘汰的下载...",
       "postProcessing": "正在更新检测记录...",
       "refreshingSummary": "正在刷新缓存文件检测摘要...",
-      "refreshingSummaryCounted": "正在刷新检测摘要（已检查 {{filesChecked}} / {{filesTotal}} 个文件）...",
       "complete": "扫描完成: 已处理 {{totalProcessed}}，已淘汰 {{totalEvicted}}，已取消淘汰 {{totalUnEvicted}}",
       "cancelled": "淘汰扫描已取消",
       "error": {

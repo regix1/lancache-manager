@@ -68,6 +68,7 @@ import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/ty
 import type {
   NotificationMode,
   NotificationDisplayMode,
+  GameDetectionScanMode,
   ServiceScheduleInfo
 } from '../components/features/management/schedules/types';
 import type { CustomSchedule } from '../components/features/management/schedules/custom-schedule/types';
@@ -3271,6 +3272,22 @@ class ApiService {
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
       console.error('setScheduleNotificationDisplayMode error:', error);
+      throw error;
+    }
+  }
+
+  static async setScheduleScanMode(
+    serviceKey: string,
+    scanMode: GameDetectionScanMode
+  ): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/${serviceKey}/scanMode`,
+        this.getJsonFetchOptions(scanMode, { method: 'PUT' })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('setScheduleScanMode error:', error);
       throw error;
     }
   }

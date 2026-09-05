@@ -14,9 +14,6 @@ public class ServiceCacheInfo
     [System.Text.Json.Serialization.JsonPropertyName("sample_urls")]
     public List<string> SampleUrls { get; set; } = new List<string>();
 
-    [System.Text.Json.Serialization.JsonPropertyName("cache_file_paths")]
-    public List<string> CacheFilePaths { get; set; } = new List<string>();
-
     /// <summary>
     /// List of datasource names where this service's cache files were found.
     /// </summary>

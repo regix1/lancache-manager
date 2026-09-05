@@ -22,6 +22,9 @@ export interface ScheduledPrefillPersistentCardProps {
   container?: PersistentPrefillContainerDto;
   selectedGamesCount: number;
   disabled?: boolean;
+  /** The schedule whose game selection this card manages is switched on. Off greys out the
+   *  selection and the manual download; the container itself stays under the user's control. */
+  scheduleEnabled: boolean;
   statusLoading?: boolean;
   authenticating?: boolean;
   integrationLoginAvailability?: PersistentIntegrationLoginAvailability;

@@ -86,7 +86,7 @@ public class LoadDetectionPartialEvictionProjectionTests
             await seed.SaveChangesAsync();
         }
 
-        var response = await NewDataService(options).LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await NewDataService(options).LoadDetectionAsync();
 
         Assert.NotNull(response);
         var wsus = Assert.Single(response!.Services!, s =>
@@ -113,7 +113,7 @@ public class LoadDetectionPartialEvictionProjectionTests
             await seed.SaveChangesAsync();
         }
 
-        var response = await NewDataService(options).LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await NewDataService(options).LoadDetectionAsync();
 
         Assert.NotNull(response);
         var game = Assert.Single(response!.Games!, g => g.GameAppId == 730);
@@ -135,7 +135,7 @@ public class LoadDetectionPartialEvictionProjectionTests
             await seed.SaveChangesAsync();
         }
 
-        var response = await NewDataService(options).LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await NewDataService(options).LoadDetectionAsync();
 
         Assert.NotNull(response);
         var game = Assert.Single(response!.Games!, g => g.EpicAppId == "fortnite");
@@ -156,7 +156,7 @@ public class LoadDetectionPartialEvictionProjectionTests
             await seed.SaveChangesAsync();
         }
 
-        var response = await NewDataService(options).LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await NewDataService(options).LoadDetectionAsync();
 
         Assert.NotNull(response);
         var game = Assert.Single(response!.Games!, g =>
@@ -182,7 +182,7 @@ public class LoadDetectionPartialEvictionProjectionTests
             await seed.SaveChangesAsync();
         }
 
-        var response = await NewDataService(options).LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await NewDataService(options).LoadDetectionAsync();
 
         Assert.NotNull(response);
         Assert.Contains(response!.Games!, g => g.GameName == "Diablo IV" && g.EvictedDownloadsCount == 1);
@@ -206,7 +206,6 @@ public class LoadDetectionPartialEvictionProjectionTests
                 CacheFilesFound = 177,
                 TotalSizeBytes = 11_000_000,
                 SampleUrlsJson = "[]",
-                CacheFilePathsJson = "[]",
                 DatasourcesJson = "[\"default\"]",
                 IsEvicted = false,
                 LastDetectedUtc = DateTime.UtcNow,
@@ -215,7 +214,7 @@ public class LoadDetectionPartialEvictionProjectionTests
             await seed.SaveChangesAsync();
         }
 
-        var response = await NewDataService(options).LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await NewDataService(options).LoadDetectionAsync();
 
         Assert.NotNull(response);
         Assert.Single(response!.Services!);
@@ -249,7 +248,7 @@ public class LoadDetectionPartialEvictionProjectionTests
             await seed.SaveChangesAsync();
         }
 
-        var response = await NewDataService(options).LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await NewDataService(options).LoadDetectionAsync();
 
         Assert.NotNull(response);
         Assert.Single(response!.Games!, g => g.GameAppId == 1172470);
@@ -271,7 +270,7 @@ public class LoadDetectionPartialEvictionProjectionTests
             await seed.SaveChangesAsync();
         }
 
-        var response = await NewDataService(options).LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await NewDataService(options).LoadDetectionAsync();
 
         // Fully evicted from the byte-backed perspective: synthesis stays partial-only.
         // RecoverEvicted* (not LoadDetection) owns inserting the full-eviction row.
@@ -292,7 +291,7 @@ public class LoadDetectionPartialEvictionProjectionTests
             await seed.SaveChangesAsync();
         }
 
-        var response = await NewDataService(options).LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await NewDataService(options).LoadDetectionAsync();
         Assert.NotNull(response);
         Assert.NotNull(response!.DiskSummary);
         Assert.Equal(0ul, response.DiskSummary.Value.TotalBytes);

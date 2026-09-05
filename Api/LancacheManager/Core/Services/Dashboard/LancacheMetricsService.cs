@@ -210,9 +210,8 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// One row of per-game cache-on-disk size. Only the columns the metrics need are projected:
-    /// reading the entity would drag CacheFilePathsJson, which holds every cache path the game
-    /// matched.
+    /// One row of per-game cache-on-disk size. Only the columns the metrics need are projected,
+    /// so the sample URLs, depot ids and datasource names on the entity are never materialized.
     /// </summary>
     private class GameCacheTotals
     {
@@ -1436,9 +1435,9 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         int topGameCount,
         CancellationToken cancellationToken)
     {
-        // Only the columns the metrics need. Reading the entity would drag CacheFilePathsJson,
-        // which holds every cache path each game matched. Evicted games are skipped so the
-        // figure agrees with the dashboard. Rows carrying no identity at all are dropped in SQL
+        // Only the columns the metrics need, so the JSON list columns on the entity stay in the
+        // database. Evicted games are skipped so the figure agrees with the dashboard. Rows
+        // carrying no identity at all are dropped in SQL
         // rather than after the cut: with no app id, no Epic id and no name they all fold onto
         // one key the download arms can never produce, and publish as a single game named "0"
         // with no partner series while taking a top-N slot from a real game.

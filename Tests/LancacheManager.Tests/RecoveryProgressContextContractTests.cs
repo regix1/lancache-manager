@@ -27,7 +27,6 @@ public partial class RecoveryProgressContextContractTests
         { "signalr.dbReset.clearedTable", new() { ["tableName"] = "Events", ["count"] = 1 } },
         { "signalr.evictionScan.progress", new() { ["totalProcessed"] = 4, ["totalEstimate"] = 8 } },
         { "signalr.evictionScan.scanningFiles", new() { ["filesFound"] = 4 } },
-        { "signalr.evictionScan.refreshingSummaryCounted", new() { ["filesChecked"] = 4, ["filesTotal"] = 8 } },
         { "signalr.cacheSizeScan.scanning", new() { ["directoriesScanned"] = 2, ["totalDirectories"] = 4, ["totalFiles"] = 8 } },
         { "signalr.cacheSizeScan.calibrating", new() { ["step"] = 1, ["totalSteps"] = 3 } },
         { "signalr.gameDetect.matching.starting", new() { ["totalGames"] = 10 } },

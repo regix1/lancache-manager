@@ -29,6 +29,7 @@ use cache_detect_matching::{
     detect_service_cache_info_incremental,
     detect_steam_game_cache_info,
     detect_steam_game_cache_info_incremental,
+    games_in_claim_order,
     group_epic_records,
     group_named_records,
     unevict_candidates_incremental,
@@ -126,7 +127,6 @@ struct GameCacheInfo {
     total_size_bytes: u64,
     depot_ids: Vec<u32>,
     sample_urls: Vec<String>,
-    cache_file_paths: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     service: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -139,7 +139,6 @@ struct ServiceCacheInfo {
     cache_files_found: usize,
     total_size_bytes: u64,
     sample_urls: Vec<String>,
-    cache_file_paths: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -172,9 +171,9 @@ struct DetectionReport {
 ///
 /// Index = file-name digest -> size. A lancache file's name IS the md5 of its cache key, so
 /// the parsed u128 fully identifies the file; storing no path keeps the multi-million-file
-/// index to ~24 bytes per entry instead of ~200. Report paths are reconstructed from the
-/// digest via `cache_utils::cache_path_for_digest` (the `levels=2:2` layout every fs-probing
-/// path in this binary already assumes).
+/// index to ~24 bytes per entry instead of ~200. The digest stays the currency for the rest of
+/// the scan: rows are sized straight from this map and Phase 5 rebuilds a path only for the
+/// handful of files it has to read a `KEY:` header from.
 fn scan_cache_directory(cache_dir: &Path) -> HashMap<u128, u64> {
     eprintln!("\n=== Phase 1: Scanning Cache Directory ===");
     eprintln!("Building in-memory index of cache files...");
@@ -281,37 +280,22 @@ fn register_late_owner(
 /// `None`), and carrying the last full scan's bucket forward would age it against the games
 /// and services reported beside it.
 ///
-/// Must run before the index is dropped. Every matcher takes the index by shared reference
-/// and its matched set dies on return, so the only record of what was claimed is the path
-/// strings on the reported rows. Those were built by `cache_utils::cache_path_for_digest`,
-/// so mapping them back through `strict_cache_file_digest` is exact.
+/// Must run before the index is dropped. `claimed` is the scan-wide set every row above
+/// inserted its matched digests into, so "unclaimed" here is exact without re-deriving a
+/// digest from anything.
 fn detect_unmapped_services(
     cache_dir: &Path,
     cache_files_index: Option<&HashMap<u128, u64>>,
     detected_games: &mut Vec<GameCacheInfo>,
     detected_services: &mut Vec<ServiceCacheInfo>,
     late: &LateAttribution,
+    claimed: &HashSet<u128>,
     progress_path: Option<&Path>,
     reporter: &ProgressReporter,
 ) -> Result<Option<Vec<UnmappedService>>> {
     let Some(index) = cache_files_index else {
         return Ok(None);
     };
-
-    let mut claimed: HashSet<u128> = HashSet::new();
-    for path in detected_games
-        .iter()
-        .flat_map(|game| &game.cache_file_paths)
-        .chain(
-            detected_services
-                .iter()
-                .flat_map(|service| &service.cache_file_paths),
-        )
-    {
-        if let Some(digest) = cache_utils::strict_cache_file_digest(cache_dir, Path::new(path)) {
-            claimed.insert(digest);
-        }
-    }
 
     let unmapped: Vec<(u128, u64)> = index
         .iter()
@@ -324,8 +308,10 @@ fn detect_unmapped_services(
 
     let mut processed = 0usize;
     let mut by_service: BTreeMap<String, UnmappedService> = BTreeMap::new();
-    // (path, size) per late owner, applied to the detection rows after the loop.
-    let mut late_hits: HashMap<u32, Vec<(String, u64)>> = HashMap::new();
+    // (file count, total bytes) per late owner, applied to the detection rows after the loop.
+    // The owner row only counts and sums, so the totals are accumulated here rather than kept
+    // per file: this map is O(owners) however many files land in it.
+    let mut late_hits: HashMap<u32, (usize, u64)> = HashMap::new();
     for (digest, size_bytes) in unmapped {
         // Cooperative cancel: check between key reads, one disk read each
         if cancel::is_cancelled() {
@@ -371,10 +357,9 @@ fn detect_unmapped_services(
             let base_digest =
                 cache_utils::calculate_md5_digest(cache_utils::cache_key_base_of(key));
             if let Some(&owner_idx) = late.bases.get(&base_digest) {
-                late_hits
-                    .entry(owner_idx)
-                    .or_default()
-                    .push((path.display().to_string(), size_bytes));
+                let owner_total = late_hits.entry(owner_idx).or_insert((0, 0));
+                owner_total.0 += 1;
+                owner_total.1 = owner_total.1.saturating_add(size_bytes);
                 continue;
             }
         }
@@ -405,7 +390,7 @@ fn detect_unmapped_services(
     if !late_hits.is_empty() {
         let mut attributed_files = 0usize;
         let mut attributed_bytes = 0u64;
-        for (owner_idx, files) in late_hits {
+        for (owner_idx, (file_count, size_bytes)) in late_hits {
             match &late.owners[owner_idx as usize] {
                 LateOwner::Service { service_name } => {
                     let row = match detected_services
@@ -419,18 +404,14 @@ fn detect_unmapped_services(
                                 cache_files_found: 0,
                                 total_size_bytes: 0,
                                 sample_urls: Vec::new(),
-                                cache_file_paths: Vec::new(),
                             });
                             detected_services.last_mut().unwrap()
                         }
                     };
-                    for (path, size_bytes) in files {
-                        row.cache_files_found += 1;
-                        row.total_size_bytes = row.total_size_bytes.saturating_add(size_bytes);
-                        attributed_files += 1;
-                        attributed_bytes = attributed_bytes.saturating_add(size_bytes);
-                        row.cache_file_paths.push(path);
-                    }
+                    row.cache_files_found += file_count;
+                    row.total_size_bytes = row.total_size_bytes.saturating_add(size_bytes);
+                    attributed_files += file_count;
+                    attributed_bytes = attributed_bytes.saturating_add(size_bytes);
                 }
                 LateOwner::NamedGame { service, game_name } => {
                     let row = match detected_games.iter_mut().find(|g| {
@@ -450,20 +431,16 @@ fn detect_unmapped_services(
                                 total_size_bytes: 0,
                                 depot_ids: Vec::new(),
                                 sample_urls: Vec::new(),
-                                cache_file_paths: Vec::new(),
                                 service: Some(service.to_lowercase()),
                                 epic_app_id: None,
                             });
                             detected_games.last_mut().unwrap()
                         }
                     };
-                    for (path, size_bytes) in files {
-                        row.cache_files_found += 1;
-                        row.total_size_bytes = row.total_size_bytes.saturating_add(size_bytes);
-                        attributed_files += 1;
-                        attributed_bytes = attributed_bytes.saturating_add(size_bytes);
-                        row.cache_file_paths.push(path);
-                    }
+                    row.cache_files_found += file_count;
+                    row.total_size_bytes = row.total_size_bytes.saturating_add(size_bytes);
+                    attributed_files += file_count;
+                    attributed_bytes = attributed_bytes.saturating_add(size_bytes);
                 }
             }
         }
@@ -597,7 +574,13 @@ async fn main() -> Result<()> {
     let mut total_bytes_found: u64 = 0;
     let mut last_progress_update = 0;
 
-    for (game_id, records) in games_map {
+    // Every digest any row above has already been sized under. One physical file's bytes belong
+    // to exactly one row, so the phase order below IS the claim precedence: Steam games, then
+    // Epic, then named games, then services, then Phase 5's late attribution of what is left.
+    // A row whose files were all claimed earlier still reports its own file count and 0 bytes.
+    let mut claimed: HashSet<u128> = HashSet::new();
+
+    for (game_id, records) in games_in_claim_order(games_map) {
         // Cooperative cancel: check between Steam game iterations (read-only, safe to stop here)
         if cancel::is_cancelled() {
             eprintln!("\nCancel requested — stopping Steam game scan after {}/{} games", processed_count, total_games);
@@ -642,12 +625,12 @@ async fn main() -> Result<()> {
         }
 
         let result = if incremental_mode {
-            detect_steam_game_cache_info_incremental(&records, &cache_dir)
+            detect_steam_game_cache_info_incremental(&records, &cache_dir, &mut claimed)
         } else {
             let cache_index = cache_files_index
                 .as_ref()
                 .context("Cache file index missing during full game scan")?;
-            detect_steam_game_cache_info(&records, cache_index, &cache_dir)
+            detect_steam_game_cache_info(&records, cache_index, &mut claimed)
         };
 
         match result {
@@ -695,8 +678,13 @@ async fn main() -> Result<()> {
         let total_epic = epic_map.len();
         eprintln!("Found {} unique Epic games to check", total_epic);
 
+        // Sorted so two Epic games sharing a cache file always claim it in the same order.
+        let mut epic_ids: Vec<&String> = epic_map.keys().collect();
+        epic_ids.sort_unstable();
+
         let mut epic_processed = 0;
-        for (epic_id, (game_name, service_urls)) in &epic_map {
+        for epic_id in epic_ids {
+            let (game_name, service_urls) = &epic_map[epic_id];
             // Cooperative cancel: check between Epic game iterations
             if cancel::is_cancelled() {
                 eprintln!("\nCancel requested — stopping Epic game scan after {}/{} games", epic_processed, total_epic);
@@ -735,12 +723,24 @@ async fn main() -> Result<()> {
             reporter.emit_progress(epic_percent, "signalr.gameDetect.epic.progress", epic_context);
 
             let info = if incremental_mode {
-                detect_epic_game_cache_info_incremental(epic_id, game_name, service_urls, &cache_dir)
+                detect_epic_game_cache_info_incremental(
+                    epic_id,
+                    game_name,
+                    service_urls,
+                    &cache_dir,
+                    &mut claimed,
+                )
             } else {
                 let cache_index = cache_files_index
                     .as_ref()
                     .context("Cache file index missing during full Epic scan")?;
-                detect_epic_game_cache_info(epic_id, game_name, service_urls, cache_index, &cache_dir)
+                detect_epic_game_cache_info(
+                    epic_id,
+                    game_name,
+                    service_urls,
+                    cache_index,
+                    &mut claimed,
+                )
             };
 
             if info.cache_files_found > 0 {
@@ -786,8 +786,13 @@ async fn main() -> Result<()> {
         let total_named = named_map.len();
         eprintln!("Found {} unique named games to check", total_named);
 
+        // Sorted so two named games sharing a cache file always claim it in the same order.
+        let mut named_keys: Vec<&String> = named_map.keys().collect();
+        named_keys.sort_unstable();
+
         let mut named_processed = 0;
-        for (_key, (service, game_name, service_urls)) in &named_map {
+        for named_key in named_keys {
+            let (service, game_name, service_urls) = &named_map[named_key];
             // Cooperative cancel: check between named game iterations
             if cancel::is_cancelled() {
                 eprintln!("\nCancel requested — stopping named game scan after {}/{} games", named_processed, total_named);
@@ -826,7 +831,13 @@ async fn main() -> Result<()> {
             reporter.emit_progress(named_percent, "signalr.gameDetect.named.progress", named_context);
 
             let info = if incremental_mode {
-                detect_named_game_cache_info_incremental(service, game_name, service_urls, &cache_dir)
+                detect_named_game_cache_info_incremental(
+                    service,
+                    game_name,
+                    service_urls,
+                    &cache_dir,
+                    &mut claimed,
+                )
             } else {
                 register_late_owner(
                     &mut late,
@@ -839,7 +850,13 @@ async fn main() -> Result<()> {
                 let cache_index = cache_files_index
                     .as_ref()
                     .context("Cache file index missing during full named game scan")?;
-                detect_named_game_cache_info(service, game_name, service_urls, cache_index, &cache_dir)
+                detect_named_game_cache_info(
+                    service,
+                    game_name,
+                    service_urls,
+                    cache_index,
+                    &mut claimed,
+                )
             };
 
             if info.cache_files_found > 0 {
@@ -920,7 +937,12 @@ async fn main() -> Result<()> {
         let total_services = services_map.len();
         let mut services_processed = 0;
 
-        for (service_name, service_urls) in services_map {
+        // Sorted so a file two services both match is always claimed by the same one.
+        let mut sorted_services: Vec<(String, Vec<(String, String, i64)>)> =
+            services_map.into_iter().collect();
+        sorted_services.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
+
+        for (service_name, service_urls) in sorted_services {
             // Cooperative cancel: check between service iterations
             if cancel::is_cancelled() {
                 eprintln!("\nCancel requested — stopping service scan after {}/{} services", services_processed, total_services);
@@ -1032,6 +1054,7 @@ async fn main() -> Result<()> {
                     &service_name,
                     &service_urls,
                     &cache_dir,
+                    &mut claimed,
                     &url_counter,
                 )
             } else {
@@ -1050,7 +1073,7 @@ async fn main() -> Result<()> {
                     &service_name,
                     &service_urls,
                     cache_index,
-                    &cache_dir,
+                    &mut claimed,
                     &url_counter,
                 )
             };
@@ -1113,14 +1136,16 @@ async fn main() -> Result<()> {
         &mut detected_games,
         &mut detected_services,
         &late,
+        &claimed,
         progress_path.as_deref(),
         &reporter,
     )?;
 
-    // Phase 5 was the last consumer of the on-disk index; on a multi-million-file cache it
-    // holds hundreds of MB, so it must be gone before the report (which carries its own copy
-    // of every matched path) is serialized on top of it.
+    // Phase 5 was the last consumer of the on-disk index and of the claimed set; between them
+    // they hold ~40 bytes per cache file, hundreds of MB on a multi-million-file cache, so both
+    // must be gone before the report is serialized on top of them.
     drop(cache_files_index);
+    drop(claimed);
 
     let report = DetectionReport {
         total_games_detected: detected_games.len(),
@@ -1136,7 +1161,7 @@ async fn main() -> Result<()> {
     reporter.emit_progress(92.0, "signalr.gameDetect.writing", json!({}));
 
     // Stream the report straight to the file: to_string_pretty would materialize the whole
-    // JSON (all cache_file_paths again) as one giant String before writing.
+    // JSON (every row's sample URLs and depot ids again) as one giant String before writing.
     let output_file = fs::File::create(&output_json)
         .with_context(|| format!("Failed to create output file: {}", output_json.display()))?;
     let mut output_writer = BufWriter::new(output_file);
@@ -1188,22 +1213,11 @@ async fn main() -> Result<()> {
 mod tests {
     use super::*;
 
-    fn write_cache_file(root: &Path, digest: u128, key: &str, body: &str) -> String {
+    fn write_cache_file(root: &Path, digest: u128, key: &str, body: &str) {
         let path = cache_utils::cache_path_for_digest(root, digest);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut file = fs::File::create(&path).unwrap();
         write!(file, "KEY: {key}\n{body}").unwrap();
-        path.display().to_string()
-    }
-
-    fn claimed_service(cache_file_paths: Vec<String>) -> ServiceCacheInfo {
-        ServiceCacheInfo {
-            service_name: "steam".to_string(),
-            cache_files_found: cache_file_paths.len(),
-            total_size_bytes: 0,
-            sample_urls: Vec::new(),
-            cache_file_paths,
-        }
     }
 
     #[test]
@@ -1211,18 +1225,21 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("cache");
         fs::create_dir_all(&root).unwrap();
-        let claimed_path = write_cache_file(&root, 1, "steam/depot/1/chunk/a", "body-a");
+        write_cache_file(&root, 1, "steam/depot/1/chunk/a", "body-a");
         write_cache_file(&root, 2, "epicgames/Builds/b", "body-bb");
         let index = HashMap::from([(1u128, 6u64), (2u128, 7u64)]);
+        // Digest 1 is what the rows above already claimed and sized; only digest 2 is left.
+        let claimed = HashSet::from([1u128]);
 
         let mut games = Vec::new();
-        let mut services = vec![claimed_service(vec![claimed_path])];
+        let mut services = Vec::new();
         let bucket = detect_unmapped_services(
             &root,
             Some(&index),
             &mut games,
             &mut services,
             &LateAttribution::default(),
+            &claimed,
             None,
             &ProgressReporter::new(false),
         )
@@ -1251,6 +1268,7 @@ mod tests {
             &mut Vec::new(),
             &mut Vec::new(),
             &LateAttribution::default(),
+            &HashSet::new(),
             None,
             &ProgressReporter::new(false),
         )
@@ -1279,6 +1297,7 @@ mod tests {
             &mut Vec::new(),
             &mut Vec::new(),
             &LateAttribution::default(),
+            &HashSet::new(),
             None,
             &ProgressReporter::new(false),
         )
@@ -1322,6 +1341,7 @@ mod tests {
             &mut games,
             &mut services,
             &late,
+            &HashSet::new(),
             None,
             &ProgressReporter::new(false),
         )
@@ -1334,10 +1354,6 @@ mod tests {
         assert_eq!(services[0].service_name, "wsus");
         assert_eq!(services[0].cache_files_found, 1);
         assert_eq!(services[0].total_size_bytes, 41);
-        assert_eq!(
-            services[0].cache_file_paths,
-            vec![cache_utils::cache_path_for_digest(&root, 7).display().to_string()]
-        );
     }
 
     #[test]
@@ -1371,6 +1387,7 @@ mod tests {
             &mut games,
             &mut services,
             &late,
+            &HashSet::new(),
             None,
             &ProgressReporter::new(false),
         )
@@ -1413,6 +1430,7 @@ mod tests {
             &mut Vec::new(),
             &mut Vec::new(),
             &LateAttribution::default(),
+            &HashSet::new(),
             None,
             &ProgressReporter::new(false),
         )
@@ -1435,5 +1453,44 @@ mod tests {
         let json = serde_json::to_string(&report).unwrap();
 
         assert!(!json.contains("unmapped_services"), "{json}");
+    }
+
+    /// The report the host reads carries per-row counts and sizes and nothing per-file. A path
+    /// list per row is what made a large scan's JSON hundreds of MB, read back into the host as
+    /// one more copy of every path.
+    #[test]
+    fn a_report_row_carries_counts_and_sizes_but_no_file_paths() {
+        let report = DetectionReport {
+            total_games_detected: 1,
+            total_services_detected: 1,
+            indexed_cache_files: Some(2),
+            games: vec![GameCacheInfo {
+                game_app_id: 440,
+                game_name: "Team Fortress 2".to_string(),
+                cache_files_found: 2,
+                total_size_bytes: 84,
+                depot_ids: vec![441],
+                sample_urls: vec!["steam/depot/441/chunk/a".to_string()],
+                service: None,
+                epic_app_id: None,
+            }],
+            services: vec![ServiceCacheInfo {
+                service_name: "wsus".to_string(),
+                cache_files_found: 3,
+                total_size_bytes: 96,
+                sample_urls: vec!["wsus/files/a".to_string()],
+            }],
+            unmapped_services: None,
+        };
+
+        let json = serde_json::to_string(&report).unwrap();
+
+        assert!(json.contains("\"game_app_id\":440"), "{json}");
+        assert!(json.contains("\"depot_ids\":[441]"), "{json}");
+        assert!(json.contains("\"service_name\":\"wsus\""), "{json}");
+        assert!(json.contains("\"cache_files_found\":3"), "{json}");
+        assert!(json.contains("\"total_size_bytes\":96"), "{json}");
+        assert!(json.contains("\"indexed_cache_files\":2"), "{json}");
+        assert!(!json.contains("cache_file_paths"), "{json}");
     }
 }

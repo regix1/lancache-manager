@@ -284,7 +284,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
         className={`msd-trigger w-full px-3 h-10 themed-border-radius-sm border text-left flex items-center justify-between gap-2 text-sm font-medium themed-card text-themed-primary ${
-          isOpen ? 'msd-trigger-open border-themed-focus' : 'border-themed-primary'
+          isOpen ? 'msd-trigger-open border-themed-focus' : ''
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
         <Tooltip content={displayLabel} position="top" className="flex-1 min-w-0">

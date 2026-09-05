@@ -93,7 +93,7 @@ export interface DownloadFilters {
 /**
  * Detection payload shipped by /api/dashboard/batch. Uses slim summary DTOs
  * to minimize payload size - the full GameCacheInfo / ServiceCacheInfo shapes
- * (with cache_file_paths, sample_urls, depot_ids, datasources) are only
+ * (with sample_urls, depot_ids, datasources) are only
  * served by /api/games/cached-detection for the Management tab.
  */
 export interface CachedDetectionResponse {
@@ -152,7 +152,6 @@ interface DashboardDataContextType {
   loading: boolean;
   isRefreshing: boolean;
   error: string | null;
-  connectionStatus: string;
   /** True while the latest batch had failed sections; cleared by the next fully successful refresh. */
   dataStale: boolean;
   /** Sections whose sub-query returned null, so a widget can tell a failed load from an empty one. */

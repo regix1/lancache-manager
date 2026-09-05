@@ -577,7 +577,7 @@ export type CacheEntityVariant = 'active' | 'evicted';
 /**
  * Slim projection of GameCacheInfo returned by the dashboard batch endpoint
  * (/api/dashboard/batch → detection.games). Drops heavy list fields
- * (cache_file_paths, sample_urls, depot_ids, datasources, evicted_sample_urls,
+ * (sample_urls, depot_ids, datasources, evicted_sample_urls,
  * evicted_depot_ids) that only the Management tab consumes via
  * /api/games/cached-detection. Field names match the backend JsonPropertyName
  * snake_case serialization. Must stay in sync with DashboardGameSummary.cs.
@@ -596,7 +596,7 @@ export interface GameDetectionSummary {
 
 /**
  * Slim projection of ServiceCacheInfo returned by the dashboard batch endpoint.
- * Drops cache_file_paths, sample_urls, datasources, evicted_sample_urls,
+ * Drops sample_urls, datasources, evicted_sample_urls,
  * evicted_bytes which are only consumed by the Management tab.
  */
 export interface ServiceDetectionSummary {
@@ -614,7 +614,6 @@ export interface GameCacheInfo {
   total_size_bytes: number;
   depot_ids: number[];
   sample_urls: string[];
-  cache_file_paths: string[];
   datasources: string[];
   service?: string; // "steam" (default), "epicgames", "blizzard", or "riot" — blizzard/riot games have game_app_id 0
   image_url?: string; // Game art URL (Steam header or Epic keyImages)
@@ -631,7 +630,6 @@ export interface ServiceCacheInfo {
   cache_files_found: number;
   total_size_bytes: number;
   sample_urls: string[];
-  cache_file_paths: string[];
   datasources: string[];
   is_evicted?: boolean;
   evicted_downloads_count?: number;

@@ -30,6 +30,16 @@
   min-width: 5.5rem;
 }
 
+/* The error message takes focus so it is announced and scrolled to. When the submit came from the
+   keyboard, Chrome counts that programmatic focus as :focus-visible, so the global ring in
+   base/reset.css drew a themed halo around a message the alert colors already mark as an error;
+   on a theme whose focus color is green that halo reads as success. The sink is not in the tab
+   order, so it is not a keyboard target and takes no ring, the same exception the dialog roles
+   already take in that sheet. */
+.access-setup [role='alert'][tabindex='-1']:focus-visible {
+  outline: none;
+}
+
 /* The owner sign-in toggle carries a full sentence, so inside a phone-width panel it wraps
    instead of running past the panel edge. */
 .access-setup .access-setup-wrap {

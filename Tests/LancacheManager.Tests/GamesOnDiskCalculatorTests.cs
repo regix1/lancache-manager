@@ -1,5 +1,3 @@
-using System.Text.Json;
-using LancacheManager.Core;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
@@ -9,16 +7,15 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Coverage for the "0 B despite nonzero CacheFilesFound" bug: <see cref="GamesOnDiskCalculator"/>
-/// drops a game's key from <c>GameBytesByKey</c> whenever none of its persisted cache paths
-/// resolve on disk at refresh time (contributedBytes == 0), and
-/// <see cref="GameCacheDetectionDataService.RefreshDiskSummaryAsync"/> used to read that absence
-/// as "0 bytes" and clobber the last Rust-computed <c>TotalSizeBytes</c>. Parameterized over
-/// xbox/blizzard/riot per this test file's precedent (<see cref="XboxNamedDetectionEvictionTests"/>)
-/// - the named-game machinery has no per-service branching, so xbox must behave identically to
-/// its siblings.
+/// Coverage for <see cref="GameCacheDetectionDataService.RefreshDiskSummaryAsync"/>, which
+/// re-aggregates the persisted summary without reading the cache directory. Detection measures
+/// each row's size once and resolves which row owns a file shared by two rows; the refresh only
+/// zeroes rows the eviction flow has marked evicted and sums what is left. Parameterized cases use
+/// named (Blizzard/Riot/Xbox) rows per this file's precedent
+/// (<see cref="XboxNamedDetectionEvictionTests"/>) - the named-game machinery has no per-service
+/// branching, so xbox must behave identically to its siblings.
 /// </summary>
-public class GamesOnDiskCalculatorTests : IDisposable
+public class GamesOnDiskCalculatorTests
 {
     private sealed class InMemoryDbContextFactory : IDbContextFactory<AppDbContext>
     {
@@ -45,30 +42,11 @@ public class GamesOnDiskCalculatorTests : IDisposable
             new InMemoryDbContextFactory(options),
             NullLogger<GameCacheDetectionDataService>.Instance);
 
-    private readonly List<string> _tempFiles = new();
-
-    private string CreateTempCacheFile(int byteCount)
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"gamesondisk_test_{Guid.NewGuid():N}.cache");
-        File.WriteAllBytes(path, new byte[byteCount]);
-        _tempFiles.Add(path);
-        return path;
-    }
-
-    public void Dispose()
-    {
-        foreach (var path in _tempFiles)
-        {
-            try { File.Delete(path); } catch { /* best-effort cleanup */ }
-        }
-    }
-
     private static CachedGameDetection NamedDetectionRow(
         string service,
         string gameName,
         int cacheFilesFound,
         ulong totalSizeBytes,
-        List<string> cacheFilePaths,
         bool isEvicted = false)
         => new CachedGameDetection
         {
@@ -78,107 +56,45 @@ public class GamesOnDiskCalculatorTests : IDisposable
             GameName = gameName,
             CacheFilesFound = cacheFilesFound,
             TotalSizeBytes = totalSizeBytes,
-            CacheFilePathsJson = JsonSerializer.Serialize(cacheFilePaths),
             IsEvicted = isEvicted,
             LastDetectedUtc = DateTime.UtcNow,
             CreatedAtUtc = DateTime.UtcNow
         };
 
     // -----------------------------------------------------------------------------------------
-    // Attribution against real on-disk files yields a present, positive keyed entry
-    // for the named branch, across all three named services (no per-service hardcoding).
-    // -----------------------------------------------------------------------------------------
-
-    [Theory]
-    [InlineData("xbox")]
-    [InlineData("blizzard")]
-    [InlineData("riot")]
-    public void ComputeAttributedCacheFromDisk_NamedGame_RealFiles_YieldsPositiveKeyedBytes(string service)
-    {
-        var path1 = CreateTempCacheFile(1024);
-        var path2 = CreateTempCacheFile(2048);
-        const string gameName = "Some Named Title";
-
-        var game = new GameCacheInfo
-        {
-            GameAppId = 0,
-            Service = service,
-            GameName = gameName,
-            EpicAppId = null,
-            CacheFilePaths = new List<string> { path1, path2 }
-        };
-
-        var attributed = GamesOnDiskCalculator.ComputeAttributedCacheFromDisk(
-            new List<GameCacheInfo> { game },
-            new List<ServiceCacheInfo>());
-
-        var key = $"named:{service.ToLowerInvariant()}\x01{gameName}";
-        Assert.True(attributed.GameBytesByKey.TryGetValue(key, out var bytes));
-        Assert.Equal(3072UL, bytes);
-    }
-
-    // -----------------------------------------------------------------------------------------
-    // Services carry bytes into the identified total alongside games. Every other case in this
-    // file passes an empty service list, so nothing pinned ServiceBytes reaching TotalBytes -
-    // the aggregate the dashboard reads as identified_cache_bytes, and the term that makes the
-    // Games on Disk figure smaller than the identified total.
+    // The refresh contract: every non-evicted row keeps the size detection measured for it, an
+    // evicted row drops to zero, and the summary is the sum of what remains. Games and services
+    // are separate buckets whose sum is the identified total the dashboard reads.
     // -----------------------------------------------------------------------------------------
 
     [Fact]
-    public void ComputeAttributedCacheFromDisk_GameAndService_TotalBytesIsBothBucketsSummed()
-    {
-        var gamePath = CreateTempCacheFile(1024);
-        var servicePath = CreateTempCacheFile(4096);
-
-        var game = new GameCacheInfo
-        {
-            GameAppId = 0,
-            Service = "xbox",
-            GameName = "Halo Infinite",
-            EpicAppId = null,
-            CacheFilePaths = new List<string> { gamePath }
-        };
-
-        var service = new ServiceCacheInfo
-        {
-            ServiceName = "wsus",
-            CacheFilePaths = new List<string> { servicePath }
-        };
-
-        var attributed = GamesOnDiskCalculator.ComputeAttributedCacheFromDisk(
-            new List<GameCacheInfo> { game },
-            new List<ServiceCacheInfo> { service });
-
-        Assert.Equal(1024UL, attributed.Aggregate.GameBytes);
-        Assert.Equal(4096UL, attributed.Aggregate.ServiceBytes);
-        Assert.Equal(
-            attributed.Aggregate.GameBytes + attributed.Aggregate.ServiceBytes,
-            attributed.Aggregate.TotalBytes);
-    }
-
-    // -----------------------------------------------------------------------------------------
-    // Reproducing round-trip test. Against the unfixed
-    // RefreshDiskSummaryAsync (bare TryGetValue(...) ?? 0), this FAILS because TotalSizeBytes
-    // is clobbered to 0. After the fix, a non-evicted game with CacheFilesFound > 0 whose paths
-    // don't resolve on disk right now retains its persisted (Rust-computed) size.
-    // -----------------------------------------------------------------------------------------
-
-    [Fact]
-    public async Task RefreshDiskSummaryAsync_NamedGame_PathsMissingFromDisk_RetainsPersistedSize()
+    public async Task RefreshDiskSummaryAsync_SumsPersistedSizesAndZeroesEvictedRows()
     {
         var options = NewInMemoryOptions();
-        var missingPath = Path.Combine(Path.GetTempPath(), $"gamesondisk_missing_{Guid.NewGuid():N}.cache");
-        // Deliberately never created on disk - simulates a cache file no longer present
-        // (e.g. reclaimed) by the time this refresh runs, even though the game was detected
-        // with real files moments earlier and is not itself evicted.
 
         await using (var seedContext = new AppDbContext(options))
         {
             seedContext.CachedGameDetections.Add(NamedDetectionRow(
-                "xbox", "Minecraft Launcher",
-                cacheFilesFound: 11,
-                totalSizeBytes: 10_378_000UL,
-                cacheFilePaths: new List<string> { missingPath }));
+                "xbox", "Halo Infinite",
+                cacheFilesFound: 4,
+                totalSizeBytes: 5_000UL));
+            seedContext.CachedGameDetections.Add(NamedDetectionRow(
+                "blizzard", "Overwatch",
+                cacheFilesFound: 2,
+                totalSizeBytes: 999UL));
+            seedContext.CachedGameDetections.Add(NamedDetectionRow(
+                "riot", "Valorant",
+                cacheFilesFound: 5,
+                totalSizeBytes: 500_000UL,
+                isEvicted: true));
+            seedContext.CachedServiceDetections.Add(new CachedServiceDetection
+            {
+                ServiceName = "wsus",
+                CacheFilesFound = 1,
+                TotalSizeBytes = 300UL,
+                LastDetectedUtc = DateTime.UtcNow,
+                CreatedAtUtc = DateTime.UtcNow
+            });
             await seedContext.SaveChangesAsync();
         }
 
@@ -186,16 +102,48 @@ public class GamesOnDiskCalculatorTests : IDisposable
         await dataService.RefreshDiskSummaryAsync();
 
         await using var verifyContext = new AppDbContext(options);
-        var row = await verifyContext.CachedGameDetections.SingleAsync();
+        var evictedRow = await verifyContext.CachedGameDetections.SingleAsync(g => g.IsEvicted);
+        Assert.Equal(0UL, evictedRow.TotalSizeBytes);
 
-        Assert.False(row.IsEvicted);
-        Assert.Equal(11, row.CacheFilesFound);
-        Assert.Equal(10_378_000UL, row.TotalSizeBytes);
-
-        // The persisted CachedDetectionSummary aggregate must include the retained bytes -
-        // otherwise the dashboard total and the per-row list disagree.
         var summary = await verifyContext.CachedDetectionSummaries.SingleAsync();
-        Assert.Equal(10_378_000UL, summary.GamesOnDiskBytes);
+        Assert.Equal(5_999UL, summary.GamesOnDiskBytes);
+        Assert.Equal(2, summary.GamesOnDiskCount);
+        Assert.Equal(300UL, summary.IdentifiedServiceBytes);
+        Assert.Equal(1, summary.IdentifiedServiceCount);
+        Assert.Equal(6_299UL, summary.IdentifiedCacheBytes);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // A row that matched cache files but was sized at zero bytes claimed nothing of its own -
+    // another row already owned every slice it matched. It stays in the list with its count, and
+    // it must not inflate the active-game count the dashboard shows.
+    // -----------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task RefreshDiskSummaryAsync_ZeroByteNonEvictedGame_IsNotCountedAsActive()
+    {
+        var options = NewInMemoryOptions();
+
+        await using (var seedContext = new AppDbContext(options))
+        {
+            seedContext.CachedGameDetections.Add(NamedDetectionRow(
+                "xbox", "Owning Launcher Payload",
+                cacheFilesFound: 1,
+                totalSizeBytes: 4_096UL));
+            seedContext.CachedGameDetections.Add(NamedDetectionRow(
+                "xbox", "Title Sharing The Payload",
+                cacheFilesFound: 1,
+                totalSizeBytes: 0UL));
+            await seedContext.SaveChangesAsync();
+        }
+
+        var dataService = NewDataService(options);
+        await dataService.RefreshDiskSummaryAsync();
+
+        await using var verifyContext = new AppDbContext(options);
+        var summary = await verifyContext.CachedDetectionSummaries.SingleAsync();
+
+        Assert.Equal(4_096UL, summary.GamesOnDiskBytes);
         Assert.Equal(1, summary.GamesOnDiskCount);
     }
 
@@ -204,7 +152,6 @@ public class GamesOnDiskCalculatorTests : IDisposable
     {
         var options = NewInMemoryOptions();
         const ulong persistedBytes = 4_096;
-        var missingPath = Path.Combine(Path.GetTempPath(), $"gamesondisk_backfill_{Guid.NewGuid():N}.cache");
 
         await using (var seedContext = new AppDbContext(options))
         {
@@ -212,13 +159,12 @@ public class GamesOnDiskCalculatorTests : IDisposable
                 "riot",
                 "Existing Detection",
                 cacheFilesFound: 1,
-                totalSizeBytes: persistedBytes,
-                cacheFilePaths: new List<string> { missingPath }));
+                totalSizeBytes: persistedBytes));
             await seedContext.SaveChangesAsync();
         }
 
         var dataService = NewDataService(options);
-        var response = await dataService.LoadDetectionAsync(includeCacheFilePaths: false);
+        var response = await dataService.LoadDetectionAsync();
 
         Assert.NotNull(response);
         Assert.NotNull(response.DiskSummary);
@@ -232,112 +178,13 @@ public class GamesOnDiskCalculatorTests : IDisposable
     }
 
     // -----------------------------------------------------------------------------------------
-    // Retention must not double-count when a game's paths were already claimed by an earlier
-    // active game/service in the same refresh (e.g. two named games sharing a common launcher/
-    // redistributable cache file). The claimant's bytes are already in the aggregate, so the
-    // second game's stale persisted size must be zeroed, not added on top.
-    // -----------------------------------------------------------------------------------------
-
-    [Fact]
-    public async Task RefreshDiskSummaryAsync_NamedGame_PathsClaimedByAnotherEntity_DoesNotDoubleCountAggregate()
-    {
-        var options = NewInMemoryOptions();
-        var sharedPath = CreateTempCacheFile(5000);
-
-        await using (var seedContext = new AppDbContext(options))
-        {
-            // Game A claims the shared path first (processed in insertion/Id order).
-            seedContext.CachedGameDetections.Add(NamedDetectionRow(
-                "xbox", "Shared Launcher Payload",
-                cacheFilesFound: 1,
-                totalSizeBytes: 1UL,
-                cacheFilePaths: new List<string> { sharedPath }));
-
-            // Game B references the exact same physical path. Its own attribution contributes
-            // 0 bytes because A already claimed it - this must NOT fall back to retaining B's
-            // stale (and much larger) persisted size.
-            seedContext.CachedGameDetections.Add(NamedDetectionRow(
-                "xbox", "Another Title Sharing The Payload",
-                cacheFilesFound: 3,
-                totalSizeBytes: 999_999UL,
-                cacheFilePaths: new List<string> { sharedPath }));
-
-            await seedContext.SaveChangesAsync();
-        }
-
-        var dataService = NewDataService(options);
-        await dataService.RefreshDiskSummaryAsync();
-
-        await using var verifyContext = new AppDbContext(options);
-        var rows = await verifyContext.CachedGameDetections.OrderBy(g => g.Id).ToListAsync();
-
-        Assert.Equal(5000UL, rows[0].TotalSizeBytes);
-        Assert.Equal(0UL, rows[1].TotalSizeBytes);
-
-        var summary = await verifyContext.CachedDetectionSummaries.SingleAsync();
-        Assert.Equal(5000UL, summary.GamesOnDiskBytes);
-        Assert.Equal(1, summary.GamesOnDiskCount);
-    }
-
-    // -----------------------------------------------------------------------------------------
-    // Mixed case: one of the game's paths was already claimed by another entity, the other path
-    // is new to this pass but missing from disk. Both contribute 0 bytes, so the whole entity
-    // must still be treated as claimed-elsewhere (force-zeroed) and NOT fall into the retention
-    // branch, which would otherwise re-add its stale persisted size on top of the claimant's
-    // already-counted bytes and inflate the aggregate above actual disk usage.
-    // -----------------------------------------------------------------------------------------
-
-    [Fact]
-    public async Task RefreshDiskSummaryAsync_NamedGame_MixedClaimedAndMissingPaths_DoesNotDoubleCountAggregate()
-    {
-        var options = NewInMemoryOptions();
-        var sharedPath = CreateTempCacheFile(4096);
-        var missingPath = Path.Combine(Path.GetTempPath(), $"gamesondisk_mixed_missing_{Guid.NewGuid():N}.cache");
-
-        await using (var seedContext = new AppDbContext(options))
-        {
-            // Game A claims the shared path first (processed in Id order).
-            seedContext.CachedGameDetections.Add(NamedDetectionRow(
-                "xbox", "Owning Launcher Payload",
-                cacheFilesFound: 1,
-                totalSizeBytes: 1UL,
-                cacheFilePaths: new List<string> { sharedPath }));
-
-            // Game B references the same shared path (already claimed by A, contributes 0 bytes)
-            // plus a second path that is new to this pass but absent from disk (also 0 bytes).
-            seedContext.CachedGameDetections.Add(NamedDetectionRow(
-                "xbox", "Mixed Claimed And Missing Title",
-                cacheFilesFound: 2,
-                totalSizeBytes: 777_777UL,
-                cacheFilePaths: new List<string> { sharedPath, missingPath }));
-
-            await seedContext.SaveChangesAsync();
-        }
-
-        var dataService = NewDataService(options);
-        await dataService.RefreshDiskSummaryAsync();
-
-        await using var verifyContext = new AppDbContext(options);
-        var rows = await verifyContext.CachedGameDetections.OrderBy(g => g.Id).ToListAsync();
-
-        Assert.Equal(4096UL, rows[0].TotalSizeBytes);
-        Assert.Equal(0UL, rows[1].TotalSizeBytes);
-
-        var summary = await verifyContext.CachedDetectionSummaries.SingleAsync();
-        Assert.Equal(4096UL, summary.GamesOnDiskBytes);
-        Assert.Equal(1, summary.GamesOnDiskCount);
-    }
-
-    // -----------------------------------------------------------------------------------------
-    // Regression lock. Evicted rows still force-zero regardless of persisted size,
-    // untouched by the retention guard.
+    // Regression lock. Evicted rows force-zero regardless of persisted size.
     // -----------------------------------------------------------------------------------------
 
     [Fact]
     public async Task RefreshDiskSummaryAsync_EvictedNamedGame_StillZeroed()
     {
         var options = NewInMemoryOptions();
-        var missingPath = Path.Combine(Path.GetTempPath(), $"gamesondisk_evicted_{Guid.NewGuid():N}.cache");
 
         await using (var seedContext = new AppDbContext(options))
         {
@@ -345,7 +192,6 @@ public class GamesOnDiskCalculatorTests : IDisposable
                 "xbox", "Halo Infinite",
                 cacheFilesFound: 5,
                 totalSizeBytes: 500_000UL,
-                cacheFilePaths: new List<string> { missingPath },
                 isEvicted: true));
             await seedContext.SaveChangesAsync();
         }

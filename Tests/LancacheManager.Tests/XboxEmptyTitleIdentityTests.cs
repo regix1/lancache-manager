@@ -348,7 +348,6 @@ public class XboxEmptyTitleIdentityTests
             Service = service,
             CacheFilesFound = 1,
             TotalSizeBytes = 1024,
-            CacheFilePaths = new List<string> { $"/cache/{service}/{gameName}" },
             Datasources = new List<string> { "default" }
         };
 }

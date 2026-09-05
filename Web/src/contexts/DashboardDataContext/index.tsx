@@ -127,7 +127,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState('checking');
   // True while the latest batch had failed sections (kept or cleared slices);
   // cleared again by the next fully successful apply.
   const [dataStale, setDataStale] = useState(false);
@@ -382,7 +381,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           hasData.current = true;
         }
 
-        setConnectionStatus('connected');
         // A partial apply clears any prior hard error; the stale flag is now the
         // degradation signal, so stale data never appears silently healthy.
         setError(null);
@@ -444,7 +442,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
         // Its own 10s timeout aborts too, and an API that never answers is not a cancellation.
         if (!isAbortError(err) || timedOut) {
-          setConnectionStatus('disconnected');
           if (!hasData.current) {
             // Read for truthiness only and never rendered as text, so this is a flag rather
             // than a message. Consumers switch on `error || failed` and show their own copy.
@@ -669,7 +666,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
       // React 18+ auto-batches setState calls in event handlers; no transition needed.
       setLoading(true);
-      setConnectionStatus('connected');
       setCacheInfo(mockData.cacheInfo);
       setClientStats(mockData.clientStats);
       setServiceStats(mockData.serviceStats);
@@ -918,7 +914,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       loading,
       isRefreshing,
       error,
-      connectionStatus,
       dataStale,
       failedSectionKeys,
       refreshData,
@@ -946,7 +941,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       loading,
       isRefreshing,
       error,
-      connectionStatus,
       dataStale,
       failedSectionKeys,
       refreshData,

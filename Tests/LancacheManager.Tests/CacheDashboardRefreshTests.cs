@@ -108,6 +108,21 @@ public sealed class CacheDashboardRefreshTests
     }
 
     [Fact]
+    public void ApplyMeasuredClearRates_EstimatesEachMeasuredModeFromItsLastRealClear()
+    {
+        // The scanner calibrated 45 minutes for 4M files; the last preserve clear did 2M files in two hours.
+        var result = CacheSizeResult(bytes: 1, files: 4_000_000, directories: 1, hexDirectories: 1, seconds: 2_700);
+        var preserve = new CacheClearRate { FilesDeleted = 2_000_000, DurationSeconds = 7_200 };
+
+        CacheManagementService.ApplyMeasuredClearRates(result, preserve, full: null, rsync: null);
+
+        Assert.Equal(14_400, result.EstimatedDeletionTimes.PreserveSeconds);
+        Assert.Equal("4 hours", result.EstimatedDeletionTimes.PreserveFormatted);
+        Assert.Equal(2_700, result.EstimatedDeletionTimes.FullSeconds);
+        Assert.Equal(2_700, result.EstimatedDeletionTimes.RsyncSeconds);
+    }
+
+    [Fact]
     public void IsAnyMountUsageStale_DetectsDriftOnNonDefaultMount()
     {
         const long gibibyte = 1024L * 1024 * 1024;

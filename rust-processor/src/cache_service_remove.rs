@@ -515,7 +515,7 @@ async fn main() -> Result<()> {
 
     // Step 3: Remove log entries
     removal_core::write_progress(&progress_path, &reporter, "removing_logs", "signalr.serviceRemove.logs.removing", json!({}), 70.0, cache_files_deleted, url_count)?;
-    let url_set: HashSet<String> = urls.keys().cloned().collect();
+    let url_set: HashSet<String> = urls.into_keys().collect();
     let stem_positions = args
         .stem_positions
         .as_deref()

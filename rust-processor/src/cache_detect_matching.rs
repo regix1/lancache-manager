@@ -114,6 +114,18 @@ fn collect_steam_game_inputs(records: &[DownloadRecord]) -> Result<SteamGameInpu
     })
 }
 
+/// Steam games in the order they claim cache files: ascending app id. The scan sizes a file
+/// under the first row that matches it, so the bucket's iteration order decides which of two
+/// games sharing a depot chunk reports its bytes. A `HashMap`'s order is seeded per instance
+/// and would move those bytes between runs; sorting pins the winner.
+pub(crate) fn games_in_claim_order(
+    games_map: HashMap<u32, Vec<DownloadRecord>>,
+) -> Vec<(u32, Vec<DownloadRecord>)> {
+    let mut games: Vec<(u32, Vec<DownloadRecord>)> = games_map.into_iter().collect();
+    games.sort_unstable_by_key(|(game_app_id, _)| *game_app_id);
+    games
+}
+
 fn match_files_with_index(
     service_urls: &[ServiceUrl],
     cache_files_index: &HashMap<u128, u64>,
@@ -273,20 +285,35 @@ fn total_size_from_filesystem(found_files: &HashSet<PathBuf>) -> u64 {
         .sum()
 }
 
-/// Report paths for index-matched digests, reconstructed via the canonical
-/// `{last_2}/{middle_2}/{hash}` layout - the same layout the incremental fs probes and the
-/// removers already assume, so this yields the same strings the disk walk used to carry.
-fn cache_file_paths_from_digests(found_files: &HashSet<u128>, cache_dir: &Path) -> Vec<String> {
+/// The digests this row is the first in the scan to claim, recorded in `claimed` so a later row
+/// matching the same physical file does not size it a second time. One file's bytes therefore
+/// land on exactly one row, while every row that matched the file still reports it in
+/// `cache_files_found` - the count stays "slices this row's own URLs matched".
+fn claim_first(found_files: &HashSet<u128>, claimed: &mut HashSet<u128>) -> HashSet<u128> {
     found_files
         .iter()
-        .map(|digest| cache_utils::cache_path_for_digest(cache_dir, *digest).display().to_string())
+        .filter(|digest| claimed.insert(**digest))
+        .copied()
         .collect()
 }
 
-fn cache_file_paths(found_files: &HashSet<PathBuf>) -> Vec<String> {
+/// Filesystem twin of `claim_first` for incremental runs, which build no index and so have only
+/// the probed paths. A probe candidate is always written at `{last_2}/{middle_2}/{md5}` under
+/// the cache root by `calculate_cache_path*` / `hash_to_path`, in both key schemes, so its own
+/// place in that layout yields the digest. Same first-claimant rule: nothing downstream
+/// deduplicates a slice two rows share, so it has to happen here.
+fn claim_first_on_disk(
+    found_files: &HashSet<PathBuf>,
+    cache_dir: &Path,
+    claimed: &mut HashSet<u128>,
+) -> HashSet<PathBuf> {
     found_files
         .iter()
-        .map(|path| path.display().to_string())
+        .filter(|path| {
+            cache_utils::strict_cache_file_digest(cache_dir, path.as_path())
+                .is_some_and(|digest| claimed.insert(digest))
+        })
+        .cloned()
         .collect()
 }
 
@@ -294,11 +321,12 @@ pub(crate) fn detect_service_cache_info(
     service_name: &str,
     service_urls: &[ServiceUrl],
     cache_files_index: &HashMap<u128, u64>,
-    cache_dir: &Path,
+    claimed: &mut HashSet<u128>,
     counter: &AtomicUsize,
 ) -> ServiceCacheInfo {
     let found_files = match_files_with_index_tracked(service_urls, cache_files_index, counter);
-    let total_size = total_size_from_index(&found_files, cache_files_index);
+    let owned_files = claim_first(&found_files, claimed);
+    let total_size = total_size_from_index(&owned_files, cache_files_index);
     let sample_urls =
         cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
 
@@ -307,7 +335,6 @@ pub(crate) fn detect_service_cache_info(
         cache_files_found: found_files.len(),
         total_size_bytes: total_size,
         sample_urls,
-        cache_file_paths: cache_file_paths_from_digests(&found_files, cache_dir),
     }
 }
 
@@ -315,10 +342,12 @@ pub(crate) fn detect_service_cache_info_incremental(
     service_name: &str,
     service_urls: &[ServiceUrl],
     cache_dir: &Path,
+    claimed: &mut HashSet<u128>,
     counter: &AtomicUsize,
 ) -> ServiceCacheInfo {
     let found_files = match_files_in_cache_tracked(service_urls, cache_dir, counter);
-    let total_size = total_size_from_filesystem(&found_files);
+    let owned_files = claim_first_on_disk(&found_files, cache_dir, claimed);
+    let total_size = total_size_from_filesystem(&owned_files);
     let sample_urls =
         cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
 
@@ -327,7 +356,6 @@ pub(crate) fn detect_service_cache_info_incremental(
         cache_files_found: found_files.len(),
         total_size_bytes: total_size,
         sample_urls,
-        cache_file_paths: cache_file_paths(&found_files),
     }
 }
 
@@ -335,7 +363,6 @@ fn build_steam_game_cache_info(
     inputs: SteamGameInputs,
     cache_files_found: usize,
     total_size_bytes: u64,
-    cache_file_paths: Vec<String>,
 ) -> GameCacheInfo {
     let sample_urls = cache_utils::sorted_sample_urls(
         inputs.service_urls.iter().map(|(_, url, _)| url.as_str()),
@@ -349,7 +376,6 @@ fn build_steam_game_cache_info(
         total_size_bytes,
         depot_ids: inputs.depot_ids.into_iter().collect(),
         sample_urls,
-        cache_file_paths,
         service: None,
         epic_app_id: None,
     }
@@ -358,26 +384,27 @@ fn build_steam_game_cache_info(
 pub(crate) fn detect_steam_game_cache_info(
     records: &[DownloadRecord],
     cache_files_index: &HashMap<u128, u64>,
-    cache_dir: &Path,
+    claimed: &mut HashSet<u128>,
 ) -> Result<GameCacheInfo> {
     let inputs = collect_steam_game_inputs(records)?;
     let found_files = match_files_with_index(&inputs.service_urls, cache_files_index);
-    let total_size = total_size_from_index(&found_files, cache_files_index);
-    let paths = cache_file_paths_from_digests(&found_files, cache_dir);
+    let owned_files = claim_first(&found_files, claimed);
+    let total_size = total_size_from_index(&owned_files, cache_files_index);
 
-    Ok(build_steam_game_cache_info(inputs, found_files.len(), total_size, paths))
+    Ok(build_steam_game_cache_info(inputs, found_files.len(), total_size))
 }
 
 pub(crate) fn detect_steam_game_cache_info_incremental(
     records: &[DownloadRecord],
     cache_dir: &Path,
+    claimed: &mut HashSet<u128>,
 ) -> Result<GameCacheInfo> {
     let inputs = collect_steam_game_inputs(records)?;
     let found_files = match_files_in_cache(&inputs.service_urls, cache_dir);
-    let total_size = total_size_from_filesystem(&found_files);
-    let paths = cache_file_paths(&found_files);
+    let owned_files = claim_first_on_disk(&found_files, cache_dir, claimed);
+    let total_size = total_size_from_filesystem(&owned_files);
 
-    Ok(build_steam_game_cache_info(inputs, found_files.len(), total_size, paths))
+    Ok(build_steam_game_cache_info(inputs, found_files.len(), total_size))
 }
 
 fn generate_epic_game_app_id(epic_app_id: &str) -> u32 {
@@ -394,7 +421,6 @@ fn build_epic_game_cache_info(
     service_urls: &[ServiceUrl],
     cache_files_found: usize,
     total_size_bytes: u64,
-    cache_file_paths: Vec<String>,
 ) -> GameCacheInfo {
     let sample_urls =
         cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
@@ -406,7 +432,6 @@ fn build_epic_game_cache_info(
         total_size_bytes,
         depot_ids: Vec::new(),
         sample_urls,
-        cache_file_paths,
         service: Some("epicgames".to_string()),
         epic_app_id: Some(epic_app_id.to_string()),
     }
@@ -417,11 +442,11 @@ pub(crate) fn detect_epic_game_cache_info(
     game_name: &str,
     service_urls: &[ServiceUrl],
     cache_files_index: &HashMap<u128, u64>,
-    cache_dir: &Path,
+    claimed: &mut HashSet<u128>,
 ) -> GameCacheInfo {
     let found_files = match_files_with_index(service_urls, cache_files_index);
-    let total_size = total_size_from_index(&found_files, cache_files_index);
-    let paths = cache_file_paths_from_digests(&found_files, cache_dir);
+    let owned_files = claim_first(&found_files, claimed);
+    let total_size = total_size_from_index(&owned_files, cache_files_index);
 
     build_epic_game_cache_info(
         epic_app_id,
@@ -429,7 +454,6 @@ pub(crate) fn detect_epic_game_cache_info(
         service_urls,
         found_files.len(),
         total_size,
-        paths,
     )
 }
 
@@ -438,10 +462,11 @@ pub(crate) fn detect_epic_game_cache_info_incremental(
     game_name: &str,
     service_urls: &[ServiceUrl],
     cache_dir: &Path,
+    claimed: &mut HashSet<u128>,
 ) -> GameCacheInfo {
     let found_files = match_files_in_cache(service_urls, cache_dir);
-    let total_size = total_size_from_filesystem(&found_files);
-    let paths = cache_file_paths(&found_files);
+    let owned_files = claim_first_on_disk(&found_files, cache_dir, claimed);
+    let total_size = total_size_from_filesystem(&owned_files);
 
     build_epic_game_cache_info(
         epic_app_id,
@@ -449,7 +474,6 @@ pub(crate) fn detect_epic_game_cache_info_incremental(
         service_urls,
         found_files.len(),
         total_size,
-        paths,
     )
 }
 
@@ -462,7 +486,6 @@ fn build_named_game_cache_info(
     service_urls: &[ServiceUrl],
     cache_files_found: usize,
     total_size_bytes: u64,
-    cache_file_paths: Vec<String>,
 ) -> GameCacheInfo {
     let sample_urls =
         cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
@@ -474,7 +497,6 @@ fn build_named_game_cache_info(
         total_size_bytes,
         depot_ids: Vec::new(),
         sample_urls,
-        cache_file_paths,
         service: Some(service.to_lowercase()),
         epic_app_id: None,
     }
@@ -485,11 +507,11 @@ pub(crate) fn detect_named_game_cache_info(
     game_name: &str,
     service_urls: &[ServiceUrl],
     cache_files_index: &HashMap<u128, u64>,
-    cache_dir: &Path,
+    claimed: &mut HashSet<u128>,
 ) -> GameCacheInfo {
     let found_files = match_files_with_index(service_urls, cache_files_index);
-    let total_size = total_size_from_index(&found_files, cache_files_index);
-    let paths = cache_file_paths_from_digests(&found_files, cache_dir);
+    let owned_files = claim_first(&found_files, claimed);
+    let total_size = total_size_from_index(&owned_files, cache_files_index);
 
     build_named_game_cache_info(
         service,
@@ -497,7 +519,6 @@ pub(crate) fn detect_named_game_cache_info(
         service_urls,
         found_files.len(),
         total_size,
-        paths,
     )
 }
 
@@ -506,10 +527,11 @@ pub(crate) fn detect_named_game_cache_info_incremental(
     game_name: &str,
     service_urls: &[ServiceUrl],
     cache_dir: &Path,
+    claimed: &mut HashSet<u128>,
 ) -> GameCacheInfo {
     let found_files = match_files_in_cache(service_urls, cache_dir);
-    let total_size = total_size_from_filesystem(&found_files);
-    let paths = cache_file_paths(&found_files);
+    let owned_files = claim_first_on_disk(&found_files, cache_dir, claimed);
+    let total_size = total_size_from_filesystem(&owned_files);
 
     build_named_game_cache_info(
         service,
@@ -517,7 +539,6 @@ pub(crate) fn detect_named_game_cache_info_incremental(
         service_urls,
         found_files.len(),
         total_size,
-        paths,
     )
 }
 
@@ -657,6 +678,122 @@ mod tests {
         );
     }
 
+    /// Two rows whose URLs resolve to the SAME physical slices: the first to claim them reports
+    /// the bytes and the second reports none, so a shared file is never counted twice in the
+    /// scan-wide total. Both rows still report the file count their own URLs matched.
+    #[test]
+    fn a_slice_claimed_by_an_earlier_row_counts_once() {
+        let service = "blizzard";
+        let url = "/tpr/bnt001/data/05/d6/05d6a7b8c9d0e1f2a3b4c5d6e7f8a9b0";
+        let n_slices = 100usize;
+        let slice_size = cache_utils::DEFAULT_SLICE_SIZE;
+        let index = build_multi_slice_index(service, url, n_slices, slice_size);
+        let service_urls: Vec<ServiceUrl> =
+            vec![(service.to_string(), url.to_string(), slice_size as i64)];
+
+        let mut claimed: HashSet<u128> = HashSet::new();
+        let first =
+            detect_named_game_cache_info(service, "Overwatch", &service_urls, &index, &mut claimed);
+        let second =
+            detect_named_game_cache_info(service, "Diablo", &service_urls, &index, &mut claimed);
+
+        assert_eq!(first.cache_files_found, n_slices);
+        assert_eq!(first.total_size_bytes, n_slices as u64 * slice_size);
+        assert_eq!(second.cache_files_found, n_slices);
+        assert_eq!(second.total_size_bytes, 0);
+        assert_eq!(claimed.len(), n_slices);
+    }
+
+    /// The incremental twin of the test above. An incremental run builds no index and probes the
+    /// filesystem, and it must dedupe a shared slice the same way: two rows scanned in one run
+    /// would otherwise both report the same bytes, and the disk-summary refresh no longer walks
+    /// the cache to take one of the copies back out.
+    #[test]
+    fn an_incremental_row_does_not_re_count_a_slice_an_earlier_row_claimed() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let service = "blizzard";
+        let url = "/tpr/bnt001/data/aa/bb/shared-incremental-archive";
+        let slice_size = 41u64;
+        // Real files at the digests the index fixture computes, so the fs probe walks the same
+        // three slices the index-backed probe would find.
+        for digest in build_multi_slice_index(service, url, 3, slice_size).keys() {
+            let path = cache_utils::cache_path_for_digest(&root, *digest);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, vec![b'x'; slice_size as usize]).unwrap();
+        }
+        let service_urls: Vec<ServiceUrl> = vec![(service.to_string(), url.to_string(), 0)];
+
+        let mut claimed: HashSet<u128> = HashSet::new();
+        let first = detect_named_game_cache_info_incremental(
+            service,
+            "Overwatch",
+            &service_urls,
+            &root,
+            &mut claimed,
+        );
+        let second = detect_named_game_cache_info_incremental(
+            service,
+            "Diablo",
+            &service_urls,
+            &root,
+            &mut claimed,
+        );
+
+        assert_eq!(first.cache_files_found, 3);
+        assert_eq!(first.total_size_bytes, 3 * slice_size);
+        assert_eq!(second.cache_files_found, 3);
+        assert_eq!(second.total_size_bytes, 0);
+        assert_eq!(claimed.len(), 3);
+    }
+
+    fn steam_record(game_app_id: u32, url: &str) -> DownloadRecord {
+        DownloadRecord {
+            service: "steam".to_string(),
+            game_app_id,
+            game_name: format!("Game {game_app_id}"),
+            url: url.to_string(),
+            depot_id: None,
+            bytes_served: 0,
+        }
+    }
+
+    /// Per-game (app id, reported bytes) for two games sharing every slice of `url`, run through
+    /// the production claim order after filling the map `first` then `second`.
+    fn shared_slice_sizes(
+        first: u32,
+        second: u32,
+        url: &str,
+        index: &HashMap<u128, u64>,
+    ) -> Vec<(u32, u64)> {
+        let mut games_map: HashMap<u32, Vec<DownloadRecord>> = HashMap::new();
+        games_map.insert(first, vec![steam_record(first, url)]);
+        games_map.insert(second, vec![steam_record(second, url)]);
+
+        let mut claimed: HashSet<u128> = HashSet::new();
+        games_in_claim_order(games_map)
+            .into_iter()
+            .map(|(game_app_id, records)| {
+                let info = detect_steam_game_cache_info(&records, index, &mut claimed).unwrap();
+                (game_app_id, info.total_size_bytes)
+            })
+            .collect()
+    }
+
+    /// The lower app id claims the shared slices no matter which way the game map was filled.
+    /// Iterating the map directly would hand the bytes to a different game between runs, and the
+    /// disk summary would move bytes between two games nothing about the cache had changed.
+    #[test]
+    fn shared_slices_go_to_the_same_game_whichever_way_the_map_was_filled() {
+        let url = "/depot/441/chunk/aa";
+        let slice_size = cache_utils::DEFAULT_SLICE_SIZE;
+        let index = build_multi_slice_index("steam", url, 3, slice_size);
+        let expected = vec![(441u32, 3 * slice_size), (442u32, 0u64)];
+
+        assert_eq!(shared_slice_sizes(441, 442, url, &index), expected);
+        assert_eq!(shared_slice_sizes(442, 441, url, &index), expected);
+    }
+
     /// The walk must bridge a small partial-eviction hole (gap < CONSECUTIVE_MISS_LIMIT) and still
     /// count slices on the far side of the gap.
     #[test]
@@ -734,7 +871,6 @@ mod tests {
             &[("blizzard".to_string(), "http://b/1".to_string(), 0)],
             0,
             0,
-            Vec::new(),
         );
         assert_eq!(info.game_app_id, 0);
         assert_eq!(info.epic_app_id, None);

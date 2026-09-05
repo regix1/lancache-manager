@@ -14,7 +14,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children }) =>
   const [isConnected, setIsConnected] = useState(false);
   const [connectionState, setConnectionState] = useState<
     'disconnected' | 'connecting' | 'connected' | 'reconnecting'
-  >('disconnected');
+  >('connecting');
   const [connectionId, setConnectionId] = useState<string | null>(null);
 
   const connectionRef = useRef<signalR.HubConnection | null>(null);

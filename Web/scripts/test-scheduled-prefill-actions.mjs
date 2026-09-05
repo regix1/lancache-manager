@@ -18,6 +18,10 @@ const panelSource = parseSource(
   'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPlatformsPanel.tsx',
   ts.ScriptKind.TSX
 );
+const persistentCardSource = parseSource(
+  'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPersistentCard.tsx',
+  ts.ScriptKind.TSX
+);
 const actionMenuSource = parseSource('src/components/ui/ActionMenu.tsx', ts.ScriptKind.TSX);
 const focusUrl = await compileToUrl('../src/utils/focus.ts');
 const { getFocusable } = await import(focusUrl);
@@ -37,6 +41,12 @@ function getAttribute(element, source, name) {
   assert.ok(ts.isJsxExpression(attribute.initializer));
   assert.ok(attribute.initializer.expression, `${getTagName(element)} ${name} has an expression`);
   return attribute.initializer.expression.getText(source);
+}
+
+function hasAttribute(element, name) {
+  return element.openingElement.attributes.properties.some(
+    (property) => ts.isJsxAttribute(property) && property.name.text === name
+  );
 }
 
 function getHandler(element, source) {
@@ -69,13 +79,13 @@ test('row Actions callbacks keep a pending operation scoped to its exact service
   const runs = [];
   const cancels = [];
   const opens = [];
-  const enables = [];
+  const toggles = [];
   const bindings = {
     setActionsOpen: (value) => opened.push(value),
     onRun: (...args) => runs.push(args),
     onCancel: (...args) => cancels.push(args),
     onOpen: (...args) => opens.push(args),
-    onEnable: (...args) => enables.push(args),
+    onToggleEnabled: (...args) => toggles.push(args),
     serviceId: 'Steam',
     scheduleId: 'schedule-a',
     serviceKey: 'steam'
@@ -85,7 +95,7 @@ test('row Actions callbacks keep a pending operation scoped to its exact service
     ['ActionMenuItem', 'onRun', runs],
     ['ActionMenuDangerItem', 'onCancel', cancels],
     ['ActionMenuItem', 'onOpen', opens],
-    ['ActionMenuItem', 'onEnable', enables]
+    ['ActionMenuItem', 'onToggleEnabled', toggles]
   ]) {
     const item = getItemWithCallback(row, detailSource, tag, callbackName);
     assert.ok(item, `${callbackName} action is rendered`);
@@ -93,27 +103,118 @@ test('row Actions callbacks keep a pending operation scoped to its exact service
     assert.equal(opened.pop(), false, `${callbackName} closes the menu before acting`);
     assert.deepEqual(
       expected.pop(),
-      callbackName === 'onOpen' || callbackName === 'onEnable'
+      callbackName === 'onOpen' || callbackName === 'onToggleEnabled'
         ? ['steam', 'schedule-a']
         : ['Steam', 'schedule-a']
     );
   }
 });
 
-test('row Actions keeps its trigger interactive while pending and disables only the pending item', () => {
+test('row and record Actions offer Enable for an off schedule and Disable for an on one', () => {
+  // The row item is one control that reads the schedule's state: an off row says Enable, an on
+  // row says Disable, and neither state hides it.
+  const row = getComponent(detailSource, 'ScheduledPrefillServiceScheduleRow');
+  const rowItem = getItemWithCallback(row, detailSource, 'ActionMenuItem', 'onToggleEnabled');
+  assert.ok(rowItem);
+  const rowLabel = rowItem.children
+    .map((child) => child.getText(detailSource))
+    .join('')
+    .trim();
+  assert.equal(rowLabel, "{t(`${baseKey}.records.${enabled ? 'disable' : 'enable'}`)}");
+  assert.equal(getAttribute(rowItem, detailSource, 'disabled'), 'actionsDisabled');
+
+  // Run implies the schedule is on: an off row's menu is Open + Enable only, while a run that is
+  // already in flight keeps its Cancel regardless.
+  const gateOf = (item) => {
+    let gate = item.parent;
+    while (ts.isParenthesizedExpression(gate)) gate = gate.parent;
+    assert.ok(ts.isBinaryExpression(gate), 'the item sits behind a condition');
+    return gate.left.getText(detailSource);
+  };
+  const runItem = getItemWithCallback(row, detailSource, 'ActionMenuItem', 'onRun');
+  assert.equal(gateOf(runItem), '!isRunning && enabled');
+  const cancelItem = getItemWithCallback(row, detailSource, 'ActionMenuDangerItem', 'onCancel');
+  assert.equal(gateOf(cancelItem), 'isRunning');
+
+  // The record menu in the Configure modal flips the draft the same way the Off/On toggle does.
+  const panel = getComponent(panelSource, 'ScheduledPrefillPlatformsPanel');
+  const recordItem = getItemWithCallback(panel, panelSource, 'ActionMenuItem', 'onScheduleChange');
+  assert.ok(recordItem);
+  const recordLabel = recordItem.children
+    .map((child) => child.getText(panelSource))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+  assert.equal(
+    recordLabel,
+    "{t( `${baseKey}.records.${activeSchedule?.enabled ? 'disableSchedule' : 'enableSchedule'}` )}"
+  );
+  const changes = [];
+  const closed = [];
+  bindLifted(getHandler(recordItem, panelSource), {
+    setActionsOpen: (value) => closed.push(value),
+    onScheduleChange: (...args) => changes.push(args),
+    activeServiceKey: 'steam',
+    activeSchedule: { id: 'schedule-a', name: 'Default', enabled: true }
+  })();
+  assert.equal(closed.pop(), false);
+  assert.deepEqual(changes.pop(), ['steam', { id: 'schedule-a', name: 'Default', enabled: false }]);
+});
+
+test('row Actions shares one disabled rule between its trigger and every item', () => {
   const row = getComponent(detailSource, 'ScheduledPrefillServiceScheduleRow');
   const menuTrigger = getMenuItems(row, detailSource, 'Button').find(
     (button) => getAttribute(button, detailSource, 'variant') === '"menu"'
   );
   assert.ok(menuTrigger, 'row has a menu trigger');
-  assert.equal(getAttribute(menuTrigger, detailSource, 'disabled'), 'disabled');
+  assert.equal(getAttribute(menuTrigger, detailSource, 'disabled'), 'actionsDisabled');
+  // The Enable round-trip holds the trigger disabled through `actionsDisabled` and announces
+  // itself with the notification; a spinner on the trigger flashed on every click, so no
+  // scheduled-prefill Actions trigger carries `loading`.
+  assert.equal(hasAttribute(menuTrigger, 'loading'), false, 'row trigger has no spinner');
+  const panelTrigger = getMenuItems(
+    getComponent(panelSource, 'ScheduledPrefillPlatformsPanel'),
+    panelSource,
+    'Button'
+  ).find((button) => getAttribute(button, panelSource, 'variant') === '"menu"');
+  assert.ok(panelTrigger, 'record group has a menu trigger');
+  assert.equal(hasAttribute(panelTrigger, 'loading'), false, 'record trigger has no spinner');
+  const footerTrigger = getMenuItems(
+    getComponent(persistentCardSource, 'ScheduledPrefillPersistentCard'),
+    persistentCardSource,
+    'Button'
+  ).find((button) => getAttribute(button, persistentCardSource, 'variant') === '"menu"');
+  assert.ok(footerTrigger, 'persistent card footer has a menu trigger');
+  assert.equal(hasAttribute(footerTrigger, 'loading'), false, 'footer trigger has no spinner');
 
   const run = getItemWithCallback(row, detailSource, 'ActionMenuItem', 'onRun');
   const cancel = getItemWithCallback(row, detailSource, 'ActionMenuDangerItem', 'onCancel');
+  const open = getItemWithCallback(row, detailSource, 'ActionMenuItem', 'onOpen');
+  const enable = getItemWithCallback(row, detailSource, 'ActionMenuItem', 'onToggleEnabled');
   assert.ok(run);
   assert.ok(cancel);
-  assert.equal(getAttribute(run, detailSource, 'disabled'), 'runDisabled || runPending');
-  assert.equal(getAttribute(cancel, detailSource, 'disabled'), 'cancelPending');
+  assert.ok(open);
+  assert.ok(enable);
+  // A menu already open when the row turns disabled keeps its portalled items mounted, so the
+  // trigger's disabled state alone does not stop them firing. Every item repeats the rule, and
+  // the two that own an extra pending flag add it to that shared one rather than replacing it.
+  assert.equal(
+    getAttribute(run, detailSource, 'disabled'),
+    'actionsDisabled || runDisabled || runPending'
+  );
+  assert.equal(getAttribute(cancel, detailSource, 'disabled'), 'actionsDisabled || cancelPending');
+  assert.equal(getAttribute(open, detailSource, 'disabled'), 'actionsDisabled');
+  assert.equal(getAttribute(enable, detailSource, 'disabled'), 'actionsDisabled');
+
+  // The shared rule reads the row's own disabled state plus its Enable round-trip, and stays
+  // blind to `enabled`: an off schedule keeps a working menu, because Enable is inside it.
+  const actionsDisabled = findSoleNode(
+    detailSource,
+    'row actionsDisabled rule',
+    (node) =>
+      ts.isVariableDeclaration(node) && node.name.getText(detailSource) === 'actionsDisabled'
+  );
+  assert.equal(actionsDisabled.initializer.getText(detailSource), 'disabled || enablePending');
 
   const stateUpdates = [];
   bindLifted(getHandler(menuTrigger, detailSource), {
@@ -129,11 +230,21 @@ test('record-group Actions closes before new, save-as, and delete callbacks', ()
   const added = [];
   const duplicated = [];
   const deleted = [];
+  const shown = [];
   const bindings = {
     setActionsOpen: (value) => closed.push(value),
-    onAddSchedule: (...args) => added.push(args),
-    onDuplicateSchedule: (...args) => duplicated.push(args),
+    // Both creators hand back the id of the record they made, which is what makes it the one
+    // on screen. A creator that returned nothing would leave the reader on the old record.
+    onAddSchedule: (...args) => {
+      added.push(args);
+      return 'schedule-new';
+    },
+    onDuplicateSchedule: (...args) => {
+      duplicated.push(args);
+      return 'schedule-copy';
+    },
     onDeleteSchedule: (...args) => deleted.push(args),
+    showNewSchedule: (scheduleId) => shown.push(scheduleId),
     activeServiceKey: 'steam',
     activeSchedule: { id: 'schedule-a' }
   };
@@ -152,6 +263,8 @@ test('record-group Actions closes before new, save-as, and delete callbacks', ()
       callbackName === 'onAddSchedule' ? ['steam'] : ['steam', 'schedule-a']
     );
   }
+
+  assert.deepEqual(shown, ['schedule-new', 'schedule-copy'], 'a new record becomes the shown one');
 
   const deleteItem = getItemWithCallback(
     panel,

@@ -154,6 +154,65 @@ public class ScheduleControllerNotificationModeTests
     }
 
     [Fact]
+    public async Task SetScanModeAsync_UnknownService_ReturnsNotFound()
+    {
+        var registry = new FakeScheduleRegistry { InfoForGet = null };
+        var controller = CreateController(registry);
+
+        var result = await controller.SetScanModeAsync("does-not-exist", GameDetectionScanMode.Hybrid);
+
+        Assert.IsType<NotFoundObjectResult>(result);
+        Assert.Equal(0, registry.SetScanModeCalls);
+    }
+
+    // Game detection is the only schedule with a scan mode. A mode stored under any other key would
+    // sit in state behind a card that shows no dropdown, so the refusal has to reach the caller.
+    [Fact]
+    public async Task SetScanModeAsync_ScheduleWithoutAScanMode_ReturnsConflict()
+    {
+        var registry = new FakeScheduleRegistry
+        {
+            InfoForGet = new ServiceScheduleInfo { Key = "depotMapping" },
+            ScanModeAccepted = false
+        };
+        var controller = CreateController(registry);
+
+        var result = await controller.SetScanModeAsync("depotMapping", GameDetectionScanMode.Incremental);
+
+        Assert.IsType<ConflictObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task SetScanModeAsync_GameDetection_ReturnsNoContentAndPersists()
+    {
+        var registry = new FakeScheduleRegistry
+        {
+            InfoForGet = new ServiceScheduleInfo { Key = "gameDetection", ScanMode = GameDetectionScanMode.Full }
+        };
+        var controller = CreateController(registry);
+
+        var result = await controller.SetScanModeAsync("gameDetection", GameDetectionScanMode.Incremental);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal(1, registry.SetScanModeCalls);
+        Assert.Equal(GameDetectionScanMode.Incremental, registry.LastScanModeSet);
+    }
+
+    [Fact]
+    public void SetScanModeAction_CarriesAdminOnlyPolicy()
+    {
+        var method = typeof(ScheduleController).GetMethod(nameof(ScheduleController.SetScanModeAsync));
+        Assert.NotNull(method);
+
+        var authorize = method!
+            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .SingleOrDefault(a => a.Policy == "AccountHolder");
+
+        Assert.NotNull(authorize);
+    }
+
+    [Fact]
     public void GetRunStatus_UnknownServiceKey_ReturnsNotFound()
     {
         var registry = new FakeScheduleRegistry { RunStatus = null };
@@ -297,6 +356,9 @@ public class ScheduleControllerNotificationModeTests
         public NotificationMode? LastModeSet { get; private set; }
         public int SetNotificationDisplayModeCalls { get; private set; }
         public NotificationDisplayMode? LastDisplayModeSet { get; private set; }
+        public bool ScanModeAccepted { get; set; } = true;
+        public int SetScanModeCalls { get; private set; }
+        public GameDetectionScanMode? LastScanModeSet { get; private set; }
 
         public IReadOnlyList<ServiceScheduleInfo> GetAll() => Array.Empty<ServiceScheduleInfo>();
         public ServiceScheduleInfo? Get(string serviceKey) => InfoForGet;
@@ -314,6 +376,13 @@ public class ScheduleControllerNotificationModeTests
         {
             SetNotificationDisplayModeCalls++;
             LastDisplayModeSet = mode;
+        }
+
+        public bool SetScanMode(string serviceKey, GameDetectionScanMode mode)
+        {
+            SetScanModeCalls++;
+            LastScanModeSet = mode;
+            return ScanModeAccepted;
         }
 
         public Task<(ScheduleRunStatus Status, string? SkippedReason)> TriggerRunAsync(string serviceKey)

@@ -19,6 +19,14 @@ public interface IServiceScheduleRegistry
     void SetNotificationDisplayMode(string serviceKey, NotificationDisplayMode mode);
 
     /// <summary>
+    /// Sets the scan the schedule runs on each automatic tick and on Run Now. Returns false when the
+    /// key names a schedule that has no scan mode, in which case nothing is stored: game detection is
+    /// the only schedule with one, and storing its mode under another key would hide a value the user
+    /// can never see or clear behind a card that shows no dropdown.
+    /// </summary>
+    bool SetScanMode(string serviceKey, GameDetectionScanMode mode);
+
+    /// <summary>
     /// Sets the custom schedule that decides when the service runs, or clears it with <c>null</c> so
     /// the service returns to its interval. Returns false when the key names a service whose loop
     /// cannot honour a schedule, in which case nothing is stored: a schedule the UI shows as active

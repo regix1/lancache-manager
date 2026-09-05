@@ -13,7 +13,6 @@ const game = (overrides = {}) => ({
   total_size_bytes: 3_000_000,
   depot_ids: [],
   sample_urls: [],
-  cache_file_paths: [],
   datasources: ['default'],
   ...overrides
 });
@@ -23,7 +22,6 @@ const service = (overrides = {}) => ({
   cache_files_found: 1234,
   total_size_bytes: 5_000_000,
   sample_urls: [],
-  cache_file_paths: [],
   datasources: ['default'],
   ...overrides
 });

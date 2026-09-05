@@ -24,7 +24,6 @@ interface ServiceCardProps {
   onSelectToggle?: () => void;
 }
 
-const MAX_INITIAL_PATHS = 50;
 const MAX_INITIAL_URLS = 20;
 
 const ServiceCard: React.FC<ServiceCardProps> = ({
@@ -82,8 +81,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   const urlsForExpansion = isEvictedVariant
     ? (service.evicted_sample_urls ?? [])
     : service.sample_urls;
-  const pathsForExpansion = !isEvictedVariant ? service.cache_file_paths : [];
-  const hasExpandableContent = urlsForExpansion.length > 0 || pathsForExpansion.length > 0;
+  const hasExpandableContent = urlsForExpansion.length > 0;
 
   return (
     <ExpandableItemCard
@@ -117,16 +115,6 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
         labelKey="management.gameDetection.sampleUrls"
         showingLabelKey="management.gameDetection.showingUrls"
       />
-
-      {/* Cache File Paths - only available for active (on-disk) items */}
-      {!isEvictedVariant && (
-        <ExpandableList
-          items={service.cache_file_paths}
-          maxInitial={MAX_INITIAL_PATHS}
-          labelKey="management.gameDetection.cacheFileLocations"
-          showingLabelKey="management.gameDetection.showingPaths"
-        />
-      )}
     </ExpandableItemCard>
   );
 };

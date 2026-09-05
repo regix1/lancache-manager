@@ -217,6 +217,7 @@ public sealed class EndpointAuthorizationContractTests
         "ScheduleController.SetRunOnStartup",
         "ScheduleController.SetNotificationMode",
         "ScheduleController.SetNotificationDisplayMode",
+        "ScheduleController.SetScanMode",
         "ScheduleController.TriggerRun",
         "ScheduleController.ResetToDefaults",
         "ScheduleController.TriggerAll",

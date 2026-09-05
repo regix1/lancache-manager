@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { AutomaticScanSkippedEvent } from '@contexts/SignalRContext/types';
 import { useSetupStatus } from '@contexts/useSetupStatus';
@@ -76,7 +75,6 @@ const AppContent: React.FC = () => {
   const handleTabHover = useCallback((tab: string) => {
     preloadMap[tab]?.();
   }, []);
-  const { connectionStatus } = useStats();
   const { setupStatus, isLoading: checkingSetupStatus } = useSetupStatus();
   const {
     authMode,
@@ -591,9 +589,7 @@ const AppContent: React.FC = () => {
       )}
 
       <div className="flex flex-col min-h-screen bg-themed-primary text-themed-primary">
-        <Header
-          connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'}
-        />
+        <Header />
         <Navigation
           activeTab={activeTab}
           setActiveTab={handleTabChange}

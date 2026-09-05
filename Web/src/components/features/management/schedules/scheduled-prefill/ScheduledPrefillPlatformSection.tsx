@@ -1,8 +1,5 @@
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
-import { ToggleSwitch } from '@components/ui/ToggleSwitch';
-import { TextInput } from '@components/ui/TextInput';
-import { noAutofill } from '@utils/autofill';
 import type {
   PersistentIntegrationLoginAvailability,
   PersistentPrefillContainerDto
@@ -65,63 +62,18 @@ export function ScheduledPrefillPlatformSection({
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const platformMeta = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
-  const PlatformIcon = platformMeta.icon;
 
-  const handleEnabledChange = (value: string) => {
-    onChange({ ...config, enabled: value === 'enabled' });
-  };
-
-  // A record stays editable while its automation is off: a saved setup is the same record with
-  // enabled false, and Save as creates one in exactly that state.
-  const fieldsDisabled = disabled;
+  // A schedule that is switched off greys its options out; the toggle, the name and the
+  // record menu in the header above stay live so it can be renamed or switched back on.
+  const fieldsDisabled = disabled || !config.enabled;
 
   return (
     <section
-      className={`scheduled-prefill-platform-section ${platformMeta.rowClassName}`}
+      className={`scheduled-prefill-platform-section ${platformMeta.rowClassName}${
+        config.enabled ? '' : ' scheduled-prefill-platform-section--off'
+      }`}
       aria-label={t(`${baseKey}.services.${serviceKey}`)}
     >
-      <header className="scheduled-prefill-platform-section__header">
-        <div className="scheduled-prefill-platform-section__identity">
-          <span className="scheduled-prefill-platform-section__icon" aria-hidden="true">
-            <PlatformIcon size={22} />
-          </span>
-          <div className="scheduled-prefill-platform-section__title-block">
-            <h3 className="scheduled-prefill-platform-section__title">
-              {t(`${baseKey}.services.${serviceKey}`)}
-            </h3>
-            <label className="sr-only" htmlFor={`scheduled-prefill-schedule-name-${config.id}`}>
-              {t(`${baseKey}.records.name`)}
-            </label>
-            <TextInput
-              {...noAutofill}
-              id={`scheduled-prefill-schedule-name-${config.id}`}
-              className="scheduled-prefill-platform-section__schedule-name"
-              size="sm"
-              value={config.name}
-              onChange={(event) => onChange({ ...config, name: event.target.value })}
-              disabled={disabled}
-            />
-          </div>
-        </div>
-        <ToggleSwitch
-          options={[
-            {
-              value: 'disabled',
-              label: t(`${baseKey}.fields.toggleOff`),
-              activeColor: 'default'
-            },
-            {
-              value: 'enabled',
-              label: t(`${baseKey}.fields.toggleOn`),
-              activeColor: 'success'
-            }
-          ]}
-          value={config.enabled ? 'enabled' : 'disabled'}
-          onChange={handleEnabledChange}
-          disabled={disabled}
-        />
-      </header>
-
       <div className="scheduled-prefill-platform-section__blocks">
         <Card padding="md" className="scheduled-prefill-platform-block">
           <h4 className="scheduled-prefill-platform-block__title">
@@ -170,6 +122,7 @@ export function ScheduledPrefillPlatformSection({
           container={container}
           selectedGamesCount={selectedGamesCount}
           disabled={disabled}
+          scheduleEnabled={config.enabled}
           statusLoading={statusLoading}
           authenticating={authenticating}
           integrationLoginAvailability={integrationLoginAvailability}
