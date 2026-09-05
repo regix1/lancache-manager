@@ -105,3 +105,36 @@ test('a status call the server answered with a failure still signs the service o
   assert.equal(authService.sessionId, null, 'a refused session keeps its sessionId');
   delete globalThis.fetch;
 });
+
+test('access setup remains required across unanswered checks until the server confirms completion', async () => {
+  const authService = await loadAuthService();
+  for (const authenticationEnabled of [true, false]) {
+    globalThis.fetch = async () => ({
+      json: async () => ({
+        ...SIGNED_IN_ADMIN,
+        authenticationEnabled,
+        authenticationSetupRequired: true
+      })
+    });
+    await authService.checkAuth();
+    assert.equal(authService.isAuthenticated, true);
+    assert.equal(authService.authenticationSetupRequired, true);
+
+    globalThis.fetch = async () => {
+      throw new TypeError('fetch failed');
+    };
+    await authService.checkAuth();
+    assert.equal(authService.authenticationSetupRequired, true);
+
+    globalThis.fetch = async () => ({
+      json: async () => ({
+        ...SIGNED_IN_ADMIN,
+        authenticationEnabled,
+        authenticationSetupRequired: false
+      })
+    });
+    await authService.checkAuth();
+    assert.equal(authService.authenticationSetupRequired, false);
+  }
+  delete globalThis.fetch;
+});

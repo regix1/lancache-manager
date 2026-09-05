@@ -117,6 +117,7 @@ class AuthService {
   private authQueue: Promise<void> = Promise.resolve();
 
   public isAuthenticated = false;
+  public authenticationSetupRequired = true;
   public authChecked = false;
   public authMode: AuthMode = 'unauthenticated';
   public sessionType: SessionType | null = null;
@@ -168,6 +169,7 @@ class AuthService {
       const data: AuthStatusResponse = await response.json();
 
       this.isAuthenticated = data.isAuthenticated;
+      this.authenticationSetupRequired = data.authenticationSetupRequired === true;
       this.sessionType = data.sessionType;
       this.sessionId = data.sessionId;
       this.authChecked = true;

@@ -149,6 +149,7 @@ const DISCONNECTED = 'Disconnected';
 
 const state = {
   isAuthenticated: true,
+  authenticationSetupRequired: false,
   mockMode: false,
   connections: [],
   windowListeners: new Map(),
@@ -220,7 +221,8 @@ export class HubConnectionBuilder {
 
 const authServiceStubUrl = moduleUrl(`
 export default {
-  get isAuthenticated() { return globalThis.signalRMockToggleTestState.isAuthenticated; }
+  get isAuthenticated() { return globalThis.signalRMockToggleTestState.isAuthenticated; },
+  get authenticationSetupRequired() { return globalThis.signalRMockToggleTestState.authenticationSetupRequired; }
 };
 `);
 
@@ -289,8 +291,9 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
  * Mounts one provider. Nothing is awaited here, so a test can act between the render and the timer
  * that opens the socket. `holdStart` leaves the handshake unfinished until `releaseStart`.
  */
-const mount = ({ holdStart = false } = {}) => {
+const mount = ({ holdStart = false, setupRequired = false } = {}) => {
   state.isAuthenticated = true;
+  state.authenticationSetupRequired = setupRequired;
   state.mockMode = false;
   state.connections = [];
   state.windowListeners = new Map();
@@ -319,6 +322,10 @@ const mount = ({ holdStart = false } = {}) => {
       state.mockMode = next;
       component.render();
     },
+    setAccessSetup: (next) => {
+      state.authenticationSetupRequired = next;
+      state.windowListeners.get('auth-session-updated')?.();
+    },
     /** Lets a held handshake finish. */
     releaseStart: () => {
       state.startGate = null;
@@ -336,6 +343,43 @@ const mount = ({ holdStart = false } = {}) => {
     }
   };
 };
+
+test('hub connections wait for access setup and resume when it completes', async () => {
+  const harness = mount({ setupRequired: true });
+  await settle();
+  assert.equal(harness.all().length, 0);
+  assert.equal(harness.published().isConnected, false);
+
+  harness.setAccessSetup(false);
+  await settle();
+  assert.equal(harness.all().length, 1);
+  assert.equal(harness.published().isConnected, true);
+
+  harness.setAccessSetup(true);
+  await settle();
+  assert.equal(harness.live().state, DISCONNECTED);
+  assert.equal(harness.published().isConnected, false);
+
+  harness.setAccessSetup(false);
+  await settle();
+  assert.equal(harness.all().length, 2);
+  assert.equal(harness.published().isConnected, true);
+});
+
+test('access setup beginning during a handshake closes the unfinished connection', async () => {
+  const harness = mount({ holdStart: true });
+  await settle();
+  assert.equal(harness.all().length, 1);
+  harness.setAccessSetup(true);
+  harness.releaseStart();
+  await settle();
+  assert.equal(harness.live().state, DISCONNECTED);
+  assert.equal(harness.published().isConnected, false);
+
+  harness.setAccessSetup(false);
+  await settle();
+  assert.equal(harness.published().isConnected, true);
+});
 
 test('a handler subscribed before the toggle is still served after mock mode goes off again', async () => {
   const harness = mount();

@@ -87,7 +87,6 @@ const AppContent: React.FC = () => {
     prefillEnabled,
     isBanned,
     authenticationEnabled,
-    authenticationSetupRequired,
     accountMode
   } = useAuth();
   const { status: steamApiStatus, refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
@@ -504,15 +503,6 @@ const AppContent: React.FC = () => {
       </>
     );
   };
-
-  if (
-    !checkingAuth &&
-    !checkingSetupStatus &&
-    authenticationSetupRequired &&
-    !setupStatus?.mainAdminRecoveryAvailable
-  ) {
-    return <AccessSetup />;
-  }
 
   if (!checkingAuth && !checkingSetupStatus && editingAccess && !adminAccountRequired) {
     return (

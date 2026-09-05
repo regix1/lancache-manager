@@ -24,6 +24,7 @@ const readWebSource = (relativePath) =>
   readFileSync(new URL(`../${relativePath}`, import.meta.url), 'utf8');
 
 const appSource = readWebSource('src/App.tsx');
+const setupSource = readWebSource('src/components/AppProviders.tsx');
 const hookSource = readWebSource('src/hooks/useInitializationFlow.ts');
 const modalSource = readWebSource('src/components/modals/setup/DepotInitializationModal.tsx');
 
@@ -31,6 +32,7 @@ const parse = (fileName, source, kind) =>
   ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kind);
 
 const appFile = parse('App.tsx', appSource, ts.ScriptKind.TSX);
+const setupFile = parse('AppProviders.tsx', setupSource, ts.ScriptKind.TSX);
 const hookFile = parse('useInitializationFlow.ts', hookSource, ts.ScriptKind.TS);
 const modalFile = parse('DepotInitializationModal.tsx', modalSource, ts.ScriptKind.TSX);
 
@@ -75,14 +77,21 @@ const signInConditions = collect(
 assert.equal(signInConditions.length, 1, 'expected exactly one sign-in screen gate in App.tsx');
 const signInCondition = signInConditions[0].expression.getText(appFile);
 const accessConditions = collect(
-  appFile,
+  setupFile,
   (node) =>
-    ts.isIfStatement(node) &&
-    node.expression.getText(appFile).includes('authenticationSetupRequired')
+    ts.isIfStatement(node) && node.expression.getText(setupFile) === 'authenticationSetupRequired'
 );
 assert.equal(accessConditions.length, 1);
-assert.ok(accessConditions[0].pos < signInConditions[0].pos);
-const accessCondition = accessConditions[0].expression.getText(appFile);
+const accessCondition = accessConditions[0].expression.getText(setupFile);
+const recoveryConditions = collect(
+  accessConditions[0],
+  (node) =>
+    ts.isIfStatement(node) &&
+    node.expression.getText(setupFile).includes('mainAdminRecoveryAvailable')
+);
+assert.equal(recoveryConditions.length, 1);
+const recoveryCondition = recoveryConditions[0].expression.getText(setupFile);
+assert.ok(recoveryConditions[0].thenStatement.getText(setupFile).includes('<AdminAccountStep />'));
 
 const wizardBranches = collect(
   appFile,
@@ -212,7 +221,7 @@ const screensFor = (
         ['sign-in', signIn]
       ];
   inSourceOrder.unshift([
-    'access-setup',
+    evaluate(recoveryCondition, { setupStatus }) ? 'wizard' : 'access-setup',
     evaluate(accessCondition, {
       checkingAuth: false,
       checkingSetupStatus: false,
@@ -272,6 +281,79 @@ test('fresh and upgraded installations choose access before the existing wizard 
       );
       assert.equal(screens.screen, 'access-setup');
     }
+  }
+});
+
+test('access setup gates the Docker probe and all ordinary application consumers', () => {
+  const gates = collect(
+    setupFile,
+    (node) => ts.isJsxElement(node) && node.openingElement.tagName.getText(setupFile) === 'AppSetup'
+  );
+  assert.equal(gates.length, 1);
+  for (const name of [
+    'UserPresenceProvider',
+    'DockerSocketProvider',
+    'SessionPreferencesProvider',
+    'SpeedProvider',
+    'SteamAuthProvider',
+    'NotificationsProvider',
+    'DashboardDataProviderWithMockMode',
+    'ClientHostnameProvider',
+    'ImageCacheProvider'
+  ]) {
+    assert.ok(gates[0].getText(setupFile).includes(`<${name}>`), `${name} starts before setup`);
+  }
+  assert.ok(gates[0].getText(setupFile).includes('{children}'));
+  assert.ok(accessConditions[0].thenStatement.getText(setupFile).includes('<AccessSetup />'));
+});
+
+test('owner recovery remains available before access setup without mounting the app', () => {
+  const screens = screensFor(
+    install({ mainAdminRecoveryAvailable: true }),
+    false,
+    'unauthenticated',
+    true
+  );
+  assert.equal(screens.screen, 'wizard');
+  assert.equal(screens.step, 'admin-account');
+  assert.equal(screens.stepComponent, 'AdminAccountStep');
+});
+
+test('recovery waits for an unreadable database before asking for account credentials', () => {
+  assert.ok(
+    recoveryConditions[0].thenStatement
+      .getText(setupFile)
+      .includes('resolveInitialStep(setupStatus, true)')
+  );
+  for (const mode of ['embedded', 'external']) {
+    const recovering = install({
+      mode,
+      mainAdminRecoveryAvailable: true,
+      needsPostgresCredentials: true,
+      accountExists: null,
+      currentSetupStep: 'admin-account'
+    });
+    const screens = screensFor(recovering, false, 'unauthenticated', true);
+    assert.equal(screens.screen, 'wizard');
+    assert.equal(screens.step, mode === 'external' ? 'external-db-form' : 'database-setup');
+    assert.equal(
+      screens.stepComponent,
+      mode === 'external' ? 'ExternalDatabaseSetupStep' : 'DatabaseSetupStep'
+    );
+    assert.ok(
+      recoveryConditions[0].thenStatement
+        .getText(setupFile)
+        .includes(`<${screens.stepComponent} onSetupComplete={refreshSetupStatus} />`)
+    );
+
+    const ready = screensFor(
+      { ...recovering, needsPostgresCredentials: false, accountExists: true },
+      false,
+      'unauthenticated',
+      true
+    );
+    assert.equal(ready.screen, 'wizard');
+    assert.equal(ready.stepComponent, 'AdminAccountStep');
   }
 });
 

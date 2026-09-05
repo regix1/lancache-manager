@@ -94,8 +94,9 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children }) =>
     // Don't connect without a session. The hub authenticates from the session cookie, which is
     // HttpOnly and so unreadable here, and this avoids repeated unauthenticated negotiate/handshake
     // churn. checkAuth, login, logout and the session-revocation handlers in AuthContext keep
-    // isAuthenticated in step with whether that cookie names a live session.
-    if (!authService.isAuthenticated) {
+    // isAuthenticated in step with whether that cookie names a live session. Access setup
+    // must also finish before the server accepts hub negotiations.
+    if (!authService.isAuthenticated || authService.authenticationSetupRequired) {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
@@ -221,7 +222,13 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children }) =>
       // Start the connection
       await connection.start();
 
-      if (isMountedRef.current && !mockModeRef.current && connectionRef.current === null) {
+      if (
+        isMountedRef.current &&
+        !mockModeRef.current &&
+        authService.isAuthenticated &&
+        !authService.authenticationSetupRequired &&
+        connectionRef.current === null
+      ) {
         connectionRef.current = connection;
         setConnectionState('connected');
         setIsConnected(true);
@@ -264,7 +271,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children }) =>
     }
 
     const handleAuthSessionUpdated = () => {
-      if (!authService.isAuthenticated) {
+      if (!authService.isAuthenticated || authService.authenticationSetupRequired) {
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = null;

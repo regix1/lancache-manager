@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Rocket } from 'lucide-react';
 import { NotificationsProvider } from '@contexts/notifications';
 import { BulkRemovalProvider } from '@contexts/BulkRemovalContext';
 import { CacheSizeProvider } from '@contexts/CacheSizeContext';
@@ -22,6 +24,8 @@ import { SetupStatusProvider } from '@contexts/SetupStatusContext';
 import { SteamAuthProvider } from '@contexts/SteamAuthContext';
 import { PrefillProvider } from '@contexts/PrefillContext';
 import { AuthProvider } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
+import { useSetupStatus } from '@contexts/useSetupStatus';
 import { UserPresenceProvider } from '@contexts/UserPresenceContext/UserPresenceProvider';
 import { SteamWebApiStatusProvider } from '@contexts/SteamWebApiStatusContext';
 import { TimezoneProvider } from '@contexts/TimezoneContext';
@@ -31,6 +35,13 @@ import { GameServiceProvider } from '@contexts/GameServiceContext';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import ErrorBoundary from '@components/common/ErrorBoundary';
+import LoadingSpinner from '@components/common/LoadingSpinner';
+import { AccessSetup } from '@components/initialization/AccessSetup';
+import { AdminAccountStep } from '@components/initialization/steps/AdminAccountStep';
+import { DatabaseSetupStep } from '@components/initialization/steps/DatabaseSetupStep';
+import { ExternalDatabaseSetupStep } from '@components/initialization/steps/ExternalDatabaseSetupStep';
+import { SetupGate } from '@components/modals/SetupGate';
+import { resolveInitialStep } from '@hooks/useInitializationFlow';
 import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
 import ApiService from '@services/api.service';
 
@@ -109,6 +120,47 @@ const ImageCacheProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 };
 
+const AppSetup: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { t } = useTranslation();
+  const { isLoading: checkingAuth, authenticationSetupRequired } = useAuth();
+  const {
+    setupStatus,
+    isLoading: checkingSetup,
+    isSetupStatusKnown,
+    refreshSetupStatus
+  } = useSetupStatus();
+
+  if (checkingAuth || (checkingSetup && !isSetupStatusKnown)) {
+    return <LoadingSpinner fullScreen message={t('app.loading.checkingSetup')} />;
+  }
+
+  // The setup API remains available while ordinary requests are blocked. Mounting their
+  // consumers early caches failed checks, including Docker availability, beyond setup completion.
+  if (authenticationSetupRequired) {
+    if (setupStatus?.mainAdminRecoveryAvailable) {
+      const step = resolveInitialStep(setupStatus, true);
+      return (
+        <SetupGate
+          maxWidth="4xl"
+          icon={<Rocket className="w-5 h-5 text-primary" aria-hidden="true" />}
+          title={t('initialization.modal.setupWizard')}
+        >
+          {step === 'external-db-form' ? (
+            <ExternalDatabaseSetupStep onSetupComplete={refreshSetupStatus} />
+          ) : step === 'database-setup' ? (
+            <DatabaseSetupStep onSetupComplete={refreshSetupStatus} />
+          ) : (
+            <AdminAccountStep />
+          )}
+        </SetupGate>
+      );
+    }
+    return <AccessSetup />;
+  }
+
+  return children;
+};
+
 const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
     <ErrorBoundary>
@@ -126,57 +178,59 @@ const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => 
                 <ConfigProvider>
                   {/* Auth layer */}
                   <AuthProvider>
-                    {/* Presence heartbeat mounts here, above every route, so LastSeenAtUtc keeps
+                    <SetupStatusProvider>
+                      <AppSetup>
+                        {/* Presence heartbeat mounts here, above every route, so LastSeenAtUtc keeps
                         being refreshed no matter which page is open - not just the Users page. */}
-                    <UserPresenceProvider>
-                      <DockerSocketProvider>
-                        {/* User preferences */}
-                        <SessionPreferencesProvider>
-                          <RefreshRateProvider>
-                            <SpeedProvider>
-                              <TimezoneProvider>
-                                {/* Steam / setup status */}
-                                <SteamWebApiStatusProvider>
-                                  <GuestConfigProvider>
-                                    <SetupStatusProvider>
-                                      <SteamAuthProvider>
-                                        <PrefillProvider>
-                                          {/* Data providers */}
-                                          <PicsProgressProviderWithMockMode>
-                                            <NotificationsProvider>
-                                              <BulkRemovalProvider>
-                                                <CacheSizeProvider>
-                                                  <DashboardDataProviderWithMockMode>
-                                                    {/* UI / calendar / event providers */}
-                                                    <CalendarSettingsProvider>
-                                                      <EventProviderWithMockMode>
-                                                        <ClientGroupProvider>
-                                                          <ClientHostnameProvider>
-                                                            <DownloadAssociationsProvider>
-                                                              <ImageCacheProvider>
-                                                                {children}
-                                                              </ImageCacheProvider>
-                                                            </DownloadAssociationsProvider>
-                                                          </ClientHostnameProvider>
-                                                        </ClientGroupProvider>
-                                                      </EventProviderWithMockMode>
-                                                    </CalendarSettingsProvider>
-                                                  </DashboardDataProviderWithMockMode>
-                                                </CacheSizeProvider>
-                                              </BulkRemovalProvider>
-                                            </NotificationsProvider>
-                                          </PicsProgressProviderWithMockMode>
-                                        </PrefillProvider>
-                                      </SteamAuthProvider>
-                                    </SetupStatusProvider>
-                                  </GuestConfigProvider>
-                                </SteamWebApiStatusProvider>
-                              </TimezoneProvider>
-                            </SpeedProvider>
-                          </RefreshRateProvider>
-                        </SessionPreferencesProvider>
-                      </DockerSocketProvider>
-                    </UserPresenceProvider>
+                        <UserPresenceProvider>
+                          <DockerSocketProvider>
+                            {/* User preferences */}
+                            <SessionPreferencesProvider>
+                              <RefreshRateProvider>
+                                <SpeedProvider>
+                                  <TimezoneProvider>
+                                    {/* Steam / setup status */}
+                                    <SteamWebApiStatusProvider>
+                                      <GuestConfigProvider>
+                                        <SteamAuthProvider>
+                                          <PrefillProvider>
+                                            {/* Data providers */}
+                                            <PicsProgressProviderWithMockMode>
+                                              <NotificationsProvider>
+                                                <BulkRemovalProvider>
+                                                  <CacheSizeProvider>
+                                                    <DashboardDataProviderWithMockMode>
+                                                      {/* UI / calendar / event providers */}
+                                                      <CalendarSettingsProvider>
+                                                        <EventProviderWithMockMode>
+                                                          <ClientGroupProvider>
+                                                            <ClientHostnameProvider>
+                                                              <DownloadAssociationsProvider>
+                                                                <ImageCacheProvider>
+                                                                  {children}
+                                                                </ImageCacheProvider>
+                                                              </DownloadAssociationsProvider>
+                                                            </ClientHostnameProvider>
+                                                          </ClientGroupProvider>
+                                                        </EventProviderWithMockMode>
+                                                      </CalendarSettingsProvider>
+                                                    </DashboardDataProviderWithMockMode>
+                                                  </CacheSizeProvider>
+                                                </BulkRemovalProvider>
+                                              </NotificationsProvider>
+                                            </PicsProgressProviderWithMockMode>
+                                          </PrefillProvider>
+                                        </SteamAuthProvider>
+                                      </GuestConfigProvider>
+                                    </SteamWebApiStatusProvider>
+                                  </TimezoneProvider>
+                                </SpeedProvider>
+                              </RefreshRateProvider>
+                            </SessionPreferencesProvider>
+                          </DockerSocketProvider>
+                        </UserPresenceProvider>
+                      </AppSetup>
+                    </SetupStatusProvider>
                   </AuthProvider>
                 </ConfigProvider>
               </ActivityProvider>

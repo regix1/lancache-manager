@@ -216,10 +216,14 @@ function resolveStepForPostgresMode(step: InitStep, setupStatus: SetupStatus): I
   return step;
 }
 
-function resolveInitialStep(
+export function resolveInitialStep(
   setupStatus: SetupStatus | null,
   adminAccountRequired: boolean
 ): InitStep {
+  if (setupStatus?.needsPostgresCredentials && setupStatus.accountExists === null) {
+    return resolveStepForPostgresMode('database-setup', setupStatus);
+  }
+
   // Replaying database setup on an installation that has been serving traffic would be its own
   // outage, and the account is the only thing it is missing.
   // Only an account table the server actually read and found empty sends the operator here. When
