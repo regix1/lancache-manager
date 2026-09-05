@@ -289,30 +289,35 @@ test('testing a connection stages the settings and then starts the real sign-in'
   );
 });
 
-test('the callback guidance explains the return addresses without demanding public hosting', () => {
+test('callback guidance shows address requirements before the URLs and keeps testing details expandable', () => {
   const en = JSON.parse(readWebSource('src/i18n/locales/en.json')).accessSetup;
   const zh = JSON.parse(readWebSource('src/i18n/locales/zh.json')).accessSetup;
-  // The URLs are pasted into the service's registration, and the intro says so before they are
-  // shown; the address guidance sits behind a disclosure so the register panel stays short.
-  assert.ok(accessSource.includes("t('accessSetup.callbacksIntro', { name: serviceLabel(kind) })"));
+  assert.ok(accessSource.includes("t('accessSetup.callbackOrigin')"));
+  assert.ok(accessSource.includes("t('accessSetup.localAddress')"));
   assert.ok(accessSource.includes("t('accessSetup.addressHelp')"));
-  assert.ok(accessSource.includes('t(`accessSetup.services.${kind}.addresses`)'));
+  assert.ok(accessSource.includes('<p>{t(`accessSetup.services.${kind}.addresses`)}</p>'));
+  assert.ok(accessSource.includes("<p>{t('accessSetup.privateHosting')}</p>"));
+  assert.ok(accessSource.includes('t(`accessSetup.services.${kind}.testing`)'));
   assert.ok(
-    accessSource.indexOf("'accessSetup.callbacksIntro'") <
+    accessSource.indexOf('t(`accessSetup.services.${kind}.addresses`)') <
       accessSource.indexOf("renderCallback('callback', callback)")
   );
+  assert.ok(accessSource.includes('const [addressHelp, setAddressHelp] = useState(false)'));
+  assert.ok(accessSource.includes('!oidc && !window.isSecureContext'));
+  assert.ok(!accessSource.includes('hint={t(`accessSetup.${target}Hint`)}'));
   for (const [locale, text] of [
     ['en', en],
     ['zh', zh]
   ]) {
-    assert.equal(typeof text.callbacksIntro, 'string', `${locale} has no intro`);
+    assert.equal(typeof text.callbackOrigin, 'string', `${locale} has no URL explanation`);
+    assert.equal(typeof text.localAddress, 'string', `${locale} has no loopback explanation`);
     assert.equal(typeof text.addressHelp, 'string', `${locale} has no address disclosure`);
     for (const kind of LOGIN_KINDS) {
       assert.equal(typeof text.services[kind].addresses, 'string', `${locale} ${kind} addresses`);
+      assert.equal(typeof text.services[kind].testing, 'string', `${locale} ${kind} testing`);
+      assert.ok(/HTTPS/.test(text.services[kind].addresses), `${locale} ${kind} HTTPS requirement`);
     }
-    // The copied URLs follow the address the page is open at, which is the only thing they
-    // require. "Public" would tell a LAN-only installation it needs hosting it does not.
-    for (const key of ['callbackHint', 'setupCallbackHint', 'callbacksIntro', 'httpsWarning']) {
+    for (const key of ['callbackOrigin', 'httpsWarning']) {
       assert.ok(!/public|公开|公网/.test(text[key]), `${locale} ${key} demands a public address`);
     }
     assert.ok(!/public|公开|公网/.test(text.errors.state), `${locale} state error demands public`);
@@ -322,23 +327,39 @@ test('the callback guidance explains the return addresses without demanding publ
       assert.ok(!/MFA|multi-factor|多因素/i.test(text.modes[mode].warning));
     }
     assert.ok(!/MFA|multi-factor|多因素/i.test(text.oidcSafety));
-    // Google's own rule: HTTP is allowed for localhost and loopback addresses only, so the local
-    // guidance names them and warns that a phone's loopback is the phone.
-    assert.ok(/127\.0\.0\.1/.test(text.services.google.addresses), `${locale} google loopback`);
-    assert.ok(/localhost/.test(text.services.google.addresses), `${locale} google localhost`);
-    assert.ok(/HTTPS/.test(text.services.google.addresses), `${locale} google https`);
-    // Apple's stricter rule is kept: an HTTPS domain, never localhost or an address.
+    assert.ok(/IP/.test(text.services.google.addresses), `${locale} google IP restriction`);
+    assert.ok(/127\.0\.0\.1/.test(text.services.google.testing), `${locale} google loopback`);
+    assert.ok(/localhost/.test(text.services.google.testing), `${locale} google localhost`);
+    assert.ok(/127\.0\.0\.1/.test(text.services.github.testing), `${locale} github loopback`);
+    assert.ok(
+      /wildcard|通配符/.test(text.services.github.register),
+      `${locale} github exact callbacks`
+    );
+    assert.ok(
+      /manifest|清单/.test(text.services.microsoft.testing),
+      `${locale} microsoft manifest`
+    );
+    assert.ok(/::1/.test(text.services.microsoft.testing), `${locale} microsoft IPv6 restriction`);
     assert.ok(/localhost/.test(text.services.apple.addresses), `${locale} apple localhost`);
-    assert.ok(/localhost/.test(text.services.apple.deployment), `${locale} apple deployment`);
-    assert.ok(!/public|公开|公网/.test(text.services.apple.deployment));
-    // Google's localhost rule is not attributed to any other service.
-    for (const kind of ['github', 'microsoft', 'customOidc']) {
-      assert.ok(
-        !/127\.0\.0\.1/.test(text.services[kind].addresses),
-        `${locale} ${kind} borrows Google's loopback rule`
-      );
-    }
+    assert.ok(/HTTPS/.test(text.services.customOidc.testing), `${locale} issuer HTTPS requirement`);
+    assert.ok(/HTTPS/.test(text.issuerHint), `${locale} issuer field HTTPS requirement`);
+    assert.equal(text.services.apple.deployment, undefined);
+    assert.equal(text.callbacksIntro, undefined);
+    assert.equal(text.callbackHint, undefined);
+    assert.equal(text.setupCallbackHint, undefined);
   }
+  for (const kind of LOGIN_KINDS) {
+    assert.ok(
+      en.services[kind].register.split(/\s+/).length <= 35,
+      `${kind} registration is too long`
+    );
+    assert.ok(
+      en.services[kind].addresses.split(/\s+/).length <= 25,
+      `${kind} address requirement is too long`
+    );
+  }
+  assert.match(en.services.github.addresses, /^This app requires HTTPS/);
+  assert.match(en.services.customOidc.addresses, /^This app requires HTTPS/);
 });
 
 test('the sign-in result markers are read once and stripped while accessSetup stays', () => {

@@ -105,7 +105,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
   const [displayName, setDisplayName] = useState('');
   const [allowedSubjects, setAllowedSubjects] = useState('');
   const [advanced, setAdvanced] = useState(false);
-  // Where to open the app before copying the callback URLs, per service; closed until asked for.
+  // Keep local testing details separate from the address requirements shown above the URLs.
   const [addressHelp, setAddressHelp] = useState(false);
   // A first local password for an owner created by external sign-in, asked for only when that
   // owner picks a password mode.
@@ -308,7 +308,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
 
   const renderCallback = (target: CallbackKind, value: string) => (
     <div>
-      <FormField label={t(`accessSetup.${target}`)} hint={t(`accessSetup.${target}Hint`)}>
+      <FormField label={t(`accessSetup.${target}`)}>
         {(field) => (
           <div className="access-setup-copy-row">
             <input
@@ -565,7 +565,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                 <p className="text-themed-secondary">{t('accessSetup.sessions')}</p>
               </div>
             )}
-            {!window.isSecureContext && (
+            {!oidc && !window.isSecureContext && (
               <Alert color="warning">{t('accessSetup.httpsWarning')}</Alert>
             )}
             <section className={panelClassName} aria-labelledby="access-owner-title">
@@ -738,9 +738,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                     ))}
                   </div>
                 </fieldset>
-                {kind === 'apple' && (
-                  <Alert color="warning">{t('accessSetup.services.apple.deployment')}</Alert>
-                )}
                 {!credentialsNeeded && (
                   <section className={panelClassName} aria-labelledby="access-connected-title">
                     <h4 id="access-connected-title" className="font-semibold text-themed-primary">
@@ -769,18 +766,21 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                       <p className="text-sm text-themed-secondary">
                         {t(`accessSetup.services.${kind}.register`)}
                       </p>
-                      <p className="text-xs text-themed-muted">
-                        {t('accessSetup.callbacksIntro', { name: serviceLabel(kind) })}
-                      </p>
+                      <Alert color="info">
+                        <p>{t(`accessSetup.services.${kind}.addresses`)}</p>
+                        <p>{t('accessSetup.privateHosting')}</p>
+                      </Alert>
                       {renderCallback('callback', callback)}
                       {renderCallback('setupCallback', setupCallback)}
                       {renderDisclosure(
                         t('accessSetup.addressHelp'),
                         addressHelp,
                         () => setAddressHelp((open) => !open),
-                        <p className="text-xs text-themed-muted">
-                          {t(`accessSetup.services.${kind}.addresses`)}
-                        </p>
+                        <div className="space-y-2 text-xs text-themed-muted">
+                          <p>{t(`accessSetup.services.${kind}.testing`)}</p>
+                          {kind !== 'apple' && <p>{t('accessSetup.localAddress')}</p>}
+                          <p>{t('accessSetup.callbackOrigin')}</p>
+                        </div>
                       )}
                     </section>
                     <section className={panelClassName} aria-labelledby="access-oidc-title">
