@@ -1,3 +1,4 @@
+import { createUuid } from '@utils/uuid';
 import type { ScheduledPrefillServiceId } from './types';
 
 const SCHEDULED_PREFILL_EDIT_SESSION_STORAGE_KEY = 'scheduled-prefill:edit-session:v1';
@@ -11,9 +12,7 @@ const SCHEDULED_PREFILL_EDIT_SESSION_STORAGE_KEY = 'scheduled-prefill:edit-sessi
  */
 type EditSessionStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
-export const createScheduledPrefillEditSessionId = (): string =>
-  globalThis.crypto?.randomUUID?.() ??
-  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+export const createScheduledPrefillEditSessionId = (): string => createUuid();
 
 export type ScheduledPrefillEditSessionServiceId = ScheduledPrefillServiceId;
 

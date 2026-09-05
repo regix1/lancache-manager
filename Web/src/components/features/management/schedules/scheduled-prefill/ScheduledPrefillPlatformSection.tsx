@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
+import { TextInput } from '@components/ui/TextInput';
 import { noAutofill } from '@utils/autofill';
 import type {
   PersistentIntegrationLoginAvailability,
@@ -91,10 +92,11 @@ export function ScheduledPrefillPlatformSection({
             <label className="sr-only" htmlFor={`scheduled-prefill-schedule-name-${config.id}`}>
               {t(`${baseKey}.records.name`)}
             </label>
-            <input
+            <TextInput
               {...noAutofill}
               id={`scheduled-prefill-schedule-name-${config.id}`}
               className="scheduled-prefill-platform-section__schedule-name"
+              size="sm"
               value={config.name}
               onChange={(event) => onChange({ ...config, name: event.target.value })}
               disabled={disabled}

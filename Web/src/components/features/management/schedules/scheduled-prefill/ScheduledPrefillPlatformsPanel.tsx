@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ChevronDown } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import {
+  ActionMenu,
+  ActionMenuDangerItem,
+  ActionMenuDivider,
+  ActionMenuItem
+} from '@components/ui/ActionMenu';
 import Badge from '@components/ui/Badge';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import type {
@@ -85,6 +92,7 @@ export function ScheduledPrefillPlatformsPanel({
   const [activeServiceKey, setActiveServiceKey] =
     useState<ScheduledPrefillServiceKey>(initialServiceKey);
   const [selectedScheduleId, setSelectedScheduleId] = useState(initialScheduleId ?? '');
+  const [actionsOpen, setActionsOpen] = useState(false);
   const activeService = config[activeServiceKey];
   const activeSchedule = useMemo(
     () =>
@@ -226,39 +234,61 @@ export function ScheduledPrefillPlatformsPanel({
               disabled={disabled || activeService.schedules.length === 0}
               variant="button"
               triggerAriaLabel={t(`${baseKey}.records.label`)}
+              size="md"
             />
             <div className="scheduled-prefill-platforms__record-actions">
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                onClick={() => onAddSchedule(activeServiceKey)}
-                disabled={disabled}
-              >
-                {t(`${baseKey}.records.new`)}
-              </Button>
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                onClick={() =>
-                  activeSchedule && onDuplicateSchedule(activeServiceKey, activeSchedule.id)
+              <ActionMenu
+                isOpen={actionsOpen}
+                onClose={() => setActionsOpen(false)}
+                align="right"
+                width="w-44"
+                trigger={
+                  <Button
+                    type="button"
+                    variant="menu"
+                    size="md"
+                    open={actionsOpen}
+                    className="w-full"
+                    disabled={disabled}
+                    onClick={() => setActionsOpen((open) => !open)}
+                    aria-expanded={actionsOpen}
+                    aria-haspopup="menu"
+                    rightSection={<ChevronDown size={16} aria-hidden="true" />}
+                  >
+                    {t('management.actions.menuLabel')}
+                  </Button>
                 }
-                disabled={disabled || !activeSchedule}
               >
-                {t(`${baseKey}.records.saveAs`)}
-              </Button>
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                onClick={() =>
-                  activeSchedule && onDeleteSchedule(activeServiceKey, activeSchedule.id)
-                }
-                disabled={disabled || !activeSchedule || activeService.schedules.length === 1}
-              >
-                {t('common.delete')}
-              </Button>
+                <ActionMenuItem
+                  onClick={() => {
+                    setActionsOpen(false);
+                    onAddSchedule(activeServiceKey);
+                  }}
+                >
+                  {t(`${baseKey}.records.new`)}
+                </ActionMenuItem>
+                <ActionMenuItem
+                  onClick={() => {
+                    if (!activeSchedule) return;
+                    setActionsOpen(false);
+                    onDuplicateSchedule(activeServiceKey, activeSchedule.id);
+                  }}
+                  disabled={!activeSchedule}
+                >
+                  {t(`${baseKey}.records.saveAs`)}
+                </ActionMenuItem>
+                <ActionMenuDivider />
+                <ActionMenuDangerItem
+                  onClick={() => {
+                    if (!activeSchedule) return;
+                    setActionsOpen(false);
+                    onDeleteSchedule(activeServiceKey, activeSchedule.id);
+                  }}
+                  disabled={!activeSchedule || activeService.schedules.length === 1}
+                >
+                  {t('common.delete')}
+                </ActionMenuDangerItem>
+              </ActionMenu>
             </div>
           </div>
           {activeSchedule && (

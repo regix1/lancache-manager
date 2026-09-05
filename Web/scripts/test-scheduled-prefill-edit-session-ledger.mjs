@@ -2,7 +2,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import {
+import { compileToUrl, MemoryStorage } from './transpile-module.mjs';
+
+const uuidUrl = await compileToUrl('../src/utils/uuid.ts');
+const ledger = await import(
+  await compileToUrl(
+    '../src/components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger.ts',
+    { '@utils/uuid': uuidUrl }
+  )
+);
+const {
   beginEditSessionCleanup,
   buildEditSessionCleanupRequest,
   clearConfirmedEditSession,
@@ -11,8 +20,7 @@ import {
   loadScheduledPrefillEditSession,
   recordEditActionIntent,
   recordEditSessionStartResult
-} from '../src/components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger.ts';
-import { MemoryStorage } from './transpile-module.mjs';
+} = ledger;
 
 const baseline = {
   selectedAppIdsByService: {

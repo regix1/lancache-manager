@@ -20,6 +20,7 @@ test('settings and non-credential fields exclude password-manager autofill', () 
   for (const entry of readdirSync(new URL('../src/', import.meta.url), { recursive: true })) {
     if (!entry.endsWith('.tsx')) continue;
     const path = entry.replaceAll('\\', '/');
+    if (path === 'components/ui/TextInput.tsx') continue;
     const source = parseSource(`src/${path}`, ts.ScriptKind.TSX);
     const controls = collectNodes(
       source,
@@ -68,6 +69,33 @@ test('settings and non-credential fields exclude password-manager autofill', () 
     }
   }
   assert.deepEqual(missing, [], `Fields missing autofill exclusions:\n${missing.join('\n')}`);
+});
+
+test('plain text input preserves caller-owned autofill exclusions', async () => {
+  const { noAutofill } = await import(await compileToUrl('../src/utils/autofill.ts'));
+  const textInput = parseSource('src/components/ui/TextInput.tsx', ts.ScriptKind.TSX);
+  const [nativeInput] = collectNodes(
+    textInput,
+    (node) => ts.isJsxSelfClosingElement(node) && node.tagName.getText(textInput) === 'input'
+  );
+  assert.ok(nativeInput.getText(textInput).includes('{...inputProps}'));
+
+  const platformSection = parseSource(
+    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPlatformSection.tsx',
+    ts.ScriptKind.TSX
+  );
+  const [scheduleName] = collectNodes(
+    platformSection,
+    (node) =>
+      ts.isJsxSelfClosingElement(node) && node.tagName.getText(platformSection) === 'TextInput'
+  );
+  assert.ok(scheduleName.getText(platformSection).includes('{...noAutofill}'));
+  assert.ok(scheduleName.getText(platformSection).includes('size="sm"'));
+  assert.deepEqual(noAutofill, {
+    autoComplete: 'off',
+    'data-bwignore': 'true',
+    'data-1p-ignore': 'true'
+  });
 });
 
 test('numeric settings share autofill exclusions without losing native number bounds', async () => {

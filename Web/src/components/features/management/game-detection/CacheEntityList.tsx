@@ -133,6 +133,8 @@ function CacheEntityList<TItem>({
               itemsPerPage={ITEMS_PER_PAGE}
               onPageChange={setCurrentPage}
               itemLabel={itemLabel}
+              showCard={false}
+              className="mb-3"
             />
           )}
 

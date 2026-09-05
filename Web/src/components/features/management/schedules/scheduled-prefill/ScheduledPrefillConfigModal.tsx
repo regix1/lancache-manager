@@ -67,6 +67,7 @@ import {
   type ScheduledPrefillEditActionKind,
   type ScheduledPrefillEditSessionServiceId
 } from './scheduledPrefillEditSessionLedger';
+import { createUuid } from '@utils/uuid';
 import { MS_PER_DAY } from '../custom-schedule/customSchedulePreview';
 import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
 import { usePersistentLoginChallengeSignalR } from './usePersistentLoginChallengeSignalR';
@@ -1266,7 +1267,7 @@ export function ScheduledPrefillConfigModal({
             ...current[serviceKey].schedules,
             {
               ...source,
-              id: crypto.randomUUID(),
+              id: createUuid(),
               name: t(`${baseKey}.records.newName`),
               enabled: false
             }
@@ -1292,7 +1293,7 @@ export function ScheduledPrefillConfigModal({
             ...current[serviceKey].schedules,
             {
               ...source,
-              id: crypto.randomUUID(),
+              id: createUuid(),
               name: `${source.name} ${t(`${baseKey}.records.copySuffix`)}`,
               enabled: false
             }

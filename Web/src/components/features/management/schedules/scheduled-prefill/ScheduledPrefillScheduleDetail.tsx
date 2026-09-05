@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
-import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { ActionMenu, ActionMenuDangerItem, ActionMenuItem } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { ChevronDown } from 'lucide-react';
 import StatusDot from '@components/common/StatusDot';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import ApiService from '@services/api.service';
@@ -103,18 +104,6 @@ interface ScheduledPrefillServiceScheduleRowProps {
   ) => void;
 }
 
-/** Fills the Actions dropdown's trigger-icon slot with the shared spinner while a run or
- * cancel request is in flight, since EnhancedDropdown has no loading state of its own. */
-function ScheduledPrefillActionsSpinnerIcon({
-  className
-}: {
-  size?: number;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  return <LoadingSpinner inline size="xs" className={className} />;
-}
-
 /**
  * One row of the per-service schedule table: service identity (brand icon tile, name,
  * enablement + container dots), the Next/Last run readout, and the interval picker. On
@@ -153,6 +142,7 @@ function ScheduledPrefillServiceScheduleRow({
   const nextRunDate = useFormattedDateTime(nextRunUtc);
   const platformUi = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
   const ServiceIcon = platformUi.icon;
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   return (
     <div role="row" className={`scheduled-prefill-schedule-table__row ${platformUi.rowClassName}`}>
@@ -259,60 +249,70 @@ function ScheduledPrefillServiceScheduleRow({
         role="cell"
         className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--action"
       >
-        <EnhancedDropdown
-          options={
-            isRunning
-              ? [
-                  {
-                    value: 'cancel',
-                    label: t('management.schedules.services.scheduledPrefill.cancelService'),
-                    disabled: disabled || cancelPending
-                  }
-                ]
-              : [
-                  {
-                    value: 'run',
-                    label: t('management.schedules.services.scheduledPrefill.runService'),
-                    disabled: runDisabled || runPending
-                  },
-                  {
-                    value: 'open',
-                    label: t(`${baseKey}.records.open`)
-                  },
-                  ...(!enabled
-                    ? [
-                        {
-                          value: 'enable',
-                          label: t(`${baseKey}.records.enable`)
-                        }
-                      ]
-                    : [])
-                ]
+        <ActionMenu
+          isOpen={actionsOpen}
+          onClose={() => setActionsOpen(false)}
+          align="right"
+          width="w-44"
+          trigger={
+            <Button
+              type="button"
+              variant="menu"
+              size="md"
+              open={actionsOpen}
+              className="w-full"
+              disabled={disabled}
+              onClick={() => setActionsOpen((open) => !open)}
+              aria-expanded={actionsOpen}
+              aria-haspopup="menu"
+              rightSection={<ChevronDown size={16} aria-hidden="true" />}
+            >
+              {t('management.actions.menuLabel')}
+            </Button>
           }
-          value=""
-          onChange={(action) => {
-            if (action === 'cancel') {
-              onCancel(serviceId, scheduleId);
-              return;
-            }
-            if (action === 'open') {
+        >
+          {isRunning ? (
+            <ActionMenuDangerItem
+              onClick={() => {
+                setActionsOpen(false);
+                onCancel(serviceId, scheduleId);
+              }}
+              disabled={cancelPending}
+            >
+              {cancelPending && <LoadingSpinner inline size="xs" />}
+              {t('management.schedules.services.scheduledPrefill.cancelService')}
+            </ActionMenuDangerItem>
+          ) : (
+            <ActionMenuItem
+              onClick={() => {
+                setActionsOpen(false);
+                onRun(serviceId, scheduleId);
+              }}
+              disabled={runDisabled || runPending}
+            >
+              {runPending && <LoadingSpinner inline size="xs" />}
+              {t('management.schedules.services.scheduledPrefill.runService')}
+            </ActionMenuItem>
+          )}
+          <ActionMenuItem
+            onClick={() => {
+              setActionsOpen(false);
               onOpen(serviceKey, scheduleId);
-              return;
-            }
-            if (action === 'enable') {
-              onEnable(serviceKey, scheduleId);
-              return;
-            }
-            onRun(serviceId, scheduleId);
-          }}
-          customTriggerLabel={t('management.actions.menuLabel')}
-          triggerIcon={runPending || cancelPending ? ScheduledPrefillActionsSpinnerIcon : undefined}
-          triggerAriaLabel={t('management.actions.menuLabel')}
-          className="w-full"
-          disabled={isRunning ? disabled || cancelPending : disabled || runPending}
-          size="md"
-          variant="button"
-        />
+            }}
+          >
+            {t(`${baseKey}.records.open`)}
+          </ActionMenuItem>
+          {!enabled && (
+            <ActionMenuItem
+              onClick={() => {
+                setActionsOpen(false);
+                onEnable(serviceKey, scheduleId);
+              }}
+            >
+              {t(`${baseKey}.records.enable`)}
+            </ActionMenuItem>
+          )}
+        </ActionMenu>
       </div>
     </div>
   );

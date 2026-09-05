@@ -15,7 +15,7 @@ import {
  * still being counted and re-submitted on save. It also seeded its selection straight from the
  * parent, so an app id the library no longer lists inflated the count forever.
  *
- * These drive the memos that ship: the search filter, the two group partitions, the intersection
+ * These drive the memos that ship: the search filter, the three exclusive group partitions, the intersection
  * against the library, and the two header numbers. Save is driven too, because that intersection
  * is only meaningful while there is a library: a games route answering with nothing would otherwise
  * make every pick look like an orphan and post an empty selection over the top of it.
@@ -50,10 +50,10 @@ const library = [
 
 const appIdsOf = (games) => games.map((game) => game.appId);
 
-test('a selected game that is cached keeps its row while cached games are hidden', () => {
+test('selected, cached, and available games form three exclusive groups', () => {
   const localSelected = new Set(['1']);
-  const cachedAppIdsSet = new Set(['1']);
-  const hideCached = true;
+  const cachedAppIdsSet = new Set(['1', '2']);
+  const hideCached = false;
 
   const filteredGames = runMemo('filteredGames', {
     games: library,
@@ -68,25 +68,42 @@ test('a selected game that is cached keeps its row while cached games are hidden
   );
 
   const selectedGames = runMemo('selectedGames', { sortedGames: filteredGames, localSelected });
-  const availableGames = runMemo('availableGames', {
+  const cachedGames = runMemo('cachedGames', {
     sortedGames: filteredGames,
     localSelected,
     hideCached,
     cachedAppIdsSet
   });
+  const availableGames = runMemo('availableGames', {
+    sortedGames: filteredGames,
+    localSelected,
+    cachedAppIdsSet
+  });
 
   assert.deepEqual(appIdsOf(selectedGames), ['1'], 'the selected cached game must still be listed');
-  assert.deepEqual(appIdsOf(availableGames), ['2', '3']);
+  assert.deepEqual(appIdsOf(cachedGames), ['2']);
+  assert.deepEqual(appIdsOf(availableGames), ['3']);
+  assert.deepEqual(
+    [...selectedGames, ...cachedGames, ...availableGames].map((game) => game.appId).sort(),
+    ['1', '2', '3'],
+    'each visible game belongs to exactly one group'
+  );
 });
 
-test('hiding cached games still hides one the user has not picked', () => {
-  const availableGames = runMemo('availableGames', {
+test('hiding cached games empties only the cached group', () => {
+  const cachedGames = runMemo('cachedGames', {
     sortedGames: library,
     localSelected: new Set(),
     hideCached: true,
     cachedAppIdsSet: new Set(['2'])
   });
+  const availableGames = runMemo('availableGames', {
+    sortedGames: library,
+    localSelected: new Set(),
+    cachedAppIdsSet: new Set(['2'])
+  });
 
+  assert.deepEqual(appIdsOf(cachedGames), []);
   assert.deepEqual(appIdsOf(availableGames), ['1', '3']);
 });
 
@@ -101,18 +118,80 @@ test('Select All takes the rows on screen, not the cached ones being hidden', ()
 
   let replacedWith = null;
   const selectAll = bindLifted(
-    liftHookCallback(modalPath, 'useCallback', '[...selectedGames, ...availableGames]'),
+    liftHookCallback(
+      modalPath,
+      'useCallback',
+      '[...selectedGames, ...cachedGames, ...availableGames]'
+    ),
     {
       setLocalSelected: (next) => {
         replacedWith = next;
       },
       selectedGames: runMemo('selectedGames', bindings),
+      cachedGames: runMemo('cachedGames', bindings),
       availableGames: runMemo('availableGames', bindings)
     }
   );
   selectAll();
 
   assert.deepEqual([...replacedWith], ['1', '3'], 'the hidden cached game must not be selected');
+});
+
+test('search filters selected, cached, and available games from the same source', () => {
+  const localSelected = new Set(['1']);
+  const cachedAppIdsSet = new Set(['2']);
+  const filteredGames = runMemo('filteredGames', { games: library, search: 'beta' });
+  const sortedGames = runMemo('sortedGames', { filteredGames, localSelected });
+
+  assert.deepEqual(appIdsOf(runMemo('selectedGames', { sortedGames, localSelected })), []);
+  assert.deepEqual(
+    appIdsOf(
+      runMemo('cachedGames', {
+        sortedGames,
+        localSelected,
+        hideCached: false,
+        cachedAppIdsSet
+      })
+    ),
+    ['2']
+  );
+  assert.deepEqual(
+    appIdsOf(runMemo('availableGames', { sortedGames, localSelected, cachedAppIdsSet })),
+    []
+  );
+});
+
+test('Steam import keeps existing selections and reports duplicates and missing games', () => {
+  const parseImportText = bindLifted(
+    liftHookCallback(modalPath, 'useCallback', "trimmed.startsWith('[')"),
+    {}
+  );
+  let selection = new Set(['1']);
+  let result = null;
+  let importText = '1, 2, 9';
+  const handleImport = bindLifted(
+    liftHookCallback(modalPath, 'useCallback', 'const appIds = parseImportText(importText)'),
+    {
+      importText,
+      parseImportText,
+      gameIdSet: new Set(['1', '2', '3']),
+      setLocalSelected: (update) => {
+        selection = update(selection);
+      },
+      setImportResult: (next) => {
+        result = next;
+      },
+      setImportText: (next) => {
+        importText = next;
+      }
+    }
+  );
+
+  handleImport();
+
+  assert.deepEqual([...selection], ['1', '2']);
+  assert.deepEqual(result, { added: 1, alreadySelected: 1, notInLibrary: ['9'] });
+  assert.equal(importText, '');
 });
 
 test('an app id the library no longer lists is not counted and is not saved', async () => {
@@ -194,7 +273,7 @@ test('the header splits the selection into what will download and what is alread
   );
 });
 
-test('the Selected badge carries the selection total and nothing else prints it', () => {
+test('all three pane headers carry their own count', () => {
   const countBadges = collectNodes(
     modalFile,
     (node) =>
@@ -216,10 +295,84 @@ test('the Selected badge carries the selection total and nothing else prints it'
       .join('')
   );
 
-  assert.deepEqual(badgeContents, ['{selectedInLibrary.length}', '{availableGames.length}']);
+  assert.deepEqual(badgeContents, [
+    '{cachedGames.length}',
+    '{availableGames.length}',
+    '{selectedInLibrary.length}'
+  ]);
   assert.equal(
     modalFile.text.includes('localSelected.size'),
     false,
     'the raw selection size is no longer a displayed number anywhere in the modal'
   );
+});
+
+test('the wider three-pane layout keeps focus tied to a moved game row', () => {
+  let selection = new Set(['1']);
+  const pendingFocusAppId = { current: null };
+  const toggleGame = bindLifted(
+    liftHookCallback(modalPath, 'useCallback', 'pendingFocusAppId.current = appId'),
+    {
+      pendingFocusAppId,
+      setLocalSelected: (update) => {
+        selection = update(selection);
+      }
+    }
+  );
+  toggleGame('2');
+
+  let focusedAppId = null;
+  const focusMovedGame = bindLifted(
+    liftHookCallback(modalPath, 'useEffect', "'button[data-game-app-id]'"),
+    {
+      pendingFocusAppId,
+      gameListRef: {
+        current: {
+          querySelectorAll: () => [
+            { dataset: { gameAppId: '1' }, focus: () => (focusedAppId = '1') },
+            { dataset: { gameAppId: '2' }, focus: () => (focusedAppId = '2') }
+          ]
+        }
+      }
+    }
+  );
+  focusMovedGame();
+
+  assert.deepEqual([...selection], ['1', '2']);
+  assert.equal(focusedAppId, '2');
+  assert.equal(pendingFocusAppId.current, null);
+  assert.equal(modalFile.text.includes('size="2xl"'), true);
+  assert.equal(modalFile.text.includes('data-game-app-id={game.appId}'), true);
+});
+
+test('clear, reopen, and cache removal keep their existing ownership paths', () => {
+  let selection = new Set(['1', '2']);
+  const selectNone = bindLifted(
+    liftHookCallback(modalPath, 'useCallback', 'setLocalSelected(new Set())'),
+    {
+      setLocalSelected: (next) => {
+        selection = next;
+      }
+    }
+  );
+  selectNone();
+  assert.deepEqual([...selection], []);
+
+  const resetSelection = bindLifted(
+    liftHookCallback(modalPath, 'useEffect', 'setLocalSelected(new Set(selectedAppIds))'),
+    {
+      opened: true,
+      selectedAppIds: ['2', '3'],
+      setLocalSelected: (next) => {
+        selection = next;
+      },
+      setSearch: () => undefined,
+      setImportText: () => undefined,
+      setImportResult: () => undefined
+    }
+  );
+  resetSelection();
+
+  assert.deepEqual([...selection], ['2', '3']);
+  assert.equal(modalFile.text.includes('onRemoveFromCache(game.appId)'), true);
 });

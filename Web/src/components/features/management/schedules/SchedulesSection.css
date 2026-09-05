@@ -1461,9 +1461,8 @@
 }
 
 .scheduled-prefill-platforms__record-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 /* The detail pane is a plain region; chrome lives on the inner ui/ Card blocks,
@@ -1513,20 +1512,8 @@
 }
 
 .scheduled-prefill-platform-section__schedule-name {
-  width: 100%;
+  width: min(100%, 10rem);
   margin-top: 0.2rem;
-  border: 0;
-  border-bottom: 1px solid var(--theme-border-secondary);
-  background: transparent;
-  color: var(--theme-text-secondary);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  padding: 0.15rem 0;
-}
-
-.scheduled-prefill-platform-section__schedule-name:focus-visible {
-  outline: 2px solid var(--theme-accent);
-  outline-offset: 2px;
 }
 
 .scheduled-prefill-platform-section__blocks {
@@ -1796,3 +1783,15 @@
 /* The just-completed flash is provided by the shared HighlightGlow component
    (see utils/highlightGlow.ts + animations.css), so the Schedules page uses the
    same pulse animation as the Integrations-section navigation glow. */
+@media (max-width: 639.98px) {
+  .scheduled-prefill-platforms__records {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .scheduled-prefill-platforms__records > :first-child,
+  .scheduled-prefill-platforms__record-actions,
+  .scheduled-prefill-platforms__record-actions > div {
+    width: 100%;
+  }
+}

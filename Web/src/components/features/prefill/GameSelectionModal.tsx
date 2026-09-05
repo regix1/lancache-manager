@@ -1,5 +1,5 @@
 import { noAutofill } from '@utils/autofill';
-import { useState, useMemo, useCallback, useEffect, type ChangeEvent } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
@@ -12,6 +12,7 @@ import { Check, Gamepad2, Import, Database, Trash2 } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { useErrorHandler } from '@hooks/useErrorHandler';
+import './GameSelectionModal.css';
 
 export interface OwnedGame {
   appId: string;
@@ -55,6 +56,9 @@ export function GameSelectionModal({
   const [localSelected, setLocalSelected] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [hideCached, setHideCached] = useState(false);
+  const gameListRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const pendingFocusAppId = useRef<string | null>(null);
 
   // Create a Set for O(1) lookup
   const cachedAppIdsSet = useMemo(() => new Set(cachedAppIds), [cachedAppIds]);
@@ -81,6 +85,20 @@ export function GameSelectionModal({
       setImportResult(null);
     }
   }, [opened, selectedAppIds]);
+
+  useEffect(() => {
+    const appId = pendingFocusAppId.current;
+    if (!appId) return;
+
+    const buttons = gameListRef.current?.querySelectorAll<HTMLButtonElement>(
+      'button[data-game-app-id]'
+    );
+    const button = Array.from(buttons ?? []).find(
+      (candidate) => candidate.dataset.gameAppId === appId
+    );
+    button?.focus();
+    pendingFocusAppId.current = null;
+  }, [localSelected]);
 
   // Parse import text - supports comma-separated, JSON array, or newline-separated
   const parseImportText = useCallback((text: string): string[] => {
@@ -141,8 +159,7 @@ export function GameSelectionModal({
     }
   }, [importText, gameIdSet, parseImportText]);
 
-  // Filter games by search. The cached filter belongs to the available group alone: a game the
-  // user has already picked has to stay on screen or there is no way left to untick it.
+  // Search is shared by all three groups; selection and cache membership partition the result.
   const filteredGames = useMemo(() => {
     let filtered = games;
 
@@ -192,16 +209,25 @@ export function GameSelectionModal({
     [sortedGames, localSelected]
   );
 
-  // hideCached applies to this group only, so a selected game that is already cached keeps a row.
-  const availableGames = useMemo(
+  const cachedGames = useMemo(
     () =>
-      sortedGames.filter(
-        (game) => !localSelected.has(game.appId) && !(hideCached && cachedAppIdsSet.has(game.appId))
-      ),
+      hideCached
+        ? []
+        : sortedGames.filter(
+            (game) => !localSelected.has(game.appId) && cachedAppIdsSet.has(game.appId)
+          ),
     [sortedGames, localSelected, hideCached, cachedAppIdsSet]
   );
 
-  const shownGamesCount = selectedGames.length + availableGames.length;
+  const availableGames = useMemo(
+    () =>
+      sortedGames.filter(
+        (game) => !localSelected.has(game.appId) && !cachedAppIdsSet.has(game.appId)
+      ),
+    [sortedGames, localSelected, cachedAppIdsSet]
+  );
+
+  const shownGamesCount = selectedGames.length + cachedGames.length + availableGames.length;
 
   // Five reasons the list can come up empty, first match wins. The search-with-a-selection branch
   // comes before the plain search ones because a selection the search has hidden is the one case
@@ -241,6 +267,7 @@ export function GameSelectionModal({
   }, [games.length, search, hideCached, selectedInLibrary.length, t]);
 
   const toggleGame = useCallback((appId: string) => {
+    pendingFocusAppId.current = appId;
     setLocalSelected((prev) => {
       const next = new Set(prev);
       if (next.has(appId)) {
@@ -252,11 +279,18 @@ export function GameSelectionModal({
     });
   }, []);
 
-  // The rows on screen, both groups: hiding cached games has to keep them out of Select All too,
+  const clearSearch = useCallback(() => {
+    setSearch('');
+    searchInputRef.current?.focus();
+  }, []);
+
+  // The rows on screen across all groups: hiding cached games has to keep them out of Select All too,
   // or the button hands back a selection the user asked not to see.
   const selectAll = useCallback(() => {
-    setLocalSelected(new Set([...selectedGames, ...availableGames].map((g) => g.appId)));
-  }, [selectedGames, availableGames]);
+    setLocalSelected(
+      new Set([...selectedGames, ...cachedGames, ...availableGames].map((g) => g.appId))
+    );
+  }, [selectedGames, cachedGames, availableGames]);
 
   const selectNone = useCallback(() => {
     setLocalSelected(new Set());
@@ -278,26 +312,88 @@ export function GameSelectionModal({
     }
   }, [games.length, selectedInLibrary, localSelected, onSave, onClose, notifyError, t]);
 
+  const renderGameRow = (game: OwnedGame, selected: boolean) => {
+    const isCached = cachedAppIdsSet.has(game.appId);
+
+    return (
+      <div
+        key={game.appId}
+        className={`w-full flex items-center min-h-[44px] transition-[background-color] duration-150 ease-out ${
+          selected
+            ? 'bg-[var(--theme-selected-bg)] hover:bg-[var(--theme-selected-bg-hover)]'
+            : 'bg-transparent hover:bg-[var(--theme-bg-hover)]'
+        }`}
+      >
+        <Button
+          type="button"
+          variant="transparent"
+          data-game-app-id={game.appId}
+          aria-pressed={selected}
+          onClick={() => toggleGame(game.appId)}
+          className="flex-1 min-w-0 !rounded-none flex items-center gap-3 px-4 !py-0.5 text-left bg-transparent hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
+        >
+          <div
+            className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center border-2 ${
+              selected
+                ? 'bg-[var(--theme-primary)] border-[var(--theme-primary)]'
+                : 'bg-transparent border-[var(--theme-border-primary)]'
+            }`}
+          >
+            {selected && <Check className="h-3 w-3 text-[var(--theme-button-text)]" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <Tooltip content={game.name} position="top" className="block min-w-0">
+              <div className="truncate font-medium text-[var(--theme-text-primary)]">
+                {game.name}
+              </div>
+            </Tooltip>
+            <div className="text-xs text-[var(--theme-text-muted)] flex items-center gap-2">
+              <span className="min-w-0 truncate">
+                {t('prefill.gameSelection.appId', { id: game.appId })}
+              </span>
+              {isCached && (
+                <Badge variant="success">{t('prefill.gameSelection.cachedBadge')}</Badge>
+              )}
+            </div>
+          </div>
+        </Button>
+        {isCached && onRemoveFromCache && (
+          <Button
+            type="button"
+            variant="filled"
+            color="secondary"
+            size="sm"
+            onClick={() => onRemoveFromCache(game.appId)}
+            disabled={removingAppId === game.appId}
+            aria-label={t('prefill.gameSelection.removeFromCache', { name: game.name })}
+            className="btn-icon-square btn-icon-square--sm pointer-target-44 delete-hover ml-2 mr-3 flex-shrink-0"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <Modal
       opened={opened}
       onClose={onClose}
       title={t('prefill.gameSelection.title')}
-      size="lg"
+      size="2xl"
       bodyFlexLayout
     >
       <div className="flex h-[calc(100dvh-8rem)] min-h-[34rem] max-h-[calc(100dvh-8rem)] sm:max-h-[40rem] flex-col">
         {/* Search and actions */}
         <div className="flex flex-col gap-2 mb-2">
           <SearchInput
+            ref={searchInputRef}
             placeholder={t('prefill.placeholders.searchGames')}
             value={search}
             onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-            onClear={() => setSearch('')}
+            onClear={clearSearch}
           />
-          {/* Wrapping row rather than a 4-column grid: the cluster holds three to five buttons
-              depending on Import and Rescan, and a grid leaves the short last row half empty. */}
-          <div className="flex flex-wrap gap-2">
+          <div className="game-selection-modal__toolbar">
             {canImportAppIds && (
               <Button
                 variant="filled"
@@ -432,7 +528,7 @@ export function GameSelectionModal({
 
         {/* Library/filter facts only. The selected count lives once, in the Selected section
             header below, so it is not repeated here. */}
-        <div className="text-sm mb-1 text-[var(--theme-text-muted)] flex flex-wrap items-center gap-2">
+        <div className="text-sm mb-2 text-[var(--theme-text-muted)] flex flex-wrap items-center gap-2">
           {isUsingCache && (
             <span className="inline-flex items-center gap-1 text-xs">
               <Database className="h-3.5 w-3.5 text-[var(--theme-success)]" />
@@ -454,9 +550,15 @@ export function GameSelectionModal({
         </div>
 
         {/* Game list */}
-        <div className="relative min-h-40 sm:min-h-[15rem] flex-1 overflow-hidden rounded-lg border border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary)]">
+        <div
+          ref={gameListRef}
+          className="game-selection-modal__list relative min-h-40 sm:min-h-[15rem] flex-1 overflow-hidden"
+        >
           {isLoading ? (
-            <div className="p-3 space-y-2" aria-busy="true">
+            <div
+              className="game-selection-modal__loading p-3 space-y-2 rounded-lg border border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary)]"
+              aria-busy="true"
+            >
               {[0, 1, 2, 3, 4].map((row) => (
                 <div key={row} className="flex items-center gap-3 px-4 py-3">
                   <div className="flex-shrink-0 w-5 h-5 rounded skeleton-shimmer" />
@@ -467,8 +569,8 @@ export function GameSelectionModal({
                 </div>
               ))}
             </div>
-          ) : shownGamesCount === 0 ? (
-            <div className="flex h-full items-center justify-center">
+          ) : games.length === 0 || shownGamesCount === 0 ? (
+            <div className="game-selection-modal__whole-empty">
               <EmptyState
                 variant="panel"
                 icon={Gamepad2}
@@ -477,24 +579,87 @@ export function GameSelectionModal({
               />
             </div>
           ) : (
-            <div className="absolute inset-0 flex flex-col overflow-hidden rounded-lg">
-              {/* Selected games section - sticky at top */}
-              {selectedGames.length > 0 && (
-                <div
-                  className={`flex flex-col ${
-                    availableGames.length > 0 ? 'h-24 sm:h-20 flex-none' : 'flex-1 min-h-0'
-                  }`}
+            <CustomScrollbar
+              maxHeight="100%"
+              className="game-selection-modal__panes-scroll"
+              paddingMode="none"
+              radius="none"
+              variant="float"
+            >
+              <div className="game-selection-modal__panes">
+                <section
+                  className="game-selection-modal__pane"
+                  aria-label={t('prefill.gameSelection.cachedBadge')}
                 >
-                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 flex items-center gap-2 bg-[var(--theme-selected-bg)] text-[var(--theme-selected-text)] border-b border-[var(--theme-border-secondary)]">
-                    <span>{t('prefill.gameSelection.selected')}</span>
+                  <div className="game-selection-modal__pane-header">
+                    <h3>{t('prefill.gameSelection.cachedBadge')}</h3>
+                    <Badge variant="neutral" className="badge-count">
+                      {cachedGames.length}
+                    </Badge>
+                  </div>
+                  <CustomScrollbar
+                    maxHeight="100%"
+                    className="game-selection-modal__pane-scroll"
+                    paddingMode="compact"
+                    radius="none"
+                    variant="float"
+                  >
+                    {cachedGames.length > 0 ? (
+                      <div className="divided-list">
+                        {cachedGames.map((game) => renderGameRow(game, false))}
+                      </div>
+                    ) : (
+                      <p className="game-selection-modal__pane-empty">
+                        {t(
+                          hideCached
+                            ? 'prefill.gameSelection.cachedGamesHidden'
+                            : 'prefill.gameSelection.noCachedGames'
+                        )}
+                      </p>
+                    )}
+                  </CustomScrollbar>
+                </section>
+
+                <section
+                  className="game-selection-modal__pane"
+                  aria-label={t('prefill.gameSelection.games')}
+                >
+                  <div className="game-selection-modal__pane-header">
+                    <h3>{t('prefill.gameSelection.games')}</h3>
+                    <Badge variant="neutral" className="badge-count">
+                      {availableGames.length}
+                    </Badge>
+                  </div>
+                  <CustomScrollbar
+                    maxHeight="100%"
+                    className="game-selection-modal__pane-scroll"
+                    paddingMode="compact"
+                    radius="none"
+                    variant="float"
+                  >
+                    {availableGames.length > 0 ? (
+                      <div className="divided-list">
+                        {availableGames.map((game) => renderGameRow(game, false))}
+                      </div>
+                    ) : (
+                      <p className="game-selection-modal__pane-empty">
+                        {t('prefill.gameSelection.noGamesAvailable')}
+                      </p>
+                    )}
+                  </CustomScrollbar>
+                </section>
+
+                <section
+                  className="game-selection-modal__pane"
+                  aria-label={t('prefill.gameSelection.selected')}
+                >
+                  <div className="game-selection-modal__pane-header game-selection-modal__pane-header--selected">
+                    <h3>{t('prefill.gameSelection.selected')}</h3>
                     <Badge variant="neutral" className="badge-count">
                       {selectedInLibrary.length}
                     </Badge>
-                    {/* Only worth stating when the counts diverge; with nothing cached the badge
-                        already says how many will download. "Already cached" stays muted: those
-                        are the games the daemon will skip, neutral news rather than good news. */}
                     {cachedSelectedCount > 0 && (
-                      <span className="normal-case font-normal tracking-normal tabular-nums text-[var(--theme-text-muted)]">
+                      <span className="game-selection-modal__selected-summary">
                         {t('prefill.gameSelection.willDownload', {
                           count: selectedInLibrary.length - cachedSelectedCount
                         })}{' '}
@@ -507,162 +672,24 @@ export function GameSelectionModal({
                   </div>
                   <CustomScrollbar
                     maxHeight="100%"
-                    className="flex-1 min-h-0"
+                    className="game-selection-modal__pane-scroll"
                     paddingMode="compact"
                     radius="none"
                     variant="float"
                   >
-                    <div className="divided-list">
-                      {selectedGames.map((game) => {
-                        const isCached = cachedAppIdsSet.has(game.appId);
-                        return (
-                          /* The row carries the background so the strip behind the remove control
-                             is painted too, and so the control is a sibling of the select toggle
-                             rather than a button nested inside one. */
-                          <div
-                            key={game.appId}
-                            className="w-full flex items-center min-h-[44px] transition-[background-color] duration-150 ease-out bg-[var(--theme-selected-bg)] hover:bg-[var(--theme-selected-bg-hover)]"
-                          >
-                            <Button
-                              type="button"
-                              variant="transparent"
-                              onClick={() => toggleGame(game.appId)}
-                              /* Square corners: the row paints its own selected background, and
-                                 the button's default radius would leave the list's darker
-                                 surface showing through all four corners of every row. */
-                              className="flex-1 min-w-0 !rounded-none flex items-center gap-3 px-4 !py-0.5 text-left bg-transparent hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
-                            >
-                              <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-[var(--theme-primary)] border-2 border-[var(--theme-primary)]">
-                                <Check className="h-3 w-3 text-[var(--theme-button-text)]" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <Tooltip
-                                  content={game.name}
-                                  position="top"
-                                  className="block min-w-0"
-                                >
-                                  <div className="truncate font-medium text-[var(--theme-text-primary)]">
-                                    {game.name}
-                                  </div>
-                                </Tooltip>
-                                <div className="text-xs text-[var(--theme-text-muted)] flex items-center gap-2">
-                                  <span className="min-w-0 truncate">
-                                    {t('prefill.gameSelection.appId', { id: game.appId })}
-                                  </span>
-                                  {isCached && (
-                                    <Badge variant="success">
-                                      {t('prefill.gameSelection.cachedBadge')}
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                            </Button>
-                            {isCached && onRemoveFromCache && (
-                              <Button
-                                type="button"
-                                variant="filled"
-                                color="secondary"
-                                size="sm"
-                                onClick={() => onRemoveFromCache(game.appId)}
-                                disabled={removingAppId === game.appId}
-                                aria-label={t('prefill.gameSelection.removeFromCache', {
-                                  name: game.name
-                                })}
-                                /* Both margins are load-bearing: .pointer-target-44 overhangs the
-                                   32px box by 6px a side. The right 6px have to land inside mr-3
-                                   rather than across the list's border, and without ml-2 the left
-                                   6px sit over the select toggle, where a tap meant to untick the
-                                   row removes it from the cache instead (measured at 320 and 390). */
-                                className="btn-icon-square btn-icon-square--sm pointer-target-44 delete-hover ml-2 mr-3 flex-shrink-0"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                    {selectedGames.length > 0 ? (
+                      <div className="divided-list">
+                        {selectedGames.map((game) => renderGameRow(game, true))}
+                      </div>
+                    ) : (
+                      <p className="game-selection-modal__pane-empty">
+                        {t('prefill.gameSelection.noSelectedGames')}
+                      </p>
+                    )}
                   </CustomScrollbar>
-                </div>
-              )}
-
-              {/* Available games section */}
-              {availableGames.length > 0 && (
-                <div className="flex-1 min-h-0 flex flex-col">
-                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 flex items-center gap-2 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
-                    <span>{t('prefill.gameSelection.availableGames')}</span>
-                    <Badge variant="neutral" className="badge-count">
-                      {availableGames.length}
-                    </Badge>
-                  </div>
-                  <CustomScrollbar
-                    maxHeight="100%"
-                    className="flex-1 min-h-0"
-                    paddingMode="compact"
-                    radius="none"
-                    variant="float"
-                  >
-                    <div className="divided-list">
-                      {availableGames.map((game) => {
-                        const isCached = cachedAppIdsSet.has(game.appId);
-                        return (
-                          <div
-                            key={game.appId}
-                            className="w-full flex items-center min-h-[44px] transition-[background-color] duration-150 ease-out bg-transparent hover:bg-[var(--theme-bg-hover)]"
-                          >
-                            <Button
-                              type="button"
-                              variant="transparent"
-                              onClick={() => toggleGame(game.appId)}
-                              className="flex-1 min-w-0 !rounded-none flex items-center gap-3 px-4 !py-0.5 text-left bg-transparent hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
-                            >
-                              <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-transparent border-2 border-[var(--theme-border-primary)]" />
-                              <div className="flex-1 min-w-0">
-                                <Tooltip
-                                  content={game.name}
-                                  position="top"
-                                  className="block min-w-0"
-                                >
-                                  <div className="truncate font-medium text-[var(--theme-text-primary)]">
-                                    {game.name}
-                                  </div>
-                                </Tooltip>
-                                <div className="text-xs text-[var(--theme-text-muted)] flex items-center gap-2">
-                                  <span className="min-w-0 truncate">
-                                    {t('prefill.gameSelection.appId', { id: game.appId })}
-                                  </span>
-                                  {isCached && (
-                                    <Badge variant="success">
-                                      {t('prefill.gameSelection.cachedBadge')}
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                            </Button>
-                            {isCached && onRemoveFromCache && (
-                              <Button
-                                type="button"
-                                variant="filled"
-                                color="secondary"
-                                size="sm"
-                                onClick={() => onRemoveFromCache(game.appId)}
-                                disabled={removingAppId === game.appId}
-                                aria-label={t('prefill.gameSelection.removeFromCache', {
-                                  name: game.name
-                                })}
-                                className="btn-icon-square btn-icon-square--sm pointer-target-44 delete-hover ml-2 mr-3 flex-shrink-0"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CustomScrollbar>
-                </div>
-              )}
-            </div>
+                </section>
+              </div>
+            </CustomScrollbar>
           )}
         </div>
 
