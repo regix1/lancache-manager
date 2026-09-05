@@ -120,8 +120,6 @@ interface RetroViewProps {
    * before that the count on hand is a placeholder zero, not an empty table.
    */
   onTotalItemsChange: (totalItems: number) => void;
-  /** Whether a fetch the reader asked for is running here, for the toolbar's busy indicator. */
-  onFetchingChange: (fetching: boolean) => void;
 }
 
 // Empty State Component
@@ -266,8 +264,7 @@ const RetroView = memo(
         filterStartTime,
         filterEndTime,
         filterEventId,
-        onTotalItemsChange,
-        onFetchingChange
+        onTotalItemsChange
       },
       ref
     ) => {
@@ -349,12 +346,6 @@ const RetroView = memo(
         if (!serverMode || !serverRetro.hasResponse) return;
         onTotalItemsChange(serverRetro.totalItems);
       }, [serverMode, serverRetro.hasResponse, serverRetro.totalItems, onTotalItemsChange]);
-
-      // The toolbar's busy indicator is drawn by the page from its own fetch, which is off while
-      // this table is showing. Reported so a page turn here shows the same spinner it shows there.
-      useEffect(() => {
-        onFetchingChange(serverMode && serverRetro.isFetching);
-      }, [serverMode, serverRetro.isFetching, onFetchingChange]);
 
       // Only show datasource column when there are multiple datasources
       const showDatasourceColumn = hasMultipleDatasources && showDatasourceLabels;

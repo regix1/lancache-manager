@@ -497,9 +497,6 @@ const DownloadsTab: React.FC = () => {
   // How many rows the retro table's own fetch found. Null until it has answered, so a control that
   // reads a count of zero cannot act on it in the render before that table has fetched.
   const [retroTotalItems, setRetroTotalItems] = useState<number | null>(null);
-  // Whether the retro table's own fetch is running, so the toolbar's busy indicator shows for a
-  // page turn there the way it does for the page's own fetch.
-  const [retroFetching, setRetroFetching] = useState(false);
 
   // Page number is component state. It used to live in the URL, which meant the page and the page
   // size each had two owners; the size pair fought the retro cap below and rewrote each other
@@ -1393,9 +1390,6 @@ const DownloadsTab: React.FC = () => {
                     onClear={() => setSettings({ ...settings, searchQuery: '' })}
                   />
                 </div>
-                {/* A filter, a sort or a page size is a server round trip that rebuilds the whole
-                    grouped list, and the rows already on screen stay there while it runs. */}
-                {(serverPage.isFetching || retroFetching) && <LoadingSpinner size="xs" inline />}
                 {/* Same menu the wide layout gets. A phone-only settings gear put a control
                     here that exists nowhere else in the app, and hid Export and Refresh
                     Images from phones entirely. */}
@@ -1966,7 +1960,6 @@ const DownloadsTab: React.FC = () => {
                   detectionByService={detectionByService}
                   serverMode={settings.viewMode === 'retro'}
                   onTotalItemsChange={setRetroTotalItems}
-                  onFetchingChange={setRetroFetching}
                   filterService={settings.selectedService}
                   filterClient={serverClientFilter}
                   filterSearch={debouncedSearchQuery}

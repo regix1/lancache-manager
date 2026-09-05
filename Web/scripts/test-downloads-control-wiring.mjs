@@ -529,14 +529,3 @@ test('an export in progress is visible on the page it was started from', () => {
   const source = downloadsTab.getText();
   assert.match(source, /exportLoading &&[\s\S]{0,80}<LoadingSpinner/);
 });
-
-// Every filter, sort and page-size change is a server round trip that rebuilds the grouped list.
-// The rows already on screen stay there while it runs, so without this there is nothing to say a
-// new answer is coming. The retro table runs its own fetch, so the indicator reads that one too.
-test('a page still being fetched says so beside the search box', () => {
-  const source = downloadsTab.getText();
-  assert.match(
-    source,
-    /\(serverPage\.isFetching \|\| retroFetching\) &&[\s\S]{0,80}<LoadingSpinner/
-  );
-});

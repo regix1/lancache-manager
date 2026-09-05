@@ -1553,6 +1553,12 @@
   flex: 1 1 0%;
 }
 
+@media (min-width: 640px) {
+  .scheduled-prefill-platform-block .scheduled-prefill-config-modal__settings-list {
+    grid-template-columns: minmax(0, 1fr) minmax(14rem, max-content);
+  }
+}
+
 @media (min-width: 768px) {
   .scheduled-prefill-config-modal__skeleton-body {
     grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
