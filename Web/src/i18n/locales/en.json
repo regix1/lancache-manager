@@ -4188,7 +4188,7 @@
         },
         "cacheReconciliation": {
           "displayName": "Eviction Scan",
-          "description": "Compares your cache directory against the database to see what is still on disk vs. what nginx has evicted. Keeps the 'evicted' badges in the UI accurate.",
+          "description": "Compares your cache directory against the database to see what is still on disk vs. what nginx has evicted. Keeps the 'evicted' badges in the UI accurate. Each run queues a full game detection first so sizes are fresh before the scan.",
           "summary": "Checks which cached files nginx has evicted.",
           "gain": "Eviction badges and cache status in the UI are more accurate and up to date",
           "loss": "The UI may show stale eviction status - items marked as cached might actually be evicted, or vice versa",

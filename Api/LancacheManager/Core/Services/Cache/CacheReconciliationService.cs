@@ -6,6 +6,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -109,6 +110,42 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// relied on here - RunTrigger.Manual is passed explicitly instead).
     /// </summary>
     public Guid? RunManualAsync() => StartScanInBackground("Eviction Scan", silent: RunSilentFor(RunTrigger.Manual));
+
+    /// <summary>
+    /// Queues the full game detection every eviction scan runs behind. The scan's summary refresh
+    /// never reads the disk, so a game whose files came back since the last detection keeps a stale
+    /// size until a full detection re-measures it. Enqueued right before the scan, the detection
+    /// parks the scan behind it as a heavy-operation conflict and the two run back to back. Its
+    /// card follows this service's notification mode for the same trigger.
+    /// </summary>
+    public async Task QueueFullDetectionAsync(RunTrigger trigger, CancellationToken ct)
+    {
+        var showNotification = !RunSilentFor(trigger);
+        Task<Guid?> StartFullDetectionAsync() =>
+            _gameCacheDetectionService.StartDetectionAsync(incremental: false, showNotification: showNotification);
+
+        try
+        {
+            var outcome = await _operationQueue.EnqueueAsync(
+                OperationType.GameDetection,
+                ConflictScope.Bulk(),
+                "Game Detection",
+                StartFullDetectionAsync,
+                ct);
+
+            _logger.LogInformation(
+                "[EvictionScan] Full detection ahead of the scan {Disposition} (operation: {OperationId})",
+                outcome.Queued ? "queued" : outcome.AlreadyRunning ? "already requested" : "started",
+                outcome.OperationId);
+        }
+        catch (ValidationException ex)
+        {
+            // A download in progress or undecidable cache-key evidence refuses the detection. The
+            // scan checks the same two conditions itself and reports them on its own terminal
+            // event, so the refusal is logged once here and the scan still goes on the queue.
+            _logger.LogWarning("[EvictionScan] Full detection ahead of the scan declined: {Reason}", ex.Message);
+        }
+    }
 
     /// <summary>
     /// Starts a scan whose lifetime belongs to this singleton rather than to the scheduler
@@ -265,6 +302,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 return;
             }
 
+            await QueueFullDetectionAsync(CurrentRunTrigger, stoppingToken);
+
             var scanCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             Task<Guid?> StartStartupScanAsync() => Task.FromResult(StartScanInBackground(
                 "Eviction Scan",
@@ -317,6 +356,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _logger.LogDebug("[EvictionScan] No downloads in database, skipping scheduled scan");
             return;
         }
+
+        await QueueFullDetectionAsync(CurrentRunTrigger, stoppingToken);
 
         Task<Guid?> StartScheduledScanAsync() => Task.FromResult(
             StartScanInBackground("Eviction Scan", silent));
