@@ -164,6 +164,121 @@ public sealed class AuthCredentialFormatTests : IDisposable
         Assert.DoesNotContain("\"ENC:", File.ReadAllText(path), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void SavedLogins_AreIsolatedByStableAccountAndEncrypted()
+    {
+        var accountA = Guid.NewGuid();
+        var accountB = Guid.NewGuid();
+        var storage = NewEpicStorage();
+
+        storage.SaveSavedLogin(accountA, new EpicAuthData
+        {
+            RefreshToken = "token-a",
+            DisplayName = "Account A"
+        });
+        storage.SaveSavedLogin(accountB, new EpicAuthData
+        {
+            RefreshToken = "token-b",
+            DisplayName = "Account B"
+        });
+
+        var fresh = NewEpicStorage();
+        Assert.Equal("token-a", fresh.GetSavedLogin(accountA).RefreshToken);
+        Assert.Equal("token-b", fresh.GetSavedLogin(accountB).RefreshToken);
+        Assert.Null(fresh.GetAuthData().RefreshToken);
+
+        var savedDirectory = Path.Combine(_paths.GetSecurityDirectory(), "epic_auth", "saved");
+        Assert.DoesNotContain("token-a", File.ReadAllText(Path.Combine(savedDirectory, $"{accountA:N}.json")), StringComparison.Ordinal);
+        Assert.DoesNotContain("token-b", File.ReadAllText(Path.Combine(savedDirectory, $"{accountB:N}.json")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SavedLogins_UseOwnerOnlyUnixPermissions()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var accountId = Guid.NewGuid();
+        var storage = NewEpicStorage();
+        storage.SaveSavedLogin(accountId, new EpicAuthData { RefreshToken = "token" });
+
+        var savedDirectory = Path.Combine(_paths.GetSecurityDirectory(), "epic_auth", "saved");
+        var savedPath = Path.Combine(savedDirectory, $"{accountId:N}.json");
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute,
+            File.GetUnixFileMode(savedDirectory));
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            File.GetUnixFileMode(savedPath));
+    }
+
+    [Fact]
+    public void OwnerlessActiveLogin_IsNeverClaimedAsSavedLogin()
+    {
+        var accountId = Guid.NewGuid();
+        var storage = NewSteamStorage();
+        storage.SaveAuthData(new SteamAuthData
+        {
+            Mode = "authenticated",
+            Username = "legacy",
+            RefreshToken = "legacy-token"
+        });
+
+        var fresh = NewSteamStorage();
+        Assert.Equal("legacy-token", fresh.GetAuthData().RefreshToken);
+        Assert.False(fresh.HasSavedLogin(accountId));
+        Assert.Null(fresh.GetSavedLogin(accountId).Username);
+    }
+
+    [Fact]
+    public void SharedDisconnect_PreservesEveryPrivateSavedLogin()
+    {
+        var accountA = Guid.NewGuid();
+        var accountB = Guid.NewGuid();
+        var storage = NewXboxStorage();
+        storage.SaveAuthData(new XboxAuthData
+        {
+            OwnerAccountId = accountA,
+            RefreshToken = "token-a",
+            DisplayName = "Account A"
+        });
+        storage.SaveSavedLogin(accountB, new XboxAuthData
+        {
+            RefreshToken = "token-b",
+            DisplayName = "Account B"
+        });
+
+        storage.ClearAuthData();
+
+        var fresh = NewXboxStorage();
+        Assert.Null(fresh.GetAuthData().RefreshToken);
+        Assert.Equal("token-a", fresh.GetSavedLogin(accountA).RefreshToken);
+        Assert.Equal("token-b", fresh.GetSavedLogin(accountB).RefreshToken);
+    }
+
+    [Fact]
+    public void DefiniteActiveInvalidation_RemovesOnlyTheMatchingPrivateLogin()
+    {
+        var accountA = Guid.NewGuid();
+        var accountB = Guid.NewGuid();
+        var storage = NewEpicStorage();
+        storage.SaveAuthData(new EpicAuthData
+        {
+            OwnerAccountId = accountA,
+            RefreshToken = "token-a"
+        });
+        storage.SaveSavedLogin(accountB, new EpicAuthData { RefreshToken = "token-b" });
+
+        storage.InvalidateAuthData();
+
+        var fresh = NewEpicStorage();
+        Assert.Null(fresh.GetAuthData().RefreshToken);
+        Assert.False(fresh.HasSavedLogin(accountA));
+        Assert.Equal("token-b", fresh.GetSavedLogin(accountB).RefreshToken);
+    }
+
     private string LegacyProtect(string value) =>
         _dataProtection.CreateProtector(LegacyProtectorPurpose).Protect(value);
 

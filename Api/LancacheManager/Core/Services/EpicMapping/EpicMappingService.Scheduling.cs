@@ -2,6 +2,7 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
+using LancacheManager.Middleware;
 
 namespace LancacheManager.Core.Services.EpicMapping;
 
@@ -261,6 +262,7 @@ public partial class EpicMappingService
                 _currentTokens = tokens;
                 _authStorage.SaveAuthData(new EpicAuthData
                 {
+                    OwnerAccountId = _authStorage.GetAuthData().OwnerAccountId,
                     RefreshToken = tokens.RefreshToken,
                     DisplayName = tokens.DisplayName,
                     AccountId = tokens.AccountId,
@@ -273,9 +275,9 @@ public partial class EpicMappingService
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (ValidationException ex)
             {
-                _authStorage.ClearAuthData();
+                _authStorage.InvalidateAuthData();
                 SetIsAuthenticated(false);
                 _displayName = null;
                 _gamesDiscovered = 0;

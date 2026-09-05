@@ -1214,43 +1214,48 @@ public class StateService : IStateService
 
     public void SetScheduledPrefillConfig(ScheduledPrefillConfigDto config)
     {
-        // Validate before mutating state so an invalid config surfaces an explicit error to the
-        // caller and never gets persisted. ToPersisted re-validates as a final guard.
         var validated = ScheduledPrefillConfigFactory.Validate(config);
         UpdateState(state =>
         {
-            // Capture the OLD per-service enabled flags BEFORE overwriting the config, so we can tell a
-            // brand-new / re-enabled service (whose first run we anchor to save-time) apart from one that
-            // was already enabled (whose genuine last-run we must never clobber). Null-safe: no prior
-            // config means "not enabled before" for every service.
-            var previousEnabled = new Dictionary<string, bool>();
-            var previousConfig = state.ScheduledPrefill;
-            if (previousConfig is not null)
-            {
-                foreach (var previousService in previousConfig.GetServicesInRunOrder())
-                {
-                    previousEnabled[previousService.ServiceId.ToString()] = previousService.Enabled;
-                }
-            }
+            var previousEnabled = state.ScheduledPrefill?
+                .GetSchedulesInRunOrder()
+                .ToDictionary(
+                    schedule => schedule.ScheduleId.ToString("N"),
+                    schedule => schedule.Enabled)
+                ?? new Dictionary<string, bool>(StringComparer.Ordinal);
+
+            var retainedIds = validated.GetSchedulesInRunOrder()
+                .Select(schedule => schedule.ScheduleId.ToString("N"))
+                .ToHashSet(StringComparer.Ordinal);
 
             state.ScheduledPrefill = validated;
-
-            // Anchor first-run for each newly-enabled positive-interval service to save-time, so the next
-            // 1-minute poll sees lastRun = now (not null) and schedules it one interval out instead of
-            // running it immediately. Uses the SAME per-service key the poll loop and
-            // Get/SetScheduledPrefillServiceLastRun use (ServiceId.ToString()). Run Now stays instant.
-            // A service on a custom schedule is anchored on the same terms whatever its interval value
-            // is: the stamp is the point occurrences are measured from, and without one a schedule
-            // saved on a paused or startup-only interval would never become due at all.
-            var anchoredAt = DateTime.UtcNow;
-            foreach (var service in validated.GetServicesInRunOrder())
+            foreach (var removedKey in state.ScheduledPrefillServiceLastRunUtc.Keys
+                         .Where(key => !retainedIds.Contains(key))
+                         .ToList())
             {
-                var key = service.ServiceId.ToString();
+                state.ScheduledPrefillServiceLastRunUtc.Remove(removedKey);
+            }
+
+            foreach (var removedKey in state.ScheduledPrefillServiceLastActualRunUtc.Keys
+                         .Where(key => !retainedIds.Contains(key))
+                         .ToList())
+            {
+                state.ScheduledPrefillServiceLastActualRunUtc.Remove(removedKey);
+            }
+
+            var anchoredAt = DateTime.UtcNow;
+            foreach (var schedule in validated.GetSchedulesInRunOrder())
+            {
+                var key = schedule.ScheduleId.ToString("N");
                 var hasExistingLastRun = state.ScheduledPrefillServiceLastRunUtc.ContainsKey(key);
                 var wasEnabledBefore = previousEnabled.TryGetValue(key, out var enabledBefore) && enabledBefore;
 
                 if (ScheduledPrefillRunGates.ShouldAnchorFirstRunOnSave(
-                        service.Enabled, service.IntervalHours, hasExistingLastRun, wasEnabledBefore, service.CustomSchedule))
+                        schedule.Enabled,
+                        schedule.IntervalHours,
+                        hasExistingLastRun,
+                        wasEnabledBefore,
+                        schedule.CustomSchedule))
                 {
                     state.ScheduledPrefillServiceLastRunUtc[key] = anchoredAt;
                 }
@@ -1405,14 +1410,14 @@ public class StateService : IStateService
     private static bool SeedInitialFirstRunAnchors(AppState state, DateTime nowUtc)
     {
         var seeded = false;
-        foreach (var service in state.ScheduledPrefill.GetServicesInRunOrder())
+        foreach (var schedule in state.ScheduledPrefill.GetSchedulesInRunOrder())
         {
-            var key = service.ServiceId.ToString();
+            var key = schedule.ScheduleId.ToString("N");
             if (ScheduledPrefillRunGates.ShouldAnchorFirstRunOnLoad(
-                    service.Enabled,
-                    service.IntervalHours,
+                    schedule.Enabled,
+                    schedule.IntervalHours,
                     state.ScheduledPrefillServiceLastRunUtc.ContainsKey(key),
-                    service.CustomSchedule))
+                    schedule.CustomSchedule))
             {
                 state.ScheduledPrefillServiceLastRunUtc[key] = nowUtc;
                 seeded = true;
@@ -1906,6 +1911,7 @@ public class StateService : IStateService
             GetLegacyScheduledPrefillInterval(state.ServiceIntervals));
         state.ScheduledPrefillServiceLastRunUtc ??= new Dictionary<string, DateTime>();
         state.ScheduledPrefillServiceLastActualRunUtc ??= new Dictionary<string, DateTime>();
+        MigrateScheduledPrefillKeys(state);
 
         // LEGACY: decrypt the migrated-away Steam auth token (present only in a pre-migration file)
         if (state.SteamAuth != null)
@@ -1914,6 +1920,29 @@ public class StateService : IStateService
         }
 
         return state;
+    }
+
+    private static void MigrateScheduledPrefillKeys(AppState state)
+    {
+        foreach (var service in state.ScheduledPrefill.GetServicesInRunOrder())
+        {
+            var legacyKey = service.ServiceId.ToString();
+            var scheduleKey = ScheduledPrefillConfigFactory
+                .GetDefaultScheduleId(service.ServiceId)
+                .ToString("N");
+
+            if (state.ScheduledPrefillServiceLastRunUtc.Remove(legacyKey, out var lastRun)
+                && !state.ScheduledPrefillServiceLastRunUtc.ContainsKey(scheduleKey))
+            {
+                state.ScheduledPrefillServiceLastRunUtc[scheduleKey] = lastRun;
+            }
+
+            if (state.ScheduledPrefillServiceLastActualRunUtc.Remove(legacyKey, out var lastActualRun)
+                && !state.ScheduledPrefillServiceLastActualRunUtc.ContainsKey(scheduleKey))
+            {
+                state.ScheduledPrefillServiceLastActualRunUtc[scheduleKey] = lastActualRun;
+            }
+        }
     }
 
     /// <summary>

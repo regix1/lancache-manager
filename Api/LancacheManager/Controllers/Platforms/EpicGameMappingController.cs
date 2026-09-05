@@ -2,6 +2,7 @@ using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using LancacheManager.Middleware;
 
 namespace LancacheManager.Controllers;
 
@@ -115,7 +116,9 @@ public class EpicGameMappingController : ControllerBase
             return BadRequest(ApiResponse.Error("Authorization code is required"));
         }
 
-        await _epicMappingService.OnAuthCodeReceivedAsync(request.AuthorizationCode.Trim());
+        await _epicMappingService.OnAuthCodeReceivedAsync(
+            request.AuthorizationCode.Trim(),
+            HttpContext.GetUserSession()?.AccountId);
         var status = _epicMappingService.GetAuthStatus();
         return Ok(new EpicAuthCompleteResponse
         {

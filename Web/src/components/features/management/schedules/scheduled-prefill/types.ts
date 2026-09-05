@@ -53,8 +53,9 @@ export type ScheduledPrefillMaxConcurrency =
   | ScheduledPrefillAutoMaxConcurrency
   | ScheduledPrefillFixedMaxConcurrency;
 
-export interface ScheduledPrefillServiceConfigDto {
-  serviceId: ScheduledPrefillServiceId;
+export interface ScheduledPrefillSchedule {
+  id: string;
+  name: string;
   enabled: boolean;
   /**
    * When this platform's prefill progress appears in the universal notification bar.
@@ -85,24 +86,34 @@ export interface ScheduledPrefillServiceConfigDto {
   operatingSystems: ScheduledPrefillOperatingSystem[];
   force: boolean;
   maxConcurrency: ScheduledPrefillMaxConcurrency;
-  /**
-   * Per-service override of the global `persistenceMode`. `null`/`undefined` means
-   * "use the global setting" - the backend's `GetEffectivePersistenceMode` resolves it as
-   * `override ?? global`.
-   */
+}
+
+export interface ScheduledPrefillServiceConfigDto {
+  serviceId: ScheduledPrefillServiceId;
+  persistenceMode?: ScheduledPrefillPersistenceMode | null;
+  schedules: ScheduledPrefillSchedule[];
+}
+
+/** The single schedule shape returned by servers that predate named schedules. */
+export interface LegacyScheduledPrefillServiceConfig extends Omit<
+  ScheduledPrefillSchedule,
+  'id' | 'name'
+> {
+  serviceId: ScheduledPrefillServiceId;
   persistenceMode?: ScheduledPrefillPersistenceMode | null;
 }
 
 /** One row of the per-service schedule summary from `GET .../scheduledPrefill/schedule`. */
 export interface ScheduledPrefillServiceScheduleDto {
   serviceId: ScheduledPrefillServiceId;
+  scheduleId: string;
+  name: string;
   intervalHours: number;
   /** Mirrors the config field. Present here so a summary row can word its timing without
    * having to fetch the whole config first. */
   customSchedule?: CustomSchedule | null;
   enabled: boolean;
-  /** True while THIS platform has a run in flight. Per service, not per schedule: the services run
-   * concurrently, so one running service must not disable another's Run button. */
+  /** True while this schedule has a run in flight. */
   isRunning: boolean;
   /** Operation id of this platform's in-flight run, null when idle. The row's Cancel cancels it. */
   operationId: string | null;
@@ -110,6 +121,17 @@ export interface ScheduledPrefillServiceScheduleDto {
   nextRunUtc: string | null;
 }
 
+export interface LegacyScheduledPrefillConfigDto {
+  version: number;
+  maxServiceRuntime: string;
+  stallTimeout: string;
+  persistenceMode: ScheduledPrefillPersistenceMode;
+  steam: LegacyScheduledPrefillServiceConfig;
+  epic: LegacyScheduledPrefillServiceConfig;
+  xbox: LegacyScheduledPrefillServiceConfig;
+  battleNet: LegacyScheduledPrefillServiceConfig;
+  riot: LegacyScheduledPrefillServiceConfig;
+}
 export interface ScheduledPrefillConfigDto {
   version: number;
   maxServiceRuntime: string;

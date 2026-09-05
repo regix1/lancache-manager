@@ -273,7 +273,7 @@ public class PersistentLoginDualChannelChallengeTests
         public Task<bool> ProvideEpicAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public Task<bool> ProvideXboxAutoLoginAsync(string sessionId, string refreshToken, string deviceKeyPkcs8, CancellationToken cancellationToken = default)
+        public Task<bool> ProvideXboxAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public virtual Task<CredentialChallenge?> WaitForChallengeAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)

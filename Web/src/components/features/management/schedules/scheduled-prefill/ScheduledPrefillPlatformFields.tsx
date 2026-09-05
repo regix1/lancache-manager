@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpDefinition, HelpNote } from '@components/ui/HelpPopover';
 import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 import { NumberInput } from '@components/ui/NumberInput';
@@ -19,7 +18,7 @@ import type {
   ScheduledPrefillMaxConcurrencyMode,
   ScheduledPrefillOperatingSystem,
   ScheduledPrefillPreset,
-  ScheduledPrefillServiceConfigDto,
+  ScheduledPrefillSchedule,
   ScheduledPrefillServiceKey
 } from './types';
 
@@ -31,28 +30,12 @@ import type {
  */
 interface ScheduledPrefillPlatformFieldsProps {
   serviceKey: ScheduledPrefillServiceKey;
-  config: ScheduledPrefillServiceConfigDto;
+  config: ScheduledPrefillSchedule;
   disabled?: boolean;
-  onChange: (config: ScheduledPrefillServiceConfigDto) => void;
+  onChange: (config: ScheduledPrefillSchedule) => void;
 }
 
 const baseKey = 'management.schedules.services.scheduledPrefill.config';
-
-/**
- * Sentinel + the 3 real modes, in dropdown order. `'useGlobal'` maps to a `null` DTO override
- * at the onChange boundary - the DTO itself never carries the sentinel string.
- */
-const PERSISTENCE_MODE_OVERRIDE_VALUES = [
-  'useGlobal',
-  'killOnRestart',
-  'keepAcrossRestart',
-  'fullPersistence'
-] as const;
-
-type PersistenceModeOverrideValue = (typeof PERSISTENCE_MODE_OVERRIDE_VALUES)[number];
-
-const isPersistenceModeOverrideValue = (value: string): value is PersistenceModeOverrideValue =>
-  (PERSISTENCE_MODE_OVERRIDE_VALUES as readonly string[]).includes(value);
 
 const isScheduledPrefillPreset = (value: string): value is ScheduledPrefillPreset =>
   SCHEDULED_PREFILL_PRESET_OPTIONS.some((option) => option.value === value);
@@ -75,12 +58,11 @@ export function ScheduledPrefillScheduleFields({
 }: ScheduledPrefillPlatformFieldsProps) {
   const { t } = useTranslation();
 
-  const updateConfig = (patch: Partial<ScheduledPrefillServiceConfigDto>) => {
+  const updateConfig = (patch: Partial<ScheduledPrefillSchedule>) => {
     onChange({ ...config, ...patch });
   };
 
   const intervalLabelId = `scheduled-prefill-interval-label-${serviceKey}`;
-  const persistenceLabelId = `scheduled-prefill-persistence-label-${serviceKey}`;
 
   return (
     <>
@@ -108,38 +90,6 @@ export function ScheduledPrefillScheduleFields({
             onChange={(hours) => updateConfig({ intervalHours: hours, customSchedule: null })}
             customSchedule={config.customSchedule ?? null}
             onCustomScheduleChange={(schedule) => updateConfig({ customSchedule: schedule })}
-          />
-        </div>
-      </div>
-
-      <div
-        className="scheduled-prefill-config-modal__setting-row"
-        role="group"
-        aria-labelledby={persistenceLabelId}
-      >
-        <div className="scheduled-prefill-config-modal__setting-copy">
-          <span id={persistenceLabelId} className="scheduled-prefill-config-modal__global-label">
-            {t(`${baseKey}.fields.persistenceModeOverride`)}
-          </span>
-          <p className="scheduled-prefill-config-modal__global-help">
-            {t(`${baseKey}.fields.persistenceModeOverrideHelp`)}
-          </p>
-        </div>
-        <div className="scheduled-prefill-config-modal__setting-actions">
-          <EnhancedDropdown
-            className="scheduled-prefill-setting-fill"
-            options={PERSISTENCE_MODE_OVERRIDE_VALUES.map((value) => ({
-              value,
-              label: t(`${baseKey}.settings.persistenceMode.${value}`)
-            }))}
-            value={config.persistenceMode ?? 'useGlobal'}
-            onChange={(value) => {
-              if (!isPersistenceModeOverrideValue(value)) return;
-              updateConfig({ persistenceMode: value === 'useGlobal' ? null : value });
-            }}
-            disabled={disabled}
-            variant="button"
-            triggerAriaLabel={t(`${baseKey}.fields.persistenceModeOverride`)}
           />
         </div>
       </div>
@@ -199,7 +149,7 @@ export function ScheduledPrefillDownloadFields({
     [t, serviceKey]
   );
 
-  const updateConfig = (patch: Partial<ScheduledPrefillServiceConfigDto>) => {
+  const updateConfig = (patch: Partial<ScheduledPrefillSchedule>) => {
     onChange({ ...config, ...patch });
   };
 
@@ -419,7 +369,7 @@ export function ScheduledPrefillNotificationFields({
 }: ScheduledPrefillPlatformFieldsProps) {
   const { t } = useTranslation();
 
-  const updateConfig = (patch: Partial<ScheduledPrefillServiceConfigDto>) => {
+  const updateConfig = (patch: Partial<ScheduledPrefillSchedule>) => {
     onChange({ ...config, ...patch });
   };
 

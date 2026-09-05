@@ -3892,7 +3892,7 @@
           "gain": "Game content can be warmed into the cache before users need it, including account libraries when login is configured.",
           "loss": "Disabled services or services needing login will be skipped until their configuration is completed.",
           "config": {
-            "summary": "{{enabled}} of {{total}} services enabled",
+            "summary": "{{enabled}} of {{total}} schedules enabled",
             "nextRunSummary": {
               "inMinutes": "in {{count}}m",
               "inHours": "in {{count}}h",
@@ -3906,6 +3906,19 @@
             "modalTitle": "Configure Scheduled Prefill",
             "modalDescription": "Configure each platform in one place: login, persistent container, and schedule settings.",
             "servicesTitle": "Services",
+            "records": {
+              "label": "Saved schedules",
+              "name": "Schedule name",
+              "new": "New schedule",
+              "newName": "New schedule",
+              "open": "Open",
+              "enable": "Enable",
+              "saveAs": "Save as",
+              "copySuffix": "copy",
+              "nameRequired": "Enter a schedule name before saving.",
+              "confirmEnabledSaveTitle": "Save changes to an enabled schedule?",
+              "confirmEnabledSaveBody": "At least one schedule that is enabled on the server will be changed or removed. It can run with the updated settings as soon as its next run is due."
+            },
             "enabled": "Enabled",
             "service": "Service",
             "preset": "Preset",
@@ -3941,12 +3954,13 @@
             "authWarning_other": "{{services}} need login before scheduled prefill can run for these services.",
             "zeroEnabledWarning": "No services are enabled. Scheduled prefill will not download anything until at least one service is enabled.",
             "bulkToggle": {
-              "label": "All services",
-              "help": "Turn every platform on or off at once, without changing your individual choices below.",
+              "label": "All schedules",
+              "help": "Turn every saved schedule on or off at once, without changing your individual choices below.",
               "enableAll": "Enable all",
               "disableAll": "Disable all"
             },
             "summaryError": "Failed to load scheduled prefill summary: {{error}}",
+            "backendUpdateRequired": "Update the server to manage named scheduled prefill records.",
             "actions": {
               "configure": "Configure",
               "save": "Save configuration",
@@ -3963,7 +3977,7 @@
             "persistentContainer": {
               "help": "Long-lived container for game library, login, and downloads. Uses the same daemon commands as the Prefill tab guest container.",
               "error": "Persistent prefill container action failed: {{error}}",
-              "downloadNow": "Download selected",
+              "downloadNow": "Download now",
               "cancelDownload": "Cancel download",
               "downloadRequiresAuth": "Log in to the persistent container before downloading.",
               "downloadRequiresSelection": "Select at least one game before downloading.",
@@ -3972,6 +3986,16 @@
             },
             "persistentContainers": {
               "loadingStatus": "Loading container status...",
+              "manualLogin": "Log in manually",
+              "reuseIntegrationLogin": "Use my saved login",
+              "reuseIntegrationChecking": "Checking integration login availability...",
+              "reuseIntegrationUnavailable": {
+                "not-authenticated": "Sign in on the Integrations page before reusing this login.",
+                "credentials-incomplete": "Complete the integration sign-in before reusing this login.",
+                "account-required": "Sign in with an individual user account to save or reuse logins.",
+                "no-saved-login": "Sign in with your account to save a reusable login.",
+                "unknown": "The integration login is unavailable."
+              },
               "pipelineLabel": "Container status",
               "steps": {
                 "container": "Container",
@@ -4625,6 +4649,15 @@
     "subtitle": "Pre-download games to your cache",
     "endSession": "End Session",
     "persistent": {
+      "savedSchedule": {
+        "title": "Use a saved schedule",
+        "help": "Run a saved schedule with its shared persistent session.",
+        "cancel": "Cancel run",
+        "manage": "Manage saved schedules",
+        "updateRequired": "Update the server before using saved schedule records.",
+        "busy": "A scheduled prefill is already using this persistent session.",
+        "unavailable": "Start and sign in to the persistent container before using this saved schedule."
+      },
       "logIn": "Log in",
       "logOut": "Log out",
       "loginToSelectGames": "Log in to select games",
@@ -7649,6 +7682,7 @@
       "running": "Prefill in progress",
       "runningWithCounts": "Prefill in progress ({{completed}} of {{total}} games)",
       "downloadingGame": "Downloading {{game}} ({{completed}} of {{total}} games)",
+      "downloadingGameUnknownTotal": "Downloading {{game}}",
       "failedMaxRuntime": "Exceeded maximum service runtime",
       "failedStalled": "Prefill stalled (no progress)",
       "failed": "Prefill failed",
@@ -7746,7 +7780,10 @@
     "epic": {
       "authInProgress": "Epic auth is already in progress",
       "oauthFailed": "Epic OAuth failed: {{status}}. Check your authorization code.",
-      "noActiveRefresh": "No active refresh to cancel"
+      "noActiveRefresh": "No active refresh to cancel",
+      "noSavedLogin": "No saved Epic login is available for this account.",
+      "refreshRejected": "Epic rejected the saved login. Sign in again.",
+      "exchangeCodeFailed": "Epic could not prepare the saved login."
     },
     "events": {
       "notFound": "Event with ID {{id}} not found"
@@ -7783,7 +7820,9 @@
       "dockerUnavailable": "Docker is not running or not accessible. Please start Docker Desktop and try again.",
       "daemonShuttingDown": "{{service}} daemon is shutting down; the persistent session {{sessionId}} cannot be stopped right now. Its login is preserved for re-adoption on the next start; stop it again after the manager restarts.",
       "editCleanupWaiting": "Edit-session cleanup is waiting for a persistent start before releasing session {{sessionId}}.",
-      "noRunningSession": "No running persistent session for service '{{service}}'"
+      "noRunningSession": "No running persistent session for service '{{service}}'",
+      "sessionReplaced": "This persistent session was replaced by a newer one. Please start it again.",
+      "logoutBeforeSavedLogin": "Log out the current account before using your saved login."
     },
     "rateLimit": {
       "tooManyRequests": "Too many requests from this address. Wait for the limit to reset and try again."
@@ -7804,6 +7843,7 @@
       "apiKeyInvalid": "The provided API key is invalid or Steam Web API V1 is unavailable. Please verify your key at https://steamcommunity.com/dev/apikey",
       "signInInProgress": "A Steam sign-in is already in progress.",
       "signInCancelled": "Sign-in was cancelled.",
+      "signInOwnerChanged": "This Steam sign-in was started by another account. Start a new sign-in from your account.",
       "serversBusy": "Steam's servers are busy right now. This is temporary, please wait a moment and try again.",
       "mobileConfirmationRequired": "Mobile confirmation required",
       "connectionFailed": "Connection failed: {{detail}}"

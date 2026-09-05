@@ -59,43 +59,46 @@ public class ScheduledPrefillConfigController : ControllerBase
     public ActionResult<ScheduledPrefillServiceScheduleDto[]> GetSchedule()
     {
         var config = _stateService.GetScheduledPrefillConfig();
-
-        // Which platforms have a run of their own in flight. One tracked operation per service means
-        // this is answerable per row; the schedule-wide flag cannot distinguish "Steam is downloading"
-        // from "Xbox may not start", which is what stopped a second service being run by hand. [48]
-        // Keyed by platform and carrying the operation id, because the row needs both: the flag to
-        // word itself and disable Run, the id to cancel that service's run. A lookup rather than a
-        // dictionary so a duplicate registration cannot throw and take the whole schedule with it.
-        var runningServices = _operationTracker
+        var runningSchedules = _operationTracker
             .GetActiveOperations(OperationType.ScheduledPrefill)
-            .Select(op => new { op.Id, State = op.Metadata as ScheduledPrefillServiceRunState })
-            .Where(pair => pair.State is not null)
-            .ToLookup(pair => pair.State!.ServiceId, pair => pair.Id);
-
-        var schedule = new List<ScheduledPrefillServiceScheduleDto>();
-        foreach (var service in config.GetServicesInRunOrder())
-        {
-            var key = service.ServiceId.ToString();
-            // Schedule basis (anchor + advance-on-attempt) drives Next run; the genuine last-run drives the
-            // "Last run" the card shows. They diverge until the service has truly run once: a just-enabled
-            // (anchored) service has a schedule basis but a null actual-run, so Last run reads "Never" while
-            // Next run still shows one interval out.
-            var scheduleBasis = _stateService.GetScheduledPrefillServiceLastRun(key);
-            var actualLastRun = _stateService.GetScheduledPrefillServiceLastActualRun(key);
-            schedule.Add(new ScheduledPrefillServiceScheduleDto
+            .Select(operation => new
             {
-                ServiceId = service.ServiceId,
-                IntervalHours = service.IntervalHours,
-                Enabled = service.Enabled,
-                IsRunning = runningServices.Contains(service.ServiceId),
-                OperationId = runningServices[service.ServiceId].Select(id => id.ToString()).FirstOrDefault(),
-                LastRunUtc = actualLastRun,
-                NextRunUtc = ScheduledPrefillRunGates.ComputeNextRunUtc(service.IntervalHours, scheduleBasis, service.CustomSchedule),
-                CustomSchedule = service.CustomSchedule
-            });
-        }
+                operation.Id,
+                State = operation.Metadata as ScheduledPrefillServiceRunState
+            })
+            .Where(pair => pair.State is not null)
+            .ToLookup(pair => pair.State!.ScheduleId, pair => pair.Id);
 
-        return Ok(schedule.ToArray());
+        var schedule = config.GetSchedulesInRunOrder()
+            .Select(record =>
+            {
+                var key = record.ScheduleId.ToString("N");
+                var scheduleBasis = _stateService.GetScheduledPrefillServiceLastRun(key);
+                var actualLastRun = _stateService.GetScheduledPrefillServiceLastActualRun(key);
+                return new ScheduledPrefillServiceScheduleDto
+                {
+                    ServiceId = record.ServiceId,
+                    ScheduleId = record.ScheduleId,
+                    Name = record.ScheduleName,
+                    IntervalHours = record.IntervalHours,
+                    Enabled = record.Enabled,
+                    IsRunning = runningSchedules.Contains(record.ScheduleId),
+                    OperationId = runningSchedules[record.ScheduleId]
+                        .Select(id => id.ToString())
+                        .FirstOrDefault(),
+                    LastRunUtc = actualLastRun,
+                    NextRunUtc = record.Enabled
+                        ? ScheduledPrefillRunGates.ComputeNextRunUtc(
+                            record.IntervalHours,
+                            scheduleBasis,
+                            record.CustomSchedule)
+                        : null,
+                    CustomSchedule = record.CustomSchedule
+                };
+            })
+            .ToArray();
+
+        return Ok(schedule);
     }
 
     /// <summary>
@@ -104,15 +107,29 @@ public class ScheduledPrefillConfigController : ControllerBase
     [HttpPut("config")]
     public async Task<ActionResult> SetConfigAsync([FromBody] ScheduledPrefillConfigDto config)
     {
+        ScheduledPrefillConfigDto validated;
         try
         {
-            _stateService.SetScheduledPrefillConfig(config);
+            validated = ScheduledPrefillConfigFactory.Validate(config);
         }
         catch (ScheduledPrefillConfigValidationException ex)
         {
             return BadRequest(ex.Message);
         }
 
+        var retainedIds = validated.GetSchedulesInRunOrder()
+            .Select(schedule => schedule.ScheduleId)
+            .ToHashSet();
+        var deletingActive = _operationTracker
+            .GetActiveOperations(OperationType.ScheduledPrefill)
+            .Any(operation => operation.Metadata is ScheduledPrefillServiceRunState state
+                && !retainedIds.Contains(state.ScheduleId));
+        if (deletingActive)
+        {
+            return Conflict(ApiResponse.Conflict("An active scheduled prefill record cannot be deleted"));
+        }
+
+        _stateService.SetScheduledPrefillConfig(validated);
         await _registry.BroadcastSchedulesAsync();
         return NoContent();
     }
@@ -131,25 +148,25 @@ public class ScheduledPrefillConfigController : ControllerBase
     public ActionResult<ScheduledPrefillRunStatusDto> GetRunStatus()
     {
         var active = _operationTracker.GetActiveOperations(OperationType.ScheduledPrefill).ToList();
-
-        // A run registers one operation per due platform beside its run-level one, so the run-level
-        // operation is the one WITHOUT a per-platform state rather than whichever the tracker
-        // enumerated first.
-        var operation = active.FirstOrDefault(op => op.Metadata is not ScheduledPrefillServiceRunState);
+        var operation = active.FirstOrDefault(op => op.Metadata is ScheduledPrefillOperationMetadata);
+        var serviceStates = active
+            .Select(op => new { Operation = op, State = op.Metadata as ScheduledPrefillServiceRunState })
+            .Where(pair => pair.State is not null)
+            .ToList();
 
         return Ok(new ScheduledPrefillRunStatusDto
         {
-            IsRunning = operation is not null,
+            IsRunning = operation is not null || serviceStates.Count > 0,
             OperationId = operation?.Id.ToString(),
             ShowNotification = operation?.Metadata is ScheduledPrefillOperationMetadata metadata
                 ? metadata.ShowNotification
                 : true,
-            Services = active
-                .Select(op => new { Operation = op, State = op.Metadata as ScheduledPrefillServiceRunState })
-                .Where(pair => pair.State is not null)
+            Services = serviceStates
                 .Select(pair => new ScheduledPrefillRunServiceStatus
                 {
                     ServiceId = pair.State!.ServiceId,
+                    ScheduleId = pair.State.ScheduleId,
+                    Name = pair.State.Name,
                     OperationId = pair.Operation.Id.ToString(),
                     Stage = pair.State.Stage,
                     Message = pair.State.Message,
@@ -168,41 +185,37 @@ public class ScheduledPrefillConfigController : ControllerBase
     /// <c>POST api/system/schedules/{serviceKey}/run</c> and runs every enabled service, because
     /// <c>scheduledPrefill</c> is one registry key and the trigger behind it takes no arguments.
     /// </remarks>
-    [HttpPost("services/{platform}/run")]
+    [HttpPost("services/{platform}/schedules/{scheduleId:guid}/run")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ConflictResponse), StatusCodes.Status409Conflict)]
-    public ActionResult RunService(PrefillPlatform platform)
+    public ActionResult RunService(PrefillPlatform platform, Guid scheduleId)
     {
-        // A disabled service does not prefill, however the run was asked for. Answered here rather than
-        // in the scheduling loop so the press gets a reason instead of a silent no-op, and so the loop
-        // is never woken for a platform it will drop. Temporary and guest prefill are a separate entity
-        // and carry no such restriction; nothing on this controller governs them. [47]
-        var service = _stateService.GetScheduledPrefillConfig()
-            .GetServicesInRunOrder()
-            .FirstOrDefault(s => s.ServiceId == platform);
-
-        if (service is not null && !service.Enabled)
+        var schedule = _stateService.GetScheduledPrefillConfig()
+            .GetSchedulesInRunOrder()
+            .FirstOrDefault(record => record.ServiceId == platform && record.ScheduleId == scheduleId);
+        if (schedule is null)
         {
-            return Conflict(ApiResponse.Conflict($"Scheduled prefill for {platform} is disabled"));
+            return NotFound();
         }
 
         var active = _operationTracker.GetActiveOperations(OperationType.ScheduledPrefill).ToList();
-
-        if (active.Any(op => op.Metadata is ScheduledPrefillServiceRunState state && state.ServiceId == platform))
+        if (active.Any(operation => operation.Metadata is ScheduledPrefillServiceRunState state
+            && state.ServiceId == platform))
         {
-            return Conflict(ApiResponse.Conflict($"Scheduled prefill for {platform} is already running"));
+            return Conflict(ApiResponse.Conflict(
+                $"Scheduled prefill for {platform} is already running"));
         }
 
-        // The run starts on its own task, so it no longer waits for a run already in flight and there is
-        // no queued outcome left to report. A false here means the claim was lost between the check
-        // above and the call, which is a second press landing in that window. [43][49]
-        if (!_scheduledPrefill.TriggerServiceRun(platform))
+        var operationId = _scheduledPrefill.TriggerServiceRun(platform, scheduleId);
+        if (operationId is null)
         {
-            return Conflict(ApiResponse.Conflict($"Scheduled prefill for {platform} is already running"));
+            return Conflict(ApiResponse.Conflict(
+                $"Scheduled prefill for {platform} is already running"));
         }
 
-        return Accepted(ApiResponse.Message($"Scheduled prefill started for {platform}"));
+        return Accepted(new { operationId });
     }
+
 }
 
 /// <summary>
@@ -236,6 +249,10 @@ public sealed class ScheduledPrefillRunServiceStatus
     /// <summary>Platform this entry describes (serializes as the PrefillPlatform name, e.g. "Steam").</summary>
     public required PrefillPlatform ServiceId { get; init; }
 
+    public required Guid ScheduleId { get; init; }
+
+    public required string Name { get; init; }
+
     /// <summary>This platform's own operation id, which its card is keyed on and its cancel targets.</summary>
     public required string OperationId { get; init; }
 
@@ -249,7 +266,7 @@ public sealed class ScheduledPrefillRunServiceStatus
     public string? StageKey { get; init; }
 
     /// <summary>The percent its bar was last moved to.</summary>
-    public required double PercentComplete { get; init; }
+    public double? PercentComplete { get; init; }
 }
 
 /// <summary>
@@ -259,6 +276,10 @@ public sealed class ScheduledPrefillServiceScheduleDto
 {
     /// <summary>Platform this row describes (serializes as the PrefillPlatform name, e.g. "Steam").</summary>
     public required PrefillPlatform ServiceId { get; init; }
+
+    public required Guid ScheduleId { get; init; }
+
+    public required string Name { get; init; }
 
     /// <summary>Per-service cadence in hours: <c>&gt; 0</c> = every N hours, <c>0</c> = paused, <c>-1</c> = startup-only.</summary>
     public required double IntervalHours { get; init; }

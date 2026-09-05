@@ -344,7 +344,7 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
         => throw new NotSupportedException();
     public Task<bool> ProvideEpicAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
-    public Task<bool> ProvideXboxAutoLoginAsync(string sessionId, string refreshToken, string deviceKeyPkcs8, CancellationToken cancellationToken = default)
+    public Task<bool> ProvideXboxAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
     public Task<CredentialChallenge?> WaitForChallengeAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
@@ -635,7 +635,7 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
         => throw new NotSupportedException();
     public Task<bool> ProvideEpicAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
-    public Task<bool> ProvideXboxAutoLoginAsync(string sessionId, string refreshToken, string deviceKeyPkcs8, CancellationToken cancellationToken = default)
+    public Task<bool> ProvideXboxAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
     public Task CancelPrefillAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
@@ -709,7 +709,6 @@ internal abstract class TestDaemonClientBase : IDaemonClient
     public Task<bool> ProvideXboxAutoLoginAsync(
         string sessionId,
         string refreshToken,
-        string deviceKeyPkcs8,
         CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
 

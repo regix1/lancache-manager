@@ -3892,7 +3892,7 @@
           "gain": "可以在用户需要前将游戏内容预热到缓存中；配置登录后也支持账号游戏库。",
           "loss": "已禁用的服务或需要登录的服务会被跳过，直到配置完成。",
           "config": {
-            "summary": "已启用 {{enabled}} / {{total}} 个服务",
+            "summary": "已启用 {{enabled}} / {{total}} 个计划",
             "nextRunSummary": {
               "inMinutes": "{{count}} 分钟后",
               "inHours": "{{count}} 小时后",
@@ -3906,6 +3906,19 @@
             "modalTitle": "配置计划预填充",
             "modalDescription": "在同一视图中配置每个平台：登录、持久容器和计划设置。",
             "servicesTitle": "服务",
+            "records": {
+              "label": "已保存的计划",
+              "name": "计划名称",
+              "new": "新建计划",
+              "newName": "新建计划",
+              "open": "打开",
+              "enable": "启用",
+              "saveAs": "另存为",
+              "copySuffix": "副本",
+              "nameRequired": "请先输入计划名称再保存。",
+              "confirmEnabledSaveTitle": "保存对此已启用计划的更改？",
+              "confirmEnabledSaveBody": "服务器上至少一个已启用的计划将被更改或删除。它可能会在下一次到期运行时使用更新后的设置。"
+            },
             "enabled": "启用",
             "service": "服务",
             "preset": "预设",
@@ -3941,12 +3954,13 @@
             "authWarning_other": "{{services}} 需要登录后才能为这些服务运行计划预填充。",
             "zeroEnabledWarning": "未启用任何服务。在至少启用一个服务之前，计划预填充不会下载任何内容。",
             "bulkToggle": {
-              "label": "所有服务",
-              "help": "一次性开启或关闭所有平台，不会更改下方各服务的单独设置。",
+              "label": "所有计划",
+              "help": "一次性开启或关闭所有已保存的计划，不会更改下方各计划的单独设置。",
               "enableAll": "全部启用",
               "disableAll": "全部禁用"
             },
             "summaryError": "加载计划预填充摘要失败：{{error}}",
+            "backendUpdateRequired": "请更新服务器后再管理命名的计划预填充记录。",
             "actions": {
               "configure": "配置",
               "save": "保存配置",
@@ -3972,6 +3986,16 @@
             },
             "persistentContainers": {
               "loadingStatus": "正在加载容器状态…",
+              "manualLogin": "手动登录",
+              "reuseIntegrationLogin": "使用我保存的登录",
+              "reuseIntegrationChecking": "正在检查集成登录是否可用…",
+              "reuseIntegrationUnavailable": {
+                "not-authenticated": "请先在“集成”页面登录，再复用此登录。",
+                "credentials-incomplete": "请先完成集成登录，再复用此登录。",
+                "account-required": "请使用个人用户账户登录，以保存或复用登录。",
+                "no-saved-login": "请使用您的账户登录，以保存可复用的登录。",
+                "unknown": "集成登录不可用。"
+              },
               "pipelineLabel": "容器状态",
               "steps": {
                 "container": "容器",
@@ -4625,6 +4649,15 @@
     "subtitle": "预下载游戏到缓存",
     "endSession": "结束会话",
     "persistent": {
+      "savedSchedule": {
+        "title": "使用已保存的计划",
+        "help": "使用共享的持久会话运行已保存的计划。",
+        "cancel": "取消运行",
+        "manage": "管理已保存的计划",
+        "updateRequired": "请先更新服务器后再使用已保存的计划记录。",
+        "busy": "已有计划预填充正在使用此持久会话。",
+        "unavailable": "使用此已保存计划前，请先启动并登录持久容器。"
+      },
       "logIn": "登录",
       "logOut": "退出登录",
       "loginToSelectGames": "登录以选择游戏",
@@ -7615,6 +7648,7 @@
       "running": "预填充进行中",
       "runningWithCounts": "预填充进行中（{{completed}}/{{total}} 个游戏）",
       "downloadingGame": "正在下载 {{game}}（{{completed}}/{{total}} 个游戏）",
+      "downloadingGameUnknownTotal": "正在下载 {{game}}",
       "failedMaxRuntime": "已超过服务的最长运行时间",
       "failedStalled": "预填充已停滞（无进度）",
       "failed": "预填充失败",
@@ -7712,7 +7746,10 @@
     "epic": {
       "authInProgress": "Epic 授权已在进行中",
       "oauthFailed": "Epic OAuth 失败：{{status}}。请检查您的授权码。",
-      "noActiveRefresh": "没有正在进行的刷新可供取消"
+      "noActiveRefresh": "没有正在进行的刷新可供取消",
+      "noSavedLogin": "此账户没有可用的已保存 Epic 登录信息。",
+      "refreshRejected": "Epic 拒绝了已保存的登录信息。请重新登录。",
+      "exchangeCodeFailed": "Epic 无法准备已保存的登录信息。"
     },
     "events": {
       "notFound": "找不到 ID 为 {{id}} 的事件"
@@ -7749,7 +7786,9 @@
       "dockerUnavailable": "Docker 未运行或无法访问。请启动 Docker Desktop 后重试。",
       "daemonShuttingDown": "{{service}} 守护进程正在关闭，现在无法停止持久会话 {{sessionId}}。其登录会被保留，以便下次启动时重新接管；管理器重启后请再次停止它。",
       "editCleanupWaiting": "编辑会话清理正在等待持久容器启动完成，之后才能释放会话 {{sessionId}}。",
-      "noRunningSession": "服务 '{{service}}' 没有正在运行的持久会话"
+      "noRunningSession": "服务 '{{service}}' 没有正在运行的持久会话",
+      "sessionReplaced": "此持久会话已被新的会话替换。请重新启动。",
+      "logoutBeforeSavedLogin": "请先退出当前账户，再使用您保存的登录信息。"
     },
     "rateLimit": {
       "tooManyRequests": "来自此地址的请求过多。请等待限制重置后重试。"
@@ -7770,6 +7809,7 @@
       "apiKeyInvalid": "提供的 API 密钥无效，或 Steam Web API V1 不可用。请在 https://steamcommunity.com/dev/apikey 核对您的密钥",
       "signInInProgress": "Steam 登录已在进行中。",
       "signInCancelled": "登录已取消。",
+      "signInOwnerChanged": "此 Steam 登录由其他账户发起。请使用您的账户重新开始登录。",
       "serversBusy": "Steam 服务器当前繁忙。这是暂时的，请稍候片刻再试。",
       "mobileConfirmationRequired": "需要在手机上确认",
       "connectionFailed": "连接失败：{{detail}}"

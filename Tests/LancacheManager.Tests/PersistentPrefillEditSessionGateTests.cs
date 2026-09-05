@@ -289,6 +289,22 @@ public sealed class PersistentPrefillEditSessionGateTests
     }
 
     [Fact]
+    public async Task TryEnterMutation_ReturnsImmediatelyWhileAnotherMutationOwnsTheGate()
+    {
+        var gate = new PersistentPrefillEditSessionGate();
+        await using var first = await gate.EnterMutationAsync(CancellationToken.None);
+
+        Assert.False(gate.TryEnterMutation(out var denied));
+        Assert.Null(denied);
+
+        await first.DisposeAsync();
+
+        Assert.True(gate.TryEnterMutation(out var acquired));
+        Assert.NotNull(acquired);
+        await acquired!.DisposeAsync();
+    }
+
+    [Fact]
     public async Task LaterStartAdoption_RetainsContainerButNotEarlierActionOwnership()
     {
         var gate = new PersistentPrefillEditSessionGate();

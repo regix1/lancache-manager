@@ -565,6 +565,9 @@ public abstract partial class PrefillDaemonServiceBase
             session.PreviousAppName = carriedAppName;
             session.CurrentAppId = progress.CurrentAppId;
             session.CurrentAppName = progress.CurrentAppName;
+            session.CompletedBytesTransferred = Math.Max(
+                session.CompletedBytesTransferred,
+                session.TotalBytesTransferred);
 
             if (!string.IsNullOrEmpty(previousAppId))
             {
@@ -653,6 +656,11 @@ public abstract partial class PrefillDaemonServiceBase
             session.CurrentAppName = null;
             session.CurrentBytesDownloaded = 0;
             session.CurrentTotalBytes = 0;
+            UpdateTransferredBytes(
+                session,
+                Math.Max(
+                    session.TotalBytesTransferred,
+                    session.CompletedBytesTransferred + bytesDownloaded));
 
             try
             {
@@ -774,7 +782,7 @@ public abstract partial class PrefillDaemonServiceBase
                     return;
                 }
 
-                await BroadcastToSubscribersAsync(session, EventPrefillProgress,
+                var completedAppBroadcast = BroadcastToSubscribersAsync(session, EventPrefillProgress,
                     new { sessionId = session.Id, progress = frontendProgress });
 
                 if (!IsSessionLive(session))
@@ -784,9 +792,10 @@ public abstract partial class PrefillDaemonServiceBase
 
                 // Same push, in-process. Carries frontendProgress (NOT the raw tick) because only the
                 // normalized object has the three completion counters a consumer needs to keep its
-                // "game X of N" monotonic across cached games. Raised after the client fan-out so a
-                // slow subscriber cannot delay the clients.
+                // "game X of N" monotonic across cached games. Start browser delivery first, then let
+                // the scheduler consume the same sequence without waiting for a slow subscriber.
                 await RaisePrefillProgressAsync(session, frontendProgress, sequence);
+                await completedAppBroadcast;
             }
             catch (Exception ex)
             {
@@ -912,22 +921,12 @@ public abstract partial class PrefillDaemonServiceBase
             session.CurrentAppName = progress.CurrentAppName;
         }
 
-        // Calculate total bytes transferred ourselves since daemon doesn't track it
-        // Use progress.TotalBytesTransferred if available, otherwise calculate from bytesDownloaded
-        if (progress.TotalBytesTransferred > 0)
-        {
-            session.TotalBytesTransferred = progress.TotalBytesTransferred;
-        }
-        else
-        {
-            // When transitioning to a new app, add the completed app's bytes to the running total
-            if (appInfoChanged && session.CurrentBytesDownloaded > 0)
-            {
-                session.CompletedBytesTransferred += session.CurrentBytesDownloaded;
-            }
-            // Total = completed games + current game progress (for real-time display)
-            session.TotalBytesTransferred = session.CompletedBytesTransferred + progress.BytesDownloaded;
-        }
+        // Some daemons only include their run total on terminal ticks. Build a monotonic total from
+        // completed games plus the current game while live ticks omit it.
+        var totalBytesTransferred = progress.TotalBytesTransferred > 0
+            ? progress.TotalBytesTransferred
+            : session.CompletedBytesTransferred + progress.BytesDownloaded;
+        UpdateTransferredBytes(session, totalBytesTransferred);
 
         // Fill in the running session-level totals so the retained snapshot is self-contained
         // for re-hydration (a reconnecting client reads these straight off LastProgress).
@@ -937,14 +936,6 @@ public abstract partial class PrefillDaemonServiceBase
         // connects/refreshes/reconnects mid-prefill can immediately re-hydrate the bar
         // (GetCurrentPrefillProgress / subscribe replay) without waiting for the next tick.
         session.LastProgress = progress;
-        // Advance stall-watchdog clock ONLY when bytes actually increased, so a zero-progress
-        // session is detectable as stalled rather than being refreshed on every tick. Written via
-        // Volatile so the cleanup-timer thread reads a torn-free tick value.
-        if (session.TotalBytesTransferred > session.LastProgressBytes)
-        {
-            session.LastProgressBytes = session.TotalBytesTransferred;
-            Volatile.Write(ref session.LastProgressTicksUtc, DateTime.UtcNow.Ticks);
-        }
         if (session.PrefillState == PrefillState.Started)
         {
             session.PrefillState = PrefillState.Downloading;
@@ -960,15 +951,29 @@ public abstract partial class PrefillDaemonServiceBase
         // Broadcast session update to all clients on every progress (for admin pages - both hubs)
         // This ensures totalBytesTransferred updates in real-time
         var progressDto = DaemonSessionDto.FromSession(session);
-        await NotifyHubAsync(EventSessionUpdated, progressDto);
+        var sessionBroadcast = NotifyHubAsync(EventSessionUpdated, progressDto);
 
         // Send detailed progress to subscribed connections (the user doing the prefill)
-        await BroadcastToSubscribersAsync(session, EventPrefillProgress,
+        var subscriberBroadcast = BroadcastToSubscribersAsync(session, EventPrefillProgress,
             new { sessionId = session.Id, progress });
 
-        // Same push, in-process, after the client fan-out. This is what drives the scheduled-prefill
-        // universal notification, which used to sample session.LastProgress every ten seconds.
+        // Same push, in-process. This is what drives the scheduled-prefill universal notification,
+        // and it must not wait for browser delivery to complete.
         await RaisePrefillProgressAsync(session, progress, sequence);
+        await Task.WhenAll(sessionBroadcast, subscriberBroadcast);
+    }
+
+    internal static void UpdateTransferredBytes(DaemonSession session, long totalBytesTransferred)
+    {
+        session.TotalBytesTransferred = Math.Max(session.TotalBytesTransferred, totalBytesTransferred);
+
+        // Advance the stall clock only when bytes increase. A zero-progress session must still be
+        // detectable as stalled, including when repeated socket ticks carry the same byte count.
+        if (session.TotalBytesTransferred > session.LastProgressBytes)
+        {
+            session.LastProgressBytes = session.TotalBytesTransferred;
+            Volatile.Write(ref session.LastProgressTicksUtc, DateTime.UtcNow.Ticks);
+        }
     }
 
     private async Task BroadcastHistoryUpdatedAsync(string sessionId, string appId, string status)

@@ -106,6 +106,27 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
             tracker.GetOperation(result.OperationId!.Value)?.Status);
     }
 
+    [Fact]
+    public async Task GuardCodeSubmission_FromAnotherAccountCannotAdoptPendingSignInAsync()
+    {
+        var service = CreateService(CreateTracker());
+        var owner = Guid.NewGuid();
+        SetPrivateField(service, "_hasPendingLoginOwner", true);
+        SetPrivateField<Guid?>(service, "_pendingLoginOwnerAccountId", owner);
+        SetPrivateField<string?>(service, "_pendingLoginUsername", "steam-user");
+
+        var result = await service.AuthenticateAsync(
+            "steam-user",
+            "password",
+            twoFactorCode: "12345",
+            ownerAccountId: Guid.NewGuid());
+
+        Assert.False(result.Success);
+        Assert.Equal("errors.steam.signInOwnerChanged", result.StageKey);
+        Assert.True(GetPrivateField<bool>(service, "_hasPendingLoginOwner"));
+        Assert.Equal(owner, GetPrivateField<Guid?>(service, "_pendingLoginOwnerAccountId"));
+    }
+
     /// <summary>Polls until the sign-in has registered its operation, so the cancel lands mid-flight.</summary>
     private static async Task WaitForActiveSignInAsync(UnifiedOperationTracker tracker)
     {
@@ -161,8 +182,10 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
             DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>());
         SetPrivateField(service, "_operationTracker", tracker);
         SetPrivateField(service, "_stateService", stateService);
+        SetPrivateField(service, "_steamAuthRepository", steamAuthStorage);
         SetPrivateField(service, "_cancellationTokenSource", new CancellationTokenSource());
         SetPrivateField(service, "_sessionGate", sessionGate ?? new SemaphoreSlim(1, 1));
+        SetPrivateField(service, "_loginOwnerLock", new object());
         SetPrivateField(service, "_depotToAppMappings", new ConcurrentDictionary<uint, HashSet<uint>>());
         return service;
     }
@@ -176,6 +199,20 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
             {
                 field.SetValue(service, value);
                 return;
+            }
+        }
+
+        throw new InvalidOperationException($"Field '{name}' was not found.");
+    }
+
+    private static T GetPrivateField<T>(SteamKit2Service service, string name)
+    {
+        for (var type = typeof(SteamKit2Service); type is not null; type = type.BaseType)
+        {
+            var field = type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field is not null)
+            {
+                return (T)field.GetValue(service)!;
             }
         }
 

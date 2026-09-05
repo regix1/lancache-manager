@@ -97,13 +97,47 @@ public sealed class ScheduledPrefillMaxConcurrencyDto
 }
 
 /// <summary>
+/// One named scheduled-prefill record. Disabled records are saved setups and remain available for
+/// manual runs, but the scheduler excludes them from its due scan.
+/// </summary>
+public sealed class ScheduledPrefillSchedule
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public bool Enabled { get; init; }
+    public double IntervalHours { get; init; } = ScheduledPrefillConfigFactory.DefaultIntervalHours;
+    public CustomSchedule? CustomSchedule { get; init; }
+    public ScheduledPrefillPreset Preset { get; init; }
+    public int? TopCount { get; init; }
+    public List<string> SelectedAppIds { get; init; } = [];
+    public List<ScheduledPrefillOperatingSystem> OperatingSystems { get; init; } = [];
+    public bool Force { get; init; }
+    public ScheduledPrefillMaxConcurrencyDto MaxConcurrency { get; init; } = new()
+    {
+        Mode = ScheduledPrefillMaxConcurrencyMode.Auto
+    };
+    public NotificationMode NotificationMode { get; init; } = NotificationMode.All;
+    public NotificationDisplayMode NotificationDisplayMode { get; init; } = NotificationDisplayMode.Full;
+}
+
+/// <summary>
 /// Per-service scheduled prefill configuration. One instance exists per supported
 /// <see cref="PrefillPlatform"/> on the parent <see cref="ScheduledPrefillConfigDto"/>.
 /// </summary>
 public sealed class ScheduledPrefillServiceConfigDto
 {
     public required PrefillPlatform ServiceId { get; init; }
-    public required bool Enabled { get; init; }
+    public List<ScheduledPrefillSchedule> Schedules { get; init; } = [];
+
+    [JsonIgnore]
+    public Guid ScheduleId { get; init; }
+
+    [JsonIgnore]
+    public string ScheduleName { get; init; } = string.Empty;
+
+    // The members below are the v1-v5 wire shape. They remain readable for lossless migration; v6
+    // validation and runtime behavior consume Schedules.
+    public bool Enabled { get; init; }
 
     /// <summary>
     /// Legacy visible/silent toggle. Kept only so pre-v4 saved configs still deserialize cleanly;
@@ -139,7 +173,7 @@ public sealed class ScheduledPrefillServiceConfigDto
     /// seeds it from the legacy global <c>ServiceIntervals["scheduledPrefill"]</c> value.
     /// </summary>
     public double IntervalHours { get; init; } = ScheduledPrefillConfigFactory.DefaultIntervalHours;
-    public required ScheduledPrefillPreset Preset { get; init; }
+    public ScheduledPrefillPreset Preset { get; init; }
     public int? TopCount { get; init; }
 
     /// <summary>
@@ -148,9 +182,12 @@ public sealed class ScheduledPrefillServiceConfigDto
     /// the preset selection is used. Never null.
     /// </summary>
     public List<string> SelectedAppIds { get; init; } = new();
-    public required List<ScheduledPrefillOperatingSystem> OperatingSystems { get; init; }
-    public required bool Force { get; init; }
-    public required ScheduledPrefillMaxConcurrencyDto MaxConcurrency { get; init; }
+    public List<ScheduledPrefillOperatingSystem> OperatingSystems { get; init; } = [];
+    public bool Force { get; init; }
+    public ScheduledPrefillMaxConcurrencyDto MaxConcurrency { get; init; } = new()
+    {
+        Mode = ScheduledPrefillMaxConcurrencyMode.Auto
+    };
 
     /// <summary>
     /// Per-service override for what happens to this service's persistent container across a
@@ -179,11 +216,9 @@ public sealed class ScheduledPrefillServiceConfigDto
 }
 
 /// <summary>
-/// Root scheduled prefill configuration persisted in state.json. The schedule interval itself
-/// is NOT stored here — it lives in <c>StateService.ServiceIntervals["scheduledPrefill"]</c> in
-/// hours like every other <c>ConfigurableScheduledService</c>. This object only holds the
-/// per-run runtime guards (<see cref="MaxServiceRuntime"/>/<see cref="StallTimeout"/>) and the
-/// per-service settings.
+/// Root scheduled prefill configuration persisted in state.json. Each platform's named children
+/// hold their own cadence and run settings; the shared outer service interval remains only the
+/// scheduler's due-check frequency.
 /// </summary>
 public sealed class ScheduledPrefillConfigDto
 {
@@ -215,10 +250,38 @@ public sealed class ScheduledPrefillConfigDto
         => new[] { Steam, Epic, Xbox, BattleNet, Riot };
 
     /// <summary>
-    /// Returns only enabled per-service configs in stable run order.
+    /// Flattens the persisted parent/child shape into immutable per-run settings in platform and
+    /// child-list order. The scheduler and status endpoints use these copies so a config save cannot
+    /// change a run already in progress.
     /// </summary>
-    public IReadOnlyList<ScheduledPrefillServiceConfigDto> GetEnabledServicesInRunOrder()
-        => GetServicesInRunOrder().Where(s => s.Enabled).ToList();
+    public IReadOnlyList<ScheduledPrefillServiceConfigDto> GetSchedulesInRunOrder()
+        => GetServicesInRunOrder()
+            .SelectMany(service => service.Schedules.Select(schedule => new ScheduledPrefillServiceConfigDto
+            {
+                ServiceId = service.ServiceId,
+                PersistenceMode = service.PersistenceMode,
+                ScheduleId = schedule.Id,
+                ScheduleName = schedule.Name,
+                Enabled = schedule.Enabled,
+                NotificationMode = schedule.NotificationMode,
+                NotificationDisplayMode = schedule.NotificationDisplayMode,
+                IntervalHours = schedule.IntervalHours,
+                CustomSchedule = schedule.CustomSchedule,
+                Preset = schedule.Preset,
+                TopCount = schedule.TopCount,
+                SelectedAppIds = [.. schedule.SelectedAppIds],
+                OperatingSystems = [.. schedule.OperatingSystems],
+                Force = schedule.Force,
+                MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+                {
+                    Mode = schedule.MaxConcurrency.Mode,
+                    Value = schedule.MaxConcurrency.Value
+                }
+            }))
+            .ToList();
+
+    public IReadOnlyList<ScheduledPrefillServiceConfigDto> GetEnabledSchedulesInRunOrder()
+        => GetSchedulesInRunOrder().Where(schedule => schedule.Enabled).ToList();
 
     /// <summary>
     /// Returns the effective persistence mode for <paramref name="serviceId"/>: its own
@@ -259,7 +322,8 @@ public static class ScheduledPrefillConfigFactory
     // Bumped 2 -> 3 when global + per-service PersistenceMode was added (see Migrate).
     // Bumped 3 -> 4 when per-service ShowNotification (bool) was replaced by NotificationMode (see Migrate).
     // Bumped 4 -> 5 when the per-service CustomSchedule was added (see Migrate).
-    public const int CurrentVersion = 5;
+    // Bumped 5 -> 6 when each platform gained named child schedules (see Migrate).
+    public const int CurrentVersion = 6;
     public const int DefaultTopCount = 50;
     public const int MinFixedConcurrency = 1;
     public const int MaxFixedConcurrency = 256;
@@ -273,6 +337,16 @@ public static class ScheduledPrefillConfigFactory
     public static readonly TimeSpan DefaultMaxServiceRuntime = TimeSpan.FromHours(12);
     public static readonly TimeSpan MaxAllowedServiceRuntime = TimeSpan.FromHours(24);
     public static readonly TimeSpan DefaultStallTimeout = TimeSpan.FromMinutes(30);
+
+    public static Guid GetDefaultScheduleId(PrefillPlatform serviceId) => serviceId switch
+    {
+        PrefillPlatform.Steam => Guid.Parse("5a4ec1a6-f8e6-4a60-a2c8-6b4f2478ef01"),
+        PrefillPlatform.Epic => Guid.Parse("5a4ec1a6-f8e6-4a60-a2c8-6b4f2478ef02"),
+        PrefillPlatform.Xbox => Guid.Parse("5a4ec1a6-f8e6-4a60-a2c8-6b4f2478ef03"),
+        PrefillPlatform.BattleNet => Guid.Parse("5a4ec1a6-f8e6-4a60-a2c8-6b4f2478ef04"),
+        PrefillPlatform.Riot => Guid.Parse("5a4ec1a6-f8e6-4a60-a2c8-6b4f2478ef05"),
+        _ => throw new ArgumentOutOfRangeException(nameof(serviceId), serviceId, "Unknown scheduled prefill service id.")
+    };
 
     /// <summary>
     /// Builds the default scheduled prefill configuration used when state.json has no
@@ -375,7 +449,7 @@ public static class ScheduledPrefillConfigFactory
             // to stamp the version, because Validate rejects anything that is not CurrentVersion.
             config = new ScheduledPrefillConfigDto
             {
-                Version = CurrentVersion,
+                Version = 5,
                 MaxServiceRuntime = config.MaxServiceRuntime,
                 StallTimeout = config.StallTimeout,
                 PersistenceMode = config.PersistenceMode,
@@ -387,7 +461,75 @@ public static class ScheduledPrefillConfigFactory
             };
         }
 
+        if (config.Version < 6)
+        {
+            config = new ScheduledPrefillConfigDto
+            {
+                Version = CurrentVersion,
+                MaxServiceRuntime = config.MaxServiceRuntime,
+                StallTimeout = config.StallTimeout,
+                PersistenceMode = config.PersistenceMode,
+                Steam = WithDefaultSchedule(config.Steam),
+                Epic = WithDefaultSchedule(config.Epic),
+                Xbox = WithDefaultSchedule(config.Xbox),
+                BattleNet = WithDefaultSchedule(config.BattleNet),
+                Riot = WithDefaultSchedule(config.Riot)
+            };
+        }
+
         return config;
+    }
+
+    private static ScheduledPrefillServiceConfigDto WithDefaultSchedule(ScheduledPrefillServiceConfigDto service)
+    {
+#pragma warning disable CS0618 // Legacy v1-v5 wire field must survive the v6 migration.
+        return new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = service.ServiceId,
+            PersistenceMode = service.PersistenceMode,
+            Schedules = [CreateSchedule(service)],
+            Enabled = service.Enabled,
+            ShowNotification = service.ShowNotification,
+            NotificationMode = service.NotificationMode,
+            NotificationDisplayMode = service.NotificationDisplayMode,
+            IntervalHours = service.IntervalHours,
+            Preset = service.Preset,
+            TopCount = service.TopCount,
+            SelectedAppIds = [.. service.SelectedAppIds],
+            OperatingSystems = [.. service.OperatingSystems],
+            Force = service.Force,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+            {
+                Mode = service.MaxConcurrency.Mode,
+                Value = service.MaxConcurrency.Value
+            },
+            CustomSchedule = service.CustomSchedule
+        };
+#pragma warning restore CS0618
+    }
+
+    private static ScheduledPrefillSchedule CreateSchedule(ScheduledPrefillServiceConfigDto service)
+    {
+        return new ScheduledPrefillSchedule
+        {
+            Id = GetDefaultScheduleId(service.ServiceId),
+            Name = "Default",
+            Enabled = service.Enabled,
+            IntervalHours = service.IntervalHours,
+            CustomSchedule = service.CustomSchedule,
+            Preset = service.Preset,
+            TopCount = service.TopCount,
+            SelectedAppIds = [.. service.SelectedAppIds],
+            OperatingSystems = [.. service.OperatingSystems],
+            Force = service.Force,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+            {
+                Mode = service.MaxConcurrency.Mode,
+                Value = service.MaxConcurrency.Value
+            },
+            NotificationMode = service.NotificationMode ?? NotificationMode.All,
+            NotificationDisplayMode = service.NotificationDisplayMode ?? NotificationDisplayMode.Full
+        };
     }
 
     /// <summary>
@@ -410,6 +552,7 @@ public static class ScheduledPrefillConfigFactory
         return new ScheduledPrefillServiceConfigDto
         {
             ServiceId = service.ServiceId,
+            Schedules = service.Schedules,
             Enabled = service.Enabled,
 #pragma warning disable CS0618 // migration keeps the legacy value intact so older builds reading this state still see it
             ShowNotification = service.ShowNotification,
@@ -461,9 +604,9 @@ public static class ScheduledPrefillConfigFactory
     }
 
     /// <summary>
-    /// Returns <paramref name="config"/> with every platform's <see cref="ScheduledPrefillServiceConfigDto.NotificationMode"/>
-    /// forced back to the factory default (<see cref="NotificationMode.All"/>). Scheduled prefill's
-    /// notification setting lives per-platform in this DTO, NOT in the base
+    /// Returns <paramref name="config"/> with every named record's notification mode and display
+    /// mode forced back to their factory defaults. Scheduled prefill's notification settings live
+    /// on these records, not in the base
     /// <c>ConfigurableScheduledService</c> override the Schedules-page "Reset to Defaults" action
     /// resets - that base-class reset is a no-op for this service, so the registry's reset path
     /// must call this explicitly or a platform left on Manual/Silent survives a reset unchanged.
@@ -487,9 +630,9 @@ public static class ScheduledPrefillConfigFactory
     }
 
     /// <summary>
-    /// Returns a copy of <paramref name="service"/> with <see cref="ScheduledPrefillServiceConfigDto.NotificationMode"/>
-    /// unconditionally replaced by <paramref name="mode"/>. Unlike <see cref="WithMigratedNotificationMode"/>
-    /// (which only seeds an absent value), this always overwrites - used by <see cref="ResetNotificationModes"/>.
+    /// Returns a copy of <paramref name="service"/> with every child record reset to
+    /// <paramref name="mode"/> and full-card display. The legacy parent fields are reset too for
+    /// compatibility with older readers.
     /// </summary>
     private static ScheduledPrefillServiceConfigDto WithNotificationMode(ScheduledPrefillServiceConfigDto service, NotificationMode mode)
     {
@@ -498,6 +641,22 @@ public static class ScheduledPrefillConfigFactory
         return new ScheduledPrefillServiceConfigDto
         {
             ServiceId = service.ServiceId,
+            Schedules = service.Schedules.Select(schedule => new ScheduledPrefillSchedule
+            {
+                Id = schedule.Id,
+                Name = schedule.Name,
+                Enabled = schedule.Enabled,
+                IntervalHours = schedule.IntervalHours,
+                CustomSchedule = schedule.CustomSchedule,
+                Preset = schedule.Preset,
+                TopCount = schedule.TopCount,
+                SelectedAppIds = [.. schedule.SelectedAppIds],
+                OperatingSystems = [.. schedule.OperatingSystems],
+                Force = schedule.Force,
+                MaxConcurrency = schedule.MaxConcurrency,
+                NotificationMode = mode,
+                NotificationDisplayMode = NotificationDisplayMode.Full
+            }).ToList(),
             Enabled = service.Enabled,
 #pragma warning disable CS0618 // legacy value must survive DTO rebuilds so Migrate's v3->v4 step can still read it
             ShowNotification = service.ShowNotification,
@@ -531,6 +690,24 @@ public static class ScheduledPrefillConfigFactory
         return new ScheduledPrefillServiceConfigDto
         {
             ServiceId = serviceId,
+            Schedules =
+            [
+                new ScheduledPrefillSchedule
+                {
+                    Id = GetDefaultScheduleId(serviceId),
+                    Name = "Default",
+                    Enabled = enabled,
+                    IntervalHours = DefaultIntervalHours,
+                    Preset = ScheduledPrefillPreset.All,
+                    OperatingSystems = SupportsOperatingSystemSelection(serviceId)
+                        ? [ScheduledPrefillOperatingSystem.Windows]
+                        : [],
+                    MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+                    {
+                        Mode = ScheduledPrefillMaxConcurrencyMode.Auto
+                    }
+                }
+            ],
             Enabled = enabled,
             NotificationMode = NotificationMode.All,
             IntervalHours = DefaultIntervalHours,
@@ -649,8 +826,41 @@ public static class ScheduledPrefillConfigFactory
 
     private static ScheduledPrefillServiceConfigDto ReconcileServicePreset(ScheduledPrefillServiceConfigDto service)
     {
-        if (!_supportedPresetsByService.TryGetValue(service.ServiceId, out var supportedPresets)
-            || supportedPresets.Contains(service.Preset))
+        if (service.Schedules is { Count: > 0 })
+        {
+            var changed = false;
+            var schedules = service.Schedules.Select(schedule =>
+            {
+                if (!_supportedPresetsByService.TryGetValue(service.ServiceId, out var supportedPresets)
+                    || supportedPresets.Contains(schedule.Preset))
+                {
+                    return schedule;
+                }
+
+                changed = true;
+                return new ScheduledPrefillSchedule
+                {
+                    Id = schedule.Id,
+                    Name = schedule.Name,
+                    Enabled = schedule.Enabled,
+                    IntervalHours = schedule.IntervalHours,
+                    CustomSchedule = schedule.CustomSchedule,
+                    Preset = ScheduledPrefillPreset.All,
+                    TopCount = null,
+                    SelectedAppIds = [.. schedule.SelectedAppIds],
+                    OperatingSystems = [.. schedule.OperatingSystems],
+                    Force = schedule.Force,
+                    MaxConcurrency = schedule.MaxConcurrency,
+                    NotificationMode = schedule.NotificationMode,
+                    NotificationDisplayMode = schedule.NotificationDisplayMode
+                };
+            }).ToList();
+
+            return changed ? CopyServiceWithSchedules(service, schedules) : service;
+        }
+
+        if (!_supportedPresetsByService.TryGetValue(service.ServiceId, out var supported)
+            || supported.Contains(service.Preset))
         {
             return service;
         }
@@ -659,7 +869,7 @@ public static class ScheduledPrefillConfigFactory
         {
             ServiceId = service.ServiceId,
             Enabled = service.Enabled,
-#pragma warning disable CS0618 // legacy value must survive DTO rebuilds so Migrate's v3->v4 step can still read it
+#pragma warning disable CS0618
             ShowNotification = service.ShowNotification,
 #pragma warning restore CS0618
             NotificationMode = service.NotificationMode,
@@ -719,6 +929,38 @@ public static class ScheduledPrefillConfigFactory
             ? supported
             : new HashSet<ScheduledPrefillOperatingSystem>();
 
+        if (service.Schedules is { Count: > 0 })
+        {
+            var changed = false;
+            var schedules = service.Schedules.Select(schedule =>
+            {
+                if (schedule.OperatingSystems.All(supportedOperatingSystems.Contains))
+                {
+                    return schedule;
+                }
+
+                changed = true;
+                return new ScheduledPrefillSchedule
+                {
+                    Id = schedule.Id,
+                    Name = schedule.Name,
+                    Enabled = schedule.Enabled,
+                    IntervalHours = schedule.IntervalHours,
+                    CustomSchedule = schedule.CustomSchedule,
+                    Preset = schedule.Preset,
+                    TopCount = schedule.TopCount,
+                    SelectedAppIds = [.. schedule.SelectedAppIds],
+                    OperatingSystems = schedule.OperatingSystems.Where(supportedOperatingSystems.Contains).ToList(),
+                    Force = schedule.Force,
+                    MaxConcurrency = schedule.MaxConcurrency,
+                    NotificationMode = schedule.NotificationMode,
+                    NotificationDisplayMode = schedule.NotificationDisplayMode
+                };
+            }).ToList();
+
+            return changed ? CopyServiceWithSchedules(service, schedules) : service;
+        }
+
         if (service.OperatingSystems.All(supportedOperatingSystems.Contains))
         {
             return service;
@@ -728,7 +970,7 @@ public static class ScheduledPrefillConfigFactory
         {
             ServiceId = service.ServiceId,
             Enabled = service.Enabled,
-#pragma warning disable CS0618 // legacy value must survive DTO rebuilds so Migrate's v3->v4 step can still read it
+#pragma warning disable CS0618
             ShowNotification = service.ShowNotification,
 #pragma warning restore CS0618
             NotificationMode = service.NotificationMode,
@@ -743,6 +985,32 @@ public static class ScheduledPrefillConfigFactory
             PersistenceMode = service.PersistenceMode,
             CustomSchedule = service.CustomSchedule
         };
+    }
+
+    private static ScheduledPrefillServiceConfigDto CopyServiceWithSchedules(
+        ScheduledPrefillServiceConfigDto service,
+        List<ScheduledPrefillSchedule> schedules)
+    {
+#pragma warning disable CS0618 // Preserve the legacy wire field while rebuilding a v6 parent.
+        return new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = service.ServiceId,
+            PersistenceMode = service.PersistenceMode,
+            Schedules = schedules,
+            Enabled = service.Enabled,
+            ShowNotification = service.ShowNotification,
+            NotificationMode = service.NotificationMode,
+            NotificationDisplayMode = service.NotificationDisplayMode,
+            IntervalHours = service.IntervalHours,
+            Preset = service.Preset,
+            TopCount = service.TopCount,
+            SelectedAppIds = service.SelectedAppIds,
+            OperatingSystems = service.OperatingSystems,
+            Force = service.Force,
+            MaxConcurrency = service.MaxConcurrency,
+            CustomSchedule = service.CustomSchedule
+        };
+#pragma warning restore CS0618
     }
 
     /// <summary>
@@ -768,8 +1036,7 @@ public static class ScheduledPrefillConfigFactory
 
         if (config.PersistenceMode is not { } globalPersistenceMode)
         {
-            throw new ScheduledPrefillConfigValidationException(
-                "PersistenceMode is required and must not be null (Migrate should have seeded a default; refusing to silently default a required global setting).");
+            throw new ScheduledPrefillConfigValidationException("PersistenceMode is required and must not be null.");
         }
 
         if (!Enum.IsDefined(globalPersistenceMode))
@@ -780,8 +1047,7 @@ public static class ScheduledPrefillConfigFactory
 
         if (config.MaxServiceRuntime <= TimeSpan.Zero)
         {
-            throw new ScheduledPrefillConfigValidationException(
-                "MaxServiceRuntime must be positive.");
+            throw new ScheduledPrefillConfigValidationException("MaxServiceRuntime must be positive.");
         }
 
         if (config.MaxServiceRuntime > MaxAllowedServiceRuntime)
@@ -792,8 +1058,7 @@ public static class ScheduledPrefillConfigFactory
 
         if (config.StallTimeout <= TimeSpan.Zero)
         {
-            throw new ScheduledPrefillConfigValidationException(
-                "StallTimeout must be positive.");
+            throw new ScheduledPrefillConfigValidationException("StallTimeout must be positive.");
         }
 
         if (config.StallTimeout >= config.MaxServiceRuntime)
@@ -807,6 +1072,15 @@ public static class ScheduledPrefillConfigFactory
         ValidateService(config.Xbox, PrefillPlatform.Xbox);
         ValidateService(config.BattleNet, PrefillPlatform.BattleNet);
         ValidateService(config.Riot, PrefillPlatform.Riot);
+
+        var duplicateId = config.GetSchedulesInRunOrder()
+            .GroupBy(schedule => schedule.ScheduleId)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateId is not null)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"Schedule id '{duplicateId.Key}' must be unique across all platforms.");
+        }
 
         return config;
     }
@@ -825,116 +1099,123 @@ public static class ScheduledPrefillConfigFactory
                 $"Service config ServiceId '{service.ServiceId}' does not match its container slot '{expectedServiceId}'.");
         }
 
-        // NotificationMode is a required field on a current-version (v4) config. Validate only ever
-        // runs at CurrentVersion, so a null here is a current-schema payload that omitted the field,
-        // NOT a legacy config (Migrate seeds those from the legacy ShowNotification flag before this
-        // runs). Reject it rather than silently defaulting a required field.
-        if (service.NotificationMode is not { } notificationMode)
-        {
-            throw new ScheduledPrefillConfigValidationException(
-                $"{expectedServiceId} NotificationMode is required (Migrate seeds it for pre-v{CurrentVersion} configs; refusing to silently default a required field).");
-        }
-
-        if (!Enum.IsDefined(notificationMode))
-        {
-            throw new ScheduledPrefillConfigValidationException(
-                $"{expectedServiceId} NotificationMode '{notificationMode}' is not a supported value.");
-        }
-
-        if (!IsIntervalHoursValid(service.IntervalHours))
-        {
-            throw new ScheduledPrefillConfigValidationException(
-                $"{expectedServiceId} IntervalHours must be -1 (run on startup), 0 (paused), or between 0 (exclusive) and {MaxIntervalHours} hours.");
-        }
-
-        // A custom schedule takes over from the interval entirely, so an unusable one does not fall
-        // back to anything - it just stops the service running. ScheduleTiming.Validate catches the
-        // silent cases here, at save time: an expression this server cannot read, a Windows timezone
-        // name that would not resolve in the container, a half-set window, and an expression whose
-        // occurrences can never land inside the window it was given.
-        if (service.CustomSchedule is { } customSchedule
-            && ScheduleTiming.Validate(customSchedule) is { } scheduleProblem)
-        {
-            throw new ScheduledPrefillConfigValidationException(
-                $"{expectedServiceId} custom schedule is not usable. {scheduleProblem}");
-        }
-
-        if (service.SelectedAppIds is null)
-        {
-            throw new ScheduledPrefillConfigValidationException(
-                $"{expectedServiceId} SelectedAppIds must not be null (use an empty list to fall back to the preset).");
-        }
-
-        foreach (var appId in service.SelectedAppIds)
-        {
-            if (string.IsNullOrWhiteSpace(appId))
-            {
-                throw new ScheduledPrefillConfigValidationException(
-                    $"{expectedServiceId} SelectedAppIds must not contain empty entries.");
-            }
-        }
-
-        if (service.SelectedAppIds.Distinct().Count() != service.SelectedAppIds.Count)
-        {
-            throw new ScheduledPrefillConfigValidationException(
-                $"{expectedServiceId} SelectedAppIds must not contain duplicates.");
-        }
-
-        if (service.OperatingSystems is null)
-        {
-            throw new ScheduledPrefillConfigValidationException(
-                $"{expectedServiceId} OperatingSystems must not be null.");
-        }
-
-        var distinctOsCount = service.OperatingSystems.Distinct().Count();
-        if (distinctOsCount != service.OperatingSystems.Count)
-        {
-            throw new ScheduledPrefillConfigValidationException(
-                $"{expectedServiceId} OperatingSystems must not contain duplicates.");
-        }
-
-        foreach (var os in service.OperatingSystems)
-        {
-            if (!Enum.IsDefined(os))
-            {
-                throw new ScheduledPrefillConfigValidationException(
-                    $"{expectedServiceId} OperatingSystems contains an unsupported value '{os}'.");
-            }
-        }
-
-        if (!Enum.IsDefined(service.Preset))
-        {
-            throw new ScheduledPrefillConfigValidationException(
-                $"{expectedServiceId} Preset '{service.Preset}' is not a supported value.");
-        }
-
-        if (service.Preset == ScheduledPrefillPreset.Top)
-        {
-            if (service.TopCount is null)
-            {
-                throw new ScheduledPrefillConfigValidationException(
-                    $"{expectedServiceId} requires an explicit TopCount when Preset is Top.");
-            }
-
-            if (service.TopCount <= 0)
-            {
-                throw new ScheduledPrefillConfigValidationException(
-                    $"{expectedServiceId} TopCount must be positive.");
-            }
-        }
-        else if (service.TopCount is not null)
-        {
-            throw new ScheduledPrefillConfigValidationException(
-                $"{expectedServiceId} TopCount must be null unless Preset is Top.");
-        }
-
         if (service.PersistenceMode is { } persistenceMode && !Enum.IsDefined(persistenceMode))
         {
             throw new ScheduledPrefillConfigValidationException(
                 $"{expectedServiceId} PersistenceMode '{persistenceMode}' is not a supported value.");
         }
 
-        ValidateMaxConcurrency(service.MaxConcurrency, expectedServiceId);
+        if (service.Schedules is null)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{expectedServiceId} Schedules must not be null.");
+        }
+
+        var duplicateName = service.Schedules
+            .GroupBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateName is not null)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{expectedServiceId} schedule name '{duplicateName.Key}' must be unique.");
+        }
+
+        foreach (var schedule in service.Schedules)
+        {
+            ValidateSchedule(schedule, expectedServiceId);
+        }
+    }
+
+    private static void ValidateSchedule(
+        ScheduledPrefillSchedule schedule,
+        PrefillPlatform serviceId)
+    {
+        if (schedule.Id == Guid.Empty)
+        {
+            throw new ScheduledPrefillConfigValidationException($"{serviceId} schedule Id must not be empty.");
+        }
+
+        if (string.IsNullOrWhiteSpace(schedule.Name)
+            || schedule.Name.Length > 100
+            || schedule.Name != schedule.Name.Trim())
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{serviceId} schedule Name must be trimmed, non-empty, and no longer than 100 characters.");
+        }
+
+        if (!Enum.IsDefined(schedule.NotificationMode)
+            || !Enum.IsDefined(schedule.NotificationDisplayMode))
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{serviceId} schedule '{schedule.Name}' has an unsupported notification setting.");
+        }
+
+        if (!IsIntervalHoursValid(schedule.IntervalHours))
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{serviceId} schedule '{schedule.Name}' IntervalHours must be -1, 0, or between 0 and {MaxIntervalHours} hours.");
+        }
+
+        if (schedule.CustomSchedule is { } customSchedule
+            && ScheduleTiming.Validate(customSchedule) is { } scheduleProblem)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{serviceId} schedule '{schedule.Name}' is not usable. {scheduleProblem}");
+        }
+
+        if (schedule.SelectedAppIds is null)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{serviceId} schedule '{schedule.Name}' SelectedAppIds must not be null.");
+        }
+
+        if (schedule.SelectedAppIds.Any(string.IsNullOrWhiteSpace)
+            || schedule.SelectedAppIds.Distinct(StringComparer.Ordinal).Count() != schedule.SelectedAppIds.Count)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{serviceId} schedule '{schedule.Name}' SelectedAppIds must contain distinct, non-empty values.");
+        }
+
+        if (schedule.OperatingSystems is null)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{serviceId} schedule '{schedule.Name}' OperatingSystems must not be null.");
+        }
+
+        if (schedule.OperatingSystems.Distinct().Count() != schedule.OperatingSystems.Count
+            || schedule.OperatingSystems.Any(os => !Enum.IsDefined(os)))
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{serviceId} schedule '{schedule.Name}' OperatingSystems contains duplicate or unsupported values.");
+        }
+
+        if (SupportsOperatingSystemSelection(serviceId) && schedule.OperatingSystems.Count == 0)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{serviceId} schedule '{schedule.Name}' must select at least one operating system.");
+        }
+
+        if (!Enum.IsDefined(schedule.Preset))
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{serviceId} schedule '{schedule.Name}' Preset is not supported.");
+        }
+
+        if (schedule.Preset == ScheduledPrefillPreset.Top)
+        {
+            if (schedule.TopCount is null or <= 0)
+            {
+                throw new ScheduledPrefillConfigValidationException(
+                    $"{serviceId} schedule '{schedule.Name}' requires a positive TopCount.");
+            }
+        }
+        else if (schedule.TopCount is not null)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{serviceId} schedule '{schedule.Name}' TopCount must be null unless Preset is Top.");
+        }
+
+        ValidateMaxConcurrency(schedule.MaxConcurrency, serviceId);
     }
 
     private static void ValidateMaxConcurrency(ScheduledPrefillMaxConcurrencyDto? concurrency, PrefillPlatform serviceId)

@@ -72,12 +72,16 @@ import type {
 } from '../components/features/management/schedules/types';
 import type { CustomSchedule } from '../components/features/management/schedules/custom-schedule/types';
 import type {
+  LegacyScheduledPrefillConfigDto,
+  LegacyScheduledPrefillServiceConfig,
   ScheduledPrefillConfigDto,
+  ScheduledPrefillServiceConfigDto,
   ScheduledPrefillServiceId,
   ScheduledPrefillServiceScheduleDto
 } from '../components/features/management/schedules/scheduled-prefill/types';
 import type { PersistentPrefillEditSessionCleanupRequest } from '../components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger';
 import type {
+  PersistentIntegrationLoginAvailability,
   PersistentPrefillContainerDto,
   PersistentPrefillServiceId,
   PersistentPrefillValiditySettings,
@@ -340,6 +344,85 @@ interface CacheFileCountStatus {
   cacheFilesFound?: number;
 }
 
+const NAMED_SCHEDULES_VERSION = 6;
+
+function getLegacyScheduleId(serviceId: ScheduledPrefillServiceId): string {
+  return `legacy-${serviceId.toLowerCase()}`;
+}
+
+function normalizeLegacyServiceConfig(
+  service: LegacyScheduledPrefillServiceConfig
+): ScheduledPrefillServiceConfigDto {
+  const { serviceId, persistenceMode, ...schedule } = service;
+  return {
+    serviceId,
+    persistenceMode,
+    schedules: [
+      {
+        ...schedule,
+        id: getLegacyScheduleId(serviceId),
+        name: 'Existing schedule',
+        selectedAppIds: schedule.selectedAppIds ?? []
+      }
+    ]
+  };
+}
+
+function assertNamedSchedulesVersion(config: ScheduledPrefillConfigDto): void {
+  if (config.version < NAMED_SCHEDULES_VERSION) {
+    throw new Error('Named schedules require a newer server version.');
+  }
+}
+
+function normalizeScheduledPrefillSummary(
+  schedule: ScheduledPrefillServiceScheduleDto
+): ScheduledPrefillServiceScheduleDto {
+  return {
+    ...schedule,
+    scheduleId: schedule.scheduleId || getLegacyScheduleId(schedule.serviceId),
+    name: schedule.name || 'Existing schedule'
+  };
+}
+function normalizeScheduledPrefillConfig(
+  config: ScheduledPrefillConfigDto | LegacyScheduledPrefillConfigDto
+): ScheduledPrefillConfigDto {
+  if (config.version < NAMED_SCHEDULES_VERSION) {
+    const legacyConfig = config as LegacyScheduledPrefillConfigDto;
+    return {
+      ...legacyConfig,
+      steam: normalizeLegacyServiceConfig(legacyConfig.steam),
+      epic: normalizeLegacyServiceConfig(legacyConfig.epic),
+      xbox: normalizeLegacyServiceConfig(legacyConfig.xbox),
+      battleNet: normalizeLegacyServiceConfig(legacyConfig.battleNet),
+      riot: normalizeLegacyServiceConfig(legacyConfig.riot)
+    };
+  }
+
+  const normalizeService = (
+    service: ScheduledPrefillServiceConfigDto
+  ): ScheduledPrefillServiceConfigDto => {
+    if (!Array.isArray(service.schedules)) {
+      throw new Error('Named schedules require a newer server version.');
+    }
+
+    return {
+      ...service,
+      schedules: service.schedules.map((schedule) => ({
+        ...schedule,
+        selectedAppIds: schedule.selectedAppIds ?? []
+      }))
+    };
+  };
+  const currentConfig = config as ScheduledPrefillConfigDto;
+  return {
+    ...currentConfig,
+    steam: normalizeService(currentConfig.steam),
+    epic: normalizeService(currentConfig.epic),
+    xbox: normalizeService(currentConfig.xbox),
+    battleNet: normalizeService(currentConfig.battleNet),
+    riot: normalizeService(currentConfig.riot)
+  };
+}
 class ApiService {
   static async handleResponse<T>(response: Response): Promise<T> {
     // Cancellation (499 / client-closed request) is a distinct terminal outcome, NOT a failure:
@@ -3224,18 +3307,10 @@ class ApiService {
         `${API_BASE}/system/schedules/scheduledPrefill/config`,
         this.getFetchOptions({ signal })
       );
-      const config = await this.handleResponse<ScheduledPrefillConfigDto>(res);
-      return {
-        ...config,
-        steam: { ...config.steam, selectedAppIds: config.steam.selectedAppIds ?? [] },
-        epic: { ...config.epic, selectedAppIds: config.epic.selectedAppIds ?? [] },
-        xbox: { ...config.xbox, selectedAppIds: config.xbox.selectedAppIds ?? [] },
-        battleNet: {
-          ...config.battleNet,
-          selectedAppIds: config.battleNet.selectedAppIds ?? []
-        },
-        riot: { ...config.riot, selectedAppIds: config.riot.selectedAppIds ?? [] }
-      };
+      const config = await this.handleResponse<
+        ScheduledPrefillConfigDto | LegacyScheduledPrefillConfigDto
+      >(res);
+      return normalizeScheduledPrefillConfig(config);
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
@@ -3247,6 +3322,8 @@ class ApiService {
   }
 
   static async updateScheduledPrefillConfig(config: ScheduledPrefillConfigDto): Promise<void> {
+    assertNamedSchedulesVersion(config);
+
     try {
       const res = await fetch(
         `${API_BASE}/system/schedules/scheduledPrefill/config`,
@@ -3267,7 +3344,8 @@ class ApiService {
         `${API_BASE}/system/schedules/scheduledPrefill/schedule`,
         this.getFetchOptions({ signal })
       );
-      return await this.handleResponse<ScheduledPrefillServiceScheduleDto[]>(res);
+      const schedules = await this.handleResponse<ScheduledPrefillServiceScheduleDto[]>(res);
+      return schedules.map(normalizeScheduledPrefillSummary);
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
@@ -3285,11 +3363,12 @@ class ApiService {
    * outcome to report. [49]
    */
   static async runScheduledPrefillService(
-    platform: ScheduledPrefillServiceId
+    platform: ScheduledPrefillServiceId,
+    scheduleId: string
   ): Promise<{ alreadyRunning: boolean }> {
     try {
       const res = await fetch(
-        `${API_BASE}/system/schedules/scheduledPrefill/services/${platform}/run`,
+        `${API_BASE}/system/schedules/scheduledPrefill/services/${platform}/schedules/${scheduleId}/run`,
         this.getFetchOptions({ method: 'POST' })
       );
       if (res.status === 409) {
@@ -3322,6 +3401,17 @@ class ApiService {
     }
   }
 
+  static async getPersistentIntegrationLoginAvailability(
+    service: PersistentPrefillServiceId,
+    signal?: AbortSignal
+  ): Promise<PersistentIntegrationLoginAvailability> {
+    const res = await fetch(
+      `${API_BASE}/system/prefill/persistent/integration-login?service=${encodeURIComponent(service)}`,
+      this.getFetchOptions({ signal })
+    );
+    return await this.handleResponse<PersistentIntegrationLoginAvailability>(res);
+  }
+
   /**
    * Lists owned games (+ up-to-date cached app ids) for the RUNNING persistent session of a service.
    * Hits the AdminOnly endpoint that bypasses per-user session ownership (safe because it is
@@ -3352,13 +3442,14 @@ class ApiService {
     service: PersistentPrefillServiceId,
     sessionId?: string,
     editSessionId?: string,
-    editActionId?: string
+    editActionId?: string,
+    reuseIntegration = false
   ): Promise<PersistentChallengeResponse> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/login`,
         this.getJsonFetchOptions(
-          { service, sessionId, editSessionId, editActionId },
+          { service, sessionId, editSessionId, editActionId, reuseIntegration },
           { method: 'POST' }
         )
       );
@@ -3576,13 +3667,17 @@ class ApiService {
     options: {
       sessionId: string;
       appIds: string[];
+      all?: boolean;
+      recent?: boolean;
+      recentlyPurchased?: boolean;
+      top?: number | null;
       force?: boolean;
       operatingSystems?: string[];
       maxConcurrency?: number | null;
       editSessionId?: string;
       editActionId?: string;
     }
-  ): Promise<{ success: boolean; errorMessage?: string }> {
+  ): Promise<{ success: boolean; errorMessage?: string; runId?: string | null }> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/prefill`,
@@ -3591,8 +3686,10 @@ class ApiService {
             service,
             sessionId: options.sessionId,
             appIds: options.appIds,
-            all: false,
-            recent: false,
+            all: options.all ?? false,
+            recent: options.recent ?? false,
+            recentlyPurchased: options.recentlyPurchased ?? false,
+            top: options.top ?? null,
             force: options.force ?? false,
             operatingSystems: options.operatingSystems,
             maxConcurrency: options.maxConcurrency ?? undefined,
@@ -3602,7 +3699,11 @@ class ApiService {
           { method: 'POST' }
         )
       );
-      return await this.handleResponse<{ success: boolean; errorMessage?: string }>(res);
+      return await this.handleResponse<{
+        success: boolean;
+        errorMessage?: string;
+        runId?: string | null;
+      }>(res);
     } catch (error: unknown) {
       console.error('startPersistentPrefill error:', error);
       throw error;
@@ -3611,12 +3712,13 @@ class ApiService {
 
   static async cancelPersistentPrefill(
     service: PersistentPrefillServiceId,
-    sessionId: string
+    sessionId: string,
+    runId?: string | null
   ): Promise<void> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/cancel-prefill`,
-        this.getJsonFetchOptions({ service, sessionId }, { method: 'POST' })
+        this.getJsonFetchOptions({ service, sessionId, runId }, { method: 'POST' })
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {

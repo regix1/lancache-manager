@@ -1,7 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
-import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
+import { noAutofill } from '@utils/autofill';
+import type {
+  PersistentIntegrationLoginAvailability,
+  PersistentPrefillContainerDto
+} from '@components/features/prefill/persistentPrefillTypes';
 import { ScheduledPrefillPersistentCard } from './ScheduledPrefillPersistentCard';
 import {
   ScheduledPrefillDownloadFields,
@@ -10,22 +14,24 @@ import {
 } from './ScheduledPrefillPlatformFields';
 import { SCHEDULED_PREFILL_PLATFORM_UI } from './scheduledPrefillPlatformUi';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
-import type { ScheduledPrefillServiceConfigDto, ScheduledPrefillServiceKey } from './types';
+import type { ScheduledPrefillSchedule, ScheduledPrefillServiceKey } from './types';
 
 interface ScheduledPrefillPlatformSectionProps {
   serviceKey: ScheduledPrefillServiceKey;
-  config: ScheduledPrefillServiceConfigDto;
+  config: ScheduledPrefillSchedule;
   disabled?: boolean;
   statusLoading?: boolean;
   container?: PersistentPrefillContainerDto;
   selectedGamesCount: number;
   persistentAction: ScheduledPrefillPersistentActionState | null;
   authenticating: boolean;
+  integrationLoginAvailability?: PersistentIntegrationLoginAvailability;
+  integrationLoginAvailabilityLoading?: boolean;
   gameSelectionLoading: boolean;
-  onChange: (config: ScheduledPrefillServiceConfigDto) => void;
+  onChange: (config: ScheduledPrefillSchedule) => void;
   onStart: () => void;
   onStop: () => void;
-  onLogin: () => void;
+  onLogin: (reuseIntegration: boolean) => void;
   onLogout: () => void;
   onSelectGames: () => void;
   onClearGames: () => void;
@@ -42,6 +48,8 @@ export function ScheduledPrefillPlatformSection({
   selectedGamesCount,
   persistentAction,
   authenticating,
+  integrationLoginAvailability,
+  integrationLoginAvailabilityLoading = false,
   gameSelectionLoading,
   onChange,
   onStart,
@@ -62,7 +70,9 @@ export function ScheduledPrefillPlatformSection({
     onChange({ ...config, enabled: value === 'enabled' });
   };
 
-  const fieldsDisabled = disabled || !config.enabled;
+  // A record stays editable while its automation is off: a saved setup is the same record with
+  // enabled false, and Save as creates one in exactly that state.
+  const fieldsDisabled = disabled;
 
   return (
     <section
@@ -78,6 +88,17 @@ export function ScheduledPrefillPlatformSection({
             <h3 className="scheduled-prefill-platform-section__title">
               {t(`${baseKey}.services.${serviceKey}`)}
             </h3>
+            <label className="sr-only" htmlFor={`scheduled-prefill-schedule-name-${config.id}`}>
+              {t(`${baseKey}.records.name`)}
+            </label>
+            <input
+              {...noAutofill}
+              id={`scheduled-prefill-schedule-name-${config.id}`}
+              className="scheduled-prefill-platform-section__schedule-name"
+              value={config.name}
+              onChange={(event) => onChange({ ...config, name: event.target.value })}
+              disabled={disabled}
+            />
           </div>
         </div>
         <ToggleSwitch
@@ -149,6 +170,8 @@ export function ScheduledPrefillPlatformSection({
           disabled={disabled}
           statusLoading={statusLoading}
           authenticating={authenticating}
+          integrationLoginAvailability={integrationLoginAvailability}
+          integrationLoginAvailabilityLoading={integrationLoginAvailabilityLoading}
           action={persistentAction?.serviceKey === serviceKey ? persistentAction.action : null}
           gameSelectionLoading={gameSelectionLoading}
           onStart={onStart}

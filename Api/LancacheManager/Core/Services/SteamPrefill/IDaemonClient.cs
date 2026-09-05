@@ -81,6 +81,24 @@ public interface IDaemonClient : IDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Performs the Steam auto-login and reports the exact post-flush dispatch point.
+    /// </summary>
+    async Task<bool> ProvideAutoLoginWithDispatchAsync(
+        string sessionId,
+        string username,
+        string refreshToken,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken = default)
+    {
+        var success = await ProvideAutoLoginAsync(sessionId, username, refreshToken, cancellationToken);
+        if (success)
+        {
+            onCommandDispatched();
+        }
+        return success;
+    }
+
+    /// <summary>
     /// Perform a non-interactive Epic auto-login by encrypting a {refreshToken} payload
     /// and sending it to the daemon. Returns true on success.
     /// </summary>
@@ -90,14 +108,47 @@ public interface IDaemonClient : IDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Perform a non-interactive Xbox auto-login by encrypting a {refreshToken, deviceKeyPkcs8}
-    /// payload and sending it to the daemon. Returns true on success.
+    /// Performs the Epic auto-login and reports the exact post-flush dispatch point.
+    /// </summary>
+    async Task<bool> ProvideEpicAutoLoginWithDispatchAsync(
+        string sessionId,
+        string refreshToken,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken = default)
+    {
+        var success = await ProvideEpicAutoLoginAsync(sessionId, refreshToken, cancellationToken);
+        if (success)
+        {
+            onCommandDispatched();
+        }
+        return success;
+    }
+
+    /// <summary>
+    /// Perform a non-interactive Xbox auto-login by encrypting a {refreshToken}
+    /// payload and sending it to the daemon. The daemon creates its own device key.
     /// </summary>
     Task<bool> ProvideXboxAutoLoginAsync(
         string sessionId,
         string refreshToken,
-        string deviceKeyPkcs8,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Performs the Xbox auto-login and reports the exact post-flush dispatch point.
+    /// </summary>
+    async Task<bool> ProvideXboxAutoLoginWithDispatchAsync(
+        string sessionId,
+        string refreshToken,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken = default)
+    {
+        var success = await ProvideXboxAutoLoginAsync(sessionId, refreshToken, cancellationToken);
+        if (success)
+        {
+            onCommandDispatched();
+        }
+        return success;
+    }
 
     /// <summary>
     /// Wait for next credential challenge.

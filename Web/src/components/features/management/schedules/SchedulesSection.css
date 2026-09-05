@@ -679,7 +679,7 @@
    row collapses to a visually-hidden line for screen readers). */
 .scheduled-prefill-schedule-table {
   --scheduled-prefill-schedule-cols: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr)
-    minmax(10rem, 12rem) auto;
+    minmax(10rem, 12rem) minmax(10rem, 12rem);
   min-width: 0;
 }
 
@@ -1447,6 +1447,25 @@
   min-width: 0;
 }
 
+.scheduled-prefill-platforms__records {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.scheduled-prefill-platforms__records > :first-child {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.scheduled-prefill-platforms__record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 /* The detail pane is a plain region; chrome lives on the inner ui/ Card blocks,
    keeping containment depth at one card layer (no card-in-card). */
 .scheduled-prefill-platform-section {
@@ -1491,6 +1510,23 @@
   font-size: var(--font-size-lg);
   font-weight: 700;
   color: var(--theme-text-primary);
+}
+
+.scheduled-prefill-platform-section__schedule-name {
+  width: 100%;
+  margin-top: 0.2rem;
+  border: 0;
+  border-bottom: 1px solid var(--theme-border-secondary);
+  background: transparent;
+  color: var(--theme-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  padding: 0.15rem 0;
+}
+
+.scheduled-prefill-platform-section__schedule-name:focus-visible {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: 2px;
 }
 
 .scheduled-prefill-platform-section__blocks {

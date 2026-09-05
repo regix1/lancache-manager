@@ -935,26 +935,42 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // value nobody set.
             var platformDisplayModes = new Dictionary<string, NotificationDisplayMode>(StringComparer.Ordinal);
 
-            foreach (var perService in config.GetServicesInRunOrder())
-            {
-                if (perService.NotificationDisplayMode is { } platformDisplayMode)
-                {
-                    platformDisplayModes[perService.ServiceId.ToString()] = platformDisplayMode;
-                }
+            var records = config.GetSchedulesInRunOrder();
+            var activeScheduleIds = _tracker?
+                .GetActiveOperations(OperationType.ScheduledPrefill)
+                .Select(operation => operation.Metadata as ScheduledPrefillServiceRunState)
+                .Where(state => state is not null)
+                .Select(state => state!.ScheduleId)
+                .ToHashSet() ?? [];
 
-                var actualLastRun = _stateService.GetScheduledPrefillServiceLastActualRun(perService.ServiceId.ToString());
+            foreach (var platformRecords in records.GroupBy(record => record.ServiceId))
+            {
+                var displayRecord = platformRecords.FirstOrDefault(record => activeScheduleIds.Contains(record.ScheduleId))
+                    ?? platformRecords.FirstOrDefault(record => record.Enabled)
+                    ?? platformRecords.First();
+                platformDisplayModes[platformRecords.Key.ToString()] =
+                    displayRecord.NotificationDisplayMode ?? NotificationDisplayMode.Full;
+            }
+
+            foreach (var record in records)
+            {
+                var scheduleKey = record.ScheduleId.ToString("N");
+                var actualLastRun = _stateService.GetScheduledPrefillServiceLastActualRun(scheduleKey);
                 if (actualLastRun is not null && (latestLastRun is null || actualLastRun.Value > latestLastRun.Value))
                 {
                     latestLastRun = actualLastRun;
                 }
 
-                if (!perService.Enabled)
+                if (!record.Enabled)
                 {
                     continue;
                 }
 
-                var scheduleBasis = _stateService.GetScheduledPrefillServiceLastRun(perService.ServiceId.ToString());
-                var nextRun = ScheduledPrefillRunGates.ComputeNextRunUtc(perService.IntervalHours, scheduleBasis, perService.CustomSchedule);
+                var scheduleBasis = _stateService.GetScheduledPrefillServiceLastRun(scheduleKey);
+                var nextRun = ScheduledPrefillRunGates.ComputeNextRunUtc(
+                    record.IntervalHours,
+                    scheduleBasis,
+                    record.CustomSchedule);
                 if (nextRun is not null && (soonestNextRun is null || nextRun.Value < soonestNextRun.Value))
                 {
                     soonestNextRun = nextRun;

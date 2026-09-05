@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Security.Claims;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
@@ -11,9 +12,11 @@ using Microsoft.AspNetCore.Http.Connections.Features;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Tests;
 
@@ -197,10 +200,126 @@ public sealed class AccountHolderHubAccessTests
                      ("a caller with no cookie", new DefaultHttpContext(), false)
                  })
         {
-            var context = await ConnectToSteamDaemonHubAsync(host, scope, cookie);
-            Assert.True(admitted != context.Aborted, $"The Steam daemon hub got {caller} wrong.");
-            Assert.Equal(admitted, context.Items.ContainsKey("SessionId"));
+            var connection = await ConnectToSteamDaemonHubAsync(host, scope, cookie);
+            Assert.True(admitted != connection.Context.Aborted, $"The Steam daemon hub got {caller} wrong.");
+            Assert.Equal(admitted, connection.Context.Items.ContainsKey("SessionId"));
         }
+    }
+
+    [Fact]
+    public async Task AccountHoldersCanReplayPersistentProgressWithoutGainingTemporaryOrControlAccessAsync()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        using var scope = host.Application.Services.CreateScope();
+
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
+        var notificationRecorder = (RecordingNotificationProxy)notifications;
+        var daemon = new TestableSteamDaemonService(
+            NullLogger<SteamDaemonService>.Instance,
+            notifications,
+            host.Application.Services.GetRequiredService<IConfiguration>(),
+            host.Application.Services.GetRequiredService<IPathResolver>(),
+            host.Application.Services.GetRequiredService<IStateService>(),
+            scope.ServiceProvider.GetRequiredService<PrefillSessionService>(),
+            scope.ServiceProvider.GetRequiredService<PrefillCacheService>(),
+            host.Application.Services.GetRequiredService<IOptionsMonitor<PrefillNetworkOptions>>());
+
+        var userRequest = await SessionCookieAsync(host, scope, SessionType.User);
+        var sessionService = scope.ServiceProvider.GetRequiredService<SessionService>();
+        var rawToken = SessionService.TokenFromCookie(userRequest);
+        var userSession = await sessionService.ValidateSessionAsync(rawToken!);
+        Assert.NotNull(userSession);
+
+        var progress = new PrefillProgress
+        {
+            State = "downloading",
+            CurrentAppName = "Shared game",
+            TotalBytesTransferred = 33_200_000_000
+        };
+        var persistent = new DaemonSession
+        {
+            Id = "shared-persistent",
+            UserId = Guid.NewGuid(),
+            IsPersistent = true,
+            IsPrefilling = true,
+            LastProgress = progress,
+            Status = DaemonSessionStatus.Active,
+            AuthState = DaemonAuthState.Authenticated,
+            Client = DispatchProxy.Create<IDaemonClient, NullReturningProxy>()
+        };
+        var ownedTemporary = new DaemonSession
+        {
+            Id = "owned-temporary",
+            UserId = userSession!.Id,
+            IsTemporary = true,
+            Status = DaemonSessionStatus.Active,
+            Client = DispatchProxy.Create<IDaemonClient, NullReturningProxy>()
+        };
+        var otherTemporary = new DaemonSession
+        {
+            Id = "other-temporary",
+            UserId = Guid.NewGuid(),
+            IsTemporary = true,
+            Status = DaemonSessionStatus.Active,
+            Client = DispatchProxy.Create<IDaemonClient, NullReturningProxy>()
+        };
+        daemon.InjectSession(persistent);
+        daemon.InjectSession(ownedTemporary);
+        daemon.InjectSession(otherTemporary);
+
+        var connection = await ConnectToSteamDaemonHubAsync(host, scope, userRequest, daemon);
+        await connection.Hub.SubscribeToSessionAsync(persistent.Id);
+
+        Assert.Contains(connection.Context.ConnectionId, persistent.SubscribedConnections);
+        Assert.Same(progress, connection.Hub.GetCurrentPrefillProgress(persistent.Id));
+        Assert.Contains(
+            nameof(ISignalRNotificationService.SendToPrefillClientRawAsync),
+            notificationRecorder.InvokedMethods);
+        await connection.Hub.SubscribeToSessionAsync(ownedTemporary.Id);
+        await Assert.ThrowsAsync<HubException>(
+            () => connection.Hub.SubscribeToSessionAsync(otherTemporary.Id));
+        Assert.Throws<HubException>(() => { _ = connection.Hub.GetLastPrefillResult(persistent.Id); });
+    }
+
+    [Fact]
+    public async Task GrantedGuestsCannotSubscribeToPersistentSessionsEvenWhenTheyMatchTheStoredOwnerAsync()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        using var scope = host.Application.Services.CreateScope();
+
+        var guestRequest = await SessionCookieAsync(host, scope, SessionType.Guest, GrantSteamPrefill);
+        var sessionService = scope.ServiceProvider.GetRequiredService<SessionService>();
+        var rawToken = SessionService.TokenFromCookie(guestRequest);
+        var guestSession = await sessionService.ValidateSessionAsync(rawToken!);
+        Assert.NotNull(guestSession);
+
+        var daemon = new TestableSteamDaemonService(
+            NullLogger<SteamDaemonService>.Instance,
+            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+            host.Application.Services.GetRequiredService<IConfiguration>(),
+            host.Application.Services.GetRequiredService<IPathResolver>(),
+            host.Application.Services.GetRequiredService<IStateService>(),
+            scope.ServiceProvider.GetRequiredService<PrefillSessionService>(),
+            scope.ServiceProvider.GetRequiredService<PrefillCacheService>(),
+            host.Application.Services.GetRequiredService<IOptionsMonitor<PrefillNetworkOptions>>());
+        daemon.InjectSession(new DaemonSession
+        {
+            Id = "guest-owned-persistent",
+            UserId = guestSession!.Id,
+            IsPersistent = true,
+            Status = DaemonSessionStatus.Active,
+            Client = DispatchProxy.Create<IDaemonClient, NullReturningProxy>()
+        });
+
+        var connection = await ConnectToSteamDaemonHubAsync(host, scope, guestRequest, daemon);
+
+        Assert.False(connection.Context.Aborted);
+        await Assert.ThrowsAsync<HubException>(
+            () => connection.Hub.SubscribeToSessionAsync("guest-owned-persistent"));
     }
 
     private static void GrantSteamPrefill(UserSession session)
@@ -226,21 +345,26 @@ public sealed class AccountHolderHubAccessTests
         return connection;
     }
 
-    private static async Task<RecordingHubContext> ConnectToSteamDaemonHubAsync(
-        EndpointAuthorizationHost host, IServiceScope scope, HttpContext request)
+    private static async Task<(SteamDaemonHub Hub, RecordingHubContext Context)> ConnectToSteamDaemonHubAsync(
+        EndpointAuthorizationHost host,
+        IServiceScope scope,
+        HttpContext request,
+        SteamDaemonService? daemon = null)
     {
         var context = new RecordingHubContext(request);
+        var clients = DispatchProxy.Create<IHubCallerClients, CallerRecordingClients>();
         var hub = new SteamDaemonHub(
-            host.Application.Services.GetRequiredService<SteamDaemonService>(),
+            daemon ?? host.Application.Services.GetRequiredService<SteamDaemonService>(),
             scope.ServiceProvider.GetRequiredService<SessionService>(),
             host.Application.Services.GetRequiredService<ILogger<SteamDaemonHub>>())
         {
             Context = context,
-            Groups = new RecordingGroups()
+            Groups = new RecordingGroups(),
+            Clients = clients
         };
 
         await hub.OnConnectedAsync();
-        return context;
+        return (hub, context);
     }
 
     /// <summary>
@@ -366,5 +490,20 @@ public sealed class AccountHolderHubAccessTests
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
             => targetMethod?.Name == "get_Caller" ? Recorded : base.Invoke(targetMethod, args);
+    }
+
+    private class RecordingNotificationProxy : NullReturningProxy
+    {
+        public List<string> InvokedMethods { get; } = [];
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod is not null)
+            {
+                InvokedMethods.Add(targetMethod.Name);
+            }
+
+            return base.Invoke(targetMethod, args);
+        }
     }
 }

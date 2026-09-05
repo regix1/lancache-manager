@@ -57,6 +57,7 @@ public class SteamAuthStorageService : AuthFileStorageServiceBase<SteamAuthData,
 
         return new SteamAuthData
         {
+            OwnerAccountId = persisted.OwnerAccountId,
             Mode = persisted.Mode,
             Username = persisted.Username,
             RefreshToken = decryptedRefreshToken,
@@ -69,6 +70,7 @@ public class SteamAuthStorageService : AuthFileStorageServiceBase<SteamAuthData,
     {
         return new PersistedSteamAuthData
         {
+            OwnerAccountId = data.OwnerAccountId,
             Mode = data.Mode,
             Username = data.Username,
             RefreshToken = Encryption.Encrypt(data.RefreshToken),
@@ -78,6 +80,12 @@ public class SteamAuthStorageService : AuthFileStorageServiceBase<SteamAuthData,
     }
 
     protected override bool HasCredentials(SteamAuthData data) => !string.IsNullOrEmpty(data.RefreshToken);
+
+    protected override Guid? GetOwnerAccountId(SteamAuthData data) => data.OwnerAccountId;
+
+    protected override Guid? GetOwnerAccountId(PersistedSteamAuthData persisted) => persisted.OwnerAccountId;
+
+    protected override void SetOwnerAccountId(SteamAuthData data, Guid accountId) => data.OwnerAccountId = accountId;
 
     /// <summary>
     /// Only rewrite when everything decrypted. Because Steam survives a partial failure, a save in

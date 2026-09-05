@@ -6,6 +6,7 @@ namespace LancacheManager.Models;
 /// </summary>
 public class SteamAuthData
 {
+    public Guid? OwnerAccountId { get; set; }
     public string Mode { get; set; } = "anonymous"; // "anonymous" or "authenticated"
     public string? Username { get; set; }
     public string? RefreshToken { get; set; } // Decrypted in memory, encrypted in storage
@@ -19,6 +20,7 @@ public class SteamAuthData
 /// </summary>
 public class PersistedSteamAuthData
 {
+    public Guid? OwnerAccountId { get; set; }
     public string Mode { get; set; } = "anonymous";
     public string? Username { get; set; }
     public string? RefreshToken { get; set; } // Encrypted with ENC2: prefix

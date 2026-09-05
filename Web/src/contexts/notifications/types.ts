@@ -327,7 +327,7 @@ export interface RegistryProgressConfig<TEvent = LifecycleEvent> {
   /** Function to get the progress message from the event */
   getMessage: (event: TEvent) => string;
   /** Function to get progress percentage (0-100) from the event */
-  getProgress: (event: TEvent) => number;
+  getProgress: (event: TEvent) => number | undefined;
   /** Optional secondary progress metrics shown below the stable primary message. */
   getDetailMessage?: (event: TEvent) => string | undefined;
   /** Optional determinate/indeterminate override for phase-aware operations. */

@@ -1,4 +1,7 @@
-import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
+import type {
+  PersistentIntegrationLoginAvailability,
+  PersistentPrefillContainerDto
+} from '@components/features/prefill/persistentPrefillTypes';
 import type { ScheduledPrefillServiceKey } from './types';
 
 export type ScheduledPrefillPersistentAction =
@@ -21,11 +24,13 @@ export interface ScheduledPrefillPersistentCardProps {
   disabled?: boolean;
   statusLoading?: boolean;
   authenticating?: boolean;
+  integrationLoginAvailability?: PersistentIntegrationLoginAvailability;
+  integrationLoginAvailabilityLoading?: boolean;
   action?: ScheduledPrefillPersistentAction;
   gameSelectionLoading?: boolean;
   onStart: () => void;
   onStop: () => void;
-  onLogin: () => void;
+  onLogin: (reuseIntegration: boolean) => void;
   onLogout: () => void;
   onSelectGames: () => void;
   onClearGames: () => void;

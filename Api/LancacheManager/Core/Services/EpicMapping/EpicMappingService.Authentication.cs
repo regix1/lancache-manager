@@ -8,6 +8,100 @@ namespace LancacheManager.Core.Services.EpicMapping;
 
 public partial class EpicMappingService
 {
+    public bool TryGetSavedLoginAccount(Guid accountId, out string? account)
+    {
+        var auth = _authStorage.GetSavedLogin(accountId);
+        account = string.IsNullOrWhiteSpace(auth.RefreshToken) ? null : auth.DisplayName;
+        return !string.IsNullOrWhiteSpace(auth.RefreshToken);
+    }
+
+    public async Task<string> CreatePrefillRefreshTokenAsync(
+        Guid accountId,
+        CancellationToken cancellationToken = default)
+    {
+        await _sessionLock.WaitAsync(cancellationToken);
+        try
+        {
+            var activeAuth = _authStorage.GetAuthData();
+            var useActive = activeAuth.OwnerAccountId == accountId && _currentTokens is not null;
+            var savedAuth = useActive ? activeAuth : _authStorage.GetSavedLogin(accountId);
+            if (string.IsNullOrWhiteSpace(savedAuth.RefreshToken))
+            {
+                throw new ValidationException("No saved Epic login is available for this account")
+                {
+                    StageKey = "errors.epic.noSavedLogin"
+                };
+            }
+
+            EpicOAuthTokens tokens;
+            if (useActive && _currentTokens!.ExpiresAt > DateTime.UtcNow)
+            {
+                tokens = _currentTokens;
+            }
+            else
+            {
+                try
+                {
+                    tokens = await _epicApiClient.RefreshTokenAsync(
+                        savedAuth.RefreshToken,
+                        cancellationToken);
+                    var refreshedAuth = new EpicAuthData
+                    {
+                        OwnerAccountId = accountId,
+                        RefreshToken = tokens.RefreshToken,
+                        DisplayName = tokens.DisplayName,
+                        AccountId = tokens.AccountId,
+                        LastAuthenticated = DateTime.UtcNow,
+                        GamesDiscovered = savedAuth.GamesDiscovered
+                    };
+
+                    if (useActive)
+                    {
+                        _currentTokens = tokens;
+                        _authStorage.SaveAuthData(refreshedAuth);
+                        _displayName = tokens.DisplayName;
+                    }
+                    else
+                    {
+                        _authStorage.SaveSavedLogin(accountId, refreshedAuth);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (ValidationException)
+                {
+                    if (useActive)
+                    {
+                        _authStorage.InvalidateAuthData();
+                        SetIsAuthenticated(false);
+                        _displayName = null;
+                        _gamesDiscovered = 0;
+                        _currentTokens = null;
+                    }
+                    else
+                    {
+                        _authStorage.ClearSavedLogin(accountId);
+                    }
+                    throw;
+                }
+            }
+
+            var exchangeCode = await _epicApiClient.GetExchangeCodeAsync(
+                tokens.AccessToken,
+                cancellationToken);
+            var tokensForPrefill = await _epicApiClient.ExchangeCodeAsync(
+                exchangeCode,
+                cancellationToken);
+            return tokensForPrefill.RefreshToken;
+        }
+        finally
+        {
+            _sessionLock.Release();
+        }
+    }
+
     public string GetAuthorizationUrl()
     {
         var url = _epicApiClient.GetAuthorizationUrl();
@@ -19,7 +113,7 @@ public partial class EpicMappingService
     /// Exchanges the one-time auth code first. Only after that prerequisite succeeds does the owned
     /// game/CDN mapping operation enter the tracked lifecycle.
     /// </summary>
-    public async Task OnAuthCodeReceivedAsync(string authorizationCode)
+    public async Task OnAuthCodeReceivedAsync(string authorizationCode, Guid? ownerAccountId = null)
     {
         if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0)
         {
@@ -112,6 +206,7 @@ public partial class EpicMappingService
 
             _authStorage.SaveAuthData(new EpicAuthData
             {
+                OwnerAccountId = ownerAccountId,
                 RefreshToken = tokens.RefreshToken,
                 DisplayName = tokens.DisplayName,
                 AccountId = tokens.AccountId,
@@ -236,6 +331,7 @@ public partial class EpicMappingService
                 _currentTokens = tokens;
                 _authStorage.SaveAuthData(new EpicAuthData
                 {
+                    OwnerAccountId = authData.OwnerAccountId,
                     RefreshToken = tokens.RefreshToken,
                     DisplayName = tokens.DisplayName,
                     AccountId = tokens.AccountId,
@@ -248,13 +344,20 @@ public partial class EpicMappingService
                 _lastCollectionUtc =
                     _stateService.GetEpicMappingCollectedAt() ?? authData.LastAuthenticated;
             }
-            catch (Exception ex)
+            catch (ValidationException ex)
             {
                 _logger.LogWarning(ex, "Epic refresh token expired or invalid, clearing credentials");
-                _authStorage.ClearAuthData();
+                _authStorage.InvalidateAuthData();
                 SetIsAuthenticated(false);
                 _displayName = null;
                 _gamesDiscovered = 0;
+                _currentTokens = null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to refresh Epic mapping session");
+                SetIsAuthenticated(false);
+                _currentTokens = null;
             }
         }
         catch (Exception ex)

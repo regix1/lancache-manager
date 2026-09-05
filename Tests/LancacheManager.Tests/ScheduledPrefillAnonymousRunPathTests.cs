@@ -53,6 +53,8 @@ public class ScheduledPrefillAnonymousRunPathTests
         var serviceConfig = new ScheduledPrefillServiceConfigDto
         {
             ServiceId = platform,
+            ScheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(platform),
+            ScheduleName = "Default",
             Enabled = true,
             NotificationMode = NotificationMode.Silent,
             IntervalHours = 24,
@@ -94,6 +96,19 @@ public class ScheduledPrefillAnonymousRunPathTests
         Assert.False(client.PrefillAllRequested);
         Assert.False(client.PrefillRecentRequested);
         Assert.Null(client.PrefillTopRequested);
+    }
+
+    [Fact]
+    public async Task RunServiceAsync_EmptySelectionClearsDaemonSelectionBeforePresetRun()
+    {
+        var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.BattleNet);
+
+        var (result, _) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, result);
+        Assert.NotNull(client.SelectedAppIdsSent);
+        Assert.Empty(client.SelectedAppIdsSent);
+        Assert.True(client.PrefillAllRequested);
     }
 
     /// <summary>
@@ -244,6 +259,154 @@ public class ScheduledPrefillAnonymousRunPathTests
         Assert.Equal("signalr.scheduledPrefill.completeNoBytes", recorder.StageKeys[^1]);
     }
 
+    [Fact]
+    public async Task NotifyPrefillProgressAsync_SmallerSecondGame_KeepsAggregateAndHeartbeatMoving()
+    {
+        var (daemon, _) = CreateRunnablePersistentDaemon(PrefillPlatform.BattleNet);
+        var testableDaemon = Assert.IsType<TestableBattleNetDaemonService>(daemon);
+        var session = Assert.IsType<DaemonSession>(daemon.GetActivePersistentSession());
+        session.IsPrefilling = true;
+        session.PrefillState = PrefillState.Downloading;
+
+        await testableDaemon.PublishProgressAsync(session, new PrefillProgress
+        {
+            State = "downloading",
+            CurrentAppId = "1",
+            CurrentAppName = "Large game",
+            BytesDownloaded = 1_000,
+            TotalBytes = 1_000,
+            TotalApps = 2
+        });
+        await testableDaemon.PublishProgressAsync(session, new PrefillProgress
+        {
+            State = "app_completed",
+            CurrentAppId = "1",
+            CurrentAppName = "Large game",
+            BytesDownloaded = 1_000,
+            TotalBytes = 1_000,
+            TotalApps = 2,
+            UpdatedApps = 1,
+            Result = "Success"
+        });
+        await testableDaemon.PublishProgressAsync(session, new PrefillProgress
+        {
+            State = "downloading",
+            CurrentAppId = "2",
+            CurrentAppName = "Smaller game",
+            BytesDownloaded = 0,
+            TotalBytes = 500,
+            TotalApps = 2,
+            UpdatedApps = 1
+        });
+
+        var staleHeartbeat = DateTime.UtcNow.AddMinutes(-10).Ticks;
+        Volatile.Write(ref session.LastProgressTicksUtc, staleHeartbeat);
+
+        await testableDaemon.PublishProgressAsync(session, new PrefillProgress
+        {
+            State = "downloading",
+            CurrentAppId = "2",
+            CurrentAppName = "Smaller game",
+            BytesDownloaded = 100,
+            TotalBytes = 500,
+            TotalApps = 2,
+            UpdatedApps = 1
+        });
+
+        Assert.Equal(1_100, session.TotalBytesTransferred);
+        Assert.Equal(1_000, session.CompletedBytesTransferred);
+        Assert.True(Volatile.Read(ref session.LastProgressTicksUtc) > staleHeartbeat);
+        Assert.False(PrefillDaemonServiceBase.IsPrefillStalled(
+            session,
+            DateTime.UtcNow,
+            TimeSpan.FromMinutes(3)));
+    }
+
+    [Fact]
+    public async Task ScheduledRelay_UnknownTotal_RecordsCurrentGameAndBytesWithoutPercent()
+    {
+        using var schedulerProvider = new ServiceCollection().BuildServiceProvider();
+        using var scheduledPrefillService = new ScheduledPrefillService(
+            NullLogger<ScheduledPrefillService>.Instance,
+            schedulerProvider.GetRequiredService<IServiceScopeFactory>(),
+            (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>());
+        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+        var recorder = (RecordingNotificationsProxy)notifications;
+        var serviceRun = MakeServiceRun(new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = PrefillPlatform.BattleNet,
+            ScheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet),
+            ScheduleName = "Default",
+            Enabled = true,
+            NotificationMode = NotificationMode.Silent,
+            IntervalHours = 24,
+            Preset = ScheduledPrefillPreset.Recent,
+            SelectedAppIds = new List<string>(),
+            OperatingSystems = new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows },
+            Force = false,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
+        });
+        serviceRun.State.Record("running", "Prefill in progress", "signalr.scheduledPrefill.running", 1d);
+        var session = new DaemonSession
+        {
+            Id = "unknown-total",
+            IsPrefilling = true,
+            PrefillState = PrefillState.Downloading
+        };
+
+        var relayType = typeof(ScheduledPrefillService).GetNestedType(
+            "ScheduledPrefillProgressRelay",
+            BindingFlags.NonPublic)!;
+        var relay = Activator.CreateInstance(
+            relayType,
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            args: new object[] { scheduledPrefillService, notifications, session, serviceRun, session.Id, true },
+            culture: null)!;
+        relayType.GetMethod("Arm", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(relay, null);
+        var onProgress = relayType.GetMethod("OnProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        await (Task)onProgress.Invoke(relay, new object[]
+        {
+            session,
+            new PrefillProgress
+            {
+                State = "downloading",
+                CurrentAppId = "123",
+                CurrentAppName = "Battlefield 1",
+                BytesDownloaded = 33_200,
+                TotalBytes = 100_000,
+                TotalApps = 0
+            },
+            1L
+        })!;
+
+        Assert.Equal("Downloading Battlefield 1", serviceRun.State.Message);
+        object? recoveredPercent = serviceRun.State.PercentComplete;
+        Assert.Null(recoveredPercent);
+        Assert.Equal("signalr.scheduledPrefill.downloadingGameUnknownTotal", recorder.StageKeys.Single());
+        Assert.Equal(33_200, recorder.BytesDownloaded.Single());
+        Assert.Equal(100_000, recorder.TotalBytes.Single());
+        Assert.Null(recorder.PercentCompleteValues.Single());
+    }
+
+    [Fact]
+    public async Task RunServiceAsync_Stall_CancelsAndFailsTheExactSession()
+    {
+        var (daemon, client) = CreateRunnablePersistentDaemon(
+            PrefillPlatform.BattleNet,
+            leavePrefilling: true);
+        var session = Assert.IsType<DaemonSession>(daemon.GetActivePersistentSession());
+
+        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
+        Assert.Equal(1, client.CancelPrefillCalls);
+        Assert.False(session.IsPrefilling);
+        Assert.Equal(PrefillState.Failed, session.PrefillState);
+        Assert.Equal("Prefill stalled (no progress)", recorder.Messages[^1]);
+    }
+
     /// <summary>
     /// Drives the real <c>RunServiceAsync</c> against an already-prepared daemon and returns the run
     /// result with the notifications it emitted. The preset and selection fields are left empty
@@ -263,6 +426,8 @@ public class ScheduledPrefillAnonymousRunPathTests
         var serviceConfig = new ScheduledPrefillServiceConfigDto
         {
             ServiceId = platform,
+            ScheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(platform),
+            ScheduleName = "Default",
             Enabled = true,
             NotificationMode = NotificationMode.Silent,
             IntervalHours = 24,
@@ -304,7 +469,10 @@ public class ScheduledPrefillAnonymousRunPathTests
             Guid.Empty,
             "op-1",
             "run-1",
-            new ScheduledPrefillServiceRunState(serviceConfig.ServiceId),
+            new ScheduledPrefillServiceRunState(
+                serviceConfig.ServiceId,
+                serviceConfig.ScheduleId,
+                serviceConfig.ScheduleName),
             CancellationToken.None);
 
     private static (PrefillDaemonServiceBase Daemon, FakeAnonymousDaemonClient Client) CreateRunnablePersistentDaemon(
@@ -312,7 +480,8 @@ public class ScheduledPrefillAnonymousRunPathTests
         string? terminalFailureMessage = null,
         long transferredBytes = 1024,
         int failedApps = 0,
-        int totalApps = 0)
+        int totalApps = 0,
+        bool leavePrefilling = false)
     {
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"anon_run_path_{Guid.NewGuid():N}")
@@ -349,7 +518,7 @@ public class ScheduledPrefillAnonymousRunPathTests
             ExpiresAt = DateTime.UtcNow.AddDays(30)
         };
         var client = new FakeAnonymousDaemonClient(
-            session, terminalFailureMessage, transferredBytes, failedApps, totalApps);
+            session, terminalFailureMessage, transferredBytes, failedApps, totalApps, leavePrefilling);
         session.Client = client;
 
         InjectSession(daemon, session);
@@ -404,6 +573,9 @@ public class ScheduledPrefillAnonymousRunPathTests
         }
 
         public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
+
+        public Task PublishProgressAsync(DaemonSession session, PrefillProgress progress)
+            => NotifyPrefillProgressAsync(session, progress);
     }
 
     private sealed class TestableRiotDaemonService : RiotDaemonService
@@ -480,6 +652,10 @@ public class ScheduledPrefillAnonymousRunPathTests
         /// </summary>
         public List<string?> StageKeys { get; } = new();
 
+        public List<double?> PercentCompleteValues { get; } = new();
+        public List<long?> BytesDownloaded { get; } = new();
+        public List<long?> TotalBytes { get; } = new();
+
         /// <summary>
         /// The one sentence each recorded stage put on the card. It is what the user reads, so a
         /// terminal line that names the daemon's own reason can only be asserted from here.
@@ -506,6 +682,24 @@ public class ScheduledPrefillAnonymousRunPathTests
                 if (stageKeyProperty is not null)
                 {
                     StageKeys.Add(stageKeyProperty.GetValue(args[1]) as string);
+                }
+
+                var percentProperty = args[1]?.GetType().GetProperty("percentComplete");
+                if (percentProperty is not null)
+                {
+                    PercentCompleteValues.Add((double?)percentProperty.GetValue(args[1]));
+                }
+
+                var bytesProperty = args[1]?.GetType().GetProperty("bytesDownloaded");
+                if (bytesProperty is not null)
+                {
+                    BytesDownloaded.Add((long?)bytesProperty.GetValue(args[1]));
+                }
+
+                var totalBytesProperty = args[1]?.GetType().GetProperty("totalBytes");
+                if (totalBytesProperty is not null)
+                {
+                    TotalBytes.Add((long?)totalBytesProperty.GetValue(args[1]));
                 }
 
                 var showNotificationProperty = args[1]?.GetType().GetProperty("showNotification");
@@ -559,19 +753,22 @@ public class ScheduledPrefillAnonymousRunPathTests
         private readonly long _transferredBytes;
         private readonly int _failedApps;
         private readonly int _totalApps;
+        private readonly bool _leavePrefilling;
 
         public FakeAnonymousDaemonClient(
             DaemonSession session,
             string? terminalFailureMessage = null,
             long transferredBytes = 1024,
             int failedApps = 0,
-            int totalApps = 0)
+            int totalApps = 0,
+            bool leavePrefilling = false)
         {
             _session = session;
             _terminalFailureMessage = terminalFailureMessage;
             _transferredBytes = transferredBytes;
             _failedApps = failedApps;
             _totalApps = totalApps;
+            _leavePrefilling = leavePrefilling;
         }
 
         public List<string>? SelectedAppIdsSent { get; private set; }
@@ -579,6 +776,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         public bool PrefillAllRequested { get; private set; }
         public bool PrefillRecentRequested { get; private set; }
         public int? PrefillTopRequested { get; private set; }
+        public int CancelPrefillCalls { get; private set; }
 
         public event Func<CredentialChallenge, Task>? OnCredentialChallenge { add { } remove { } }
         public event Func<DaemonStatus, Task>? OnStatusUpdate { add { } remove { } }
@@ -611,7 +809,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         public Task<bool> ProvideEpicAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public Task<bool> ProvideXboxAutoLoginAsync(string sessionId, string refreshToken, string deviceKeyPkcs8, CancellationToken cancellationToken = default)
+        public Task<bool> ProvideXboxAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<CredentialChallenge?> WaitForChallengeAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
@@ -622,7 +820,11 @@ public class ScheduledPrefillAnonymousRunPathTests
         public Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
             => throw new NotSupportedException("Anonymous services are not exercised for logout in this test.");
 
-        public Task CancelPrefillAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task CancelPrefillAsync(CancellationToken cancellationToken = default)
+        {
+            CancelPrefillCalls++;
+            return Task.CompletedTask;
+        }
 
         public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(new List<OwnedGame>());
@@ -651,6 +853,12 @@ public class ScheduledPrefillAnonymousRunPathTests
             PrefillAllRequested = all;
             PrefillRecentRequested = recent;
             PrefillTopRequested = top;
+
+            if (_leavePrefilling)
+            {
+                Volatile.Write(ref _session.LastProgressTicksUtc, DateTime.UtcNow.AddDays(-1).Ticks);
+                return Task.FromResult(new PrefillResult { Success = true, TotalTime = TimeSpan.FromSeconds(1) });
+            }
 
             // The real terminal transition (IsPrefilling -> false) is driven by a later socket
             // event; this fake has no socket, so it flips the flag itself to simulate a run that

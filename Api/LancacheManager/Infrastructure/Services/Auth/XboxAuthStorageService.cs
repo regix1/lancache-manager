@@ -43,6 +43,7 @@ public class XboxAuthStorageService : AuthFileStorageServiceBase<XboxAuthData, P
 
         return new XboxAuthData
         {
+            OwnerAccountId = persisted.OwnerAccountId,
             RefreshToken = decryptedRefreshToken,
             DeviceKeyPkcs8 = decryptedDeviceKey,
             DisplayName = persisted.DisplayName,
@@ -56,6 +57,7 @@ public class XboxAuthStorageService : AuthFileStorageServiceBase<XboxAuthData, P
     {
         return new PersistedXboxAuthData
         {
+            OwnerAccountId = data.OwnerAccountId,
             RefreshToken = Encryption.Encrypt(data.RefreshToken),
             DeviceKeyPkcs8 = Encryption.Encrypt(data.DeviceKeyPkcs8),
             DisplayName = data.DisplayName,
@@ -66,6 +68,12 @@ public class XboxAuthStorageService : AuthFileStorageServiceBase<XboxAuthData, P
     }
 
     protected override bool HasCredentials(XboxAuthData data) => !string.IsNullOrEmpty(data.RefreshToken);
+
+    protected override Guid? GetOwnerAccountId(XboxAuthData data) => data.OwnerAccountId;
+
+    protected override Guid? GetOwnerAccountId(PersistedXboxAuthData persisted) => persisted.OwnerAccountId;
+
+    protected override void SetOwnerAccountId(XboxAuthData data, Guid accountId) => data.OwnerAccountId = accountId;
 
     protected override bool IsStoredUnencrypted(PersistedXboxAuthData persisted)
         => Encryption.IsUnencrypted(persisted.RefreshToken)

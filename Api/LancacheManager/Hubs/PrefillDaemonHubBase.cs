@@ -69,6 +69,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
         }
 
         Context.Items["SessionId"] = session.Id;
+        Context.Items["IsAccountHolder"] = isAccountHolder;
 
         _logger.LogDebug("{Hub} hub connected: {ConnectionId}, SessionId: {SessionId}",
             HubDisplayName, Context.ConnectionId, session.Id);
@@ -151,18 +152,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// </summary>
     public async Task SubscribeToSessionAsync(string sessionId)
     {
-        var authSessionId = GetSessionId();
-
-        var session = _daemonService.GetSession(sessionId);
-        if (session == null)
-        {
-            throw new HubException("Session not found");
-        }
-
-        if (!authSessionId.HasValue || session.UserId != authSessionId.Value)
-        {
-            throw new HubException("Access denied");
-        }
+        ValidateSessionAccess(sessionId, out var session, allowPersistentAccountHolder: true);
 
         _daemonService.AddSubscriber(sessionId, Context.ConnectionId);
 
@@ -309,7 +299,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// </summary>
     public PrefillProgress? GetCurrentPrefillProgress(string sessionId)
     {
-        ValidateSessionAccess(sessionId, out var session);
+        ValidateSessionAccess(sessionId, out var session, allowPersistentAccountHolder: true);
 
         // Snapshot the (IsPrefilling, LastProgress) pair into locals with single reads each.
         // These two fields are written on the daemon-event thread (NotifyPrefillProgressAsync /
@@ -352,7 +342,10 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
         return Context.Items.TryGetValue("SessionId", out var id) && id is Guid g ? g : null;
     }
 
-    protected void ValidateSessionAccess(string sessionId, out DaemonSession session)
+    protected void ValidateSessionAccess(
+        string sessionId,
+        out DaemonSession session,
+        bool allowPersistentAccountHolder = false)
     {
         var authSessionId = GetSessionId();
 
@@ -362,7 +355,12 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
             throw new HubException("Session not found");
         }
 
-        if (!authSessionId.HasValue || s.UserId != authSessionId.Value)
+        var isAccountHolder = Context.Items.TryGetValue("IsAccountHolder", out var value)
+            && value is true;
+        var hasAccess = s.IsPersistent
+            ? allowPersistentAccountHolder && isAccountHolder
+            : authSessionId.HasValue && s.UserId == authSessionId.Value;
+        if (!hasAccess)
         {
             throw new HubException("Access denied");
         }

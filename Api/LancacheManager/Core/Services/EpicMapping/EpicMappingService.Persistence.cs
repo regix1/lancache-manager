@@ -1,6 +1,7 @@
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
+using LancacheManager.Middleware;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services.EpicMapping;
@@ -294,7 +295,27 @@ public partial class EpicMappingService
             {
                 var tokens = await _epicApiClient.RefreshTokenAsync(_currentTokens.RefreshToken, ct);
                 _currentTokens = tokens;
+                var activeAuth = _authStorage.GetAuthData();
+                _authStorage.SaveAuthData(new EpicAuthData
+                {
+                    OwnerAccountId = activeAuth.OwnerAccountId,
+                    RefreshToken = tokens.RefreshToken,
+                    DisplayName = tokens.DisplayName,
+                    AccountId = tokens.AccountId,
+                    LastAuthenticated = DateTime.UtcNow,
+                    GamesDiscovered = _gamesDiscovered
+                });
                 _logger.LogInformation("Token refreshed successfully");
+            }
+            catch (ValidationException ex)
+            {
+                _logger.LogWarning(ex, "Saved Epic refresh token was rejected during image URL refresh");
+                _authStorage.InvalidateAuthData();
+                SetIsAuthenticated(false);
+                _displayName = null;
+                _gamesDiscovered = 0;
+                _currentTokens = null;
+                return 0;
             }
             catch (Exception ex)
             {

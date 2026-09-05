@@ -57,10 +57,18 @@ public class ScheduledPrefillRunVisibilityTests
         await (Task)executeWork.Invoke(service, new object[] { CancellationToken.None })!;
         service.Dispose();
 
-        // Every lifecycle event (Started, per-platform progress, Completed) carries the same
-        // run-level flag - no per-platform churn.
+        // The aggregate run is visible when any child is visible. Each child's own lifecycle follows
+        // that named record's mode, so a silent record cannot open its own card.
         Assert.NotEmpty(recorder.Events);
-        Assert.All(recorder.Events, e => Assert.Equal(expectedVisible, e.ShowNotification));
+        Assert.All(
+            recorder.Events.Where(e => e.ServiceId is null),
+            e => Assert.Equal(expectedVisible, e.ShowNotification));
+        Assert.All(
+            recorder.Events.Where(e => e.ServiceId == PrefillPlatform.Steam.ToString()),
+            e => Assert.Equal(steamMode == NotificationMode.All, e.ShowNotification));
+        Assert.All(
+            recorder.Events.Where(e => e.ServiceId == PrefillPlatform.Epic.ToString()),
+            e => Assert.Equal(epicMode == NotificationMode.All, e.ShowNotification));
 
         // A run emits a Started and a Completed per due service beside its own run-level pair, so each
         // service's card opens and closes on its own timing. Every one of them carries the run-level
@@ -69,8 +77,6 @@ public class ScheduledPrefillRunVisibilityTests
         var completed = recorder.Events.Where(e => e.EventName == SignalREvents.ScheduledPrefillCompleted).ToList();
         Assert.Equal(3, started.Count);
         Assert.Equal(started.Count, completed.Count);
-        Assert.All(started, e => Assert.Equal(expectedVisible, e.ShowNotification));
-        Assert.All(completed, e => Assert.Equal(expectedVisible, e.ShowNotification));
     }
 
     /// <summary>
@@ -89,12 +95,18 @@ public class ScheduledPrefillRunVisibilityTests
     {
         var recorder = (RecordingNotificationsProxy)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
         var tracker = (IUnifiedOperationTracker)DispatchProxy.Create<IUnifiedOperationTracker, NoopTrackerProxy>();
+        var serviceConfig = ScheduledPrefillConfigFactory.CreateDefault()
+            .GetSchedulesInRunOrder()
+            .Single(schedule => schedule.ServiceId == PrefillPlatform.Steam);
         var serviceRun = new ScheduledPrefillServiceRun(
-            ScheduledPrefillConfigFactory.CreateDefault().Steam,
+            serviceConfig,
             Guid.NewGuid(),
             "op-1",
             "run-1",
-            new ScheduledPrefillServiceRunState(PrefillPlatform.Steam),
+            new ScheduledPrefillServiceRunState(
+                serviceConfig.ServiceId,
+                serviceConfig.ScheduleId,
+                serviceConfig.ScheduleName),
             CancellationToken.None);
 
         var complete = typeof(ScheduledPrefillService)
@@ -130,6 +142,22 @@ public class ScheduledPrefillRunVisibilityTests
         => new()
         {
             ServiceId = template.ServiceId,
+            Schedules = template.Schedules.Select(schedule => new ScheduledPrefillSchedule
+            {
+                Id = schedule.Id,
+                Name = schedule.Name,
+                Enabled = enabled,
+                IntervalHours = schedule.IntervalHours,
+                CustomSchedule = schedule.CustomSchedule,
+                Preset = schedule.Preset,
+                TopCount = schedule.TopCount,
+                SelectedAppIds = schedule.SelectedAppIds,
+                OperatingSystems = schedule.OperatingSystems,
+                Force = schedule.Force,
+                MaxConcurrency = schedule.MaxConcurrency,
+                NotificationMode = mode,
+                NotificationDisplayMode = schedule.NotificationDisplayMode
+            }).ToList(),
             Enabled = enabled,
             NotificationMode = mode,
             IntervalHours = ScheduledPrefillConfigFactory.DefaultIntervalHours,
@@ -142,7 +170,12 @@ public class ScheduledPrefillRunVisibilityTests
             PersistenceMode = template.PersistenceMode
         };
 
-    private sealed record CapturedEvent(string EventName, bool ShowNotification, string? Status, bool? Success);
+    private sealed record CapturedEvent(
+        string EventName,
+        bool ShowNotification,
+        string? ServiceId,
+        string? Status,
+        bool? Success);
 
     /// <summary>
     /// Records the event name, the <c>showNotification</c> field, and the wire <c>status</c> and
@@ -169,10 +202,11 @@ public class ScheduledPrefillRunVisibilityTests
                 && payload.GetType().GetProperty("showNotification")?.GetValue(payload) is bool showNotification)
             {
                 var status = payload.GetType().GetProperty("status")?.GetValue(payload) as string;
+                var serviceId = payload.GetType().GetProperty("serviceId")?.GetValue(payload) as string;
                 var success = payload.GetType().GetProperty("success")?.GetValue(payload) as bool?;
                 lock (_sync)
                 {
-                    _events.Add(new CapturedEvent(eventName, showNotification, status, success));
+                    _events.Add(new CapturedEvent(eventName, showNotification, serviceId, status, success));
                 }
             }
 

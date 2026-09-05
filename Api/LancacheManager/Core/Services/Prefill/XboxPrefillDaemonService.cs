@@ -3,6 +3,7 @@ using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
 using LancacheManager.Core.Services.Xbox;
+using LancacheManager.Infrastructure.Services;
 using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Core.Services;
@@ -23,6 +24,7 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
     private const string XboxDockerImage = "ghcr.io/regix1/xbox-prefill-daemon:latest";
 
     private readonly XboxMappingService _mappingService;
+    private readonly XboxAuthStorageService? _authStorage;
 
     public XboxPrefillDaemonService(
         ILogger<XboxPrefillDaemonService> logger,
@@ -37,10 +39,12 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
         ILancacheServerLocator locator,
         IPrefillContainerGatewayFactory containerGatewayFactory,
         IActivityRegistry? activityRegistry = null,
-        IUnifiedOperationTracker? operationTracker = null)
+        IUnifiedOperationTracker? operationTracker = null,
+        XboxAuthStorageService? authStorage = null)
         : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, locator, containerGatewayFactory, activityRegistry, operationTracker)
     {
         _mappingService = mappingService;
+        _authStorage = authStorage;
     }
 
     // Route per-connection and broadcast notifications to the Xbox prefill hub
@@ -59,6 +63,40 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
         => _configuration["Prefill:XboxDockerImage"] ?? XboxDockerImage;
     protected override int GetGuestPermissionDurationHours()
         => _stateService.GetXboxGuestPrefillDurationHours();
+
+    public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId)
+    {
+        if (accountId is null)
+        {
+            return new IntegrationLoginAvailability(false, null, "account-required");
+        }
+
+        var auth = _authStorage?.GetSavedLogin(accountId.Value);
+        return string.IsNullOrWhiteSpace(auth?.RefreshToken)
+            ? new IntegrationLoginAvailability(false, null, "no-saved-login")
+            : new IntegrationLoginAvailability(true, auth.DisplayName, null);
+    }
+
+    protected override async Task<bool> ReuseIntegrationLoginAsync(
+        DaemonSession session,
+        Guid accountId,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken)
+    {
+        var auth = _authStorage?.GetSavedLogin(accountId);
+        if (string.IsNullOrWhiteSpace(auth?.RefreshToken))
+        {
+            return false;
+        }
+
+        EnsureCurrentSession(session);
+        await session.Client.ProvideXboxAutoLoginWithDispatchAsync(
+            session.Id,
+            auth.RefreshToken,
+            onCommandDispatched,
+            cancellationToken);
+        return true;
+    }
 
     // Diagnostics
     protected override string DiagnosticsConnectivityUrl => "https://displaycatalog.mp.microsoft.com/";

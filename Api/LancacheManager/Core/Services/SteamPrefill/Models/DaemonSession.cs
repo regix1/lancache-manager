@@ -17,6 +17,12 @@ public class DaemonSession
     public bool IsPrefilling { get; set; }
 
     /// <summary>
+    /// Identifies the current or most recently completed prefill on this session. A new start replaces
+    /// it before the session enters the prefilling state, allowing cancel requests to reject a stale run.
+    /// </summary>
+    public Guid? PrefillRunId { get; set; }
+
+    /// <summary>
     /// The daemon's real "Login failed: &lt;reason&gt;" text from the most recent
     /// <see cref="PrefillDaemonServiceBase.StartLoginAsync(string, TimeSpan?, CancellationToken)"/> attempt,
     /// captured via the fail-fast <c>OnStatusUpdate</c> race. Null when the last attempt had no observed

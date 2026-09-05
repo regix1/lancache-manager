@@ -7,6 +7,11 @@ namespace LancacheManager.Core.Services.SteamKit2;
 
 public partial class SteamKit2Service
 {
+    private readonly object _loginOwnerLock = new();
+    private bool _hasPendingLoginOwner;
+    private Guid? _pendingLoginOwnerAccountId;
+    private string? _pendingLoginUsername;
+
     /// <summary>
     /// Authenticate with Steam using username and password. The sign-in owns a tracked depot mapping
     /// operation for its whole life, so its notification card carries a real operation id and the
@@ -19,7 +24,13 @@ public partial class SteamKit2Service
     /// The response still carries the outcome, because the Steam Guard challenge has no other route
     /// to the browser.
     /// </summary>
-    public async Task<AuthenticationResult> AuthenticateAsync(string username, string password, string? twoFactorCode = null, string? emailCode = null, bool allowMobileConfirmation = false)
+    public async Task<AuthenticationResult> AuthenticateAsync(
+        string username,
+        string password,
+        string? twoFactorCode = null,
+        string? emailCode = null,
+        bool allowMobileConfirmation = false,
+        Guid? ownerAccountId = null)
     {
         if (Interlocked.CompareExchange(ref _loginActive, 1, 0) != 0)
         {
@@ -32,8 +43,38 @@ public partial class SteamKit2Service
         }
 
         MappingOperationReporter? reporter = null;
+        var keepPendingLoginOwner = false;
+        Guid? loginOwnerAccountId = ownerAccountId;
         try
         {
+            var submitsGuardCode = !string.IsNullOrWhiteSpace(twoFactorCode)
+                || !string.IsNullOrWhiteSpace(emailCode);
+            lock (_loginOwnerLock)
+            {
+                if (submitsGuardCode
+                    && (!_hasPendingLoginOwner
+                        || _pendingLoginOwnerAccountId != ownerAccountId
+                        || !string.Equals(_pendingLoginUsername, username, StringComparison.OrdinalIgnoreCase)))
+                {
+                    keepPendingLoginOwner = _hasPendingLoginOwner;
+                    return new AuthenticationResult
+                    {
+                        Success = false,
+                        Message = "This Steam sign-in was started by another account.",
+                        StageKey = "errors.steam.signInOwnerChanged"
+                    };
+                }
+
+                if (!submitsGuardCode)
+                {
+                    _hasPendingLoginOwner = true;
+                    _pendingLoginOwnerAccountId = ownerAccountId;
+                    _pendingLoginUsername = username;
+                }
+
+                loginOwnerAccountId = _pendingLoginOwnerAccountId;
+            }
+
             // Signing in is an explicit user action, so do not inherit the visibility decision of the
             // last scheduled crawl - a silent one would leave the sign-in with no card at all.
             _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
@@ -60,6 +101,9 @@ public partial class SteamKit2Service
 
             if (!pollResult.Success)
             {
+                keepPendingLoginOwner = pollResult.Result.RequiresTwoFactor
+                    || pollResult.Result.RequiresEmailCode
+                    || pollResult.Result.RequiresMobileConfirmation;
                 // A Steam Guard prompt, a wrong code or an expired confirmation window. The attempt
                 // is over either way; the next submit from the modal starts its own operation.
                 return await CompleteLoginAsync(
@@ -67,10 +111,6 @@ public partial class SteamKit2Service
                     cancelled: false,
                     pollResult.Result);
             }
-
-            // Store refresh token
-            _stateService.SetSteamRefreshToken(pollResult.RefreshToken!);
-            _logger.LogInformation("Successfully authenticated and saved refresh token");
 
             // Now log on with the fresh refresh token through the shared session engine
             await _sessionGate.WaitAsync(reporter.Token);
@@ -89,6 +129,15 @@ public partial class SteamKit2Service
             {
                 _sessionGate.Release();
             }
+
+            var auth = _steamAuthRepository.GetAuthData();
+            auth.Mode = SteamAuthMode.Authenticated.ToWireString();
+            auth.Username = pollResult.AccountName;
+            auth.RefreshToken = pollResult.RefreshToken;
+            auth.LastAuthenticated = DateTime.UtcNow;
+            auth.OwnerAccountId = loginOwnerAccountId;
+            _steamAuthRepository.SaveAuthData(auth);
+            _logger.LogInformation("Successfully authenticated and saved refresh token");
 
             // Terminal here rather than at the caller, so this operation is finished before the
             // caller starts the PICS rebuild and its own depotMapping operation.
@@ -163,6 +212,16 @@ public partial class SteamKit2Service
             // reporter that is about to go away.
             _loginReporter = null;
 
+            if (!keepPendingLoginOwner)
+            {
+                lock (_loginOwnerLock)
+                {
+                    _hasPendingLoginOwner = false;
+                    _pendingLoginOwnerAccountId = null;
+                    _pendingLoginUsername = null;
+                }
+            }
+
             if (reporter is not null)
             {
                 // Backstop: a path that reached neither the returns above nor a catch still lands on
@@ -184,6 +243,13 @@ public partial class SteamKit2Service
     /// </summary>
     public void CancelLogin()
     {
+        lock (_loginOwnerLock)
+        {
+            _hasPendingLoginOwner = false;
+            _pendingLoginOwnerAccountId = null;
+            _pendingLoginUsername = null;
+        }
+
         try
         {
             _loginReporter?.RequestCancellation();

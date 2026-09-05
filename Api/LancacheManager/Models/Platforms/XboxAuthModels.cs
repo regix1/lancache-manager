@@ -8,6 +8,7 @@ namespace LancacheManager.Models;
 /// </summary>
 public class XboxAuthData
 {
+    public Guid? OwnerAccountId { get; set; }
     public string? RefreshToken { get; set; }     // MSA refresh token (decrypted in memory, encrypted in storage)
     public string? DeviceKeyPkcs8 { get; set; }   // device identity ECDSA private key, base64 PKCS#8 (decrypted in memory)
     public string? DisplayName { get; set; }       // Xbox gamertag / display name
@@ -22,6 +23,7 @@ public class XboxAuthData
 /// </summary>
 public class PersistedXboxAuthData
 {
+    public Guid? OwnerAccountId { get; set; }
     public string? RefreshToken { get; set; }     // Encrypted with ENC2: prefix
     public string? DeviceKeyPkcs8 { get; set; }   // Encrypted with ENC2: prefix
     public string? DisplayName { get; set; }

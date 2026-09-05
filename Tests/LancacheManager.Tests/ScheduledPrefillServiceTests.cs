@@ -150,13 +150,13 @@ public class ScheduledPrefillServiceTests
         var afterSave = DateTime.UtcNow;
 
         // Steam (enabled, 48h) is anchored to save-time...
-        var steamLastRun = stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString());
+        var steamLastRun = stateService.GetScheduledPrefillServiceLastRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N"));
         Assert.NotNull(steamLastRun);
         Assert.InRange(steamLastRun!.Value, beforeSave, afterSave);
 
         // ...while the disabled services are left un-anchored (null), so nothing runs for them either.
-        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Epic.ToString()));
-        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.BattleNet.ToString()));
+        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Epic).ToString("N")));
+        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet).ToString("N")));
 
         // The next poll must NOT treat Steam as due (the bug: it used to be due immediately at null).
         Assert.False(ScheduledPrefillRunGates.IsServiceDue(
@@ -191,7 +191,7 @@ public class ScheduledPrefillServiceTests
                 battleNetEnabled: true, battleNetIntervalHours: 24d),
             ScheduledPrefillServiceLastRunUtc = new Dictionary<string, DateTime>
             {
-                [PrefillPlatform.Steam.ToString()] = steamPastRun
+                [ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N")] = steamPastRun
             }
         };
 
@@ -204,19 +204,19 @@ public class ScheduledPrefillServiceTests
         var afterLoad = DateTime.UtcNow;
 
         // Steam already had a key -> a restart must NOT re-anchor it (restart-no-shift invariant).
-        var steamLastRun = stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString());
+        var steamLastRun = stateService.GetScheduledPrefillServiceLastRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N"));
         Assert.NotNull(steamLastRun);
         Assert.True(
             Math.Abs((steamLastRun!.Value - steamPastRun).TotalSeconds) < 1d,
             "Steam's persisted last-run must be preserved across a restart, not reseeded to now.");
 
         // BattleNet had no key -> load seeds it to ~now so it waits one interval instead of instant-running.
-        var battleNetLastRun = stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.BattleNet.ToString());
+        var battleNetLastRun = stateService.GetScheduledPrefillServiceLastRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet).ToString("N"));
         Assert.NotNull(battleNetLastRun);
         Assert.InRange(battleNetLastRun!.Value, beforeLoad.AddSeconds(-1), afterLoad.AddSeconds(1));
 
         // Disabled services stay un-anchored.
-        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Epic.ToString()));
+        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Epic).ToString("N")));
     }
 
     // ---- Fix 2: reset (clear) reseeds the still-enabled services so the next poll is not due ----
@@ -231,20 +231,20 @@ public class ScheduledPrefillServiceTests
         var stateService = context.StateService;
 
         stateService.SetScheduledPrefillConfig(BuildConfig(steamEnabled: true, steamIntervalHours: 48d));
-        Assert.NotNull(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString()));
+        Assert.NotNull(stateService.GetScheduledPrefillServiceLastRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N")));
 
         var beforeReset = DateTime.UtcNow;
         stateService.ClearScheduledPrefillServiceLastRun();
         var afterReset = DateTime.UtcNow;
 
-        var steamLastRun = stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString());
+        var steamLastRun = stateService.GetScheduledPrefillServiceLastRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N"));
         Assert.NotNull(steamLastRun);
         Assert.InRange(steamLastRun!.Value, beforeReset.AddSeconds(-1), afterReset.AddSeconds(1));
         Assert.False(ScheduledPrefillRunGates.IsServiceDue(
             48d, steamLastRun, DateTime.UtcNow, hasRunThisProcess: false));
 
         // Disabled services are not reseeded.
-        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Epic.ToString()));
+        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Epic).ToString("N")));
     }
 
     // ---- BUG FIX: a service that has only been ANCHORED (enabled/saved) but never genuinely run must
@@ -262,10 +262,10 @@ public class ScheduledPrefillServiceTests
         stateService.SetScheduledPrefillConfig(BuildConfig(steamEnabled: true, steamIntervalHours: 48d));
 
         // Enabling anchors the schedule basis so the next poll is not instant...
-        Assert.NotNull(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString()));
+        Assert.NotNull(stateService.GetScheduledPrefillServiceLastRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N")));
         // ...but the GENUINE last-run stays null until the service actually runs, so the schedule view
         // reads "Never" instead of the anchor time.
-        Assert.Null(stateService.GetScheduledPrefillServiceLastActualRun(PrefillPlatform.Steam.ToString()));
+        Assert.Null(stateService.GetScheduledPrefillServiceLastActualRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N")));
     }
 
     [Fact]
@@ -277,12 +277,12 @@ public class ScheduledPrefillServiceTests
         stateService.SetScheduledPrefillConfig(BuildConfig(steamEnabled: true, steamIntervalHours: 48d));
 
         var ranAt = DateTime.UtcNow;
-        stateService.SetScheduledPrefillServiceLastActualRun(PrefillPlatform.Steam.ToString(), ranAt);
+        stateService.SetScheduledPrefillServiceLastActualRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N"), ranAt);
 
         // Durable across restart: persist to disk, drop the in-memory cache, and reload.
         stateService.SaveState(stateService.GetState());
         SetCachedState(stateService, null);
-        var reloaded = stateService.GetScheduledPrefillServiceLastActualRun(PrefillPlatform.Steam.ToString());
+        var reloaded = stateService.GetScheduledPrefillServiceLastActualRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N"));
         Assert.NotNull(reloaded);
         Assert.True(
             Math.Abs((reloaded!.Value - ranAt).TotalSeconds) < 1d,
@@ -291,8 +291,116 @@ public class ScheduledPrefillServiceTests
         // Reset wipes the genuine-run history (nothing has run post-reset -> "Never") while the schedule
         // basis is reseeded so the next poll is still not instant.
         stateService.ClearScheduledPrefillServiceLastRun();
+        Assert.Null(stateService.GetScheduledPrefillServiceLastActualRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N")));
+        Assert.NotNull(stateService.GetScheduledPrefillServiceLastRun(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N")));
+    }
+
+    [Fact]
+    public void SetScheduledPrefillConfig_DeletingARecordPurgesItsTimingAndRecreationStartsClean()
+    {
+        using var context = new TempStateServiceContext();
+        var stateService = context.StateService;
+        var config = BuildConfig(steamEnabled: true, steamIntervalHours: 48d);
+        var recordId = Guid.Parse("77777777-7777-7777-7777-777777777777");
+        config.Steam.Schedules.Add(new ScheduledPrefillSchedule
+        {
+            Id = recordId,
+            Name = "Weekly selected",
+            Enabled = false,
+            IntervalHours = 168d,
+            Preset = ScheduledPrefillPreset.All,
+            SelectedAppIds = ["10", "20"],
+            OperatingSystems = [ScheduledPrefillOperatingSystem.Windows],
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+            {
+                Mode = ScheduledPrefillMaxConcurrencyMode.Auto
+            }
+        });
+        stateService.SetScheduledPrefillConfig(config);
+
+        var key = recordId.ToString("N");
+        stateService.SetScheduledPrefillServiceLastRun(key, DateTime.UtcNow.AddDays(-7));
+        stateService.SetScheduledPrefillServiceLastActualRun(key, DateTime.UtcNow.AddDays(-7));
+
+        config.Steam.Schedules.RemoveAll(schedule => schedule.Id == recordId);
+        stateService.SetScheduledPrefillConfig(config);
+        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(key));
+        Assert.Null(stateService.GetScheduledPrefillServiceLastActualRun(key));
+
+        config.Steam.Schedules.Add(new ScheduledPrefillSchedule
+        {
+            Id = recordId,
+            Name = "Weekly selected",
+            Enabled = false,
+            IntervalHours = 168d,
+            Preset = ScheduledPrefillPreset.All,
+            SelectedAppIds = ["10", "20"],
+            OperatingSystems = [ScheduledPrefillOperatingSystem.Windows],
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+            {
+                Mode = ScheduledPrefillMaxConcurrencyMode.Auto
+            }
+        });
+        stateService.SetScheduledPrefillConfig(config);
+        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(key));
+        Assert.Null(stateService.GetScheduledPrefillServiceLastActualRun(key));
+    }
+
+    [Fact]
+    public void GetState_MigratesLegacyPlatformTimingKeysToStableChildIds()
+    {
+        using var context = new TempStateServiceContext();
+        var stateService = context.StateService;
+        var current = BuildConfig(steamEnabled: true, steamIntervalHours: 48d);
+        var legacy = new ScheduledPrefillConfigDto
+        {
+            Version = 5,
+            MaxServiceRuntime = current.MaxServiceRuntime,
+            StallTimeout = current.StallTimeout,
+            PersistenceMode = current.PersistenceMode,
+            Steam = new ScheduledPrefillServiceConfigDto
+            {
+                ServiceId = PrefillPlatform.Steam,
+                Enabled = true,
+                NotificationMode = NotificationMode.All,
+                IntervalHours = 48d,
+                Preset = ScheduledPrefillPreset.Recent,
+                OperatingSystems = [ScheduledPrefillOperatingSystem.Windows],
+                MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+                {
+                    Mode = ScheduledPrefillMaxConcurrencyMode.Auto
+                }
+            },
+            Epic = current.Epic,
+            Xbox = current.Xbox,
+            BattleNet = current.BattleNet,
+            Riot = current.Riot
+        };
+        var priorRun = DateTime.UtcNow.AddDays(-2);
+        var persisted = new AppState
+        {
+            ScheduledPrefill = legacy,
+            ScheduledPrefillServiceLastRunUtc = new Dictionary<string, DateTime>
+            {
+                [PrefillPlatform.Steam.ToString()] = priorRun
+            },
+            ScheduledPrefillServiceLastActualRunUtc = new Dictionary<string, DateTime>
+            {
+                [PrefillPlatform.Steam.ToString()] = priorRun
+            }
+        };
+        SetCachedState(stateService, persisted);
+        stateService.SaveState(persisted);
+        SetCachedState(stateService, null);
+
+        stateService.GetState();
+        var childKey = ScheduledPrefillConfigFactory
+            .GetDefaultScheduleId(PrefillPlatform.Steam)
+            .ToString("N");
+        Assert.Equal(priorRun, stateService.GetScheduledPrefillServiceLastRun(childKey));
+        Assert.Equal(priorRun, stateService.GetScheduledPrefillServiceLastActualRun(childKey));
+        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString()));
         Assert.Null(stateService.GetScheduledPrefillServiceLastActualRun(PrefillPlatform.Steam.ToString()));
-        Assert.NotNull(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString()));
     }
 
     // Overwrites StateService's private _cachedState so a test can stage a persisted state (then null the
@@ -330,11 +438,33 @@ public class ScheduledPrefillServiceTests
 
     private static ScheduledPrefillServiceConfigDto Reconfigure(
         ScheduledPrefillServiceConfigDto template, bool enabled, double intervalHours)
-        => new ScheduledPrefillServiceConfigDto
+    {
+        var schedules = template.Schedules.Count == 0
+            ? []
+            : template.Schedules.Select(schedule => new ScheduledPrefillSchedule
+            {
+                Id = schedule.Id,
+                Name = schedule.Name,
+                Enabled = enabled,
+                IntervalHours = intervalHours,
+                CustomSchedule = schedule.CustomSchedule,
+                Preset = schedule.Preset,
+                TopCount = schedule.TopCount,
+                SelectedAppIds = [.. schedule.SelectedAppIds],
+                OperatingSystems = [.. schedule.OperatingSystems],
+                Force = schedule.Force,
+                MaxConcurrency = schedule.MaxConcurrency,
+                NotificationMode = schedule.NotificationMode,
+                NotificationDisplayMode = schedule.NotificationDisplayMode
+            }).ToList();
+
+        return new ScheduledPrefillServiceConfigDto
         {
             ServiceId = template.ServiceId,
+            Schedules = schedules,
             Enabled = enabled,
             NotificationMode = template.NotificationMode,
+            NotificationDisplayMode = template.NotificationDisplayMode,
             IntervalHours = intervalHours,
             Preset = template.Preset,
             TopCount = template.TopCount,
@@ -342,8 +472,10 @@ public class ScheduledPrefillServiceTests
             OperatingSystems = template.OperatingSystems,
             Force = template.Force,
             MaxConcurrency = template.MaxConcurrency,
-            PersistenceMode = template.PersistenceMode
+            PersistenceMode = template.PersistenceMode,
+            CustomSchedule = template.CustomSchedule
         };
+    }
 
     // Builds a REAL StateService rooted at a throwaway temp directory. The encryption / steam-auth deps
     // are constructed for real but never exercised (no SteamAuth is set, so Encrypt short-circuits and
@@ -557,12 +689,14 @@ public class ScheduledPrefillServiceTests
         // Naming Riot must still run Riot, on the strength of the request and on its own task: the loop
         // awaits one tick at a time, so a request that had to wait for a tick would wait behind whatever
         // download that tick was holding. It must also not sweep in Battle.net, which is not due. [49]
-        Assert.True(harness.Service.TriggerServiceRun(PrefillPlatform.Riot));
-        await WaitForRegistrationAsync(harness.Tracker, "Scheduled Prefill - Riot");
+        Assert.NotNull(harness.Service.TriggerServiceRun(
+            PrefillPlatform.Riot,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot)));
+        await WaitForRegistrationAsync(harness.Tracker, "Scheduled Prefill - Riot - Default");
         harness.Service.Dispose();
 
-        Assert.DoesNotContain("Scheduled Prefill - BattleNet", harness.Tracker.RegisteredNames);
-        Assert.DoesNotContain("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
+        Assert.DoesNotContain("Scheduled Prefill - BattleNet - Default", harness.Tracker.RegisteredNames);
+        Assert.DoesNotContain("Scheduled Prefill - Steam - Default", harness.Tracker.RegisteredNames);
     }
 
     [Fact]
@@ -574,12 +708,68 @@ public class ScheduledPrefillServiceTests
         // The whole point of the change. Two platforms asked for one after the other must BOTH run;
         // before this, the second waited for the first run to finish, which for a real download meant
         // hours. Neither is due, so each run here is the request's doing and nothing else. [49]
-        Assert.True(harness.Service.TriggerServiceRun(PrefillPlatform.Riot));
-        Assert.True(harness.Service.TriggerServiceRun(PrefillPlatform.BattleNet));
+        Assert.NotNull(harness.Service.TriggerServiceRun(
+            PrefillPlatform.Riot,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot)));
+        Assert.NotNull(harness.Service.TriggerServiceRun(
+            PrefillPlatform.BattleNet,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet)));
 
-        await WaitForRegistrationAsync(harness.Tracker, "Scheduled Prefill - Riot");
-        await WaitForRegistrationAsync(harness.Tracker, "Scheduled Prefill - BattleNet");
+        await WaitForRegistrationAsync(harness.Tracker, "Scheduled Prefill - Riot - Default");
+        await WaitForRegistrationAsync(harness.Tracker, "Scheduled Prefill - BattleNet - Default");
         harness.Service.Dispose();
+    }
+
+    [Fact]
+    public async Task ExecuteWorkAsync_RunsNamedRecordsForOnePlatformSequentially()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var provider = harness.Provider;
+        var config = BuildConfig(steamEnabled: false, steamIntervalHours: 24d);
+        var firstId = Guid.Parse("88888888-8888-8888-8888-888888888881");
+        var secondId = Guid.Parse("88888888-8888-8888-8888-888888888882");
+        config.Riot.Schedules.Clear();
+        config.Riot.Schedules.AddRange(
+        [
+            new ScheduledPrefillSchedule
+            {
+                Id = firstId,
+                Name = "Daily recent",
+                Enabled = true,
+                IntervalHours = -1d,
+                Preset = ScheduledPrefillPreset.All,
+                MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+                {
+                    Mode = ScheduledPrefillMaxConcurrencyMode.Auto
+                }
+            },
+            new ScheduledPrefillSchedule
+            {
+                Id = secondId,
+                Name = "Weekly selected",
+                Enabled = true,
+                IntervalHours = -1d,
+                Preset = ScheduledPrefillPreset.All,
+                SelectedAppIds = ["league"],
+                MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+                {
+                    Mode = ScheduledPrefillMaxConcurrencyMode.Auto
+                }
+            }
+        ]);
+        ((PrefillConfigStateServiceProxy)harness.StateService).Config = config;
+
+        await InvokeExecuteWorkAsync(harness.Service);
+        harness.Service.Dispose();
+
+        Assert.Equal(
+        [
+            (SignalREvents.ScheduledPrefillStarted, firstId),
+            (SignalREvents.ScheduledPrefillCompleted, firstId),
+            (SignalREvents.ScheduledPrefillStarted, secondId),
+            (SignalREvents.ScheduledPrefillCompleted, secondId)
+        ],
+            harness.Notifications.Lifecycle);
     }
 
     // The claim that stops one platform being run twice at once is deliberately NOT asserted here. A
@@ -588,23 +778,7 @@ public class ScheduledPrefillServiceTests
     // guard. The user-visible half of that guarantee is covered by
     // RunService_ForAPlatformAlreadyRunning_Refuses, which drives the route against the tracker. [49]
 
-    [Fact]
-    public void TriggerServiceRun_ForADisabledService_RefusesWithoutStartingAnything()
-    {
-        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
-        using var provider = harness.Provider;
-
-        // Steam is disabled in the default config. [47]
-        Assert.False(harness.Service.TriggerServiceRun(PrefillPlatform.Steam));
-
-        harness.Service.Dispose();
-        Assert.DoesNotContain("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
-    }
-
-    // ---- A disabled service does not prefill, however the run was asked for ----
-    // The enabled flag is the operator's statement that this platform should not prefill. It governs
-    // every path into a run, including an explicit per-row request, so the request is not an exemption.
-    // Temporary and guest prefill are a separate entity and carry no such restriction. [47]
+    // ---- A disabled saved setup does not enter the automatic due scan ----
 
     [Fact]
     public async Task TriggerServiceRun_ForADisabledService_DoesNotRunIt()
@@ -612,25 +786,98 @@ public class ScheduledPrefillServiceTests
         var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
         using var provider = harness.Provider;
 
-        // Steam is disabled in the default config. Naming it must not run it, while the two enabled
-        // services still take their due turn on the same tick.
-        harness.Service.TriggerServiceRun(PrefillPlatform.Steam);
+        // Steam is disabled in the default config, while the two enabled services take their due
+        // turn on the same tick. Explicit Run now is tested separately because it may run a saved setup.
         await InvokeExecuteWorkAsync(harness.Service);
         harness.Service.Dispose();
 
-        Assert.DoesNotContain("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
-        Assert.Contains("Scheduled Prefill - BattleNet", harness.Tracker.RegisteredNames);
-        Assert.Contains("Scheduled Prefill - Riot", harness.Tracker.RegisteredNames);
+        Assert.DoesNotContain("Scheduled Prefill - Steam - Default", harness.Tracker.RegisteredNames);
+        Assert.Contains("Scheduled Prefill - BattleNet - Default", harness.Tracker.RegisteredNames);
+        Assert.Contains("Scheduled Prefill - Riot - Default", harness.Tracker.RegisteredNames);
     }
 
     [Fact]
-    public void RunService_ForADisabledService_Refuses()
+    public void RunService_ForDisabledSavedSetup_StartsExactRecord()
+    {
+        var (controller, _) = CreateRunServiceController();
+        var scheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam);
+
+        Assert.IsType<AcceptedResult>(
+            controller.RunService(PrefillPlatform.Steam, scheduleId));
+    }
+
+    [Fact]
+    public void RunService_ForUnknownRecordReturnsNotFound()
     {
         var (controller, _) = CreateRunServiceController();
 
-        // Answered at the route rather than in the loop, so the button press gets a reason instead of a
-        // silent no-op, and the loop is never woken for a platform it will drop.
-        Assert.IsType<ConflictObjectResult>(controller.RunService(PrefillPlatform.Steam));
+        Assert.IsType<NotFoundResult>(
+            controller.RunService(PrefillPlatform.Steam, Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void GetSchedule_ReturnsStableRecordIdentityAndNoDueTimeForSavedSetup()
+    {
+        var (controller, _) = CreateRunServiceController();
+
+        var rows = Assert.IsType<ScheduledPrefillServiceScheduleDto[]>(
+            Assert.IsType<OkObjectResult>(controller.GetSchedule().Result).Value);
+        var steam = Assert.Single(rows, row => row.ServiceId == PrefillPlatform.Steam);
+
+        Assert.Equal(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam), steam.ScheduleId);
+        Assert.Equal("Default", steam.Name);
+        Assert.False(steam.Enabled);
+        Assert.Null(steam.NextRunUtc);
+    }
+
+    [Fact]
+    public async Task SetConfigAsync_RejectsDeletingAnActiveRecord()
+    {
+        var (controller, active) = CreateRunServiceController();
+        var scheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam);
+        active.Add(new OperationInfo
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.ScheduledPrefill,
+            Name = "Scheduled Prefill - Default",
+            Metadata = new ScheduledPrefillServiceRunState(
+                PrefillPlatform.Steam,
+                scheduleId,
+                "Default")
+        });
+
+        var replacement = ScheduledPrefillConfigFactory.CreateDefault();
+        replacement.Steam.Schedules.Clear();
+
+        Assert.IsType<ConflictObjectResult>(
+            await controller.SetConfigAsync(replacement));
+    }
+
+    [Fact]
+    public void GetRunStatus_CarriesTheExactRecordAndOperationIdentity()
+    {
+        var (controller, active) = CreateRunServiceController();
+        var scheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Xbox);
+        var operationId = Guid.NewGuid();
+        active.Add(new OperationInfo
+        {
+            Id = operationId,
+            Type = OperationType.ScheduledPrefill,
+            Name = "Scheduled Prefill - Weekly Linux",
+            Metadata = new ScheduledPrefillServiceRunState(
+                PrefillPlatform.Xbox,
+                scheduleId,
+                "Weekly Linux")
+        });
+
+        var status = Assert.IsType<ScheduledPrefillRunStatusDto>(
+            Assert.IsType<OkObjectResult>(controller.GetRunStatus().Result).Value);
+        var service = Assert.Single(status.Services);
+
+        Assert.True(status.IsRunning);
+        Assert.Equal(scheduleId, service.ScheduleId);
+        Assert.Equal("Weekly Linux", service.Name);
+        Assert.Equal(operationId.ToString(), service.OperationId);
     }
 
     // ---- Running state on the schedule rows is PER SERVICE ----
@@ -646,8 +893,11 @@ public class ScheduledPrefillServiceTests
         {
             Id = Guid.NewGuid(),
             Type = OperationType.ScheduledPrefill,
-            Name = "Scheduled Prefill - BattleNet",
-            Metadata = new ScheduledPrefillServiceRunState(PrefillPlatform.BattleNet)
+            Name = "Scheduled Prefill - BattleNet - Default",
+            Metadata = new ScheduledPrefillServiceRunState(
+                PrefillPlatform.BattleNet,
+                ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet),
+                "Default")
         });
 
         var schedule = Assert.IsType<ScheduledPrefillServiceScheduleDto[]>(
@@ -676,7 +926,9 @@ public class ScheduledPrefillServiceTests
 
         // A run in flight no longer holds this back, because the new run does not go through the
         // scheduling loop that run is occupying. This used to answer "queued". [49]
-        Assert.IsType<AcceptedResult>(controller.RunService(PrefillPlatform.BattleNet));
+        Assert.IsType<AcceptedResult>(controller.RunService(
+            PrefillPlatform.BattleNet,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet)));
     }
 
     [Fact]
@@ -684,7 +936,9 @@ public class ScheduledPrefillServiceTests
     {
         var (controller, _) = CreateRunServiceController();
 
-        Assert.IsType<AcceptedResult>(controller.RunService(PrefillPlatform.BattleNet));
+        Assert.IsType<AcceptedResult>(controller.RunService(
+            PrefillPlatform.BattleNet,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet)));
     }
 
     [Fact]
@@ -696,11 +950,16 @@ public class ScheduledPrefillServiceTests
         {
             Id = Guid.NewGuid(),
             Type = OperationType.ScheduledPrefill,
-            Name = "Scheduled Prefill - BattleNet",
-            Metadata = new ScheduledPrefillServiceRunState(PrefillPlatform.BattleNet)
+            Name = "Scheduled Prefill - BattleNet - Default",
+            Metadata = new ScheduledPrefillServiceRunState(
+                PrefillPlatform.BattleNet,
+                ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet),
+                "Default")
         });
 
-        Assert.IsType<ConflictObjectResult>(controller.RunService(PrefillPlatform.BattleNet));
+        Assert.IsType<ConflictObjectResult>(controller.RunService(
+            PrefillPlatform.BattleNet,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet)));
     }
 
     private static OperationInfo RunLevelOperation() => new()
@@ -715,8 +974,9 @@ public class ScheduledPrefillServiceTests
     {
         var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
         var tracker = (ActiveOperationsTrackerProxy)DispatchProxy.Create<IUnifiedOperationTracker, ActiveOperationsTrackerProxy>();
+        var state = (PrefillConfigStateServiceProxy)DispatchProxy.Create<IStateService, PrefillConfigStateServiceProxy>();
         var controller = new ScheduledPrefillConfigController(
-            (IStateService)DispatchProxy.Create<IStateService, PrefillConfigStateServiceProxy>(),
+            (IStateService)state,
             (IServiceScheduleRegistry)DispatchProxy.Create<IServiceScheduleRegistry, NullReturningProxy>(),
             (IUnifiedOperationTracker)tracker,
             harness.Service);
@@ -749,14 +1009,16 @@ public class ScheduledPrefillServiceTests
 
         // A whole-schedule Run Now landing on top of a queued per-row run must not be narrowed down
         // to that one platform, which is what leaving the queued platform in place would do.
-        harness.Service.TriggerServiceRun(PrefillPlatform.Steam);
+        harness.Service.TriggerServiceRun(
+            PrefillPlatform.Riot,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot));
         harness.Service.TriggerImmediateRun();
         await InvokeExecuteWorkAsync(harness.Service);
         harness.Service.Dispose();
 
-        Assert.DoesNotContain("Scheduled Prefill - Steam", harness.Tracker.RegisteredNames);
-        Assert.Contains("Scheduled Prefill - BattleNet", harness.Tracker.RegisteredNames);
-        Assert.Contains("Scheduled Prefill - Riot", harness.Tracker.RegisteredNames);
+        Assert.DoesNotContain("Scheduled Prefill - Steam - Default", harness.Tracker.RegisteredNames);
+        Assert.Contains("Scheduled Prefill - BattleNet - Default", harness.Tracker.RegisteredNames);
+        Assert.Contains("Scheduled Prefill - Riot - Default", harness.Tracker.RegisteredNames);
     }
 
     // ---- The reason a service's card gives for closing ----
@@ -766,7 +1028,10 @@ public class ScheduledPrefillServiceTests
     [Fact]
     public async Task CompleteServiceRun_AThrownFailure_ShowsTheExceptionRatherThanTheProgressLine()
     {
-        var state = new ScheduledPrefillServiceRunState(PrefillPlatform.Steam);
+        var state = new ScheduledPrefillServiceRunState(
+            PrefillPlatform.Steam,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
+            "Default");
         // What the card held the moment the service threw.
         state.Record("running", "Prefill in progress", "signalr.scheduledPrefill.running", 42d);
 
@@ -784,7 +1049,10 @@ public class ScheduledPrefillServiceTests
     public async Task CompleteServiceRun_AThrowBeforeAnyProgress_StillNamesTheFailure()
     {
         // Nothing recorded yet, which used to degrade the card to the bare word "Failed".
-        var state = new ScheduledPrefillServiceRunState(PrefillPlatform.Steam);
+        var state = new ScheduledPrefillServiceRunState(
+            PrefillPlatform.Steam,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
+            "Default");
 
         var terminal = await CompleteServiceRunForTestAsync(
             state, ScheduledPrefillServiceRunResult.Failed, failureMessage: "The socket connection was aborted");
@@ -797,7 +1065,10 @@ public class ScheduledPrefillServiceTests
     {
         // The stall and max-runtime paths report themselves through a progress event and RETURN
         // Failed without throwing, so their recorded line IS the reason and must survive.
-        var state = new ScheduledPrefillServiceRunState(PrefillPlatform.Steam);
+        var state = new ScheduledPrefillServiceRunState(
+            PrefillPlatform.Steam,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
+            "Default");
         state.Record("failed", "Prefill stalled (no progress)", "signalr.scheduledPrefill.failedStalled", 99d);
 
         var terminal = await CompleteServiceRunForTestAsync(
@@ -810,7 +1081,10 @@ public class ScheduledPrefillServiceTests
     [Fact]
     public async Task CompleteServiceRun_ASkip_KeepsItsOwnReasonAndClosesAsSkipped()
     {
-        var state = new ScheduledPrefillServiceRunState(PrefillPlatform.Xbox);
+        var state = new ScheduledPrefillServiceRunState(
+            PrefillPlatform.Xbox,
+            ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Xbox),
+            "Default");
         state.Record("skipped", "No running persistent container for Xbox", "signalr.scheduledPrefill.skippedNoContainer", 99d);
 
         var terminal = await CompleteServiceRunForTestAsync(
@@ -832,7 +1106,8 @@ public class ScheduledPrefillServiceTests
         var tracker = (IUnifiedOperationTracker)DispatchProxy.Create<IUnifiedOperationTracker, RecordingTrackerProxy>();
 
         var serviceRun = new ScheduledPrefillServiceRun(
-            ScheduledPrefillConfigFactory.CreateDefault().GetServicesInRunOrder().First(s => s.ServiceId == state.ServiceId),
+            ScheduledPrefillConfigFactory.CreateDefault().GetSchedulesInRunOrder().First(schedule =>
+                schedule.ServiceId == state.ServiceId && schedule.ScheduleId == state.ScheduleId),
             Guid.NewGuid(),
             "op-1",
             "run-1",
@@ -923,6 +1198,7 @@ public class ScheduledPrefillServiceTests
 
         return new RecordingHarness(
             service,
+            stateService,
             (RecordingTrackerProxy)trackerProxy,
             (FailableNotificationsProxy)notificationsProxy,
             provider);
@@ -930,6 +1206,7 @@ public class ScheduledPrefillServiceTests
 
     private sealed record RecordingHarness(
         ScheduledPrefillService Service,
+        IStateService StateService,
         RecordingTrackerProxy Tracker,
         FailableNotificationsProxy Notifications,
         ServiceProvider Provider);
@@ -939,11 +1216,27 @@ public class ScheduledPrefillServiceTests
     // Not sealed: DispatchProxy.Create derives the concrete proxy type from this class.
     private class FailableNotificationsProxy : DispatchProxy
     {
+        private readonly object _sync = new();
+
         /// <summary>Makes the next run-level ScheduledPrefillStarted throw, then clears itself.</summary>
         public bool FailNextStarted { get; set; }
 
+        public List<(string EventName, Guid ScheduleId)> Lifecycle { get; } = [];
+
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
+            if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
+                && args is { Length: >= 2 }
+                && args[0] is string lifecycleEvent
+                && args[1]?.GetType().GetProperty("scheduleId")?.GetValue(args[1]) is Guid scheduleId
+                && lifecycleEvent is SignalREvents.ScheduledPrefillStarted or SignalREvents.ScheduledPrefillCompleted)
+            {
+                lock (_sync)
+                {
+                    Lifecycle.Add((lifecycleEvent, scheduleId));
+                }
+            }
+
             if (FailNextStarted
                 && targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
                 && args?[0] as string == SignalREvents.ScheduledPrefillStarted)
@@ -1102,11 +1395,13 @@ public class ScheduledPrefillServiceTests
     // Every other member returns its type default (mirrors NullReturningProxy).
     private class PrefillConfigStateServiceProxy : DispatchProxy
     {
+        public ScheduledPrefillConfigDto Config { get; set; } = ScheduledPrefillConfigFactory.CreateDefault();
+
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod?.Name == nameof(IStateService.GetScheduledPrefillConfig))
             {
-                return ScheduledPrefillConfigFactory.CreateDefault();
+                return Config;
             }
 
             var returnType = targetMethod?.ReturnType;

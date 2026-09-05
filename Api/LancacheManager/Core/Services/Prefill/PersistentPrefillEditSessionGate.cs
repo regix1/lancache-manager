@@ -324,6 +324,18 @@ internal sealed class PersistentPrefillEditSessionGate
         return new PersistentPrefillEditMutationLease(_mutationGate);
     }
 
+    public bool TryEnterMutation(out PersistentPrefillEditMutationLease? lease)
+    {
+        if (!_mutationGate.Wait(0))
+        {
+            lease = null;
+            return false;
+        }
+
+        lease = new PersistentPrefillEditMutationLease(_mutationGate);
+        return true;
+    }
+
     internal void ConfirmEditActionEffect(
         PersistentPrefillEditActionState action,
         PersistentPrefillEditResourceKind kind)

@@ -1,4 +1,5 @@
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Core.Services.Xbox;
 using Microsoft.AspNetCore.Authorization;
@@ -120,7 +121,9 @@ public class XboxGameMappingController : ControllerBase
         // Cancellation can come from the initiating request, a superseding login, logout, or
         // modal close. Let the global exception middleware classify it as a quiet 499 instead of
         // logging the expected TaskCanceledException as a failed login here.
-        var challenge = await _xboxCatalogMappingService.StartLoginAsync(ct);
+        var challenge = await _xboxCatalogMappingService.StartLoginAsync(
+            HttpContext.GetUserSession()?.AccountId,
+            ct);
         return Ok(challenge);
     }
 

@@ -766,7 +766,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // GetEffectivePersistenceMode(Platform) re-walk GetServicesInRunOrder for the same service. Same
         // override-then-global precedence as that helper, including its fail-loud on a null global mode.
         var service = config.GetServicesInRunOrder().FirstOrDefault(s => s.ServiceId == Platform);
-        var enabled = service is { Enabled: true };
+        var enabled = service?.Schedules.Any(schedule => schedule.Enabled) == true;
         var effectiveMode = service?.PersistenceMode
             ?? config.PersistenceMode
             ?? throw new InvalidOperationException(
@@ -2657,7 +2657,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         => StartLoginEntryAsync(
             sessionId,
             timeout,
+            accountId: null,
             onCommandDispatched: null,
+            reuseIntegration: false,
             cancellationToken);
 
     /// <summary>
@@ -2671,7 +2673,64 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         Action onCommandDispatched,
         CancellationToken cancellationToken = default)
     {
-        return StartLoginEntryAsync(sessionId, timeout, onCommandDispatched, cancellationToken);
+        return StartLoginEntryAsync(
+            sessionId,
+            timeout,
+            accountId: null,
+            onCommandDispatched,
+            reuseIntegration: false,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Edit-session entry point for importing the server-side integration login into the exact
+    /// persistent daemon session.
+    /// </summary>
+    internal Task<CredentialChallenge?> ReuseIntegrationLoginForEditAsync(
+        string sessionId,
+        Guid accountId,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken = default)
+    {
+        return StartLoginEntryAsync(
+            sessionId,
+            timeout: null,
+            accountId,
+            onCommandDispatched,
+            reuseIntegration: true,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Reports whether this platform can currently prepare a server-side integration login.
+    /// Returned values are safe for the browser and never contain credentials.
+    /// </summary>
+    public virtual IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId)
+        => new(false, null, "not-supported");
+
+    /// <summary>
+    /// Imports this platform's integration login into the exact session client.
+    /// </summary>
+    protected virtual Task<bool> ReuseIntegrationLoginAsync(
+        DaemonSession session,
+        Guid accountId,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken)
+        => Task.FromResult(false);
+
+    /// <summary>
+    /// Rejects a login handoff when the session was replaced while credentials were being prepared.
+    /// </summary>
+    protected void EnsureCurrentSession(DaemonSession session)
+    {
+        if (!_sessions.TryGetValue(session.Id, out var current) || !ReferenceEquals(current, session))
+        {
+            throw new ConflictException($"Persistent session {session.Id} was replaced.")
+            {
+                StageKey = "errors.prefill.sessionReplaced",
+                Context = new() { ["sessionId"] = session.Id }
+            };
+        }
     }
 
     /// <summary>
@@ -2742,7 +2801,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     private async Task<CredentialChallenge?> StartLoginEntryAsync(
         string sessionId,
         TimeSpan? timeout,
+        Guid? accountId,
         Action? onCommandDispatched,
+        bool reuseIntegration,
         CancellationToken cancellationToken)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
@@ -2770,40 +2831,137 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             RegisterLoginOperation(session);
 
-            // Public contract unchanged: callers receive the challenge (or null for
-            // authenticated / failed-fast / no-response, exactly as before the outcome
-            // was made explicit for the headless coordinator).
-            var result = await StartLoginCoreAsync(
-                session,
-                sessionId,
-                timeout,
-                abandonedLoginCleanup,
-                onCommandDispatched,
-                cancellationToken);
+            CredentialChallenge? challenge;
+            if (reuseIntegration)
+            {
+                challenge = await ReuseIntegrationLoginCoreAsync(
+                    session,
+                    accountId ?? throw new UnauthorizedAccessException("A stable account is required to use a saved login."),
+                    onCommandDispatched
+                        ?? throw new ArgumentNullException(nameof(onCommandDispatched)),
+                    cancellationToken);
+            }
+            else
+            {
+                // Public interactive behavior remains unchanged: callers receive the challenge
+                // (or null for authenticated / failed-fast / no-response).
+                var result = await StartLoginCoreAsync(
+                    session,
+                    sessionId,
+                    timeout,
+                    abandonedLoginCleanup,
+                    onCommandDispatched,
+                    cancellationToken);
+                challenge = result.Challenge;
+            }
 
-            // The challenge is the one object both entry paths already hand the browser, so it carries
-            // the login's operation id out. Stamped on the way back rather than where the challenge is
-            // built, because the core is also reached by the headless path, which registers nothing.
-            if (result.Challenge is { } challenge)
+            // The challenge is the one object both interactive entry paths already hand the browser,
+            // so it carries the login operation id out. Integration reuse never returns a challenge.
+            if (challenge is not null)
             {
                 challenge.OperationId = session.LoginOperationId?.ToString();
             }
 
-            return result.Challenge;
+            return challenge;
         }
         finally
         {
-            // An attempt that came back without leaving the session mid-login - the daemon was already
-            // logged in, so no auth state changed - never reaches the auth-state funnel, and its card
-            // would outlive it. A session still LoggingIn is genuinely mid-flow: the person is answering
-            // the challenge, and the funnel closes the card when they finish (or the sweep does when
-            // they never come back).
+            // A session still LoggingIn is genuinely mid-flow: the person is answering an interactive
+            // challenge, and the auth-state funnel closes the card when they finish.
             if (session.AuthState != DaemonAuthState.LoggingIn)
             {
                 CompleteLoginOperation(session);
             }
 
             ReleaseLoginLockAfterCleanup(session, abandonedLoginCleanup);
+        }
+    }
+
+    private async Task<CredentialChallenge?> ReuseIntegrationLoginCoreAsync(
+        DaemonSession session,
+        Guid accountId,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken)
+    {
+        session.LastLoginFailureMessage = null;
+        session.LastConsumedLoginChallengeId = null;
+        ClearPendingLoginChallenge(session);
+
+        var currentStatus = await session.Client.GetStatusAsync(cancellationToken);
+        if (currentStatus?.Status == "logged-in")
+        {
+            await OnStatusChangeAsync(session, currentStatus);
+            throw new ConflictException("Log out the current account before using a saved login.")
+            {
+                StageKey = "errors.prefill.logoutBeforeSavedLogin"
+            };
+        }
+
+        if (session.AuthState != DaemonAuthState.NotAuthenticated
+            || session.PendingLoginChallenge is not null
+            || string.Equals(currentStatus?.Status, "logging-in", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(currentStatus?.Status, "authenticating", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(currentStatus?.Status, "login-in-progress", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ConflictException("A login attempt is already in progress for this session.")
+            {
+                StageKey = "errors.prefill.loginInProgress"
+            };
+        }
+
+        var availability = GetIntegrationLoginAvailability(accountId);
+        if (!availability.Available)
+        {
+            await FailLoginFastAsync(
+                session,
+                session.Id,
+                $"Integration login is unavailable ({availability.Reason ?? "not-authenticated"}).");
+            return null;
+        }
+
+        session.AuthState = DaemonAuthState.LoggingIn;
+        await NotifyAuthStateChangeAsync(session);
+
+        try
+        {
+            EnsureCurrentSession(session);
+            var accepted = await ReuseIntegrationLoginAsync(
+                session,
+                accountId,
+                onCommandDispatched,
+                cancellationToken);
+            if (!accepted)
+            {
+                await FailLoginFastAsync(session, session.Id, "Integration login was rejected by the daemon.");
+                return null;
+            }
+
+            EnsureCurrentSession(session);
+            var finalStatus = await session.Client.GetStatusAsync(cancellationToken);
+            if (finalStatus?.Status == "logged-in")
+            {
+                await OnStatusChangeAsync(session, finalStatus);
+                return null;
+            }
+
+            await FailLoginFastAsync(
+                session,
+                session.Id,
+                "Integration login completed without authenticating the daemon.");
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            session.LastLoginFailureMessage = null;
+            session.AuthState = DaemonAuthState.NotAuthenticated;
+            ClearPendingLoginChallenge(session);
+            await NotifyAuthStateChangeAsync(session);
+            throw;
+        }
+        catch
+        {
+            await FailLoginFastAsync(session, session.Id, "Integration login failed.");
+            throw;
         }
     }
 
@@ -3779,6 +3937,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             throw new PrefillAlreadyRunningException($"A prefill is already in progress for session {sessionId}");
         }
 
+        var runId = Guid.NewGuid();
+        session.PrefillRunId = runId;
         session.IsPrefilling = true;
         session.LastProgress = null;
         session.PreviousAppId = null;
@@ -3838,6 +3998,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 // running, so do NOT flip IsPrefilling off / fire a terminal - surface as 409.
                 throw new PrefillAlreadyRunningException(ex.Message);
             }
+
+            result.RunId = runId;
 
             // NOTE: Don't notify completion here - the daemon returns immediately with an acknowledgement.
             // The actual completion is detected via the socket progress terminal events.
@@ -4972,7 +5134,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// directly to the client rather than via <see cref="CancelPrefillAsync"/> so the terminal state
     /// stays <c>Failed</c> (a stall is a failure, not a user cancellation).
     /// </summary>
-    private async Task FailStalledSessionAsync(DaemonSession session)
+    internal async Task FailStalledSessionAsync(DaemonSession session)
     {
         try
         {
@@ -5369,3 +5531,12 @@ internal sealed record LoginAttemptResult(LoginAttemptOutcome Outcome, Credentia
     internal static LoginAttemptResult ForChallenge(CredentialChallenge challenge)
         => new(LoginAttemptOutcome.ChallengeIssued, challenge);
 }
+
+
+/// <summary>
+/// Secret-free description of whether a platform integration can be reused by a prefill daemon.
+/// </summary>
+public sealed record IntegrationLoginAvailability(
+    bool Available,
+    string? Account,
+    string? Reason);

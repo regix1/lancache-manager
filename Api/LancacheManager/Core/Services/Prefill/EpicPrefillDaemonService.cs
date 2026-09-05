@@ -50,6 +50,34 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
     protected override int GetGuestPermissionDurationHours()
         => _stateService.GetEpicGuestPrefillDurationHours();
 
+    public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId)
+    {
+        if (accountId is null)
+        {
+            return new IntegrationLoginAvailability(false, null, "account-required");
+        }
+
+        return _mappingService.TryGetSavedLoginAccount(accountId.Value, out var account)
+            ? new IntegrationLoginAvailability(true, account, null)
+            : new IntegrationLoginAvailability(false, null, "no-saved-login");
+    }
+
+    protected override async Task<bool> ReuseIntegrationLoginAsync(
+        DaemonSession session,
+        Guid accountId,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken)
+    {
+        var refreshToken = await _mappingService.CreatePrefillRefreshTokenAsync(accountId, cancellationToken);
+        EnsureCurrentSession(session);
+        await session.Client.ProvideEpicAutoLoginWithDispatchAsync(
+            session.Id,
+            refreshToken,
+            onCommandDispatched,
+            cancellationToken);
+        return true;
+    }
+
     // Diagnostics
     protected override string DiagnosticsConnectivityUrl => "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/public/assets/Windows?label=Live";
     protected override string[] DiagnosticsDnsDomains => new[]

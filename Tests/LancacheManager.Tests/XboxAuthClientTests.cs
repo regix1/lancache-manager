@@ -368,4 +368,5 @@ public sealed class XboxAuthClientTests
             HttpRequestMessage request,
             CancellationToken cancellationToken) => send(request, cancellationToken);
     }
+
 }

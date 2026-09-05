@@ -4,6 +4,7 @@ import type { PersistentPrefillServiceId } from '@components/features/prefill/pe
 import {
   consumeLoginAttemptNonce,
   ensurePersistentLoginTimeout,
+  isPersistentLoginIntegrationReuse,
   usePersistentLoginRequestNonce
 } from '../persistentLoginStore';
 
@@ -102,5 +103,9 @@ export function usePersistentLoginHost({
     void beginLogin();
   }, [autoStart, beginLogin, isAuthenticated, isRunning, loginRequestNonce, service]);
 
-  return !state.dismissed && !state.authenticated && (state.loading || state.hasChallenge);
+  return (
+    !state.dismissed &&
+    !state.authenticated &&
+    (state.hasChallenge || (state.loading && !isPersistentLoginIntegrationReuse(service)))
+  );
 }

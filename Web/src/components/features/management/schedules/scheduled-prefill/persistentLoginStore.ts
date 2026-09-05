@@ -176,11 +176,13 @@ const loginAttemptListeners = new Map<PersistentPrefillServiceId, Set<Listener>>
 // NEXT attempt's store is exactly how a hung start from a stopped container used to close or wedge
 // the replacement attempt's auth modal.
 const loginEpochs = new Map<PersistentPrefillServiceId, number>();
+const integrationReuseEpochs = new Map<PersistentPrefillServiceId, number>();
 
 interface PersistentLoginStartRequest {
   sessionId: string;
   editSessionId?: string;
   editActionId?: string;
+  reuseIntegration?: boolean;
 }
 
 interface PersistentLoginEditAction {
@@ -195,9 +197,15 @@ export function setPersistentLoginStartSessionId(
   service: PersistentPrefillServiceId,
   sessionId: string,
   editSessionId?: string,
-  editActionId?: string
+  editActionId?: string,
+  reuseIntegration?: boolean
 ): void {
-  requestedLoginStarts.set(service, { sessionId, editSessionId, editActionId });
+  requestedLoginStarts.set(service, { sessionId, editSessionId, editActionId, reuseIntegration });
+  if (reuseIntegration) {
+    integrationReuseEpochs.set(service, getPersistentLoginEpoch(service));
+  } else {
+    integrationReuseEpochs.delete(service);
+  }
 }
 
 export function setPersistentLoginStartRequest(
@@ -205,6 +213,19 @@ export function setPersistentLoginStartRequest(
   request: PersistentLoginStartRequest
 ): void {
   requestedLoginStarts.set(service, request);
+  if (request.reuseIntegration) {
+    integrationReuseEpochs.set(service, getPersistentLoginEpoch(service));
+  } else {
+    integrationReuseEpochs.delete(service);
+  }
+}
+
+export function isPersistentLoginIntegrationReuse(service: PersistentPrefillServiceId): boolean {
+  return integrationReuseEpochs.get(service) === getPersistentLoginEpoch(service);
+}
+
+export function clearPersistentLoginIntegrationReuse(service: PersistentPrefillServiceId): void {
+  integrationReuseEpochs.delete(service);
 }
 
 export function getPersistentLoginStartRequest(
@@ -259,6 +280,7 @@ export function getPersistentLoginEpoch(service: PersistentPrefillServiceId): nu
  */
 function invalidateInFlightLogin(service: PersistentPrefillServiceId): void {
   loginEpochs.set(service, (loginEpochs.get(service) ?? 0) + 1);
+  integrationReuseEpochs.delete(service);
   startPromises.delete(service);
   activeLoginEditActions.delete(service);
   const cancelFlag = cancelFlags.get(service);
@@ -431,6 +453,7 @@ export function resetPersistentLoginState(service: PersistentPrefillServiceId): 
   clearPersistentLoginTimeout(service);
   requestedLoginStarts.delete(service);
   activeLoginEditActions.delete(service);
+  integrationReuseEpochs.delete(service);
   const current = states.get(service);
   if (current === undefined || current === INITIAL_PERSISTENT_LOGIN_STATE) {
     // Already at rest - skip the Map write + subscriber notify. Matters because a container-list
@@ -450,6 +473,7 @@ export function resetPersistentLoginState(service: PersistentPrefillServiceId): 
 export function retirePersistentLoginState(service: PersistentPrefillServiceId): void {
   clearPersistentLoginTimeout(service);
   requestedLoginStarts.delete(service);
+  integrationReuseEpochs.delete(service);
   invalidateInFlightLogin(service);
   const current = states.get(service);
   if (current !== undefined && current !== INITIAL_PERSISTENT_LOGIN_STATE) {

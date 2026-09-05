@@ -80,6 +80,8 @@ export function ScheduledPrefillPersistentCard({
   disabled = false,
   statusLoading = false,
   authenticating = false,
+  integrationLoginAvailability,
+  integrationLoginAvailabilityLoading = false,
   action = null,
   gameSelectionLoading = false,
   onStart,
@@ -128,6 +130,12 @@ export function ScheduledPrefillPersistentCard({
   // running; authenticated services are only ready once login succeeds.
   const isReady = isAnonymous || isAuthenticated;
   const isAuthInProgress = !isAnonymous && isRunning && !isAuthenticated && authenticating;
+  const reuseIntegrationUnavailableReason = integrationLoginAvailability?.reason ?? 'unknown';
+  const reuseIntegrationDisabled =
+    disabled ||
+    isAuthInProgress ||
+    integrationLoginAvailabilityLoading ||
+    !integrationLoginAvailability?.available;
   const isGameSelectionBlocked = isRunning && !isReady;
   // Initial container probe with nothing resolved yet — show the loading view.
   const isContainerLoading = statusLoading && container === undefined;
@@ -205,9 +213,6 @@ export function ScheduledPrefillPersistentCard({
     }
     if (!isAnonymous && !isAuthenticated) {
       return t(`${containersKey}.workflow.needsLogin`);
-    }
-    if (selectedGamesCount === 0) {
-      return t(`${containersKey}.workflow.selectGames`);
     }
     if (isPrefilling) {
       return null;
@@ -371,16 +376,50 @@ export function ScheduledPrefillPersistentCard({
 
             <div className="scheduled-prefill-persistent-card__action-group cluster">
               {isRunning && !isReady && (
-                <Button
-                  type="button"
-                  variant="filled"
-                  color="primary"
-                  size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                  onClick={onLogin}
-                  disabled={disabled || isAuthInProgress}
-                >
-                  {t('prefill.persistent.logIn')}
-                </Button>
+                <>
+                  {(() => {
+                    const reuseButton = (
+                      <Button
+                        type="button"
+                        variant="filled"
+                        color="secondary"
+                        size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                        onClick={() => onLogin(true)}
+                        disabled={reuseIntegrationDisabled}
+                        loading={integrationLoginAvailabilityLoading}
+                      >
+                        {t(`${containersKey}.reuseIntegrationLogin`)}
+                      </Button>
+                    );
+                    return reuseIntegrationDisabled ? (
+                      <Tooltip
+                        content={t(
+                          integrationLoginAvailabilityLoading
+                            ? `${containersKey}.reuseIntegrationChecking`
+                            : `${containersKey}.reuseIntegrationUnavailable.${reuseIntegrationUnavailableReason}`,
+                          {
+                            defaultValue: t(`${containersKey}.reuseIntegrationUnavailable.unknown`)
+                          }
+                        )}
+                        className="inline-flex scheduled-prefill-persistent-card__action-slot"
+                      >
+                        {reuseButton}
+                      </Tooltip>
+                    ) : (
+                      reuseButton
+                    );
+                  })()}
+                  <Button
+                    type="button"
+                    variant="filled"
+                    color="primary"
+                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                    onClick={() => onLogin(false)}
+                    disabled={disabled || isAuthInProgress}
+                  >
+                    {t(`${containersKey}.manualLogin`)}
+                  </Button>
+                </>
               )}
               {!isAnonymous && isRunning && isAuthenticated && (
                 <Button
@@ -444,7 +483,7 @@ export function ScheduledPrefillPersistentCard({
                     color="stop"
                     size={SCHEDULED_PREFILL_BUTTON_SIZE}
                     onClick={onCancelDownload}
-                    disabled={disabled || action === 'download'}
+                    disabled={disabled || action === 'download' || !container?.runId}
                     loading={action === 'cancel'}
                   >
                     {t(`${baseKey}.persistentContainer.cancelDownload`)}
@@ -456,7 +495,7 @@ export function ScheduledPrefillPersistentCard({
                     color="run"
                     size={SCHEDULED_PREFILL_BUTTON_SIZE}
                     onClick={onDownload}
-                    disabled={disabled || selectedGamesCount === 0 || action === 'cancel'}
+                    disabled={disabled || action === 'cancel'}
                     loading={action === 'download'}
                   >
                     {t(`${baseKey}.persistentContainer.downloadNow`)}

@@ -2,6 +2,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
+using LancacheManager.Infrastructure.Services;
 using Microsoft.Extensions.Options;
 
 
@@ -15,6 +16,7 @@ namespace LancacheManager.Core.Services;
 public partial class SteamDaemonService : PrefillDaemonServiceBase
 {
     private const string SteamDockerImage = "ghcr.io/regix1/steam-prefill-daemon:latest";
+    private readonly SteamAuthStorageService? _authStorage;
 
     public SteamDaemonService(
         ILogger<SteamDaemonService> logger,
@@ -28,9 +30,11 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
         ILancacheServerLocator locator,
         IPrefillContainerGatewayFactory containerGatewayFactory,
         IActivityRegistry? activityRegistry = null,
-        IUnifiedOperationTracker? operationTracker = null)
+        IUnifiedOperationTracker? operationTracker = null,
+        SteamAuthStorageService? authStorage = null)
         : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, locator, containerGatewayFactory, activityRegistry, operationTracker)
     {
+        _authStorage = authStorage;
     }
 
     // === Abstract property implementations ===
@@ -43,6 +47,57 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
         => _configuration["Prefill:SteamDockerImage"] ?? SteamDockerImage;
     protected override int GetGuestPermissionDurationHours()
         => _stateService.GetGuestPrefillDurationHours();
+
+
+    public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId)
+    {
+        if (accountId is null)
+        {
+            return new(false, null, "account-required");
+        }
+
+        var auth = _authStorage?.GetSavedLogin(accountId.Value);
+        if (auth is null || !string.Equals(auth.Mode, "authenticated", StringComparison.OrdinalIgnoreCase))
+        {
+            return new(false, null, "no-saved-login");
+        }
+
+        if (string.IsNullOrWhiteSpace(auth.Username) || string.IsNullOrWhiteSpace(auth.RefreshToken))
+        {
+            return new(false, null, "no-saved-login");
+        }
+
+        return new(true, auth.Username, null);
+    }
+
+    protected override async Task<bool> ReuseIntegrationLoginAsync(
+        DaemonSession session,
+        Guid accountId,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken)
+    {
+        var auth = _authStorage?.GetSavedLogin(accountId);
+        if (auth is null
+            || !string.Equals(auth.Mode, "authenticated", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(auth.Username)
+            || string.IsNullOrWhiteSpace(auth.RefreshToken))
+        {
+            return false;
+        }
+
+        if (await _sessionService.IsUsernameBannedAsync(auth.Username))
+        {
+            throw new UnauthorizedAccessException("This Steam account has been banned from using prefill.");
+        }
+
+        EnsureCurrentSession(session);
+        return await session.Client.ProvideAutoLoginWithDispatchAsync(
+            session.Id,
+            auth.Username,
+            auth.RefreshToken,
+            onCommandDispatched,
+            cancellationToken);
+    }
 
     // === Diagnostics ===
 

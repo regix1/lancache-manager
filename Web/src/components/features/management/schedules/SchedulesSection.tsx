@@ -1129,8 +1129,8 @@ interface ScheduledPrefillCardProps {
   service: ServiceScheduleInfo;
   isAdmin: boolean;
   onRunNow: (key: string) => Promise<void>;
-  onRunService: (platform: ScheduledPrefillServiceId) => Promise<void>;
-  isRunServicePending: (platform: ScheduledPrefillServiceId) => boolean;
+  onRunService: (platform: ScheduledPrefillServiceId, scheduleId: string) => Promise<void>;
+  isRunServicePending: (platform: ScheduledPrefillServiceId, scheduleId: string) => boolean;
   isPendingRun: boolean;
   justCompleted: boolean;
   completedVariant: HighlightGlowVariant;
@@ -1173,8 +1173,8 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
   }, [service.key, onRunNow]);
 
   const handleRunService = useCallback(
-    (platform: ScheduledPrefillServiceId) => {
-      void onRunService(platform);
+    (platform: ScheduledPrefillServiceId, scheduleId: string) => {
+      void onRunService(platform, scheduleId);
     },
     [onRunService]
   );
@@ -1768,15 +1768,16 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   // One scheduled-prefill platform, started from its own table row. The platform names and the
   // twelve schedule keys share the pending set without colliding, so the same hook covers both.
   const handleRunService = useCallback(
-    async (platform: ScheduledPrefillServiceId) => {
+    async (platform: ScheduledPrefillServiceId, scheduleId: string) => {
       const serviceKey = SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[platform];
       const displayName = t(
         `management.schedules.services.scheduledPrefill.config.services.${serviceKey}`
       );
-      markStarting(platform);
+      const pendingKey = `${platform}:${scheduleId}`;
+      markStarting(pendingKey);
 
       try {
-        const result = await ApiService.runScheduledPrefillService(platform);
+        const result = await ApiService.runScheduledPrefillService(platform, scheduleId);
         // Two outcomes now: it started, or this platform was already running. A run started on its
         // own task no longer waits behind another platform's run, so there is no queued outcome left
         // to word. A refused start is left pending on purpose: the platform is running, and clearing
@@ -1797,7 +1798,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           }
         });
       } catch (err: unknown) {
-        clearPending(platform);
+        clearPending(pendingKey);
         addNotification({
           type: 'generic',
           status: 'failed',
@@ -1907,7 +1908,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           isAdmin={isAdmin}
           onRunNow={handleRunNow}
           onRunService={handleRunService}
-          isRunServicePending={isPending}
+          isRunServicePending={(platform, scheduleId) => isPending(`${platform}:${scheduleId}`)}
           isPendingRun={isPending(prefillSchedule.key)}
           justCompleted={!!completedKeys[prefillSchedule.key]}
           completedVariant={completedKeys[prefillSchedule.key] ?? 'navigate'}

@@ -114,6 +114,8 @@ public class ScheduledPrefillCustomScheduleTests
         var row = new ScheduledPrefillServiceScheduleDto
         {
             ServiceId = PrefillPlatform.Steam,
+            ScheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
+            Name = "Default",
             IntervalHours = 0d,
             Enabled = true,
             IsRunning = false,
@@ -137,7 +139,7 @@ public class ScheduledPrefillCustomScheduleTests
 
         foreach (var service in config.GetServicesInRunOrder())
         {
-            Assert.Null(service.CustomSchedule);
+            Assert.All(service.Schedules, schedule => Assert.Null(schedule.CustomSchedule));
         }
     }
 
@@ -178,8 +180,9 @@ public class ScheduledPrefillCustomScheduleTests
 
         var reset = ScheduledPrefillConfigFactory.ResetNotificationModes(config);
 
-        AssertIsDailySchedule(reset.Steam.CustomSchedule);
-        Assert.Equal(NotificationMode.All, reset.Steam.NotificationMode);
+        var record = Assert.Single(reset.Steam.Schedules);
+        AssertIsDailySchedule(record.CustomSchedule);
+        Assert.Equal(NotificationMode.All, record.NotificationMode);
     }
 
     [Fact]
@@ -192,8 +195,9 @@ public class ScheduledPrefillCustomScheduleTests
 
         var validated = ScheduledPrefillConfigFactory.Validate(ReplaceBattleNet(config, battleNet));
 
-        Assert.Equal(ScheduledPrefillPreset.All, validated.BattleNet.Preset);
-        AssertIsDailySchedule(validated.BattleNet.CustomSchedule);
+        var record = Assert.Single(validated.BattleNet.Schedules);
+        Assert.Equal(ScheduledPrefillPreset.All, record.Preset);
+        AssertIsDailySchedule(record.CustomSchedule);
     }
 
     [Fact]
@@ -209,8 +213,9 @@ public class ScheduledPrefillCustomScheduleTests
 
         var validated = ScheduledPrefillConfigFactory.Validate(ReplaceEpic(config, epic));
 
-        Assert.Empty(validated.Epic.OperatingSystems);
-        AssertIsDailySchedule(validated.Epic.CustomSchedule);
+        var record = Assert.Single(validated.Epic.Schedules);
+        Assert.Empty(record.OperatingSystems);
+        AssertIsDailySchedule(record.CustomSchedule);
     }
 
     // ---- Version ----
@@ -218,7 +223,7 @@ public class ScheduledPrefillCustomScheduleTests
     [Fact]
     public void CurrentVersion_IsTheVersionThatCarriesCustomSchedules()
     {
-        Assert.Equal(5, ScheduledPrefillConfigFactory.CurrentVersion);
+        Assert.Equal(6, ScheduledPrefillConfigFactory.CurrentVersion);
     }
 
     [Fact]
@@ -383,11 +388,33 @@ public class ScheduledPrefillCustomScheduleTests
         ScheduledPrefillPreset? preset = null,
         List<ScheduledPrefillOperatingSystem>? operatingSystems = null,
         bool clearNotificationMode = false)
-        => new()
+    {
+        var schedules = service.Schedules.Count == 0
+            ? []
+            : service.Schedules.Select(record => new ScheduledPrefillSchedule
+            {
+                Id = record.Id,
+                Name = record.Name,
+                Enabled = record.Enabled,
+                IntervalHours = intervalHours ?? record.IntervalHours,
+                CustomSchedule = schedule ?? record.CustomSchedule,
+                Preset = preset ?? record.Preset,
+                TopCount = preset == ScheduledPrefillPreset.Top ? record.TopCount : null,
+                SelectedAppIds = [.. record.SelectedAppIds],
+                OperatingSystems = operatingSystems ?? [.. record.OperatingSystems],
+                Force = record.Force,
+                MaxConcurrency = record.MaxConcurrency,
+                NotificationMode = clearNotificationMode ? NotificationMode.All : record.NotificationMode,
+                NotificationDisplayMode = record.NotificationDisplayMode
+            }).ToList();
+
+        return new ScheduledPrefillServiceConfigDto
         {
             ServiceId = service.ServiceId,
+            Schedules = schedules,
             Enabled = service.Enabled,
             NotificationMode = clearNotificationMode ? null : service.NotificationMode,
+            NotificationDisplayMode = service.NotificationDisplayMode,
             IntervalHours = intervalHours ?? service.IntervalHours,
             Preset = preset ?? service.Preset,
             TopCount = service.TopCount,
@@ -398,6 +425,7 @@ public class ScheduledPrefillCustomScheduleTests
             PersistenceMode = service.PersistenceMode,
             CustomSchedule = schedule ?? service.CustomSchedule
         };
+    }
 
     private static ScheduledPrefillConfigDto ConfigAtVersion(int version)
     {

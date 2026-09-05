@@ -11,7 +11,7 @@ namespace LancacheManager.Core.Services.Xbox;
 /// <c>EpicMappingService.Authentication.cs</c> in shape (auth state + login + logout +
 /// startup auto-reconnect, feeding the EXISTING <c>MergeDaemonCatalogAsync</c> + <c>ResolveDownloadsAsync</c>),
 /// but adapted for the MSA device-code grant: the backend POLLS the token endpoint in the background
-/// instead of accepting a pasted code, so <see cref="StartLoginAsync"/> returns a device-code challenge
+/// instead of accepting a pasted code, so <see cref="StartLoginAsync(Guid?, CancellationToken)"/> returns a device-code challenge
 /// and authentication state is surfaced separately from the tracked mapping lifecycle.
 /// </summary>
 public partial class XboxCatalogMappingService
@@ -91,7 +91,12 @@ public partial class XboxCatalogMappingService
     /// No Docker container and no prefill daemon are involved. Authentication state is emitted over
     /// <see cref="SignalREvents.XboxMappingAuthStateChanged"/>; catalog mapping starts only after approval.
     /// </summary>
-    public async Task<XboxDeviceCodeChallenge> StartLoginAsync(CancellationToken ct = default)
+    public Task<XboxDeviceCodeChallenge> StartLoginAsync(CancellationToken ct = default)
+        => StartLoginAsync(null, ct);
+
+    public async Task<XboxDeviceCodeChallenge> StartLoginAsync(
+        Guid? ownerAccountId,
+        CancellationToken ct = default)
     {
         // Single admin, last-writer-wins: a prior login that was abandoned (modal closed without
         // approving) is SUPERSEDED here rather than blocking this one, so re-clicking Login always works
@@ -100,18 +105,6 @@ public partial class XboxCatalogMappingService
         await _loginStartLock.WaitAsync(ct);
         try
         {
-            // Cancel any stale in-flight login poll before starting a fresh one. The old poll loop observes
-            // the cancellation, emits a terminal "cancelled" event, and disposes its own reporter in its
-            // finally.
-            try
-            {
-                _loginReporter?.RequestCancellation();
-            }
-            catch (ObjectDisposedException)
-            {
-                // Old poll already finished.
-            }
-
             // Build the login's reporter BEFORE the device-code request so ONE tracked operation covers the
             // whole sign-in, and link its token to shutdown, so a logout (or host shutdown) can cancel the
             // flow even during RequestDeviceCodeAsync, and so the entire background poll - which outlives
@@ -126,7 +119,28 @@ public partial class XboxCatalogMappingService
                 _refreshShowNotification,
                 _shutdownCts.Token,
                 _logger);
-            _loginReporter = reporter;
+
+            await _authSessionLock.WaitAsync(CancellationToken.None);
+            try
+            {
+                // Cancel any stale in-flight login poll before starting a fresh one. The old poll loop observes
+                // the cancellation, emits a terminal "cancelled" event, and disposes its own reporter in its
+                // finally.
+                try
+                {
+                    _loginReporter?.RequestCancellation();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Old poll already finished.
+                }
+
+                _loginReporter = reporter;
+            }
+            finally
+            {
+                _authSessionLock.Release();
+            }
 
             try
             {
@@ -138,16 +152,21 @@ public partial class XboxCatalogMappingService
                     deviceCode = await _authClient.RequestDeviceCodeAsync(requestCts.Token);
                 }
 
-                // Restore the stable device identity from storage, or create a fresh one (persisted on
-                // success so the signed device token keeps validating across restarts).
-                var authData = _authStorage.GetAuthData();
+                // Restore only the initiating account's private device identity, or create a fresh one.
+                // The shared active record belongs to the current integration connection and must not
+                // supply a different account's signing key to a new device-code attempt.
+                var authData = ownerAccountId is { } accountId
+                    ? _authStorage.GetSavedLogin(accountId)
+                    : new XboxAuthData();
                 var signer = !string.IsNullOrEmpty(authData.DeviceKeyPkcs8)
                     ? XblRequestSigner.FromPkcs8Base64(authData.DeviceKeyPkcs8)
                     : XblRequestSigner.CreateNew();
 
                 // Device-code grant: the BACKEND polls. Fire-and-forget the poll loop; it registers the
                 // tracked operation and emits auth-state, and disposes the reporter when it finishes.
-                _ = Task.Run(() => RunLoginPollAsync(deviceCode, signer, reporter), CancellationToken.None);
+                _ = Task.Run(
+                    () => RunLoginPollAsync(deviceCode, signer, reporter, ownerAccountId),
+                    CancellationToken.None);
 
                 return new XboxDeviceCodeChallenge
                 {
@@ -160,9 +179,17 @@ public partial class XboxCatalogMappingService
             catch
             {
                 // The poll loop never started, so dispose the reporter here so the user can retry.
-                if (ReferenceEquals(_loginReporter, reporter))
+                await _authSessionLock.WaitAsync(CancellationToken.None);
+                try
                 {
-                    _loginReporter = null;
+                    if (ReferenceEquals(_loginReporter, reporter))
+                    {
+                        _loginReporter = null;
+                    }
+                }
+                finally
+                {
+                    _authSessionLock.Release();
                 }
                 await reporter.DisposeAsync();
                 throw;
@@ -181,7 +208,10 @@ public partial class XboxCatalogMappingService
     /// terminal auth-state event.
     /// </summary>
     private async Task RunLoginPollAsync(
-        XboxDeviceCodeResponse deviceCode, XblRequestSigner signer, MappingOperationReporter reporter)
+        XboxDeviceCodeResponse deviceCode,
+        XblRequestSigner signer,
+        MappingOperationReporter reporter,
+        Guid? ownerAccountId)
     {
         var refreshGateHeld = false;
         try
@@ -231,7 +261,6 @@ public partial class XboxCatalogMappingService
             {
                 await _mappingService.MergeDaemonCatalogAsync(harvest.CdnInfos, reporter.Token);
             }
-            _gamesDiscovered = harvest.CdnInfos.Count;
             await reporter.ReportAsync(
                 70,
                 "signalr.xboxMapping.resolving",
@@ -245,12 +274,17 @@ public partial class XboxCatalogMappingService
                 // A concurrent logout cancels this login's CTS and clears credentials while holding the
                 // same lock. Re-check under the lock so we never persist or keep credentials a logout just
                 // cleared (which would leave the session in-memory-authenticated with no stored creds).
+                if (!ReferenceEquals(_loginReporter, reporter))
+                {
+                    throw new OperationCanceledException();
+                }
                 reporter.Token.ThrowIfCancellationRequested();
 
                 // Persist credentials (refresh token + device key) for auto-reconnect, atomically with the
                 // in-memory state under the lock so logout and login-success are mutually exclusive.
                 _authStorage.SaveAuthData(new XboxAuthData
                 {
+                    OwnerAccountId = ownerAccountId,
                     RefreshToken = msaToken.RefreshToken,
                     DeviceKeyPkcs8 = signer.ExportPkcs8Base64(),
                     DisplayName = harvest.DisplayName,
@@ -365,9 +399,17 @@ public partial class XboxCatalogMappingService
                 }
 
                 signer.Dispose();
-                if (ReferenceEquals(_loginReporter, reporter))
+                await _authSessionLock.WaitAsync(CancellationToken.None);
+                try
                 {
-                    _loginReporter = null;
+                    if (ReferenceEquals(_loginReporter, reporter))
+                    {
+                        _loginReporter = null;
+                    }
+                }
+                finally
+                {
+                    _authSessionLock.Release();
                 }
             }
         }

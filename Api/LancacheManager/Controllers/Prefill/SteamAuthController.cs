@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using LancacheManager.Core.Services.SteamKit2;
+using LancacheManager.Middleware;
 
 
 namespace LancacheManager.Controllers;
@@ -82,14 +83,12 @@ public class SteamAuthController : ControllerBase
                 request.Password,
                 request.TwoFactorCode,
                 request.EmailCode,
-                request.AllowMobileConfirmation
+                request.AllowMobileConfirmation,
+                HttpContext.GetUserSession()?.AccountId
             );
 
             if (result.Success)
             {
-                _stateService.SetSteamAuthMode(SteamAuthMode.Authenticated);
-                _stateService.SetSteamUsername(request.Username);
-
                 _logger.LogInformation("Steam authentication successful for user: {Username}", request.Username);
 
                 // The sign-in's own operation is already finished by the time AuthenticateAsync

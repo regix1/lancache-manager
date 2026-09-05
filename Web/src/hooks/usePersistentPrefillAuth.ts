@@ -12,6 +12,7 @@ import type { SteamAuthActions, SteamLoginFlowState } from './useSteamAuthentica
 import {
   applyPersistentLoginChallenge,
   armPersistentLoginTimeout,
+  clearPersistentLoginIntegrationReuse,
   consumePersistentLoginStartRequest,
   derivePersistentChallengeFlags,
   endPersistentLogin,
@@ -234,6 +235,7 @@ export function usePersistentPrefillAuth(
 
   const fail = useCallback(
     (message: string) => {
+      clearPersistentLoginIntegrationReuse(service);
       updatePersistentLoginState(service, (current) => ({
         ...current,
         error: message,
@@ -476,7 +478,8 @@ export function usePersistentPrefillAuth(
           service,
           startRequest?.sessionId,
           startRequest?.editSessionId,
-          startRequest?.editActionId
+          startRequest?.editActionId,
+          startRequest?.reuseIntegration
         );
         const epochStale = getPersistentLoginEpoch(service) !== startEpoch;
         if (epochStale || isPersistentLoginCancelled(service)) {

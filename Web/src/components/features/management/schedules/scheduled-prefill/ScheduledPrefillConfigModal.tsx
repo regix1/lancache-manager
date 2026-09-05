@@ -15,9 +15,11 @@ import {
   PERSISTENT_PREFILL_SERVICES,
   PERSISTENT_PREFILL_VALIDITY_BOUNDS
 } from '@components/features/prefill/persistentPrefillConstants';
-import type {
-  PersistentPrefillContainerDto,
-  PersistentPrefillServiceId
+import {
+  getPersistentPrefillRunOptions,
+  type PersistentIntegrationLoginAvailability,
+  type PersistentPrefillContainerDto,
+  type PersistentPrefillServiceId
 } from '@components/features/prefill/persistentPrefillTypes';
 import {
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
@@ -31,6 +33,7 @@ import {
 import { ScheduledPrefillPlatformsPanel } from './ScheduledPrefillPlatformsPanel';
 import {
   getPersistentServiceId,
+  isScheduledPrefillAccountService,
   isScheduledPrefillAnonymousService,
   needsPersistentLogin
 } from './scheduledPrefillPlatformUi';
@@ -40,6 +43,7 @@ import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPe
 import {
   endPersistentLogin,
   hasActivePersistentLogin,
+  isPersistentLoginIntegrationReuse,
   isPersistentLoginDismissed,
   reconcilePersistentLoginFromServer,
   requestPersistentLoginAttempt,
@@ -68,9 +72,9 @@ import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillCont
 import { usePersistentLoginChallengeSignalR } from './usePersistentLoginChallengeSignalR';
 import type {
   ScheduledPrefillConfigDto,
-  ScheduledPrefillOperatingSystem,
   ScheduledPrefillPersistenceMode,
   ScheduledPrefillServiceConfigDto,
+  ScheduledPrefillSchedule,
   ScheduledPrefillServiceKey
 } from './types';
 import { getErrorMessage, isAbortError } from '@utils/error';
@@ -78,9 +82,12 @@ import { sessionStore } from '@utils/storage';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useAuth } from '@contexts/useAuth';
 
 interface ScheduledPrefillConfigModalProps {
   opened: boolean;
+  initialServiceKey?: ScheduledPrefillServiceKey;
+  initialScheduleId?: string;
   onClose: () => void;
   onSaved?: () => void | Promise<void>;
 }
@@ -92,6 +99,7 @@ interface ScheduledPrefillOwnedGame {
 
 interface ScheduledPrefillGameSelectionState {
   serviceKey: ScheduledPrefillServiceKey;
+  scheduleId: string;
   sessionId: string;
   games: ScheduledPrefillOwnedGame[];
   cachedAppIds: string[];
@@ -111,57 +119,38 @@ const isScheduledPrefillPersistenceMode = (
 ): value is ScheduledPrefillPersistenceMode =>
   (PERSISTENCE_MODE_OPTIONS as readonly string[]).includes(value);
 
-const mapOperatingSystems = (
-  operatingSystems: ScheduledPrefillOperatingSystem[]
-): string[] | undefined => {
-  if (operatingSystems.length === 0) {
-    return undefined;
-  }
-
-  return operatingSystems.map((os) => {
-    switch (os) {
-      case 'Windows':
-        return 'windows';
-      case 'Linux':
-        return 'linux';
-      case 'Macos':
-        return 'macos';
-    }
-  });
-};
-
 const clampToBounds = (value: number, bounds: NumericBounds): number =>
   Math.min(bounds.max, Math.max(bounds.min, Math.trunc(value)));
 
 const reconcileServiceConfigPreset = (
   serviceKey: ScheduledPrefillServiceKey,
-  serviceConfig: ScheduledPrefillServiceConfigDto
-): ScheduledPrefillServiceConfigDto => {
-  if (SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes(serviceConfig.preset)) {
-    return serviceConfig;
+  schedule: ScheduledPrefillSchedule
+): ScheduledPrefillSchedule => {
+  if (SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes(schedule.preset)) {
+    return schedule;
   }
 
   // A config saved before this service's preset options were capability-gated (or written
   // directly via the API) can carry a preset this service no longer offers. Fall back to 'All' at
   // load time so the segmented control always shows a valid active selection instead of nothing.
-  return { ...serviceConfig, preset: 'All', topCount: null };
+  return { ...schedule, preset: 'All', topCount: null };
 };
 
 const reconcileServiceConfigOperatingSystems = (
   serviceKey: ScheduledPrefillServiceKey,
-  serviceConfig: ScheduledPrefillServiceConfigDto
-): ScheduledPrefillServiceConfigDto => {
+  schedule: ScheduledPrefillSchedule
+): ScheduledPrefillSchedule => {
   const supportedOperatingSystems = SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS[serviceKey];
-  if (serviceConfig.operatingSystems.every((os) => supportedOperatingSystems.includes(os))) {
-    return serviceConfig;
+  if (schedule.operatingSystems.every((os) => supportedOperatingSystems.includes(os))) {
+    return schedule;
   }
 
   // A config saved before this service's platform selection was capability-gated (or written
   // directly via the API) can carry OS values this service no longer supports. Drop them at load
   // time so the (now-hidden, for this service) field never resurfaces an unsupported selection.
   return {
-    ...serviceConfig,
-    operatingSystems: serviceConfig.operatingSystems.filter((os) =>
+    ...schedule,
+    operatingSystems: schedule.operatingSystems.filter((os) =>
       supportedOperatingSystems.includes(os)
     )
   };
@@ -170,11 +159,15 @@ const reconcileServiceConfigOperatingSystems = (
 const reconcileServiceConfig = (
   serviceKey: ScheduledPrefillServiceKey,
   serviceConfig: ScheduledPrefillServiceConfigDto
-): ScheduledPrefillServiceConfigDto =>
-  reconcileServiceConfigOperatingSystems(
-    serviceKey,
-    reconcileServiceConfigPreset(serviceKey, serviceConfig)
-  );
+): ScheduledPrefillServiceConfigDto => ({
+  ...serviceConfig,
+  schedules: serviceConfig.schedules.map((schedule) =>
+    reconcileServiceConfigOperatingSystems(
+      serviceKey,
+      reconcileServiceConfigPreset(serviceKey, schedule)
+    )
+  )
+});
 
 const reconcileScheduledPrefillConfig = (
   rawConfig: ScheduledPrefillConfigDto
@@ -188,27 +181,27 @@ const reconcileScheduledPrefillConfig = (
 });
 
 const validateServiceConfig = (
-  serviceConfig: ScheduledPrefillServiceConfigDto,
+  schedule: ScheduledPrefillSchedule,
   serviceKey: ScheduledPrefillServiceKey,
   serviceName: string,
   t: (key: string, values?: Record<string, string | number>) => string
 ): string | null => {
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
 
-  if (!serviceConfig.enabled) {
+  if (!schedule.enabled) {
     return null;
   }
 
   // Defense-in-depth: config is reconciled at load time, so this should not normally trigger, but
   // it guarantees an unsupported preset+service combination can never be silently re-saved.
-  if (!SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes(serviceConfig.preset)) {
+  if (!SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes(schedule.preset)) {
     return t(`${baseKey}.validation.unsupportedPreset`, {
       service: serviceName,
-      preset: t(`${baseKey}.presets.${serviceConfig.preset.toLowerCase()}`)
+      preset: t(`${baseKey}.presets.${schedule.preset.toLowerCase()}`)
     });
   }
 
-  if (serviceConfig.preset === 'Top' && (!serviceConfig.topCount || serviceConfig.topCount < 1)) {
+  if (schedule.preset === 'Top' && (!schedule.topCount || schedule.topCount < 1)) {
     return t(`${baseKey}.validation.topCount`, { service: serviceName });
   }
 
@@ -216,15 +209,15 @@ const validateServiceConfig = (
   // never populate this list - only require a selection where the field is actually shown.
   if (
     SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS[serviceKey].length > 0 &&
-    serviceConfig.operatingSystems.length === 0
+    schedule.operatingSystems.length === 0
   ) {
     return t(`${baseKey}.validation.operatingSystems`, { service: serviceName });
   }
 
   if (
-    serviceConfig.maxConcurrency.mode === 'Fixed' &&
-    (serviceConfig.maxConcurrency.value < SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min ||
-      serviceConfig.maxConcurrency.value > SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.max)
+    schedule.maxConcurrency.mode === 'Fixed' &&
+    (schedule.maxConcurrency.value < SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min ||
+      schedule.maxConcurrency.value > SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.max)
   ) {
     return t(`${baseKey}.validation.maxConcurrency`, {
       service: serviceName,
@@ -263,10 +256,13 @@ const previewReloginWindow = (
 
 export function ScheduledPrefillConfigModal({
   opened,
+  initialServiceKey,
+  initialScheduleId,
   onClose,
   onSaved
 }: ScheduledPrefillConfigModalProps) {
   const { t } = useTranslation();
+  const { accountId, authMode, sessionId } = useAuth();
   const { on: onSignalR, off: offSignalR, isConnected } = useSignalR();
   // CustomScrollbar's own maxHeight="100%" does not reliably resolve here: this modal's body is a
   // pure flex-grow chain with no explicit CSS height anywhere in it, and a plain block descendant's
@@ -284,7 +280,10 @@ export function ScheduledPrefillConfigModal({
   const [config, setConfig] = useState<ScheduledPrefillConfigDto | null>(null);
   /** The config as it arrived, to compare against on Cancel. */
   const loadedConfigRef = useRef<string | null>(null);
+  /** The persisted records, so Save can tell which enabled schedules it is about to overwrite. */
+  const persistedConfigRef = useRef<ScheduledPrefillConfigDto | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const [overwriteEnabledConfirmOpen, setOverwriteEnabledConfirmOpen] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -296,6 +295,12 @@ export function ScheduledPrefillConfigModal({
     PersistentPrefillContainerDto[] | null
   >(null);
   const [loadingPersistentContainers, setLoadingPersistentContainers] = useState(false);
+  const [integrationLoginAvailabilityByService, setIntegrationLoginAvailabilityByService] =
+    useState<Map<ScheduledPrefillServiceKey, PersistentIntegrationLoginAvailability>>(new Map());
+  const [integrationLoginAvailabilityIdentity, setIntegrationLoginAvailabilityIdentity] =
+    useState('');
+  const [loadingIntegrationLoginAvailability, setLoadingIntegrationLoginAvailability] =
+    useState(false);
   const [persistentError, setPersistentError] = useState<string | null>(null);
   const [persistentAction, setPersistentAction] =
     useState<ScheduledPrefillPersistentActionState | null>(null);
@@ -327,6 +332,11 @@ export function ScheduledPrefillConfigModal({
   const editSessionCleanupPromiseRef = useRef<Promise<void> | null>(null);
   const storedCleanupPromiseRef = useRef<Promise<void> | null>(null);
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
+  const privateAvailabilityIdentity = `${authMode}:${accountId ?? ''}:${sessionId ?? ''}`;
+  const privateAvailabilityIdentityRef = useRef(privateAvailabilityIdentity);
+  privateAvailabilityIdentityRef.current = privateAvailabilityIdentity;
+  const canUseSavedLogin = authMode === 'authenticated' && accountId !== null;
+  const requiresIndividualAccount = authMode === 'authenticated' && accountId === null;
 
   // Auto-dismiss the "logins cleared" success note so it does not linger forever.
   const scheduleClearLoginsSuccessDismiss = useTimeoutCallback(2500);
@@ -339,6 +349,7 @@ export function ScheduledPrefillConfigModal({
       // Snapshot what was loaded so Cancel can tell an edited form from an untouched one and only
       // warn about losing work when there is work to lose.
       loadedConfigRef.current = JSON.stringify(reconciled);
+      persistedConfigRef.current = reconciled;
       setConfig(reconciled);
       setLoadError(null);
     } catch (error: unknown) {
@@ -385,6 +396,114 @@ export function ScheduledPrefillConfigModal({
       persistentContainersRequestRef.current = null;
     }
   }, []);
+
+  const loadIntegrationLoginAvailability = useCallback(
+    async (signal?: AbortSignal) => {
+      const requestIdentity = privateAvailabilityIdentityRef.current;
+      if (!canUseSavedLogin) {
+        if (requestIdentity === privateAvailabilityIdentityRef.current) {
+          setIntegrationLoginAvailabilityByService(
+            new Map(
+              requiresIndividualAccount
+                ? SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map((serviceKey) => [
+                    serviceKey,
+                    { available: false, account: null, reason: 'account-required' }
+                  ])
+                : []
+            )
+          );
+          setIntegrationLoginAvailabilityIdentity(requestIdentity);
+          setLoadingIntegrationLoginAvailability(false);
+        }
+        return;
+      }
+
+      setLoadingIntegrationLoginAvailability(true);
+      try {
+        const availability = await Promise.all(
+          SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map(async (serviceKey) => {
+            try {
+              const result = await ApiService.getPersistentIntegrationLoginAvailability(
+                getPersistentServiceId(serviceKey),
+                signal
+              );
+              return [serviceKey, result] as const;
+            } catch (error: unknown) {
+              if (isAbortError(error)) {
+                throw error;
+              }
+              return [serviceKey, { available: false, account: null, reason: 'unknown' }] as const;
+            }
+          })
+        );
+        if (requestIdentity === privateAvailabilityIdentityRef.current) {
+          setIntegrationLoginAvailabilityByService(new Map(availability));
+          setIntegrationLoginAvailabilityIdentity(requestIdentity);
+        }
+      } catch (error: unknown) {
+        if (!isAbortError(error) && requestIdentity === privateAvailabilityIdentityRef.current) {
+          setIntegrationLoginAvailabilityByService(
+            new Map(
+              SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map((serviceKey) => [
+                serviceKey,
+                { available: false, account: null, reason: 'unknown' }
+              ])
+            )
+          );
+          setIntegrationLoginAvailabilityIdentity(requestIdentity);
+        }
+      } finally {
+        if (!signal?.aborted && requestIdentity === privateAvailabilityIdentityRef.current) {
+          setLoadingIntegrationLoginAvailability(false);
+        }
+      }
+    },
+    [canUseSavedLogin, requiresIndividualAccount]
+  );
+
+  const visibleIntegrationLoginAvailabilityByService = useMemo(
+    () =>
+      integrationLoginAvailabilityIdentity === privateAvailabilityIdentity
+        ? integrationLoginAvailabilityByService
+        : new Map<ScheduledPrefillServiceKey, PersistentIntegrationLoginAvailability>(),
+    [
+      integrationLoginAvailabilityByService,
+      integrationLoginAvailabilityIdentity,
+      privateAvailabilityIdentity
+    ]
+  );
+
+  const privateAvailabilityIdentityAppliedRef = useRef(privateAvailabilityIdentity);
+  useEffect(() => {
+    if (privateAvailabilityIdentityAppliedRef.current === privateAvailabilityIdentity) {
+      return;
+    }
+
+    privateAvailabilityIdentityAppliedRef.current = privateAvailabilityIdentity;
+    const privateReuseServiceKeys = SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.filter((serviceKey) =>
+      isPersistentLoginIntegrationReuse(getPersistentServiceId(serviceKey))
+    );
+    for (const serviceKey of privateReuseServiceKeys) {
+      resetPersistentLoginState(getPersistentServiceId(serviceKey));
+    }
+    setPersistentLoginTarget((current) =>
+      current &&
+      isScheduledPrefillAccountService(current) &&
+      privateReuseServiceKeys.includes(current)
+        ? null
+        : current
+    );
+  }, [privateAvailabilityIdentity]);
+
+  useEffect(() => {
+    if (!opened) {
+      return;
+    }
+
+    const controller = new AbortController();
+    void loadIntegrationLoginAvailability(controller.signal);
+    return () => controller.abort();
+  }, [opened, privateAvailabilityIdentity, loadIntegrationLoginAvailability]);
 
   const loadGlobalSettings = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -605,7 +724,9 @@ export function ScheduledPrefillConfigModal({
     const sessionIdByService = {} as Record<ScheduledPrefillEditSessionServiceId, string | null>;
     for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
       const serviceId = getPersistentServiceId(serviceKey);
-      selectedAppIdsByService[serviceId] = [...config[serviceKey].selectedAppIds];
+      selectedAppIdsByService[serviceId] = [
+        ...(config[serviceKey].schedules[0]?.selectedAppIds ?? [])
+      ];
       sessionIdByService[serviceId] =
         persistentContainerByService.get(serviceId)?.sessionId ?? null;
     }
@@ -657,7 +778,7 @@ export function ScheduledPrefillConfigModal({
   const persistentEnabledSignature = useMemo(
     () =>
       SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map((serviceKey) =>
-        config?.[serviceKey].enabled ? '1' : '0'
+        config?.[serviceKey].schedules.some((schedule) => schedule.enabled) ? '1' : '0'
       ).join(''),
     [config]
   );
@@ -731,7 +852,7 @@ export function ScheduledPrefillConfigModal({
         // regardless of whether the current schedule enables it). configRef is read (not `config`)
         // so this effect need not depend on the whole config object; persistentEnabledSignature in
         // the dep array re-runs it when an enabled toggle actually flips.
-        if (!configRef.current?.[serviceKey].enabled) {
+        if (!configRef.current?.[serviceKey].schedules.some((schedule) => schedule.enabled)) {
           continue;
         }
         // Read through the ref (not the closed-over map) so this effect can depend on the reconcile
@@ -798,17 +919,16 @@ export function ScheduledPrefillConfigModal({
     return map;
   }, [persistentContainerByService, persistentValidityDays, savedValidityDays]);
 
-  const selectedGamesCountByServiceKey = useMemo(() => {
-    const counts = {} as Record<ScheduledPrefillServiceKey, number>;
+  const selectedGamesCountByScheduleId = useMemo(() => {
+    const counts: Record<string, number> = {};
     if (!config) {
-      for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
-        counts[serviceKey] = 0;
-      }
       return counts;
     }
 
     for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
-      counts[serviceKey] = config[serviceKey].selectedAppIds.length;
+      for (const schedule of config[serviceKey].schedules) {
+        counts[schedule.id] = schedule.selectedAppIds.length;
+      }
     }
     return counts;
   }, [config]);
@@ -985,9 +1105,11 @@ export function ScheduledPrefillConfigModal({
 
     for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
       const serviceName = t(`${baseKey}.services.${serviceKey}`);
-      const error = validateServiceConfig(config[serviceKey], serviceKey, serviceName, t);
-      if (error) {
-        return error;
+      for (const schedule of config[serviceKey].schedules) {
+        const error = validateServiceConfig(schedule, serviceKey, serviceName, t);
+        if (error) {
+          return error;
+        }
       }
     }
 
@@ -997,11 +1119,32 @@ export function ScheduledPrefillConfigModal({
   const enabledCount = useMemo(
     () =>
       config
-        ? SCHEDULED_PREFILL_SERVICE_RUN_ORDER.filter((serviceKey) => config[serviceKey].enabled)
-            .length
+        ? SCHEDULED_PREFILL_SERVICE_RUN_ORDER.flatMap(
+            (serviceKey) => config[serviceKey].schedules
+          ).filter((schedule) => schedule.enabled).length
         : 0,
     [config]
   );
+
+  // Same unit as enabledCount: every named record across the five platforms, not the platforms.
+  const totalCount = useMemo(
+    () =>
+      config
+        ? SCHEDULED_PREFILL_SERVICE_RUN_ORDER.reduce(
+            (count, serviceKey) => count + config[serviceKey].schedules.length,
+            0
+          )
+        : 0,
+    [config]
+  );
+
+  // The record the card asked to open, or nothing when the loaded config no longer has it: a
+  // deleted record must never leave a stale selection behind for Save to write against.
+  const openedScheduleId =
+    config && initialServiceKey && initialScheduleId
+      ? config[initialServiceKey].schedules.find((schedule) => schedule.id === initialScheduleId)
+          ?.id
+      : undefined;
 
   // Names of the enabled account services whose persistent container needs login (the
   // authWarning i18n key interpolates them, so the warning says WHICH services are blocked).
@@ -1017,7 +1160,7 @@ export function ScheduledPrefillConfigModal({
     }
 
     return SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.filter((serviceId) => {
-      if (!config[serviceId].enabled) {
+      if (!config[serviceId].schedules.some((schedule) => schedule.enabled)) {
         return false;
       }
 
@@ -1088,11 +1231,92 @@ export function ScheduledPrefillConfigModal({
     setClearLoginsSuccessNote(null);
   };
 
-  const handleServiceChange = (
+  const handleScheduleChange = (
     serviceKey: ScheduledPrefillServiceKey,
-    serviceConfig: ScheduledPrefillServiceConfigDto
+    schedule: ScheduledPrefillSchedule
   ) => {
-    setConfig((current) => (current ? { ...current, [serviceKey]: serviceConfig } : current));
+    setConfig((current) =>
+      current
+        ? {
+            ...current,
+            [serviceKey]: {
+              ...current[serviceKey],
+              schedules: current[serviceKey].schedules.map((currentSchedule) =>
+                currentSchedule.id === schedule.id ? schedule : currentSchedule
+              )
+            }
+          }
+        : current
+    );
+    setValidationError(null);
+    setSaveError(null);
+  };
+
+  const handleAddSchedule = (serviceKey: ScheduledPrefillServiceKey) => {
+    setConfig((current) => {
+      const source = current?.[serviceKey].schedules[0];
+      if (!current || !source) {
+        return current;
+      }
+      return {
+        ...current,
+        [serviceKey]: {
+          ...current[serviceKey],
+          schedules: [
+            ...current[serviceKey].schedules,
+            {
+              ...source,
+              id: crypto.randomUUID(),
+              name: t(`${baseKey}.records.newName`),
+              enabled: false
+            }
+          ]
+        }
+      };
+    });
+    setValidationError(null);
+    setSaveError(null);
+  };
+
+  const handleDuplicateSchedule = (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => {
+    setConfig((current) => {
+      const source = current?.[serviceKey].schedules.find((schedule) => schedule.id === scheduleId);
+      if (!current || !source) {
+        return current;
+      }
+      return {
+        ...current,
+        [serviceKey]: {
+          ...current[serviceKey],
+          schedules: [
+            ...current[serviceKey].schedules,
+            {
+              ...source,
+              id: crypto.randomUUID(),
+              name: `${source.name} ${t(`${baseKey}.records.copySuffix`)}`,
+              enabled: false
+            }
+          ]
+        }
+      };
+    });
+    setValidationError(null);
+    setSaveError(null);
+  };
+
+  const handleDeleteSchedule = (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => {
+    setConfig((current) => {
+      if (!current || current[serviceKey].schedules.length === 1) {
+        return current;
+      }
+      return {
+        ...current,
+        [serviceKey]: {
+          ...current[serviceKey],
+          schedules: current[serviceKey].schedules.filter((schedule) => schedule.id !== scheduleId)
+        }
+      };
+    });
     setValidationError(null);
     setSaveError(null);
   };
@@ -1106,7 +1330,10 @@ export function ScheduledPrefillConfigModal({
       }
       const next = { ...current };
       for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
-        next[serviceKey] = { ...next[serviceKey], enabled };
+        next[serviceKey] = {
+          ...next[serviceKey],
+          schedules: next[serviceKey].schedules.map((schedule) => ({ ...schedule, enabled }))
+        };
       }
       return next;
     });
@@ -1313,7 +1540,10 @@ export function ScheduledPrefillConfigModal({
     }
   };
 
-  const handlePersistentLogin = (serviceKey: ScheduledPrefillServiceKey) => {
+  const handlePersistentLogin = (
+    serviceKey: ScheduledPrefillServiceKey,
+    reuseIntegration: boolean
+  ) => {
     const serviceId = getPersistentServiceId(serviceKey);
     const container = persistentContainerByService.get(serviceId);
     if (!container?.isRunning) {
@@ -1332,7 +1562,8 @@ export function ScheduledPrefillConfigModal({
         serviceId,
         container.sessionId,
         editSession.editSessionId,
-        editActionId
+        editActionId,
+        reuseIntegration
       );
     }
     setPersistentLoginTarget(serviceKey);
@@ -1361,12 +1592,15 @@ export function ScheduledPrefillConfigModal({
           appId: String(game.appId)
         }));
 
-        setGameSelection({
-          serviceKey,
-          sessionId,
-          games: normalizedGames,
-          cachedAppIds: cachedAppIds.map((appId) => String(appId))
-        });
+        setGameSelection((current) =>
+          current?.serviceKey === serviceKey && current.sessionId === sessionId
+            ? {
+                ...current,
+                games: normalizedGames,
+                cachedAppIds: cachedAppIds.map((appId) => String(appId))
+              }
+            : current
+        );
       } catch (error: unknown) {
         setGameSelectionError(getErrorMessage(error));
       } finally {
@@ -1395,13 +1629,20 @@ export function ScheduledPrefillConfigModal({
   // A broadcast that lands while the socket is down is lost, leaving the cached badges stale for
   // as long as the picker stays open. Re-read once the connection is live again.
   useReconnectRefetch(isConnected, () => {
+    if (!opened) {
+      return;
+    }
+    void loadIntegrationLoginAvailability();
+  });
+
+  useReconnectRefetch(isConnected, () => {
     if (!gameSelection) {
       return;
     }
     void loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
   });
 
-  const handleOpenGameSelection = (serviceKey: ScheduledPrefillServiceKey) => {
+  const handleOpenGameSelection = (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => {
     const serviceId = getPersistentServiceId(serviceKey);
     const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
     const container = persistentContainerByService.get(serviceId);
@@ -1421,6 +1662,7 @@ export function ScheduledPrefillConfigModal({
     setGameSelectionError(null);
     setGameSelection({
       serviceKey,
+      scheduleId,
       sessionId: container.sessionId,
       games: [],
       cachedAppIds: []
@@ -1430,6 +1672,7 @@ export function ScheduledPrefillConfigModal({
 
   const applyGameSelection = async (
     serviceKey: ScheduledPrefillServiceKey,
+    scheduleId: string,
     selectedAppIds: string[]
   ) => {
     setConfig((current) =>
@@ -1438,7 +1681,9 @@ export function ScheduledPrefillConfigModal({
             ...current,
             [serviceKey]: {
               ...current[serviceKey],
-              selectedAppIds
+              schedules: current[serviceKey].schedules.map((schedule) =>
+                schedule.id === scheduleId ? { ...schedule, selectedAppIds } : schedule
+              )
             }
           }
         : current
@@ -1476,19 +1721,25 @@ export function ScheduledPrefillConfigModal({
     }
 
     const selectedAppIds = Array.from(new Set(selectedIds.map((selectedId) => String(selectedId))));
-    await applyGameSelection(gameSelection.serviceKey, selectedAppIds);
+    await applyGameSelection(gameSelection.serviceKey, gameSelection.scheduleId, selectedAppIds);
   };
 
-  const handleClearGameSelection = async (serviceKey: ScheduledPrefillServiceKey) => {
-    await applyGameSelection(serviceKey, []);
+  const handleClearGameSelection = async (
+    serviceKey: ScheduledPrefillServiceKey,
+    scheduleId: string
+  ) => {
+    await applyGameSelection(serviceKey, scheduleId, []);
   };
 
-  const handlePersistentDownload = async (serviceKey: ScheduledPrefillServiceKey) => {
+  const handlePersistentDownload = async (
+    serviceKey: ScheduledPrefillServiceKey,
+    scheduleId: string
+  ) => {
     if (!config) {
       return;
     }
 
-    const serviceConfig = config[serviceKey];
+    const schedule = config[serviceKey].schedules.find((item) => item.id === scheduleId);
     const serviceId = getPersistentServiceId(serviceKey);
     const container = persistentContainerByService.get(serviceId);
     const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
@@ -1497,12 +1748,7 @@ export function ScheduledPrefillConfigModal({
       setPersistentError(t(`${baseKey}.persistentContainer.downloadRequiresAuth`));
       return;
     }
-    if (container.isPrefilling) {
-      return;
-    }
-
-    if (serviceConfig.selectedAppIds.length === 0) {
-      setPersistentError(t(`${baseKey}.persistentContainer.downloadRequiresSelection`));
+    if (container.isPrefilling || !schedule) {
       return;
     }
 
@@ -1510,20 +1756,16 @@ export function ScheduledPrefillConfigModal({
     setPersistentError(null);
 
     try {
-      const maxConcurrency =
-        serviceConfig.maxConcurrency.mode === 'Fixed' ? serviceConfig.maxConcurrency.value : null;
-
       const { editSession, editActionId } = recordEditAction(
         serviceId,
         'download',
         container.sessionId
       );
+      // The in-memory record runs as edited, without saving it: exact IDs when games were picked,
+      // otherwise the preset flags (All/Recent/Top) with an empty list.
       await ApiService.startPersistentPrefill(serviceId, {
         sessionId: container.sessionId,
-        appIds: serviceConfig.selectedAppIds,
-        force: serviceConfig.force,
-        operatingSystems: mapOperatingSystems(serviceConfig.operatingSystems),
-        maxConcurrency,
+        ...getPersistentPrefillRunOptions(schedule),
         editSessionId: editSession.editSessionId,
         editActionId
       });
@@ -1538,14 +1780,16 @@ export function ScheduledPrefillConfigModal({
   const handleCancelPersistentDownload = async (serviceKey: ScheduledPrefillServiceKey) => {
     const serviceId = getPersistentServiceId(serviceKey);
     const container = persistentContainerByService.get(serviceId);
-    if (!container?.isRunning) {
+    if (!container?.isRunning || !container.isPrefilling || !container.runId) {
       return;
     }
     setPersistentAction({ serviceKey, action: 'cancel' });
     setPersistentError(null);
 
     try {
-      await ApiService.cancelPersistentPrefill(serviceId, container.sessionId);
+      // Addressed to the run this card is showing, so a click that lands after a replacement run
+      // started cannot cancel the newer one.
+      await ApiService.cancelPersistentPrefill(serviceId, container.sessionId, container.runId);
       void loadPersistentContainers();
     } catch (error: unknown) {
       setPersistentError(getErrorMessage(error));
@@ -1554,13 +1798,47 @@ export function ScheduledPrefillConfigModal({
     }
   };
 
-  const handleSave = async () => {
+  // True when a record that is enabled on the server would be changed or removed by this save.
+  // Judged on the persisted record, not the draft: toggling a live schedule off is itself a change
+  // to a live schedule and still needs the confirmation.
+  const overwritesEnabledSchedule = (draft: ScheduledPrefillConfigDto): boolean => {
+    const persisted = persistedConfigRef.current;
+    if (!persisted) {
+      return false;
+    }
+    return SCHEDULED_PREFILL_SERVICE_RUN_ORDER.some((serviceKey) =>
+      persisted[serviceKey].schedules.some((savedSchedule) => {
+        if (!savedSchedule.enabled) {
+          return false;
+        }
+        const draftSchedule = draft[serviceKey].schedules.find(
+          (schedule) => schedule.id === savedSchedule.id
+        );
+        return !draftSchedule || JSON.stringify(draftSchedule) !== JSON.stringify(savedSchedule);
+      })
+    );
+  };
+
+  const handleSave = () => {
     if (!config) {
       return;
     }
 
     if (validationMessage) {
       setValidationError(validationMessage);
+      return;
+    }
+
+    if (overwritesEnabledSchedule(config)) {
+      setOverwriteEnabledConfirmOpen(true);
+      return;
+    }
+
+    void commitSave();
+  };
+
+  const commitSave = async () => {
+    if (!config) {
       return;
     }
 
@@ -1718,7 +1996,7 @@ export function ScheduledPrefillConfigModal({
                           <Badge variant="info">
                             {t(`${baseKey}.summary`, {
                               enabled: enabledCount,
-                              total: SCHEDULED_PREFILL_SERVICE_RUN_ORDER.length
+                              total: totalCount
                             })}
                           </Badge>
                           <HelpPopover position="left" width={360} maxHeight="20rem">
@@ -1766,7 +2044,7 @@ export function ScheduledPrefillConfigModal({
                                 !config ||
                                 editSessionActionsDisabled ||
                                 loadingConfig ||
-                                enabledCount === SCHEDULED_PREFILL_SERVICE_RUN_ORDER.length
+                                enabledCount === totalCount
                               }
                             >
                               {t(`${baseKey}.bulkToggle.enableAll`)}
@@ -1907,21 +2185,36 @@ export function ScheduledPrefillConfigModal({
                     {config ? (
                       <ScheduledPrefillPlatformsPanel
                         config={config}
+                        initialServiceKey={initialServiceKey}
+                        initialScheduleId={openedScheduleId}
                         disabled={editSessionActionsDisabled || loadingConfig}
                         statusLoading={isInitialPersistentContainersLoad}
                         containersByServiceKey={containersByServiceKey}
-                        selectedGamesCountByServiceKey={selectedGamesCountByServiceKey}
+                        selectedGamesCountByScheduleId={selectedGamesCountByScheduleId}
                         persistentAction={persistentAction}
                         authenticatingServiceKeys={authenticatingServiceKeys}
+                        integrationLoginAvailabilityByService={
+                          visibleIntegrationLoginAvailabilityByService
+                        }
+                        integrationLoginAvailabilityLoading={loadingIntegrationLoginAvailability}
                         gameSelectionLoadingServiceKey={loadingGameSelectionService}
-                        onServiceChange={handleServiceChange}
+                        onScheduleChange={handleScheduleChange}
+                        onAddSchedule={handleAddSchedule}
+                        onDuplicateSchedule={handleDuplicateSchedule}
+                        onDeleteSchedule={handleDeleteSchedule}
                         onStart={(serviceKey) => void handleStartPersistent(serviceKey)}
                         onStop={(serviceKey) => void handleStopPersistent(serviceKey)}
                         onLogin={handlePersistentLogin}
                         onLogout={(serviceKey) => void handleLogoutPersistent(serviceKey)}
-                        onSelectGames={(serviceKey) => void handleOpenGameSelection(serviceKey)}
-                        onClearGames={(serviceKey) => void handleClearGameSelection(serviceKey)}
-                        onDownload={(serviceKey) => void handlePersistentDownload(serviceKey)}
+                        onSelectGames={(serviceKey, scheduleId) =>
+                          void handleOpenGameSelection(serviceKey, scheduleId)
+                        }
+                        onClearGames={(serviceKey, scheduleId) =>
+                          void handleClearGameSelection(serviceKey, scheduleId)
+                        }
+                        onDownload={(serviceKey, scheduleId) =>
+                          void handlePersistentDownload(serviceKey, scheduleId)
+                        }
                         onCancelDownload={(serviceKey) =>
                           void handleCancelPersistentDownload(serviceKey)
                         }
@@ -1987,7 +2280,11 @@ export function ScheduledPrefillConfigModal({
         serviceId={gameSelection?.serviceKey ?? ''}
         games={gameSelection?.games ?? []}
         selectedAppIds={
-          gameSelection && config ? config[gameSelection.serviceKey].selectedAppIds : []
+          gameSelection && config
+            ? (config[gameSelection.serviceKey].schedules.find(
+                (schedule) => schedule.id === gameSelection.scheduleId
+              )?.selectedAppIds ?? [])
+            : []
         }
         onSave={handleSaveGameSelection}
         isLoading={loadingGameSelectionService !== null}
@@ -2018,6 +2315,22 @@ export function ScheduledPrefillConfigModal({
         confirmColor="red"
       >
         <p className="text-sm text-themed-muted">{t(`${baseKey}.discardChanges.confirmBody`)}</p>
+      </ConfirmationModal>
+      <ConfirmationModal
+        opened={overwriteEnabledConfirmOpen}
+        onClose={() => setOverwriteEnabledConfirmOpen(false)}
+        onConfirm={() => {
+          setOverwriteEnabledConfirmOpen(false);
+          void commitSave();
+        }}
+        title={t(`${baseKey}.records.confirmEnabledSaveTitle`)}
+        confirmLabel={t(`${baseKey}.actions.save`)}
+        confirmColor="blue"
+        loading={saving}
+      >
+        <p className="text-sm text-themed-muted">
+          {t(`${baseKey}.records.confirmEnabledSaveBody`)}
+        </p>
       </ConfirmationModal>
     </>
   );

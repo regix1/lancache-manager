@@ -368,6 +368,9 @@ public class EncryptedCredentialResponse
 
 public class PrefillResult
 {
+    [JsonPropertyName("runId")]
+    public Guid? RunId { get; set; }
+
     [JsonPropertyName("success")]
     public bool Success { get; set; }
 

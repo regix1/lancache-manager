@@ -5,6 +5,7 @@ namespace LancacheManager.Models;
 /// </summary>
 public class EpicAuthData
 {
+    public Guid? OwnerAccountId { get; set; }
     public string? RefreshToken { get; set; }      // Decrypted in memory, encrypted in storage
     public string? DisplayName { get; set; }        // Epic account display name
     public string? AccountId { get; set; }          // Epic account ID
@@ -17,6 +18,7 @@ public class EpicAuthData
 /// </summary>
 public class PersistedEpicAuthData
 {
+    public Guid? OwnerAccountId { get; set; }
     public string? RefreshToken { get; set; }      // Encrypted with ENC2: prefix
     public string? DisplayName { get; set; }
     public string? AccountId { get; set; }

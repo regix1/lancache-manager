@@ -8,6 +8,7 @@ using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -395,10 +396,135 @@ public class PersistentLoginSessionPinningTests
         Assert.Equal("live-1", session.PendingLoginChallenge!.ChallengeId);
     }
 
+    [Fact]
+    public void IntegrationLoginAvailability_UsesOnlyTheTrustedCallerAccount()
+    {
+        var accountId = Guid.NewGuid();
+        var (controller, daemon, _) = CreateControllerWithActiveSession("session-B", accountId);
+        daemon.SaveLogin(accountId, "saved-account");
+
+        var result = controller.GetIntegrationLoginAvailability(PrefillPlatform.Steam);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var availability = Assert.IsType<IntegrationLoginAvailability>(ok.Value);
+        Assert.True(availability.Available);
+        Assert.Equal("saved-account", availability.Account);
+        Assert.Equal(accountId, daemon.AvailabilityAccountId);
+    }
+
+    [Fact]
+    public void IntegrationLoginAvailability_DoesNotRevealAnotherAccountsSavedLogin()
+    {
+        var accountA = Guid.NewGuid();
+        var accountB = Guid.NewGuid();
+        var (controller, daemon, _) = CreateControllerWithActiveSession("session-B", accountB);
+        daemon.SaveLogin(accountA, "Account A");
+
+        var result = controller.GetIntegrationLoginAvailability(PrefillPlatform.Steam);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var availability = Assert.IsType<IntegrationLoginAvailability>(ok.Value);
+        Assert.False(availability.Available);
+        Assert.Null(availability.Account);
+        Assert.Equal("no-saved-login", availability.Reason);
+        Assert.Equal(accountB, daemon.AvailabilityAccountId);
+    }
+
+    [Fact]
+    public void IntegrationLoginAvailability_WithoutStableAccountExplainsRequirement()
+    {
+        var (controller, _, _) = CreateControllerWithActiveSession("session-B", accountId: null);
+
+        var result = controller.GetIntegrationLoginAvailability(PrefillPlatform.Steam);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var availability = Assert.IsType<IntegrationLoginAvailability>(ok.Value);
+        Assert.False(availability.Available);
+        Assert.Null(availability.Account);
+        Assert.Equal("account-required", availability.Reason);
+    }
+
+    [Fact]
+    public async Task ReuseSavedLogin_PassesTrustedAccountAndConfirmsPostDispatchAsync()
+    {
+        var accountId = Guid.NewGuid();
+        var (controller, daemon, _) = CreateControllerWithActiveSession("session-B", accountId);
+        daemon.SaveLogin(accountId, "saved-account");
+
+        var result = await controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            ReuseIntegration = true
+        }, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var status = Assert.IsType<PersistentLoginStatusResponse>(ok.Value);
+        Assert.Equal("logged-in", status.Status);
+        Assert.Equal("Logged in", status.Message);
+        Assert.Equal(accountId, daemon.ReuseAccountId);
+    }
+
+    [Fact]
+    public async Task ReuseSavedLogin_WithoutStableAccountReturns403Async()
+    {
+        var (controller, daemon, _) = CreateControllerWithActiveSession("session-B", accountId: null);
+
+        var result = await controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            ReuseIntegration = true
+        }, CancellationToken.None);
+
+        Assert.IsType<ForbidResult>(result.Result);
+        Assert.Null(daemon.ReuseAccountId);
+    }
+
+    [Fact]
+    public async Task ReuseSavedLogin_RejectsAuthenticationAlreadyInProgressAsync()
+    {
+        var accountId = Guid.NewGuid();
+        var (controller, daemon, _) = CreateControllerWithActiveSession("session-B", accountId);
+        daemon.SaveLogin(accountId, "saved-account");
+        daemon.GetSession("session-B")!.AuthState = DaemonAuthState.LoggingIn;
+
+        var thrown = await Assert.ThrowsAsync<ConflictException>(() => controller.StartLoginAsync(
+            new PersistentLoginRequest
+            {
+                Service = PrefillPlatform.Steam,
+                SessionId = "session-B",
+                ReuseIntegration = true
+            },
+            CancellationToken.None));
+
+        Assert.Equal("errors.prefill.loginInProgress", thrown.StageKey);
+        Assert.Null(daemon.ReuseAccountId);
+    }
+
+    [Fact]
+    public async Task ReuseSavedLogin_RequiresExplicitLogoutOfAuthenticatedTargetAsync()
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-B", Guid.NewGuid());
+        client.LiveStatus = "logged-in";
+
+        var thrown = await Assert.ThrowsAsync<ConflictException>(() => controller.StartLoginAsync(
+            new PersistentLoginRequest
+            {
+                Service = PrefillPlatform.Steam,
+                SessionId = "session-B",
+                ReuseIntegration = true
+            },
+            CancellationToken.None));
+
+        Assert.Equal("errors.prefill.logoutBeforeSavedLogin", thrown.StageKey);
+        Assert.Null(daemon.ReuseAccountId);
+    }
+
     // ---- Fixtures -------------------------------------------------------------------------------
 
     private static (PersistentPrefillController Controller, TestableSteamDaemonService Daemon, RecordingDaemonClientProxy ActiveClient)
-        CreateControllerWithActiveSession(string activeSessionId)
+        CreateControllerWithActiveSession(string activeSessionId, Guid? accountId = null)
     {
         var daemon = CreateDaemon();
 
@@ -419,6 +545,16 @@ public class PersistentLoginSessionPinningTests
 
         var controller = new PersistentPrefillController(
             provider, stateService, cacheService, NullLogger<PersistentPrefillController>.Instance);
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext()
+        };
+        controller.HttpContext.Items["Session"] = new UserSession
+        {
+            Id = Guid.NewGuid(),
+            AccountId = accountId,
+            SessionType = SessionType.Admin
+        };
 
         return (controller, daemon, recorder);
     }
@@ -492,6 +628,37 @@ public class PersistentLoginSessionPinningTests
 
         public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
 
+        public Guid? AvailabilityAccountId { get; private set; }
+        public Guid? ReuseAccountId { get; private set; }
+        private Dictionary<Guid, string> SavedAccounts { get; } = [];
+
+        public void SaveLogin(Guid accountId, string account) => SavedAccounts[accountId] = account;
+
+        public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId)
+        {
+            AvailabilityAccountId = accountId;
+            if (accountId is null)
+            {
+                return new IntegrationLoginAvailability(false, null, "account-required");
+            }
+
+            return SavedAccounts.TryGetValue(accountId.Value, out var account)
+                ? new IntegrationLoginAvailability(true, account, null)
+                : new IntegrationLoginAvailability(false, null, "no-saved-login");
+        }
+
+        protected override Task<bool> ReuseIntegrationLoginAsync(
+            DaemonSession session,
+            Guid accountId,
+            Action onCommandDispatched,
+            CancellationToken cancellationToken)
+        {
+            ReuseAccountId = accountId;
+            onCommandDispatched();
+            ((RecordingDaemonClientProxy)(object)session.Client).LiveStatus = "logged-in";
+            return Task.FromResult(true);
+        }
+
         public Task InvokeOnCredentialChallengeAsync(DaemonSession session, CredentialChallenge challenge)
             => OnCredentialChallengeAsync(session, challenge);
     }
@@ -524,6 +691,7 @@ public class PersistentLoginSessionPinningTests
         public List<string> InvokedMethods { get; } = new();
         public bool RejectCredential { get; set; }
         public bool FailLoginDispatch { get; set; }
+        public string LiveStatus { get; set; } = "awaiting-login";
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
@@ -547,6 +715,11 @@ public class PersistentLoginSessionPinningTests
 
                 ((Action)args![1]!)();
                 return Task.FromResult<CredentialChallenge?>(null);
+            }
+
+            if (targetMethod?.Name == nameof(IDaemonClient.GetStatusAsync))
+            {
+                return Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = LiveStatus });
             }
 
             return DefaultReturnValue(targetMethod);

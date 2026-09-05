@@ -272,6 +272,104 @@ public class XboxScheduledRefreshProgressTests
     }
 
     [Fact]
+    public async Task SupersededLogin_PreservesTheEarlierSavedLoginAndMakesTheReplacementActiveAsync()
+    {
+        using var auth = new StubDeviceCodeHandler
+        {
+            TokenBody = """{"access_token":"access-token","refresh_token":"new-refresh"}""",
+            CompleteHarvest = true,
+            HoldFirstHarvest = true
+        };
+        using var harness = new Harness(authHandler: auth);
+        var accountA = Guid.NewGuid();
+        var accountB = Guid.NewGuid();
+        using var signerA = XblRequestSigner.CreateNew();
+        using var signerB = XblRequestSigner.CreateNew();
+        using var sharedSigner = XblRequestSigner.CreateNew();
+        var deviceA = signerA.ExportPkcs8Base64();
+        var deviceB = signerB.ExportPkcs8Base64();
+        var sharedDevice = sharedSigner.ExportPkcs8Base64();
+
+        harness.AuthStorage.SaveAuthData(new XboxAuthData
+        {
+            OwnerAccountId = accountA,
+            RefreshToken = "refresh-a",
+            DeviceKeyPkcs8 = deviceA
+        });
+        harness.AuthStorage.SaveAuthData(new XboxAuthData
+        {
+            OwnerAccountId = accountB,
+            RefreshToken = "refresh-b",
+            DeviceKeyPkcs8 = deviceB
+        });
+        harness.AuthStorage.SaveAuthData(new XboxAuthData
+        {
+            RefreshToken = "shared-refresh",
+            DeviceKeyPkcs8 = sharedDevice
+        });
+
+        await harness.Service.StartLoginAsync(accountA);
+        await auth.FirstHarvestReached.WaitAsync(TimeSpan.FromSeconds(20));
+
+        var authSessionLock = Assert.IsType<SemaphoreSlim>(
+            typeof(XboxCatalogMappingService)
+                .GetField("_authSessionLock", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(harness.Service));
+        await authSessionLock.WaitAsync();
+        Task<XboxDeviceCodeChallenge> replacement;
+        try
+        {
+            replacement = harness.Service.StartLoginAsync(accountB);
+            await Assert.ThrowsAsync<TimeoutException>(
+                () => replacement.WaitAsync(TimeSpan.FromMilliseconds(100)));
+        }
+        finally
+        {
+            authSessionLock.Release();
+        }
+
+        await replacement;
+        auth.ReleaseFirstHarvest();
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+
+        var savedA = harness.AuthStorage.GetSavedLogin(accountA);
+        var savedB = harness.AuthStorage.GetSavedLogin(accountB);
+        var active = harness.AuthStorage.GetAuthData();
+
+        Assert.Equal("refresh-a", savedA.RefreshToken);
+        Assert.Equal(deviceA, savedA.DeviceKeyPkcs8);
+        Assert.Equal(accountA, savedA.OwnerAccountId);
+        Assert.Equal("new-refresh", savedB.RefreshToken);
+        Assert.Equal(deviceB, savedB.DeviceKeyPkcs8);
+        Assert.Equal(accountB, savedB.OwnerAccountId);
+        Assert.Equal(accountB, active.OwnerAccountId);
+        Assert.Equal(deviceB, active.DeviceKeyPkcs8);
+    }
+
+    [Fact]
+    public async Task NullOwnerLogin_UpdatesOnlyTheSharedActiveLoginAsync()
+    {
+        using var auth = new StubDeviceCodeHandler
+        {
+            TokenBody = """{"access_token":"access-token","refresh_token":"shared-refresh"}""",
+            CompleteHarvest = true
+        };
+        using var harness = new Harness(authHandler: auth);
+        var account = Guid.NewGuid();
+
+        await harness.Service.StartLoginAsync();
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+
+        var active = harness.AuthStorage.GetAuthData();
+        var saved = harness.AuthStorage.GetSavedLogin(account);
+
+        Assert.Null(active.OwnerAccountId);
+        Assert.Equal("shared-refresh", active.RefreshToken);
+        Assert.Null(saved.RefreshToken);
+        Assert.Null(saved.DeviceKeyPkcs8);
+    }
+
+    [Fact]
     public async Task AccountLevelRefusalSendsTheStageKeyAndNoErrorStringAsync()
     {
         using var auth = new StubDeviceCodeHandler
@@ -342,12 +440,21 @@ public class XboxScheduledRefreshProgressTests
     {
         private readonly TaskCompletionSource _chainReached = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _chainReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _firstHarvestReached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _firstHarvestReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _titleHubCalls;
 
         /// <summary>What the token endpoint answers. Pending keeps the poll waiting for approval.</summary>
         public string TokenBody { get; init; } = """{"error":"authorization_pending"}""";
 
+        public bool CompleteHarvest { get; init; }
+
+        public bool HoldFirstHarvest { get; init; }
+
         /// <summary>Completes once the login is past approval and into the XBL token chain.</summary>
         public Task ChainReached => _chainReached.Task;
+
+        public Task FirstHarvestReached => _firstHarvestReached.Task;
 
         /// <summary>What the XBL token chain answers once released. The default is a bodyless failure;
         /// a 401 carrying an XErr is what makes Microsoft's refusal a classified one.</summary>
@@ -356,6 +463,8 @@ public class XboxScheduledRefreshProgressTests
         public string? ChainBody { get; init; }
 
         public void ReleaseChain() => _chainReleased.TrySetResult();
+
+        public void ReleaseFirstHarvest() => _firstHarvestReleased.TrySetResult();
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -376,6 +485,37 @@ public class XboxScheduledRefreshProgressTests
                 return JsonResponse(TokenBody);
             }
 
+            if (CompleteHarvest)
+            {
+                if (url is XboxAuthConstants.UserAuthUrl or XboxAuthConstants.DeviceAuthUrl)
+                {
+                    return JsonResponse("""{"Token":"xbl-token"}""");
+                }
+
+                if (url == XboxAuthConstants.XstsAuthUrl)
+                {
+                    return JsonResponse(
+                        """{"Token":"xsts-token","DisplayClaims":{"xui":[{"uhs":"uhs","xid":"xuid"}]}}""");
+                }
+
+                if (url.StartsWith(XboxAuthConstants.ProfileBaseUrl, StringComparison.Ordinal))
+                {
+                    return JsonResponse(
+                        """{"profileUsers":[{"settings":[{"id":"Gamertag","value":"Test Gamer"}]}]}""");
+                }
+
+                if (url.StartsWith(XboxAuthConstants.TitleHubBaseUrl, StringComparison.Ordinal))
+                {
+                    if (HoldFirstHarvest && Interlocked.Increment(ref _titleHubCalls) == 1)
+                    {
+                        _firstHarvestReached.TrySetResult();
+                        await _firstHarvestReleased.Task;
+                    }
+
+                    return JsonResponse("""{"titles":[]}""");
+                }
+            }
+
             _chainReached.TrySetResult();
             await _chainReleased.Task.WaitAsync(cancellationToken);
             var refused = new HttpResponseMessage(ChainStatus);
@@ -390,6 +530,7 @@ public class XboxScheduledRefreshProgressTests
         protected override void Dispose(bool disposing)
         {
             _chainReleased.TrySetResult();
+            _firstHarvestReleased.TrySetResult();
             base.Dispose(disposing);
         }
 
@@ -506,6 +647,7 @@ public class XboxScheduledRefreshProgressTests
         public RecordingNotifications Notifications { get; }
         public UnifiedOperationTracker Tracker { get; }
         public XboxCatalogMappingService Service { get; }
+        public XboxAuthStorageService AuthStorage { get; }
 
         /// <summary>Exposed so a test can seed rows the run is expected to act on.</summary>
         public InMemoryDbContextFactory DbFactory { get; }
@@ -540,7 +682,7 @@ public class XboxScheduledRefreshProgressTests
                 apiKeyService,
                 NullLogger<SecureStateEncryptionService>.Instance);
 
-            var authStorage = new XboxAuthStorageService(
+            AuthStorage = new XboxAuthStorageService(
                 NullLogger<XboxAuthStorageService>.Instance,
                 pathResolver,
                 encryption);
@@ -569,7 +711,7 @@ public class XboxScheduledRefreshProgressTests
                 scopeFactory,
                 mappingService,
                 authClient,
-                authStorage,
+                AuthStorage,
                 Notifications,
                 Tracker,
                 stateService);

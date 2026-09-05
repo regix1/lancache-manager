@@ -87,7 +87,6 @@ interface ServicePrefillPanelProps extends PrefillPanelProps {
   onPendingServiceHandled: () => void;
   onServiceStart: (serviceId: GameServiceId) => void;
 }
-
 function ServicePrefillPanel({
   onSessionEnd,
   hubPath,

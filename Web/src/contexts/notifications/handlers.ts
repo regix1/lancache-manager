@@ -872,7 +872,7 @@ interface StatusAwareProgressConfig<T> {
   /** Function to get the progress message */
   getMessage: (event: T) => string;
   /** Function to get progress percentage (0-100) */
-  getProgress: (event: T) => number;
+  getProgress: (event: T) => number | undefined;
   /** Optional secondary metrics shown below the stable primary message. */
   getDetailMessage?: (event: T) => string | undefined;
   /** Optional phase-aware progress semantics. */

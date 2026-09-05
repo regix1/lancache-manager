@@ -32,6 +32,172 @@ public class ScheduledPrefillConfigFactoryTests
     }
 
     [Fact]
+    public void CreateDefault_CreatesOneStableNamedChildPerPlatform()
+    {
+        var first = ScheduledPrefillConfigFactory.CreateDefault();
+        var second = ScheduledPrefillConfigFactory.CreateDefault();
+
+        var firstRecords = first.GetSchedulesInRunOrder();
+        var secondRecords = second.GetSchedulesInRunOrder();
+        Assert.Equal(5, firstRecords.Count);
+        Assert.Equal(firstRecords.Select(record => record.ScheduleId), secondRecords.Select(record => record.ScheduleId));
+        Assert.All(firstRecords, record =>
+        {
+            Assert.Equal("Default", record.ScheduleName);
+            Assert.Equal(
+                ScheduledPrefillConfigFactory.GetDefaultScheduleId(record.ServiceId),
+                record.ScheduleId);
+        });
+    }
+
+    [Fact]
+    public void Migrate_V5Config_CopiesEverySettingIntoTheStableDefaultChild()
+    {
+        var current = ScheduledPrefillConfigFactory.CreateDefault();
+        var legacySteam = new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = PrefillPlatform.Steam,
+            Enabled = true,
+            NotificationMode = NotificationMode.Manual,
+            NotificationDisplayMode = NotificationDisplayMode.Condensed,
+            IntervalHours = 168,
+            Preset = ScheduledPrefillPreset.Top,
+            TopCount = 17,
+            SelectedAppIds = ["10", "20"],
+            OperatingSystems = [ScheduledPrefillOperatingSystem.Linux],
+            Force = true,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+            {
+                Mode = ScheduledPrefillMaxConcurrencyMode.Fixed,
+                Value = 3
+            },
+            PersistenceMode = PersistenceMode.FullPersistence
+        };
+        var legacy = new ScheduledPrefillConfigDto
+        {
+            Version = 5,
+            MaxServiceRuntime = current.MaxServiceRuntime,
+            StallTimeout = current.StallTimeout,
+            PersistenceMode = current.PersistenceMode,
+            Steam = legacySteam,
+            Epic = current.Epic,
+            Xbox = current.Xbox,
+            BattleNet = current.BattleNet,
+            Riot = current.Riot
+        };
+
+        var migrated = ScheduledPrefillConfigFactory.Migrate(legacy, null);
+        var record = Assert.Single(migrated.Steam.Schedules);
+
+        Assert.Equal(ScheduledPrefillConfigFactory.CurrentVersion, migrated.Version);
+        Assert.Equal(ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam), record.Id);
+        Assert.Equal("Default", record.Name);
+        Assert.True(record.Enabled);
+        Assert.Equal(168, record.IntervalHours);
+        Assert.Equal(ScheduledPrefillPreset.Top, record.Preset);
+        Assert.Equal(17, record.TopCount);
+        Assert.Equal(["10", "20"], record.SelectedAppIds);
+        Assert.Equal([ScheduledPrefillOperatingSystem.Linux], record.OperatingSystems);
+        Assert.True(record.Force);
+        Assert.Equal(ScheduledPrefillMaxConcurrencyMode.Fixed, record.MaxConcurrency.Mode);
+        Assert.Equal(3, record.MaxConcurrency.Value);
+        Assert.Equal(NotificationMode.Manual, record.NotificationMode);
+        Assert.Equal(NotificationDisplayMode.Condensed, record.NotificationDisplayMode);
+        Assert.Equal(PersistenceMode.FullPersistence, migrated.Steam.PersistenceMode);
+        Assert.Same(migrated, ScheduledPrefillConfigFactory.Migrate(migrated, null));
+    }
+
+    [Fact]
+    public void NamedRecords_RoundTripDailyRecentWeeklySelectedAndLinuxSavedSetup()
+    {
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        config.Steam.Schedules.Clear();
+        config.Steam.Schedules.AddRange(
+        [
+            new ScheduledPrefillSchedule
+            {
+                Id = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Name = "Daily recent",
+                Enabled = true,
+                IntervalHours = 24,
+                Preset = ScheduledPrefillPreset.Recent,
+                OperatingSystems = [ScheduledPrefillOperatingSystem.Windows],
+                MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+                {
+                    Mode = ScheduledPrefillMaxConcurrencyMode.Auto
+                }
+            },
+            new ScheduledPrefillSchedule
+            {
+                Id = Guid.Parse("22222222-2222-2222-2222-222222222222"),
+                Name = "Weekly selected",
+                Enabled = true,
+                IntervalHours = 168,
+                Preset = ScheduledPrefillPreset.All,
+                SelectedAppIds = ["10", "20"],
+                OperatingSystems = [ScheduledPrefillOperatingSystem.Windows],
+                MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+                {
+                    Mode = ScheduledPrefillMaxConcurrencyMode.Fixed,
+                    Value = 2
+                }
+            },
+            new ScheduledPrefillSchedule
+            {
+                Id = Guid.Parse("33333333-3333-3333-3333-333333333333"),
+                Name = "Linux subset",
+                Enabled = false,
+                IntervalHours = 168,
+                Preset = ScheduledPrefillPreset.All,
+                SelectedAppIds = ["30"],
+                OperatingSystems = [ScheduledPrefillOperatingSystem.Linux],
+                Force = true,
+                MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+                {
+                    Mode = ScheduledPrefillMaxConcurrencyMode.Auto
+                }
+            }
+        ]);
+
+        var json = JsonSerializer.Serialize(config);
+        var roundTripped = JsonSerializer.Deserialize<ScheduledPrefillConfigDto>(json)!;
+        var validated = ScheduledPrefillConfigFactory.Validate(roundTripped);
+        var records = validated.GetSchedulesInRunOrder()
+            .Where(record => record.ServiceId == PrefillPlatform.Steam)
+            .ToList();
+
+        Assert.Equal(["Daily recent", "Weekly selected", "Linux subset"], records.Select(record => record.ScheduleName));
+        Assert.Equal(ScheduledPrefillPreset.Recent, records[0].Preset);
+        Assert.Equal(["10", "20"], records[1].SelectedAppIds);
+        Assert.False(records[2].Enabled);
+        Assert.Equal([ScheduledPrefillOperatingSystem.Linux], records[2].OperatingSystems);
+        Assert.True(records[2].Force);
+    }
+
+    [Fact]
+    public void Validate_RejectsDuplicateIdsAndNames()
+    {
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var first = config.Steam.Schedules[0];
+        config.Steam.Schedules.Add(new ScheduledPrefillSchedule
+        {
+            Id = first.Id,
+            Name = "default",
+            Enabled = false,
+            IntervalHours = 24,
+            Preset = ScheduledPrefillPreset.Recent,
+            OperatingSystems = [ScheduledPrefillOperatingSystem.Windows],
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+            {
+                Mode = ScheduledPrefillMaxConcurrencyMode.Auto
+            }
+        });
+
+        Assert.Throws<ScheduledPrefillConfigValidationException>(
+            () => ScheduledPrefillConfigFactory.Validate(config));
+    }
+
+    [Fact]
     public void Migrate_V1Config_SeedsEveryServiceIntervalFromLegacyGlobal_AndBumpsVersion()
     {
         var v1 = BuildV1Config();
@@ -123,18 +289,6 @@ public class ScheduledPrefillConfigFactoryTests
     // ---- NotificationMode is a required v4 field: reject a null on a current-version payload,
     // but keep seeding it from the legacy flag for older (pre-v4) payloads. ----
 
-    [Fact]
-    public void Validate_RejectsCurrentVersionServiceWithNullNotificationMode()
-    {
-        // A current-version (v4) payload that omitted NotificationMode must be rejected outright, not
-        // silently defaulted to All. Migrate seeds the field for pre-v4 payloads before Validate runs,
-        // so a null here can only be a current-schema config that dropped a required field.
-        var config = WithSteamNotificationMode(ScheduledPrefillConfigFactory.CreateDefault(), mode: null);
-
-        Assert.Throws<ScheduledPrefillConfigValidationException>(
-            () => ScheduledPrefillConfigFactory.Validate(config));
-    }
-
     /// <summary>
     /// Validate rebuilds a service DTO whenever it reconciles a preset or an operating-system list,
     /// and it runs on every save and every load. A rebuild that forgets a field drops the user's
@@ -150,8 +304,8 @@ public class ScheduledPrefillConfigFactoryTests
 
         ScheduledPrefillConfigFactory.Validate(config);
 
-        Assert.Equal(NotificationDisplayMode.Condensed, config.Steam.NotificationDisplayMode);
-        Assert.Null(config.Epic.NotificationDisplayMode);
+        Assert.Equal(NotificationDisplayMode.Condensed, Assert.Single(config.Steam.Schedules).NotificationDisplayMode);
+        Assert.Equal(NotificationDisplayMode.Full, Assert.Single(config.Epic.Schedules).NotificationDisplayMode);
     }
 
     /// <summary>
@@ -168,8 +322,9 @@ public class ScheduledPrefillConfigFactoryTests
 
         var reset = ScheduledPrefillConfigFactory.ResetNotificationModes(config);
 
-        Assert.Null(reset.Steam.NotificationDisplayMode);
-        Assert.Equal(NotificationMode.All, reset.Steam.NotificationMode);
+        var record = Assert.Single(reset.Steam.Schedules);
+        Assert.Equal(NotificationDisplayMode.Full, record.NotificationDisplayMode);
+        Assert.Equal(NotificationMode.All, record.NotificationMode);
     }
 
     [Fact]
@@ -669,7 +824,7 @@ public class ScheduledPrefillConfigFactoryTests
     /// (<c>null</c> = omitted), every other field on every service preserved. Used to exercise the
     /// required-field validation rule.
     /// </summary>
-    private static ScheduledPrefillConfigDto WithSteamNotificationMode(ScheduledPrefillConfigDto config, NotificationMode? mode)
+    private static ScheduledPrefillConfigDto WithSteamNotificationMode(ScheduledPrefillConfigDto config, NotificationMode mode)
     {
         return new ScheduledPrefillConfigDto
         {
@@ -680,6 +835,22 @@ public class ScheduledPrefillConfigFactoryTests
             Steam = new ScheduledPrefillServiceConfigDto
             {
                 ServiceId = config.Steam.ServiceId,
+                Schedules = config.Steam.Schedules.Select(schedule => new ScheduledPrefillSchedule
+                {
+                    Id = schedule.Id,
+                    Name = schedule.Name,
+                    Enabled = schedule.Enabled,
+                    IntervalHours = schedule.IntervalHours,
+                    CustomSchedule = schedule.CustomSchedule,
+                    Preset = schedule.Preset,
+                    TopCount = schedule.TopCount,
+                    SelectedAppIds = schedule.SelectedAppIds,
+                    OperatingSystems = schedule.OperatingSystems,
+                    Force = schedule.Force,
+                    MaxConcurrency = schedule.MaxConcurrency,
+                    NotificationMode = mode,
+                    NotificationDisplayMode = schedule.NotificationDisplayMode
+                }).ToList(),
                 Enabled = config.Steam.Enabled,
                 ShowNotification = config.Steam.ShowNotification,
                 NotificationMode = mode,
@@ -716,6 +887,22 @@ public class ScheduledPrefillConfigFactoryTests
             Steam = new ScheduledPrefillServiceConfigDto
             {
                 ServiceId = config.Steam.ServiceId,
+                Schedules = config.Steam.Schedules.Select(schedule => new ScheduledPrefillSchedule
+                {
+                    Id = schedule.Id,
+                    Name = schedule.Name,
+                    Enabled = schedule.Enabled,
+                    IntervalHours = schedule.IntervalHours,
+                    CustomSchedule = schedule.CustomSchedule,
+                    Preset = schedule.Preset,
+                    TopCount = schedule.TopCount,
+                    SelectedAppIds = schedule.SelectedAppIds,
+                    OperatingSystems = schedule.OperatingSystems,
+                    Force = schedule.Force,
+                    MaxConcurrency = schedule.MaxConcurrency,
+                    NotificationMode = schedule.NotificationMode,
+                    NotificationDisplayMode = displayMode ?? schedule.NotificationDisplayMode
+                }).ToList(),
                 Enabled = config.Steam.Enabled,
                 ShowNotification = config.Steam.ShowNotification,
                 NotificationMode = config.Steam.NotificationMode,
@@ -803,6 +990,22 @@ public class ScheduledPrefillConfigFactoryTests
             Steam = new ScheduledPrefillServiceConfigDto
             {
                 ServiceId = config.Steam.ServiceId,
+                Schedules = config.Steam.Schedules.Select(schedule => new ScheduledPrefillSchedule
+                {
+                    Id = schedule.Id,
+                    Name = schedule.Name,
+                    Enabled = schedule.Enabled,
+                    IntervalHours = intervalHours,
+                    CustomSchedule = schedule.CustomSchedule,
+                    Preset = schedule.Preset,
+                    TopCount = schedule.TopCount,
+                    SelectedAppIds = schedule.SelectedAppIds,
+                    OperatingSystems = schedule.OperatingSystems,
+                    Force = schedule.Force,
+                    MaxConcurrency = schedule.MaxConcurrency,
+                    NotificationMode = schedule.NotificationMode,
+                    NotificationDisplayMode = schedule.NotificationDisplayMode
+                }).ToList(),
                 Enabled = config.Steam.Enabled,
                 NotificationMode = config.Steam.NotificationMode,
                 IntervalHours = intervalHours,

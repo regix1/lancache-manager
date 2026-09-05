@@ -38,6 +38,7 @@ public class EpicAuthStorageService : AuthFileStorageServiceBase<EpicAuthData, P
 
         return new EpicAuthData
         {
+            OwnerAccountId = persisted.OwnerAccountId,
             RefreshToken = decryptedRefreshToken,
             DisplayName = persisted.DisplayName,
             AccountId = persisted.AccountId,
@@ -50,6 +51,7 @@ public class EpicAuthStorageService : AuthFileStorageServiceBase<EpicAuthData, P
     {
         return new PersistedEpicAuthData
         {
+            OwnerAccountId = data.OwnerAccountId,
             RefreshToken = Encryption.Encrypt(data.RefreshToken),
             DisplayName = data.DisplayName,
             AccountId = data.AccountId,
@@ -59,6 +61,12 @@ public class EpicAuthStorageService : AuthFileStorageServiceBase<EpicAuthData, P
     }
 
     protected override bool HasCredentials(EpicAuthData data) => !string.IsNullOrEmpty(data.RefreshToken);
+
+    protected override Guid? GetOwnerAccountId(EpicAuthData data) => data.OwnerAccountId;
+
+    protected override Guid? GetOwnerAccountId(PersistedEpicAuthData persisted) => persisted.OwnerAccountId;
+
+    protected override void SetOwnerAccountId(EpicAuthData data, Guid accountId) => data.OwnerAccountId = accountId;
 
     protected override bool IsStoredUnencrypted(PersistedEpicAuthData persisted)
         => Encryption.IsUnencrypted(persisted.RefreshToken);

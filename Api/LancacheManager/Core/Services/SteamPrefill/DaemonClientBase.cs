@@ -894,6 +894,23 @@ public abstract class DaemonClientBase : IDaemonClient
                 Username = username,
                 RefreshToken = refreshToken
             },
+            onCommandDispatched: null,
+            cancellationToken);
+
+    public Task<bool> ProvideAutoLoginWithDispatchAsync(
+        string sessionId,
+        string username,
+        string refreshToken,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken = default)
+        => ProvideAutoLoginPayloadAsync(
+            sessionId,
+            new AutoLoginPayload
+            {
+                Username = username,
+                RefreshToken = refreshToken
+            },
+            onCommandDispatched,
             cancellationToken);
 
     /// <summary>
@@ -911,25 +928,53 @@ public abstract class DaemonClientBase : IDaemonClient
             {
                 RefreshToken = refreshToken
             },
+            onCommandDispatched: null,
+            cancellationToken);
+
+    public Task<bool> ProvideEpicAutoLoginWithDispatchAsync(
+        string sessionId,
+        string refreshToken,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken = default)
+        => ProvideAutoLoginPayloadAsync(
+            sessionId,
+            new EpicAutoLoginPayload
+            {
+                RefreshToken = refreshToken
+            },
+            onCommandDispatched,
             cancellationToken);
 
     /// <summary>
-    /// Perform a non-interactive Xbox auto-login by encrypting a <c>{refreshToken, deviceKeyPkcs8}</c>
+    /// Perform a non-interactive Xbox auto-login by encrypting a <c>{refreshToken}</c>
     /// payload with the daemon's public key and sending the <c>provide-auto-login</c> command.
     /// Reuses the same <see cref="SecureCredentialExchange.Encrypt"/> helper as <see cref="ProvideAutoLoginAsync"/>.
     /// </summary>
     public Task<bool> ProvideXboxAutoLoginAsync(
         string sessionId,
         string refreshToken,
-        string deviceKeyPkcs8,
         CancellationToken cancellationToken = default)
         => ProvideAutoLoginPayloadAsync(
             sessionId,
             new XboxAutoLoginPayload
             {
-                RefreshToken = refreshToken,
-                DeviceKeyPkcs8 = deviceKeyPkcs8
+                RefreshToken = refreshToken
             },
+            onCommandDispatched: null,
+            cancellationToken);
+
+    public Task<bool> ProvideXboxAutoLoginWithDispatchAsync(
+        string sessionId,
+        string refreshToken,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken = default)
+        => ProvideAutoLoginPayloadAsync(
+            sessionId,
+            new XboxAutoLoginPayload
+            {
+                RefreshToken = refreshToken
+            },
+            onCommandDispatched,
             cancellationToken);
 
     /// <summary>
@@ -940,6 +985,7 @@ public abstract class DaemonClientBase : IDaemonClient
     private async Task<bool> ProvideAutoLoginPayloadAsync<TPayload>(
         string sessionId,
         TPayload payload,
+        Action? onCommandDispatched,
         CancellationToken cancellationToken)
         where TPayload : class
     {
@@ -958,15 +1004,21 @@ public abstract class DaemonClientBase : IDaemonClient
             serializedPayload,
             HkdfInfo);
 
-        var response = await SendCommandAsync("provide-auto-login", new Dictionary<string, string>
-        {
-            ["sessionId"] = sessionId,
-            ["challengeId"] = encrypted.ChallengeId,
-            ["clientPublicKey"] = encrypted.ClientPublicKey,
-            ["encryptedCredential"] = encrypted.EncryptedCredential,
-            ["nonce"] = encrypted.Nonce,
-            ["tag"] = encrypted.Tag
-        }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+        await EnsureConnectedAsync(cancellationToken);
+        var response = await SendCoreAsync(
+            "provide-auto-login",
+            new Dictionary<string, string>
+            {
+                ["sessionId"] = sessionId,
+                ["challengeId"] = encrypted.ChallengeId,
+                ["clientPublicKey"] = encrypted.ClientPublicKey,
+                ["encryptedCredential"] = encrypted.EncryptedCredential,
+                ["nonce"] = encrypted.Nonce,
+                ["tag"] = encrypted.Tag
+            },
+            timeout: TimeSpan.FromSeconds(30),
+            cancellationToken,
+            onCommandDispatched);
 
         return response.Success;
     }
@@ -1467,13 +1519,10 @@ public class EpicAutoLoginPayload
 
 /// <summary>
 /// Cleartext payload encrypted and sent to the Xbox daemon for non-interactive auto-login.
-/// Matches the daemon's expected <c>{refreshToken, deviceKeyPkcs8}</c> shape.
+/// The daemon creates and persists its own device key.
 /// </summary>
 public class XboxAutoLoginPayload
 {
     [JsonPropertyName("refreshToken")]
     public string RefreshToken { get; set; } = string.Empty;
-
-    [JsonPropertyName("deviceKeyPkcs8")]
-    public string DeviceKeyPkcs8 { get; set; } = string.Empty;
 }

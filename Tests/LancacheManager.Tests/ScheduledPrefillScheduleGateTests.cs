@@ -51,8 +51,8 @@ public class ScheduledPrefillScheduleGateTests
         var epicLastRun = new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc); // most recent
         var lastRuns = new Dictionary<string, DateTime>
         {
-            [PrefillPlatform.Steam.ToString()] = steamLastRun,
-            [PrefillPlatform.Epic.ToString()] = epicLastRun
+            [ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam).ToString("N")] = steamLastRun,
+            [ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Epic).ToString("N")] = epicLastRun
         };
 
         var registry = CreateRegistry(service, config, lastRuns);
@@ -125,8 +125,8 @@ public class ScheduledPrefillScheduleGateTests
         var riotLastRun = new DateTime(2026, 1, 1, 6, 0, 0, DateTimeKind.Utc); // more recent
         var lastRuns = new Dictionary<string, DateTime>
         {
-            [PrefillPlatform.BattleNet.ToString()] = battleNetLastRun,
-            [PrefillPlatform.Riot.ToString()] = riotLastRun
+            [ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet).ToString("N")] = battleNetLastRun,
+            [ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot).ToString("N")] = riotLastRun
         };
 
         var registry = CreateRegistry(service, config, lastRuns);
@@ -150,6 +150,7 @@ public class ScheduledPrefillScheduleGateTests
             Version = defaults.Version,
             MaxServiceRuntime = defaults.MaxServiceRuntime,
             StallTimeout = defaults.StallTimeout,
+            PersistenceMode = defaults.PersistenceMode,
             Steam = Disabled(defaults.Steam),
             Epic = Disabled(defaults.Epic),
             Xbox = Disabled(defaults.Xbox),
@@ -163,6 +164,22 @@ public class ScheduledPrefillScheduleGateTests
         return new ScheduledPrefillServiceConfigDto
         {
             ServiceId = service.ServiceId,
+            Schedules = service.Schedules.Select(schedule => new ScheduledPrefillSchedule
+            {
+                Id = schedule.Id,
+                Name = schedule.Name,
+                Enabled = false,
+                IntervalHours = service.IntervalHours,
+                CustomSchedule = schedule.CustomSchedule,
+                Preset = schedule.Preset,
+                TopCount = schedule.TopCount,
+                SelectedAppIds = [.. schedule.SelectedAppIds],
+                OperatingSystems = [.. schedule.OperatingSystems],
+                Force = schedule.Force,
+                MaxConcurrency = schedule.MaxConcurrency,
+                NotificationMode = schedule.NotificationMode,
+                NotificationDisplayMode = schedule.NotificationDisplayMode
+            }).ToList(),
             Enabled = false,
             IntervalHours = service.IntervalHours,
             Preset = service.Preset,
@@ -170,7 +187,8 @@ public class ScheduledPrefillScheduleGateTests
             SelectedAppIds = service.SelectedAppIds,
             OperatingSystems = service.OperatingSystems,
             Force = service.Force,
-            MaxConcurrency = service.MaxConcurrency
+            MaxConcurrency = service.MaxConcurrency,
+            PersistenceMode = service.PersistenceMode
         };
     }
 
@@ -182,6 +200,22 @@ public class ScheduledPrefillScheduleGateTests
         return new ScheduledPrefillServiceConfigDto
         {
             ServiceId = service.ServiceId,
+            Schedules = service.Schedules.Select(schedule => new ScheduledPrefillSchedule
+            {
+                Id = schedule.Id,
+                Name = schedule.Name,
+                Enabled = true,
+                IntervalHours = -1d,
+                CustomSchedule = schedule.CustomSchedule,
+                Preset = schedule.Preset,
+                TopCount = schedule.TopCount,
+                SelectedAppIds = [.. schedule.SelectedAppIds],
+                OperatingSystems = [.. schedule.OperatingSystems],
+                Force = schedule.Force,
+                MaxConcurrency = schedule.MaxConcurrency,
+                NotificationMode = schedule.NotificationMode,
+                NotificationDisplayMode = schedule.NotificationDisplayMode
+            }).ToList(),
             Enabled = true,
             IntervalHours = -1d,
             Preset = service.Preset,
@@ -189,7 +223,8 @@ public class ScheduledPrefillScheduleGateTests
             SelectedAppIds = service.SelectedAppIds,
             OperatingSystems = service.OperatingSystems,
             Force = service.Force,
-            MaxConcurrency = service.MaxConcurrency
+            MaxConcurrency = service.MaxConcurrency,
+            PersistenceMode = service.PersistenceMode
         };
     }
 
@@ -201,6 +236,7 @@ public class ScheduledPrefillScheduleGateTests
             Version = defaults.Version,
             MaxServiceRuntime = defaults.MaxServiceRuntime,
             StallTimeout = defaults.StallTimeout,
+            PersistenceMode = defaults.PersistenceMode,
             Steam = Disabled(defaults.Steam),
             Epic = Disabled(defaults.Epic),
             Xbox = StartupOnly(defaults.Xbox),

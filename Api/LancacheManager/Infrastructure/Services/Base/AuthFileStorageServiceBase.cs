@@ -22,6 +22,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     private readonly string _authFilePath;
     private readonly object _lock = new object();
     private TAuthData? _cachedData;
+    private readonly Dictionary<Guid, TAuthData> _savedLogins = [];
 
     protected AuthFileStorageServiceBase(
         ILogger logger,
@@ -105,26 +106,39 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     /// </param>
     protected abstract bool NeedsReEncryption(TPersistedAuthData persisted, TAuthData decrypted);
 
+    protected abstract Guid? GetOwnerAccountId(TAuthData data);
+
+    protected abstract Guid? GetOwnerAccountId(TPersistedAuthData persisted);
+
+    protected abstract void SetOwnerAccountId(TAuthData data, Guid accountId);
+
     private void EnsureDirectoryExists()
     {
         if (!Directory.Exists(_authDirectory))
         {
             Directory.CreateDirectory(_authDirectory);
             _logger.LogInformation("Created {DirectoryName} directory: {Directory}", AuthDirectoryName, _authDirectory);
+        }
 
-            if (OperatingSystem.IsLinux())
-            {
-                try
-                {
-                    File.SetUnixFileMode(
-                        _authDirectory,
-                        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to set Unix file permissions on {DirectoryName} directory", AuthDirectoryName);
-                }
-            }
+        SetDirectoryPermissions(_authDirectory);
+    }
+
+    private void SetDirectoryPermissions(string directory)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        try
+        {
+            File.SetUnixFileMode(
+                directory,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to set Unix file permissions on {DirectoryName} directory", AuthDirectoryName);
         }
     }
 
@@ -239,33 +253,150 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
         {
             EnsureDirectoryExists();
 
-            var persisted = EncryptForStorage(data);
-
-            var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
-
-            var tempFile = _authFilePath + ".tmp";
-            File.WriteAllText(tempFile, json);
-
-            using (var fs = File.OpenWrite(tempFile))
+            if (GetOwnerAccountId(data) is { } accountId && HasCredentials(data))
             {
-                fs.Flush(true);
+                SaveFile(GetSavedLoginPath(accountId), data);
+                _savedLogins[accountId] = data;
             }
 
-            File.Move(tempFile, _authFilePath, true);
-
-            if (OperatingSystem.IsLinux())
-            {
-                try
-                {
-                    File.SetUnixFileMode(_authFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to set Unix file permissions on {AuthDataLabel} auth file", AuthDataLabel);
-                }
-            }
+            SaveFile(_authFilePath, data);
 
             _cachedData = data;
+        }
+    }
+
+    public TAuthData GetSavedLogin(Guid accountId)
+    {
+        lock (_lock)
+        {
+            if (_savedLogins.TryGetValue(accountId, out var cached))
+            {
+                return cached;
+            }
+
+            var path = GetSavedLoginPath(accountId);
+            if (!File.Exists(path))
+            {
+                return new TAuthData();
+            }
+
+            try
+            {
+                var json = File.ReadAllText(path);
+                var persisted = JsonSerializer.Deserialize<TPersistedAuthData>(json) ?? new TPersistedAuthData();
+                if (GetOwnerAccountId(persisted) != accountId)
+                {
+                    _logger.LogWarning(
+                        "Refused {AuthDataLabel} saved login whose owner did not match its account file",
+                        AuthDataLabel);
+                    return new TAuthData();
+                }
+
+                if (IsStoredUnencrypted(persisted))
+                {
+                    DeleteSavedLoginFile(path);
+                    return new TAuthData();
+                }
+
+                var decrypted = DecryptPersisted(persisted);
+                if (decrypted is null || GetOwnerAccountId(decrypted) != accountId)
+                {
+                    DeleteSavedLoginFile(path);
+                    return new TAuthData();
+                }
+
+                _savedLogins[accountId] = decrypted;
+                if (NeedsReEncryption(persisted, decrypted))
+                {
+                    SaveFile(path, decrypted);
+                }
+
+                return decrypted;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load saved {AuthDataLabel} login", AuthDataLabel);
+                return new TAuthData();
+            }
+        }
+    }
+
+    public void SaveSavedLogin(Guid accountId, TAuthData data)
+    {
+        lock (_lock)
+        {
+            SetOwnerAccountId(data, accountId);
+            SaveFile(GetSavedLoginPath(accountId), data);
+            _savedLogins[accountId] = data;
+        }
+    }
+
+    public bool HasSavedLogin(Guid accountId) => HasCredentials(GetSavedLogin(accountId));
+
+    public void ClearSavedLogin(Guid accountId)
+    {
+        lock (_lock)
+        {
+            DeleteSavedLoginFile(GetSavedLoginPath(accountId));
+            _savedLogins.Remove(accountId);
+        }
+    }
+
+    public void InvalidateAuthData()
+    {
+        lock (_lock)
+        {
+            var ownerAccountId = GetOwnerAccountId(GetAuthData());
+            ClearAuthData();
+            if (ownerAccountId is { } accountId)
+            {
+                ClearSavedLogin(accountId);
+            }
+        }
+    }
+
+    private string GetSavedLoginPath(Guid accountId)
+        => Path.Combine(_authDirectory, "saved", $"{accountId:N}.json");
+
+    private void SaveFile(string path, TAuthData data)
+    {
+        var directory = Path.GetDirectoryName(path)
+            ?? throw new InvalidOperationException("Authentication file has no parent directory");
+        Directory.CreateDirectory(directory);
+        SetDirectoryPermissions(directory);
+
+        var persisted = EncryptForStorage(data);
+        var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
+        var tempFile = path + ".tmp";
+        File.WriteAllText(tempFile, json);
+        using (var fs = File.OpenWrite(tempFile))
+        {
+            fs.Flush(true);
+        }
+
+        File.Move(tempFile, path, true);
+        if (OperatingSystem.IsLinux())
+        {
+            try
+            {
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to set Unix file permissions on {AuthDataLabel} auth file", AuthDataLabel);
+            }
+        }
+    }
+
+    private void DeleteSavedLoginFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete invalid {AuthDataLabel} saved login", AuthDataLabel);
         }
     }
 

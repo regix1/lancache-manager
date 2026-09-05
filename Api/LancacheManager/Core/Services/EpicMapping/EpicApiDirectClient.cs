@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -121,7 +122,16 @@ public class EpicApiDirectClient
         if (!response.IsSuccessStatusCode)
         {
             _logger.LogWarning("Epic OAuth refresh failed with status {StatusCode}", response.StatusCode);
-            throw new InvalidOperationException($"Epic OAuth refresh failed: {response.StatusCode}");
+            if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized)
+            {
+                throw new ValidationException($"Epic OAuth refresh failed: {response.StatusCode}")
+                {
+                    StageKey = "errors.epic.refreshRejected",
+                    Context = new Dictionary<string, object?> { ["status"] = response.StatusCode.ToString() }
+                };
+            }
+
+            response.EnsureSuccessStatusCode();
         }
 
         var tokenResponse = JsonSerializer.Deserialize<EpicTokenResponse>(json);
@@ -138,6 +148,79 @@ public class EpicApiDirectClient
             RefreshToken = tokenResponse.RefreshToken ?? throw new InvalidOperationException("No refresh token"),
             DisplayName = tokenResponse.DisplayName ?? "Epic User",
             AccountId = tokenResponse.AccountId ?? "",
+            ExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.ExpiresIn),
+            RefreshExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.RefreshExpiresIn)
+        };
+    }
+
+    /// <summary>
+    /// Creates a short-lived exchange code from the manager-owned Epic access token.
+    /// </summary>
+    public async Task<string> GetExchangeCodeAsync(string accessToken, CancellationToken ct = default)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"{AccountServiceUrl}/account/api/oauth/exchange");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new ValidationException($"Epic exchange code request failed: {response.StatusCode}")
+            {
+                StageKey = "errors.epic.exchangeCodeFailed",
+                Context = new Dictionary<string, object?> { ["status"] = response.StatusCode.ToString() }
+            };
+        }
+
+        var exchange = JsonSerializer.Deserialize<EpicExchangeCodeResponse>(json);
+        if (string.IsNullOrWhiteSpace(exchange?.Code))
+        {
+            throw new InvalidOperationException("Epic exchange code response did not contain a code");
+        }
+
+        return exchange.Code;
+    }
+
+    /// <summary>
+    /// Redeems an exchange code for a distinct OAuth session.
+    /// </summary>
+    public async Task<EpicOAuthTokens> ExchangeCodeAsync(string exchangeCode, CancellationToken ct = default)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"{AccountServiceUrl}/account/api/oauth/token");
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic",
+            Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{EpicClientId}:{EpicClientSecret}")));
+        request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "exchange_code",
+            ["exchange_code"] = exchangeCode,
+            ["token_type"] = "eg1"
+        });
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new ValidationException($"Epic exchange code redemption failed: {response.StatusCode}")
+            {
+                StageKey = "errors.epic.exchangeCodeFailed",
+                Context = new Dictionary<string, object?> { ["status"] = response.StatusCode.ToString() }
+            };
+        }
+
+        var tokenResponse = JsonSerializer.Deserialize<EpicTokenResponse>(json)
+            ?? throw new InvalidOperationException("Failed to parse Epic exchange token response");
+
+        return new EpicOAuthTokens
+        {
+            AccessToken = tokenResponse.AccessToken ?? throw new InvalidOperationException("No access token"),
+            RefreshToken = tokenResponse.RefreshToken ?? throw new InvalidOperationException("No refresh token"),
+            DisplayName = tokenResponse.DisplayName ?? "Epic User",
+            AccountId = tokenResponse.AccountId ?? string.Empty,
             ExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.ExpiresIn),
             RefreshExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.RefreshExpiresIn)
         };
@@ -558,6 +641,12 @@ internal class EpicTokenResponse
 
     [JsonPropertyName("app")]
     public string? App { get; set; }
+}
+
+internal sealed class EpicExchangeCodeResponse
+{
+    [JsonPropertyName("code")]
+    public string? Code { get; set; }
 }
 
 /// <summary>

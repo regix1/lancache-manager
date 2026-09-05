@@ -267,6 +267,7 @@ public class PersistentPrefillController : ControllerBase
                     NeedsRelogin = session.NeedsRelogin,
                     DaemonAuthExpiresAtUtc = daemonAuthExpiresAtUtc,
                     IsPrefilling = session.IsPrefilling,
+                    RunId = session.IsPrefilling ? session.PrefillRunId : null,
                     TotalBytesTransferred = session.TotalBytesTransferred,
                     CurrentAppName = session.CurrentAppName
                 });
@@ -368,12 +369,37 @@ public class PersistentPrefillController : ControllerBase
         var outcome = PersistentPrefillEditActionOutcome.Failed;
         try
         {
-            await using var mutation = await daemon!.PersistentEditSessionGate.EnterMutationAsync(
-                cancellationToken);
-            await daemon!.SetSelectedAppsAsync(session!.Id, request.AppIds, cancellationToken);
-            editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Selection);
-            outcome = PersistentPrefillEditActionOutcome.Succeeded;
-            return Ok();
+            if (!daemon!.PersistentEditSessionGate.TryEnterMutation(out var mutation))
+            {
+                outcome = PersistentPrefillEditActionOutcome.Conflict;
+                return Conflict(ApiResponse.Error($"The persistent {request.Service} container is busy."));
+            }
+
+            await using (mutation!)
+            {
+                var (claimedDaemon, claimedSession, claimedError) = ResolveRunningPersistentSession(
+                    request.Service,
+                    request.SessionId);
+                if (claimedError is not null)
+                {
+                    return claimedError;
+                }
+
+                if (!ReferenceEquals(claimedDaemon, daemon)
+                    || !ReferenceEquals(claimedSession, session)
+                    || daemon.PersistentEditSessionGate.HasPendingStart()
+                    || claimedSession!.LoginOperationId.HasValue
+                    || claimedSession.IsPrefilling)
+                {
+                    outcome = PersistentPrefillEditActionOutcome.Conflict;
+                    return Conflict(ApiResponse.Error($"The persistent {request.Service} container is busy."));
+                }
+
+                await daemon.SetSelectedAppsAsync(claimedSession.Id, request.AppIds, cancellationToken);
+                editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Selection);
+                outcome = PersistentPrefillEditActionOutcome.Succeeded;
+                return Ok();
+            }
         }
         catch (OperationCanceledException)
         {
@@ -428,32 +454,57 @@ public class PersistentPrefillController : ControllerBase
         var outcome = PersistentPrefillEditActionOutcome.Failed;
         try
         {
-            await using var mutation = await daemon!.PersistentEditSessionGate.EnterMutationAsync(
-                cancellationToken);
-            if (request.AppIds is { Count: > 0 })
+            if (!daemon!.PersistentEditSessionGate.TryEnterMutation(out var mutation))
             {
-                await daemon!.SetSelectedAppsAsync(session!.Id, request.AppIds, cancellationToken);
-                editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Selection);
+                outcome = PersistentPrefillEditActionOutcome.Conflict;
+                return Conflict(ApiResponse.Error($"The persistent {request.Service} container is busy."));
             }
 
-            var result = await daemon!.PrefillAsync(
-                session!.Id,
-                all: request.All,
-                recent: request.Recent,
-                recentlyPurchased: request.RecentlyPurchased,
-                top: request.Top,
-                force: request.Force,
-                operatingSystems: request.OperatingSystems,
-                maxConcurrency: request.MaxConcurrency,
-                cancellationToken: cancellationToken);
-
-            if (result.Success)
+            await using (mutation!)
             {
-                editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Prefill);
-                outcome = PersistentPrefillEditActionOutcome.Succeeded;
-            }
+                var (claimedDaemon, claimedSession, claimedError) = ResolveRunningPersistentSession(
+                    request.Service,
+                    request.SessionId);
+                if (claimedError is not null)
+                {
+                    return claimedError;
+                }
 
-            return Ok(result);
+                if (!ReferenceEquals(claimedDaemon, daemon)
+                    || !ReferenceEquals(claimedSession, session)
+                    || daemon.PersistentEditSessionGate.HasPendingStart()
+                    || claimedSession!.LoginOperationId.HasValue
+                    || claimedSession.IsPrefilling)
+                {
+                    outcome = PersistentPrefillEditActionOutcome.Conflict;
+                    return Conflict(ApiResponse.Error($"The persistent {request.Service} container is busy."));
+                }
+
+                if (request.AppIds is not null)
+                {
+                    await daemon.SetSelectedAppsAsync(claimedSession.Id, request.AppIds, cancellationToken);
+                    editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Selection);
+                }
+
+                var result = await daemon.PrefillAsync(
+                    claimedSession.Id,
+                    all: request.All,
+                    recent: request.Recent,
+                    recentlyPurchased: request.RecentlyPurchased,
+                    top: request.Top,
+                    force: request.Force,
+                    operatingSystems: request.OperatingSystems,
+                    maxConcurrency: request.MaxConcurrency,
+                    cancellationToken: cancellationToken);
+
+                if (result.Success)
+                {
+                    editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Prefill);
+                    outcome = PersistentPrefillEditActionOutcome.Succeeded;
+                }
+
+                return Ok(result);
+            }
         }
         catch (PrefillAlreadyRunningException ex)
         {
@@ -489,8 +540,51 @@ public class PersistentPrefillController : ControllerBase
             return error;
         }
 
-        await daemon!.CancelPrefillAsync(session!.Id, cancellationToken);
-        return Ok();
+        if (!daemon!.PersistentEditSessionGate.TryEnterMutation(out var mutation))
+        {
+            return Conflict(ApiResponse.Error($"The persistent {request.Service} container is busy."));
+        }
+
+        await using (mutation!)
+        {
+            var (claimedDaemon, claimedSession, claimedError) = ResolveRunningPersistentSession(
+                request.Service,
+                request.SessionId);
+            if (claimedError is not null)
+            {
+                return claimedError;
+            }
+
+            if (!ReferenceEquals(claimedDaemon, daemon)
+                || !ReferenceEquals(claimedSession, session))
+            {
+                return Conflict(ApiResponse.Error("The persistent prefill session changed."));
+            }
+
+            if (request.RunId.HasValue
+                && (!claimedSession!.IsPrefilling
+                    || claimedSession.PrefillRunId != request.RunId.Value))
+            {
+                return Conflict(ApiResponse.Error("The requested prefill run is no longer active."));
+            }
+
+            await daemon.CancelPrefillAsync(claimedSession!.Id, cancellationToken);
+            return Ok();
+        }
+    }
+
+    [HttpGet("integration-login")]
+    [ProducesResponseType(typeof(IntegrationLoginAvailability), StatusCodes.Status200OK)]
+    public ActionResult<IntegrationLoginAvailability> GetIntegrationLoginAvailability(
+        [FromQuery] PrefillPlatform service)
+    {
+        var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, service);
+        if (daemon is null)
+        {
+            return BadRequest(ApiResponse.Error($"No daemon registered for service '{service}'"));
+        }
+
+        return Ok(daemon.GetIntegrationLoginAvailability(HttpContext.GetUserSession()?.AccountId));
     }
 
     /// <summary>
@@ -532,18 +626,32 @@ public class PersistentPrefillController : ControllerBase
         var outcome = PersistentPrefillEditActionOutcome.Failed;
         try
         {
+            var accountId = HttpContext.GetUserSession()?.AccountId;
+            if (request.ReuseIntegration && accountId is null)
+            {
+                return Forbid();
+            }
+
             await using var mutation = await daemon!.PersistentEditSessionGate.EnterMutationAsync(
                 cancellationToken);
             var loginCommandDispatched = false;
-            var challenge = await daemon!.StartLoginForEditAsync(
-                session!.Id,
-                TimeSpan.FromSeconds(30),
-                () =>
-                {
-                    editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Login);
-                    loginCommandDispatched = true;
-                },
-                cancellationToken);
+            void ConfirmLoginDispatch()
+            {
+                editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Login);
+                loginCommandDispatched = true;
+            }
+
+            var challenge = request.ReuseIntegration
+                ? await daemon!.ReuseIntegrationLoginForEditAsync(
+                    session!.Id,
+                    accountId!.Value,
+                    ConfirmLoginDispatch,
+                    cancellationToken)
+                : await daemon!.StartLoginForEditAsync(
+                    session!.Id,
+                    TimeSpan.FromSeconds(30),
+                    ConfirmLoginDispatch,
+                    cancellationToken);
 
             if (challenge == null)
             {
@@ -551,14 +659,16 @@ public class PersistentPrefillController : ControllerBase
                 var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
                 if (status?.Status == "logged-in")
                 {
-                    outcome = PersistentPrefillEditActionOutcome.NoChange;
+                    outcome = loginCommandDispatched
+                        ? PersistentPrefillEditActionOutcome.Succeeded
+                        : PersistentPrefillEditActionOutcome.NoChange;
                     // RC3: every login response variant carries the
                     // resolved sessionId so the frontend can pin the session this flow belongs to.
                     return Ok(new PersistentLoginStatusResponse
                     {
                         SessionId = session.Id,
                         Status = "logged-in",
-                        Message = "Already logged in"
+                        Message = loginCommandDispatched ? "Logged in" : "Already logged in"
                     });
                 }
 
@@ -1248,6 +1358,7 @@ public sealed class PersistentServiceRequest
 {
     public required PrefillPlatform Service { get; init; }
     public string? SessionId { get; init; }
+    public Guid? RunId { get; init; }
 }
 
 /// <summary>Sets selected apps on the running persistent session.</summary>
@@ -1298,6 +1409,7 @@ public sealed class PersistentLoginRequest
     public string? SessionId { get; init; }
     public string? EditSessionId { get; init; }
     public string? EditActionId { get; init; }
+    public bool ReuseIntegration { get; init; }
 }
 
 public sealed class PersistentPrefillEditSessionCleanupRequest
@@ -1439,6 +1551,9 @@ public sealed class PersistentPrefillSessionDto
 
     /// <summary>True while a prefill download is in progress on this session.</summary>
     public bool IsPrefilling { get; init; }
+
+    /// <summary>Identity of the active prefill run, or null while no prefill is running.</summary>
+    public Guid? RunId { get; init; }
 
     /// <summary>Aggregate bytes transferred during the current or last prefill run.</summary>
     public long TotalBytesTransferred { get; init; }
