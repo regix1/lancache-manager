@@ -117,7 +117,21 @@ const AuthenticateTab: React.FC = () => {
           </div>
         </div>
 
-        <div className="auth-upgrade-form">
+        <form
+          className="auth-upgrade-form"
+          method="post"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (
+              credentialsFilled &&
+              !loading &&
+              startingService === null &&
+              services.length === 0
+            ) {
+              void handleAuthenticate();
+            }
+          }}
+        >
           <CredentialFields
             accountMode={accountMode}
             apiKey={apiKey}
@@ -143,7 +157,7 @@ const AuthenticateTab: React.FC = () => {
               variant="filled"
               color="primary"
               size="md"
-              onClick={handleAuthenticate}
+              type="submit"
               loading={loading}
               disabled={!credentialsFilled || loading}
               fullWidth
@@ -153,7 +167,7 @@ const AuthenticateTab: React.FC = () => {
                 : t('auth.form.submit')}
             </Button>
           )}
-        </div>
+        </form>
 
         {requiresApiKey(accountMode) && (
           <div className="auth-upgrade-help">

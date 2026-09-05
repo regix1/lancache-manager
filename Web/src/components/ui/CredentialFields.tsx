@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import FormField from './FormField';
 import type { CredentialFieldsProps } from './CredentialFields.types';
+import { noAutofill } from '@utils/autofill';
 import { requiresApiKey, usesOidc } from '@utils/accountMode';
 
 const inputClassName = 'w-full p-3 text-sm themed-input';
@@ -57,10 +58,9 @@ const CredentialFields: React.FC<CredentialFieldsProps> = ({
                 onKeyDown={handleKeyDown}
                 placeholder={apiKeyPlaceholder}
                 className={inputClassName}
-                // `new-password` rather than `off`: browsers ignore `off` on a password input and
-                // will still offer to remember the key and refill it on a later visit. The username
-                // and password fields below are a real sign-in, so they keep their own semantics.
-                autoComplete="new-password"
+                {...noAutofill}
+                name="installation-key"
+                spellCheck={false}
                 disabled={disabled}
                 autoFocus={autoFocus}
               />
@@ -83,6 +83,7 @@ const CredentialFields: React.FC<CredentialFieldsProps> = ({
                   placeholder={t('modals.auth.placeholders.enterUsername')}
                   className={inputClassName}
                   autoComplete="username"
+                  name="username"
                   disabled={disabled}
                   autoFocus={autoFocus && !keyRequired}
                 />
@@ -102,6 +103,7 @@ const CredentialFields: React.FC<CredentialFieldsProps> = ({
                   placeholder={t('modals.auth.placeholders.enterPassword')}
                   className={inputClassName}
                   autoComplete="current-password"
+                  name="password"
                   disabled={disabled}
                 />
               )}

@@ -8,8 +8,7 @@
     },
     "descriptions": {
       "choose": "选择访问此实例时需要使用的凭据。主管理员以后可以更改此设置。",
-      "configure": "验证所有权，然后配置所选方式。现有账户和缓存设置将保留。",
-      "test": "请完成一次登录，再启用此配置。"
+      "configure": "验证所有权，然后配置所选方式。现有账户和缓存设置将保留。"
     },
     "upgrade": "1.10.7 版本新增了登录方式。请为此实例确认一次访问设置；您的账户、缓存和预填充设置将保留。",
     "groups": {
@@ -30,8 +29,8 @@
       },
       "apiKeyOidc": {
         "title": "API 密钥和单点登录",
-        "description": "要求实例密钥以及来自已连接服务的获准身份。",
-        "warning": "同时要求实例密钥和获准登录的账户。请妥善保管密钥。"
+        "description": "使用获准的单点登录账户和实例 API 密钥登录。",
+        "warning": "密钥由多人共用，请妥善保管。"
       },
       "oidc": {
         "title": "单点登录",
@@ -44,7 +43,7 @@
         "warning": "任何能够访问此应用的人都可使用管理功能。仅适用于所有人员和设备均受信任的网络。"
       }
     },
-    "keyOwnership": "实例 API 密钥始终存在，归第一个账户（主管理员）所有。不要求输入密钥的模式也会保留密钥，用于验证所有权和恢复。",
+    "keyOwnership": "所有模式都会保留实例 API 密钥，用于验证所有权和恢复；密钥归第一个账户（主管理员）所有。",
     "sessions": "现有账户会话仍然有效。可在用户页面的会话列表中结束这些会话。切换到需要登录的模式后，共享的无身份验证访问将被撤销。",
     "ownerHeading": "验证实例所有权",
     "ownerDescription": "输入实例密钥以授权此次更改。这项一次性的设置验证与登录凭据要求相互独立。",
@@ -58,6 +57,8 @@
     "httpsWarning": "支持本地 HTTP 访问。凭据和会话以未加密方式传输，因此在不可信网络上请使用 HTTPS。",
     "serviceHeading": "用户应使用哪个服务登录？",
     "serviceHint": "已连接的服务保持可用。选择一个以添加或更新。",
+    "ssoRequiresHttps": "通过 HTTP 访问时无法使用单点登录。请使用 HTTPS 连接此应用。",
+    "httpsRequired": "需要 HTTPS",
     "connected": "已连接",
     "connectedList": "已连接：{{names}}",
     "connectedHeading": "{{name}} 已连接",
@@ -83,11 +84,11 @@
     "callback": "登录回调 URL",
     "setupCallback": "测试回调 URL",
     "callbackOrigin": "这些返回 URL 已内置于应用中。复制前，请通过预定的登录地址打开应用。",
-    "localAddress": "Localhost 和回环地址指向运行浏览器的设备，而不是其他服务器。",
+    "localAddress": "此设置即使在 localhost 上也要求 HTTPS。回环地址指向运行浏览器的设备，而不是其他服务器。",
     "privateHosting": "应用仍可仅在局域网或 VPN 内访问，无需公网托管。",
-    "addressHelp": "本地测试与 URL 说明",
+    "addressHelp": "本地 HTTPS 说明",
     "advanced": "高级设置",
-    "advancedHint": "可选。下一步测试时使用的身份会自动关联到主管理员。",
+    "advancedHint": "用于测试此连接的账户会自动关联到主管理员。",
     "additionalUsers": "允许其他单点登录用户",
     "allowedSubjects": "允许的主体（可选）",
     "oidcSafety": "启用前会测试连接。测试失败将保留当前登录设置。",
@@ -138,37 +139,37 @@
         "title": "Google",
         "note": "用户使用 Google 账户登录。",
         "register": "在 Google Cloud Console 中创建 Web 应用类型的 OAuth 客户端。将下方两个 URL 添加为已授权的重定向 URI。",
-        "addresses": "通过局域网使用 Google 登录需要 HTTPS 域名。不支持 HTTP 或直接使用局域网 IP 地址。",
-        "testing": "Google 允许通过 http://localhost 或 http://127.0.0.1 进行本地测试。其他情况请使用已注册的域名和 HTTPS；应用仍可仅在局域网或 VPN 内访问。",
+        "addresses": "通过局域网使用 Google 登录需要 HTTPS 和已注册的域名。不支持 HTTP 或直接使用局域网 IP 地址。",
+        "testing": "Google 允许 localhost 或 127.0.0.1 回调。其他设备需要使用已注册的域名。",
         "credentials": "从您创建的 OAuth 客户端中复制客户端 ID 和客户端密钥。",
-        "subjects": "可选。Google 主体 ID（sub 声明），每行一个。测试时使用的身份会自动关联到主管理员；电子邮件地址不是标识符。"
+        "subjects": "Google 主体 ID（sub 声明），每行一个。请勿使用电子邮件地址。"
       },
       "github": {
         "title": "GitHub",
         "note": "用户使用 GitHub 账户登录。",
         "register": "在 GitHub Settings → Developer settings → OAuth Apps 中创建应用。添加下方两个回调 URL，关闭通配符匹配，然后生成客户端密钥。",
         "addresses": "本应用在局域网上使用 GitHub 登录需要 HTTPS。不支持普通 HTTP 局域网地址。",
-        "testing": "GitHub 支持 HTTP 回环回调，建议使用 http://127.0.0.1 而非 localhost。通过局域网或 VPN 访问时，本应用要求 HTTPS。",
+        "testing": "GitHub 建议回环回调使用 127.0.0.1 而非 localhost。",
         "credentials": "复制客户端 ID 和您生成的客户端密钥。不会请求仓库或电子邮件权限。",
-        "subjects": "可选。GitHub 数字账户 ID，每行一个。测试时使用的账户会自动关联到主管理员；用户名和电子邮件地址不是标识符。"
+        "subjects": "GitHub 数字账户 ID，每行一个。请勿使用用户名或电子邮件地址。"
       },
       "microsoft": {
         "title": "Microsoft",
         "note": "用户使用工作、学校或个人 Microsoft 账户登录。",
         "register": "在 Microsoft Entra 中注册应用并选择 Web 平台。将下方两个 URL 添加为重定向 URI，然后创建客户端密钥。",
         "addresses": "通过局域网使用 Microsoft 登录需要 HTTPS。不支持普通 HTTP 局域网地址。",
-        "testing": "Microsoft 允许使用 http://localhost 进行本地测试。HTTP 的 127.0.0.1 地址必须通过应用清单添加，不能使用门户的 URL 输入框。不支持 IPv6 回环地址（::1）。",
+        "testing": "Microsoft 支持 localhost 和 127.0.0.1 回调，但不支持 IPv6 回环地址（::1）。",
         "credentials": "复制应用程序（客户端）ID、目录（租户）ID 和客户端密钥值。",
-        "subjects": "可选。每行一个身份，格式为 租户 GUID:对象 GUID。测试时使用的账户会自动关联到主管理员；电子邮件地址不是标识符。"
+        "subjects": "每行一个身份，格式为 租户 GUID:对象 GUID。请勿使用电子邮件地址。"
       },
       "apple": {
         "title": "Apple",
         "note": "Apple 账户。需要 Apple Developer 会员资格和 HTTPS 域名。",
         "register": "在 Apple Developer 中，将 Services ID 关联到启用 Sign in with Apple 的 App ID。添加本站域名及下方两个返回 URL，然后创建登录密钥。",
         "addresses": "Apple 在局域网上也要求 HTTPS 域名。不支持 HTTP、localhost 或 IP 地址。",
-        "testing": "本地测试需要使用指向服务器的 HTTPS 域名，并在 Apple 中注册该域名。localhost 也不能例外。",
+        "testing": "本地测试时，请通过本地 DNS 将已注册的域名指向您的服务器。",
         "credentials": "输入 Services ID、Team ID、Key ID 和 .p8 密钥文件内容。此应用会自行生成 Apple 的客户端密钥。",
-        "subjects": "可选。Apple 主体 ID（sub 声明），每行一个。测试时使用的身份会自动关联到主管理员；电子邮件地址不是标识符。"
+        "subjects": "Apple 主体 ID（sub 声明），每行一个。请勿使用电子邮件地址。"
       },
       "customOidc": {
         "title": "其他（OpenID Connect）",
@@ -176,9 +177,9 @@
         "note": "任何 OpenID Connect 服务，例如 Keycloak、Authentik、Authelia 或 Okta。",
         "register": "创建使用授权码流程的 OpenID Connect Web 客户端。将下方两个 URL 添加为允许的重定向 URI。",
         "addresses": "本应用在局域网上使用单点登录需要 HTTPS。您的身份服务可能有更严格的规定。",
-        "testing": "只有身份服务允许时，才能使用 HTTP 回环回调。本应用始终要求 HTTPS 签发者 URL，本地测试也不例外。",
+        "testing": "签发者 URL 也必须使用 HTTPS；请检查身份服务的回调要求。",
         "credentials": "输入该注册提供的签发者 URL、客户端 ID 和客户端密钥。",
-        "subjects": "可选。此签发者的稳定主体标识符（sub 声明），每行一个。测试时使用的身份会自动关联到主管理员；电子邮件地址和显示名称不是标识符。"
+        "subjects": "此签发者的主体 ID（sub 声明），每行一个。请勿使用电子邮件地址或显示名称。"
       }
     },
     "login": {

@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import FormField from '@components/ui/FormField';
+import { noAutofill } from '@utils/autofill';
 
 interface PasswordFieldProps {
   label: string;
@@ -9,6 +10,7 @@ interface PasswordFieldProps {
   error?: string | null;
   placeholder?: string;
   autoComplete?: string;
+  name?: string;
   disabled?: boolean;
   /** Input class string from the caller's family of steps; the reveal gutter is added here. */
   inputClassName: string;
@@ -30,6 +32,7 @@ export const PasswordField: React.FC<PasswordFieldProps> = ({
   error = null,
   placeholder,
   autoComplete,
+  name,
   disabled,
   inputClassName,
   showPasswordLabel,
@@ -48,6 +51,9 @@ export const PasswordField: React.FC<PasswordFieldProps> = ({
             onChange={onChange}
             placeholder={placeholder}
             autoComplete={autoComplete}
+            {...(autoComplete === 'off' ? noAutofill : {})}
+            name={name}
+            spellCheck={false}
             disabled={disabled}
             // The reveal button sits over the input's right edge, so the room for it
             // belongs to the component that renders it rather than to every caller.

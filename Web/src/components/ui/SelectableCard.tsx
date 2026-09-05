@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from 'react';
+import { Tooltip } from './Tooltip';
 
 interface SelectableCardProps {
   /** Radio group shared by every card competing for the same choice. */
@@ -13,6 +14,8 @@ interface SelectableCardProps {
    */
   onDeselect?: () => void;
   disabled?: boolean;
+  /** Explains a disabled choice on hover, keyboard focus, or touch. */
+  disabledReason?: string;
   /** Mark or icon, already coloured by the caller; the card sets its size. */
   icon?: ReactNode;
   title: string;
@@ -42,6 +45,7 @@ export const SelectableCard: React.FC<SelectableCardProps> = ({
   onChange,
   onDeselect,
   disabled,
+  disabledReason,
   icon,
   title,
   description,
@@ -52,7 +56,13 @@ export const SelectableCard: React.FC<SelectableCardProps> = ({
   const id = useId();
   const descriptionId = `${id}-description`;
   const noteId = `${id}-note`;
-  const describedBy = [description ? descriptionId : null, note ? noteId : null]
+  const reasonId = `${id}-reason`;
+  const blocked = disabled && !!disabledReason;
+  const describedBy = [
+    description ? descriptionId : null,
+    note ? noteId : null,
+    blocked ? reasonId : null
+  ]
     .filter(Boolean)
     .join(' ');
   // The modifier is written out in full: the stylesheet only keeps a layered rule whose class
@@ -61,7 +71,7 @@ export const SelectableCard: React.FC<SelectableCardProps> = ({
   const layoutClassName = layout === 'stack' ? ' selectable-card--stack' : '';
   const checkedClassName = checked ? ' selectable-card--checked' : '';
 
-  return (
+  const card = (
     <label className={`selectable-card${layoutClassName}${checkedClassName}`}>
       <input
         type="radio"
@@ -104,5 +114,24 @@ export const SelectableCard: React.FC<SelectableCardProps> = ({
         )}
       </span>
     </label>
+  );
+
+  if (!blocked) return card;
+
+  return (
+    <Tooltip content={disabledReason} className="h-full min-w-0">
+      <div
+        className="selectable-card__help"
+        role="group"
+        tabIndex={0}
+        aria-label={title}
+        aria-describedby={reasonId}
+      >
+        {card}
+        <span id={reasonId} className="sr-only">
+          {disabledReason}
+        </span>
+      </div>
+    </Tooltip>
   );
 };

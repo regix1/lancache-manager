@@ -85,7 +85,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const [show, setShow] = useState(false);
   const [x, setX] = useState(0);
   const [y, setY] = useState(0);
-  const isMobile = useMediaQuery('(max-width: 767px)');
+  const isMobile = useMediaQuery('(max-width: 767px), (hover: none), (pointer: coarse)');
   const [globallyDisabled, setGloballyDisabled] = useState(
     document.documentElement.getAttribute('data-disable-tooltips') === 'true'
   );
@@ -127,6 +127,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
     // Escape closes it without moving the pointer or the focus, which hover content has to allow.
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        event.stopPropagation();
         setShow(false);
       }
     };
@@ -276,12 +277,19 @@ export const Tooltip: React.FC<TooltipProps> = ({
     // is the browser's own answer to which arrivals deserve a focus affordance.
     if (!(event.target as HTMLElement).matches(':focus-visible')) return;
 
+    closeNow();
     const rect = triggerRef.current?.getBoundingClientRect();
     if (rect) {
       setX(rect.left + rect.width / 2);
       setY(rect.top);
     }
-    setShow(true);
+    // Tab can scroll the trigger into view. Open after that scroll so it does not dismiss the hint.
+    const focused = event.target;
+    requestAnimationFrame(() => {
+      if (document.activeElement === focused && triggerRef.current?.contains(focused as Node)) {
+        setShow(true);
+      }
+    });
   };
 
   const handleBlur = () => {

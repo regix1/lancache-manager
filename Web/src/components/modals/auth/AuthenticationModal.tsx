@@ -373,7 +373,21 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         )}
       </p>
 
-      <div className="space-y-4">
+      <form
+        className="space-y-4"
+        method="post"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (
+            credentialsFilled &&
+            !authenticating &&
+            !resetStatus.isResetting &&
+            services.length === 0
+          ) {
+            void handleAuthenticate();
+          }
+        }}
+      >
         <CredentialFields
           accountMode={accountMode}
           apiKey={apiKey}
@@ -403,7 +417,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
               variant="filled"
               color="primary"
               loading={authenticating}
-              onClick={handleAuthenticate}
+              type="submit"
               disabled={authenticating || !credentialsFilled || resetStatus.isResetting}
               fullWidth
             >
@@ -455,7 +469,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
             </>
           )}
         </div>
-      </div>
+      </form>
 
       {/* API Key Help */}
       {requiresApiKey(accountMode) && (

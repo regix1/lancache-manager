@@ -19,6 +19,7 @@ import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import authService from '@services/auth.service';
 import { usesOidc, type AccountMode } from '@utils/accountMode';
+import { noAutofill } from '@utils/autofill';
 import {
   validateAccountCredentials,
   type AccountCredentialErrors
@@ -147,6 +148,8 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
     usesOidc(accountMode) ||
     (accountMode === 'unauthenticated' && ownerOidcEnabled && !ownerPassword);
   const oidc = usesOidc(mode);
+  const https = window.location.protocol === 'https:';
+  const modeBlocked = oidc && !https;
   const connected = (candidate: LoginKind): LoginService | undefined =>
     loginServices.find((service) => service.kind === candidate);
   const selectedConnected = connected(kind);
@@ -183,6 +186,8 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
   const totalSteps = showsTestStep ? 3 : 2;
 
   const changeStep = (next: AccessStep) => {
+    // Moving focus before unmounting emits blur so autofill menus can dismiss their old anchor.
+    heading.current?.focus();
     setError(null);
     if (next === 'choose') setResumeTest(false);
     setStep(next);
@@ -208,7 +213,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
   };
 
   const save = async () => {
-    if (busy) return;
+    if (busy || modeBlocked) return;
     if (!apiKey.trim()) {
       setError(t('accessSetup.keyRequired'));
       return;
@@ -290,7 +295,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
   };
 
   const testSignIn = async () => {
-    if (busy) return;
+    if (busy || !https) return;
     if (needsSignIn) {
       setResumeTest(true);
       changeStep('configure');
@@ -313,6 +318,8 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
           <div className="access-setup-copy-row">
             <input
               {...field}
+              {...noAutofill}
+              type="url"
               readOnly
               value={value}
               className={`${inputClassName} access-setup-callback`}
@@ -337,17 +344,17 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
     label: string,
     value: string,
     onChange: (next: string) => void,
-    extra: { hint?: string; placeholder?: string; type?: string; autoComplete?: string } = {}
+    extra: { hint?: string; placeholder?: string; type?: string } = {}
   ) => (
     <FormField label={label} required hint={extra.hint}>
       {(field) => (
         <input
           {...field}
+          {...noAutofill}
           type={extra.type ?? 'text'}
           value={value}
           required
           disabled={busy}
-          autoComplete={extra.autoComplete ?? 'off'}
           placeholder={extra.placeholder}
           className={inputClassName}
           onChange={(event) => onChange(event.target.value)}
@@ -390,7 +397,8 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
       onChange={(event) => setApiKey(event.target.value)}
       disabled={busy}
       inputClassName={inputClassName}
-      autoComplete="new-password"
+      autoComplete="off"
+      name="installation-key"
       showPasswordLabel={t('accessSetup.showSecret')}
       hidePasswordLabel={t('accessSetup.hideSecret')}
     />
@@ -427,8 +435,10 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
               type="button"
               color="primary"
               variant="filled"
+              disabled={busy || modeBlocked}
               onClick={(event) => {
                 event.preventDefault();
+                if (modeBlocked) return;
                 changeStep('configure');
               }}
             >
@@ -448,6 +458,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                 stableWidth
                 disabled={
                   busy ||
+                  modeBlocked ||
                   !apiKey.trim() ||
                   (!needsSignIn && mode === 'unauthenticated' && !acknowledged)
                 }
@@ -463,7 +474,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
               variant="filled"
               loading={busy}
               stableWidth
-              disabled={busy || !apiKey.trim()}
+              disabled={busy || !https || !apiKey.trim()}
               onClick={(event) => {
                 event.preventDefault();
                 void testSignIn();
@@ -526,6 +537,10 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         name="account-mode"
                         value={choice}
                         checked={mode === choice}
+                        disabled={busy || (usesOidc(choice) && !https)}
+                        disabledReason={
+                          usesOidc(choice) && !https ? t('accessSetup.ssoRequiresHttps') : undefined
+                        }
                         onChange={() => {
                           setMode(choice);
                           setAcknowledged(false);
@@ -533,6 +548,11 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         title={t(`accessSetup.modes.${choice}.title`)}
                         description={t(`accessSetup.modes.${choice}.description`)}
                         note={t(`accessSetup.modes.${choice}.warning`)}
+                        badge={
+                          usesOidc(choice) && !https ? (
+                            <Badge variant="neutral">{t('accessSetup.httpsRequired')}</Badge>
+                          ) : undefined
+                        }
                       />
                     ))}
                   </div>
@@ -547,6 +567,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
           <form
             ref={form}
             id="access-setup-form"
+            method="post"
             className="space-y-5"
             onSubmit={(event) => {
               event.preventDefault();
@@ -560,6 +581,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
               title={t(`accessSetup.modes.${mode}.title`)}
               description={t('accessSetup.descriptions.configure')}
             />
+            {modeBlocked && <Alert color="warning">{t('accessSetup.ssoRequiresHttps')}</Alert>}
             {setupStatus?.isCompleted && (
               <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
                 <p className="text-themed-secondary">{t('accessSetup.sessions')}</p>
@@ -655,6 +677,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         required
                         disabled={busy}
                         autoComplete="username"
+                        name="username"
                         className={inputClassName}
                         onChange={(event) => {
                           setLocalUsername(event.target.value);
@@ -676,6 +699,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                       error={localErrors.password && t(localErrors.password)}
                       disabled={busy}
                       autoComplete="new-password"
+                      name="password"
                       inputClassName={inputClassName}
                       showPasswordLabel={t('aria.showPassword')}
                       hidePasswordLabel={t('aria.hidePassword')}
@@ -698,6 +722,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                       error={localErrors.confirmPassword && t(localErrors.confirmPassword)}
                       disabled={busy}
                       autoComplete="new-password"
+                      name="confirm-password"
                       inputClassName={inputClassName}
                       showPasswordLabel={t('aria.showPassword')}
                       hidePasswordLabel={t('aria.hidePassword')}
@@ -725,6 +750,15 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         onChange={() => {
                           setKind(candidate);
                           setReconfigure(false);
+                          setClientId('');
+                          setClientSecret('');
+                          setPrivateKey('');
+                          setTeamId('');
+                          setKeyId('');
+                          setTenant('');
+                          setAuthority('');
+                          setDisplayName('');
+                          setAllowedSubjects('');
                         }}
                         icon={<LoginServiceMark kind={candidate} />}
                         title={serviceName(candidate)}
@@ -783,7 +817,11 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         </div>
                       )}
                     </section>
-                    <section className={panelClassName} aria-labelledby="access-oidc-title">
+                    <section
+                      key={kind}
+                      className={panelClassName}
+                      aria-labelledby="access-oidc-title"
+                    >
                       <h4 id="access-oidc-title" className="font-semibold text-themed-primary">
                         {t('accessSetup.credentialsHeading', { name: serviceLabel(kind) })}
                       </h4>
@@ -796,8 +834,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                             {renderTextField(t('accessSetup.issuer'), authority, setAuthority, {
                               hint: t('accessSetup.issuerHint'),
                               placeholder: 'https://auth.example.com',
-                              type: 'url',
-                              autoComplete: 'url'
+                              type: 'url'
                             })}
                           </div>
                         )}
@@ -823,7 +860,8 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                               value={clientSecret}
                               onChange={(event) => setClientSecret(event.target.value)}
                               disabled={busy}
-                              autoComplete="new-password"
+                              autoComplete="off"
+                              name="oauth-client-secret"
                               inputClassName={inputClassName}
                               showPasswordLabel={t('accessSetup.showSecret')}
                               hidePasswordLabel={t('accessSetup.hideSecret')}
@@ -842,6 +880,8 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                                 {(field) => (
                                   <textarea
                                     {...field}
+                                    {...noAutofill}
+                                    name="oauth-private-key"
                                     value={privateKey}
                                     rows={4}
                                     required
@@ -869,10 +909,11 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                               {(field) => (
                                 <input
                                   {...field}
+                                  {...noAutofill}
+                                  name="connection-name"
                                   value={displayName}
                                   disabled={busy}
                                   maxLength={80}
-                                  autoComplete="off"
                                   className={inputClassName}
                                   onChange={(event) => setDisplayName(event.target.value)}
                                 />
@@ -887,6 +928,8 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                               {(field) => (
                                 <textarea
                                   {...field}
+                                  {...noAutofill}
+                                  name="allowed-subjects"
                                   value={allowedSubjects}
                                   rows={3}
                                   disabled={busy}
@@ -913,7 +956,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         variant="filled"
                         loading={busy}
                         stableWidth
-                        disabled={busy || !apiKey.trim()}
+                        disabled={busy || modeBlocked || !apiKey.trim()}
                       >
                         {t('accessSetup.testConnection')}
                       </Button>
@@ -943,9 +986,9 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
               icon={<LogIn className="w-7 h-7 icon-success" />}
               iconBackground="bg-themed-success"
               title={t('accessSetup.headings.test', { name: pendingName })}
-              description={t('accessSetup.descriptions.test')}
+              description={t('accessSetup.testExplanation', { name: pendingName })}
             />
-            <Alert color="info">{t('accessSetup.testExplanation', { name: pendingName })}</Alert>
+            {!https && <Alert color="warning">{t('accessSetup.ssoRequiresHttps')}</Alert>}
             <section className={panelClassName} aria-labelledby="access-test-owner-title">
               <h4 id="access-test-owner-title" className="font-semibold text-themed-primary">
                 {t('accessSetup.ownerHeading')}

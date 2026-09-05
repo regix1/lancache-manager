@@ -186,6 +186,21 @@
     opacity: 0.6;
   }
 
+  .selectable-card__help {
+    min-width: 0;
+    height: 100%;
+    border-radius: 0.5rem;
+  }
+
+  .selectable-card__help:focus-visible {
+    outline: 2px solid var(--theme-border-focus);
+    outline-offset: 2px;
+  }
+
+  .selectable-card__help .selectable-card {
+    cursor: help;
+  }
+
   .selectable-card__radio {
     flex-shrink: 0;
     width: 1.1rem;

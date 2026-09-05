@@ -78,6 +78,79 @@ test('dialog tab stops include only the selected radio in each group', (t) => {
   assert.deepEqual(getFocusable(dialog), [first, selected, separate, button]);
 });
 
+test('SSO selection and setup actions require an HTTPS page', () => {
+  assert.ok(accessSource.includes("const https = window.location.protocol === 'https:'"));
+  assert.ok(accessSource.includes('const modeBlocked = oidc && !https'));
+  assert.ok(
+    cardProps(accessSource, 'choice').includes('disabled={busy || (usesOidc(choice) && !https)}')
+  );
+  assert.ok(accessSource.includes('disabled={busy || modeBlocked}'));
+  assert.ok(accessSource.includes('if (busy || modeBlocked) return;'));
+  assert.ok(accessSource.includes('if (busy || !https) return;'));
+  assert.ok(accessSource.includes('disabled={busy || !https || !apiKey.trim()}'));
+  assert.ok(accessSource.includes('disabled={busy || modeBlocked || !apiKey.trim()}'));
+  assert.ok(!accessSource.includes("group.id === 'sso' && !https"));
+  assert.ok(accessSource.includes("t('accessSetup.ssoRequiresHttps')"));
+  assert.ok(cardSource.includes('disabled={disabled}'));
+  const styles = readWebSource('src/styles/components/cards.css');
+  assert.match(
+    styles,
+    /\.selectable-card:has\(\.selectable-card__radio:disabled\)\s*\{[^}]*opacity:/
+  );
+});
+
+test('disabled access choices explain their requirements through the shared card tooltip', () => {
+  const choice = cardProps(accessSource, 'choice');
+  assert.ok(choice.includes('disabledReason={'));
+  assert.ok(choice.includes("t('accessSetup.httpsRequired')"));
+  assert.ok(cardSource.includes('<Tooltip content={disabledReason}'));
+  assert.ok(cardSource.includes('if (!blocked) return card;'));
+  assert.ok(cardSource.includes('tabIndex={0}'));
+  assert.ok(cardSource.includes('role="group"'));
+  assert.ok(cardSource.includes('aria-describedby={reasonId}'));
+  const styles = readWebSource('src/styles/components/cards.css');
+  assert.ok(styles.includes('.selectable-card__help:focus-visible'));
+  const tooltip = readWebSource('src/components/ui/Tooltip.tsx');
+  assert.ok(tooltip.includes('(hover: none), (pointer: coarse)'));
+  const focus = tooltip.slice(
+    tooltip.indexOf('const handleFocus'),
+    tooltip.indexOf('const handleBlur')
+  );
+  assert.ok(focus.includes('closeNow()'));
+  assert.ok(tooltip.includes('event.stopPropagation()'));
+});
+
+test('setup secrets opt out of autofill while local account fields retain their purpose', async () => {
+  const { noAutofill } = await import(await compileToUrl('../src/utils/autofill.ts'));
+  assert.equal(noAutofill.autoComplete, 'off');
+  assert.equal(noAutofill['data-bwignore'], 'true');
+  const credentials = readWebSource('src/components/ui/CredentialFields.tsx');
+  assert.ok(credentials.includes('{...noAutofill}'));
+  assert.ok(credentials.includes('name="installation-key"'));
+  assert.ok(!credentials.includes('autoComplete="new-password"'));
+  assert.ok(credentials.includes('autoComplete="username"'));
+  assert.ok(credentials.includes('autoComplete="current-password"'));
+  const secret = readWebSource('src/components/ui/PasswordField.tsx');
+  assert.ok(secret.includes("autoComplete === 'off' ? noAutofill : {}"));
+  assert.ok(accessSource.includes('name="oauth-client-secret"'));
+  assert.ok(accessSource.includes('name="oauth-private-key"'));
+  assert.ok(accessSource.includes('key={kind}'));
+  const changeStep = accessSource.slice(
+    accessSource.indexOf('const changeStep'),
+    accessSource.indexOf('const copyCallback')
+  );
+  assert.ok(changeStep.indexOf('heading.current?.focus()') < changeStep.indexOf('setStep(next)'));
+  for (const path of [
+    'src/components/features/auth/AuthenticateTab.tsx',
+    'src/components/modals/auth/AuthenticationModal.tsx'
+  ]) {
+    const source = readWebSource(path);
+    assert.ok(source.includes('<form'));
+    assert.ok(source.includes('method="post"'));
+    assert.ok(source.includes('event.preventDefault()'));
+  }
+});
+
 test('the access dialog is assembled from the setup wizard pieces', () => {
   for (const piece of [
     '<SetupGate',
@@ -335,11 +408,13 @@ test('callback guidance shows address requirements before the URLs and keeps tes
       /wildcard|通配符/.test(text.services.github.register),
       `${locale} github exact callbacks`
     );
-    assert.ok(
-      /manifest|清单/.test(text.services.microsoft.testing),
-      `${locale} microsoft manifest`
-    );
+    assert.ok(/127\.0\.0\.1/.test(text.services.microsoft.testing), `${locale} microsoft loopback`);
     assert.ok(/::1/.test(text.services.microsoft.testing), `${locale} microsoft IPv6 restriction`);
+    assert.match(text.ssoRequiresHttps, /HTTPS/);
+    assert.match(text.localAddress, /HTTPS/);
+    for (const kind of LOGIN_KINDS) {
+      assert.doesNotMatch(text.services[kind].testing, /http:\/\//);
+    }
     assert.ok(/localhost/.test(text.services.apple.addresses), `${locale} apple localhost`);
     assert.ok(/HTTPS/.test(text.services.customOidc.testing), `${locale} issuer HTTPS requirement`);
     assert.ok(/HTTPS/.test(text.issuerHint), `${locale} issuer field HTTPS requirement`);
@@ -360,6 +435,44 @@ test('callback guidance shows address requirements before the URLs and keeps tes
   }
   assert.match(en.services.github.addresses, /^This app requires HTTPS/);
   assert.match(en.services.customOidc.addresses, /^This app requires HTTPS/);
+});
+
+test('access setup separates sign-in requirements, safety notes and identity format guidance', () => {
+  assert.ok(
+    accessSource.includes("description={t('accessSetup.testExplanation', { name: pendingName })}")
+  );
+  assert.ok(!accessSource.includes("t('accessSetup.descriptions.test')"));
+  assert.ok(
+    !accessSource.includes(
+      '<Alert color="info">{t(\'accessSetup.testExplanation\', { name: pendingName })}</Alert>'
+    )
+  );
+  for (const locale of ['en', 'zh']) {
+    const text = JSON.parse(readWebSource(`src/i18n/locales/${locale}.json`)).accessSetup;
+    assert.equal(text.descriptions.test, undefined);
+    assert.match(text.advancedHint, /primary administrator|主管理员/);
+    assert.doesNotMatch(text.advancedHint, /^Optional|^可选/);
+    assert.match(text.modes.apiKeyOidc.description, /approved SSO account|获准的单点登录账户/);
+    assert.match(text.modes.apiKeyOidc.warning, /shared|共用/);
+    assert.doesNotMatch(text.modes.apiKeyOidc.warning, /requires|account|要求|账户/i);
+    assert.match(text.keyOwnership, /Every mode|所有模式/);
+    assert.match(text.keyOwnership, /first account|第一个账户/);
+    assert.match(text.keyOwnership, /ownership and recovery|所有权和恢复/);
+    assert.match(text.testExplanation, /failed test.*unchanged|测试失败不会更改/);
+    for (const kind of LOGIN_KINDS) {
+      assert.doesNotMatch(text.services[kind].subjects, /primary administrator|主管理员/);
+      assert.doesNotMatch(text.services[kind].subjects, /^Optional|^可选/);
+      assert.match(text.services[kind].subjects, /one .* per line|one per line|每行一个/);
+      assert.match(text.services[kind].subjects, /email addresses|电子邮件地址/);
+    }
+    for (const kind of ['google', 'github', 'apple']) {
+      assert.doesNotMatch(text.services[kind].testing, /HTTPS|LAN|VPN|局域网|公网/);
+    }
+    assert.match(text.services.google.addresses, /registered domain|已注册的域名/);
+    assert.match(text.services.microsoft.subjects, /GUID:.*GUID/);
+    assert.match(text.services.github.subjects, /Numeric|数字/);
+    assert.match(text.services.customOidc.subjects, /sub/);
+  }
 });
 
 test('the sign-in result markers are read once and stripped while accessSetup stays', () => {

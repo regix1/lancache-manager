@@ -8,8 +8,7 @@
     },
     "descriptions": {
       "choose": "Choose the credentials people will use to access this installation. You can change this later as the primary administrator.",
-      "configure": "Verify ownership, then configure the selected method. Existing accounts and cache settings are preserved.",
-      "test": "Complete a sign-in before this configuration becomes active."
+      "configure": "Verify ownership, then configure the selected method. Existing accounts and cache settings are preserved."
     },
     "upgrade": "Version 1.10.7 introduces more sign-in choices. Confirm access for this installation once; your accounts, cache, and prefill settings are kept.",
     "groups": {
@@ -30,8 +29,8 @@
       },
       "apiKeyOidc": {
         "title": "API key and single sign-on",
-        "description": "Require the installation key and an approved identity from a connected service.",
-        "warning": "Requires both the installation key and an allowed sign-in account. Keep the key private."
+        "description": "Sign in with an approved SSO account and the installation API key.",
+        "warning": "The key is shared; keep it private."
       },
       "oidc": {
         "title": "Single sign-on",
@@ -44,7 +43,7 @@
         "warning": "Anyone who can reach the app can use its management features. Use only on a network where every connected person and device is trusted."
       }
     },
-    "keyOwnership": "The installation API key always exists and belongs to the first account, the primary administrator. Modes without key entry still retain it for ownership and recovery.",
+    "keyOwnership": "Every mode retains the installation API key for ownership and recovery; it belongs to the first account, the primary administrator.",
     "sessions": "Existing account sessions remain active. Use Sessions on the Users page to end them. Switching to a sign-in mode removes shared unauthenticated access.",
     "ownerHeading": "Verify installation ownership",
     "ownerDescription": "Enter the installation key to authorize this change. This one-time setup check is separate from the credentials required at sign-in.",
@@ -58,6 +57,8 @@
     "httpsWarning": "Local HTTP is supported. Credentials and sessions travel unencrypted, so use HTTPS on networks you do not trust.",
     "serviceHeading": "Which service should people sign in with?",
     "serviceHint": "Connected services stay available. Pick one to add or update.",
+    "ssoRequiresHttps": "Single sign-on is unavailable over HTTP. Connect to this app using HTTPS.",
+    "httpsRequired": "HTTPS required",
     "connected": "Connected",
     "connectedList": "Connected: {{names}}",
     "connectedHeading": "{{name}} is connected",
@@ -83,11 +84,11 @@
     "callback": "Sign-in callback URL",
     "setupCallback": "Test callback URL",
     "callbackOrigin": "These return URLs are built in. Open the app at its intended sign-in address before copying them.",
-    "localAddress": "Localhost and loopback addresses point to the device running your browser, not another server.",
+    "localAddress": "This setup requires HTTPS even on localhost. Loopback addresses point to the device running your browser, not another server.",
     "privateHosting": "Your app can stay private on your LAN or VPN; public hosting is not required.",
-    "addressHelp": "Local testing and URL help",
+    "addressHelp": "Local HTTPS help",
     "advanced": "Advanced settings",
-    "advancedHint": "Optional. The identity you test with on the next step is linked to the primary administrator automatically.",
+    "advancedHint": "The account used to test this connection is linked to the primary administrator automatically.",
     "additionalUsers": "Allow additional SSO users",
     "allowedSubjects": "Allowed subjects (optional)",
     "oidcSafety": "Your connection is tested before activation. A failed test keeps the current sign-in settings.",
@@ -138,37 +139,37 @@
         "title": "Google",
         "note": "People sign in with a Google account.",
         "register": "In Google Cloud Console, create a Web application OAuth client. Add both URLs below as authorized redirect URIs.",
-        "addresses": "For LAN sign-in, Google requires an HTTPS domain. HTTP and raw LAN IP addresses will not work.",
-        "testing": "For local tests, Google allows http://localhost or http://127.0.0.1. Otherwise, use a registered domain with HTTPS; the app can stay on your LAN or VPN.",
+        "addresses": "For LAN sign-in, Google requires HTTPS with a registered domain. HTTP and raw LAN IP addresses will not work.",
+        "testing": "Google allows localhost or 127.0.0.1 callbacks. Other devices need a registered domain.",
         "credentials": "Copy the client ID and client secret from the OAuth client you created.",
-        "subjects": "Optional. Google subject IDs (the sub claim), one per line. The identity you test with is linked to the primary administrator automatically; email addresses are not identifiers."
+        "subjects": "Google subject IDs (the sub claim), one per line. Do not use email addresses."
       },
       "github": {
         "title": "GitHub",
         "note": "People sign in with a GitHub account.",
         "register": "In GitHub Settings → Developer settings → OAuth Apps, create an app. Add both callback URLs below with wildcard matching off, then generate a client secret.",
         "addresses": "This app requires HTTPS for GitHub sign-in over your LAN. Plain HTTP LAN addresses will not work.",
-        "testing": "GitHub supports HTTP loopback callbacks and recommends http://127.0.0.1 over localhost. For LAN or VPN access, this app requires HTTPS.",
+        "testing": "GitHub recommends 127.0.0.1 over localhost for loopback callbacks.",
         "credentials": "Copy the client ID and the client secret you generated. No repository or email permissions are requested.",
-        "subjects": "Optional. Numeric GitHub account IDs, one per line. The account you test with is linked to the primary administrator automatically; usernames and email addresses are not identifiers."
+        "subjects": "Numeric GitHub account IDs, one per line. Do not use usernames or email addresses."
       },
       "microsoft": {
         "title": "Microsoft",
         "note": "People sign in with a work, school, or personal Microsoft account.",
         "register": "In Microsoft Entra, register an app with a Web platform. Add both URLs below as redirect URIs, then create a client secret.",
         "addresses": "For LAN sign-in, Microsoft requires HTTPS. Plain HTTP LAN addresses will not work.",
-        "testing": "Microsoft allows http://localhost for local tests. HTTP with 127.0.0.1 must be added through the app manifest, not the portal's URL field. IPv6 loopback (::1) is unsupported.",
+        "testing": "Microsoft supports localhost and 127.0.0.1 callbacks, but not IPv6 loopback (::1).",
         "credentials": "Copy the application (client) ID, the directory (tenant) ID, and the client secret value.",
-        "subjects": "Optional. One identity per line as tenant GUID:object GUID. The account you test with is linked to the primary administrator automatically; email addresses are not identifiers."
+        "subjects": "Use tenant GUID:object GUID, one identity per line. Do not use email addresses."
       },
       "apple": {
         "title": "Apple",
         "note": "Apple accounts. Requires Apple Developer membership and an HTTPS domain.",
         "register": "In Apple Developer, link a Services ID to a Sign in with Apple App ID. Add this site's domain and both return URLs below, then create a sign-in key.",
         "addresses": "Apple requires an HTTPS domain, even on your LAN. HTTP, localhost, and IP addresses will not work.",
-        "testing": "To test locally, use an HTTPS domain pointing to your server and register that domain with Apple. There is no localhost exception.",
+        "testing": "For local testing, use local DNS to point the registered domain to your server.",
         "credentials": "Enter the Services ID, your Team ID, the Key ID, and the contents of the .p8 key file. This app creates Apple's client secret itself.",
-        "subjects": "Optional. Apple subject IDs (the sub claim), one per line. The identity you test with is linked to the primary administrator automatically; email addresses are not identifiers."
+        "subjects": "Apple subject IDs (the sub claim), one per line. Do not use email addresses."
       },
       "customOidc": {
         "title": "Other (OpenID Connect)",
@@ -176,9 +177,9 @@
         "note": "Any OpenID Connect service, such as Keycloak, Authentik, Authelia, or Okta.",
         "register": "Create an OpenID Connect web client using authorization code flow. Add both URLs below as allowed redirect URIs.",
         "addresses": "This app requires HTTPS for SSO over your LAN. Your identity service may have stricter rules.",
-        "testing": "HTTP loopback callbacks work only if your identity service allows them. This app always requires an HTTPS issuer URL, including for local tests.",
+        "testing": "The issuer URL must also use HTTPS; check your identity service's callback requirements.",
         "credentials": "Enter the issuer URL, client ID, and client secret from that registration.",
-        "subjects": "Optional. Stable subject identifiers from this issuer (the sub claim), one per line. The identity you test with is linked to the primary administrator automatically; email addresses and display names are not identifiers."
+        "subjects": "Subject IDs from this issuer (the sub claim), one per line. Do not use email addresses or display names."
       }
     },
     "login": {
