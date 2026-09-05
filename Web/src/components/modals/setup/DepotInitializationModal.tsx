@@ -4,8 +4,6 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Button } from '@components/ui/Button';
-import Badge from '@components/ui/Badge';
-import { ProgressBar } from '@components/ui/ProgressBar';
 import { SetupGate } from '@components/modals/SetupGate';
 import { useTranslation } from 'react-i18next';
 import { useInitializationFlow, type InitStep } from '@hooks/useInitializationFlow';
@@ -179,66 +177,43 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
   return (
     <SetupGate
       maxWidth="4xl"
-      header={
-        <>
-          <div className="flex items-center gap-3">
-            {currentStep !== 'database-setup' &&
-              currentStep !== 'external-db-form' &&
-              currentStep !== 'external-db-confirm' &&
-              currentStep !== 'admin-account' && (
-                <Tooltip
-                  content={
-                    backButtonDisabled
-                      ? t('initialization.modal.cannotGoBack')
-                      : t('initialization.modal.goBack')
-                  }
-                  position="top"
-                >
-                  <Button
-                    type="button"
-                    variant="transparent"
-                    className={`btn-icon-square btn-icon-square--sm p-1.5 rounded-lg transition-colors ${
-                      backButtonDisabled
-                        ? 'text-themed-muted cursor-not-allowed opacity-50'
-                        : 'text-themed-secondary cursor-pointer'
-                    }`}
-                    onClick={backButtonDisabled ? undefined : handleGoBack}
-                    disabled={backButtonDisabled}
-                    aria-label={
-                      backButtonDisabled
-                        ? t('initialization.modal.cannotGoBack')
-                        : t('initialization.modal.goBack')
-                    }
-                  >
-                    <ArrowLeft className="w-5 h-5" />
-                  </Button>
-                </Tooltip>
-              )}
-            <div className="flex items-center gap-2">
-              <Rocket className="w-5 h-5 text-primary" />
-              <span className="font-semibold text-themed-primary">
-                {t('initialization.modal.setupWizard')}
-              </span>
-            </div>
-          </div>
-          <Badge
-            variant="neutral"
-            ariaLabel={`${t('initialization.modal.setupWizard')} ${stepInfo.number} / ${stepInfo.total}`}
+      icon={<Rocket className="w-5 h-5 text-primary" aria-hidden="true" />}
+      title={t('initialization.modal.setupWizard')}
+      leading={
+        currentStep !== 'database-setup' &&
+        currentStep !== 'external-db-form' &&
+        currentStep !== 'external-db-confirm' &&
+        currentStep !== 'admin-account' && (
+          <Tooltip
+            content={
+              backButtonDisabled
+                ? t('initialization.modal.cannotGoBack')
+                : t('initialization.modal.goBack')
+            }
+            position="top"
           >
-            {stepInfo.number} / {stepInfo.total}
-          </Badge>
-        </>
+            <Button
+              type="button"
+              variant="transparent"
+              className={`btn-icon-square btn-icon-square--sm p-1.5 rounded-lg transition-colors ${
+                backButtonDisabled
+                  ? 'text-themed-muted cursor-not-allowed opacity-50'
+                  : 'text-themed-secondary cursor-pointer'
+              }`}
+              onClick={backButtonDisabled ? undefined : handleGoBack}
+              disabled={backButtonDisabled}
+              aria-label={
+                backButtonDisabled
+                  ? t('initialization.modal.cannotGoBack')
+                  : t('initialization.modal.goBack')
+              }
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+          </Tooltip>
+        )
       }
-      belowHeader={
-        <ProgressBar
-          value={stepInfo.number}
-          max={stepInfo.total}
-          height="sm"
-          rounded={false}
-          label={t('aria.progressLabel')}
-          valueText={`${stepInfo.number} / ${stepInfo.total}`}
-        />
-      }
+      steps={{ current: stepInfo.number, total: stepInfo.total, label: t('aria.progressLabel') }}
     >
       {syncError && (
         <Alert color="error" className="mb-4">

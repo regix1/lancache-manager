@@ -78,7 +78,8 @@ public sealed class EndpointAuthorizationContractTests
         {
             ["GameImagesController.GetHeaderImage"] = 2,
             ["GameImagesController.GetEpicHeaderImage"] = 2,
-            ["GameImagesController.GetNameKeyedHeaderImage"] = 2
+            ["GameImagesController.GetNameKeyedHeaderImage"] = 2,
+            ["AccessController.GetOidcChallenge"] = 2
         };
 
     private static readonly HashSet<string> PublicActions = new(StringComparer.Ordinal)
@@ -91,6 +92,10 @@ public sealed class EndpointAuthorizationContractTests
         "AccountSetupController.CreateFirstAdmin",
         "AccountSetupController.OpenMainAdminRecovery",
         "AccountSetupController.RecoverMainAdminPassword",
+        "AccessController.SetUp",
+        "AccessController.StartOidc",
+        "AccessController.StartLogin",
+        "AccessController.GetOidcChallenge",
         "AuthController.GetStatus",
         "AuthController.Login",
         "AuthController.StartGuest",
@@ -327,11 +332,9 @@ public sealed class EndpointAuthorizationContractTests
     ];
 
     /// <summary>
-    /// The policy names live in three lists that have to stay identical: the definitions in
-    /// <c>Program.cs</c>, the array <c>Program.cs</c> walks when <c>Security:EnableAuthentication</c>
-    /// is false, and <see cref="KnownPolicies"/>. A name missing from that array still compiles and
-    /// still starts, and then every route carrying the policy answers 403 with authentication turned
-    /// off, because a named policy is not covered by the open Default/Fallback policies.
+    /// The policy names in the startup definitions and <see cref="KnownPolicies"/> stay identical.
+    /// Account mode is resolved by the authentication handler at request time, so startup never
+    /// replaces these definitions with open policies from the legacy environment setting.
     /// </summary>
     [Fact]
     public void ThePolicyNamesAgreeAcrossTheirThreeLists()
@@ -352,18 +355,6 @@ public sealed class EndpointAuthorizationContractTests
 
         var body = authorization.Groups["body"].Value;
 
-        var openedWhenAuthenticationIsDisabled = Regex.Match(
-            body,
-            @"foreach \(var policyName in new\[\]\s*\{(?<names>[^}]*)\}\)",
-            RegexOptions.None,
-            TimeSpan.FromSeconds(5));
-
-        Assert.True(
-            openedWhenAuthenticationIsDisabled.Success,
-            "the array of policy names opened when Security:EnableAuthentication is false was not found "
-            + "in Program.cs - if it moved, point this test at its new home rather than deleting the check");
-
-        var opened = PolicyNames(openedWhenAuthenticationIsDisabled.Groups["names"].Value, @"""(?<name>[^""]+)""");
         var defined = PolicyNames(body, @"options\.AddPolicy\(""(?<name>[^""]+)""");
         var known = KnownPolicies.OrderBy(name => name, StringComparer.Ordinal).ToArray();
 
@@ -371,12 +362,6 @@ public sealed class EndpointAuthorizationContractTests
             defined.SequenceEqual(known, StringComparer.Ordinal),
             $"Program.cs defines [{string.Join(", ", defined)}] but {nameof(KnownPolicies)} lists "
             + $"[{string.Join(", ", known)}]. Add the policy to both, or this contract stops covering it.");
-
-        Assert.True(
-            defined.SequenceEqual(opened, StringComparer.Ordinal),
-            $"Program.cs defines [{string.Join(", ", defined)}] but opens [{string.Join(", ", opened)}] "
-            + "when Security:EnableAuthentication is false. Every route carrying a policy missing from "
-            + "that array answers 403 with authentication turned off.");
     }
 
     /// <summary>
@@ -1419,6 +1404,14 @@ internal sealed class EndpointAuthorizationHost : IDisposable
                 .WithWebHostBuilder(builder => builder.UseContentRoot(apiRoot));
 
             EnsureDatabase(_application);
+            _application.Services.GetRequiredService<LancacheManager.Infrastructure.Services.StateService>()
+                .UpdateState(state =>
+                {
+                    state.Access.Mode = authenticationEnabled
+                        ? AccountMode.ApiKeyPassword
+                        : AccountMode.Unauthenticated;
+                    state.Access.SetupVersion = AccessSettings.RequiredSetupVersion;
+                });
         }
         catch
         {

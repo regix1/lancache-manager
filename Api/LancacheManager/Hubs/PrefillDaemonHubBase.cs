@@ -58,7 +58,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
         }
 
         var session = await _sessionService.ValidateSessionAsync(rawToken);
-        var isAccountHolder = session?.SessionType.IsAccountHolder() == true;
+        var isAccountHolder = session is not null && _sessionService.CanManage(session);
         var hasPrefillAccess = session != null && GetPrefillExpiry(session) != null && GetPrefillExpiry(session) > DateTime.UtcNow;
         if (session == null || (!isAccountHolder && !hasPrefillAccess))
         {

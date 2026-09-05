@@ -10,6 +10,7 @@ import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
 import ActiveSessions from './ActiveSessions';
 import GuestConfiguration from './GuestConfiguration';
+import SignInMethodCard from './SignInMethodCard';
 import UserAccounts from './UserAccounts';
 import { type Session, type SessionFilter, type ThemeOption, showToast } from './types';
 
@@ -272,7 +273,10 @@ const UserTab: React.FC = () => {
 
         {activeTab === 'accounts' && (
           <div className="user-tab-content">
-            <UserAccounts />
+            <div className="space-y-4">
+              <SignInMethodCard />
+              <UserAccounts />
+            </div>
           </div>
         )}
 

@@ -30,6 +30,9 @@ public static class ServiceCollectionExtensions
     /// here is also absent from the IEnumerable&lt;IHostedService&gt; that ServiceScheduleRegistry is
     /// built from, so it does not appear on the Schedules page until the restart that completing
     /// setup already requires.
+    ///
+    /// Isolated installations can set LANCACHE_MANAGER_DISABLE_BACKGROUND_SERVICES=true
+    /// to use a real database without contacting daemon containers or scheduled integrations.
     /// </summary>
     public static IServiceCollection AddDatabaseBackedHostedService<T>(
         this IServiceCollection services,
@@ -38,7 +41,11 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<T>();
 
-        if (databaseAvailable)
+        if (databaseAvailable
+            && !string.Equals(
+                Environment.GetEnvironmentVariable("LANCACHE_MANAGER_DISABLE_BACKGROUND_SERVICES"),
+                "true",
+                StringComparison.OrdinalIgnoreCase))
         {
             services.AddHostedService(provider => provider.GetRequiredService<T>());
         }

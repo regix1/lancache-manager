@@ -28,36 +28,35 @@ public class SetupController : ControllerBase
     private readonly IPathResolver _pathResolver;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly AuthenticationHelper _authenticationHelper;
-    private readonly IConfiguration _configuration;
     private readonly IAntiforgery _antiforgery;
     private readonly AccountClaimWindow _claimWindow;
+    private readonly AccessService _accessService;
 
     public SetupController(
         ILogger<SetupController> logger,
         IPathResolver pathResolver,
         IDbContextFactory<AppDbContext> dbContextFactory,
         AuthenticationHelper authenticationHelper,
-        IConfiguration configuration,
         IAntiforgery antiforgery,
-        AccountClaimWindow claimWindow)
+        AccountClaimWindow claimWindow,
+        AccessService accessService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _dbContextFactory = dbContextFactory;
         _authenticationHelper = authenticationHelper;
-        _configuration = configuration;
         _antiforgery = antiforgery;
         _claimWindow = claimWindow;
+        _accessService = accessService;
     }
 
     /// <summary>
     /// The two endpoints below take the API key as their only proof while authentication is disabled.
     ///
-    /// Turning Security:EnableAuthentication off opens the fallback, default and named authorization
-    /// policies alike AND gives every request an admin session, so a caller that presented nothing at
-    /// all arrives here reading as authenticated. Trusting the principal in that state hands the
-    /// statements these two endpoints run to anyone who can reach the port, which is why the flag is
-    /// read here rather than ignored: with it off the principal proves nothing and only the key counts.
+    /// Unauthenticated mode gives every request a shared accountless admin session, so a caller that
+    /// presented nothing arrives here reading as authenticated. Trusting that session would hand the
+    /// statements these endpoints run to anyone who can reach the port; persisted account mode is
+    /// therefore checked and only the installation key counts in that mode.
     ///
     /// The key is also what keeps these reachable at all. A session cannot be created while the
     /// database is unreachable, because logging in writes a row to UserSessions, so requiring one made
@@ -88,8 +87,8 @@ public class SetupController : ControllerBase
             return null;
         }
 
-        var authenticationEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
-        if (authenticationEnabled && HttpContext.GetUserSession()?.SessionType.IsAccountHolder() == true)
+        if (_accessService.IsAuthenticationEnabled()
+            && HttpContext.GetUserSession()?.SessionType.IsAccountHolder() == true)
         {
             if (await _antiforgery.IsRequestValidAsync(HttpContext))
             {

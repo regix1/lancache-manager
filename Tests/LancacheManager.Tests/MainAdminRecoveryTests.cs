@@ -56,6 +56,11 @@ public sealed class MainAdminRecoveryTests : IDisposable
         var account = await ReadAccountAsync(database, "owner");
         Assert.Equal(PasswordVerificationResult.Success, Verify(account, NewPassword));
         Assert.Equal(PasswordVerificationResult.Failed, Verify(account, OldPassword));
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.Contains(
+            await context.UserSessions.ToListAsync(),
+            session => session.AccountId == account.Id && !session.IsRevoked);
     }
 
     /// <summary>
@@ -128,6 +133,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
             new ThrowingDbContextFactory(),
             _apiKeyService,
             claimWindow: window);
+        controller.HttpContext.Connection.RemoteIpAddress = IPAddress.Loopback;
 
         var refused = controller.OpenMainAdminRecovery(
             new RecoveryWindowRequest { ApiKey = "not-the-key" });
@@ -136,10 +142,52 @@ public sealed class MainAdminRecoveryTests : IDisposable
         Assert.False(window.IsRecoveryOpen);
 
         var opened = controller.OpenMainAdminRecovery(
-            new RecoveryWindowRequest { ApiKey = _apiKeyService.GetApiKey() });
+            new RecoveryWindowRequest
+            {
+                ApiKey = _apiKeyService.GetApiKey(),
+                RecoveryToken = window.RecoveryToken
+            });
 
         Assert.Equal(StatusCodes.Status200OK, StatusOf(opened));
         Assert.True(window.IsRecoveryOpen);
+    }
+
+    [Fact]
+    public void RecoveryRequestFromTheNetworkCannotOpenTheWindow()
+    {
+        var window = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
+        var controller = NewController(
+            new ThrowingDbContextFactory(),
+            _apiKeyService,
+            claimWindow: window);
+        controller.HttpContext.Connection.RemoteIpAddress = IPAddress.Parse("192.0.2.25");
+
+        var result = controller.OpenMainAdminRecovery(
+            new RecoveryWindowRequest
+            {
+                ApiKey = _apiKeyService.GetApiKey(),
+                RecoveryToken = window.RecoveryToken
+            });
+
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(result));
+        Assert.False(window.IsRecoveryOpen);
+    }
+
+    [Fact]
+    public void RecoveryRequestThroughALoopbackProxyNeedsTheHostToken()
+    {
+        var window = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
+        var controller = NewController(
+            new ThrowingDbContextFactory(),
+            _apiKeyService,
+            claimWindow: window);
+        controller.HttpContext.Connection.RemoteIpAddress = IPAddress.Loopback;
+
+        var result = controller.OpenMainAdminRecovery(
+            new RecoveryWindowRequest { ApiKey = _apiKeyService.GetApiKey() });
+
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(result));
+        Assert.False(window.IsRecoveryOpen);
     }
 
     /// <summary>
@@ -334,6 +382,9 @@ public sealed class MainAdminRecoveryTests : IDisposable
         var revoked = await context.UserSessions.SingleAsync(s => s.Id == ownerSession);
         Assert.True(revoked.IsRevoked);
         Assert.NotNull(revoked.RevokedAtUtc);
+        Assert.Contains(
+            await context.UserSessions.ToListAsync(),
+            session => session.AccountId == owner.Id && !session.IsRevoked);
 
         // A session with no account is nobody's to revoke here, and revoking every session on the
         // installation would sign out people whose password was never lost.
@@ -499,14 +550,18 @@ public sealed class MainAdminRecoveryTests : IDisposable
         IDbContextFactory<AppDbContext> dbContextFactory,
         ApiKeyService apiKeyService,
         IdentityAuditService? auditService = null,
-        AccountClaimWindow? claimWindow = null) =>
-        new(
+        AccountClaimWindow? claimWindow = null)
+    {
+        var controller = new AccountSetupController(
             dbContextFactory,
             apiKeyService,
             claimWindow ?? NewRecoveryWindow(),
             new PasswordHasher<UserAccount>(),
             auditService ?? new IdentityAuditService(dbContextFactory, NullLogger<IdentityAuditService>.Instance),
             NullLogger<AccountSetupController>.Instance);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        return controller;
+    }
 
     private static AccountClaimWindow NewRecoveryWindow()
     {

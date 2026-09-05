@@ -1,4 +1,190 @@
 {
+  "accessSetup": {
+    "header": "Access and sign-in",
+    "progress": "Access setup progress",
+    "headings": {
+      "choose": "How should people sign in?",
+      "test": "Test {{name}}"
+    },
+    "descriptions": {
+      "choose": "Choose the credentials people will use to access this installation. You can change this later as the primary administrator.",
+      "configure": "Verify ownership, then configure the selected method. Existing accounts and cache settings are preserved.",
+      "test": "Complete a sign-in before this configuration becomes active."
+    },
+    "upgrade": "Version 1.10.7 introduces more sign-in choices. Confirm access for this installation once; your accounts, cache, and prefill settings are kept.",
+    "groups": {
+      "local": "Local account",
+      "sso": "Single sign-on",
+      "open": "No sign-in"
+    },
+    "modes": {
+      "password": {
+        "title": "Username and password",
+        "description": "Sign in with a local account. No API key entry at sign-in.",
+        "warning": "Use a unique password and keep it private."
+      },
+      "apiKeyPassword": {
+        "title": "API key, username and password",
+        "description": "Require the installation key as well as a local account.",
+        "warning": "The installation key is shared. Keep both the key and your password private."
+      },
+      "apiKeyOidc": {
+        "title": "API key and single sign-on",
+        "description": "Require the installation key and an approved identity from a connected service.",
+        "warning": "Requires both the installation key and an allowed sign-in account. Keep the key private."
+      },
+      "oidc": {
+        "title": "Single sign-on",
+        "description": "Sign in with Google, GitHub, Microsoft, Apple, or another OpenID Connect service. No local password or API key entry.",
+        "warning": "Only allowed accounts can sign in. Keep server access available for recovery."
+      },
+      "unauthenticated": {
+        "title": "Unauthenticated",
+        "description": "Open the app without a username, password, or API key.",
+        "warning": "Anyone who can reach the app can use its management features. Use only on a network where every connected person and device is trusted."
+      }
+    },
+    "keyOwnership": "The installation API key always exists and belongs to the first account, the primary administrator. Modes without key entry still retain it for ownership and recovery.",
+    "sessions": "Existing account sessions remain active. Use Sessions on the Users page to end them. Switching to a sign-in mode removes shared unauthenticated access.",
+    "ownerHeading": "Verify installation ownership",
+    "ownerDescription": "Enter the installation key to authorize this change. This one-time setup check is separate from the credentials required at sign-in.",
+    "keyLocation": "Find the key on the server at",
+    "keyRequired": "Enter the installation API key to continue.",
+    "ownerSignIn": "Sign in as the existing primary administrator to change this installation's access.",
+    "ownerSignInButton": "Sign in as primary administrator",
+    "ownerSignInFailed": "The primary administrator could not be verified.",
+    "ownerSso": "Use the owner's single sign-on",
+    "ownerPassword": "Use an existing primary administrator password",
+    "httpsWarning": "Local HTTP is supported. Credentials and sessions travel unencrypted, so use HTTPS on networks you do not trust.",
+    "serviceHeading": "Which service should people sign in with?",
+    "serviceHint": "Connected services stay available. Pick one to add or update.",
+    "connected": "Connected",
+    "connectedList": "Connected: {{names}}",
+    "connectedHeading": "{{name}} is connected",
+    "connectedDescription": "People can sign in with {{name}} as soon as you save. Enter new credentials only if you registered this app with {{name}} again.",
+    "reconfigure": "Enter new credentials",
+    "registerHeading": "Register this app with {{name}}",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "The URL could not be copied. Select it in the field and copy it yourself.",
+    "credentialsHeading": "Enter what {{name}} issued",
+    "tenant": "Directory (tenant) ID",
+    "tenantHint": "The tenant GUID from your Microsoft Entra app registration, or \"consumers\" for personal Microsoft accounts.",
+    "servicesId": "Services ID",
+    "teamId": "Team ID",
+    "keyId": "Key ID",
+    "privateKey": "Sign in with Apple key (.p8 file)",
+    "privateKeyHint": "Paste the complete contents of the .p8 file. It is stored protected on the server and never shown again; this app signs Apple's client secret for you.",
+    "issuer": "Issuer URL",
+    "issuerHint": "The issuer published by your identity service, including its realm or application path.",
+    "displayName": "Sign-in button name (optional)",
+    "clientId": "Client ID",
+    "clientSecret": "Client secret",
+    "callback": "Callback URL",
+    "callbackHint": "Used for everyday sign-in. Both URLs follow the address this page is open at, so open the app at the address people will use before copying them.",
+    "setupCallback": "Setup test callback URL",
+    "setupCallbackHint": "Used only by the test on the next step, so your current sign-in keeps working until the new settings are verified.",
+    "callbacksIntro": "Both URLs are return addresses already built into this app. Paste them into the {{name}} registration; there is nothing to build or open yourself.",
+    "addressHelp": "Local access help",
+    "advanced": "Advanced settings",
+    "advancedHint": "Optional. The identity you test with on the next step is linked to the primary administrator automatically.",
+    "additionalUsers": "Allow additional SSO users",
+    "allowedSubjects": "Allowed subjects (optional)",
+    "oidcSafety": "Your connection is tested before activation. A failed test keeps the current sign-in settings.",
+    "acknowledge": "I understand that anyone who can reach this app will have management access without signing in.",
+    "testHeading": "Test the connection",
+    "testConnection": "Test connection",
+    "testConnectionHint": "Your browser will open {{name}} so you can sign in as the primary administrator. The connection becomes active only after that sign-in succeeds. If it fails, the current settings stay unchanged.",
+    "testSucceeded": "{{name}} is connected. People can sign in with it now.",
+    "testUnconfirmed": "The sign-in test finished, but this connection is not active yet. Choose the sign-in method again to retry.",
+    "testExplanation": "The {{name}} settings are saved for testing. Sign in with the identity that should belong to the primary administrator. They become active only after a successful, validated sign-in.",
+    "testOwner": "On an existing installation, the verified identity is linked to its primary administrator. On a new installation, it identifies the first administrator.",
+    "testRecovery": "If you return here after an interrupted attempt, enter the installation key and try again. You can go back to choose another method.",
+    "oidcFailed": "Single sign-on could not be completed. Open the app at the address the callback URLs were copied from, then check the issuer, client settings, callback URLs, and allowed identity before trying again.",
+    "errors": {
+      "connection": "The identity service could not be reached or refused the client credentials. Check the client ID and client secret, then try again.",
+      "authentication": "The identity service did not complete the sign-in. Check both callback URLs in the registration, then try again.",
+      "identity": "The sign-in succeeded, but that identity is not allowed here. Sign in with the primary administrator's account, or add the identity under Advanced settings.",
+      "expired": "The sign-in attempt expired before it finished. Start it again.",
+      "state": "The sign-in response did not match this browser session. Open the app at the address the callback URLs were copied from and start again.",
+      "unavailable": "External sign-in is not available right now. Check that the connection is still configured, then try again."
+    },
+    "saveFailed": "Access settings could not be saved.",
+    "showSecret": "Show secret",
+    "hideSecret": "Hide secret",
+    "back": "Back",
+    "cancel": "Cancel",
+    "continue": "Continue",
+    "save": "Save access settings",
+    "saveAndTest": "Save and test SSO",
+    "done": "Done",
+    "sso": "single sign-on",
+    "signInSso": "Continue with {{name}}",
+    "change": "Change sign-in method",
+    "signInMethod": "Sign-in method",
+    "manageDescription": "How people sign in to this installation, and the external services they can sign in with.",
+    "ownerServiceHeading": "Sign in with",
+    "localPasswordHeading": "Create a local password",
+    "localPasswordDescription": "Your administrator account was created by single sign-on and has no password yet. Set one now so you can still sign in after the change.",
+    "connectionActive": "Used for sign-in",
+    "connectionDormant": "Kept for primary administrator sign-in only",
+    "remove": "Remove",
+    "removeService": "Remove {{name}}?",
+    "removeServiceDescription": "The primary administrator will no longer be able to sign in with this service. Enter the installation key to confirm.",
+    "removeServiceActive": "People will no longer be able to sign in with this service. The last active service cannot be removed while single sign-on is selected: change the sign-in method first, or keep another connected service. Enter the installation key to confirm.",
+    "removeFailed": "The sign-in service could not be removed.",
+    "services": {
+      "google": {
+        "title": "Google",
+        "note": "People sign in with a Google account.",
+        "register": "In Google Cloud Console, create an OAuth client of type Web application and add both URLs below as authorized redirect URIs. Google issues the client ID and client secret.",
+        "addresses": "For testing on this computer, use http://localhost or http://127.0.0.1. Other devices need an HTTPS domain for Google sign-in; LAN or VPN-only hosting is fine. A loopback address points to the device opening this page, not another server. Google does not accept raw LAN IP addresses.",
+        "credentials": "Copy the client ID and client secret from the OAuth client you created.",
+        "subjects": "Optional. Google subject IDs (the sub claim), one per line. The identity you test with is linked to the primary administrator automatically; email addresses are not identifiers."
+      },
+      "github": {
+        "title": "GitHub",
+        "note": "People sign in with a GitHub account.",
+        "register": "In GitHub, open Settings, Developer settings, OAuth Apps and register a new app. Add both URLs below as authorization callback URLs, then generate a client secret.",
+        "addresses": "For SSO, this app requires HTTPS except on localhost or a loopback address. The app can remain on your LAN or VPN; public hosting is not needed.",
+        "credentials": "Copy the client ID and the client secret you generated. No repository or email permissions are requested.",
+        "subjects": "Optional. Numeric GitHub account IDs, one per line. The account you test with is linked to the primary administrator automatically; usernames and email addresses are not identifiers."
+      },
+      "microsoft": {
+        "title": "Microsoft",
+        "note": "People sign in with a work, school, or personal Microsoft account.",
+        "register": "In Microsoft Entra, add an app registration with a Web platform and both URLs below as redirect URIs, then add a client secret.",
+        "addresses": "For SSO, this app requires HTTPS except on localhost or a loopback address. The app can remain on your LAN or VPN; public hosting is not needed.",
+        "credentials": "Copy the application (client) ID, the directory (tenant) ID, and the client secret value.",
+        "subjects": "Optional. One identity per line as tenant GUID:object GUID. The account you test with is linked to the primary administrator automatically; email addresses are not identifiers."
+      },
+      "apple": {
+        "title": "Apple",
+        "note": "People sign in with an Apple ID. Needs an Apple Developer account and an HTTPS domain.",
+        "register": "In your Apple Developer account, create a Services ID with Sign in with Apple enabled, add this site's domain and both URLs below as return URLs, and create a Sign in with Apple key.",
+        "addresses": "Apple accepts only HTTPS domain names as return URLs, never localhost or an IP address. Open the app at its HTTPS domain name before copying the URLs, and register that same domain with Apple.",
+        "credentials": "Enter the Services ID, your Team ID, the Key ID, and the contents of the .p8 key file. This app creates Apple's client secret itself.",
+        "subjects": "Optional. Apple subject IDs (the sub claim), one per line. The identity you test with is linked to the primary administrator automatically; email addresses are not identifiers.",
+        "deployment": "Apple only accepts HTTPS domains as return URLs, not IP addresses or localhost. Open this app at its HTTPS domain name before continuing."
+      },
+      "customOidc": {
+        "title": "Other (OpenID Connect)",
+        "name": "your identity service",
+        "note": "Any OpenID Connect service, such as Keycloak, Authentik, Authelia, or Okta.",
+        "register": "Register this app as an OpenID Connect web client that uses the authorization code flow, and add both URLs below as allowed redirect URIs.",
+        "addresses": "For SSO, this app requires HTTPS except on localhost or a loopback address. The app can remain on your LAN or VPN; public hosting is not needed.",
+        "credentials": "Enter the issuer URL, client ID, and client secret from that registration.",
+        "subjects": "Optional. Stable subject identifiers from this issuer (the sub claim), one per line. The identity you test with is linked to the primary administrator automatically; email addresses and display names are not identifiers."
+      }
+    },
+    "login": {
+      "password": "Sign in with your username and password.",
+      "apiKeyPassword": "Sign in with the installation API key, your username, and password.",
+      "apiKeyOidc": "Enter the installation API key, then sign in with a connected service.",
+      "oidc": "Sign in with a connected service.",
+      "unauthenticated": "This installation does not require sign-in."
+    }
+  },
   "app": {
     "title": "LANCache Manager",
     "subtitle": "High-performance cache monitoring & management",
@@ -4036,7 +4222,7 @@
       },
       "description": {
         "authenticated": "Management features enabled",
-        "disabled": "Authentication disabled via Security:EnableAuthentication. All access granted, no login required",
+        "disabled": "Unauthenticated access is selected. Management features are available without signing in; changing sign-in settings still requires the primary administrator.",
         "guest": "View-only access active",
         "requiresKeyOrGuest": "Management features require API key or guest access",
         "requiresKey": "Management features require API key"
@@ -6707,7 +6893,7 @@
       "recoverSubmit": "Save password",
       "recovering": "Saving password...",
       "recoveredHeading": "Password saved",
-      "recoveredDescription": "Sign in with this username and password from now on. Continuing...",
+      "recoveredDescription": "Your password is saved and this device is signed in as the primary administrator. You can change the sign-in method under Users → Accounts → Access and sign-in.",
       "insecureConnection": {
         "title": "This connection is not encrypted",
         "description": "The password you set here travels across the network in the clear, and so does every sign-in after it. Put this site behind HTTPS before anyone connects from another machine."

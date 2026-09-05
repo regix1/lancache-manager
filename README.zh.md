@@ -50,6 +50,18 @@ docker compose up -d
 
 然后打开 `http://<主机>:8080`，并通过 `docker exec lancache-manager cat /data/security/api_key.txt` 获取 API 密钥。
 
+从 1.10.7 起，首次设置会要求您选择用户名和密码、API 密钥加用户名和密码、API 密钥加单点登录、单点登录或无需身份验证。现有实例升级后需要确认一次此选择。实例 API 密钥始终保留，用于验证所有权和恢复，并关联到第一个账户（主管理员）。只有要求 API 密钥的两种登录模式需要在登录时输入密钥。
+
+主管理员可在 **用户 → 账户 → 访问与登录** 中更改登录方式，包括关闭或重新开启身份验证。身份验证在应用中配置；Docker Compose 的 `Security__EnableAuthentication` 开关不再覆盖已保存的选择。无需身份验证模式会向所有能访问应用的人开放管理权限。本地 HTTP 支持密码/API 密钥登录和无需身份验证访问；在不可信网络上，请使用 HTTPS 保护凭据和会话 Cookie。在外部登录服务中启用的多因素身份验证由该服务处理，本应用不会配置或强制执行。
+
+单点登录完全自托管：应用内置 Google、GitHub、Microsoft 和 Apple 集成，并支持自定义 OpenID Connect，不依赖中央登录服务。选择预设，在相应服务中注册您自己的应用，然后输入凭据。注册设置页面显示的两个完整回调 URL，再点击**测试连接**完成真实登录。测试成功后，通过验证的身份会关联到主管理员，并启用暂存的设置；测试失败时，当前设置和已有登录连接保持不变。可以同时启用多个通过测试的服务。其他用户必须通过稳定的身份标识符明确授权，不能使用电子邮件地址或显示名称作为身份依据。
+
+Google 和 GitHub 需要客户端 ID 和客户端密钥。Microsoft 还需要租户 ID，或使用 `consumers` 支持个人 Microsoft 账户；不支持不限定租户的 `common` 和 `organizations` 配置。Apple 需要 Apple Developer 配置中的 Services ID、Team ID、Key ID 和 `.p8` 私钥，由服务器生成短期客户端密钥。Apple 要求已注册的 HTTPS 域名，不支持 localhost 或 IP 地址回调。自定义 OpenID Connect 还需要签发者 URL。
+
+回调 URL 是应用已经处理好的返回地址：一个用于日常登录，另一个用于测试连接。将它们复制到登录服务的应用注册配置中即可，无需自行创建或直接打开这些地址。请使用用户实际访问应用的地址打开设置。[Google 允许在本地测试时使用 HTTP localhost 和回环地址](https://developers.google.com/identity/protocols/oauth2/web-server#uri-validation)，因此浏览器与应用在同一台电脑上运行时，可以使用 `http://localhost:8080` 作为本地开发地址；在其他设备上，该地址不会指向您的服务器。其他设备使用 Google 登录时，需要 HTTPS 域名，不能直接使用局域网 IP 地址。该域名可以指向仅限局域网或 VPN 访问的服务器；使用 HTTPS 并不要求公开托管应用。其他登录服务有各自的回调要求，包括上述 Apple 的更严格限制。
+
+更改方式后，现有账户会话仍然有效；必要时可在**用户 → 会话**中结束会话。切换到需要登录的模式后，共享的无身份验证访问将停止。通过单点登录创建的管理员必须先设置本地凭据，才能切换到密码登录模式。如果单点登录无法使用，请在主机上运行现有的 `./data/scripts/reset-main-admin-password.sh` 恢复脚本。它使用单独保存在服务器上的恢复令牌，打开恢复页面，并在重置密码后建立主管理员会话，以便修复登录方式。
+
 完整步骤（包括最容易踩坑的缓存路径问题）请见[快速开始指南](https://regix1.github.io/lancache-manager/zh/quick-start/)。
 
 ## 文档

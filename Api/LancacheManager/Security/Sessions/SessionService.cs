@@ -19,6 +19,7 @@ public class SessionService
     private readonly StateService _stateService;
     private readonly ISignalRNotificationService _signalR;
     private readonly IConfiguration _configuration;
+    private readonly ConnectionTrackingService? _connectionTrackingService;
 
     // Optional (like ServiceScheduleRegistry's _tracker) so unit tests that construct the service
     // directly keep compiling; at runtime DI always supplies the singleton. Each session create/revoke/
@@ -69,7 +70,8 @@ public class SessionService
         ISignalRNotificationService signalR,
         IConfiguration configuration,
         IActivityRegistry? activityRegistry = null,
-        UserPreferencesService? userPreferences = null)
+        UserPreferencesService? userPreferences = null,
+        ConnectionTrackingService? connectionTrackingService = null)
     {
         _dbContextFactory = dbContextFactory;
         _apiKeyService = apiKeyService;
@@ -79,6 +81,7 @@ public class SessionService
         _configuration = configuration;
         _activityRegistry = activityRegistry;
         _userPreferences = userPreferences;
+        _connectionTrackingService = connectionTrackingService;
     }
 
     // Marks a session present or absent in the unified activity registry. Best-effort: the registry
@@ -119,6 +122,10 @@ public class SessionService
         return (rawToken, session);
     }
 
+    public Task<(string RawToken, UserSession Session)> CreateAccountSessionAsync(
+        HttpContext httpContext, UserAccount account)
+        => PersistAdminSessionAsync(httpContext, account);
+
     /// <summary>
     /// Writes one admin session row and reports its presence. The three callers differ only in what they
     /// log and what they cache afterwards, so the row is built in one place: the session carries the
@@ -156,16 +163,90 @@ public class SessionService
     }
 
     /// <summary>
-    /// True when authentication is enabled (the default). When false (Security:EnableAuthentication=false),
-    /// every endpoint allows anonymous access and the frontend is treated as an admin.
+    /// True when the saved access mode requires sign-in. Before access setup is completed,
+    /// the legacy configuration supplies the initial choice. Unauthenticated access uses a
+    /// shared management session but never establishes primary-administrator ownership.
     /// </summary>
     public bool IsAuthenticationEnabled()
-        => _configuration.GetValue<bool>("Security:EnableAuthentication", true);
+    {
+        var access = _stateService?.GetState().Access;
+        if (access?.SetupVersion >= AccessSettings.RequiredSetupVersion && access.Mode.HasValue)
+        {
+            return access.Mode.Value != AccountMode.Unauthenticated;
+        }
+
+        return _configuration.GetValue<bool>("Security:EnableAuthentication", true);
+    }
 
     /// <summary>
-    /// Returns the shared admin session used when authentication is disabled
-    /// (Security:EnableAuthentication=false), creating it once on first use. No API key is required
-    /// because authentication is turned off entirely. This exists so that session-scoped surfaces
+    /// True when a session can perform full management work in the current access mode. Real account
+    /// holders keep that access across mode changes; the exact shared session has it only while the
+    /// installation is deliberately unauthenticated.
+    /// </summary>
+    public bool CanManage(UserSession session)
+        => !session.IsRevoked
+            && session.ExpiresAtUtc > DateTime.UtcNow
+            && (session.AccountId is not null && session.SessionType.IsAccountHolder()
+                || !IsAuthenticationEnabled()
+                    && session.SessionType == SessionType.Admin
+                    && (_stateService.GetSharedAdminSessionId() == session.Id
+                        || _authDisabledAdminSession?.SessionId == session.Id));
+
+    /// <summary>
+    /// Retires the one shared unauthenticated management session after a secure mode has been saved.
+    /// Account-backed sessions are never selected by this path and remain signed in.
+    /// </summary>
+    public async Task RetireSharedAdminSessionAsync()
+    {
+        await _authDisabledAdminLock.WaitAsync();
+        try
+        {
+            try
+            {
+                var sessionId = _stateService.GetSharedAdminSessionId();
+                _authDisabledAdminSession = null;
+                if (sessionId is null)
+                {
+                    return;
+                }
+
+                _connectionTrackingService?.DisconnectSession(sessionId.Value);
+
+                try
+                {
+                    _stateService.SetSharedAdminSessionId(null);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not clear the shared management session pointer");
+                }
+
+                try
+                {
+                    await RevokeSessionAsync(sessionId.Value);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not revoke shared management session {SessionId}", sessionId);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Access settings are already durably secure. Cleanup is best-effort and must never
+                // make the successful caller compensate a newly promoted owner account.
+                _logger.LogWarning(ex, "Could not retire the shared management session");
+            }
+        }
+        finally
+        {
+            _authDisabledAdminLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Returns the shared admin session used by unauthenticated access, creating it once on first
+    /// use. It does not require sign-in credentials and has no account or owner identity.
+    /// This exists so that session-scoped surfaces
     /// (SignalR download + prefill-daemon hubs, user preferences, prefill access) have a real session
     /// and cookie to work with under disabled auth, instead of silently failing because the frontend
     /// is told it is an admin while holding no actual credential.
@@ -236,7 +317,7 @@ public class SessionService
                 _stateService.SetSharedAdminSessionId(session.Id);
                 _authDisabledRetryAfterUtc = DateTime.MinValue;
                 _logger.LogInformation(
-                    "Created shared auth-disabled admin session {SessionId} (Security:EnableAuthentication=false)",
+                    "Created shared unauthenticated management session {SessionId}",
                     session.Id);
                 return (rawToken, session);
             }
@@ -591,6 +672,7 @@ public class SessionService
         await context.SaveChangesAsync();
 
         _logger.LogInformation("Revoked session {SessionId}", sessionId);
+        _connectionTrackingService?.DisconnectSession(sessionId);
         await ReportSessionPresenceAsync(sessionId, false);
         return true;
     }
@@ -644,6 +726,7 @@ public class SessionService
         await context.SaveChangesAsync();
 
         _logger.LogInformation("Permanently deleted session {SessionId}", sessionId);
+        _connectionTrackingService?.DisconnectSession(sessionId);
         await ReportSessionPresenceAsync(sessionId, false);
         return true;
     }
@@ -669,6 +752,7 @@ public class SessionService
         _logger.LogInformation("Revoked {Count} guest sessions", count);
         foreach (var id in revokedIds)
         {
+            _connectionTrackingService?.DisconnectSession(id);
             await ReportSessionPresenceAsync(id, false);
         }
         return count;
@@ -681,6 +765,9 @@ public class SessionService
     public async Task<int> ClearAllSessionsAsync()
     {
         using var context = _dbContextFactory.CreateDbContext();
+        var sessionIds = await context.UserSessions
+            .Select(session => session.Id)
+            .ToListAsync();
         var count = await context.UserSessions.ExecuteDeleteAsync();
 
         if (count > 0)
@@ -695,6 +782,10 @@ public class SessionService
                 ActivityDomains.UserSession,
                 ActivityAspects.Present,
                 new Dictionary<string, int>(StringComparer.Ordinal));
+        }
+        foreach (var sessionId in sessionIds)
+        {
+            _connectionTrackingService?.DisconnectSession(sessionId);
         }
         return count;
     }

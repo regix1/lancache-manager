@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Eye, Shield, Database, CheckCircle } from 'lucide-react';
+import { Eye, Shield, Database, CheckCircle } from 'lucide-react';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import CredentialFields from '@components/ui/CredentialFields';
 import type { CredentialField } from '@components/ui/CredentialFields.types';
+import { LoginServiceButtons } from '@components/features/auth/LoginServiceButtons';
 import { ProgressBar } from '@components/ui/ProgressBar';
 import { SetupGate } from '@components/modals/SetupGate';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import authService from '@services/auth.service';
+import { requiresApiKey, usesOidc } from '@utils/accountMode';
+import { loginErrorKey, signInServices, type LoginService } from '@utils/loginService';
 import { useAuth } from '@contexts/useAuth';
 import { useGuestConfig } from '@contexts/useGuestConfig';
 import { useSetupStatus } from '@contexts/useSetupStatus';
@@ -37,7 +40,14 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   allowGuestMode = true
 }) => {
   const { t } = useTranslation();
-  const { startGuestSession: authStartGuest, login: authLogin, authenticationEnabled } = useAuth();
+  const {
+    startGuestSession: authStartGuest,
+    login: authLogin,
+    authenticationEnabled,
+    accountMode,
+    oidcDisplayName,
+    loginServices
+  } = useAuth();
   const { guestDurationHours, guestModeLocked: contextGuestModeLocked } = useGuestConfig();
   const { setupStatus, isSetupStatusKnown } = useSetupStatus();
   const { on, off } = useSignalR();
@@ -45,7 +55,21 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [authenticating, setAuthenticating] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  // The service whose challenge is being fetched, so only its button shows the spinner.
+  const [startingService, setStartingService] = useState<string | null>(null);
+  // A failed external sign-in lands back here with a bounded category in the URL; the text the
+  // identity service produced never reaches this screen.
+  const [authError, setAuthError] = useState<string | null>(() => {
+    const code = new URLSearchParams(window.location.search).get('oidcError');
+    return code === null ? null : t(loginErrorKey(code));
+  });
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('oidcError')) {
+      url.searchParams.delete('oidcError');
+      window.history.replaceState(window.history.state, '', url);
+    }
+  }, []);
   // Set only when the server refuses the credentials, never when guest mode fails or the network
   // does, because it decides whether the rotation notice is shown.
   const [signInRefused, setSignInRefused] = useState(false);
@@ -182,7 +206,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   };
 
   const handleAuthenticate = async () => {
-    if (!apiKey.trim()) {
+    if (requiresApiKey(accountMode) && !apiKey.trim()) {
       setAuthError(t('modals.auth.errors.apiKeyRequired'));
       return;
     }
@@ -192,6 +216,11 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
     setSignInRefused(false);
 
     try {
+      if (usesOidc(accountMode)) {
+        const result = await authService.startOidc(apiKey.trim());
+        window.location.assign(result.url);
+        return;
+      }
       // Use AuthContext login which awaits fetchAuth() to fully settle state
       // before returning, ensuring all downstream contexts react properly
       const result = await authLogin(apiKey, username.trim(), password);
@@ -208,7 +237,29 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
     }
   };
 
-  const credentialsFilled = apiKey.trim() !== '' && username.trim() !== '' && password !== '';
+  const credentialsFilled =
+    (!requiresApiKey(accountMode) || apiKey.trim() !== '') &&
+    (usesOidc(accountMode) || (username.trim() !== '' && password !== ''));
+
+  // One button per active connection. An installation still on the legacy single custom OpenID
+  // Connect entry advertises no services and keeps the compatibility button below.
+  const services = signInServices(loginServices, accountMode);
+  const startService = async (service: LoginService) => {
+    if (requiresApiKey(accountMode) && !apiKey.trim()) {
+      setAuthError(t('modals.auth.errors.apiKeyRequired'));
+      return;
+    }
+    setStartingService(service.id);
+    setAuthError(null);
+    setSignInRefused(false);
+    try {
+      const result = await authService.startLogin(service.id, apiKey.trim());
+      window.location.assign(result.url);
+    } catch (error: unknown) {
+      setAuthError(getErrorMessage(error) || t('accessSetup.oidcFailed'));
+      setStartingService(null);
+    }
+  };
 
   const handleCredentialChange = (field: CredentialField, value: string) => {
     if (field === 'apiKey') {
@@ -253,14 +304,8 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   return (
     <SetupGate
       maxWidth="xl"
-      header={
-        <div className="flex items-center gap-2">
-          <Shield className="w-5 h-5 text-primary" />
-          <span className="font-semibold text-themed-primary">
-            {title ?? t('modals.auth.defaultTitle')}
-          </span>
-        </div>
-      }
+      icon={<Shield className="w-5 h-5 text-primary" aria-hidden="true" />}
+      title={title ?? t('modals.auth.defaultTitle')}
     >
       {/* Database Reset Status Banner */}
       {(resetStatus.isResetting || resetJustCompleted) && (
@@ -315,7 +360,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       )}
 
       <p className="text-themed-secondary text-center mb-6">
-        {subtitle ?? t('modals.auth.defaultSubtitle')}
+        {subtitle ?? t(`accessSetup.login.${accountMode}`)}
         {offerGuest && (
           <>
             <br />
@@ -330,6 +375,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
       <div className="space-y-4">
         <CredentialFields
+          accountMode={accountMode}
           apiKey={apiKey}
           username={username}
           password={password}
@@ -345,22 +391,31 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         />
 
         <div className="flex flex-col gap-3">
-          <Button
-            variant="filled"
-            color="primary"
-            leftSection={
-              authenticating ? <LoadingSpinner inline size="sm" /> : <Key className="w-4 h-4" />
-            }
-            onClick={handleAuthenticate}
-            disabled={authenticating || !credentialsFilled || resetStatus.isResetting}
-            fullWidth
-          >
-            {resetStatus.isResetting
-              ? t('modals.auth.actions.pleaseWait')
-              : authenticating
-                ? t('modals.auth.actions.authenticating')
-                : t('modals.auth.actions.authenticate')}
-          </Button>
+          {services.length > 0 ? (
+            <LoginServiceButtons
+              services={services}
+              starting={startingService}
+              disabled={startingService !== null || !credentialsFilled || resetStatus.isResetting}
+              onStart={(service) => void startService(service)}
+            />
+          ) : (
+            <Button
+              variant="filled"
+              color="primary"
+              loading={authenticating}
+              onClick={handleAuthenticate}
+              disabled={authenticating || !credentialsFilled || resetStatus.isResetting}
+              fullWidth
+            >
+              {resetStatus.isResetting
+                ? t('modals.auth.actions.pleaseWait')
+                : authenticating
+                  ? t('modals.auth.actions.authenticating')
+                  : usesOidc(accountMode)
+                    ? t('accessSetup.signInSso', { name: oidcDisplayName || t('accessSetup.sso') })
+                    : t('modals.auth.actions.authenticate')}
+            </Button>
+          )}
 
           {/* Show guest mode divider and button if allowed (disabled when locked) */}
           {offerGuest && (
@@ -403,17 +458,15 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       </div>
 
       {/* API Key Help */}
-      <div className="mt-6 p-4 rounded-lg border bg-info border-info text-info-text">
-        <p className="text-sm">
-          <strong>{t('modals.auth.help.title')}</strong>
-          <br />
+      {requiresApiKey(accountMode) && (
+        <Alert color="info" className="mt-6" title={t('modals.auth.help.title')}>
           {t('modals.auth.help.description')}
-        </p>
-      </div>
+        </Alert>
+      )}
 
       {authError && (
-        <div className="mt-4 p-4 rounded-lg border bg-error border-error text-error-text">
-          <p className="text-sm">{authError}</p>
+        <div role="alert" className="mt-4">
+          <Alert color="error">{authError}</Alert>
         </div>
       )}
 
@@ -421,14 +474,10 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
               here together and reads the refusal above as a wrong password. The server answers every
               sign-in failure identically on purpose, so the key cannot be named as the cause - it is
               named as the possibility, in copy of its own. */}
-      {signInRefused && (
-        <div className="mt-4 p-4 rounded-lg border bg-warning border-warning text-warning-text">
-          <p className="text-sm">
-            <strong>{t('modals.auth.keyRotated.title')}</strong>
-            <br />
-            {t('modals.auth.keyRotated.description')}
-          </p>
-        </div>
+      {signInRefused && requiresApiKey(accountMode) && (
+        <Alert color="warning" className="mt-4" title={t('modals.auth.keyRotated.title')}>
+          {t('modals.auth.keyRotated.description')}
+        </Alert>
       )}
     </SetupGate>
   );

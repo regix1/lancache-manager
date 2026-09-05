@@ -4,7 +4,9 @@ using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
 using LancacheManager.Security;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -43,6 +45,31 @@ public sealed class DisabledAuthenticationAccessTests
         Assert.NotEqual(Guid.Empty, first.GetProperty("sessionId").GetGuid());
     }
 
+    [Fact]
+    public async Task AGuestCookieUsesTheSharedManagementSession()
+    {
+        ResetSharedAuthDisabledSession();
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: false);
+        using var client = host.Application.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = false });
+        await host.AssertIsolationAsync(client);
+
+        using var scope = host.Application.Services.CreateScope();
+        var sessions = scope.ServiceProvider.GetRequiredService<SessionService>();
+        var guest = await sessions.CreateGuestSessionAsync(new DefaultHttpContext());
+        Assert.NotNull(guest);
+        var cookie = new DefaultHttpContext();
+        sessions.SetSessionCookie(cookie, guest.Value.RawToken, guest.Value.Session.ExpiresAtUtc);
+        client.DefaultRequestHeaders.Add("Cookie", cookie.Response.Headers.SetCookie.ToString().Split(';')[0]);
+
+        var status = await client.GetFromJsonAsync<JsonElement>("/api/auth/status");
+
+        Assert.NotEqual(guest.Value.Session.Id, status.GetProperty("sessionId").GetGuid());
+        Assert.Equal("admin", status.GetProperty("sessionType").GetString());
+        using var response = await client.GetAsync("/api/sessions");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     /// <summary>
     /// A route behind a named policy, reached with no cookie at all. Named policies are not covered by
     /// the default or fallback policy, so opening only those two would leave this one 403.
@@ -74,9 +101,13 @@ public sealed class DisabledAuthenticationAccessTests
         using var client = host.Application.CreateClient();
         await host.AssertIsolationAsync(client);
 
-        var anonymous = new ClaimsPrincipal(new ClaimsIdentity());
         var policyProvider = host.Application.Services.GetRequiredService<IAuthorizationPolicyProvider>();
         var refused = new List<string>();
+
+        using var callerScope = host.Application.Services.CreateScope();
+        var request = new DefaultHttpContext { RequestServices = callerScope.ServiceProvider };
+        var authenticated = await request.AuthenticateAsync(SessionAuthenticationHandler.SchemeName);
+        var anonymous = Assert.IsAssignableFrom<ClaimsPrincipal>(authenticated.Principal);
 
         foreach (var endpoint in host.Application.Services.GetRequiredService<EndpointDataSource>().Endpoints)
         {

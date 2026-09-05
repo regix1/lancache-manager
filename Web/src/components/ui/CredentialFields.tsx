@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import FormField from './FormField';
 import type { CredentialFieldsProps } from './CredentialFields.types';
+import { requiresApiKey, usesOidc } from '@utils/accountMode';
 
 const inputClassName = 'w-full p-3 text-sm themed-input';
 
@@ -25,77 +26,89 @@ const CredentialFields: React.FC<CredentialFieldsProps> = ({
   onSubmit,
   disabled,
   apiKeyPlaceholder,
-  autoFocus
+  autoFocus,
+  accountMode = 'apiKeyPassword'
 }) => {
   const { t } = useTranslation();
 
-  const credentialsFilled = apiKey.trim() !== '' && username.trim() !== '' && password !== '';
+  const keyRequired = requiresApiKey(accountMode);
+  const oidc = usesOidc(accountMode);
+  const credentialsFilled =
+    (!keyRequired || apiKey.trim() !== '') && (oidc || (username.trim() !== '' && password !== ''));
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && credentialsFilled) {
-      onSubmit();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (credentialsFilled) onSubmit();
     }
   };
 
   return (
     <>
-      <div>
-        <FormField label={t('modals.auth.labels.apiKey')}>
-          {(field) => (
-            <input
-              {...field}
-              type="password"
-              value={apiKey}
-              onChange={(e) => onChange('apiKey', e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={apiKeyPlaceholder}
-              className={inputClassName}
-              // `new-password` rather than `off`: browsers ignore `off` on a password input and
-              // will still offer to remember the key and refill it on a later visit. The username
-              // and password fields below are a real sign-in, so they keep their own semantics.
-              autoComplete="new-password"
-              disabled={disabled}
-              autoFocus={autoFocus}
-            />
-          )}
-        </FormField>
-      </div>
+      {keyRequired && (
+        <div>
+          <FormField label={t('modals.auth.labels.apiKey')}>
+            {(field) => (
+              <input
+                {...field}
+                type="password"
+                value={apiKey}
+                onChange={(e) => onChange('apiKey', e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={apiKeyPlaceholder}
+                className={inputClassName}
+                // `new-password` rather than `off`: browsers ignore `off` on a password input and
+                // will still offer to remember the key and refill it on a later visit. The username
+                // and password fields below are a real sign-in, so they keep their own semantics.
+                autoComplete="new-password"
+                disabled={disabled}
+                autoFocus={autoFocus}
+              />
+            )}
+          </FormField>
+        </div>
+      )}
 
-      <div>
-        <FormField label={t('modals.auth.labels.username')}>
-          {(field) => (
-            <input
-              {...field}
-              type="text"
-              value={username}
-              onChange={(e) => onChange('username', e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={t('modals.auth.placeholders.enterUsername')}
-              className={inputClassName}
-              autoComplete="username"
-              disabled={disabled}
-            />
-          )}
-        </FormField>
-      </div>
+      {!oidc && (
+        <>
+          <div>
+            <FormField label={t('modals.auth.labels.username')}>
+              {(field) => (
+                <input
+                  {...field}
+                  type="text"
+                  value={username}
+                  onChange={(e) => onChange('username', e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={t('modals.auth.placeholders.enterUsername')}
+                  className={inputClassName}
+                  autoComplete="username"
+                  disabled={disabled}
+                  autoFocus={autoFocus && !keyRequired}
+                />
+              )}
+            </FormField>
+          </div>
 
-      <div>
-        <FormField label={t('modals.auth.labels.password')}>
-          {(field) => (
-            <input
-              {...field}
-              type="password"
-              value={password}
-              onChange={(e) => onChange('password', e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={t('modals.auth.placeholders.enterPassword')}
-              className={inputClassName}
-              autoComplete="current-password"
-              disabled={disabled}
-            />
-          )}
-        </FormField>
-      </div>
+          <div>
+            <FormField label={t('modals.auth.labels.password')}>
+              {(field) => (
+                <input
+                  {...field}
+                  type="password"
+                  value={password}
+                  onChange={(e) => onChange('password', e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={t('modals.auth.placeholders.enterPassword')}
+                  className={inputClassName}
+                  autoComplete="current-password"
+                  disabled={disabled}
+                />
+              )}
+            </FormField>
+          </div>
+        </>
+      )}
     </>
   );
 };

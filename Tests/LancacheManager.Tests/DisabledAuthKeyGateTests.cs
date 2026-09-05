@@ -46,8 +46,8 @@ public sealed class DisabledAuthKeyGateTests : IDisposable
             pathResolver: null!,
             dbContextFactory: null!,
             authenticationHelper: _authenticationHelper,
-            configuration: _configuration,
             claimWindow: new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
+            accessService: NewAccessService(),
             // Never reached: with authentication disabled the key is the only proof and the token
             // check belongs to the session case, which this configuration refuses outright.
             antiforgery: null!)
@@ -63,6 +63,17 @@ public sealed class DisabledAuthKeyGateTests : IDisposable
 
         var response = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status401Unauthorized, response.StatusCode);
+    }
+
+    private AccessService NewAccessService()
+    {
+        var state = StateTestMethods.CreateStateService(_root);
+        state.UpdateState(current =>
+        {
+            current.Access.Mode = AccountMode.Unauthenticated;
+            current.Access.SetupVersion = AccessSettings.RequiredSetupVersion;
+        });
+        return new AccessService(state, _configuration, dbContextFactory: null!);
     }
 
     [Fact]

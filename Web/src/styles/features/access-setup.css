@@ -1,0 +1,40 @@
+/* Access and sign-in setup. The dialog shell, step header and progress, option cards, fields,
+   action row, alerts and buttons are the shared setup-wizard pieces; only the copy row and the
+   owner sign-in toggle need rules of their own. */
+
+.access-setup code {
+  overflow-wrap: anywhere;
+  color: var(--theme-text-primary);
+}
+
+/* Read-only callback URL beside its Copy button. The input scrolls inside itself, so a long
+   address never widens the dialog. */
+.access-setup-copy-row {
+  display: flex;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.access-setup-copy-row > input {
+  flex: 1;
+  min-width: 0;
+}
+
+.access-setup-callback {
+  font-size: var(--font-size-sm);
+}
+
+/* Wide enough for "Copied" so the label swap does not move the row. */
+.access-setup-copy {
+  flex-shrink: 0;
+  min-width: 5.5rem;
+}
+
+/* The owner sign-in toggle carries a full sentence, so inside a phone-width panel it wraps
+   instead of running past the panel edge. */
+.access-setup .access-setup-wrap {
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+  text-align: left;
+}

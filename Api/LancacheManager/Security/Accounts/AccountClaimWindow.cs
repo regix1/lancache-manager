@@ -1,3 +1,7 @@
+using System.Security.Cryptography;
+using System.Text;
+using LancacheManager.Core.Interfaces;
+
 namespace LancacheManager.Security;
 
 /// <summary>
@@ -17,6 +21,8 @@ namespace LancacheManager.Security;
 /// </summary>
 public class AccountClaimWindow : IHostedService
 {
+    public static readonly object PeerAddressKey = new();
+
     /// <summary>
     /// One hour, measured from the start rather than from the moment the operator reaches the
     /// account step.
@@ -32,6 +38,7 @@ public class AccountClaimWindow : IHostedService
     private static readonly TimeSpan _window = TimeSpan.FromHours(1);
 
     private readonly ILogger<AccountClaimWindow> _logger;
+    private readonly string _recoveryToken;
     private bool _recoveryRequested;
 
     /// <summary>
@@ -43,9 +50,48 @@ public class AccountClaimWindow : IHostedService
     /// </summary>
     private DateTime _closesAtUtc = DateTime.UtcNow + _window;
 
-    public AccountClaimWindow(ILogger<AccountClaimWindow> logger)
+    public AccountClaimWindow(ILogger<AccountClaimWindow> logger, IPathResolver? pathResolver = null)
     {
         _logger = logger;
+        _recoveryToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+
+        if (pathResolver is not null)
+        {
+            var tokenPath = Path.Combine(pathResolver.GetSecurityDirectory(), "recovery_token.txt");
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(tokenPath)!);
+                File.WriteAllText(tokenPath, _recoveryToken);
+                if (!OperatingSystem.IsWindows())
+                {
+                    File.SetUnixFileMode(tokenPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Could not write the host recovery token");
+            }
+        }
+    }
+
+    internal string RecoveryToken => _recoveryToken;
+
+    public bool ValidateRecoveryToken(string? token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return false;
+        }
+
+        var supplied = Encoding.UTF8.GetBytes(token);
+        var expected = Encoding.UTF8.GetBytes(_recoveryToken);
+        if (supplied.Length != expected.Length)
+        {
+            CryptographicOperations.FixedTimeEquals(expected, expected);
+            return false;
+        }
+
+        return CryptographicOperations.FixedTimeEquals(supplied, expected);
     }
 
     public bool IsOpen => DateTime.UtcNow < _closesAtUtc;

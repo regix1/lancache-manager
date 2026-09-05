@@ -4,8 +4,50 @@ import { isAbortError } from '@utils/error';
 import { antiforgeryHeaders } from '@utils/antiforgery';
 import { APP_EVENTS, getApiUrl } from '@utils/constants';
 import { hasRecentUserInteraction } from '@utils/userInteractionTracker';
+import type { AccountMode } from '@utils/accountMode';
+import type { LoginKind, LoginService } from '@utils/loginService';
+export type { AccountMode } from '@utils/accountMode';
 
 export type AuthMode = 'authenticated' | 'guest' | 'unauthenticated';
+
+interface AccessSetupRequest {
+  mode: AccountMode;
+  apiKey: string;
+  acknowledgeUnauthenticated: boolean;
+  /**
+   * One named connection to stage for testing. Absent when the request only changes the mode or
+   * keeps connections that were tested before. Only the fields the kind needs are sent.
+   */
+  login?: {
+    kind: LoginKind;
+    clientId: string;
+    clientSecret?: string;
+    displayName?: string;
+    tenant?: string;
+    authority?: string;
+    allowedSubjects?: string[];
+    teamId?: string;
+    keyId?: string;
+    privateKey?: string;
+  };
+  /** Legacy custom OpenID Connect body; new callers send `login` with kind `customOidc`. */
+  oidc?: {
+    authority: string;
+    clientId: string;
+    clientSecret: string;
+    displayName: string;
+    allowedSubjects: string[];
+  };
+}
+
+interface AccessSetupResponse {
+  success: boolean;
+  /** Compatibility alias of requiresLoginTest. */
+  requiresOidcTest: boolean;
+  requiresLoginTest: boolean;
+  pendingLoginId: string | null;
+  callbackUrls: string[];
+}
 export type SessionType = 'admin' | 'user' | 'guest';
 
 /**
@@ -19,6 +61,19 @@ export function isAccountHolder(sessionType: SessionType | null): boolean {
 interface AuthStatusResponse {
   isAuthenticated: boolean;
   authenticationEnabled: boolean;
+  accountMode: AccountMode;
+  authenticationSetupRequired: boolean;
+  oidcDisplayName: string;
+  oidcPending: boolean;
+  ownerOidcEnabled: boolean;
+  /** False for a main administrator created by external sign-in who never set a local password. */
+  ownerPasswordEnabled: boolean;
+  /** Every tested connection, dormant ones included. Filter with signInServices() before showing. */
+  loginServices: LoginService[];
+  /** Ids from loginServices the stored owner may reauthenticate through. */
+  ownerLoginServices: string[];
+  loginSetupPending: boolean;
+  pendingLoginKind: LoginKind | null;
   sessionType: SessionType | null;
   sessionId: string | null;
   expiresAt: string | null;
@@ -151,6 +206,16 @@ class AuthService {
       return {
         isAuthenticated: false,
         authenticationEnabled: true,
+        accountMode: 'apiKeyPassword',
+        authenticationSetupRequired: false,
+        oidcDisplayName: '',
+        oidcPending: false,
+        ownerOidcEnabled: false,
+        ownerPasswordEnabled: false,
+        loginServices: [],
+        ownerLoginServices: [],
+        loginSetupPending: false,
+        pendingLoginKind: null,
         sessionType: null,
         sessionId: null,
         expiresAt: null,
@@ -228,6 +293,90 @@ class AuthService {
         console.error('[AuthService] login error:', error);
         return { success: false, message: i18n.t('auth.errors.networkDuringLogin') };
       }
+    });
+  }
+
+  configureAccess(request: AccessSetupRequest): Promise<AccessSetupResponse> {
+    return this.serialize(async () => {
+      await this.fetchAuthStatus();
+      const response = await fetch(`${API_URL}/api/auth/setup`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...antiforgeryHeaders() },
+        body: JSON.stringify(request)
+      });
+      await assertOk(response);
+      return response.json();
+    });
+  }
+
+  startOidc(apiKey: string, setup = false, owner = false): Promise<{ url: string }> {
+    return this.serialize(async () => {
+      await this.fetchAuthStatus();
+      const response = await fetch(`${API_URL}/api/auth/oidc/start`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...antiforgeryHeaders() },
+        body: JSON.stringify({ apiKey, setup, owner })
+      });
+      await assertOk(response);
+      return response.json();
+    });
+  }
+
+  /**
+   * Fetches the single-use challenge URL for one named connection; the caller navigates the whole
+   * page to it. `setup` picks the one pending connection, `owner` reauthenticates the stored owner
+   * through an active or dormant connection, and the key travels only for the flows that need it.
+   */
+  startLogin(
+    loginId: string,
+    apiKey: string,
+    setup = false,
+    owner = false
+  ): Promise<{ url: string }> {
+    return this.serialize(async () => {
+      await this.fetchAuthStatus();
+      const response = await fetch(`${API_URL}/api/auth/login/start`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...antiforgeryHeaders() },
+        body: JSON.stringify({ loginId, apiKey, setup, owner })
+      });
+      await assertOk(response);
+      return response.json();
+    });
+  }
+
+  /**
+   * Gives a main administrator created by external sign-in a first local password. The server
+   * requires the current main-admin session, the installation key and the usual credential rules,
+   * and refuses once a password exists; that case belongs to the account edit screen.
+   */
+  setMainAdminPassword(apiKey: string, username: string, password: string): Promise<void> {
+    return this.serialize(async () => {
+      await this.fetchAuthStatus();
+      const response = await fetch(`${API_URL}/api/account-setup/main-admin-password`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...antiforgeryHeaders() },
+        body: JSON.stringify({ apiKey, username, password })
+      });
+      await assertOk(response);
+    });
+  }
+
+  /** Drops one tested connection. The server refuses the last active one while SSO is selected. */
+  removeLoginService(id: string, apiKey: string): Promise<void> {
+    return this.serialize(async () => {
+      await this.fetchAuthStatus();
+      const response = await fetch(`${API_URL}/api/auth/login-services/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...antiforgeryHeaders() },
+        body: JSON.stringify({ apiKey })
+      });
+      await assertOk(response);
     });
   }
 

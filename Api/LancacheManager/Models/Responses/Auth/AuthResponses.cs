@@ -3,8 +3,18 @@ namespace LancacheManager.Models;
 public class AuthStatusResponse
 {
     public bool IsAuthenticated { get; set; }
-    /// <summary>False when Security:EnableAuthentication is disabled; lets the frontend bypass the login prompt + setup wizard.</summary>
+    /// <summary>False only when the selected account mode permits unauthenticated access.</summary>
     public bool AuthenticationEnabled { get; set; }
+    public AccountMode AccountMode { get; set; }
+    public bool AuthenticationSetupRequired { get; set; }
+    public string? OidcDisplayName { get; set; }
+    public bool OidcPending { get; set; }
+    public bool OwnerOidcEnabled { get; set; }
+    public bool OwnerPasswordEnabled { get; set; }
+    public List<LoginServiceResponse> LoginServices { get; set; } = [];
+    public List<string> OwnerLoginServices { get; set; } = [];
+    public bool LoginSetupPending { get; set; }
+    public LoginKind? PendingLoginKind { get; set; }
 
     /// <summary>The current session's kind. Null when <see cref="IsAuthenticated"/> is false.</summary>
     public SessionType? SessionType { get; set; }
@@ -67,8 +77,8 @@ public class LoginRequest
     public string Username { get; set; } = string.Empty;
 
     /// <summary>
-    /// The account's password. Required alongside the key and the username: all three are checked, so
-    /// holding the installation's key is no longer a sign-in on its own.
+    /// The account's password. The selected account mode decides whether the installation key must
+    /// also accompany the username and password.
     /// </summary>
     public string Password { get; set; } = string.Empty;
 }

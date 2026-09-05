@@ -1,0 +1,377 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+import { compileToUrl } from './transpile-module.mjs';
+
+const { requiresApiKey, usesOidc } = await import(
+  await compileToUrl('../src/utils/accountMode.ts')
+);
+const accountModeUrl = await compileToUrl('../src/utils/accountMode.ts');
+const { LOGIN_KINDS, callbackPaths } = await import(
+  await compileToUrl('../src/utils/loginService.ts', { './accountMode': accountModeUrl })
+);
+const { getFocusable } = await import(await compileToUrl('../src/utils/focus.ts'));
+
+const readWebSource = (relativePath) =>
+  readFileSync(new URL(`../${relativePath}`, import.meta.url), 'utf8');
+const accessSource = readWebSource('src/components/initialization/AccessSetup.tsx');
+const accessStyles = readWebSource('src/styles/features/access-setup.css');
+const gateSource = readWebSource('src/components/modals/SetupGate.tsx');
+const cardSource = readWebSource('src/components/ui/SelectableCard.tsx');
+const platformSource = readWebSource('src/components/initialization/steps/PlatformSetupStep.tsx');
+const depotSource = readWebSource('src/components/modals/setup/DepotInitializationModal.tsx');
+
+/** The props of the first `<SelectableCard key={name}` element in `source`. */
+const cardProps = (source, name) => {
+  const open = source.indexOf(`key={${name}}`);
+  assert.ok(open > 0, `the ${name} card is missing`);
+  const tagStart = source.lastIndexOf('<SelectableCard', open);
+  // The element closes on its own line at the same indentation as it opened, so a `/>` inside
+  // an icon prop is not mistaken for the end of the card.
+  const indent = source.slice(source.lastIndexOf('\n', tagStart) + 1, tagStart);
+  const close = source.slice(open).search(new RegExp(`\r?\n${indent}/>`));
+  assert.ok(close > 0, `the ${name} card never closes`);
+  return source.slice(tagStart, open + close);
+};
+
+test('each access mode requires only its selected sign-in credentials', () => {
+  for (const [mode, key, oidc] of [
+    ['password', false, false],
+    ['apiKeyPassword', true, false],
+    ['apiKeyOidc', true, true],
+    ['oidc', false, true],
+    ['unauthenticated', false, false]
+  ]) {
+    assert.equal(requiresApiKey(mode), key, mode);
+    assert.equal(usesOidc(mode), oidc, mode);
+  }
+});
+
+test('dialog tab stops include only the selected radio in each group', (t) => {
+  const previous = globalThis.HTMLInputElement;
+  class Input {
+    type = 'radio';
+    name = 'access';
+    form = null;
+    offsetParent = {};
+    checked = false;
+  }
+  globalThis.HTMLInputElement = Input;
+  t.after(() => {
+    if (previous === undefined) delete globalThis.HTMLInputElement;
+    else globalThis.HTMLInputElement = previous;
+  });
+
+  const first = new Input();
+  const selected = new Input();
+  selected.checked = true;
+  const separate = new Input();
+  separate.name = 'other';
+  const hidden = { offsetParent: null };
+  const button = { offsetParent: {} };
+  const dialog = { querySelectorAll: () => [first, selected, separate, hidden, button] };
+
+  assert.deepEqual(getFocusable(dialog), [selected, separate, button]);
+  selected.checked = false;
+  assert.deepEqual(getFocusable(dialog), [first, separate, button]);
+  selected.form = {};
+  assert.deepEqual(getFocusable(dialog), [first, selected, separate, button]);
+});
+
+test('the access dialog is assembled from the setup wizard pieces', () => {
+  for (const piece of [
+    '<SetupGate',
+    '<StepHeader',
+    '<Badge',
+    '<Alert',
+    '<CollapsibleRegion',
+    '<CredentialFields',
+    '<PasswordField',
+    '<FormField',
+    '<SelectableCard'
+  ]) {
+    assert.ok(accessSource.includes(piece), `${piece} is not used by the access dialog`);
+  }
+  // The step badge and progress strip are drawn once, by the gate, for both wizards.
+  assert.ok(accessSource.includes('steps={{ current: stepNumber, total: totalSteps'));
+  assert.ok(depotSource.includes('steps={{ current: stepInfo.number, total: stepInfo.total'));
+  assert.ok(!accessSource.includes('<ProgressBar') && !depotSource.includes('<ProgressBar'));
+  for (const piece of ['<Badge', '<ProgressBar', 'steps.label']) {
+    assert.ok(gateSource.includes(piece), `${piece} is not drawn by the gate`);
+  }
+  for (const source of [accessSource, accessStyles]) {
+    assert.ok(!source.includes('--theme-accent'), 'selection is drawn in the accent colour');
+    assert.ok(!source.includes('color-mix('), 'color-mix() is banned');
+  }
+  assert.ok(!accessSource.includes('style={'), 'inline styles are banned');
+});
+
+test('every access option renders the same lines whether or not it is selected', () => {
+  const label = cardProps(accessSource, 'choice');
+  assert.ok(
+    !label.includes('mode === choice &&'),
+    'a line is mounted only for the selected option, so every row below it moves on selection'
+  );
+  for (const line of ['title', 'description', 'warning']) {
+    assert.ok(
+      label.includes(`accessSetup.modes.\${choice}.${line}`),
+      `option ${line} is not always rendered`
+    );
+  }
+  assert.ok(cardSource.includes('type="radio"'), 'options are no longer native radios');
+  assert.ok(cardSource.includes('<label'), 'the card is no longer the label of its radio');
+  assert.ok(label.includes('name="account-mode"'), 'radios do not share one group');
+});
+
+test('every sign-in service card renders the same lines whether or not it is selected', () => {
+  const label = cardProps(accessSource, 'candidate');
+  assert.ok(
+    !label.includes('kind === candidate &&'),
+    'a line is mounted only for the selected service, so the cards move on selection'
+  );
+  assert.ok(label.includes('<LoginServiceMark kind={candidate}'), 'the service mark is missing');
+  for (const line of ['title', 'note']) {
+    assert.ok(
+      label.includes(`services.\${candidate}.${line}`) || label.includes('serviceName(candidate)'),
+      `service ${line} is not always rendered`
+    );
+  }
+  assert.ok(label.includes('name="login-kind"'), 'service radios do not share one group');
+  assert.ok(label.includes('layout="stack"'), 'service cards are not the centred variant');
+  assert.deepEqual(LOGIN_KINDS, ['google', 'github', 'microsoft', 'apple', 'customOidc']);
+});
+
+test('the stacked card modifier is written out so the stylesheet keeps its centring rule', () => {
+  const cardStyles = readWebSource('src/styles/components/cards.css');
+  const stackRule = cardStyles.match(/\.selectable-card--stack\s*\{([^}]*)\}/);
+  assert.ok(stackRule, 'the stacked card rule is missing');
+  for (const declaration of ['flex-direction: column', 'text-align: center', 'padding-top']) {
+    assert.ok(stackRule[1].includes(declaration), `stacked cards lost ${declaration}`);
+  }
+  // A layered class the source never spells out is dropped from the built stylesheet, so the
+  // modifier must appear as one literal token rather than be assembled from the layout value.
+  assert.ok(cardSource.includes("selectable-card--stack'"), 'the stack modifier is interpolated');
+  assert.ok(
+    cardSource.includes("selectable-card--checked'"),
+    'the checked modifier is interpolated'
+  );
+  assert.ok(!cardSource.includes('selectable-card--${'), 'a card modifier is built at runtime');
+});
+
+test('the platform, Steam sign-in and owner-service choices are the same card as the access options', () => {
+  const steamSource = readWebSource('src/components/initialization/steps/SteamPicsAuthStep.tsx');
+  for (const [source, group] of [
+    [platformSource, 'name="platform"'],
+    [steamSource, 'name="steam-auth-mode"'],
+    [accessSource, 'name="owner-service"']
+  ]) {
+    assert.ok(source.includes('<SelectableCard'), `${group} is not a SelectableCard`);
+    assert.ok(source.includes(group), `${group} radios do not share one group`);
+    assert.ok(
+      !/border-\[var\(--theme-primary\)\]/.test(source),
+      `${group} keeps its own card recipe`
+    );
+  }
+  assert.ok(
+    platformSource.includes('onDeselect={() => onSelect(null)}'),
+    'a platform can no longer be unchosen'
+  );
+  assert.ok(cardSource.includes('onClick={onDeselect && checked ? onDeselect : undefined}'));
+  for (const source of [accessSource, platformSource, steamSource]) {
+    assert.ok(!source.includes('choiceClassName') && !source.includes('getCardClassName'));
+  }
+});
+
+test('setup fields and action rows share one recipe across the access dialog and the wizard steps', () => {
+  const forms = readWebSource('src/styles/components/forms.css');
+  assert.ok(forms.includes('.setup-input {') && forms.includes('.setup-actions {'));
+  assert.ok(forms.includes('min-height: 44px'), 'the phone touch floor is missing');
+  for (const step of [
+    'AdminAccountStep',
+    'DatabaseSetupStep',
+    'ExternalDatabaseSetupStep',
+    'EpicAuthStep',
+    'SteamApiKeyStep'
+  ]) {
+    const source = readWebSource(`src/components/initialization/steps/${step}.tsx`);
+    assert.ok(source.includes('themed-input setup-input'), `${step} does not use the shared field`);
+    assert.ok(!source.includes('px-3 py-2'), `${step} keeps a private field recipe`);
+  }
+  assert.equal(accessSource.includes("const inputClassName = 'themed-input setup-input';"), true);
+  assert.ok(accessSource.includes('className="setup-actions setup-actions--split"'));
+  for (const step of [
+    'PlatformSetupStep',
+    'SteamApiKeyStep',
+    'EpicAuthStep',
+    'PermissionsCheckStep'
+  ]) {
+    const source = readWebSource(`src/components/initialization/steps/${step}.tsx`);
+    assert.ok(
+      source.includes('className="setup-actions'),
+      `${step} does not use the shared action row`
+    );
+  }
+  assert.ok(
+    !accessStyles.includes('access-setup-actions') && !accessStyles.includes('access-choice')
+  );
+});
+
+test('the flow only grows to three steps once new credentials are committed', () => {
+  const match = accessSource.match(/const showsTestStep =([\s\S]*?);\r?\n/);
+  assert.ok(match, 'showsTestStep is not declared');
+  const showsTestStep = new Function(
+    'step',
+    'credentialsNeeded',
+    'pendingTest',
+    `return ${match[1].trim()};`
+  );
+  assert.equal(showsTestStep('choose', true, false), false, 'comparing choices resized the flow');
+  assert.equal(showsTestStep('choose', false, false), false);
+  assert.equal(showsTestStep('configure', true, false), true);
+  assert.equal(
+    showsTestStep('configure', false, false),
+    false,
+    'a connection tested earlier needs no test step'
+  );
+  assert.equal(showsTestStep('test', false, true), true);
+  assert.equal(showsTestStep('choose', false, true), true, 'a pending test hides its own step');
+  assert.ok(
+    accessSource.includes('const totalSteps = showsTestStep ? 3 : 2;'),
+    'the step count no longer follows showsTestStep'
+  );
+});
+
+test('both callback URLs of the chosen service are shown read-only with a copy action', () => {
+  for (const kind of ['google', 'github', 'microsoft', 'apple']) {
+    assert.deepEqual(callbackPaths(kind), {
+      callback: `/api/auth/login/${kind}/callback`,
+      setupCallback: `/api/auth/login/${kind}/setup-callback`
+    });
+  }
+  assert.deepEqual(callbackPaths('customOidc'), {
+    callback: '/api/auth/oidc/callback',
+    setupCallback: '/api/auth/oidc/setup-callback'
+  });
+  assert.ok(accessSource.includes('const paths = callbackPaths(kind);'));
+  assert.ok(accessSource.includes('`${getApiUrl()}${paths.callback}`'));
+  assert.ok(accessSource.includes('`${getApiUrl()}${paths.setupCallback}`'));
+  assert.deepEqual(
+    [...accessSource.matchAll(/renderCallback\('(\w+)', (\w+)\)/g)].map((found) => found.slice(1)),
+    [
+      ['callback', 'callback'],
+      ['setupCallback', 'setupCallback']
+    ]
+  );
+  assert.ok(
+    accessSource.includes("from '@utils/clipboard'"),
+    'copy does not use the shared helper'
+  );
+});
+
+test('testing a connection stages the settings and then starts the real sign-in', () => {
+  const saveStart = accessSource.indexOf('const save = async () => {');
+  const save = accessSource.slice(saveStart, accessSource.indexOf('const testSignIn', saveStart));
+  const staged = save.indexOf('authService.configureAccess({');
+  const started = save.indexOf('await startTest(');
+  assert.ok(staged > 0 && started > staged, 'the test does not follow the staged save');
+  assert.ok(
+    save.includes('credentialsNeeded || result.requiresLoginTest || result.requiresOidcTest'),
+    'a mode change that keeps tested connections is sent through the test step'
+  );
+  assert.ok(
+    accessSource.includes('authService.startLogin(loginId, apiKey.trim(), true)'),
+    'the test does not start the pending connection'
+  );
+  assert.ok(
+    !accessSource.includes("'accessSetup.testConnection'") ||
+      accessSource.includes('type="submit"\n                        form="access-setup-form"'),
+    'the Test connection button does not submit the configure form'
+  );
+});
+
+test('the callback guidance explains the return addresses without demanding public hosting', () => {
+  const en = JSON.parse(readWebSource('src/i18n/locales/en.json')).accessSetup;
+  const zh = JSON.parse(readWebSource('src/i18n/locales/zh.json')).accessSetup;
+  // The URLs are pasted into the service's registration, and the intro says so before they are
+  // shown; the address guidance sits behind a disclosure so the register panel stays short.
+  assert.ok(accessSource.includes("t('accessSetup.callbacksIntro', { name: serviceLabel(kind) })"));
+  assert.ok(accessSource.includes("t('accessSetup.addressHelp')"));
+  assert.ok(accessSource.includes('t(`accessSetup.services.${kind}.addresses`)'));
+  assert.ok(
+    accessSource.indexOf("'accessSetup.callbacksIntro'") <
+      accessSource.indexOf("renderCallback('callback', callback)")
+  );
+  for (const [locale, text] of [
+    ['en', en],
+    ['zh', zh]
+  ]) {
+    assert.equal(typeof text.callbacksIntro, 'string', `${locale} has no intro`);
+    assert.equal(typeof text.addressHelp, 'string', `${locale} has no address disclosure`);
+    for (const kind of LOGIN_KINDS) {
+      assert.equal(typeof text.services[kind].addresses, 'string', `${locale} ${kind} addresses`);
+    }
+    // The copied URLs follow the address the page is open at, which is the only thing they
+    // require. "Public" would tell a LAN-only installation it needs hosting it does not.
+    for (const key of ['callbackHint', 'setupCallbackHint', 'callbacksIntro', 'httpsWarning']) {
+      assert.ok(!/public|公开|公网/.test(text[key]), `${locale} ${key} demands a public address`);
+    }
+    assert.ok(!/public|公开|公网/.test(text.errors.state), `${locale} state error demands public`);
+    assert.ok(!/public|公开|公网/.test(text.oidcFailed), `${locale} oidcFailed demands public`);
+    assert.ok(/HTTP/.test(text.httpsWarning), `${locale} has no local HTTP guidance`);
+    for (const mode of ['password', 'apiKeyPassword', 'apiKeyOidc', 'oidc']) {
+      assert.ok(!/MFA|multi-factor|多因素/i.test(text.modes[mode].warning));
+    }
+    assert.ok(!/MFA|multi-factor|多因素/i.test(text.oidcSafety));
+    // Google's own rule: HTTP is allowed for localhost and loopback addresses only, so the local
+    // guidance names them and warns that a phone's loopback is the phone.
+    assert.ok(/127\.0\.0\.1/.test(text.services.google.addresses), `${locale} google loopback`);
+    assert.ok(/localhost/.test(text.services.google.addresses), `${locale} google localhost`);
+    assert.ok(/HTTPS/.test(text.services.google.addresses), `${locale} google https`);
+    // Apple's stricter rule is kept: an HTTPS domain, never localhost or an address.
+    assert.ok(/localhost/.test(text.services.apple.addresses), `${locale} apple localhost`);
+    assert.ok(/localhost/.test(text.services.apple.deployment), `${locale} apple deployment`);
+    assert.ok(!/public|公开|公网/.test(text.services.apple.deployment));
+    // Google's localhost rule is not attributed to any other service.
+    for (const kind of ['github', 'microsoft', 'customOidc']) {
+      assert.ok(
+        !/127\.0\.0\.1/.test(text.services[kind].addresses),
+        `${locale} ${kind} borrows Google's loopback rule`
+      );
+    }
+  }
+});
+
+test('the sign-in result markers are read once and stripped while accessSetup stays', () => {
+  assert.ok(
+    accessSource.includes("params.get('loginTest') === 'success' ? params.get('loginId') : null"),
+    'a test counts as successful without the success marker'
+  );
+  assert.ok(
+    accessSource.includes("for (const marker of ['oidcError', 'loginTest', 'loginId'])"),
+    'the result markers are left in the address bar'
+  );
+  assert.ok(
+    !accessSource.includes("searchParams.delete('accessSetup')"),
+    'the dialog strips the marker that opened it'
+  );
+  assert.ok(
+    accessSource.includes('const testConfirmed = testedService !== undefined && !pendingTest;'),
+    'the tested state is not confirmed against the server status'
+  );
+  assert.ok(
+    accessSource.includes('loginServices.find((service) => service.id === testedId)'),
+    'the tested connection is not looked up in the server status'
+  );
+  assert.ok(
+    accessSource.includes('t(loginErrorKey(errorCode))'),
+    'a failure code is not translated through the bounded table'
+  );
+});
+
+test('the access dialog keeps every secret out of browser storage', () => {
+  assert.ok(!/localStorage|sessionStorage/.test(accessSource));
+  assert.ok(accessSource.includes("setClientSecret('')"), 'the client secret is kept after saving');
+  assert.ok(accessSource.includes("setPrivateKey('')"), 'the Apple key is kept after saving');
+  assert.ok(accessSource.includes("setLocalPassword('')"), 'the new local password is kept');
+  assert.ok(accessSource.includes("setPassword('')"), 'the owner password is kept after use');
+});

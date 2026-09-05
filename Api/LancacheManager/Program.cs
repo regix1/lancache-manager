@@ -18,6 +18,8 @@ using LancacheManager.Models;
 using LancacheManager.Security;
 using LancacheManager.Validators;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.SignalR; // HubOptions.AddFilter<T>() extension for the HubExceptionFilter
@@ -28,6 +30,7 @@ using System.Threading.RateLimiting;
 using OpenTelemetry.Metrics;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 
@@ -96,6 +99,7 @@ var documentedDomainByController = new Dictionary<string, string>(StringComparer
 {
     ["AccountSetup"] = "Access",
     ["Accounts"] = "Access",
+    ["Access"] = "Access",
     ["ApiKeys"] = "Access",
     ["Auth"] = "Access",
     ["Sessions"] = "Access",
@@ -219,6 +223,7 @@ builder.Services.AddSignalR(options =>
     // Hub-side parallel to the HTTP GlobalExceptionMiddleware: convert any uncaught (non-HubException)
     // hub exception into a logged, generic HubException so clients get a consistent, non-leaking message.
     options.AddFilter<HubExceptionFilter>();
+    options.AddFilter<SessionHubFilter>();
     // Explicit: never leak internal exception detail to hub clients (the filter provides the message).
     options.EnableDetailedErrors = false;
 }).AddJsonProtocol(options =>
@@ -492,6 +497,7 @@ var externalCredsMissing = postgresMode == "external"
     && (string.IsNullOrEmpty(connBuilder.Host)
         || connBuilder.Host == "/var/run/postgresql"
         || string.IsNullOrEmpty(pgPassword));
+builder.Configuration["Runtime:DatabaseSetupPending"] = externalCredsMissing.ToString();
 
 // One rule for everything below that reads or writes the database: do not start database work when
 // there is no database. Migration is skipped in this mode, so the schema is absent as well as the
@@ -546,6 +552,12 @@ builder.Services.AddHttpClient("SteamImages", client =>
 
 // Register Authentication Services
 builder.Services.AddSingleton<ApiKeyService>();
+builder.Services.AddSingleton<AccessService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<OidcChallengeStore>();
+builder.Services.AddScoped<OidcEvents>();
+builder.Services.AddScoped<GitHubEvents>();
+builder.Services.AddScoped<ExternalSignInService>();
 builder.Services.AddScoped<AuthenticationHelper>();
 builder.Services.AddScoped<SessionService>();
 // Singleton: it holds no per-request state and takes only the pooled IDbContextFactory and a logger,
@@ -567,7 +579,39 @@ builder.Services.AddSingleton<LancacheManager.Core.Services.PublicIpLookupServic
 // ASP.NET Core Authentication (session-based via cookie)
 builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
     .AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(
-        SessionAuthenticationHandler.SchemeName, null);
+        SessionAuthenticationHandler.SchemeName, null)
+    .AddCookie(AccessService.OidcCookieScheme, options =>
+    {
+        options.Cookie.Name = "lcm_oidc";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.SecurePolicy = builder.Configuration.GetValue<bool>("Security:ForceSecureCookies")
+            ? CookieSecurePolicy.Always
+            : CookieSecurePolicy.SameAsRequest;
+        options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
+        options.SlidingExpiration = false;
+    })
+    .AddCookie(AccessService.AppleCookieScheme, options =>
+    {
+        options.Cookie.Name = "lcm_apple";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.None;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
+        options.SlidingExpiration = false;
+    })
+    .AddOpenIdConnect(AccessService.OidcScheme, _ => { })
+    .AddOpenIdConnect(AccessService.OidcSetupScheme, _ => { })
+    .AddOpenIdConnect(AccessService.GoogleScheme, _ => { })
+    .AddOpenIdConnect(AccessService.GoogleSetupScheme, _ => { })
+    .AddOpenIdConnect(AccessService.MicrosoftScheme, _ => { })
+    .AddOpenIdConnect(AccessService.MicrosoftSetupScheme, _ => { })
+    .AddOpenIdConnect(AccessService.AppleScheme, _ => { })
+    .AddOpenIdConnect(AccessService.AppleSetupScheme, _ => { })
+    .AddOAuth(AccessService.GitHubScheme, _ => { })
+    .AddOAuth(AccessService.GitHubSetupScheme, _ => { });
+builder.Services.AddSingleton<IConfigureOptions<OpenIdConnectOptions>, OidcOptionsSetup>();
+builder.Services.AddSingleton<IConfigureOptions<OAuthOptions>, GitHubOptionsSetup>();
 
 // Password hashing for accounts. Microsoft.Extensions.Identity.Core ships inside the
 // Microsoft.AspNetCore.App shared framework, so PasswordHasher<T> needs no package reference.
@@ -589,44 +633,8 @@ builder.Services.AddSingleton<
     Microsoft.AspNetCore.Identity.PasswordHasher<UserAccount>>();
 
 // Authorization policies
-var authEnabled = builder.Configuration.GetValue<bool>("Security:EnableAuthentication", true);
 builder.Services.AddAuthorization(options =>
 {
-    if (!authEnabled)
-    {
-        // Authentication disabled via config: open BOTH FallbackPolicy (endpoints without an
-        // explicit policy) AND DefaultPolicy (bare [Authorize] controllers use DefaultPolicy, so
-        // an open FallbackPolicy alone is NOT enough). RequireAssertion(_ => true) allows anonymous.
-        var openPolicy = new AuthorizationPolicyBuilder()
-            .RequireAssertion(_ => true)
-            .Build();
-        options.FallbackPolicy = openPolicy;
-        options.DefaultPolicy = openPolicy;
-
-        // Named policies registered via [Authorize(Policy = "...")] use RequireClaim/RequireAssertion
-        // and are NOT covered by Default/FallbackPolicy. With auth disabled an anonymous caller has no
-        // SessionType/*PrefillActive claims, so every [Authorize(Policy="AccountHolder")] endpoint would
-        // still 403. Open every named policy too so disabling auth truly grants access to ALL endpoints,
-        // then return so the secure named-policy definitions below do NOT re-run and override these.
-        foreach (var policyName in new[]
-                 {
-                     "AccountHolder",
-                     "GuestAllowed",
-                     "SteamPrefillAccess",
-                     "EpicPrefillAccess",
-                     "BattleNetPrefillAccess",
-                     "RiotPrefillAccess",
-                     "XboxPrefillAccess",
-                     "AnyPrefillAccess"
-                 })
-        {
-            options.AddPolicy(policyName, policy => policy.RequireAssertion(_ => true));
-        }
-
-        Console.WriteLine("Authentication DISABLED via Security:EnableAuthentication — all endpoints allow anonymous access");
-        return;
-    }
-
     // Secure-by-default: every endpoint requires an authenticated principal unless it
     // explicitly opts out with [AllowAnonymous] (e.g. /health, /api/auth/login, /api/setup/*).
     // This closes the "forgot to add [Authorize]" gap on controllers added later.
@@ -687,14 +695,10 @@ builder.Services.AddAntiforgery(options =>
 });
 builder.Services.AddSingleton<AntiforgeryToken>();
 
-// One filter covers every controller. Not registered when Security:EnableAuthentication is false:
-// that setting means the installation has no access control, so this must not become the one thing
-// still turning callers away.
-if (authEnabled)
-{
-    builder.Services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(options =>
-        options.Filters.Add<AntiforgeryFilter>());
-}
+// One filter covers every controller. Explicit bootstrap and sign-in actions opt out because they
+// run before a caller can obtain the antiforgery pair.
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(options =>
+    options.Filters.Add<AntiforgeryFilter>());
 
 // Register SignalR connection tracking service for targeted messaging
 builder.Services.AddSingleton<LancacheManager.Core.Services.ConnectionTrackingService>();
@@ -1148,7 +1152,7 @@ var apiKeyService = app.Services.GetRequiredService<ApiKeyService>();
 // The flag is only set once the key file has been read or created, and the argument below is read
 // before DisplayApiKey runs that read itself, so without this line a first start masks the key.
 apiKeyService.GetApiKey();
-apiKeyService.DisplayApiKey(app.Configuration, revealKey: apiKeyService.WasNewKeyGenerated);
+apiKeyService.DisplayApiKey(revealKey: apiKeyService.WasNewKeyGenerated);
 
 // If a new API key was generated (data folder was deleted), invalidate all old sessions
 // so existing browser cookies cannot authenticate against the new key. The sessions being
@@ -1164,6 +1168,11 @@ if (apiKeyService.WasNewKeyGenerated && databaseAvailable)
 
 // MUST be first: Handle forwarded headers from reverse proxies (nginx, Cloudflare, etc.)
 // This ensures HttpContext.Connection.RemoteIpAddress returns the real client IP
+app.Use(async (context, next) =>
+{
+    context.Items[AccountClaimWindow.PeerAddressKey] = context.Connection.RemoteIpAddress;
+    await next(context);
+});
 app.UseForwardedHeaders();
 
 // A proxy that terminates TLS but is not in KnownProxies leaves Request.Scheme as http, because
@@ -1283,6 +1292,7 @@ app.UseRateLimiter();
 // ASP.NET Core authentication & authorization pipeline
 // SessionAuthenticationHandler populates HttpContext.Items["Session"] for backward compatibility.
 app.UseAuthentication();
+app.UseMiddleware<AccessSetupMiddleware>();
 app.UseAuthorization();
 
 // MetricsAuthenticationMiddleware applies the optional API-key gate to /metrics.

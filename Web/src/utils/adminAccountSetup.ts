@@ -1,5 +1,8 @@
+import type { AccountMode } from './accountMode';
+
 interface AdminAccountState {
-  /** The Security:EnableAuthentication flag as reported by the auth status route. */
+  accountMode?: AccountMode;
+  /** Whether the saved access mode requires sign-in. */
   authenticationEnabled: boolean;
   /** Whether any account exists. Null when the server could not read the account table. */
   accountExists: boolean | null;
@@ -35,9 +38,11 @@ interface AdminAccountState {
  */
 export function isAdminAccountRequired(state: AdminAccountState): boolean {
   return (
-    state.authenticationEnabled &&
-    (state.accountExists === false ||
-      (state.accountExists === null && state.needsPostgresCredentials) ||
-      state.mainAdminRecoveryAvailable)
+    state.mainAdminRecoveryAvailable ||
+    (state.authenticationEnabled &&
+      state.accountMode !== 'oidc' &&
+      state.accountMode !== 'apiKeyOidc' &&
+      (state.accountExists === false ||
+        (state.accountExists === null && state.needsPostgresCredentials)))
   );
 }

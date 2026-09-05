@@ -45,6 +45,7 @@ public class AccountsController : ControllerBase
     private readonly AccountClaimWindow _claimWindow;
     private readonly ISignalRNotificationService _notifications;
     private readonly ILogger<AccountsController> _logger;
+    private readonly AccessService? _accessService;
 
     public AccountsController(
         IDbContextFactory<AppDbContext> dbContextFactory,
@@ -54,7 +55,8 @@ public class AccountsController : ControllerBase
         AccountLockout accountLockout,
         AccountClaimWindow claimWindow,
         ISignalRNotificationService notifications,
-        ILogger<AccountsController> logger)
+        ILogger<AccountsController> logger,
+        AccessService? accessService = null)
     {
         _dbContextFactory = dbContextFactory;
         _passwordHasher = passwordHasher;
@@ -64,6 +66,7 @@ public class AccountsController : ControllerBase
         _claimWindow = claimWindow;
         _notifications = notifications;
         _logger = logger;
+        _accessService = accessService;
     }
 
     /// <summary>
@@ -445,6 +448,7 @@ public class AccountsController : ControllerBase
             return SelfRefused();
         }
 
+        _accessService?.ForgetAccounts([account.Id]);
         context.UserAccounts.Remove(account);
         await context.SaveChangesAsync();
 
@@ -496,6 +500,7 @@ public class AccountsController : ControllerBase
         }
 
         var accounts = await context.UserAccounts.ToListAsync();
+        _accessService?.ForgetAccounts(accounts.Select(account => account.Id));
         context.UserAccounts.RemoveRange(accounts);
         await context.SaveChangesAsync();
         // The table is already empty. Open the hour before audit or session-clear can throw, or

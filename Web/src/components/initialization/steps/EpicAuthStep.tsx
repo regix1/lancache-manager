@@ -149,7 +149,7 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
                   }
                 }}
                 placeholder={t('initialization.epicAuth.codePlaceholder')}
-                className="w-full px-3 py-2.5 themed-input"
+                className="themed-input setup-input"
                 disabled={state.loading}
               />
             )}
@@ -160,7 +160,7 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
         {error && <Alert color="error">{error}</Alert>}
 
         {/* Action Buttons */}
-        <div className="flex gap-3">
+        <div className="setup-actions">
           <Button
             variant="default"
             onClick={handleRetry}

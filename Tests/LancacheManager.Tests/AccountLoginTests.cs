@@ -86,6 +86,89 @@ public sealed class AccountLoginTests : IDisposable
         Assert.Contains("path=/", cookie, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task PasswordModeDoesNotRequireTheInstallationKey()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await NewAccountAsync(database, "operator");
+        var state = CreateStateService(_root);
+        state.UpdateState(current =>
+        {
+            current.Access.Mode = AccountMode.Password;
+            current.Access.SetupVersion = AccessSettings.RequiredSetupVersion;
+        });
+        var sign = NewSignIn(database, state, useAccessSettings: true);
+
+        var result = await sign.Controller.LoginAsync(
+            new LoginRequest { Username = "operator", Password = Password });
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+    }
+
+    [Fact]
+    public async Task ConfiguredKeyAndPasswordModeStillRequiresTheInstallationKey()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await NewAccountAsync(database, "operator");
+        var state = CreateStateService(_root);
+        state.UpdateState(current =>
+        {
+            current.Access.Mode = AccountMode.ApiKeyPassword;
+            current.Access.SetupVersion = AccessSettings.RequiredSetupVersion;
+        });
+        var sign = NewSignIn(database, state, useAccessSettings: true);
+
+        var result = await sign.Controller.LoginAsync(
+            new LoginRequest { Username = "operator", Password = Password });
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, StatusOf(result));
+    }
+
+    [Fact]
+    public async Task OidcModeDoesNotAcceptPasswordSignIn()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await NewAccountAsync(database, "operator");
+        var state = CreateStateService(_root);
+        state.UpdateState(current =>
+        {
+            current.Access.Mode = AccountMode.Oidc;
+            current.Access.SetupVersion = AccessSettings.RequiredSetupVersion;
+        });
+        var sign = NewSignIn(database, state, useAccessSettings: true);
+
+        var result = await sign.Controller.LoginAsync(
+            NewLogin("operator", Password, _apiKeyService.GetApiKey()));
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, StatusOf(result));
+    }
+
+    [Fact]
+    public async Task MainAdministratorCanReauthenticateWhileAnonymousAccessIsSelected()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await NewAccountAsync(database, "owner", mainAdmin: true);
+        await NewAccountAsync(database, "operator");
+        var state = CreateStateService(_root);
+        state.UpdateState(current =>
+        {
+            current.Access.Mode = AccountMode.Unauthenticated;
+            current.Access.SetupVersion = AccessSettings.RequiredSetupVersion;
+        });
+
+        var owner = NewSignIn(database, state, useAccessSettings: true);
+        Assert.Equal(
+            StatusCodes.Status200OK,
+            StatusOf(await owner.Controller.LoginAsync(
+                new LoginRequest { Username = "owner", Password = Password })));
+
+        var other = NewSignIn(database, state, useAccessSettings: true);
+        Assert.Equal(
+            StatusCodes.Status401Unauthorized,
+            StatusOf(await other.Controller.LoginAsync(
+                new LoginRequest { Username = "operator", Password = Password })));
+    }
+
     /// <summary>
     /// The session the sign-in creates names the account it signed in as, which is the column every
     /// account write keys off when it revokes an identity's live sessions. Nothing wrote it before
@@ -799,19 +882,27 @@ public sealed class AccountLoginTests : IDisposable
         TestDatabase database,
         StateService? stateService = null,
         AccountLockout? lockout = null,
-        bool authenticationEnabled = true)
+        bool authenticationEnabled = true,
+        bool useAccessSettings = false)
     {
+        var sessionConfiguration = authenticationEnabled ? _configuration : AuthenticationDisabled();
         var sessions = new SessionService(
             database.Factory,
             _apiKeyService,
             NullLogger<SessionService>.Instance,
             stateService!,
             NewNotifications(),
-            authenticationEnabled ? _configuration : AuthenticationDisabled());
+            sessionConfiguration);
 
         var request = new DefaultHttpContext();
         var sharedLockout = lockout ?? new AccountLockout(NullLogger<AccountLockout>.Instance);
 
+        var accessService = useAccessSettings
+            ? new AccessService(
+                stateService ?? throw new InvalidOperationException("Access settings require state"),
+                sessionConfiguration,
+                database.Factory)
+            : null;
         var controller = new AuthController(
             sessions,
             NullLogger<AuthController>.Instance,
@@ -821,7 +912,8 @@ public sealed class AccountLoginTests : IDisposable
             _apiKeyService,
             _passwordHasher,
             sharedLockout,
-            new IdentityAuditService(database.Factory, NullLogger<IdentityAuditService>.Instance))
+            new IdentityAuditService(database.Factory, NullLogger<IdentityAuditService>.Instance),
+            accessService)
         {
             ControllerContext = new ControllerContext { HttpContext = request }
         };
@@ -872,13 +964,15 @@ public sealed class AccountLoginTests : IDisposable
         string username,
         SessionType role = SessionType.Admin,
         bool disabled = false,
-        IPasswordHasher<UserAccount>? hasher = null)
+        IPasswordHasher<UserAccount>? hasher = null,
+        bool mainAdmin = false)
     {
         var account = new UserAccount
         {
             Id = Guid.NewGuid(),
             Username = username,
             Role = role,
+            IsMainAdmin = mainAdmin,
             IsDisabled = disabled,
             CreatedAtUtc = DateTime.UtcNow
         };

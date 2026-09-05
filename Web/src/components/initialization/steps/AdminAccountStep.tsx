@@ -8,8 +8,10 @@ import { PasswordField } from '@components/ui/PasswordField';
 import { PasswordStrengthMeter } from '@components/ui/PasswordStrengthMeter';
 import { StepHeader } from '@components/initialization/StepHeader';
 import { useSetupStatus } from '@contexts/useSetupStatus';
+import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
+import { validateAccountCredentials } from '@utils/accountCredentials';
 import { getErrorMessage } from '@utils/error';
 
 interface FormState {
@@ -48,6 +50,7 @@ interface CreateAccountResponse {
 export const AdminAccountStep: React.FC = () => {
   const { t } = useTranslation();
   const { setupStatus, refreshSetupStatus } = useSetupStatus();
+  const { refreshAuth } = useAuth();
   const recovering = setupStatus?.mainAdminRecoveryAvailable === true;
   const [form, setForm] = useState<FormState>({
     username: '',
@@ -66,55 +69,19 @@ export const AdminAccountStep: React.FC = () => {
   const [accountCreated, setAccountCreated] = useState(false);
 
   const validateForm = useCallback((): boolean => {
+    // The credential rules live in one place, shared with the local-password panel of the access
+    // setup dialog, so the two screens refuse the same passwords. The server stays the authority.
+    const credentials = validateAccountCredentials(
+      form.username,
+      form.password,
+      form.confirmPassword
+    );
     const newErrors: FormErrors = {
-      username: null,
-      password: null,
-      confirmPassword: null,
-      apiKey: null
+      username: credentials.username && t(credentials.username),
+      password: credentials.password && t(credentials.password),
+      confirmPassword: credentials.confirmPassword && t(credentials.confirmPassword),
+      apiKey: form.apiKey.trim() ? null : t('initialization.adminAccount.errors.apiKeyRequired')
     };
-
-    const username = form.username.trim();
-
-    if (!username) {
-      newErrors.username = t('initialization.adminAccount.errors.usernameRequired');
-    } else if (username.length > 64) {
-      newErrors.username = t('initialization.adminAccount.errors.usernameTooLong');
-    }
-
-    // Same rules and same order as AccountCredentialsRequestValidator, so the user is told before
-    // submitting rather than by a 400. The server stays the authority.
-    if (!form.password) {
-      newErrors.password = t('initialization.adminAccount.errors.passwordRequired');
-    } else if (form.password.length < 12) {
-      newErrors.password = t('initialization.adminAccount.errors.passwordTooShort');
-    } else if (form.password.length > 256) {
-      newErrors.password = t('initialization.adminAccount.errors.passwordTooLong');
-    } else {
-      // char.IsLower and its siblings are Unicode-aware on the server, so ASCII-only classes here
-      // would reject a password the server accepts and leave the operator unable to create the one
-      // account there is.
-      const characterClasses =
-        (/\p{Ll}/u.test(form.password) ? 1 : 0) +
-        (/\p{Lu}/u.test(form.password) ? 1 : 0) +
-        (/\p{Nd}/u.test(form.password) ? 1 : 0) +
-        (/[^\p{L}\p{Nd}]/u.test(form.password) ? 1 : 0);
-
-      if (characterClasses < 3) {
-        newErrors.password = t('initialization.adminAccount.errors.passwordCharacterClasses');
-      } else if (form.password.toLowerCase() === username.toLowerCase()) {
-        newErrors.password = t('initialization.adminAccount.errors.passwordSameAsUsername');
-      }
-    }
-
-    if (!form.confirmPassword) {
-      newErrors.confirmPassword = t('initialization.adminAccount.errors.confirmPasswordRequired');
-    } else if (form.password !== form.confirmPassword) {
-      newErrors.confirmPassword = t('initialization.adminAccount.errors.passwordsDoNotMatch');
-    }
-
-    if (!form.apiKey.trim()) {
-      newErrors.apiKey = t('initialization.adminAccount.errors.apiKeyRequired');
-    }
 
     setErrors(newErrors);
     return Object.values(newErrors).every((error) => error === null);
@@ -160,6 +127,7 @@ export const AdminAccountStep: React.FC = () => {
       const data: CreateAccountResponse = await response.json();
 
       if (response.ok && data.success) {
+        if (recovering) await refreshAuth();
         setAccountCreated(true);
         // The account now exists and the server has closed the claim window, so re-reading setup
         // status drops the recovery gate and lets this screen close.
@@ -190,7 +158,7 @@ export const AdminAccountStep: React.FC = () => {
     } finally {
       setIsSubmitting(false);
     }
-  }, [form, recovering, refreshSetupStatus, t, validateForm]);
+  }, [form, recovering, refreshAuth, refreshSetupStatus, t, validateForm]);
 
   if (accountCreated) {
     return (
@@ -257,7 +225,7 @@ export const AdminAccountStep: React.FC = () => {
               value={form.username}
               onChange={handleInputChange('username')}
               placeholder={t('initialization.adminAccount.usernamePlaceholder')}
-              className="w-full px-3 py-2.5 themed-input"
+              className="themed-input setup-input"
               autoComplete="username"
               disabled={isSubmitting}
             />
@@ -275,7 +243,7 @@ export const AdminAccountStep: React.FC = () => {
           placeholder={t('initialization.adminAccount.passwordPlaceholder')}
           autoComplete="new-password"
           disabled={isSubmitting}
-          inputClassName="w-full px-3 py-2.5 themed-input"
+          inputClassName="themed-input setup-input"
           showPasswordLabel={t('aria.showPassword')}
           hidePasswordLabel={t('aria.hidePassword')}
         />
@@ -297,7 +265,7 @@ export const AdminAccountStep: React.FC = () => {
           placeholder={t('initialization.adminAccount.confirmPasswordPlaceholder')}
           autoComplete="new-password"
           disabled={isSubmitting}
-          inputClassName="w-full px-3 py-2.5 themed-input"
+          inputClassName="themed-input setup-input"
           showPasswordLabel={t('aria.showPassword')}
           hidePasswordLabel={t('aria.hidePassword')}
         />
@@ -317,7 +285,7 @@ export const AdminAccountStep: React.FC = () => {
               value={form.apiKey}
               onChange={handleInputChange('apiKey')}
               placeholder={t('initialization.adminAccount.apiKeyPlaceholder')}
-              className="w-full px-3 py-2.5 themed-input"
+              className="themed-input setup-input"
               // `new-password` rather than `off`: browsers ignore `off` on a password input and
               // will still offer to remember the key and refill it on a later visit.
               autoComplete="new-password"

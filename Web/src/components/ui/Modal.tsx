@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { getFocusable } from '@utils/focus';
 
 // Global modal tracking for nested modal support
 type ModalStackPriority = 'normal' | 'elevated';
@@ -31,9 +32,6 @@ let modalTopZ = MODAL_BASE_Z;
 let elevatedTopZ = MODAL_ELEVATED_BASE_Z;
 
 // Non-exported module constant (keeps Fast Refresh happy — only the component is exported).
-const FOCUSABLE_SELECTOR =
-  'a[href],area[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),' +
-  'button:not([disabled]),iframe,object,embed,[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
 
 type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
 
@@ -217,11 +215,6 @@ export const Modal: React.FC<ModalProps> = ({
   }, [isVisible]);
 
   if (!isVisible) return null;
-
-  const getFocusable = (el: HTMLElement): HTMLElement[] =>
-    Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-      (n) => n.offsetParent !== null
-    );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     // A modal opened from inside this one renders through a portal, so its DOM sits outside this

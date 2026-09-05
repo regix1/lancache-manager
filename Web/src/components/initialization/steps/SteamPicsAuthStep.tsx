@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Shield, CheckCircle, Users, User } from 'lucide-react';
+import { Shield, Users, User } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import { SelectableCard } from '@components/ui/SelectableCard';
 import { StepHeader } from '@components/initialization/StepHeader';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
@@ -94,65 +95,27 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
         </div>
 
         {/* Mode Selection Cards */}
-        <div className="space-y-3">
-          {/* Anonymous Mode */}
-          <Button
-            type="button"
-            variant="transparent"
-            onClick={() => setSelectedMode('anonymous')}
-            className={`w-full p-4 rounded-lg border-2 text-left justify-start transition ${
-              selectedMode === 'anonymous'
-                ? 'border-[var(--theme-primary)] bg-themed-primary-subtle'
-                : 'border-themed-primary bg-transparent'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-themed-tertiary">
-                <Users className="w-5 h-5 icon-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-themed-primary">
-                  {t('initialization.steamPicsAuth.anonymousMode')}
-                </h4>
-                <p className="text-sm text-themed-secondary">
-                  {t('initialization.steamPicsAuth.anonymousModeDesc')}
-                </p>
-              </div>
-              {selectedMode === 'anonymous' && (
-                <CheckCircle className="w-5 h-5 flex-shrink-0 icon-primary" />
-              )}
-            </div>
-          </Button>
-
-          {/* Account Login Mode */}
-          <Button
-            type="button"
-            variant="transparent"
-            onClick={() => handleModeSelect('account')}
-            className={`w-full p-4 rounded-lg border-2 text-left justify-start transition ${
-              selectedMode === 'account'
-                ? 'border-[var(--theme-primary)] bg-themed-primary-subtle'
-                : 'border-themed-primary bg-transparent'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-themed-tertiary">
-                <User className="w-5 h-5 icon-success" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-themed-primary">
-                  {t('initialization.steamPicsAuth.accountMode')}
-                </h4>
-                <p className="text-sm text-themed-secondary">
-                  {t('initialization.steamPicsAuth.accountModeDesc')}
-                </p>
-              </div>
-              {selectedMode === 'account' && (
-                <CheckCircle className="w-5 h-5 flex-shrink-0 icon-primary" />
-              )}
-            </div>
-          </Button>
-        </div>
+        <fieldset className="grid gap-3">
+          <legend className="sr-only">{t('initialization.steamPicsAuth.title')}</legend>
+          <SelectableCard
+            name="steam-auth-mode"
+            value="anonymous"
+            checked={selectedMode === 'anonymous'}
+            onChange={() => handleModeSelect('anonymous')}
+            icon={<Users className="icon-primary" />}
+            title={t('initialization.steamPicsAuth.anonymousMode')}
+            description={t('initialization.steamPicsAuth.anonymousModeDesc')}
+          />
+          <SelectableCard
+            name="steam-auth-mode"
+            value="account"
+            checked={selectedMode === 'account'}
+            onChange={() => handleModeSelect('account')}
+            icon={<User className="icon-success" />}
+            title={t('initialization.steamPicsAuth.accountMode')}
+            description={t('initialization.steamPicsAuth.accountModeDesc')}
+          />
+        </fieldset>
 
         {/* Error Display */}
         {error && <Alert color="error">{error}</Alert>}

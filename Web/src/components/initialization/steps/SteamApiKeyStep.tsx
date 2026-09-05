@@ -86,7 +86,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
                 resetTestResult();
               }}
               placeholder={t('initialization.steamWebApiKey.placeholder')}
-              className="w-full px-3 py-2.5 themed-input"
+              className="themed-input setup-input"
               disabled={testing || saving}
             />
           )}
@@ -112,7 +112,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
       </div>
 
       {/* Action Buttons */}
-      <div className="flex gap-3 pt-2">
+      <div className="setup-actions pt-2">
         <Button
           variant="default"
           onClick={() =>

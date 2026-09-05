@@ -7,6 +7,7 @@ using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
+using LancacheManager.Security;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -281,6 +282,27 @@ public class StateService : IStateService
             var state = GetState();
             updater(state);
             SaveState(state);
+        }
+    }
+
+    public void UpdateAccess(Action<AccessSettings> updater)
+    {
+        lock (_lock)
+        {
+            var current = GetState();
+            var next = current.ShallowClone();
+            next.Access = new AccessSettings
+            {
+                Mode = current.Access.Mode,
+                SetupVersion = current.Access.SetupVersion,
+                Revision = current.Access.Revision,
+                Logins = current.Access.Logins.Select(settings => settings.Copy()).ToList(),
+                Oidc = current.Access.Oidc?.Copy(),
+                PendingOidc = current.Access.PendingOidc?.Copy(),
+                PendingMode = current.Access.PendingMode
+            };
+            updater(next.Access);
+            SaveState(next);
         }
     }
 
@@ -1850,6 +1872,22 @@ public class StateService : IStateService
     /// </summary>
     private AppState NormalizeLoadedState(AppState state)
     {
+        state.Access ??= new AccessSettings();
+        state.Access.Oidc = NormalizeOidcSettings(state.Access.Oidc);
+        state.Access.PendingOidc = NormalizeOidcSettings(state.Access.PendingOidc);
+        state.Access.Logins = (state.Access.Logins ?? [])
+            .Select(NormalizeOidcSettings)
+            .OfType<OidcSettings>()
+            .GroupBy(settings => settings.Id, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
+        if (state.Access.Oidc is { } legacy
+            && state.Access.Logins.All(settings => settings.Kind != LoginKind.CustomOidc))
+        {
+            legacy.Id = "customOidc";
+            legacy.Kind = LoginKind.CustomOidc;
+            state.Access.Logins.Add(legacy);
+        }
         state.DefaultGuestTheme ??= "dark-default";
         state.AllowedTimeFormats ??= new List<string>(TimeFormats.All);
         state.DefaultPrefillOperatingSystems ??= new List<string> { "windows", "linux", "macos" };
@@ -1887,6 +1925,16 @@ public class StateService : IStateService
     private AppState PrepareWireState(AppState state)
     {
         var wire = state.ShallowClone();
+        wire.Access = new AccessSettings
+        {
+            Mode = state.Access.Mode,
+            SetupVersion = state.Access.SetupVersion,
+            Revision = state.Access.Revision,
+            Logins = state.Access.Logins.Select(settings => ProtectOidcSettings(settings)!).ToList(),
+            Oidc = ProtectOidcSettings(state.Access.Oidc),
+            PendingOidc = ProtectOidcSettings(state.Access.PendingOidc),
+            PendingMode = state.Access.PendingMode
+        };
         wire.DefaultPrefillOperatingSystems = state.DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" };
         wire.DefaultPrefillMaxConcurrency = state.DefaultPrefillMaxConcurrency ?? "default";
         wire.EpicDefaultPrefillMaxConcurrency = state.EpicDefaultPrefillMaxConcurrency ?? "default";
@@ -1916,6 +1964,42 @@ public class StateService : IStateService
             }
             : null;
         return wire;
+    }
+
+    private OidcSettings? NormalizeOidcSettings(OidcSettings? settings)
+    {
+        if (settings is null)
+        {
+            return null;
+        }
+
+        settings.ClientSecret = _encryption.Decrypt(settings.ClientSecret);
+        settings.PrivateKey = _encryption.Decrypt(settings.PrivateKey);
+        settings.AllowedSubjects ??= [];
+        settings.AccountIds ??= [];
+        if (settings.IdentityVersion < 1
+            && (settings.AccountIds.Count == 0 || !string.IsNullOrWhiteSpace(settings.OwnerIssuer)))
+        {
+            settings.AccountIds = settings.AccountIds.ToDictionary(
+                entry => AccessService.IdentityKey(settings.OwnerIssuer ?? settings.Authority, entry.Key),
+                entry => entry.Value,
+                StringComparer.Ordinal);
+            settings.IdentityVersion = 1;
+        }
+        return settings;
+    }
+
+    private OidcSettings? ProtectOidcSettings(OidcSettings? settings)
+    {
+        if (settings is null)
+        {
+            return null;
+        }
+
+        var protectedSettings = settings.Copy();
+        protectedSettings.ClientSecret = _encryption.Encrypt(settings.ClientSecret);
+        protectedSettings.PrivateKey = _encryption.Encrypt(settings.PrivateKey);
+        return protectedSettings;
     }
 
     /// <summary>

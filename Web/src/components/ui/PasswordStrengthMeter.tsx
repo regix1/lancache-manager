@@ -1,4 +1,4 @@
-import { getPasswordStrength } from '@components/initialization/steps/passwordStrength';
+import { getPasswordStrength } from '@utils/passwordStrength';
 
 interface PasswordStrengthMeterProps {
   password: string;

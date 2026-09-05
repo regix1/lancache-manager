@@ -6,27 +6,31 @@ import { Card } from '@components/ui/Card';
 import { Alert } from '@components/ui/Alert';
 import CredentialFields from '@components/ui/CredentialFields';
 import type { CredentialField } from '@components/ui/CredentialFields.types';
+import { LoginServiceButtons } from './LoginServiceButtons';
 import authService from '@services/auth.service';
+import { requiresApiKey, usesOidc } from '@utils/accountMode';
+import { signInServices, type LoginService } from '@utils/loginService';
 import { useAuth } from '@contexts/useAuth';
 import { useErrorHandler, useNotifySuccess } from '@hooks/useErrorHandler';
 import { getErrorMessage } from '@utils/error';
 
 const AuthenticateTab: React.FC = () => {
   const { t } = useTranslation();
-  const { refreshAuth } = useAuth();
+  const { refreshAuth, accountMode, oidcDisplayName, loginServices } = useAuth();
   const { notifyError } = useErrorHandler();
   const { notifySuccess } = useNotifySuccess();
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [startingService, setStartingService] = useState<string | null>(null);
   // Shown on the form itself. A refusal used to go only to a notification, which on a phone is
   // gone before it is read and on this screen never appeared at all, so a wrong password looked
   // like a button that did nothing.
   const [authError, setAuthError] = useState<string | null>(null);
 
   const handleAuthenticate = async () => {
-    if (!apiKey.trim()) {
+    if (requiresApiKey(accountMode) && !apiKey.trim()) {
       setAuthError(t('auth.errors.missingKey'));
       return;
     }
@@ -35,6 +39,11 @@ const AuthenticateTab: React.FC = () => {
     setAuthError(null);
 
     try {
+      if (usesOidc(accountMode)) {
+        const result = await authService.startOidc(apiKey.trim());
+        window.location.assign(result.url);
+        return;
+      }
       const result = await authService.login(apiKey, username.trim(), password);
 
       if (result.success) {
@@ -62,7 +71,28 @@ const AuthenticateTab: React.FC = () => {
     }
   };
 
-  const credentialsFilled = apiKey.trim() !== '' && username.trim() !== '' && password !== '';
+  const credentialsFilled =
+    (!requiresApiKey(accountMode) || apiKey.trim() !== '') &&
+    (usesOidc(accountMode) || (username.trim() !== '' && password !== ''));
+
+  // One button per active connection; the legacy single custom OpenID Connect entry advertises
+  // none and keeps the compatibility button below.
+  const services = signInServices(loginServices, accountMode);
+  const startService = async (service: LoginService) => {
+    if (requiresApiKey(accountMode) && !apiKey.trim()) {
+      setAuthError(t('auth.errors.missingKey'));
+      return;
+    }
+    setStartingService(service.id);
+    setAuthError(null);
+    try {
+      const result = await authService.startLogin(service.id, apiKey.trim());
+      window.location.assign(result.url);
+    } catch (err: unknown) {
+      setAuthError(getErrorMessage(err) || t('auth.errors.failed'));
+      setStartingService(null);
+    }
+  };
 
   const handleCredentialChange = (field: CredentialField, value: string) => {
     if (field === 'apiKey') {
@@ -83,12 +113,13 @@ const AuthenticateTab: React.FC = () => {
           </div>
           <div>
             <h1 className="auth-upgrade-title">{t('auth.header.title')}</h1>
-            <p className="auth-upgrade-subtitle">{t('auth.header.subtitle')}</p>
+            <p className="auth-upgrade-subtitle">{t(`accessSetup.login.${accountMode}`)}</p>
           </div>
         </div>
 
         <div className="auth-upgrade-form">
           <CredentialFields
+            accountMode={accountMode}
             apiKey={apiKey}
             username={username}
             password={password}
@@ -100,55 +131,68 @@ const AuthenticateTab: React.FC = () => {
 
           {authError && <Alert color="red">{authError}</Alert>}
 
-          <Button
-            variant="filled"
-            color="primary"
-            size="md"
-            onClick={handleAuthenticate}
-            loading={loading}
-            disabled={!credentialsFilled || loading}
-            fullWidth
-          >
-            {t('auth.form.submit')}
-          </Button>
+          {services.length > 0 ? (
+            <LoginServiceButtons
+              services={services}
+              starting={startingService}
+              disabled={startingService !== null || !credentialsFilled}
+              onStart={(service) => void startService(service)}
+            />
+          ) : (
+            <Button
+              variant="filled"
+              color="primary"
+              size="md"
+              onClick={handleAuthenticate}
+              loading={loading}
+              disabled={!credentialsFilled || loading}
+              fullWidth
+            >
+              {usesOidc(accountMode)
+                ? t('accessSetup.signInSso', { name: oidcDisplayName || t('accessSetup.sso') })
+                : t('auth.form.submit')}
+            </Button>
+          )}
         </div>
 
-        <div className="auth-upgrade-help">
-          <p className="auth-upgrade-help-title">{t('auth.help.title')}</p>
-          <dl className="auth-upgrade-help-defs">
-            <div>
-              <dt>{t('auth.help.fileLabel')}</dt>
-              <dd>
-                <code>{t('auth.help.filePath')}</code>
-              </dd>
+        {requiresApiKey(accountMode) && (
+          <div className="auth-upgrade-help">
+            <p className="auth-upgrade-help-title">{t('auth.help.title')}</p>
+            <dl className="auth-upgrade-help-defs">
+              <div>
+                <dt>{t('auth.help.fileLabel')}</dt>
+                <dd>
+                  <code>{t('auth.help.filePath')}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>{t('auth.help.logsLabel')}</dt>
+                <dd>
+                  <code>{t('auth.help.logsCommand')}</code>
+                </dd>
+              </div>
+            </dl>
+            <div className="auth-upgrade-help-recovery">
+              <p className="auth-upgrade-help-recovery-title">{t('auth.help.forgotTitle')}</p>
+              <p>
+                <Trans
+                  i18nKey="auth.help.forgotPassword"
+                  components={{
+                    code: <code />,
+                    docs: (
+                      <a
+                        className="auth-upgrade-docs"
+                        href={t('auth.help.docsHref')}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      />
+                    )
+                  }}
+                />
+              </p>
             </div>
-            <div>
-              <dt>{t('auth.help.logsLabel')}</dt>
-              <dd>
-                <code>{t('auth.help.logsCommand')}</code>
-              </dd>
-            </div>
-          </dl>
-          <div className="auth-upgrade-help-recovery">
-            <p className="auth-upgrade-help-recovery-title">{t('auth.help.forgotTitle')}</p>
-            <p>
-              <Trans
-                i18nKey="auth.help.forgotPassword"
-                components={{
-                  code: <code />,
-                  docs: (
-                    <a
-                      className="auth-upgrade-docs"
-                      href={t('auth.help.docsHref')}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    />
-                  )
-                }}
-              />
-            </p>
           </div>
-        </div>
+        )}
       </Card>
     </div>
   );

@@ -482,6 +482,12 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
             LastChangeNumber = 99u
         },
         SetupCompleted = true,
+        Access = new AccessSettings
+        {
+            Mode = AccountMode.Password,
+            SetupVersion = AccessSettings.RequiredSetupVersion,
+            Revision = 17
+        },
         LastPicsCrawl = new DateTime(2031, 3, 4, 5, 6, 7, DateTimeKind.Utc),
         LastFullPicsCrawl = new DateTime(2032, 4, 5, 6, 7, 8, DateTimeKind.Utc),
         StatusCheckResult = new StatusCheckResult(), // non-null is already distinctive from the default null

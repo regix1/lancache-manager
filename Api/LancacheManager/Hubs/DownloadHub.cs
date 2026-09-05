@@ -1,6 +1,5 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
-using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -48,9 +47,9 @@ public class DownloadHub : Hub
         }
 
         var session = await _sessionService.ValidateSessionAsync(rawToken);
-        if (session == null || !session.SessionType.IsAccountHolder())
+        if (session == null || !_sessionService.CanManage(session))
         {
-            _logger.LogWarning("SignalR JoinAuthenticatedGroupAsync rejected - no account behind the session: ConnectionId={ConnectionId}, SessionType={SessionType}",
+            _logger.LogWarning("SignalR JoinAuthenticatedGroupAsync rejected - no management access: ConnectionId={ConnectionId}, SessionType={SessionType}",
                 Context.ConnectionId, session?.SessionType.ToString() ?? "none");
             return;
         }
@@ -72,12 +71,13 @@ public class DownloadHub : Hub
             if (session != null)
             {
                 // Register connection with session ID
-                _connectionTrackingService.RegisterConnection(session.Id, Context.ConnectionId);
+                _connectionTrackingService.RegisterConnection(session.Id, Context.ConnectionId, Context.Abort);
 
                 // Add to appropriate groups
                 await Groups.AddToGroupAsync(Context.ConnectionId, AuthenticatedUsersGroup);
 
-                if (session.SessionType.IsAccountHolder())
+                var canManage = _sessionService.CanManage(session);
+                if (canManage)
                 {
                     await Groups.AddToGroupAsync(Context.ConnectionId, AdminGroup);
                 }
@@ -95,7 +95,7 @@ public class DownloadHub : Hub
                 try
                 {
                     var activity = await _activityRegistry.GetSnapshotAsync();
-                    var visibleActivity = session.SessionType.IsAccountHolder()
+                    var visibleActivity = canManage
                         ? activity
                         : ActivityRegistry.ToGuestVisibleSnapshot(activity);
                     await Clients.Caller.SendAsync(SignalREvents.ActivityUpdated, visibleActivity);

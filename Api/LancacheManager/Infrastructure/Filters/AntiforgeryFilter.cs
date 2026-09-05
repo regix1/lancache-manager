@@ -23,7 +23,9 @@ public class AntiforgeryFilter : IAsyncAuthorizationFilter
     private readonly IAntiforgery _antiforgery;
     private readonly ILogger<AntiforgeryFilter> _logger;
 
-    public AntiforgeryFilter(IAntiforgery antiforgery, ILogger<AntiforgeryFilter> logger)
+    public AntiforgeryFilter(
+        IAntiforgery antiforgery,
+        ILogger<AntiforgeryFilter> logger)
     {
         _antiforgery = antiforgery;
         _logger = logger;

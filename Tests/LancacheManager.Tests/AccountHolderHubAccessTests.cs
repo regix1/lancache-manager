@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
@@ -24,6 +25,73 @@ namespace LancacheManager.Tests;
 [Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class AccountHolderHubAccessTests
 {
+    [Fact]
+    public async Task SharedManagementAccessEndsOnlyAfterASecureModeIsSaved()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: false);
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        using var scope = host.Application.Services.CreateScope();
+        var sessions = scope.ServiceProvider.GetRequiredService<SessionService>();
+        var shared = await sessions.GetOrCreateAuthDisabledAdminSessionAsync(new DefaultHttpContext());
+        Assert.NotNull(shared);
+        Assert.True(sessions.CanManage(shared.Value.Session));
+
+        host.Application.Services.GetRequiredService<LancacheManager.Infrastructure.Services.StateService>()
+            .UpdateAccess(access => access.Mode = AccountMode.Password);
+
+        Assert.False(sessions.CanManage(shared.Value.Session));
+        Assert.True(sessions.CanManage(new UserSession
+        {
+            Id = Guid.NewGuid(),
+            AccountId = Guid.NewGuid(),
+            SessionType = SessionType.User,
+            ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
+        }));
+    }
+
+    [Fact]
+    public void DisconnectingASessionAbortsEveryConnectionAndAnyLateRegistration()
+    {
+        var connections = new ConnectionTrackingService(NullLogger<ConnectionTrackingService>.Instance);
+        var sessionId = Guid.NewGuid();
+        var aborted = new List<string>();
+        connections.RegisterConnection(sessionId, "first", () => aborted.Add("first"));
+        connections.RegisterConnection(sessionId, "second", () => aborted.Add("second"));
+
+        Assert.Equal(2, connections.DisconnectSession(sessionId));
+        connections.RegisterConnection(sessionId, "late", () => aborted.Add("late"));
+
+        Assert.True(connections.IsDisconnected(sessionId));
+        Assert.Equal(new[] { "first", "late", "second" }, aborted.Order());
+    }
+
+    [Fact]
+    public void ReplacementRemainsTrackedAcrossBothUnregisterOrderings()
+    {
+        foreach (var unregisterFirst in new[] { true, false })
+        {
+            var connections = new ConnectionTrackingService(NullLogger<ConnectionTrackingService>.Instance);
+            var sessionId = Guid.NewGuid();
+            var replacementAborted = false;
+            connections.RegisterConnection(sessionId, "old");
+
+            if (unregisterFirst)
+            {
+                connections.UnregisterConnection("old");
+                connections.RegisterConnection(sessionId, "replacement", () => replacementAborted = true);
+            }
+            else
+            {
+                connections.RegisterConnection(sessionId, "replacement", () => replacementAborted = true);
+                connections.UnregisterConnection("old");
+            }
+
+            Assert.Equal(1, connections.DisconnectSession(sessionId));
+            Assert.True(replacementAborted);
+        }
+    }
+
     /// <summary>
     /// A user joins the same download-hub group as an admin, and a guest still joins the guest group.
     /// </summary>
@@ -176,9 +244,8 @@ public sealed class AccountHolderHubAccessTests
     }
 
     /// <summary>
-    /// A request carrying the cookie of a session stored with <paramref name="sessionType"/>. The session
-    /// is minted by the real login path and its stored type is then set, because nothing creates a user
-    /// session yet and the hubs read the stored row rather than any claim.
+    /// A request carrying a stored session of <paramref name="sessionType"/>. Account-holder roles use
+    /// the account login path, while guests use the guest path, so hub authorization sees production-shaped rows.
     /// </summary>
     private static async Task<HttpContext> SessionCookieAsync(
         EndpointAuthorizationHost host,
@@ -187,22 +254,41 @@ public sealed class AccountHolderHubAccessTests
         Action<UserSession>? alsoSet = null)
     {
         var sessionService = scope.ServiceProvider.GetRequiredService<SessionService>();
-        var apiKey = host.Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
-
-        var created = await sessionService.CreateAdminSessionAsync(apiKey, new DefaultHttpContext());
-        Assert.NotNull(created);
-
         var factory = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        (string RawToken, UserSession Session) created;
+        if (sessionType == SessionType.Guest)
+        {
+            var guest = await sessionService.CreateGuestSessionAsync(new DefaultHttpContext());
+            Assert.NotNull(guest);
+            created = guest.Value;
+        }
+        else
+        {
+            var account = new UserAccount
+            {
+                Id = Guid.NewGuid(),
+                Username = $"hub-{Guid.NewGuid():N}",
+                PasswordHash = "unused",
+                Role = sessionType,
+                CreatedAtUtc = DateTime.UtcNow
+            };
+            await using (var database = await factory.CreateDbContextAsync())
+            {
+                database.UserAccounts.Add(account);
+                await database.SaveChangesAsync();
+            }
+            created = await sessionService.CreateAccountSessionAsync(new DefaultHttpContext(), account);
+        }
+
         await using (var database = await factory.CreateDbContextAsync())
         {
-            var stored = await database.UserSessions.FirstAsync(s => s.Id == created!.Value.Session.Id);
-            stored.SessionType = sessionType;
+            var stored = await database.UserSessions.FirstAsync(s => s.Id == created.Session.Id);
             alsoSet?.Invoke(stored);
             await database.SaveChangesAsync();
         }
 
         var request = new DefaultHttpContext();
-        sessionService.SetSessionCookie(request, created!.Value.RawToken, DateTime.UtcNow.AddDays(1));
+        sessionService.SetSessionCookie(request, created.RawToken, DateTime.UtcNow.AddDays(1));
         request.Request.Headers.Cookie = request.Response.Headers.SetCookie.ToString().Split(';')[0];
         return request;
     }

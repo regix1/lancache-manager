@@ -128,7 +128,22 @@ rust-processor/target/
 # Build test artifacts
 build-test/
 _verify_bin/
+/.artifacts/
+
+# Test reports and coverage
+[Tt]est[Rr]esults/
+*.trx
+*.coverage
+*.coveragexml
+/coverage/
+Web/coverage/
+Web/test-results/
+Web/playwright-report/
+Web/blob-report/
+Web/playwright/.auth/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
 
 # Generated documentation site (built from the READMEs by docs-site/build.py)
 docs-site/generated/
-

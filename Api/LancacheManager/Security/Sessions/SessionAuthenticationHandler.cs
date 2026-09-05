@@ -39,8 +39,46 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
         UserSession? session = null;
         try
         {
-            if (authenticationEnabled && !string.IsNullOrEmpty(rawToken))
+            if (!authenticationEnabled)
+            {
+                // Resolve through the existing shared-session outage gate first. That prevents a
+                // stale cookie from bypassing its retry hold-off, while a working database still lets
+                // an account-backed owner cookie take precedence over the anonymous shared session.
+                var shared = await sessionService.GetOrCreateAuthDisabledAdminSessionAsync(Context);
+                if (shared is null)
+                {
+                    return AuthenticateResult.NoResult();
+                }
+
+                if (!string.IsNullOrEmpty(rawToken))
+                {
+                    session = await sessionService.ValidateSessionAsync(rawToken);
+                    if (session is not null
+                        && !await Context.RequestServices
+                            .GetRequiredService<AccessService>()
+                            .IsMainAdminAsync(session))
+                    {
+                        session = null;
+                    }
+                }
+
+                if (session is null)
+                {
+                    sessionService.SetSessionCookie(Context, shared.Value.RawToken, shared.Value.Session.ExpiresAtUtc);
+                    session = shared.Value.Session;
+                }
+            }
+            else if (!string.IsNullOrEmpty(rawToken))
+            {
                 session = await sessionService.ValidateSessionAsync(rawToken);
+            }
+
+            if (authenticationEnabled
+                && session is { SessionType: SessionType.Admin, AccountId: null }
+                && Context.RequestServices.GetRequiredService<AccessService>().RejectAccountlessAdminSession())
+            {
+                session = null;
+            }
         }
         catch (Exception ex)
         {
@@ -107,37 +145,6 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
 
             Context.Items["Session"] = keySession;
             return AuthenticateResult.Success(CreateTicket(keySession.Id, keySession.SessionType));
-        }
-
-        // With authentication turned off the frontend is told it is an admin and starts writing
-        // preferences, joining the hubs and asking for prefill access straight away. All of those need
-        // a real session, and the only thing that created one was GET /api/auth/status. Anything that
-        // went out before that call landed, and everything sent while the browser still held a cookie
-        // for a session that no longer exists, came back 400 "No session found" instead. Resolving the
-        // shared session here means every request has one, whatever order they arrive in.
-        if (session == null && !authenticationEnabled)
-        {
-            try
-            {
-                // A database that cannot be reached comes back as null rather than an exception, and the
-                // service reports the first such failure itself and holds the next attempts off for a
-                // few seconds. That keeps one outage from costing a database round trip and an error
-                // line on every anonymous request, while the request still carries on unauthenticated
-                // so the endpoints the error screens are built from stay reachable.
-                var shared = await sessionService.GetOrCreateAuthDisabledAdminSessionAsync(Context);
-                if (shared is { } resolved)
-                {
-                    sessionService.SetSessionCookie(Context, resolved.RawToken, resolved.Session.ExpiresAtUtc);
-                    session = resolved.Session;
-                }
-            }
-            catch (Exception ex)
-            {
-                // Same reasoning as the validation failure above: the request carries on
-                // unauthenticated rather than failing outright, so anything the shared-session path
-                // could still throw does not take out those endpoints either.
-                Logger.LogError(ex, "Could not create the shared session used while authentication is disabled");
-            }
         }
 
         if (session == null)

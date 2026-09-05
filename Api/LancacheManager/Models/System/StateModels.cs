@@ -21,6 +21,7 @@ public static class TimeFormats
 /// </summary>
 public class AppState
 {
+    public AccessSettings Access { get; set; } = new();
     public LogProcessingState LogProcessing { get; set; } = new();
     public DepotProcessingState DepotProcessing { get; set; } = new();
     // LEGACY: CacheClearOperations moved to separate file (data/operations/cache_operations.json)

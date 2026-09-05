@@ -1,12 +1,14 @@
 import React, { useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import authService, {
   isAccountHolder,
+  type AccountMode,
   type AuthMode,
   type SessionType
 } from '@services/auth.service';
 import { useSignalR } from './SignalRContext/useSignalR';
 import { AuthContext } from './AuthContext.types';
 import { APP_EVENTS } from '@utils/constants';
+import type { LoginKind, LoginService } from '@utils/loginService';
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -21,6 +23,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [sessionExpiresAt, setSessionExpiresAt] = useState<string | null>(null);
   const [authenticationEnabled, setAuthenticationEnabled] = useState(true);
+  const [accountMode, setAccountMode] = useState<AccountMode>('apiKeyPassword');
+  const [authenticationSetupRequired, setAuthenticationSetupRequired] = useState(false);
+  const [oidcDisplayName, setOidcDisplayName] = useState('');
+  const [oidcPending, setOidcPending] = useState(false);
+  const [ownerOidcEnabled, setOwnerOidcEnabled] = useState(false);
+  const [ownerPasswordEnabled, setOwnerPasswordEnabled] = useState(false);
+  const [loginServices, setLoginServices] = useState<LoginService[]>([]);
+  const [ownerLoginServices, setOwnerLoginServices] = useState<string[]>([]);
+  const [loginSetupPending, setLoginSetupPending] = useState(false);
+  const [pendingLoginKind, setPendingLoginKind] = useState<LoginKind | null>(null);
   const [steamPrefillEnabled, setSteamPrefillEnabled] = useState(false);
   const [steamPrefillExpiresAt, setSteamPrefillExpiresAt] = useState<string | null>(null);
   const [epicPrefillEnabled, setEpicPrefillEnabled] = useState(false);
@@ -63,13 +75,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return;
       }
 
-      if (data.authenticationEnabled === false) {
-        console.warn(
-          '[Auth] Authentication DISABLED via Security:EnableAuthentication — bypassing login + setup wizard, all access granted'
-        );
-      }
-
       setAuthenticationEnabled(data.authenticationEnabled);
+      setAccountMode(data.accountMode ?? 'apiKeyPassword');
+      setAuthenticationSetupRequired(data.authenticationSetupRequired === true);
+      setOidcDisplayName(data.oidcDisplayName ?? '');
+      setOidcPending(data.oidcPending === true);
+      setOwnerOidcEnabled(data.ownerOidcEnabled === true);
+      setOwnerPasswordEnabled(data.ownerPasswordEnabled === true);
+      setLoginServices(data.loginServices ?? []);
+      setOwnerLoginServices(data.ownerLoginServices ?? []);
+      setLoginSetupPending(data.loginSetupPending === true);
+      setPendingLoginKind(data.pendingLoginKind ?? null);
       setSessionType(data.sessionType);
       setSessionId(data.sessionId);
       setAccountId(data.accountId);
@@ -322,6 +338,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         accountId,
         isMainAdmin,
         authenticationEnabled,
+        accountMode,
+        authenticationSetupRequired,
+        oidcDisplayName,
+        oidcPending,
+        ownerOidcEnabled,
+        ownerPasswordEnabled,
+        loginServices,
+        ownerLoginServices,
+        loginSetupPending,
+        pendingLoginKind,
         isLoading,
         login,
         startGuestSession,

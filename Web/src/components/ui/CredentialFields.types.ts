@@ -1,7 +1,10 @@
-/** Which of the three credential inputs a change came from. */
+import type { AccountMode } from '@utils/accountMode';
+
+/** Which of the credential inputs a change came from. */
 export type CredentialField = 'apiKey' | 'username' | 'password';
 
 export interface CredentialFieldsProps {
+  accountMode?: AccountMode;
   apiKey: string;
   username: string;
   password: string;

@@ -183,15 +183,13 @@ public class ApiKeyService
     /// print the file path and a short hint, so a log scrape is not enough to use the recovery
     /// endpoints that accept this key.
     /// </summary>
-    public void DisplayApiKey(IConfiguration configuration, bool revealKey)
+    public void DisplayApiKey(bool revealKey)
     {
         var apiKey = GetApiKey();
 
         // Get PUID/PGID from environment (set by entrypoint.sh)
         var puid = Environment.GetEnvironmentVariable("LANCACHE_PUID") ?? "N/A";
         var pgid = Environment.GetEnvironmentVariable("LANCACHE_PGID") ?? "N/A";
-
-        var authenticationEnabled = configuration.GetValue<bool>("Security:EnableAuthentication", true);
 
         Console.WriteLine("");
         Console.WriteLine("┌────────────────────────────────────────────────────────────────────────────┐");
@@ -200,9 +198,7 @@ public class ApiKeyService
         Console.WriteLine("");
         Console.WriteLine($"  Running as UID: {puid} / GID: {pgid}");
         Console.WriteLine("");
-        Console.WriteLine(authenticationEnabled
-            ? "  API KEY (used for login, Metrics, and API documentation)"
-            : "  API KEY (used for Metrics and API documentation)");
+        Console.WriteLine("  API KEY (installation ownership, recovery, Metrics, and API documentation)");
         if (revealKey)
         {
             Console.WriteLine($"  {apiKey}");
@@ -216,15 +212,8 @@ public class ApiKeyService
         Console.WriteLine("");
         Console.WriteLine($"  File: {_apiKeyPath}");
         Console.WriteLine("");
-        if (authenticationEnabled)
-        {
-            Console.WriteLine("  Authentication is ENABLED - use this API key to log in");
-            Console.WriteLine("  Guest access allows read-only dashboard viewing");
-        }
-        else
-        {
-            Console.WriteLine("  Authentication is DISABLED via Security:EnableAuthentication - no login required, all endpoints allow anonymous access");
-        }
+        Console.WriteLine("  Choose sign-in requirements during setup or under Users > Access and Security.");
+        Console.WriteLine("  API-key sign-in modes require this key together with a password or SSO.");
         Console.WriteLine("");
         Console.WriteLine("────────────────────────────────────────────────────────────────────────────");
     }

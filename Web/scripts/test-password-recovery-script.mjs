@@ -46,6 +46,7 @@ const localLayout = (curlBody) => {
   copyFileSync(sourceScript, script);
   chmodSync(script, 0o755);
   writeFileSync(join(security, 'api_key.txt'), 'key-that-must-not-be-printed\n');
+  writeFileSync(join(security, 'recovery_token.txt'), `${'a'.repeat(64)}\n`);
   // Drains stdin before answering, the way jq does when it reads its inputs. Without the drain the
   // shim exits while the script is still writing the payload, and the SIGPIPE that kills the writer
   // becomes the pipeline's status under `set -o pipefail` even though the request itself succeeded.
@@ -160,6 +161,23 @@ test('local recovery without credentials opens the window and leaves the prompt 
     assert.doesNotMatch(run.stdout, /Main administrator username/);
     assert.doesNotMatch(run.stdout, /"success":true/);
     assert.doesNotMatch(run.stdout + run.stderr, /key-that-must-not-be-printed/);
+    assert.equal((run.stdout + run.stderr).includes('a'.repeat(64)), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('local recovery refuses to proceed without the host token file', () => {
+  const { root, script, bin } = localLayout('#!/bin/sh\nexit 0\n');
+  try {
+    rmSync(join(root, 'data', 'security', 'recovery_token.txt'));
+    const run = spawnSync('bash', [script, '--local', '--url', 'http://127.0.0.1:8080'], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: shimmedPath(bin) }
+    });
+    assert.equal(run.status, 1);
+    assert.match(run.stderr, /host recovery token could not be read/);
+    assert.doesNotMatch(run.stdout + run.stderr, /key-that-must-not-be-printed/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -198,6 +216,7 @@ test('local recovery takes the username in the command and the password on stdin
     assert.match(run.stdout, /Password reset\. Sign in with the new password\./);
     assert.doesNotMatch(run.stdout + run.stderr, /key-that-must-not-be-printed/);
     assert.doesNotMatch(run.stdout + run.stderr, /NewPassword-2026/);
+    assert.equal((run.stdout + run.stderr).includes('a'.repeat(64)), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

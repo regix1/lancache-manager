@@ -119,19 +119,12 @@ public sealed class ApiKeyFileModeTests : IDisposable
 
     private string CaptureDisplay(bool revealKey)
     {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Security:ApiKeyPath"] = _keyPath
-            })
-            .Build();
-
         var original = Console.Out;
         var writer = new StringWriter();
         Console.SetOut(writer);
         try
         {
-            _apiKeyService.DisplayApiKey(configuration, revealKey);
+            _apiKeyService.DisplayApiKey(revealKey);
         }
         finally
         {

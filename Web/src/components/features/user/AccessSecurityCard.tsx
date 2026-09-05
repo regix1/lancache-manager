@@ -126,75 +126,81 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
   );
 
   return (
-    <AccordionSection
-      title={t('user.guest.sections.accessSecurity')}
-      titleAccessory={helpAccessory}
-      icon={Shield}
-      isExpanded={expanded}
-      onToggle={() => setExpanded((prev) => !prev)}
-      badge={
-        durationBadgeLabel ? (
-          <SectionHeaderChip variant="neutral">{durationBadgeLabel}</SectionHeaderChip>
-        ) : undefined
-      }
-    >
-      <div className="mgmt-list divided-list user-settings-list">
-        <div className="mgmt-row">
-          <div className="mgmt-row__body">
-            <p className="mgmt-row__title">{t('user.guest.sections.sessionDuration')}</p>
-            {state && <p className="mgmt-row__meta">{getSourceLabel(state)}</p>}
-          </div>
+    <>
+      <AccordionSection
+        title={t('user.guest.sections.accessSecurity')}
+        titleAccessory={helpAccessory}
+        icon={Shield}
+        isExpanded={expanded}
+        onToggle={() => setExpanded((prev) => !prev)}
+        badge={
+          durationBadgeLabel ? (
+            <SectionHeaderChip variant="neutral">{durationBadgeLabel}</SectionHeaderChip>
+          ) : undefined
+        }
+      >
+        <div className="mgmt-list divided-list user-settings-list">
+          <div className="mgmt-row">
+            <div className="mgmt-row__body">
+              <p className="mgmt-row__title">{t('user.guest.sections.sessionDuration')}</p>
+              {state && <p className="mgmt-row__meta">{getSourceLabel(state)}</p>}
+            </div>
 
-          <div className="mgmt-row__actions">
-            {state === null ? (
-              <LoadingSpinner inline size="sm" />
-            ) : (
-              <>
-                {(() => {
-                  const durationControl = (
-                    <span className="user-settings-dropdown">
-                      <EnhancedDropdown
-                        options={durationOptions}
-                        value={state.durationHours.toString()}
-                        onChange={handleDurationChange}
-                        disabled={dropdownDisabled}
-                        size="md"
-                        className="w-40 control-h-md"
-                      />
-                      {isSaving && (
-                        <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
-                      )}
-                    </span>
-                  );
-                  return dropdownTitle ? (
-                    <Tooltip content={dropdownTitle} position="top">
-                      {durationControl}
-                    </Tooltip>
-                  ) : (
-                    durationControl
-                  );
-                })()}
-                {isAdmin && (
-                  <Button
-                    variant="filled"
-                    color="secondary"
-                    size="md"
-                    /* Matches the duration dropdown beside it: same w-40, and the same height at
+            <div className="mgmt-row__actions">
+              {state === null ? (
+                <LoadingSpinner inline size="sm" />
+              ) : (
+                <>
+                  {(() => {
+                    const durationControl = (
+                      <span className="user-settings-dropdown">
+                        <EnhancedDropdown
+                          options={durationOptions}
+                          value={state.durationHours.toString()}
+                          onChange={handleDurationChange}
+                          disabled={dropdownDisabled}
+                          size="md"
+                          className="w-40 control-h-md"
+                        />
+                        {isSaving && (
+                          <LoadingSpinner
+                            inline
+                            size="sm"
+                            className="user-settings-inline-spinner"
+                          />
+                        )}
+                      </span>
+                    );
+                    return dropdownTitle ? (
+                      <Tooltip content={dropdownTitle} position="top">
+                        {durationControl}
+                      </Tooltip>
+                    ) : (
+                      durationControl
+                    );
+                  })()}
+                  {isAdmin && (
+                    <Button
+                      variant="filled"
+                      color="secondary"
+                      size="md"
+                      /* Matches the duration dropdown beside it: same w-40, and the same height at
                        both tiers. The phone touch floor is carried by the shared button and
                        control-h-md rules, so the pair no longer needs a per-tier height here. */
-                    className="w-40"
-                    disabled={state.source !== 'ui' || isSaving}
-                    onClick={handleResetToDefault}
-                  >
-                    {t('user.guest.guestDurationToggle.resetToDefault')}
-                  </Button>
-                )}
-              </>
-            )}
+                      className="w-40"
+                      disabled={state.source !== 'ui' || isSaving}
+                      onClick={handleResetToDefault}
+                    >
+                      {t('user.guest.guestDurationToggle.resetToDefault')}
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-    </AccordionSection>
+      </AccordionSection>
+    </>
   );
 };
 

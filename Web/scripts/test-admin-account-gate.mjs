@@ -7,6 +7,7 @@ import { compileToUrl, transpile } from './transpile-module.mjs';
 const { isAdminAccountRequired } = await import(
   await compileToUrl('../src/utils/adminAccountSetup.ts')
 );
+const { usesOidc } = await import(await compileToUrl('../src/utils/accountMode.ts'));
 
 /**
  * Two kinds of installation own no account row: a brand-new one, and one that has been running since
@@ -73,6 +74,15 @@ const signInConditions = collect(
 );
 assert.equal(signInConditions.length, 1, 'expected exactly one sign-in screen gate in App.tsx');
 const signInCondition = signInConditions[0].expression.getText(appFile);
+const accessConditions = collect(
+  appFile,
+  (node) =>
+    ts.isIfStatement(node) &&
+    node.expression.getText(appFile).includes('authenticationSetupRequired')
+);
+assert.equal(accessConditions.length, 1);
+assert.ok(accessConditions[0].pos < signInConditions[0].pos);
+const accessCondition = accessConditions[0].expression.getText(appFile);
 
 const wizardBranches = collect(
   appFile,
@@ -162,8 +172,14 @@ const install = (overrides) => ({
 });
 
 /** What the product's own expressions do for one installation, with no session. */
-const screensFor = (setupStatus, authenticationEnabled) => {
+const screensFor = (
+  setupStatus,
+  authenticationEnabled,
+  accountMode = 'apiKeyPassword',
+  authenticationSetupRequired = false
+) => {
   const adminAccountRequired = isAdminAccountRequired({
+    accountMode,
     authenticationEnabled,
     accountExists: setupStatus.accountExists ?? null,
     needsPostgresCredentials: setupStatus.needsPostgresCredentials === true,
@@ -177,6 +193,9 @@ const screensFor = (setupStatus, authenticationEnabled) => {
     adminAccountRequired
   });
   const signIn = evaluate(signInCondition, {
+    accountMode,
+    setupCompleted: setupStatus.isCompleted,
+    usesOidc,
     checkingAuth: false,
     checkingSetupStatus: false,
     authMode: 'unauthenticated',
@@ -192,6 +211,15 @@ const screensFor = (setupStatus, authenticationEnabled) => {
         ['wizard', wizard],
         ['sign-in', signIn]
       ];
+  inSourceOrder.unshift([
+    'access-setup',
+    evaluate(accessCondition, {
+      checkingAuth: false,
+      checkingSetupStatus: false,
+      setupStatus,
+      authenticationSetupRequired
+    })
+  ]);
 
   return {
     adminAccountRequired,
@@ -225,6 +253,44 @@ test('a fresh installation creates its first account before it is asked to sign 
   assert.equal(screens.screen, 'wizard');
   assert.equal(screens.step, 'admin-account');
   assert.equal(screens.stepComponent, 'AdminAccountStep');
+});
+
+test('fresh and upgraded installations choose access before the existing wizard or sign-in', () => {
+  for (const accountMode of [
+    'password',
+    'apiKeyPassword',
+    'apiKeyOidc',
+    'oidc',
+    'unauthenticated'
+  ]) {
+    for (const isCompleted of [true, false]) {
+      const screens = screensFor(
+        install({ isCompleted }),
+        accountMode !== 'unauthenticated',
+        accountMode,
+        true
+      );
+      assert.equal(screens.screen, 'access-setup');
+    }
+  }
+});
+
+test('an OIDC installation can configure its database without creating a local password', () => {
+  const pending = install({
+    isCompleted: false,
+    accountExists: false,
+    needsPostgresCredentials: true
+  });
+  for (const accountMode of ['oidc', 'apiKeyOidc']) {
+    const screens = screensFor(pending, true, accountMode);
+    assert.equal(screens.adminAccountRequired, false);
+    assert.equal(screens.screen, 'wizard');
+    assert.equal(screens.step, 'database-setup');
+  }
+});
+
+test('a completed OIDC installation proceeds to sign-in after access setup', () => {
+  assert.equal(screensFor(install(), true, 'oidc').screen, 'sign-in');
 });
 
 test('an upgraded installation with no account opens the wizard at the account step', () => {
@@ -308,6 +374,36 @@ test('a completed installation with the recovery window open uses the account se
   assert.equal(screens.screen, 'wizard');
   assert.equal(screens.step, 'admin-account');
   assert.equal(screens.stepComponent, 'AdminAccountStep');
+});
+
+test('the host-opened owner recovery window works in every access mode', () => {
+  for (const accountMode of [
+    'password',
+    'apiKeyPassword',
+    'apiKeyOidc',
+    'oidc',
+    'unauthenticated'
+  ]) {
+    assert.equal(
+      isAdminAccountRequired({
+        accountMode,
+        authenticationEnabled: accountMode !== 'unauthenticated',
+        accountExists: true,
+        needsPostgresCredentials: false,
+        mainAdminRecoveryAvailable: true
+      }),
+      true,
+      accountMode
+    );
+    const screens = screensFor(
+      install({ mainAdminRecoveryAvailable: true }),
+      accountMode !== 'unauthenticated',
+      accountMode,
+      true
+    );
+    assert.equal(screens.screen, 'wizard', accountMode);
+    assert.equal(screens.step, 'admin-account', accountMode);
+  }
 });
 
 test('an unreadable account table leaves the installation on the sign-in screen', () => {

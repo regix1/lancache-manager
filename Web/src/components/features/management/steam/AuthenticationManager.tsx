@@ -2,12 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Key, Lock, Unlock, Eye } from 'lucide-react';
 import authService from '@services/auth.service';
+import { requiresApiKey, usesOidc } from '@utils/accountMode';
+import { signInServices, type LoginService } from '@utils/loginService';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import CredentialFields from '@components/ui/CredentialFields';
 import type { CredentialField } from '@components/ui/CredentialFields.types';
+import { LoginServiceButtons } from '@components/features/auth/LoginServiceButtons';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { ApiKeyRotatedModal } from '@components/modals/auth/ApiKeyRotatedModal';
 import { LoadingState } from '@components/ui/ManagerCard';
@@ -32,12 +35,16 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     startGuestSession,
     sessionExpiresAt,
     authenticationEnabled,
-    isMainAdmin
+    isMainAdmin,
+    accountMode,
+    oidcDisplayName,
+    loginServices
   } = useAuth();
   const { refreshSteamAuth, setSteamAuthMode, setUsername } = useSteamAuth();
   const { refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const [authChecking, setAuthChecking] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [startingService, setStartingService] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
   // The Steam login username arrives from useSteamAuth above, so the account username needs its
   // own name here.
@@ -150,7 +157,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   };
 
   const handleAuthenticate = async () => {
-    if (!apiKey.trim()) {
+    if (requiresApiKey(accountMode) && !apiKey.trim()) {
       setAuthError(t('auth.errors.missingKey'));
       return;
     }
@@ -159,6 +166,11 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     setAuthError('');
 
     try {
+      if (usesOidc(accountMode)) {
+        const result = await authService.startOidc(apiKey.trim());
+        window.location.assign(result.url);
+        return;
+      }
       const result = await authService.login(apiKey, accountUsername.trim(), password);
 
       if (result.success) {
@@ -181,7 +193,27 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   };
 
   const credentialsFilled =
-    apiKey.trim() !== '' && accountUsername.trim() !== '' && password !== '';
+    (!requiresApiKey(accountMode) || apiKey.trim() !== '') &&
+    (usesOidc(accountMode) || (accountUsername.trim() !== '' && password !== ''));
+
+  // One button per active connection; the legacy single custom OpenID Connect entry advertises
+  // none and keeps the compatibility button below.
+  const services = signInServices(loginServices, accountMode);
+  const startService = async (service: LoginService) => {
+    if (requiresApiKey(accountMode) && !apiKey.trim()) {
+      setAuthError(t('auth.errors.missingKey'));
+      return;
+    }
+    setStartingService(service.id);
+    setAuthError('');
+    try {
+      const result = await authService.startLogin(service.id, apiKey.trim());
+      window.location.assign(result.url);
+    } catch (error: unknown) {
+      setAuthError(getErrorMessage(error) || t('modals.steamAuth.errors.authenticationFailed'));
+      setStartingService(null);
+    }
+  };
 
   const handleCredentialChange = (field: CredentialField, value: string) => {
     if (field === 'apiKey') {
@@ -292,9 +324,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     return <LoadingState message={t('management.auth.checkingStatus')} shape="settings" rows={1} />;
   }
 
-  // When authentication is disabled via Security:EnableAuthentication, the auth
-  // context forces authMode to 'authenticated'. Surface a distinct DISABLED state
-  // instead of falsely claiming the user is "Authenticated" with management features.
+  // Open access permits management without establishing an account identity.
   if (!authenticationEnabled) {
     return (
       <Alert color="blue" icon={<Lock className="w-5 h-5" />}>
@@ -352,11 +382,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
       case 'guest':
         return t('management.auth.description.guest');
       default: {
-        // Show hint about guest mode if eligible
-        if (hasData !== false && hasBeenInitialized !== false) {
-          return t('management.auth.description.requiresKeyOrGuest');
-        }
-        return t('management.auth.description.requiresKey');
+        return t(`accessSetup.login.${accountMode}`);
       }
     }
   };
@@ -474,15 +500,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
         }
       >
         <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {authMode === 'guest'
-              ? t('management.auth.modal.guestMessage')
-              : isGuestModeAvailable
-                ? t('management.auth.modal.unauthenticatedMessage')
-                : t('management.auth.modal.apiKeyOnlyMessage')}
-          </p>
+          <p className="text-themed-secondary">{t(`accessSetup.login.${accountMode}`)}</p>
 
           <CredentialFields
+            accountMode={accountMode}
             apiKey={apiKey}
             username={accountUsername}
             password={password}
@@ -494,21 +515,23 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
 
           {authError && <Alert color="red">{authError}</Alert>}
 
-          <Alert color="blue">
-            <div>
-              <p className="font-medium mb-2">{t('management.auth.modal.findApiKey')}</p>
-              <ol className="list-decimal list-inside text-sm space-y-1 ml-2">
-                <li>{t('management.auth.modal.step1')}</li>
-                <li>
-                  {t('management.auth.modal.step2Before')}{' '}
-                  <code className="bg-themed-tertiary px-1 rounded">
-                    /data/security/api_key.txt
-                  </code>
-                </li>
-                <li>{t('management.auth.modal.step3Before')}</li>
-              </ol>
-            </div>
-          </Alert>
+          {requiresApiKey(accountMode) && (
+            <Alert color="blue">
+              <div>
+                <p className="font-medium mb-2">{t('management.auth.modal.findApiKey')}</p>
+                <ol className="list-decimal list-inside text-sm space-y-1 ml-2">
+                  <li>{t('management.auth.modal.step1')}</li>
+                  <li>
+                    {t('management.auth.modal.step2Before')}{' '}
+                    <code className="bg-themed-tertiary px-1 rounded">
+                      /data/security/api_key.txt
+                    </code>
+                  </li>
+                  <li>{t('management.auth.modal.step3Before')}</li>
+                </ol>
+              </div>
+            </Alert>
+          )}
 
           <div className="flex flex-col sm:flex-row justify-between gap-3 pt-4 border-t border-themed-secondary">
             <div className="flex gap-3">
@@ -536,17 +559,28 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
               )}
             </div>
 
-            <Button
-              variant="filled"
-              color="primary"
-              onClick={handleAuthenticate}
-              loading={authLoading}
-              disabled={!credentialsFilled}
-            >
-              {authMode === 'guest'
-                ? t('management.auth.modal.upgradeToFullAccess')
-                : t('management.auth.authenticate')}
-            </Button>
+            {services.length > 0 ? (
+              <LoginServiceButtons
+                services={services}
+                starting={startingService}
+                disabled={startingService !== null || !credentialsFilled}
+                onStart={(service) => void startService(service)}
+              />
+            ) : (
+              <Button
+                variant="filled"
+                color="primary"
+                onClick={handleAuthenticate}
+                loading={authLoading}
+                disabled={!credentialsFilled}
+              >
+                {usesOidc(accountMode)
+                  ? t('accessSetup.signInSso', { name: oidcDisplayName || t('accessSetup.sso') })
+                  : authMode === 'guest'
+                    ? t('management.auth.modal.upgradeToFullAccess')
+                    : t('management.auth.authenticate')}
+              </Button>
+            )}
           </div>
         </div>
       </Modal>

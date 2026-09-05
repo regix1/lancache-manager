@@ -137,9 +137,11 @@ fi
 if [ "$inside_container" -eq 1 ]; then
     app_url="http://127.0.0.1"
     api_key_path="/data/security/api_key.txt"
+    recovery_token_path="/data/security/recovery_token.txt"
 else
     script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
     api_key_path="$script_directory/../security/api_key.txt"
+    recovery_token_path="$script_directory/../security/recovery_token.txt"
 fi
 
 echo "Waiting for LANCache Manager to become ready..."
@@ -162,16 +164,22 @@ if [ ! -r "$api_key_path" ]; then
     exit 1
 fi
 
+if [ ! -r "$recovery_token_path" ]; then
+    echo "The host recovery token could not be read at $recovery_token_path." >&2
+    exit 1
+fi
+
 api_key="$(<"$api_key_path")"
+recovery_token="$(<"$recovery_token_path")"
 response=""
-trap 'unset api_key username password response' EXIT
+trap 'unset api_key recovery_token username password response' EXIT
 
 # A process restart opens the first-account claim deadline, not password recovery. Explicitly arm
 # recovery with the installation key so an ordinary reboot never replaces sign-in with the setup
 # screen. Values travel to jq over stdin rather than argv, keeping them out of the process list.
 if response="$(
-    printf '%s\n' "$api_key" |
-        jq -Rn '{apiKey: input}' |
+    printf '%s\n%s\n' "$api_key" "$recovery_token" |
+        jq -Rn '{apiKey: input, recoveryToken: input}' |
         curl --fail-with-body --silent --show-error \
             -X POST "$app_url/api/account-setup/open-main-admin-recovery" \
             -H 'Content-Type: application/json' \

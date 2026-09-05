@@ -82,12 +82,15 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
             : activeClass
           : 'bg-transparent text-themed-muted';
         // An icon-only segment renders no label span, so the button has no accessible name and a
-        // screen reader announces a bare radio. Name it from the text the option already carries,
-        // and only when no label is rendered - an aria-label over visible text would override it.
+        // screen reader announces a bare radio. Name it from the text the option already carries.
+        // A responsive label is the same case below the lg breakpoint, where its span is
+        // display:none and contributes nothing to the name, so it is named the same way; above the
+        // breakpoint the aria-label and the visible text are one string, so nothing is overridden.
         const rendersLabel = Boolean(option.label) && (showLabels !== false || !option.icon);
-        const segmentName = rendersLabel
-          ? undefined
-          : (option.tooltip ?? (typeof option.label === 'string' ? option.label : undefined));
+        const labelHidden = !rendersLabel || showLabels === 'responsive';
+        const segmentName = labelHidden
+          ? (option.tooltip ?? (typeof option.label === 'string' ? option.label : undefined))
+          : undefined;
 
         const buttonElement = (
           <button

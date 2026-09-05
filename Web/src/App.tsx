@@ -17,6 +17,8 @@ import { LoadingState } from '@components/ui/ManagerCard';
 import UniversalNotificationBar from '@components/common/UniversalNotificationBar';
 import DepotInitializationModal from '@components/modals/setup/DepotInitializationModal';
 import AuthenticationModal from '@components/modals/auth/AuthenticationModal';
+import { AccessSetup } from '@components/initialization/AccessSetup';
+import { usesOidc } from '@utils/accountMode';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import ApiService from '@services/api.service';
 import { useConfig } from '@contexts/useConfig';
@@ -63,6 +65,9 @@ const AppContent: React.FC = () => {
   const isMemoryRoute = window.location.pathname === '/memory';
 
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [editingAccess, setEditingAccess] = useState(
+    () => new URLSearchParams(window.location.search).get('accessSetup') === '1'
+  );
 
   const handleTabChange = useCallback((tab: string) => {
     setActiveTab(tab);
@@ -81,7 +86,9 @@ const AppContent: React.FC = () => {
     refreshAuth,
     prefillEnabled,
     isBanned,
-    authenticationEnabled
+    authenticationEnabled,
+    authenticationSetupRequired,
+    accountMode
   } = useAuth();
   const { status: steamApiStatus, refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const { refreshSteamAuth } = useSteamAuth();
@@ -104,24 +111,22 @@ const AppContent: React.FC = () => {
   // periodic state check would put the modal straight back on screen.
   const fullScanActionRunningRef = useRef(false);
 
-  // User preferences are stored against a real server session. With
-  // Security:EnableAuthentication off the app is granted full access without one, so authMode
-  // reports a session that the preference endpoints reject - the session ID it carries is not
-  // proof that a session record exists. Gate preference writes on both facts.
+  // Shared unauthenticated access is not an individual account identity. Keep account preference
+  // hydration tied to sign-in mode and an authenticated session.
   const hasServerSession = authenticationEnabled && hasSession;
 
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? null;
   // The setup wizard performs required first-run work (entering Postgres credentials,
-  // marking setup complete, initial log processing) and is NOT an auth gate — its
-  // endpoints are anonymous. Show it purely on setup status, regardless of
-  // Security:EnableAuthentication. Disabling auth only suppresses the login prompt
+  // marking setup complete, initial log processing) independently of sign-in requirements.
+  // Show it on setup status regardless of the selected access mode. Unauthenticated access suppresses the login prompt
   // (see the AuthenticationModal gate below), not genuine setup work — otherwise a
   // fresh external-Postgres install with no env credentials would be stranded.
   // An installation with no account row has nothing to sign in with, whether it is brand new or
   // finished setup before accounts existed, so the wizard is the only screen that can get it there.
   const adminAccountRequired = isAdminAccountRequired({
+    accountMode,
     authenticationEnabled,
     accountExists: setupStatus?.accountExists ?? null,
     needsPostgresCredentials: setupStatus?.needsPostgresCredentials === true,
@@ -500,6 +505,29 @@ const AppContent: React.FC = () => {
     );
   };
 
+  if (
+    !checkingAuth &&
+    !checkingSetupStatus &&
+    authenticationSetupRequired &&
+    !setupStatus?.mainAdminRecoveryAvailable
+  ) {
+    return <AccessSetup />;
+  }
+
+  if (!checkingAuth && !checkingSetupStatus && editingAccess && !adminAccountRequired) {
+    return (
+      <AccessSetup
+        onClose={() => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('accessSetup');
+          url.searchParams.delete('oidcError');
+          window.history.replaceState(null, '', url);
+          setEditingAccess(false);
+        }}
+      />
+    );
+  }
+
   // Show login page if not authenticated. An installation that still needs its first account is the
   // one case where this screen cannot be passed - there is nothing to sign in with - so it goes to
   // the wizard below instead. The setup status has to be in hand before that can be told apart:
@@ -510,6 +538,7 @@ const AppContent: React.FC = () => {
     !checkingSetupStatus &&
     authMode === 'unauthenticated' &&
     authenticationEnabled &&
+    !(usesOidc(accountMode) && !setupCompleted) &&
     !adminAccountRequired
   ) {
     // The config fetched for this screen came back without the cache, logs and data paths, because

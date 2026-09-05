@@ -106,12 +106,9 @@ services:
       # Security Settings
       #---------------------------------------------------------------------------
 
-      # Master switch for authentication
-      # true = require API key for admin features (recommended)
-      # false = disable ALL authentication (development only)
-      # - Security__EnableAuthentication=true
+      # Choose authentication during first setup.
+      # The primary administrator can change it under Users > Access and Security.
 
-      # Number of devices that can share the same API key simultaneously
       # Default guest session duration in hours (configurable in UI after first run)
       # - Security__GuestSessionDurationHours=6
 

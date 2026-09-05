@@ -358,6 +358,7 @@ public sealed class AntiforgeryTokenTests
         await host.AssertIsolationAsync(isolationClient);
 
         using var client = host.Application.CreateClient();
+        await EndpointAuthorizationHost.PrimeAntiforgeryAsync(client);
 
         using var created = await client.PostAsJsonAsync("/api/client-groups", NewGroup());
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);

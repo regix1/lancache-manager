@@ -37,6 +37,7 @@ public class ApiKeysController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly AuthenticationHelper _authenticationHelper;
     private readonly ILogger<ApiKeysController> _logger;
+    private readonly AccessService? _accessService;
 
     public ApiKeysController(
         IDbContextFactory<AppDbContext> dbContextFactory,
@@ -52,7 +53,8 @@ public class ApiKeysController : ControllerBase
         IdentityAuditService identityAuditService,
         IConfiguration configuration,
         AuthenticationHelper authenticationHelper,
-        ILogger<ApiKeysController> logger)
+        ILogger<ApiKeysController> logger,
+        AccessService? accessService = null)
     {
         _dbContextFactory = dbContextFactory;
         _apiKeyService = apiKeyService;
@@ -68,6 +70,7 @@ public class ApiKeysController : ControllerBase
         _configuration = configuration;
         _authenticationHelper = authenticationHelper;
         _logger = logger;
+        _accessService = accessService;
     }
 
     /// <summary>
@@ -129,7 +132,9 @@ public class ApiKeysController : ControllerBase
     [ProducesResponseType(typeof(ApiKeyRegenerateResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> RegenerateApiKeyAsync()
     {
-        var authenticationEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
+        var accessConfigured = _accessService is not null && !_accessService.IsSetupRequired();
+        var authenticationEnabled = accessConfigured
+            || _configuration.GetValue<bool>("Security:EnableAuthentication", true);
         if (!authenticationEnabled)
         {
             var apiKeyResult = _authenticationHelper.ValidateApiKey(HttpContext);
@@ -216,7 +221,7 @@ public class ApiKeysController : ControllerBase
         }
 
         var (oldKey, newKey) = _apiKeyService.RegenerateApiKey();
-        _apiKeyService.DisplayApiKey(_configuration, revealKey: true);
+        _apiKeyService.DisplayApiKey(revealKey: true);
 
         // Built before anything is revoked. The caller signs in with the key, so the session making
         // this request is one of the ones about to end, and a rotation that only confirms itself
@@ -253,6 +258,7 @@ public class ApiKeysController : ControllerBase
         {
             await using var accounts = await _dbContextFactory.CreateDbContextAsync();
             var otherAccounts = await accounts.UserAccounts.Where(a => !a.IsMainAdmin).ToListAsync();
+            _accessService?.ForgetAccounts(otherAccounts.Select(account => account.Id));
             accounts.UserAccounts.RemoveRange(otherAccounts);
             await accounts.SaveChangesAsync();
 

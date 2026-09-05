@@ -422,6 +422,24 @@
     color: var(--theme-text-muted);
     margin-bottom: 0.375rem;
   }
+
+  /* Setup wizard field. The access dialog and every initialization step share this one box so
+     their inputs match in size, and on a phone the box reaches the same 44px touch floor as the
+     buttons beside it. Compound with .themed-input, which draws the border and colours. */
+  .setup-input {
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+  }
+
+  textarea.setup-input {
+    min-height: 5.5rem;
+  }
+
+  @media (max-width: 639.98px) {
+    .setup-input {
+      min-height: 44px;
+    }
+  }
 }
 
 /* Shared md control height (40px) for buttons and trigger-like controls.
@@ -465,5 +483,38 @@
 @media (hover: hover) {
   .search-input-clear:hover {
     color: var(--theme-text-primary);
+  }
+}
+
+/* Setup wizard action row: a secondary action beside the primary one, each keeping its own
+   behaviour. Below a phone width the two stack, primary on top, so a long label such as
+   "Sign in as primary administrator" keeps to one or two lines instead of three. Unlayered so
+   the wrapping outranks the Button's own nowrap utility. */
+.setup-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.setup-actions > button {
+  max-width: 100%;
+  white-space: normal;
+}
+
+/* The dialog footer variant: actions pushed to the two ends under a rule. */
+.setup-actions--split {
+  justify-content: space-between;
+  padding-top: 1rem;
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+@media (max-width: 539.98px) {
+  .setup-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .setup-actions > span {
+    display: none;
   }
 }

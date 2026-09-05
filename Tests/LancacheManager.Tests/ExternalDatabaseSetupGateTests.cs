@@ -91,7 +91,8 @@ public class ExternalDatabaseSetupGateTests : IDisposable
 
     private SetupController CreateController(
         bool authenticationEnabled,
-        AccountClaimWindow? claimWindow = null)
+        AccountClaimWindow? claimWindow = null,
+        AccountMode? savedMode = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -100,15 +101,23 @@ public class ExternalDatabaseSetupGateTests : IDisposable
                 ["Security:EnableAuthentication"] = authenticationEnabled ? "true" : "false"
             })
             .Build();
+        var state = StateTestMethods.CreateStateService(_root);
+        state.UpdateState(current =>
+        {
+            current.Access.Mode = savedMode
+                ?? (authenticationEnabled ? AccountMode.Password : AccountMode.Unauthenticated);
+            current.Access.SetupVersion = AccessSettings.RequiredSetupVersion;
+        });
+        var access = new AccessService(state, configuration, dbContextFactory: null!);
 
         return new SetupController(
             NullLogger<SetupController>.Instance,
             _pathResolver,
             dbContextFactory: null!,
             _authenticationHelper,
-            configuration,
             _antiforgery,
-            claimWindow ?? new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance))
+            claimWindow ?? new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
+            access)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -348,6 +357,19 @@ public class ExternalDatabaseSetupGateTests : IDisposable
         _controller.HttpContext.Items["Session"] = new UserSession { SessionType = SessionType.Admin };
 
         var result = await PostInExternalModeAsync(_controller, ConnectionRequest());
+
+        var response = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(AntiforgeryToken.MissingTokenMessage, ErrorOf(response));
+        Assert.False(File.Exists(Path.Combine(_root, "postgres-credentials.json")));
+    }
+
+    [Fact]
+    public async Task SavedModeControlsTheSessionGateAfterTheLegacySettingChanges()
+    {
+        var controller = CreateController(authenticationEnabled: false, savedMode: AccountMode.Password);
+        controller.HttpContext.Items["Session"] = new UserSession { SessionType = SessionType.Admin };
+
+        var result = await PostInExternalModeAsync(controller, ConnectionRequest());
 
         var response = Assert.IsType<BadRequestObjectResult>(result);
         Assert.Equal(AntiforgeryToken.MissingTokenMessage, ErrorOf(response));

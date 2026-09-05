@@ -1,4 +1,190 @@
 {
+  "accessSetup": {
+    "header": "访问与登录",
+    "progress": "访问设置进度",
+    "headings": {
+      "choose": "用户应如何登录？",
+      "test": "测试{{name}}"
+    },
+    "descriptions": {
+      "choose": "选择访问此实例时需要使用的凭据。主管理员以后可以更改此设置。",
+      "configure": "验证所有权，然后配置所选方式。现有账户和缓存设置将保留。",
+      "test": "请完成一次登录，再启用此配置。"
+    },
+    "upgrade": "1.10.7 版本新增了登录方式。请为此实例确认一次访问设置；您的账户、缓存和预填充设置将保留。",
+    "groups": {
+      "local": "本地账户",
+      "sso": "单点登录",
+      "open": "无需登录"
+    },
+    "modes": {
+      "password": {
+        "title": "用户名和密码",
+        "description": "使用本地账户登录。登录时无需输入 API 密钥。",
+        "warning": "请使用独立密码并妥善保管。"
+      },
+      "apiKeyPassword": {
+        "title": "API 密钥、用户名和密码",
+        "description": "同时要求实例密钥和本地账户。",
+        "warning": "实例密钥是共享的。请妥善保管密钥和个人密码。"
+      },
+      "apiKeyOidc": {
+        "title": "API 密钥和单点登录",
+        "description": "要求实例密钥以及来自已连接服务的获准身份。",
+        "warning": "同时要求实例密钥和获准登录的账户。请妥善保管密钥。"
+      },
+      "oidc": {
+        "title": "单点登录",
+        "description": "使用 Google、GitHub、Microsoft、Apple 或其他 OpenID Connect 服务登录。无需输入本地密码或 API 密钥。",
+        "warning": "仅允许获准账户登录。请保留服务器访问权限以便恢复。"
+      },
+      "unauthenticated": {
+        "title": "无需身份验证",
+        "description": "无需用户名、密码或 API 密钥即可打开应用。",
+        "warning": "任何能够访问此应用的人都可使用管理功能。仅适用于所有人员和设备均受信任的网络。"
+      }
+    },
+    "keyOwnership": "实例 API 密钥始终存在，归第一个账户（主管理员）所有。不要求输入密钥的模式也会保留密钥，用于验证所有权和恢复。",
+    "sessions": "现有账户会话仍然有效。可在用户页面的会话列表中结束这些会话。切换到需要登录的模式后，共享的无身份验证访问将被撤销。",
+    "ownerHeading": "验证实例所有权",
+    "ownerDescription": "输入实例密钥以授权此次更改。这项一次性的设置验证与登录凭据要求相互独立。",
+    "keyLocation": "在服务器上的以下位置查找密钥：",
+    "keyRequired": "请输入实例 API 密钥以继续。",
+    "ownerSignIn": "请以现有主管理员身份登录，以更改此实例的访问设置。",
+    "ownerSignInButton": "以主管理员身份登录",
+    "ownerSignInFailed": "无法验证主管理员。",
+    "ownerSso": "使用所有者的单点登录",
+    "ownerPassword": "使用现有主管理员密码",
+    "httpsWarning": "支持本地 HTTP 访问。凭据和会话以未加密方式传输，因此在不可信网络上请使用 HTTPS。",
+    "serviceHeading": "用户应使用哪个服务登录？",
+    "serviceHint": "已连接的服务保持可用。选择一个以添加或更新。",
+    "connected": "已连接",
+    "connectedList": "已连接：{{names}}",
+    "connectedHeading": "{{name}} 已连接",
+    "connectedDescription": "保存后用户即可使用 {{name}} 登录。仅当您在 {{name}} 中重新注册了此应用时，才需要输入新凭据。",
+    "reconfigure": "输入新凭据",
+    "registerHeading": "在 {{name}} 中注册此应用",
+    "copy": "复制",
+    "copied": "已复制",
+    "copyFailed": "无法复制该 URL。请在输入框中选中后自行复制。",
+    "credentialsHeading": "输入 {{name}} 签发的信息",
+    "tenant": "目录（租户）ID",
+    "tenantHint": "Microsoft Entra 应用注册中的租户 GUID；个人 Microsoft 账户请填写 \"consumers\"。",
+    "servicesId": "Services ID",
+    "teamId": "Team ID",
+    "keyId": "Key ID",
+    "privateKey": "Sign in with Apple 密钥（.p8 文件）",
+    "privateKeyHint": "粘贴 .p8 文件的完整内容。它将受保护地存储在服务器上，不会再次显示；此应用会为您签发 Apple 的客户端密钥。",
+    "issuer": "签发者 URL",
+    "issuerHint": "身份服务公布的签发者地址，包括领域或应用路径。",
+    "displayName": "登录按钮名称（可选）",
+    "clientId": "客户端 ID",
+    "clientSecret": "客户端密钥",
+    "callback": "回调 URL",
+    "callbackHint": "用于日常登录。两个 URL 都跟随当前页面的地址，因此复制前请先通过用户将要使用的地址打开应用。",
+    "setupCallback": "设置测试回调 URL",
+    "setupCallbackHint": "仅用于下一步的测试，以便在新设置通过验证之前，现有登录方式仍可使用。",
+    "callbacksIntro": "这两个 URL 是此应用已内置处理的返回地址。将它们粘贴到 {{name}} 的注册中即可，无需自行构建或打开。",
+    "addressHelp": "本地访问说明",
+    "advanced": "高级设置",
+    "advancedHint": "可选。下一步测试时使用的身份会自动关联到主管理员。",
+    "additionalUsers": "允许其他单点登录用户",
+    "allowedSubjects": "允许的主体（可选）",
+    "oidcSafety": "启用前会测试连接。测试失败将保留当前登录设置。",
+    "acknowledge": "我了解，任何能访问此应用的人都将获得管理权限，无需登录。",
+    "testHeading": "测试连接",
+    "testConnection": "测试连接",
+    "testConnectionHint": "浏览器将打开 {{name}}，请以主管理员身份登录。只有在该登录成功后，连接才会启用；如果失败，当前设置保持不变。",
+    "testSucceeded": "{{name}} 已连接。用户现在可以使用它登录。",
+    "testUnconfirmed": "登录测试已结束，但此连接尚未启用。请重新选择登录方式以重试。",
+    "testExplanation": "{{name}} 设置已保存，可进行测试。请使用应归主管理员所有的身份登录。只有在登录成功并通过验证后，设置才会启用。",
+    "testOwner": "对于现有实例，通过验证的身份会关联到主管理员。对于新实例，该身份将确定首位管理员。",
+    "testRecovery": "如果登录中断后返回此处，请输入实例密钥并重试。也可以返回选择其他方式。",
+    "oidcFailed": "无法完成单点登录。请通过复制回调 URL 时使用的地址打开应用，再检查签发者、客户端设置、回调 URL 和允许的身份，然后重试。",
+    "errors": {
+      "connection": "无法连接身份服务，或身份服务拒绝了客户端凭据。请检查客户端 ID 和客户端密钥，然后重试。",
+      "authentication": "身份服务未完成登录。请检查注册中的两个回调 URL，然后重试。",
+      "identity": "登录成功，但该身份不被允许访问此处。请使用主管理员的账户登录，或在高级设置中添加该身份。",
+      "expired": "登录尝试在完成前已过期。请重新开始。",
+      "state": "登录响应与当前浏览器会话不匹配。请通过复制回调 URL 时使用的地址打开应用并重新开始。",
+      "unavailable": "外部登录当前不可用。请确认连接仍已配置，然后重试。"
+    },
+    "saveFailed": "无法保存访问设置。",
+    "showSecret": "显示密钥",
+    "hideSecret": "隐藏密钥",
+    "back": "返回",
+    "cancel": "取消",
+    "continue": "继续",
+    "save": "保存访问设置",
+    "saveAndTest": "保存并测试单点登录",
+    "done": "完成",
+    "sso": "单点登录",
+    "signInSso": "使用 {{name}} 继续",
+    "change": "更改登录方式",
+    "signInMethod": "登录方式",
+    "manageDescription": "用户登录此实例的方式，以及可用于登录的外部服务。",
+    "ownerServiceHeading": "登录方式",
+    "localPasswordHeading": "创建本地密码",
+    "localPasswordDescription": "您的管理员账户由单点登录创建，尚无密码。请现在设置密码，以便更改后仍可登录。",
+    "connectionActive": "用于登录",
+    "connectionDormant": "仅保留用于主管理员登录",
+    "remove": "移除",
+    "removeService": "移除 {{name}}？",
+    "removeServiceDescription": "主管理员将无法再使用此服务登录。请输入实例密钥以确认。",
+    "removeServiceActive": "用户将无法再使用此服务登录。选择单点登录时无法移除最后一个可用服务：请先更改登录方式，或保留另一个已连接的服务。请输入实例密钥以确认。",
+    "removeFailed": "无法移除该登录服务。",
+    "services": {
+      "google": {
+        "title": "Google",
+        "note": "用户使用 Google 账户登录。",
+        "register": "在 Google Cloud Console 中创建类型为 Web 应用的 OAuth 客户端，并将下方两个 URL 添加为已授权的重定向 URI。Google 会签发客户端 ID 和客户端密钥。",
+        "addresses": "在本机测试时，可使用 http://localhost 或 http://127.0.0.1。其他设备使用 Google 登录需要 HTTPS 域名，应用仍可仅在局域网或 VPN 内托管。回环地址指向打开此页面的设备，而非其他服务器。Google 不接受直接使用局域网 IP 地址。",
+        "credentials": "从您创建的 OAuth 客户端中复制客户端 ID 和客户端密钥。",
+        "subjects": "可选。Google 主体 ID（sub 声明），每行一个。测试时使用的身份会自动关联到主管理员；电子邮件地址不是标识符。"
+      },
+      "github": {
+        "title": "GitHub",
+        "note": "用户使用 GitHub 账户登录。",
+        "register": "在 GitHub 中打开 Settings、Developer settings、OAuth Apps 并注册新应用。将下方两个 URL 添加为授权回调 URL，然后生成客户端密钥。",
+        "addresses": "本应用的单点登录要求 HTTPS，但 localhost 或回环地址除外。应用仍可仅在局域网或 VPN 内访问，无需公网托管。",
+        "credentials": "复制客户端 ID 和您生成的客户端密钥。不会请求仓库或电子邮件权限。",
+        "subjects": "可选。GitHub 数字账户 ID，每行一个。测试时使用的账户会自动关联到主管理员；用户名和电子邮件地址不是标识符。"
+      },
+      "microsoft": {
+        "title": "Microsoft",
+        "note": "用户使用工作、学校或个人 Microsoft 账户登录。",
+        "register": "在 Microsoft Entra 中添加应用注册，选择 Web 平台并将下方两个 URL 添加为重定向 URI，然后添加客户端密钥。",
+        "addresses": "本应用的单点登录要求 HTTPS，但 localhost 或回环地址除外。应用仍可仅在局域网或 VPN 内访问，无需公网托管。",
+        "credentials": "复制应用程序（客户端）ID、目录（租户）ID 和客户端密钥值。",
+        "subjects": "可选。每行一个身份，格式为 租户 GUID:对象 GUID。测试时使用的账户会自动关联到主管理员；电子邮件地址不是标识符。"
+      },
+      "apple": {
+        "title": "Apple",
+        "note": "用户使用 Apple ID 登录。需要 Apple Developer 账户和 HTTPS 域名。",
+        "register": "在 Apple Developer 账户中创建启用了 Sign in with Apple 的 Services ID，添加此站点的域名并将下方两个 URL 添加为返回 URL，然后创建 Sign in with Apple 密钥。",
+        "addresses": "Apple 仅接受 HTTPS 域名作为返回 URL，不接受 localhost 或 IP 地址。请先通过应用的 HTTPS 域名打开应用再复制 URL，并在 Apple 中注册同一域名。",
+        "credentials": "输入 Services ID、Team ID、Key ID 和 .p8 密钥文件内容。此应用会自行生成 Apple 的客户端密钥。",
+        "subjects": "可选。Apple 主体 ID（sub 声明），每行一个。测试时使用的身份会自动关联到主管理员；电子邮件地址不是标识符。",
+        "deployment": "Apple 仅接受 HTTPS 域名作为返回 URL，不接受 IP 地址或 localhost。请先通过应用的 HTTPS 域名打开此页面。"
+      },
+      "customOidc": {
+        "title": "其他（OpenID Connect）",
+        "name": "您的身份服务",
+        "note": "任何 OpenID Connect 服务，例如 Keycloak、Authentik、Authelia 或 Okta。",
+        "register": "将此应用注册为使用授权码流程的 OpenID Connect Web 客户端，并将下方两个 URL 添加为允许的重定向 URI。",
+        "addresses": "本应用的单点登录要求 HTTPS，但 localhost 或回环地址除外。应用仍可仅在局域网或 VPN 内访问，无需公网托管。",
+        "credentials": "输入该注册提供的签发者 URL、客户端 ID 和客户端密钥。",
+        "subjects": "可选。此签发者的稳定主体标识符（sub 声明），每行一个。测试时使用的身份会自动关联到主管理员；电子邮件地址和显示名称不是标识符。"
+      }
+    },
+    "login": {
+      "password": "使用用户名和密码登录。",
+      "apiKeyPassword": "使用实例 API 密钥、用户名和密码登录。",
+      "apiKeyOidc": "输入实例 API 密钥，然后使用已连接的服务登录。",
+      "oidc": "使用已连接的服务登录。",
+      "unauthenticated": "此实例无需登录。"
+    }
+  },
   "app": {
     "title": "LANCache 管理面板",
     "subtitle": "高性能缓存监控与管理",
@@ -4036,7 +4222,7 @@
       },
       "description": {
         "authenticated": "管理功能已启用",
-        "disabled": "已通过 Security:EnableAuthentication 禁用身份验证。已授予全部访问权限，无需登录",
+        "disabled": "已选择无需身份验证的访问方式。无需登录即可使用管理功能；更改登录设置仍需主管理员授权。",
         "guest": "仅查看权限已激活",
         "requiresKeyOrGuest": "管理功能需要 API 密钥或访客访问权限",
         "requiresKey": "管理功能需要 API 密钥"
@@ -6673,7 +6859,7 @@
       "recoverSubmit": "保存密码",
       "recovering": "正在保存密码...",
       "recoveredHeading": "密码已保存",
-      "recoveredDescription": "今后请使用此用户名和密码登录。正在继续...",
+      "recoveredDescription": "密码已保存，此设备已作为主管理员登录。您可以在用户 → 账户 → 访问与登录中更改登录方式。",
       "insecureConnection": {
         "title": "此连接未加密",
         "description": "您在此设置的密码会以明文形式在网络上传输，之后的每次登录同样如此。在他人从其他设备连接之前，请为本站点启用 HTTPS。"

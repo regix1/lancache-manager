@@ -28,6 +28,7 @@ public class AuthController : ControllerBase
     private readonly IPasswordHasher<UserAccount> _passwordHasher;
     private readonly AccountLockout _accountLockout;
     private readonly IdentityAuditService _identityAuditService;
+    private readonly AccessService? _accessService;
 
     public AuthController(
         SessionService sessionService,
@@ -38,7 +39,8 @@ public class AuthController : ControllerBase
         ApiKeyService apiKeyService,
         IPasswordHasher<UserAccount> passwordHasher,
         AccountLockout accountLockout,
-        IdentityAuditService identityAuditService)
+        IdentityAuditService identityAuditService,
+        AccessService? accessService = null)
     {
         _sessionService = sessionService;
         _logger = logger;
@@ -49,6 +51,7 @@ public class AuthController : ControllerBase
         _passwordHasher = passwordHasher;
         _accountLockout = accountLockout;
         _identityAuditService = identityAuditService;
+        _accessService = accessService;
     }
 
     /// <summary>
@@ -113,6 +116,7 @@ public class AuthController : ControllerBase
         // account-backed session reaches the query: a guest, an API-key caller and the
         // disabled-authentication session all leave AccountId null (UserSession.cs:29).
         var isMainAdmin = false;
+        var ownerPasswordEnabled = false;
         if (session?.AccountId is { } accountId)
         {
             try
@@ -121,6 +125,12 @@ public class AuthController : ControllerBase
                 isMainAdmin = await MainAdminVisibility.OwnsInstallationAsync(context, accountId);
             }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to check if the session's account is the main admin"); }
+        }
+
+        if (_accessService is not null)
+        {
+            try { ownerPasswordEnabled = await _accessService.HasOwnerPasswordAsync(); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to check if the main admin has local credentials"); }
         }
 
         // Determine per-service prefill access
@@ -204,16 +214,25 @@ public class AuthController : ControllerBase
         return Ok(new AuthStatusResponse
         {
             AuthenticationEnabled = authenticationEnabled,
+            AccountMode = _accessService?.GetMode()
+                ?? (authenticationEnabled ? AccountMode.ApiKeyPassword : AccountMode.Unauthenticated),
+            AuthenticationSetupRequired = _accessService?.IsSetupRequired() ?? false,
+            OidcDisplayName = _accessService?.GetOidcDisplayName(),
+            OidcPending = _accessService?.HasPendingOidc() ?? false,
+            OwnerOidcEnabled = _accessService?.HasOidcOwner() ?? false,
+            OwnerPasswordEnabled = ownerPasswordEnabled,
+            LoginServices = _accessService?.GetLoginServices() ?? [],
+            OwnerLoginServices = _accessService?.GetOwnerLoginServices() ?? [],
+            LoginSetupPending = _accessService?.HasPendingOidc() ?? false,
+            PendingLoginKind = _accessService?.GetPendingLoginKind(),
             IsAuthenticated = !authenticationEnabled || session != null,
             SessionType = !authenticationEnabled ? Models.SessionType.Admin : session?.SessionType,
             SessionId = session?.Id,
             ExpiresAt = session != null ? DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc) : (DateTime?)null,
             AccountId = session?.AccountId,
-            // With authentication disabled the caller hands out the administrator role anyway
-            // (AccountsController.CallerMayGrantAdmin), so the flag carries that right. It is not a
-            // claim about every owner-only action: wiping accounts still refuses a caller with no
-            // account row (AccountsController.cs:469).
-            IsMainAdmin = !authenticationEnabled || isMainAdmin,
+            // Anonymous mode grants the shared session ordinary administrator access, but ownership
+            // still belongs only to the account-backed main-administrator session.
+            IsMainAdmin = isMainAdmin,
             HasData = hasData,
             HasBeenInitialized = hasBeenInitialized,
             HasDataLoaded = hasDataLoaded,
@@ -234,11 +253,12 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Signs an account in with the installation's API key, a username and a password.
+    /// Signs an account in with a username and password, plus the installation key when selected.
     /// </summary>
     /// <remarks>
-    /// All three are required and all three are checked before anything is answered. The key alone
-    /// used to be a sign-in; it is now one of three things a caller has to hold.
+    /// Password mode checks the account credentials alone; API-key-and-password mode checks all
+    /// three values. In anonymous mode only the main administrator may use this endpoint, so an
+    /// expired owner session can be restored without granting ordinary accounts an optional login.
     ///
     /// Every way this can fail is answered identically - the same status and the same body - because a
     /// caller who can tell them apart learns which usernames exist, which passwords are close, and
@@ -257,28 +277,38 @@ public class AuthController : ControllerBase
         var account = await FindAccountAsync(request.Username);
 
         // The password is verified before anything else is decided, and against a throwaway hash when
-        // there is no account, so an unknown username costs the same PBKDF2 work as a real one. Skipping
+        // there is no usable local credential, so an unknown username or an external-only account costs
+        // the same PBKDF2 work as a real one. Skipping
         // it would answer in a few milliseconds instead of a few hundred, which is a username oracle
         // that no shared error message hides. This mirrors what ApiKeyService.ValidateApiKey:107-112
         // does for a key of the wrong length.
         var password = VerifyPassword(account, request.Password);
         var passwordMatched = password is PasswordVerificationResult.Success
             or PasswordVerificationResult.SuccessRehashNeeded;
-        var keyMatched = _apiKeyService.ValidateApiKey(request.ApiKey);
+        var passwordMode = _accessService?.UsesPassword() ?? true;
+        var ownerSignIn = _accessService?.AllowsOwnerPassword(account) ?? false;
+        passwordMode |= ownerSignIn;
+        var keyRequired = !ownerSignIn && (_accessService?.RequiresApiKeyForPassword() ?? true);
+        var keyMatched = !keyRequired || _apiKeyService.ValidateApiKey(request.ApiKey);
 
         // Checked after the password rather than instead of it, for the same reason: a locked account
         // that answered without hashing would be recognisable by how fast it refused.
         var locked = account != null && _accountLockout.IsLocked(account.Id);
 
-        if (account == null || account.IsDisabled || !passwordMatched || !keyMatched || locked)
+        if (!passwordMode || account == null || account.IsDisabled || !passwordMatched || !keyMatched || locked)
         {
-            if (account != null && !account.IsDisabled && !locked && keyMatched && !passwordMatched)
+            if (passwordMode
+                && account != null
+                && !string.IsNullOrEmpty(account.PasswordHash)
+                && !account.IsDisabled
+                && !locked
+                && keyMatched
+                && !passwordMatched)
             {
-                // Only a wrong password against a real, usable account is counted, and only from a
-                // caller who held the installation's key. An unknown username names nobody to count
-                // against, and a caller without the key is not making a credible attempt on this
-                // account - counting those would let anyone lock any account they can name, without
-                // ever holding the key. Both are the per-IP limiter's to bound instead.
+                // Only a wrong password against a real, usable account is counted. In modes that
+                // require the installation key, a caller without it is not making a credible attempt
+                // on this account; counting those would let anyone lock any account they can name.
+                // Unknown usernames and untrusted key attempts are the per-IP limiter's to bound.
                 _accountLockout.RecordFailure(account.Id);
             }
 
@@ -312,8 +342,10 @@ public class AuthController : ControllerBase
             }
         }
 
-        var result = await _sessionService.CreateAdminSessionAsync(request.ApiKey, HttpContext, account);
-        if (result == null)
+        (string RawToken, UserSession Session)? result = keyRequired
+            ? await _sessionService.CreateAdminSessionAsync(request.ApiKey, HttpContext, account)
+            : await _sessionService.CreateAccountSessionAsync(HttpContext, account);
+        if (result is null)
         {
             // The key checked above is the key this rechecks, so the two disagree only when the key was
             // rotated in between - ApiKeyService.RegenerateApiKey replaces it for the whole process.
@@ -1351,7 +1383,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Verifies a password, spending the same work whether or not the username named anybody.
+    /// Verifies a password, spending the same work whether or not the username named a local credential.
     /// </summary>
     /// <remarks>
     /// An unknown username that returned without hashing would answer in a few milliseconds where a
@@ -1367,7 +1399,7 @@ public class AuthController : ControllerBase
     /// </remarks>
     private PasswordVerificationResult VerifyPassword(UserAccount? account, string password)
     {
-        if (account != null)
+        if (account != null && !string.IsNullOrEmpty(account.PasswordHash))
         {
             return _passwordHasher.VerifyHashedPassword(account, account.PasswordHash, password);
         }

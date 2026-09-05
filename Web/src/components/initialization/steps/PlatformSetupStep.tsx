@@ -4,173 +4,58 @@ import { Cloud, Database, CheckCircle, Gamepad2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
+import { SelectableCard } from '@components/ui/SelectableCard';
 import { StepHeader } from '@components/initialization/StepHeader';
 import type { CompletedPlatforms } from '@hooks/useInitializationFlow';
 
-type SelectedPlatform = 'github' | 'steam' | 'epic' | 'xbox' | null;
+type Platform = 'github' | 'steam' | 'epic' | 'xbox';
+type SelectedPlatform = Platform | null;
 
 interface PlatformSetupStepProps {
-  onSelectPlatform: (platform: 'github' | 'steam' | 'epic' | 'xbox') => void;
+  onSelectPlatform: (platform: Platform) => void;
   onContinue: () => void;
   onSkip: () => void;
   completedPlatforms: CompletedPlatforms;
 }
 
 interface PlatformCardProps {
+  platform: Platform;
+  icon: React.ReactNode;
   selected: SelectedPlatform;
-  completedPlatforms: CompletedPlatforms;
+  completed: boolean;
   onSelect: (platform: SelectedPlatform) => void;
 }
 
-interface EpicCardProps {
-  selected: SelectedPlatform;
-  completedPlatforms: CompletedPlatforms;
-  onSelect: (platform: SelectedPlatform) => void;
-}
-
-interface XboxCardProps {
-  selected: SelectedPlatform;
-  completedPlatforms: CompletedPlatforms;
-  onSelect: (platform: SelectedPlatform) => void;
-}
-
-function getCardClassName(isSelected: boolean): string {
-  const base = 'p-4 rounded-lg border-2 cursor-pointer transition';
-  if (isSelected) {
-    return `${base} border-[var(--theme-primary)] bg-themed-primary-subtle`;
-  }
-  return `${base} border-themed-primary bg-themed-tertiary hover:border-themed-secondary`;
-}
-
-const GithubCard: React.FC<PlatformCardProps> = ({ selected, completedPlatforms, onSelect }) => {
+const PlatformCard: React.FC<PlatformCardProps> = ({
+  platform,
+  icon,
+  selected,
+  completed,
+  onSelect
+}) => {
   const { t } = useTranslation();
-  const isSelected = selected === 'github';
-  const isCompleted = completedPlatforms.steam === 'github';
-
-  const handleClick = (): void => {
-    onSelect(isSelected ? null : 'github');
-  };
+  const isSelected = selected === platform;
 
   return (
-    <div className={getCardClassName(isSelected)} onClick={handleClick}>
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2 mb-2">
-          <Cloud className="w-5 h-5 icon-info flex-shrink-0" />
-          <h4 className="font-semibold text-themed-primary">
-            {t('initialization.platformSetup.github.label')}
-          </h4>
-        </div>
-        {isCompleted && (
-          <div className="flex items-center gap-1 text-xs font-medium text-success flex-shrink-0 ml-2">
+    <SelectableCard
+      name="platform"
+      value={platform}
+      checked={isSelected}
+      onChange={() => onSelect(platform)}
+      onDeselect={() => onSelect(null)}
+      icon={icon}
+      title={t(`initialization.platformSetup.${platform}.label`)}
+      description={t(`initialization.platformSetup.${platform}.description`)}
+      note={t(`initialization.platformSetup.${platform}.note`)}
+      badge={
+        completed ? (
+          <span className="flex items-center gap-1 text-xs font-medium text-success">
             <CheckCircle className="w-4 h-4" />
             {t('initialization.platformSetup.completed')}
-          </div>
-        )}
-      </div>
-      <p className="text-sm text-themed-secondary mb-1">
-        {t('initialization.platformSetup.github.description')}
-      </p>
-      <p className="text-xs text-themed-muted">{t('initialization.platformSetup.github.note')}</p>
-    </div>
-  );
-};
-
-const SteamPicsCard: React.FC<PlatformCardProps> = ({ selected, completedPlatforms, onSelect }) => {
-  const { t } = useTranslation();
-  const isSelected = selected === 'steam';
-  const isCompleted = completedPlatforms.steam === 'steam';
-
-  const handleClick = (): void => {
-    onSelect(isSelected ? null : 'steam');
-  };
-
-  return (
-    <div className={getCardClassName(isSelected)} onClick={handleClick}>
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2 mb-2">
-          <Database className="w-5 h-5 icon-success flex-shrink-0" />
-          <h4 className="font-semibold text-themed-primary">
-            {t('initialization.platformSetup.steam.label')}
-          </h4>
-        </div>
-        {isCompleted && (
-          <div className="flex items-center gap-1 text-xs font-medium text-success flex-shrink-0 ml-2">
-            <CheckCircle className="w-4 h-4" />
-            {t('initialization.platformSetup.completed')}
-          </div>
-        )}
-      </div>
-      <p className="text-sm text-themed-secondary mb-1">
-        {t('initialization.platformSetup.steam.description')}
-      </p>
-      <p className="text-xs text-themed-muted">{t('initialization.platformSetup.steam.note')}</p>
-    </div>
-  );
-};
-
-const EpicCard: React.FC<EpicCardProps> = ({ selected, completedPlatforms, onSelect }) => {
-  const { t } = useTranslation();
-  const isSelected = selected === 'epic';
-  const isCompleted = completedPlatforms.epic;
-
-  const handleClick = (): void => {
-    onSelect(isSelected ? null : 'epic');
-  };
-
-  return (
-    <div className={getCardClassName(isSelected)} onClick={handleClick}>
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2 mb-2">
-          <EpicIcon size={20} className="icon-primary flex-shrink-0" />
-          <h4 className="font-semibold text-themed-primary">
-            {t('initialization.platformSetup.epic.label')}
-          </h4>
-        </div>
-        {isCompleted && (
-          <div className="flex items-center gap-1 text-xs font-medium text-success flex-shrink-0 ml-2">
-            <CheckCircle className="w-4 h-4" />
-            {t('initialization.platformSetup.completed')}
-          </div>
-        )}
-      </div>
-      <p className="text-sm text-themed-secondary mb-1">
-        {t('initialization.platformSetup.epic.description')}
-      </p>
-      <p className="text-xs text-themed-muted">{t('initialization.platformSetup.epic.note')}</p>
-    </div>
-  );
-};
-
-const XboxCard: React.FC<XboxCardProps> = ({ selected, completedPlatforms, onSelect }) => {
-  const { t } = useTranslation();
-  const isSelected = selected === 'xbox';
-  const isCompleted = completedPlatforms.xbox;
-
-  const handleClick = (): void => {
-    onSelect(isSelected ? null : 'xbox');
-  };
-
-  return (
-    <div className={getCardClassName(isSelected)} onClick={handleClick}>
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2 mb-2">
-          <XboxIcon size={20} className="icon-primary flex-shrink-0" />
-          <h4 className="font-semibold text-themed-primary">
-            {t('initialization.platformSetup.xbox.label')}
-          </h4>
-        </div>
-        {isCompleted && (
-          <div className="flex items-center gap-1 text-xs font-medium text-success flex-shrink-0 ml-2">
-            <CheckCircle className="w-4 h-4" />
-            {t('initialization.platformSetup.completed')}
-          </div>
-        )}
-      </div>
-      <p className="text-sm text-themed-secondary mb-1">
-        {t('initialization.platformSetup.xbox.description')}
-      </p>
-      <p className="text-xs text-themed-muted">{t('initialization.platformSetup.xbox.note')}</p>
-    </div>
+          </span>
+        ) : undefined
+      }
+    />
   );
 };
 
@@ -194,10 +79,6 @@ export const PlatformSetupStep: React.FC<PlatformSetupStepProps> = ({
 }) => {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<SelectedPlatform>(null);
-
-  const handleSelectCard = (platform: SelectedPlatform): void => {
-    setSelected(platform);
-  };
 
   const handlePrimaryAction = (): void => {
     if (selected !== null) {
@@ -232,55 +113,61 @@ export const PlatformSetupStep: React.FC<PlatformSetupStepProps> = ({
       </div>
 
       {/* Steam Group */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-themed-secondary">
-            {t('initialization.platformSetup.steamGroup')}
-          </p>
-          <p className="text-xs text-themed-muted">
-            {t('initialization.platformSetup.steamGroupNote')}
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <GithubCard
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-themed-secondary">
+          {t('initialization.platformSetup.steamGroup')}
+        </legend>
+        <p className="text-xs text-themed-muted">
+          {t('initialization.platformSetup.steamGroupNote')}
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <PlatformCard
+            platform="github"
+            icon={<Cloud className="icon-info" />}
             selected={selected}
-            completedPlatforms={completedPlatforms}
-            onSelect={handleSelectCard}
+            completed={completedPlatforms.steam === 'github'}
+            onSelect={setSelected}
           />
-          <SteamPicsCard
+          <PlatformCard
+            platform="steam"
+            icon={<Database className="icon-success" />}
             selected={selected}
-            completedPlatforms={completedPlatforms}
-            onSelect={handleSelectCard}
+            completed={completedPlatforms.steam === 'steam'}
+            onSelect={setSelected}
           />
         </div>
-      </div>
+      </fieldset>
 
       {/* Epic Group */}
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-themed-secondary">
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-themed-secondary">
           {t('initialization.platformSetup.epicGroup')}
-        </p>
-        <EpicCard
+        </legend>
+        <PlatformCard
+          platform="epic"
+          icon={<EpicIcon className="icon-primary" />}
           selected={selected}
-          completedPlatforms={completedPlatforms}
-          onSelect={handleSelectCard}
+          completed={completedPlatforms.epic}
+          onSelect={setSelected}
         />
-      </div>
+      </fieldset>
 
       {/* Xbox Group */}
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-themed-secondary">
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-themed-secondary">
           {t('initialization.platformSetup.xboxGroup')}
-        </p>
-        <XboxCard
+        </legend>
+        <PlatformCard
+          platform="xbox"
+          icon={<XboxIcon className="icon-primary" />}
           selected={selected}
-          completedPlatforms={completedPlatforms}
-          onSelect={handleSelectCard}
+          completed={completedPlatforms.xbox}
+          onSelect={setSelected}
         />
-      </div>
+      </fieldset>
 
       {/* Actions */}
-      <div className="flex gap-3 pt-2">
+      <div className="setup-actions pt-2">
         <Button variant="filled" color="secondary" onClick={onSkip}>
           {t('initialization.platformSetup.skip.label')}
         </Button>

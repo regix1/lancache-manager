@@ -154,7 +154,7 @@ test('continuing as a guest asks for nothing', () => {
 });
 
 test('a refused sign-in names the installation key in copy of its own', () => {
-  const notices = guardedBy(modalFile, 'signInRefused');
+  const notices = guardedBy(modalFile, 'signInRefused && requiresApiKey(accountMode)');
   assert.equal(notices.length, 1, 'expected exactly one rotation notice');
 
   const noticeKeys = translationKeysIn(notices[0]);
@@ -180,6 +180,27 @@ test('only a refused sign-in raises the rotation notice', () => {
   );
 });
 
+test('the sign-in notices are the shared Alert, and the refusal is announced', () => {
+  // A guarded fragment is written `guard && (<jsx>)`, so the element starts after the paren.
+  const elementOf = (fragment) => fragment.replace(/^\(\s*/, '');
+  const [rotation] = guardedBy(modalFile, 'signInRefused && requiresApiKey(accountMode)');
+  assert.ok(
+    elementOf(rotation).startsWith('<Alert color="warning"'),
+    'the rotation notice is hand-drawn'
+  );
+
+  const refusals = guardedBy(modalFile, 'authError');
+  assert.equal(refusals.length, 1, 'expected exactly one refusal notice');
+  assert.ok(refusals[0].includes('role="alert"'), 'the refusal is not announced');
+  assert.ok(refusals[0].includes('<Alert color="error">'), 'the refusal notice is hand-drawn');
+
+  const help = guardedBy(modalFile, 'requiresApiKey(accountMode)');
+  assert.ok(
+    help.some((fragment) => elementOf(fragment).startsWith('<Alert color="info"')),
+    'the API key help is hand-drawn'
+  );
+});
+
 test('creating the first account warns when the page is not served over HTTPS', () => {
   const warnings = guardedBy(accountStepFile, '!window.isSecureContext');
   assert.equal(warnings.length, 1, 'expected exactly one insecure-connection warning');
@@ -189,4 +210,16 @@ test('creating the first account warns when the page is not served over HTTPS', 
     'initialization.adminAccount.insecureConnection.title',
     'initialization.adminAccount.insecureConnection.description'
   ]);
+});
+
+test('a failed external sign-in is worded from the bounded categories, not the query string', () => {
+  const [, initial] =
+    /\[authError, setAuthError\] = useState<string \| null>\(\(\) => \{([\s\S]*?)\}\);/.exec(
+      modalSource
+    ) ?? [];
+  assert.ok(initial, 'the initial sign-in error is not read from the address bar');
+  assert.ok(initial.includes("get('oidcError')"), 'the failure marker is not read');
+  assert.ok(initial.includes('t(loginErrorKey(code))'), 'the marker bypasses the bounded table');
+  assert.ok(!initial.includes('t(code)'), 'the raw marker is used as a translation key');
+  assert.ok(!initial.includes('accessSetup.errors.${'), 'the raw marker is spliced into a key');
 });

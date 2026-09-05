@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using LancacheManager.Hubs;
@@ -21,6 +22,103 @@ namespace LancacheManager.Tests;
 [Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class DownloadHubCookieConnectionTests
 {
+    [Fact]
+    public async Task UnauthenticatedModeConnectsWithoutAnIncomingSessionCookie()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: false);
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        using var connection = new HubOverLongPolling(host.Application.Server.CreateClient(), string.Empty);
+
+        Assert.Equal(HttpStatusCode.OK, await connection.NegotiateAsync());
+        await connection.StartAsync();
+        Assert.True(await connection.ReceivedAsync(SignalREvents.ActivityUpdated));
+    }
+
+    [Fact]
+    public async Task EnablingPasswordAccessClosesEverySharedSocketButKeepsAccountSockets()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: false);
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        var (ownerName, ownerPassword) = await host.NewAccountAsync();
+        var factory = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        await using (var database = await factory.CreateDbContextAsync())
+        {
+            var owner = await database.UserAccounts.SingleAsync(account => account.Username == ownerName);
+            var existingOwner = await database.UserAccounts.SingleOrDefaultAsync(account => account.IsMainAdmin);
+            if (existingOwner is null)
+            {
+                owner.IsMainAdmin = true;
+            }
+            else
+            {
+                existingOwner.PasswordHash = owner.PasswordHash;
+                ownerName = existingOwner.Username;
+            }
+            await database.SaveChangesAsync();
+        }
+        using var ownerClient = host.Application.CreateClient();
+        await EndpointAuthorizationHost.PrimeAntiforgeryAsync(ownerClient);
+        var apiKey = host.Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
+        using (var login = await ownerClient.PostAsJsonAsync(
+            "/api/auth/login",
+            new LoginRequest { ApiKey = apiKey, Username = ownerName, Password = ownerPassword }))
+        {
+            Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        }
+        await EndpointAuthorizationHost.PrimeAntiforgeryAsync(ownerClient);
+        using var scope = host.Application.Services.CreateScope();
+        var sharedCookie = await SharedCookieAsync(host);
+        var accountCookie = (await SessionAsync(host, scope, SessionType.Admin)).Cookie;
+        var sharedConnections = new[]
+        {
+            new HubOverLongPolling(host.Application.Server.CreateClient(), sharedCookie),
+            new HubOverLongPolling(host.Application.Server.CreateClient(), sharedCookie)
+        };
+        using var daemonConnection = new HubOverLongPolling(
+            host.Application.Server.CreateClient(),
+            sharedCookie,
+            "/hubs/steam-daemon");
+        using var accountConnection = new HubOverLongPolling(
+            host.Application.Server.CreateClient(),
+            accountCookie);
+
+        try
+        {
+            foreach (var connection in sharedConnections.Append(accountConnection))
+            {
+                Assert.Equal(HttpStatusCode.OK, await connection.NegotiateAsync());
+                await connection.StartAsync();
+                Assert.True(await connection.ReceivedAsync(SignalREvents.ActivityUpdated));
+            }
+            Assert.Equal(HttpStatusCode.OK, await daemonConnection.NegotiateAsync());
+            await daemonConnection.StartAsync();
+
+            using var changed = await ownerClient.PostAsJsonAsync(
+                "/api/auth/setup",
+                new AccessSetupRequest { Mode = AccountMode.Password, ApiKey = apiKey });
+            Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+
+            var closed = await Task.WhenAll(
+                sharedConnections.Append(daemonConnection).Select(connection => connection.ClosedAsync()));
+            Assert.All(closed, Assert.True);
+
+            var marker = $"secure-mode-{Guid.NewGuid():N}";
+            await host.Application.Services.GetRequiredService<IHubContext<DownloadHub>>()
+                .Clients.Group(DownloadHub.AdminGroup)
+                .SendAsync(SignalREvents.ActivityUpdated, marker);
+            Assert.True(await accountConnection.ReceivedAsync(marker));
+        }
+        finally
+        {
+            foreach (var connection in sharedConnections)
+            {
+                connection.Dispose();
+            }
+        }
+    }
+
     /// <summary>
     /// An admin, a user and a guest each connect with nothing but the cookie and each receives a
     /// broadcast sent to the group they were put in.
@@ -112,22 +210,36 @@ public sealed class DownloadHubCookieConnectionTests
         EndpointAuthorizationHost host, IServiceScope scope, SessionType role)
     {
         var sessionService = scope.ServiceProvider.GetRequiredService<SessionService>();
-        var apiKey = host.Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
-
-        var created = await sessionService.CreateAdminSessionAsync(apiKey, new DefaultHttpContext());
-        Assert.NotNull(created);
-
         var factory = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        var account = new UserAccount
+        {
+            Id = Guid.NewGuid(),
+            Username = $"hub-{Guid.NewGuid():N}",
+            PasswordHash = "unused",
+            Role = role,
+            CreatedAtUtc = DateTime.UtcNow
+        };
         await using (var database = await factory.CreateDbContextAsync())
         {
-            var stored = await database.UserSessions.FirstAsync(s => s.Id == created!.Value.Session.Id);
-            stored.SessionType = role;
+            database.UserAccounts.Add(account);
             await database.SaveChangesAsync();
         }
 
+        var created = await sessionService.CreateAccountSessionAsync(new DefaultHttpContext(), account);
+
         var written = new DefaultHttpContext();
-        sessionService.SetSessionCookie(written, created!.Value.RawToken, DateTime.UtcNow.AddDays(1));
-        return (written.Response.Headers.SetCookie.ToString().Split(';')[0], created.Value.RawToken);
+        sessionService.SetSessionCookie(written, created.RawToken, DateTime.UtcNow.AddDays(1));
+        return (written.Response.Headers.SetCookie.ToString().Split(';')[0], created.RawToken);
+    }
+
+    private static async Task<string> SharedCookieAsync(EndpointAuthorizationHost host)
+    {
+        using var client = host.Application.CreateClient();
+        using var response = await client.GetAsync("/api/auth/status");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return response.Headers.GetValues("Set-Cookie")
+            .Select(value => value.Split(';')[0])
+            .Single(value => value.StartsWith("LancacheManager.Session=", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -137,29 +249,39 @@ public sealed class DownloadHubCookieConnectionTests
     /// </summary>
     private sealed class HubOverLongPolling : IDisposable
     {
-        private const string HubPath = "/hubs/downloads";
         private const string Handshake = "{\"protocol\":\"json\",\"version\":1}";
         private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(30);
 
         private readonly HttpClient _client;
-        private readonly string _cookie;
+        private readonly string _hubPath;
+        private string _cookie;
         private readonly StringBuilder _received = new();
         private string _connectionToken = string.Empty;
 
-        public HubOverLongPolling(HttpClient client, string cookie)
+        public HubOverLongPolling(HttpClient client, string cookie, string hubPath = "/hubs/downloads")
         {
             _client = client;
             _cookie = cookie;
+            _hubPath = hubPath;
         }
 
         /// <summary>Runs the negotiate the browser runs first, and keeps the token the rest of it needs.</summary>
         public async Task<HttpStatusCode> NegotiateAsync()
         {
-            using var request = Request(HttpMethod.Post, $"{HubPath}/negotiate?negotiateVersion=1");
+            using var request = Request(HttpMethod.Post, $"{_hubPath}/negotiate?negotiateVersion=1");
             using var response = await _client.SendAsync(request);
             if (response.StatusCode != HttpStatusCode.OK)
             {
                 return response.StatusCode;
+            }
+
+            if (string.IsNullOrEmpty(_cookie)
+                && response.Headers.TryGetValues("Set-Cookie", out var cookies))
+            {
+                _cookie = cookies
+                    .Select(value => value.Split(';')[0])
+                    .FirstOrDefault(value => value.StartsWith("LancacheManager.Session=", StringComparison.Ordinal))
+                    ?? string.Empty;
             }
 
             using var negotiated = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -214,14 +336,50 @@ public sealed class DownloadHubCookieConnectionTests
             return true;
         }
 
+        public async Task<bool> ClosedAsync()
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while (!deadline.IsCancellationRequested)
+            {
+                try
+                {
+                    using var request = Request(HttpMethod.Get, TransportUrl);
+                    using var response = await _client.SendAsync(request, deadline.Token);
+                    if (response.StatusCode != HttpStatusCode.OK)
+                    {
+                        return true;
+                    }
+
+                    var body = await response.Content.ReadAsStringAsync(deadline.Token);
+                    if (body.Contains("\"type\":7", StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+                }
+                catch (HttpRequestException)
+                {
+                    return true;
+                }
+                catch (OperationCanceledException)
+                {
+                    return false;
+                }
+            }
+
+            return false;
+        }
+
         public void Dispose() => _client.Dispose();
 
-        private string TransportUrl => $"{HubPath}?id={Uri.EscapeDataString(_connectionToken)}";
+        private string TransportUrl => $"{_hubPath}?id={Uri.EscapeDataString(_connectionToken)}";
 
         private HttpRequestMessage Request(HttpMethod method, string url)
         {
             var request = new HttpRequestMessage(method, url);
-            request.Headers.Add("Cookie", _cookie);
+            if (!string.IsNullOrEmpty(_cookie))
+            {
+                request.Headers.Add("Cookie", _cookie);
+            }
             return request;
         }
     }

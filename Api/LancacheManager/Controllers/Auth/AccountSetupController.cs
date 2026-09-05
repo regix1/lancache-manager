@@ -1,6 +1,8 @@
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
+using System.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -156,6 +158,66 @@ public class AccountSetupController : ControllerBase
     }
 
     /// <summary>
+    /// Establishes the first local credential for a main administrator created by external sign-in.
+    /// </summary>
+    [Authorize]
+    [EnableRateLimiting("auth")]
+    [HttpPost("main-admin-password")]
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageResponse>> SetMainAdminPasswordAsync(
+        [FromBody] AccountCredentialsRequest request,
+        [FromServices] AccountLockout accountLockout)
+    {
+        if (!_apiKeyService.ValidateApiKey(request.ApiKey))
+        {
+            return Unauthorized(ApiResponse.Error("A valid API key is required"));
+        }
+
+        var session = HttpContext.GetUserSession();
+        if (session?.AccountId is not { } accountId)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Error("The main administrator must authorize this change"));
+        }
+
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var account = await context.UserAccounts
+            .SingleOrDefaultAsync(candidate => candidate.Id == accountId && candidate.IsMainAdmin);
+        if (account is null)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Error("The main administrator must authorize this change"));
+        }
+        if (!string.IsNullOrEmpty(account.PasswordHash))
+        {
+            return Conflict(ApiResponse.Error("Local credentials are already set; use the password change screen"));
+        }
+
+        account.Username = request.Username.Trim();
+        account.PasswordHash = _passwordHasher.HashPassword(account, request.Password);
+        try
+        {
+            await context.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex)
+        {
+            if (!await context.UserAccounts.AnyAsync(candidate => candidate.Username == account.Username && candidate.Id != account.Id))
+            {
+                throw;
+            }
+
+            _logger.LogWarning(ex, "The main administrator's local username is already in use");
+            return Conflict(ApiResponse.Error("That username is already taken"));
+        }
+
+        accountLockout.Clear(account.Id);
+        await _identityAuditService.RecordAsync(
+            IdentityAuditEvent.PasswordChanged,
+            performedByAccountId: account.Id,
+            performedBySessionId: session.Id,
+            targetAccountId: account.Id);
+        return Ok(MessageResponse.Ok("Local credentials set"));
+    }
+
+    /// <summary>
     /// Opens main-administrator password recovery after the host script proves the installation key.
     /// </summary>
     [AllowAnonymous]
@@ -173,6 +235,27 @@ public class AccountSetupController : ControllerBase
                 {
                     StageKey = AccountSetupRefusalResponse.ApiKeyRequired,
                     Error = "A valid API key is required"
+                });
+        }
+
+        var peerAddress = HttpContext.Items.TryGetValue(AccountClaimWindow.PeerAddressKey, out var originalPeer)
+            ? originalPeer as IPAddress
+            : HttpContext.Connection.RemoteIpAddress;
+        if (peerAddress?.IsIPv4MappedToIPv6 == true)
+        {
+            peerAddress = peerAddress.MapToIPv4();
+        }
+
+        if (peerAddress is null
+            || !IPAddress.IsLoopback(peerAddress)
+            || !_claimWindow.ValidateRecoveryToken(request.RecoveryToken))
+        {
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                new AccountSetupRefusalResponse
+                {
+                    StageKey = AccountSetupRefusalResponse.RecoveryWindowClosed,
+                    Error = "Password recovery must be opened from the application host"
                 });
         }
 
@@ -282,6 +365,9 @@ public class AccountSetupController : ControllerBase
         // does not override it. Without this the operator is told "Password reset" and then refused
         // with the same sentence a wrong password gets.
         accountLockout.Clear(account.Id);
+
+        var session = await sessionService.CreateAccountSessionAsync(HttpContext, account);
+        sessionService.SetSessionCookie(HttpContext, session.RawToken, session.Session.ExpiresAtUtc);
 
         // No actor: the caller proved the API key and has neither an account nor a session.
         await _identityAuditService.RecordAsync(

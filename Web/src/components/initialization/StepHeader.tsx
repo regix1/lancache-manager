@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 
 interface StepHeaderProps {
   /** Icon element, already sized and coloured by the caller, e.g. `<CheckCircle className="w-7 h-7 icon-success" />`. */
@@ -7,6 +7,12 @@ interface StepHeaderProps {
   iconBackground: string;
   title: string;
   description: string;
+  /**
+   * Lets a caller that swaps steps inside one dialog move keyboard focus to the new heading, so a
+   * screen reader announces where the person landed. The heading only joins the focus sequence
+   * programmatically; it is never a tab stop.
+   */
+  headingRef?: Ref<HTMLHeadingElement>;
 }
 
 /**
@@ -16,7 +22,8 @@ export const StepHeader: React.FC<StepHeaderProps> = ({
   icon,
   iconBackground,
   title,
-  description
+  description,
+  headingRef
 }) => (
   <div className="flex flex-col items-center text-center">
     <div
@@ -24,7 +31,13 @@ export const StepHeader: React.FC<StepHeaderProps> = ({
     >
       {icon}
     </div>
-    <h3 className="text-lg font-semibold text-themed-primary mb-1">{title}</h3>
+    <h3
+      ref={headingRef}
+      tabIndex={headingRef ? -1 : undefined}
+      className="text-lg font-semibold text-themed-primary mb-1"
+    >
+      {title}
+    </h3>
     <p className="text-sm text-themed-secondary max-w-md">{description}</p>
   </div>
 );

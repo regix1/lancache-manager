@@ -394,19 +394,31 @@ public sealed class AccountHolderRouteAccessTests
     private static async Task<(ClaimsPrincipal Admin, ClaimsPrincipal User)> AdminAndUserPrincipalsAsync(
         EndpointAuthorizationHost host)
     {
-        var apiKey = host.Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
-
         using var scope = host.Application.Services.CreateScope();
         var sessions = scope.ServiceProvider.GetRequiredService<SessionService>();
+        var adminAccount = NewAccount(SessionType.Admin);
+        var userAccount = NewAccount(SessionType.User);
+        var factory = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        await using (var context = await factory.CreateDbContextAsync())
+        {
+            context.UserAccounts.AddRange(adminAccount, userAccount);
+            await context.SaveChangesAsync();
+        }
 
-        var admin = await sessions.CreateAdminSessionAsync(apiKey, new DefaultHttpContext());
-        var user = await sessions.CreateAdminSessionAsync(apiKey, new DefaultHttpContext());
-        Assert.NotNull(admin);
-        Assert.NotNull(user);
-        await PromoteToUserAsync(host, user!.Value.Session.Id);
+        var admin = await sessions.CreateAccountSessionAsync(new DefaultHttpContext(), adminAccount);
+        var user = await sessions.CreateAccountSessionAsync(new DefaultHttpContext(), userAccount);
 
-        return (await PrincipalForAsync(host, admin!.Value.RawToken), await PrincipalForAsync(host, user.Value.RawToken));
+        return (await PrincipalForAsync(host, admin.RawToken), await PrincipalForAsync(host, user.RawToken));
     }
+
+    private static UserAccount NewAccount(SessionType role) => new()
+    {
+        Id = Guid.NewGuid(),
+        Username = $"route-{Guid.NewGuid():N}",
+        PasswordHash = "unused",
+        Role = role,
+        CreatedAtUtc = DateTime.UtcNow
+    };
 
     private static async Task<ClaimsPrincipal> PrincipalForAsync(EndpointAuthorizationHost host, string rawToken)
     {

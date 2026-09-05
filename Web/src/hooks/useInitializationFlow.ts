@@ -257,6 +257,8 @@ function normalizeServerStep(raw: string | null): InitStep | null {
     case 'epic-auth':
     case 'xbox-auth':
     case 'log-processing':
+      return raw;
+    // The API key step no longer exists; a wizard stored on it resumes at the step that followed.
     case 'api-key':
       return 'permissions-check';
     default:
@@ -277,9 +279,10 @@ export function useInitializationFlow({
     markSetupCompleted: markSetupCompletedLocally,
     updateWizardState
   } = useSetupStatus();
-  const { authenticationEnabled } = useAuth();
+  const { authenticationEnabled, accountMode } = useAuth();
 
   const adminAccountRequired = isAdminAccountRequired({
+    accountMode,
     authenticationEnabled,
     accountExists: setupStatus?.accountExists ?? null,
     needsPostgresCredentials: setupStatus?.needsPostgresCredentials === true,

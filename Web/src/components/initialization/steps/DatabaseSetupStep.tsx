@@ -196,7 +196,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
               value={form.username}
               onChange={handleInputChange('username')}
               placeholder={t('initialization.databaseSetup.usernamePlaceholder')}
-              className="w-full px-3 py-2.5 themed-input"
+              className="themed-input setup-input"
               autoComplete="username"
               disabled={isSubmitting}
             />
@@ -214,7 +214,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
           placeholder={t('initialization.databaseSetup.passwordPlaceholder')}
           autoComplete="new-password"
           disabled={isSubmitting}
-          inputClassName="w-full px-3 py-2.5 themed-input"
+          inputClassName="themed-input setup-input"
           showPasswordLabel={t('aria.showPassword')}
           hidePasswordLabel={t('aria.hidePassword')}
         />
@@ -236,7 +236,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
           placeholder={t('initialization.databaseSetup.confirmPasswordPlaceholder')}
           autoComplete="new-password"
           disabled={isSubmitting}
-          inputClassName="w-full px-3 py-2.5 themed-input"
+          inputClassName="themed-input setup-input"
           showPasswordLabel={t('aria.showPassword')}
           hidePasswordLabel={t('aria.hidePassword')}
         />
@@ -256,7 +256,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
                 value={form.apiKey}
                 onChange={handleInputChange('apiKey')}
                 placeholder={t('initialization.databaseSetup.apiKeyPlaceholder')}
-                className="w-full px-3 py-2.5 themed-input"
+                className="themed-input setup-input"
                 // `new-password` rather than `off`: browsers ignore `off` on a password input and
                 // will still offer to remember the key and refill it on a later visit.
                 autoComplete="new-password"

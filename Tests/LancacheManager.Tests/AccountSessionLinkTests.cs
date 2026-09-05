@@ -1,5 +1,6 @@
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Core.Services;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
@@ -91,6 +92,24 @@ public sealed class AccountSessionLinkTests : IDisposable
         await service.RevokeAccountSessionsAsync(account.Id);
 
         Assert.Null(await service.ValidateSessionAsync(signedIn.RawToken));
+    }
+
+    [Fact]
+    public async Task RevokingASessionDisconnectsAllOfItsHubConnections()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var connections = new ConnectionTrackingService(NullLogger<ConnectionTrackingService>.Instance);
+        var service = NewSessionService(database.Factory, connectionTrackingService: connections);
+        var account = await NewAccountAsync(database, "connected");
+        var signedIn = await NewAccountSessionAsync(database, service, account.Id);
+        var aborted = 0;
+        connections.RegisterConnection(signedIn.Session.Id, "first", () => aborted++);
+        connections.RegisterConnection(signedIn.Session.Id, "second", () => aborted++);
+
+        Assert.True(await service.RevokeSessionAsync(signedIn.Session.Id));
+
+        Assert.Equal(2, aborted);
+        Assert.True(connections.IsDisconnected(signedIn.Session.Id));
     }
 
     /// <summary>
@@ -269,14 +288,17 @@ public sealed class AccountSessionLinkTests : IDisposable
     }
 
     private SessionService NewSessionService(
-        IDbContextFactory<AppDbContext> dbContextFactory, StateService? stateService = null) =>
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        StateService? stateService = null,
+        ConnectionTrackingService? connectionTrackingService = null) =>
         new(
             dbContextFactory,
             _apiKeyService,
             NullLogger<SessionService>.Instance,
             stateService!,
             signalR: null!,
-            _configuration);
+            _configuration,
+            connectionTrackingService: connectionTrackingService);
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 }

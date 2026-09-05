@@ -297,6 +297,7 @@ public class AccountCredentialsRequest
 public class RecoveryWindowRequest
 {
     public string ApiKey { get; set; } = string.Empty;
+    public string RecoveryToken { get; set; } = string.Empty;
 }
 
 #endregion

@@ -14,8 +14,8 @@ namespace LancacheManager.Security;
 /// account exists the installation is unclaimed, and no session should outlive a restart into that
 /// state. The first account makes it a no-op from then on.
 ///
-/// An installation running with Security:EnableAuthentication=false is left alone entirely. It is
-/// account-less by design and stays that way, so the count would never rise and this would clear its
+/// An installation using unauthenticated access is left alone entirely. It can remain account-less,
+/// so the count might never rise and this would clear its
 /// sessions on every start. The display preferences hang off the session row and cascade with it, so
 /// that would reset the theme, the clock and the refresh rate every time the container restarts.
 /// </summary>
