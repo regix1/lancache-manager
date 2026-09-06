@@ -236,7 +236,7 @@ public partial class XboxCatalogMappingService
             {
                 await EmitAuthStateAsync(
                     reporter.OperationId,
-                    "waiting",
+                    OperationStatus.Waiting,
                     XboxAwaitingSignInStageKey,
                     "Waiting for Microsoft sign-in...");
 
@@ -322,7 +322,7 @@ public partial class XboxCatalogMappingService
                 context: CreateXboxMappingContext(resolved: resolved));
             await EmitAuthStateAsync(
                 reporter.OperationId,
-                "completed",
+                OperationStatus.Completed,
                 "signalr.xbox.mapping.completed",
                 $"Xbox login complete - {harvest.CdnInfos.Count} games");
 
@@ -339,7 +339,7 @@ public partial class XboxCatalogMappingService
 
             await EmitAuthStateAsync(
                 reporter.OperationId,
-                "cancelled",
+                OperationStatus.Cancelled,
                 "signalr.xbox.mapping.cancelled",
                 "Xbox login cancelled");
         }
@@ -362,7 +362,7 @@ public partial class XboxCatalogMappingService
 
             await EmitAuthStateAsync(
                 reporter.OperationId,
-                "failed",
+                OperationStatus.Failed,
                 ex.StageKey,
                 context: mappingContext);
         }
@@ -376,7 +376,7 @@ public partial class XboxCatalogMappingService
 
             await EmitAuthStateAsync(
                 reporter.OperationId,
-                "failed",
+                OperationStatus.Failed,
                 "signalr.xbox.mapping.failed",
                 "Xbox login failed",
                 ex.Message);
@@ -614,7 +614,7 @@ public partial class XboxCatalogMappingService
 
     private async Task EmitAuthStateAsync(
         Guid operationId,
-        string status,
+        OperationStatus status,
         string stageKey,
         string? message = null,
         string? error = null,

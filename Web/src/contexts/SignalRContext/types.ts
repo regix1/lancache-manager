@@ -343,7 +343,13 @@ export const SIGNALR_REFRESH_EVENTS = [
  */
 interface OperationEvent {
   operationId: string;
-  context?: Record<string, string | number | boolean>;
+  /**
+   * The server builds this as `Dictionary<string, object?>` and writes null into an entry whose
+   * source value is absent (a scan mode that was never resolved, a service name on a non-service
+   * scope). The SignalR JSON protocol sets only naming policies, so those nulls reach the client
+   * as `"key": null` rather than being dropped.
+   */
+  context?: Record<string, string | number | boolean | null>;
   stageKey?: string;
 }
 

@@ -488,7 +488,7 @@ public static class SignalRNotifications
     /// </summary>
     public record XboxMappingAuthStateChanged(
         Guid OperationId,
-        string Status,
+        OperationStatus Status,
         string StageKey,
         string? Message = null,
         string? Error = null,

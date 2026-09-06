@@ -1,6 +1,7 @@
 using System.Net;
 using System.Reflection;
 using System.Text;
+using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
@@ -395,7 +396,7 @@ public class XboxScheduledRefreshProgressTests
 
         var authState = Assert.IsType<SignalRNotifications.XboxMappingAuthStateChanged>(
             harness.Notifications.EventsFor(SignalREvents.XboxMappingAuthStateChanged).Last());
-        Assert.Equal("failed", authState.Status);
+        Assert.Equal(OperationStatus.Failed, authState.Status);
         Assert.Equal("signalr.xbox.mapping.errors.childAccount", authState.StageKey);
         Assert.Null(authState.Error);
         Assert.Null(authState.Message);
@@ -882,6 +883,30 @@ public class XboxScheduledRefreshProgressTests
 
             return null;
         }
+    }
+
+    [Theory]
+    [InlineData(OperationStatus.Waiting, "waiting")]
+    [InlineData(OperationStatus.Completed, "completed")]
+    [InlineData(OperationStatus.Cancelled, "cancelled")]
+    [InlineData(OperationStatus.Failed, "failed")]
+    public void AuthStateStatusKeepsItsWireSpelling(OperationStatus status, string expected)
+    {
+        // The frontend matches this event's status against a union of lowercase literals, so the
+        // enum has to serialize to the same four words the login flow used to send as raw strings.
+        // Options mirror the hub's AddJsonProtocol registration in Program.cs.
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DictionaryKeyPolicy = JsonNamingPolicy.CamelCase
+        };
+
+        var json = JsonSerializer.Serialize(
+            new SignalRNotifications.XboxMappingAuthStateChanged(Guid.NewGuid(), status, "signalr.xbox.mapping.completed"),
+            options);
+
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal(expected, document.RootElement.GetProperty("status").GetString());
     }
 
     // Returns null/default for every IStateService member; the constructor only reads the three

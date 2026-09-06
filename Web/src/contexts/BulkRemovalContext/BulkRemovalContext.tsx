@@ -443,7 +443,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
                   ? `${evictedEntity.service}:${evictedEntity.gameName}`
                   : String(evictedGame?.game_app_id ?? '');
           const matchesEntryIdentity = (
-            contextBag?: Record<string, string | number | boolean>
+            contextBag?: Record<string, string | number | boolean | null>
           ): boolean => {
             const scope = contextBag?.scope;
             const key = contextBag?.key;
