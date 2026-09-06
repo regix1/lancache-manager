@@ -73,7 +73,6 @@ public sealed class ScheduledHeavyOperationQueueTests
         await service.InvokeScheduledAsync(provider, CancellationToken.None);
 
         AssertQueueRequest(queue, OperationType.EvictionScan, "Eviction Scan");
-        AssertFullDetectionQueuedAheadOfScan(queue);
     }
 
     [Fact]
@@ -102,18 +101,7 @@ public sealed class ScheduledHeavyOperationQueueTests
             .WaitAsync(TimeSpan.FromSeconds(2));
 
         AssertQueueRequest(queue, OperationType.EvictionScan, "Eviction Scan");
-        AssertFullDetectionQueuedAheadOfScan(queue);
         Assert.True(service.FirstStartupScanComplete.IsCompletedSuccessfully);
-    }
-
-    private static void AssertFullDetectionQueuedAheadOfScan(RecordingOperationQueue queue)
-    {
-        Assert.Equal(
-            [
-                new QueueRequest(OperationType.GameDetection, "Game Detection"),
-                new QueueRequest(OperationType.EvictionScan, "Eviction Scan")
-            ],
-            queue.Requests);
     }
 
     [Fact]
@@ -476,8 +464,6 @@ public sealed class ScheduledHeavyOperationQueueTests
             => Handler!(targetMethod!, args);
     }
 
-    private sealed record QueueRequest(OperationType Type, string DisplayName);
-
     private sealed class RecordingOperationQueue : IOperationQueue
     {
         private readonly QueuedOperationResponse _response;
@@ -496,7 +482,6 @@ public sealed class ScheduledHeavyOperationQueueTests
         public ConflictScope? Scope { get; private set; }
         public string? DisplayName { get; private set; }
         public Func<Task<Guid?>>? Start { get; private set; }
-        public List<QueueRequest> Requests { get; } = [];
 
         public Task<QueuedOperationResponse> EnqueueAsync(
             OperationType type,
@@ -510,7 +495,6 @@ public sealed class ScheduledHeavyOperationQueueTests
             Scope = scope;
             DisplayName = displayName;
             Start = start;
-            Requests.Add(new QueueRequest(type, displayName));
             return Task.FromResult(_response);
         }
 

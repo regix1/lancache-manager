@@ -359,7 +359,7 @@
         "xboxCatalogUpdate": "Xbox 目录更新",
         "battleNetGameMapping": "Battle.net 游戏映射",
         "riotGameMapping": "Riot 游戏映射",
-        "evictionScan": "淘汰扫描",
+        "evictionScan": "缓存扫描",
         "evictionRemoval": "淘汰移除",
         "cacheSizeScan": "缓存文件扫描",
         "scheduledPrefill": "计划预填充",
@@ -388,7 +388,7 @@
       "cancelXboxGameMapping": "取消 Xbox 游戏映射",
       "cancelBattleNetGameMapping": "取消 Battle.net 游戏映射",
       "cancelRiotGameMapping": "取消 Riot 游戏映射",
-      "cancelEvictionScan": "取消淘汰扫描",
+      "cancelEvictionScan": "取消缓存扫描",
       "cancelCacheSizeScan": "取消缓存文件扫描",
       "cancelScheduledPrefill": "取消计划预填充",
       "cancelEvictionRemoval": "取消淘汰移除",
@@ -4187,8 +4187,8 @@
           "loss": "如果 nginx 失去了日志访问权限，新的下载活动将不会记录，直到下次轮换运行"
         },
         "cacheReconciliation": {
-          "displayName": "淘汰扫描",
-          "description": "将缓存目录与数据库进行比较，查看哪些仍存在于磁盘上，哪些已被 nginx 淘汰。保持界面中的\"已驱逐\"徽章准确。每次运行前会先排队一次完整的游戏检测，确保扫描前的大小数据是最新的。",
+          "displayName": "缓存扫描",
+          "description": "先运行一次完整的游戏检测，然后将缓存目录与数据库进行比较，查看哪些仍存在于磁盘上，哪些已被 nginx 淘汰。保持界面中的游戏大小和\"已驱逐\"徽章准确。",
           "summary": "检查哪些缓存文件已被 nginx 逐出。",
           "gain": "界面中的淘汰徽章和缓存状态更准确和最新",
           "loss": "界面可能显示过时的淘汰状态 - 标记为已缓存的项目可能实际上已被驱逐，反之亦然",
@@ -7399,6 +7399,7 @@
       "refreshingDetection": "正在刷新缓存检测数据..."
     },
     "evictionScan": {
+      "detectingGames": "正在运行完整的游戏检测...",
       "scanning": "正在扫描缓存文件...",
       "scanningFiles": "正在扫描缓存文件...（目前已找到 {{filesFound}} 个）",
       "progress": "已处理 {{totalProcessed}} / ~{{totalEstimate}} 个下载...",
@@ -7406,11 +7407,11 @@
       "postProcessing": "正在更新检测记录...",
       "refreshingSummary": "正在刷新缓存文件检测摘要...",
       "complete": "扫描完成: 已处理 {{totalProcessed}}，已淘汰 {{totalEvicted}}，已取消淘汰 {{totalUnEvicted}}",
-      "cancelled": "淘汰扫描已取消",
+      "cancelled": "缓存扫描已取消",
       "error": {
-        "fatal": "淘汰扫描失败: {{errorDetail}}"
+        "fatal": "缓存扫描失败: {{errorDetail}}"
       },
-      "stale": "淘汰扫描完成"
+      "stale": "缓存扫描完成"
     },
     "cacheSizeScan": {
       "starting": "正在启动缓存文件扫描...",

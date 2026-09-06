@@ -112,42 +112,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     public Guid? RunManualAsync() => StartScanInBackground("Eviction Scan", silent: RunSilentFor(RunTrigger.Manual));
 
     /// <summary>
-    /// Queues the full game detection every eviction scan runs behind. The scan's summary refresh
-    /// never reads the disk, so a game whose files came back since the last detection keeps a stale
-    /// size until a full detection re-measures it. Enqueued right before the scan, the detection
-    /// parks the scan behind it as a heavy-operation conflict and the two run back to back. Its
-    /// card follows this service's notification mode for the same trigger.
-    /// </summary>
-    public async Task QueueFullDetectionAsync(RunTrigger trigger, CancellationToken ct)
-    {
-        var showNotification = !RunSilentFor(trigger);
-        Task<Guid?> StartFullDetectionAsync() =>
-            _gameCacheDetectionService.StartDetectionAsync(incremental: false, showNotification: showNotification);
-
-        try
-        {
-            var outcome = await _operationQueue.EnqueueAsync(
-                OperationType.GameDetection,
-                ConflictScope.Bulk(),
-                "Game Detection",
-                StartFullDetectionAsync,
-                ct);
-
-            _logger.LogInformation(
-                "[EvictionScan] Full detection ahead of the scan {Disposition} (operation: {OperationId})",
-                outcome.Queued ? "queued" : outcome.AlreadyRunning ? "already requested" : "started",
-                outcome.OperationId);
-        }
-        catch (ValidationException ex)
-        {
-            // A download in progress or undecidable cache-key evidence refuses the detection. The
-            // scan checks the same two conditions itself and reports them on its own terminal
-            // event, so the refusal is logged once here and the scan still goes on the queue.
-            _logger.LogWarning("[EvictionScan] Full detection ahead of the scan declined: {Reason}", ex.Message);
-        }
-    }
-
-    /// <summary>
     /// Starts a scan whose lifetime belongs to this singleton rather than to the scheduler
     /// invocation that requested it. This is required for wait-queue promotion, which may happen
     /// long after the original scheduled tick and its scoped DbContext have ended.
@@ -302,8 +266,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 return;
             }
 
-            await QueueFullDetectionAsync(CurrentRunTrigger, stoppingToken);
-
             var scanCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             Task<Guid?> StartStartupScanAsync() => Task.FromResult(StartScanInBackground(
                 "Eviction Scan",
@@ -356,8 +318,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _logger.LogDebug("[EvictionScan] No downloads in database, skipping scheduled scan");
             return;
         }
-
-        await QueueFullDetectionAsync(CurrentRunTrigger, stoppingToken);
 
         Task<Guid?> StartScheduledScanAsync() => Task.FromResult(
             StartScanInBackground("Eviction Scan", silent));
@@ -444,14 +404,18 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         try
         {
-            _logger.LogInformation("[EvictionScan] Starting eviction scan via Rust binary (scanSilent: {ScanSilent})", silent);
-
             // Always emit the lifecycle event; the display flag (not transport suppression) decides
             // whether the frontend surfaces the card.
             await _notifications.NotifyAllAsync(SignalREvents.EvictionScanStarted, new EvictionScanStarted(
-                StageKey: "signalr.evictionScan.scanning",
+                StageKey: "signalr.evictionScan.detectingGames",
                 OperationId: operationId,
                 ShowNotification: !silent));
+
+            await RunFullDetectionPhaseAsync(operationId, showNotification: !silent, stoppingToken);
+            stoppingToken.ThrowIfCancellationRequested();
+            await ReportScanProgressAsync(operationId, 0, "signalr.evictionScan.scanning", new EvictionScanResult(), !silent);
+
+            _logger.LogInformation("[EvictionScan] Starting eviction scan via Rust binary (scanSilent: {ScanSilent})", silent);
 
             // Write datasource configuration to temp file for the Rust binary
             datasourceConfigPath = Path.GetTempFileName();
@@ -862,6 +826,74 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         _evictionScanTerminalStates[operationId] = terminalState;
         return operationId;
+    }
+
+    /// <summary>
+    /// Phase one of every scan: a full game detection under this scan's operation, so a game whose
+    /// files came back since the last detection is re-sized before the scan zeroes what is gone.
+    /// The detection runs with its own card hidden (its data events still fire), its percent is
+    /// forwarded onto this scan's card, and cancelling the scan cancels it. A refused or failed
+    /// detection is logged and the scan goes on, because the scan reports its own gates itself.
+    /// </summary>
+    private async Task RunFullDetectionPhaseAsync(Guid operationId, bool showNotification, CancellationToken stoppingToken)
+    {
+        Guid? detectionId;
+        try
+        {
+            detectionId = await _gameCacheDetectionService.StartDetectionAsync(incremental: false, showNotification: false);
+        }
+        catch (ValidationException ex)
+        {
+            _logger.LogWarning("[EvictionScan] Full detection ahead of the scan declined: {Reason}", ex.Message);
+            return;
+        }
+
+        if (detectionId == null)
+        {
+            _logger.LogWarning("[EvictionScan] A game detection is already running, so the scan continues without its own");
+            return;
+        }
+
+        var finished = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnTerminal(OperationInfo operation)
+        {
+            if (operation.Id == detectionId.Value)
+            {
+                finished.TrySetResult(operation);
+            }
+        }
+
+        _operationTracker.OperationTerminal += OnTerminal;
+        // Cancelling the scan cancels the detection it is waiting on. The wait still ends on the
+        // detection's own terminal, which keeps the single-owner ordering the tracker expects.
+        using var cancelDetection = stoppingToken.Register(() => { _operationTracker.CancelOperation(detectionId.Value); });
+        try
+        {
+            while (!finished.Task.IsCompleted)
+            {
+                var detection = _operationTracker.GetOperation(detectionId.Value);
+                if (detection == null || detection.Status.IsTerminal())
+                {
+                    // Finished before the subscription landed, or already gone from the tracker.
+                    break;
+                }
+
+                await ReportScanProgressAsync(
+                    operationId,
+                    detection.PercentComplete,
+                    "signalr.evictionScan.detectingGames",
+                    new EvictionScanResult(),
+                    showNotification);
+
+                await Task.WhenAny(finished.Task, Task.Delay(TimeSpan.FromMilliseconds(500), CancellationToken.None));
+            }
+
+            _logger.LogInformation("[EvictionScan] Full detection ahead of the scan finished (operation: {DetectionId})", detectionId);
+        }
+        finally
+        {
+            _operationTracker.OperationTerminal -= OnTerminal;
+        }
     }
 
     private async Task ReportScanProgressAsync(

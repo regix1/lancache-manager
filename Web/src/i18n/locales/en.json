@@ -359,7 +359,7 @@
         "xboxCatalogUpdate": "Xbox Catalog Update",
         "battleNetGameMapping": "Battle.net Game Mapping",
         "riotGameMapping": "Riot Game Mapping",
-        "evictionScan": "Eviction Scan",
+        "evictionScan": "Cache Scan",
         "evictionRemoval": "Eviction Removal",
         "cacheSizeScan": "Cache File Scan",
         "scheduledPrefill": "Scheduled Prefill",
@@ -388,7 +388,7 @@
       "cancelXboxGameMapping": "Cancel Xbox game mapping",
       "cancelBattleNetGameMapping": "Cancel Battle.net game mapping",
       "cancelRiotGameMapping": "Cancel Riot game mapping",
-      "cancelEvictionScan": "Cancel eviction scan",
+      "cancelEvictionScan": "Cancel cache scan",
       "cancelCacheSizeScan": "Cancel cache file scan",
       "cancelScheduledPrefill": "Cancel scheduled prefill",
       "cancelEvictionRemoval": "Cancel eviction removal",
@@ -4187,8 +4187,8 @@
           "loss": "If nginx has lost log access, new download activity will not be recorded until the next rotation run"
         },
         "cacheReconciliation": {
-          "displayName": "Eviction Scan",
-          "description": "Compares your cache directory against the database to see what is still on disk vs. what nginx has evicted. Keeps the 'evicted' badges in the UI accurate. Each run queues a full game detection first so sizes are fresh before the scan.",
+          "displayName": "Cache Scan",
+          "description": "Runs a full game detection, then compares your cache directory against the database to see what is still on disk vs. what nginx has evicted. Keeps game sizes and the 'evicted' badges in the UI accurate.",
           "summary": "Checks which cached files nginx has evicted.",
           "gain": "Eviction badges and cache status in the UI are more accurate and up to date",
           "loss": "The UI may show stale eviction status - items marked as cached might actually be evicted, or vice versa",
@@ -7433,6 +7433,7 @@
       "refreshingDetection": "Refreshing cache detection data..."
     },
     "evictionScan": {
+      "detectingGames": "Running a full game detection...",
       "scanning": "Scanning cache files...",
       "scanningFiles": "Scanning cache files... ({{filesFound}} found so far)",
       "progress": "Processed {{totalProcessed}} of ~{{totalEstimate}} downloads...",
@@ -7440,11 +7441,11 @@
       "postProcessing": "Updating detection records...",
       "refreshingSummary": "Refreshing detection summary of cached files...",
       "complete": "Scan complete: {{totalProcessed}} processed, {{totalEvicted}} evicted, {{totalUnEvicted}} un-evicted",
-      "cancelled": "Eviction scan cancelled",
+      "cancelled": "Cache scan cancelled",
       "error": {
-        "fatal": "Eviction scan failed: {{errorDetail}}"
+        "fatal": "Cache scan failed: {{errorDetail}}"
       },
-      "stale": "Eviction scan completed"
+      "stale": "Cache scan completed"
     },
     "cacheSizeScan": {
       "starting": "Starting cache file scan...",

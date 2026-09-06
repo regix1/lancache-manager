@@ -483,10 +483,6 @@ public class StatsController : ControllerBase
             return BadRequest(ApiResponse.DownloadInProgress(downloadDenial));
         }
 
-        // Queued first so the conflict check below parks the scan behind it and the two run back
-        // to back (see CacheReconciliationService.QueueFullDetectionAsync).
-        await _reconciliationService.QueueFullDetectionAsync(RunTrigger.Manual, cancellationToken);
-
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         Task<Guid?> StartManualScanAsync() => Task.FromResult(_reconciliationService.RunManualAsync());
 
