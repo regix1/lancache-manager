@@ -453,7 +453,9 @@ public sealed class CacheScanGateTests
 
         Assert.NotNull(promotedOutcome);
         Assert.False(promotedOutcome!.Value.Success);
-        Assert.False(string.IsNullOrWhiteSpace(promotedOutcome.Value.Error));
+        // No reason text: the card prints that field verbatim, so a held run says why through the
+        // stage key the card translates instead.
+        Assert.Null(promotedOutcome.Value.Error);
     }
 
     [Fact]

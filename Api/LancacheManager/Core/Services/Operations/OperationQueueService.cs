@@ -88,7 +88,8 @@ public sealed class OperationQueueService : IOperationQueue
         string displayName,
         Func<Task<Guid?>> start,
         CancellationToken ct,
-        bool reportRefusal = false)
+        bool reportRefusal = false,
+        bool showWaitingCard = true)
     {
         await _gate.WaitAsync(ct);
         try
@@ -153,14 +154,11 @@ public sealed class OperationQueueService : IOperationQueue
                             displayName,
                             new CancellationTokenSource(),
                             metadata: new Dictionary<string, object?> { [DeclinedRunMetadata.Key] = true });
-                        // A key, not ex.Message: the gate's sentence is written for an HTTP caller and
-                        // the card renders whatever lands here through i18next, so the English would
-                        // reach every locale untranslated.
-                        _tracker.CompleteOperation(
-                            declinedId,
-                            success: true,
-                            error: CacheScanGate.ScheduleQueuedReasonKey,
-                            skipped: true);
+                        // No error text. The card prints this field VERBATIM and only translates the
+                        // stage key beside it, so the gate's English would reach every locale as-is
+                        // and a translation key would show as the key itself. Leaving it null lets
+                        // the card say why in the reader's own language.
+                        _tracker.CompleteOperation(declinedId, success: true, skipped: true);
                     }
 
                     throw;
@@ -214,15 +212,21 @@ public sealed class OperationQueueService : IOperationQueue
                 // A declined run rides the success flag too, so it is excluded from Promoted and
                 // reported on its own: nothing started and nothing replaced the card, and saying
                 // otherwise removes the card without ever showing the reason.
-                onTerminalEmit: info => _notifications.NotifyAllAsync(
-                    SignalREvents.OperationWaitingComplete,
-                    new OperationWaitingCompleteNotification(
-                        waitingId,
-                        typeWire,
-                        info.Cancelled,
-                        info.Error,
-                        Promoted: info.Success && !info.Skipped,
-                        Skipped: info.Skipped)),
+                onTerminalEmit: info => !showWaitingCard
+                    ? Task.CompletedTask
+                    : _notifications.NotifyAllAsync(
+                        SignalREvents.OperationWaitingComplete,
+                        new OperationWaitingCompleteNotification(
+                            waitingId,
+                            typeWire,
+                            info.Cancelled,
+                            // A declined run's reason is the download gate's English, written for an
+                            // HTTP caller, and the card prints this field verbatim. Dropped so the
+                            // card uses its own translated wording; a real failure still carries its
+                            // message, which is the one a reader has to see.
+                            info.Skipped ? null : info.Error,
+                            Promoted: info.Success && !info.Skipped,
+                            Skipped: info.Skipped)),
                 initialStatus: OperationStatus.Waiting);
 
             // A waiting op has no worker, so the queue is its worker: when the universal
@@ -267,9 +271,15 @@ public sealed class OperationQueueService : IOperationQueue
                     type, displayName, waitingId, conflict.ActiveOperationType, conflict.ActiveOperationId);
             }
 
-            await _notifications.NotifyAllAsync(
-                SignalREvents.OperationWaiting,
-                new OperationWaitingNotification(waitingId, typeWire, displayName, blockerName));
+            // A schedule set to Silent parks like any other, it just does not put the card up. The
+            // notification is the only thing suppressed: the wait, the promotion and the cancel path
+            // all still work, and its own terminal still reports whatever the run did.
+            if (showWaitingCard)
+            {
+                await _notifications.NotifyAllAsync(
+                    SignalREvents.OperationWaiting,
+                    new OperationWaitingNotification(waitingId, typeWire, displayName, blockerName));
+            }
 
             if (retryAfterParking)
             {
@@ -421,9 +431,11 @@ public sealed class OperationQueueService : IOperationQueue
                         // This catch must stay above that one; the derived type is unreachable
                         // otherwise.
                         startDeclined = true;
-                        // Same reason as the immediate door above: this string is rendered, not read
-                        // by a caller, so it travels as a key.
-                        startError = CacheScanGate.ScheduleQueuedReasonKey;
+                        // Set for the control flow below, which reads a null startError as the
+                        // transient local-start-gate case and parks the waiter for another 30
+                        // seconds. It never reaches the card: the terminal emit drops the text on a
+                        // skipped completion, because that field is rendered verbatim.
+                        startError = ex.Message;
                         _logger.LogInformation(
                             "Queued {Type} '{Name}' declined at promotion: {Reason}",
                             waiter.Type, waiter.Name, ex.Message);

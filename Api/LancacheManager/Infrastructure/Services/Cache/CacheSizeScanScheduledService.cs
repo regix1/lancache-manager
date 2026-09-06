@@ -81,7 +81,8 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
                 "Cache File Scan",
                 StartScanAsync,
                 stoppingToken,
-                reportRefusal: true);
+                reportRefusal: true,
+                showWaitingCard: showNotification);
 
             if (outcome.Queued)
             {

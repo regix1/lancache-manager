@@ -64,7 +64,8 @@ public sealed class CacheSizeQueueTests
             string displayName,
             Func<Task<Guid?>> start,
             CancellationToken ct,
-            bool reportRefusal = false)
+            bool reportRefusal = false,
+            bool showWaitingCard = true)
         {
             Type = type;
             Scope = scope;

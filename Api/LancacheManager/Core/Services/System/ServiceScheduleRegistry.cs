@@ -270,10 +270,14 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // wording names neither. The specific reason travels on the message above; this is only
             // what the card shows when that message is missing, and blaming a download for a run a
             // heavy operation refused sends the reader looking for a download that was never there.
+            // The message is not forwarded. The tracker fills a skipped completion that carried no
+            // reason with "Operation skipped - nothing to do", and the card prints this field
+            // verbatim, so forwarding it would put that placeholder on screen in every locale. The
+            // stage key beside it is translated and says the same thing properly.
             _ = EmitSkippedRunAsync(
                 declinedKey,
                 operation.Id,
-                operation.Message,
+                reason: null,
                 SkippedBeforeStartStageKey);
         }
     }
@@ -859,13 +863,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 onTerminalEmit: (OperationTerminalInfo _) => EmitSkippedRunAsync(
                     serviceKey,
                     noticeId,
-                    CacheScanGate.ScheduleQueuedReasonKey,
+                    // No reason: the card prints that field verbatim and translates the stage key
+                    // beside it, so the wording has to travel as the key alone.
+                    reason: null,
                     CacheScanGate.ScheduleQueuedReasonKey));
-            _tracker.CompleteOperation(
-                noticeId,
-                success: true,
-                error: CacheScanGate.ScheduleQueuedReasonKey,
-                skipped: true);
+            _tracker.CompleteOperation(noticeId, success: true, skipped: true);
             return;
         }
 

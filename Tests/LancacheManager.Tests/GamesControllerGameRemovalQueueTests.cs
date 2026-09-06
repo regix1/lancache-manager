@@ -253,7 +253,8 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             string displayName,
             Func<Task<Guid?>> start,
             CancellationToken ct,
-            bool reportRefusal = false)
+            bool reportRefusal = false,
+            bool showWaitingCard = true)
         {
             Type = type;
             Scope = scope;

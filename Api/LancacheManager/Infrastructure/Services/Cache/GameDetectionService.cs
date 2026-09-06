@@ -85,7 +85,8 @@ public class GameDetectionService : ScheduledBackgroundService
             "Game Detection",
             StartDetectionAsync,
             ct,
-            reportRefusal: true);
+            reportRefusal: true,
+            showWaitingCard: showNotification);
 
         var disposition = outcome.Queued
             ? "queued"

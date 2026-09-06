@@ -299,7 +299,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 ConflictScope.Bulk(),
                 "Eviction Scan",
                 StartStartupScanAsync,
-                stoppingToken);
+                stoppingToken,
+                showWaitingCard: !silent);
 
             if (outcome.Queued || outcome.AlreadyRunning)
             {
@@ -348,7 +349,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             ConflictScope.Bulk(),
             "Eviction Scan",
             StartScheduledScanAsync,
-            stoppingToken);
+            stoppingToken,
+            showWaitingCard: !silent);
 
         if (outcome.Queued)
         {
@@ -413,13 +415,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 // refusal below can stay true indefinitely, and waking for that would be a loop.
                 TriggerDeferredRun();
 
-                // The card reads this error in preference to any translation key, so handing it the
-                // gate's own sentence tells the reader to try again for a run that is already coming
-                // back on its own.
-                return new EvictionScanRunOutcome(
-                    Success: false,
-                    Error: CacheScanGate.ScheduleQueuedReasonKey,
-                    Skipped: true);
+                // No error text: the card prints this field verbatim in preference to any
+                // translation key, so the gate's English would tell the reader to try again for a
+                // run that is already coming back on its own, and a key would show as the key.
+                return new EvictionScanRunOutcome(Success: false, Error: null, Skipped: true);
             }
 
             return new EvictionScanRunOutcome(Success: false, Error: downloadDenial, Skipped: true);
