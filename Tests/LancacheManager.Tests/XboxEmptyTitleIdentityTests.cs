@@ -275,6 +275,35 @@ public class XboxEmptyTitleIdentityTests
     }
 
     [Fact]
+    public async Task ResolveDownloadsAsync_RestoresTheTitleFromTheProductIdWithoutAnyPattern()
+    {
+        var options = NewInMemoryOptions();
+
+        await using (var seed = new AppDbContext(options))
+        {
+            // The mapping alone, no CDN pattern: the row's last URL matches nothing, so the fragment
+            // path cannot name it, and the product id it kept through the wipe has to.
+            seed.XboxGameMappings.Add(new XboxGameMapping
+            {
+                ProductId = "C19N0723PHFL",
+                Title = "Call of Duty®: Black Ops 4",
+                ImageUrl = "https://store-images.microsoft.com/image/apps.1.jpg"
+            });
+            seed.Downloads.Add(NewNamelessXboxDownload(isActive: false));
+            await seed.SaveChangesAsync();
+        }
+
+        var resolved = await NewMappingService(options).ResolveDownloadsAsync();
+
+        Assert.Equal(1, resolved);
+
+        await using var db = new AppDbContext(options);
+        var download = Assert.Single(await db.Downloads.ToListAsync());
+        Assert.Equal("Call of Duty®: Black Ops 4", download.GameName);
+        Assert.Equal("xbox", download.Service);
+    }
+
+    [Fact]
     public async Task ResolveDownloadsAsync_LeavesANamelessActiveXboxRowAlone()
     {
         var options = NewInMemoryOptions();

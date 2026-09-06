@@ -73,7 +73,8 @@ public class XboxMappingService
 
     /// <summary>
     /// Resolves INACTIVE downloads that are either still <c>wsus</c>/<c>xboxlive</c> or already an
-    /// <c>xbox</c> row that lost its name, against stored Xbox CDN patterns. On match,
+    /// <c>xbox</c> row that lost its name, from the product id the row kept or else against stored
+    /// Xbox CDN patterns. On match,
     /// canonicalizes the row to <c>Service='xbox'</c>, sets <c>GameName</c> + <c>XboxProductId</c>,
     /// best-effort fetches/stores the DisplayCatalog banner, persists, and emits
     /// <see cref="SignalREvents.XboxGameMappingsUpdated"/> + <see cref="SignalREvents.DownloadsRefresh"/>.
@@ -98,12 +99,6 @@ public class XboxMappingService
             .OrderByDescending(p => p.UrlFragment.Length)
             .ToList();
 
-        if (validPatterns.Count == 0)
-        {
-            _logger.LogInformation("No usable Xbox CDN patterns to resolve downloads against");
-            return 0;
-        }
-
         // Candidate rows: still tagged wsus (DO-client traffic), OR any xbox-ish service with no game
         // name - that covers xboxlive (prefill-daemon traffic direct from assets1.xboxlive.com) and an
         // already-canonicalized xbox row whose GameName was wiped by a Steam PICS scan or a database
@@ -126,12 +121,40 @@ public class XboxMappingService
             return 0;
         }
 
+        // A row that kept its XboxProductId through a name wipe already says which game it is: the
+        // title is one lookup away and needs no URL match. The Downloads page resolves such a row's
+        // name from this same table at read time, so without this step it shows a title the
+        // detection queries never see.
+        var productIds = candidates
+            .Where(d => !string.IsNullOrEmpty(d.XboxProductId))
+            .Select(d => d.XboxProductId!)
+            .Distinct()
+            .ToList();
+        var titlesByProductId = productIds.Count == 0
+            ? new Dictionary<string, string>()
+            : (await db.XboxGameMappings
+                .AsNoTracking()
+                .Where(m => productIds.Contains(m.ProductId))
+                .ToListAsync(ct))
+                .Where(m => !string.IsNullOrWhiteSpace(m.Title))
+                .ToDictionary(m => m.ProductId, m => m.Title);
+
         var resolvedCount = 0;
         var resolvedProductIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var unmatchedSampleLogged = false;
 
         foreach (var download in candidates)
         {
+            if (!string.IsNullOrEmpty(download.XboxProductId)
+                && titlesByProductId.TryGetValue(download.XboxProductId, out var storedTitle))
+            {
+                download.Service = "xbox";
+                download.GameName = storedTitle;
+                resolvedCount++;
+                resolvedProductIds.Add(download.XboxProductId);
+                continue;
+            }
+
             if (string.IsNullOrEmpty(download.LastUrl)) continue;
 
             var match = validPatterns.FirstOrDefault(p =>
