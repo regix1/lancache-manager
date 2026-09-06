@@ -261,32 +261,15 @@ test('all five scan controls ask the same question and show the same answer', ()
   }
 });
 
-test('only the cache card reads the blocked answer, and only to say a download is running', () => {
+test('no card announces a download by itself; they disable the control and explain on hover', () => {
   const uses = FILES.filter((file) =>
     readFileSync(new URL(`../${file}`, import.meta.url), 'utf8').includes('scanGate.blocked')
   );
 
-  assert.deepEqual(
-    uses,
-    [FILES[0]],
-    'deciding whether to offer a control reads available, not blocked'
-  );
-
-  const sourceFile = parseSource(FILES[0], typescript.ScriptKind.TSX);
-  const condition = findSoleNode(
-    sourceFile,
-    'the cache card notice condition',
-    (node) =>
-      typescript.isBinaryExpression(node) &&
-      node.operatorToken.kind === typescript.SyntaxKind.BarBarToken &&
-      node.left.getText(sourceFile) === 'cacheSizeDenialReason'
-  );
-
-  assert.equal(
-    condition.right.getText(sourceFile),
-    'scanGate.blocked',
-    'the yellow notice states a download is in progress, so it needs the server to have said so'
-  );
+  // The cache card used to raise a yellow banner here while the other three said nothing, so a
+  // download made one card look like it had a problem. All four now decide on `available` and put
+  // the gate's sentence on the disabled control.
+  assert.deepEqual(uses, [], 'deciding whether to offer a control reads available, not blocked');
 });
 
 test('the checking sentences are translated in both shipped locales', () => {

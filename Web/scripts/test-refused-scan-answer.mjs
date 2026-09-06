@@ -88,23 +88,13 @@ const noticeShown = (state) => {
   return bindLifted(`() => (${node.left.getText(sourceFile)})`, state)();
 };
 
-/** The sentence that notice carries, for a card state. */
-const noticeText = (cacheSizeDenialReason, tooltip = '') => {
-  const { node, sourceFile } = cardBinary(typescript.SyntaxKind.QuestionQuestionToken);
-  return bindLifted(`() => (${node.getText(sourceFile)})`, {
-    cacheSizeDenialReason,
-    scanGate: { tooltip }
-  })();
-};
+test('the cache card explains a refresh the server refused', () => {
+  const serverSentence = 'A client download is writing to the cache right now.';
 
-test('the cache card explains a refused refresh with the gate’s own sentence', () => {
-  const trackerSilent =
-    'The download tracker has not reported yet, so a scan cannot tell whether the cache is being written to. Try again in a few seconds.';
-
-  assert.equal(noticeShown({ cacheSizeDenialReason: null, scanGate: { blocked: true } }), true);
-  // The refresh is refused for two different reasons and only the server knows which, so the card
-  // repeats what the gate said instead of asserting a download.
-  assert.equal(noticeText(null, trackerSilent), trackerSilent);
+  assert.equal(
+    noticeShown({ cacheSizeDenialReason: serverSentence, scanGate: { blocked: false } }),
+    serverSentence
+  );
 });
 
 test('the cache card stays quiet when the refresh is available', () => {
@@ -114,12 +104,12 @@ test('the cache card stays quiet when the refresh is available', () => {
   );
 });
 
-test('a refusal the server did answer keeps the server sentence', () => {
-  const serverSentence = 'A client download is writing to the cache right now.';
-
+test('a download in flight raises no notice on this card', () => {
+  // The refresh is disabled and explains itself on hover, which is what the corruption, detection
+  // and eviction cards do with the same gate. This card used to raise a banner for it as well and
+  // was alone in doing so, which read as a warning about the cache rather than about one button.
   assert.equal(
-    noticeShown({ cacheSizeDenialReason: serverSentence, scanGate: { blocked: false } }),
-    serverSentence
+    Boolean(noticeShown({ cacheSizeDenialReason: null, scanGate: { blocked: true } })),
+    false
   );
-  assert.equal(noticeText(serverSentence), serverSentence);
 });

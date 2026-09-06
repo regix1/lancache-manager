@@ -364,15 +364,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             <div className="space-y-3">
               <p className="mgmt-subhead caps-label">{t('management.cache.cacheSize')}</p>
 
-              {/* The refresh is refused while the gate is shut, and the menu item that would carry
-                  the server's own sentence back is disabled before the click can be made, so the
-                  card says why the figures below cannot be brought up to date. It waits for a
-                  definite answer, so nothing is claimed while the gate is still being read, and it
-                  repeats the gate's sentence because only the server knows whether a download is
-                  writing or the tracker has yet to report. */}
-              {(cacheSizeDenialReason || scanGate.blocked) && (
+              {/* Only a refresh the server actually refused. A download merely being in flight
+                  disables the menu item and explains itself on hover, which is what the corruption,
+                  detection and eviction cards do with the same gate - this card used to raise a
+                  banner for it as well, and was alone in doing so. */}
+              {cacheSizeDenialReason && (
                 <Alert color="yellow">
-                  <p className="text-sm">{cacheSizeDenialReason ?? scanGate.tooltip}</p>
+                  <p className="text-sm">{cacheSizeDenialReason}</p>
                 </Alert>
               )}
 
