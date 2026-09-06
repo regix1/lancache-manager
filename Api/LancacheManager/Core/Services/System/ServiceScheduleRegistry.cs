@@ -55,14 +55,6 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         OperationType.GameDetection,
     ];
 
-    // Translation key for the card a refused scan puts up. It has to be a key rather than the gate's
-    // own English sentence: the three cache scans render their terminal card through
-    // i18n.t(event.stageKey), so a sentence there would only appear because i18next echoes an unknown
-    // key back, and would turn into an empty message or a fragment of itself the moment a missing-key
-    // handler is configured. Every refusal is held now, whoever asked for the run, so there is one
-    // key and it says the run is queued rather than gone.
-    private const string QueuedWhileDownloadingStageKey = "management.gameDetection.queuedWhileDownloading";
-
     // The fallback for a run the queue refused before it started, which can be a download or another
     // heavy operation. It names neither, because the card shows this only when the refusal's own
     // message is missing and a wrong cause is worse than no cause.
@@ -107,27 +99,22 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     // When it is absent every schedule is allowed to run, which is the behaviour before this gate.
     private readonly CacheScanGate? _cacheScanGate;
 
-    // Schedules that have already announced a skip for the download activity going on right now. A
-    // key lands here when its skip is announced, and two things clear it, both of them the same
-    // fact arriving by different routes: the tracker parsing the snapshot where downloads stop (see
-    // OnDownloadsEnded), and a schedule later asking and being told nothing is downloading (see
-    // CheckScheduleRun), which covers the cases that edge cannot. Nothing else re-arms it: not the
-    // next cycle, not another schedule being refused, and not the download moving to a different
-    // client or game, because the gate reports one plain "something is downloading" either way. So a
-    // person who dismisses the notice does not see that schedule again until downloads have stopped
-    // and a later one begins. Guarded by locking on the set itself, which is private to this class:
-    // schedule loops ask from many threads at once.
-    private readonly HashSet<string> _announcedSkips = new(StringComparer.OrdinalIgnoreCase);
-
     // Schedules refused while something was downloading, held so the run happens once the download
     // ends instead of waiting out the whole interval - a nightly scan refused during a prefill used
-    // to slip a full day. Separate from _announcedSkips even though the two fill up together: that
-    // set is re-armed by any schedule polling and finding the download gone, and draining a pending
-    // run on that poll would drop every other schedule's deferred run. This one empties only when
-    // its keys are handed to WakeScheduleLoop. A key is added at most once per download because the
-    // loop that was refused sleeps its ordinary interval and asks again later, by which point either
-    // the download is gone or this already holds the key.
-    private readonly HashSet<string> _deferredRuns = new(StringComparer.OrdinalIgnoreCase);
+    // to slip a full day. The value is the waiting operation putting the card on screen for that
+    // hold, so the two live and die together: one entry means one card, and holding a key twice is
+    // impossible by construction rather than by a second bookkeeping set.
+    private readonly Dictionary<string, Guid> _deferredRuns = new(StringComparer.OrdinalIgnoreCase);
+
+    // What the waiting card calls each schedule it can hold. The display name is what the card reads,
+    // and every other start site in the app writes its own literal rather than looking one up, so
+    // these are the same three strings their real runs already register with.
+    private static readonly Dictionary<string, string> _heldRunDisplayNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["cacheReconciliation"] = "Eviction Scan",
+        ["cacheSizeScan"] = "Cache File Scan",
+        ["gameDetection"] = "Game Detection",
+    };
 
     // Optional (like _tracker) so unit tests that construct the registry directly keep compiling; at
     // runtime DI always supplies it. Every schedule broadcast mirrors the running set into the unified
@@ -277,14 +264,9 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// </summary>
     private void OnDownloadsEnded()
     {
-        // Raised on the tracker's stdout thread, so this has to be safe off the loop threads. It
-        // takes the same lock every other reader of the set takes, and the deferred runs it starts
-        // only set a flag and cancel a sleep on the loops that own them.
-        lock (_announcedSkips)
-        {
-            _announcedSkips.Clear();
-        }
-
+        // Raised on the tracker's stdout thread, so this has to be safe off the loop threads. It takes
+        // the same lock every other reader of the held runs takes, and the runs it starts only set a
+        // flag and cancel a sleep on the loops that own them.
         StartDeferredRuns(alreadyStarting: null);
     }
 
@@ -300,12 +282,14 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// </param>
     private void StartDeferredRuns(string? alreadyStarting)
     {
-        string[] deferred;
+        KeyValuePair<string, Guid>[] deferred;
         lock (_deferredRuns)
         {
-            if (alreadyStarting is not null)
+            if (alreadyStarting is not null && _deferredRuns.Remove(alreadyStarting, out var startingHeldId))
             {
-                _deferredRuns.Remove(alreadyStarting);
+                // Its own run is what this call is on its way to start, so its card closes with the
+                // rest rather than waiting for a loop it is already inside.
+                CloseHeldRunCard(startingHeldId);
             }
 
             if (_deferredRuns.Count == 0)
@@ -317,10 +301,29 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             _deferredRuns.Clear();
         }
 
-        foreach (var serviceKey in deferred)
+        foreach (var (serviceKey, heldId) in deferred)
         {
+            // The card closes whether or not a loop was found. A key with no loop behind it is
+            // already out of the set by this point, so leaving its card open would leave it on
+            // screen for the life of the process with nothing able to clear it.
+            CloseHeldRunCard(heldId);
             FindScheduleLoop(serviceKey)?.TriggerDeferredRun();
         }
+    }
+
+    /// <summary>
+    /// Ends the waiting card for a hold that is going ahead. Completing it as a success and not a skip
+    /// is what the card reads as promoted, which retires it quietly so the run's own Started card can
+    /// take its place.
+    /// </summary>
+    private void CloseHeldRunCard(Guid heldId)
+    {
+        if (_tracker is null || heldId == Guid.Empty)
+        {
+            return;
+        }
+
+        _tracker.CompleteOperation(heldId, success: true);
     }
 
     /// <summary>
@@ -697,18 +700,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
         if (downloadDenial is null)
         {
-            // Nothing is downloading, so every schedule may announce its next skip. This is the
-            // polled half of what re-arms the announcements described on _announcedSkips;
-            // OnDownloadsEnded is the other, and clears them off the edge itself.
-            lock (_announcedSkips)
-            {
-                _announcedSkips.Clear();
-            }
-
-            // The same backstop the announcements get. The edge above is missed when the process
-            // starts with a download already running, and when the tracker dies it stops answering
-            // rather than reporting that anything finished - in both cases the schedules waiting on
-            // that edge would otherwise sit until their next ordinary interval.
+            // The backstop for the tracker's own downloads-ended edge, which is missed when the
+            // process starts with a download already running, and when the tracker dies and stops
+            // answering rather than reporting that anything finished. Without this the schedules
+            // waiting on that edge would sit until their next ordinary interval.
             StartDeferredRuns(alreadyStarting: serviceKey);
 
             return null;
@@ -724,10 +719,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // Held here rather than at each caller because every route that refuses a run comes through
         // this one method: the schedule loops, Run Now, and Run All. Holding it at the callers is
         // what left Run All reporting three schedules as simply not run.
-        lock (_deferredRuns)
-        {
-            _deferredRuns.Add(serviceKey);
-        }
+        HoldRefusedRun(serviceKey, operationType);
 
         // Not the gate's own sentence, which ends in "try again once it finishes" and is written for
         // the controllers, where a refused scan really is over. A schedule's run is kept, so telling
@@ -784,49 +776,102 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             return null;
         }
 
-        // A run someone asked for is always reported. By the time the loop asks, it has already taken
-        // the pending Run Now flag, so the click is spent: staying quiet here because this schedule
-        // already announced a skip earlier in the same download would leave the person with a
-        // response that said the run started and nothing at all afterwards.
-        if (trigger == RunTrigger.Manual || ClaimSkipAnnouncement(serviceKey))
-        {
-            RecordSkippedRun(serviceKey, denial, QueuedWhileDownloadingStageKey);
-        }
-
         return denial;
     }
 
     /// <summary>
-    /// True the first time <paramref name="serviceKey"/> is refused during the download activity
-    /// going on right now, false for every later refusal of the same schedule. See
-    /// <see cref="_announcedSkips"/> for what re-arms it, which is downloads stopping, reported
-    /// either by the tracker's own edge or by the next schedule to ask. The manual routes never come
-    /// through here: a person pressing a button is waiting on an answer and gets one every time.
+    /// Puts the schedule's run on the waiting card that stays in the notification bar until the run
+    /// actually starts, which is the same card a run blocked by another heavy operation already gets
+    /// from the operation queue. The hold and the card are one entry: a schedule already holding one
+    /// does not raise a second, so a loop refused every interval for an hour shows one card.
     /// </summary>
-    private bool ClaimSkipAnnouncement(string serviceKey)
+    private void HoldRefusedRun(string serviceKey, OperationType operationType)
     {
-        lock (_announcedSkips)
+        if (_tracker is null)
         {
-            return _announcedSkips.Add(serviceKey);
-        }
-    }
+            lock (_deferredRuns)
+            {
+                _deferredRuns[serviceKey] = Guid.Empty;
+            }
 
-    private void RecordSkippedRun(string serviceKey, string reason, string stageKey)
-    {
-        if (_tracker is null || !_runStatusOperationTypes.TryGetValue(serviceKey, out var operationType))
-        {
             return;
         }
 
-        // Assigned by the call below and read only when the operation completes, which is the line
-        // after that. The tracker adopts the token source and disposes it there too.
-        Guid operationId = default;
-        operationId = _tracker.RegisterOperation(
+        lock (_deferredRuns)
+        {
+            if (_deferredRuns.ContainsKey(serviceKey))
+            {
+                return;
+            }
+
+            // Claimed before the card is raised, so two loops refused at once cannot both get past
+            // the check above and put two cards up for one schedule.
+            _deferredRuns[serviceKey] = Guid.Empty;
+        }
+
+        var displayName = _heldRunDisplayNames.TryGetValue(serviceKey, out var name) ? name : serviceKey;
+        var typeWire = operationType.ToWireString();
+        var cts = new CancellationTokenSource();
+
+        Guid heldId = default;
+        heldId = _tracker.RegisterOperation(
             operationType,
-            serviceKey,
-            new CancellationTokenSource(),
-            onTerminalEmit: (OperationTerminalInfo _) => EmitSkippedRunAsync(serviceKey, operationId, reason, stageKey));
-        _tracker.CompleteOperation(operationId, success: true, error: reason, skipped: true);
+            displayName,
+            cts,
+            // Waiting is deliberately excluded from GetActiveOperations, so this held run cannot
+            // block the conflict check or light the Schedules running dot before it starts.
+            initialStatus: OperationStatus.Waiting,
+            onTerminalEmit: info => _notifications.NotifyAllAsync(
+                SignalREvents.OperationWaitingComplete,
+                new OperationWaitingCompleteNotification(
+                    heldId,
+                    typeWire,
+                    info.Cancelled,
+                    info.Error,
+                    Promoted: info.Success && !info.Skipped,
+                    Skipped: info.Skipped)));
+
+        var capturedHeldId = heldId;
+        // A held run has no worker, so nothing else would answer the card's Cancel: the token would be
+        // cancelled and the card would sit in "cancelling" for ever. Dropping the hold is the other
+        // half - without it the person dismisses the card and the run still fires later.
+        cts.Token.Register(() => _ = Task.Run(() =>
+        {
+            DropHeldRun(serviceKey, capturedHeldId);
+            _tracker.CompleteOperation(capturedHeldId, success: false, cancelled: true);
+        }));
+
+        lock (_deferredRuns)
+        {
+            _deferredRuns[serviceKey] = heldId;
+        }
+
+        // The prefill is the only blocker the app tracks that can be writing to the cache, so it is
+        // the only one that can be named. The gate answers whether bytes are landing, not whose, so a
+        // client download with no prefill running leaves this null and the card falls back to its own
+        // "waiting for another process to complete" wording, which is true either way.
+        var blockerName = _tracker
+            .GetActiveOperations(OperationType.ScheduledPrefill)
+            .FirstOrDefault(op => op.Metadata is not ScheduledPrefillServiceRunState)?.Name;
+
+        _ = _notifications.NotifyAllAsync(
+            SignalREvents.OperationWaiting,
+            new OperationWaitingNotification(heldId, typeWire, displayName, blockerName));
+    }
+
+    /// <summary>
+    /// Forgets a hold without starting it, for the one case that is not the run going ahead: someone
+    /// dismissed its card.
+    /// </summary>
+    private void DropHeldRun(string serviceKey, Guid heldId)
+    {
+        lock (_deferredRuns)
+        {
+            if (_deferredRuns.TryGetValue(serviceKey, out var held) && held == heldId)
+            {
+                _deferredRuns.Remove(serviceKey);
+            }
+        }
     }
 
     /// <summary>

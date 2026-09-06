@@ -267,19 +267,19 @@ public class ScheduleRunGateTests
     }
 
     [Fact]
-    public async Task SkippedSchedule_AnnouncesItselfOncePerDownloadAsync()
+    public async Task HeldSchedule_ShowsOneWaitingCardPerDownloadAsync()
     {
         using var service = new RunGateProbeService(EvictionKey);
-        var announcements = new List<ScheduledRunCompleteEvent>();
+        var announcements = new List<OperationWaitingNotification>();
         var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
         {
             if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
-                && (string?)args?[0] == SignalREvents.EvictionScanComplete
-                && args[1] is ScheduledRunCompleteEvent complete)
+                && (string?)args?[0] == SignalREvents.OperationWaiting
+                && args[1] is OperationWaitingNotification waiting)
             {
                 lock (announcements)
                 {
-                    announcements.Add(complete);
+                    announcements.Add(waiting);
                 }
             }
 
@@ -303,8 +303,8 @@ public class ScheduleRunGateTests
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
             await WaitForCountAsync(announcements, 1);
 
-            // Same download still running: the run is still refused, but the person who dismissed the
-            // first notice does not get a second one.
+            // Same download still running: the run is refused again, but it is already held and its
+            // card is already on screen, so no second card goes up.
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
             await Task.Delay(TimeSpan.FromMilliseconds(250));
@@ -313,7 +313,8 @@ public class ScheduleRunGateTests
                 Assert.Single(announcements);
             }
 
-            // Downloads stop, which is the only thing that re-arms the announcement.
+            // Downloads stop, the held run starts and its card closes, so the next download is a new
+            // hold and a new card.
             CacheScanGateHarness.MakeIdle(snapshot);
             Assert.Null(gate(EvictionKey, RunTrigger.Scheduled));
 
@@ -396,23 +397,23 @@ public class ScheduleRunGateTests
     }
 
     [Fact]
-    public async Task ManualRunRefusedAfterItsTriggerWasTaken_IsStillReportedAsync()
+    public async Task ManualRunRefusedWhileTheCardIsUp_AddsNoSecondCardAsync()
     {
-        // The loop takes the pending Run Now flag before it asks the gate, so a click that is refused
-        // at that point is already spent. It must not go quiet just because this schedule announced a
-        // skip earlier in the same download, or the person is left with a response that said the run
-        // started and nothing after it.
+        // This used to raise a second card for the click, because the first card dismissed itself and
+        // going quiet would have left the person with nothing. The card now stays up saying the run is
+        // held, so a click while it is showing needs no card of its own - it still gets the reason on
+        // the response it is waiting for.
         using var service = new RunGateProbeService(EvictionKey);
-        var announcements = new List<ScheduledRunCompleteEvent>();
+        var announcements = new List<OperationWaitingNotification>();
         var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
         {
             if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
-                && (string?)args?[0] == SignalREvents.EvictionScanComplete
-                && args[1] is ScheduledRunCompleteEvent complete)
+                && (string?)args?[0] == SignalREvents.OperationWaiting
+                && args[1] is OperationWaitingNotification waiting)
             {
                 lock (announcements)
                 {
-                    announcements.Add(complete);
+                    announcements.Add(waiting);
                 }
             }
 
@@ -434,17 +435,14 @@ public class ScheduleRunGateTests
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
             await WaitForCountAsync(announcements, 1);
 
-            // A second timer tick stays quiet, as criterion 52 requires.
+            // A second timer tick stays quiet, and so does the click: one hold, one card.
             Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
+            Assert.NotNull(gate(EvictionKey, RunTrigger.Manual));
             await Task.Delay(TimeSpan.FromMilliseconds(250));
             lock (announcements)
             {
                 Assert.Single(announcements);
             }
-
-            // The click is not a tick, and it is reported.
-            Assert.NotNull(gate(EvictionKey, RunTrigger.Manual));
-            await WaitForCountAsync(announcements, 2);
         }
         finally
         {
@@ -453,22 +451,22 @@ public class ScheduleRunGateTests
     }
 
     [Fact]
-    public async Task DownloadsEndingReArmsTheAnnouncement_WithoutWaitingForAScheduleToPollAsync()
+    public async Task DownloadsEndingReleasesTheHold_WithoutWaitingForAScheduleToPollAsync()
     {
-        // The gap this covers: a skip is announced, downloads stop, another download starts,
-        // and no schedule asked the gate in between. The tracker sees that edge itself, so the
-        // announcement re-arms without anyone polling.
+        // The gap this covers: a run is held, downloads stop, another download starts, and no schedule
+        // asked the gate in between. The tracker sees that edge itself, so the held run is released and
+        // its card closed without anyone polling, leaving the next download free to hold it again.
         using var service = new RunGateProbeService(EvictionKey);
-        var announcements = new List<ScheduledRunCompleteEvent>();
+        var announcements = new List<OperationWaitingNotification>();
         var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
         {
             if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
-                && (string?)args?[0] == SignalREvents.EvictionScanComplete
-                && args[1] is ScheduledRunCompleteEvent complete)
+                && (string?)args?[0] == SignalREvents.OperationWaiting
+                && args[1] is OperationWaitingNotification waiting)
             {
                 lock (announcements)
                 {
-                    announcements.Add(complete);
+                    announcements.Add(waiting);
                 }
             }
 
@@ -513,7 +511,7 @@ public class ScheduleRunGateTests
     }
 
     // The tracker fires its terminal emit fire-and-forget, so a count is waited for rather than read.
-    private static async Task WaitForCountAsync(List<ScheduledRunCompleteEvent> announcements, int expected)
+    private static async Task WaitForCountAsync<T>(List<T> announcements, int expected)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
         while (DateTime.UtcNow < deadline)
@@ -558,20 +556,21 @@ public class ScheduleRunGateTests
     }
 
     [Fact]
-    public async Task RefusedScheduledRun_AnnouncesItselfOnTheSchedulesOwnTerminalEventAsync()
+    public async Task RefusedScheduledRun_PutsUpTheWaitingCardThatStaysAsync()
     {
+        // The card a run blocked by another heavy operation already gets from the queue. A run blocked
+        // by a download used to get a terminal one that dismissed itself after a few seconds, so the
+        // person was left with nothing on screen saying the run was still coming.
         using var service = new RunGateProbeService(EvictionKey);
-        // The tracker fires its terminal emit fire-and-forget, so the payload is awaited rather than
-        // read straight after the call.
-        var sent = new TaskCompletionSource<ScheduledRunCompleteEvent>(
+        var sent = new TaskCompletionSource<OperationWaitingNotification>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
         {
             if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
-                && (string?)args?[0] == SignalREvents.EvictionScanComplete
-                && args[1] is ScheduledRunCompleteEvent complete)
+                && (string?)args?[0] == SignalREvents.OperationWaiting
+                && args[1] is OperationWaitingNotification waiting)
             {
-                sent.TrySetResult(complete);
+                sent.TrySetResult(waiting);
             }
 
             return Task.CompletedTask;
@@ -593,19 +592,14 @@ public class ScheduleRunGateTests
             var reason = ScheduledServiceBase.ScheduleRunGate!(EvictionKey, RunTrigger.Scheduled);
 
             Assert.NotNull(reason);
-            var terminal = await sent.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.Equal(OperationStatus.Skipped, terminal.Status);
-            Assert.True(terminal.Success);
-            Assert.False(terminal.Cancelled);
-            Assert.True(terminal.ShowNotification);
-            Assert.Equal(reason, terminal.Error);
-            // A translation key, not the sentence: the three cache scans render this card through
-            // i18n.t(event.stageKey), and a sentence there survives only by i18next echoing an
-            // unknown key back. The key must exist in every locale file. A scheduled refusal gets the
-            // queued wording because the run is held and starts when downloads stop; only a refused
-            // click gets the blocked wording, because that one really is gone.
-            Assert.Equal("management.gameDetection.queuedWhileDownloading", terminal.StageKey);
-            Assert.Equal(0, terminal.PercentComplete);
+            var waiting = await sent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(OperationType.EvictionScan.ToWireString(), waiting.OperationType);
+            // The name the card reads. The schedule key would render the card as "cacheReconciliation:
+            // waiting for ...", which is not what the schedule is called anywhere a person looks.
+            Assert.Equal("Eviction Scan", waiting.Name);
+            // No prefill is running in this test, so there is no blocker to name and the card falls
+            // back to its own wording rather than guessing at the download.
+            Assert.Null(waiting.BlockedByName);
         }
         finally
         {

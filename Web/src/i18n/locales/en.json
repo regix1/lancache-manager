@@ -3022,7 +3022,6 @@
       "subtitle": "Scan cache to find games and service-level files that were not matched to a game",
       "quick": "Quick Scan",
       "fullScanButton": "Full Scan",
-      "queuedWhileDownloading": "A download is in progress, so this run is queued. It starts on its own once the download finishes.",
       "skippedBeforeStart": "This run was refused before it started, so it will go again at its next scheduled time.",
       "checkingForDownload": "Checking whether a download is writing to the cache.",
       "checkingProcessedLogs": "Checking whether any logs have been processed.",

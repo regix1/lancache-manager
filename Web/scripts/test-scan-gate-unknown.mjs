@@ -130,7 +130,6 @@ const { useCacheScanBlocked } = await import(
   })
 );
 
-const QUEUED_KEY = 'management.gameDetection.queuedWhileDownloading';
 const CHECKING_KEY = 'management.gameDetection.checkingForDownload';
 
 /** The two sentences `CacheScanGate.CheckDownloadInProgress` can return, verbatim. */
@@ -253,10 +252,6 @@ test('all five scan controls ask the same question and show the same answer', ()
     assert.ok(
       gate.tooltip.includes('scanGate.tooltip'),
       `${gate.file}: a hover that picks its own words instead of the gate's`
-    );
-    assert.ok(
-      !gate.tooltip.includes(QUEUED_KEY),
-      `${gate.file}: a canned schedule sentence is shown instead of the server's own answer`
     );
   }
 });

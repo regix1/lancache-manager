@@ -3022,7 +3022,6 @@
       "subtitle": "扫描缓存以查找游戏以及未匹配到具体游戏的服务级文件",
       "quick": "快速扫描",
       "fullScanButton": "全面扫描",
-      "queuedWhileDownloading": "有下载正在进行，因此本次运行已排队。下载完成后会自动开始。",
       "skippedBeforeStart": "本次运行在开始前被拒绝，将在下一个计划时间再次运行。",
       "checkingForDownload": "正在检查是否有下载正在写入缓存。",
       "checkingProcessedLogs": "正在检查是否已有日志被处理。",
