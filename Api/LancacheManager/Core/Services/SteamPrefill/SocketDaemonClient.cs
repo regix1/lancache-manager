@@ -36,15 +36,28 @@ public sealed class SocketDaemonClient : DaemonClientBase
 
         _logger?.LogInformation("Connecting to daemon socket at {SocketPath}", _socketPath);
 
+        // Waiting is only meaningful while the directory the daemon publishes into still exists: that
+        // is the "container is still starting" case. When the directory itself is gone the manager's
+        // bind mount was deleted or remounted under a running container, so no socket can ever appear
+        // there and the full timeout would only postpone the same failure once per container.
+        var socketDirectory = Path.GetDirectoryName(_socketPath);
+        var mountPresent = string.IsNullOrEmpty(socketDirectory) || Directory.Exists(socketDirectory);
+
         var timeout = DateTime.UtcNow.AddSeconds(30);
-        while (!File.Exists(_socketPath) && DateTime.UtcNow < timeout)
+        while (mountPresent && !File.Exists(_socketPath) && DateTime.UtcNow < timeout)
         {
             await Task.Delay(100, cancellationToken);
         }
 
         if (!File.Exists(_socketPath))
         {
-            throw new FileNotFoundException($"Daemon socket not found at {_socketPath}");
+            // The path travels as FileName, not only inside the message, so a caller can report
+            // which socket was missing without parsing prose.
+            throw new FileNotFoundException(
+                mountPresent
+                    ? $"Daemon socket not found at {_socketPath}"
+                    : $"Daemon socket directory {socketDirectory} no longer exists, so no socket can appear at {_socketPath}",
+                _socketPath);
         }
 
         await EstablishConnectionAsync(cancellationToken);

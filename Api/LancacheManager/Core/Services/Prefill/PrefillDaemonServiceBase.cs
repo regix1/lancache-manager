@@ -2016,6 +2016,20 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 _logger.LogInformation("Connected to daemon for session {SessionId}", sessionId);
                 break;
             }
+            catch (FileNotFoundException ex)
+            {
+                // The daemon owns its socket; the manager only bind-mounts the directory holding it.
+                // A missing socket file means that directory went away under a still-running container
+                // - the data directory was deleted or remounted - so the daemon is listening on a path
+                // that no longer exists on this host. No number of retries can create it, and the
+                // container's own logs say nothing about a host-side mount, so both would only delay
+                // the outcome. Rethrowing immediately hands the caller its existing recovery, which
+                // removes the container so a clean one takes over on the next start.
+                _logger.LogWarning(
+                    "Session {SessionId} has no daemon socket at {SocketPath}; its data directory was deleted or remounted, so the container is being removed rather than retried",
+                    sessionId, ex.FileName ?? "the expected path");
+                throw;
+            }
             catch (Exception ex) when (attempt < maxRetries)
             {
                 _logger.LogWarning(ex, "Socket connection attempt {Attempt} failed for session {SessionId}, retrying...",
