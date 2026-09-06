@@ -713,6 +713,51 @@ mod tests {
         assert!(safe.is_empty(), "every owned depot also shared → nothing safe to purge");
     }
 
+    /// Licences the narrowed `get_shared_depot_ids` query. It used to read every depot belonging to
+    /// any other app; it now asks only about the depots this game claims. That is only sound because
+    /// the caller subtracts the answer from those same depots, so a shared depot the game does not
+    /// claim can never change the result. Restoring the whole-table read would pass this test too -
+    /// it is here to show the narrow one is not a shortcut.
+    #[test]
+    fn asking_only_about_claimed_depots_gives_the_same_safe_set() {
+        let valid = set(&[1, 2, 3]);
+        // What the old query returned: this game's shared depot 2, plus depots of unrelated apps.
+        let whole_table = set(&[2, 50, 51, 52]);
+        let claimed_only: HashSet<u32> = whole_table.intersection(&valid).copied().collect();
+
+        assert_eq!(
+            compute_safe_depot_ids(&valid, &whole_table),
+            compute_safe_depot_ids(&valid, &claimed_only),
+            "narrowing the shared lookup to the claimed depots must not change the safe set"
+        );
+    }
+
+    /// Licences replacing the two NOT IN subqueries in `get_game_urls_from_db` with a single
+    /// `DepotId = ANY(safe_depot_ids)`. A row only reaches that predicate if it passed the
+    /// AppId join, so its depot is one this game claims; for those, being in the safe set is the
+    /// same statement as passing both exclusions.
+    #[test]
+    fn the_safe_set_filter_matches_both_exclusion_subqueries() {
+        let claimed = set(&[1, 2, 3, 4]);
+        let shared_via_mappings = set(&[2]);
+        let shared_via_downloads = set(&[3]);
+        let shared: HashSet<u32> = shared_via_mappings
+            .union(&shared_via_downloads)
+            .copied()
+            .collect();
+        let safe = compute_safe_depot_ids(&claimed, &shared);
+
+        for depot in &claimed {
+            let both_subqueries_passed =
+                !shared_via_mappings.contains(depot) && !shared_via_downloads.contains(depot);
+            assert_eq!(
+                both_subqueries_passed,
+                safe.contains(depot),
+                "depot {depot} must be selected by exactly one of the two forms"
+            );
+        }
+    }
+
     #[test]
     fn empty_valid_is_empty_safe() {
         // Delisted-app shape: no SteamDepotMappings depots; URL/DB removal goes via Query 3.
