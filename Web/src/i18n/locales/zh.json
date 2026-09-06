@@ -7534,6 +7534,8 @@
       },
       "db": {
         "querying": "正在查询数据库获取仓库ID和URL",
+        "narrowingDepots": "正在确定 {{depots}} 个仓库中哪些仅属于此游戏",
+        "collectingUrls": "正在从日志条目中读取此游戏的 URL",
         "deleting": "正在删除数据库记录"
       },
       "cache": {

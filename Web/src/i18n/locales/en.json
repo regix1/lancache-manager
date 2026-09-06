@@ -7568,6 +7568,8 @@
       },
       "db": {
         "querying": "Querying database for depot IDs and URLs",
+        "narrowingDepots": "Working out which of the {{depots}} depot(s) belong only to this game",
+        "collectingUrls": "Reading this game’s URLs from the log entries",
         "deleting": "Deleting database records"
       },
       "cache": {

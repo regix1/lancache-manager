@@ -400,6 +400,11 @@ async fn main() -> Result<()> {
     let valid_depot_ids = get_game_depot_ids(&pool, game_app_id).await?;
     eprintln!("Valid depot IDs for this game: {:?}", valid_depot_ids);
 
+    // Three separate database round trips run between here and the cache sweep, and each is a
+    // whole-table read on a busy install. Reported one by one because a single figure held from
+    // the first to the last reads as a hang, which is exactly how this looked from the outside.
+    removal_core::write_progress(&progress_path, &reporter, "querying_database", "signalr.gameRemove.db.narrowingDepots", json!({ "depots": valid_depot_ids.len() }), 6.0, 0, 0)?;
+
     // Narrow to depots EXCLUSIVELY owned by this game before they reach the access.log purge.
     // The log predicate (log_purge.rs) removes any line whose `depot_id ∈ valid_depot_ids`, so a
     // depot shared with another AppId (SteamDepotMappings AppId<>$1) or another game's Downloads
@@ -428,6 +433,7 @@ async fn main() -> Result<()> {
     eprintln!("Safe (exclusively-owned) depot IDs for log purge: {:?}", safe_depot_ids);
 
     // Query database directly for URLs - much faster than scanning logs!
+    removal_core::write_progress(&progress_path, &reporter, "querying_database", "signalr.gameRemove.db.collectingUrls", json!({}), 8.0, 0, 0)?;
     let url_data = get_game_urls_from_db(&pool, game_app_id).await?;
 
     // A count run stops here. It walks the same list a removal would walk, reports how many of
