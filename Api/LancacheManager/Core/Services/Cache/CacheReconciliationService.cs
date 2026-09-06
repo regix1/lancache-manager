@@ -1610,6 +1610,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             int detectionServicesDeleted = 0;
             int logEntriesDeleted = 0;
             int downloadsDeleted = 0;
+            int prefillDepotsDeleted = 0;
 
             var strategy = context.Database.CreateExecutionStrategy();
             await strategy.ExecuteAsync(async () =>
@@ -1618,6 +1619,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 detectionServicesDeleted = 0;
                 logEntriesDeleted = 0;
                 downloadsDeleted = 0;
+                prefillDepotsDeleted = 0;
 
                 await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
                 try
@@ -1635,6 +1637,21 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                     detectionServicesDeleted = await context.CachedServiceDetections
                         .Where(s => s.IsEvicted)
+                        .ExecuteDeleteAsync(stoppingToken);
+
+                    // The prefill "Cached" badges are a record of what prefill put on disk for a
+                    // Steam app, and these downloads are being deleted precisely because their cache
+                    // files are gone. Left behind, the prefill game picker keeps calling those games
+                    // cached and the daemon skips them on the next run. Matched through Downloads
+                    // because a prefill row carries only a Steam app id.
+                    var evictedGameAppIds = await context.Downloads
+                        .Where(d => d.IsEvicted && d.GameAppId != null && d.GameAppId > 0)
+                        .Select(d => d.GameAppId!.Value)
+                        .Distinct()
+                        .ToListAsync(stoppingToken);
+
+                    prefillDepotsDeleted = await context.PrefillCachedDepots
+                        .Where(depot => evictedGameAppIds.Contains(depot.AppId))
                         .ExecuteDeleteAsync(stoppingToken);
 
                     // Step 2: delete LogEntries for evicted downloads (FK constraint).
@@ -1683,8 +1700,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             if (downloadsDeleted > 0 || logEntriesDeleted > 0 || detectionGamesDeleted > 0 || detectionServicesDeleted > 0)
             {
                 _logger.LogInformation(
-                    "[EvictionScan] Remove mode: deleted {Games} game detection rows + {Services} service detection rows, {Downloads} downloads, {LogEntries} log entries",
-                    detectionGamesDeleted, detectionServicesDeleted, downloadsDeleted, logEntriesDeleted);
+                    "[EvictionScan] Remove mode: deleted {Games} game detection rows + {Services} service detection rows, {Downloads} downloads, {LogEntries} log entries, {PrefillDepots} prefill cached-depot rows",
+                    detectionGamesDeleted, detectionServicesDeleted, downloadsDeleted, logEntriesDeleted, prefillDepotsDeleted);
+            }
+
+            // The prefill game picker holds its "Cached" badges in memory, so an open browser would
+            // keep showing the pre-removal ones until it is reloaded.
+            if (prefillDepotsDeleted > 0)
+            {
+                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
             }
 
             // The disk-summary refresh can take a while on large caches; surface it as its own
@@ -2192,6 +2216,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             int logEntriesDeleted = 0;
             int downloadsDeleted = 0;
+            int prefillDepotsDeleted = 0;
 
             await ReportRemovalProgressAsync(
                 opId,
@@ -2287,6 +2312,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         _ => throw new ArgumentOutOfRangeException(nameof(scope))
                     };
 
+                    // Drop the prefill "Cached" badge rows for this entity. Only the Steam scope can
+                    // match one: a prefill row carries a Steam app id and nothing else. Left behind,
+                    // the prefill game picker keeps calling the game cached and the daemon skips it
+                    // on the next run, though the files that row recorded are gone.
+                    prefillDepotsDeleted = scope == EvictionScope.Steam
+                        ? await context.PrefillCachedDepots
+                            .Where(depot => depot.AppId == long.Parse(key))
+                            .ExecuteDeleteAsync(stoppingToken)
+                        : 0;
+
                     await transaction.CommitAsync(stoppingToken);
                 }
                 catch
@@ -2299,8 +2334,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             if (downloadsDeleted > 0 || logEntriesDeleted > 0)
             {
                 _logger.LogInformation(
-                    "[EvictionScan] Entity removal ({Scope} '{Key}'): deleted {Downloads} evicted downloads and {LogEntries} associated log entries",
-                    scope, key, downloadsDeleted, logEntriesDeleted);
+                    "[EvictionScan] Entity removal ({Scope} '{Key}'): deleted {Downloads} evicted downloads, {LogEntries} associated log entries and {PrefillDepots} prefill cached-depot rows",
+                    scope, key, downloadsDeleted, logEntriesDeleted, prefillDepotsDeleted);
+            }
+
+            // The prefill game picker holds its "Cached" badges in memory, so an open browser would
+            // keep showing the pre-removal one until it is reloaded.
+            if (prefillDepotsDeleted > 0)
+            {
+                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
             }
 
             // Step 3: Defensive self-heal - if all evicted rows for this entity are now gone, clear

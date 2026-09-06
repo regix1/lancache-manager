@@ -1,3 +1,4 @@
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
 
@@ -158,6 +159,20 @@ public partial class CacheManagementService
                 .Where(s => s.ServiceName == serviceName)
                 .ExecuteDeleteAsync();
             _logger.LogInformation("[ServiceRemoval] Removed cached service detection entry for: {Service}", serviceName);
+
+            // Prefill only ever records Steam depots (PrefillCachedDepot is keyed by Steam app id),
+            // so removing the steam service deletes the files behind every one of those rows and
+            // the prefill game picker would keep showing "Cached" for all of them. Removing any
+            // other service leaves the Steam cache untouched and those rows still true.
+            if (string.Equals(serviceName, "steam", StringComparison.OrdinalIgnoreCase))
+            {
+                var prefillDepotsDeleted = await dbContext.PrefillCachedDepots.ExecuteDeleteAsync();
+                if (prefillDepotsDeleted > 0)
+                {
+                    _logger.LogInformation("[ServiceRemoval] Removed {Count} prefill cached-depot rows", prefillDepotsDeleted);
+                    await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+                }
+            }
 
             await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(cancellationToken);
 
