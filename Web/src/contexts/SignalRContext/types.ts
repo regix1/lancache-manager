@@ -337,12 +337,19 @@ export const SIGNALR_REFRESH_EVENTS = [
 
 // SignalR Event Types
 
-export interface ProcessingProgressEvent {
+/**
+ * Fields carried by every operation event. An event that always has a value for
+ * an optional field here redeclares it as required.
+ */
+interface OperationEvent {
   operationId: string;
+  context?: Record<string, string | number | boolean>;
+  stageKey?: string;
+}
+
+export interface ProcessingProgressEvent extends OperationEvent {
   percentComplete: number;
   status: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   mbProcessed?: number;
@@ -352,11 +359,8 @@ export interface ProcessingProgressEvent {
   linesParsed?: number;
 }
 
-export interface LogProcessingCompleteEvent {
-  operationId: string;
+export interface LogProcessingCompleteEvent extends OperationEvent {
   success: boolean;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message: string;
   cancelled?: boolean;
@@ -366,10 +370,7 @@ export interface LogProcessingCompleteEvent {
 }
 
 // Log Processing Started Event
-export interface LogProcessingStartedEvent {
-  operationId: string;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
+export interface LogProcessingStartedEvent extends OperationEvent {
   /** @deprecated use stageKey instead */
   message: string;
 }
@@ -383,13 +384,10 @@ export interface LogRemovalStartedEvent {
   service?: string;
 }
 
-export interface LogRemovalProgressEvent {
-  operationId: string;
+export interface LogRemovalProgressEvent extends OperationEvent {
   percentComplete: number;
   status: OperationStatus;
   service: string;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   filesProcessed?: number;
@@ -415,34 +413,26 @@ export interface LogRemovalCompleteEvent {
   datasource?: string;
 }
 
-export interface GameRemovalStartedEvent {
-  operationId: string;
+export interface GameRemovalStartedEvent extends OperationEvent {
   gameAppId: number | null;
   epicAppId: string | null;
   gameName: string;
   stageKey: string;
-  context?: Record<string, string | number | boolean>;
   timestamp: string;
 }
-export interface GameRemovalProgressEvent {
-  operationId: string;
+export interface GameRemovalProgressEvent extends OperationEvent {
   percentComplete: number;
   gameAppId: number | null;
   epicAppId: string | null;
   gameName: string;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   filesDeleted?: number;
   bytesFreed?: number;
 }
 
-export interface GameRemovalCompleteEvent {
-  operationId: string;
+export interface GameRemovalCompleteEvent extends OperationEvent {
   success: boolean;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   cancelled?: boolean;
@@ -454,32 +444,26 @@ export interface GameRemovalCompleteEvent {
   logEntriesRemoved?: number;
 }
 
-export interface ServiceRemovalStartedEvent {
-  operationId: string;
+export interface ServiceRemovalStartedEvent extends OperationEvent {
   stageKey: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message: string;
   serviceName: string;
   timestamp?: string;
 }
-export interface ServiceRemovalProgressEvent {
-  operationId: string;
+export interface ServiceRemovalProgressEvent extends OperationEvent {
   percentComplete: number;
   serviceName: string;
   stageKey: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   filesDeleted?: number;
   bytesFreed?: number;
 }
 
-export interface ServiceRemovalCompleteEvent {
-  operationId: string;
+export interface ServiceRemovalCompleteEvent extends OperationEvent {
   success: boolean;
   stageKey: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message: string;
   cancelled?: boolean;
@@ -489,25 +473,19 @@ export interface ServiceRemovalCompleteEvent {
   logEntriesRemoved?: number;
 }
 
-export interface CorruptionRemovalStartedEvent {
-  operationId: string;
+export interface CorruptionRemovalStartedEvent extends OperationEvent {
   service: string;
   detectionMethod?: CorruptionDetectionMethod;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   timestamp?: string;
 }
 
-export interface CorruptionRemovalProgressEvent {
-  operationId: string;
+export interface CorruptionRemovalProgressEvent extends OperationEvent {
   percentComplete: number;
   status: OperationStatus;
   service: string;
   detectionMethod?: CorruptionDetectionMethod;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   filesProcessed?: number;
@@ -515,11 +493,8 @@ export interface CorruptionRemovalProgressEvent {
   timestamp?: string;
 }
 
-export interface CorruptionRemovalCompleteEvent {
-  operationId: string;
+export interface CorruptionRemovalCompleteEvent extends OperationEvent {
   success: boolean;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message: string;
   cancelled?: boolean;
@@ -529,21 +504,17 @@ export interface CorruptionRemovalCompleteEvent {
   timestamp?: string;
 }
 
-export interface CorruptionDetectionStartedEvent {
-  operationId: string;
+export interface CorruptionDetectionStartedEvent extends OperationEvent {
   detectionMethod: CorruptionDetectionMethod;
   scanMode?: StructuralScanMode;
   effectiveScanMode?: StructuralEffectiveScanMode;
   baselineStatus?: StructuralBaselineStatus;
   resumed?: boolean;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
 }
 
-export interface CorruptionDetectionProgressEvent {
-  operationId: string;
+export interface CorruptionDetectionProgressEvent extends OperationEvent {
   detectionMethod: CorruptionDetectionMethod;
   scanMode?: StructuralScanMode;
   effectiveScanMode?: StructuralEffectiveScanMode;
@@ -560,8 +531,6 @@ export interface CorruptionDetectionProgressEvent {
   stateCommitted?: boolean;
   percentComplete: number;
   status: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   filesProcessed?: number;
@@ -571,8 +540,7 @@ export interface CorruptionDetectionProgressEvent {
 }
 
 // C# sends the actionable count projection for the completed scan.
-export interface CorruptionDetectionCompleteEvent {
-  operationId: string;
+export interface CorruptionDetectionCompleteEvent extends OperationEvent {
   detectionMethod: CorruptionDetectionMethod;
   scanMode?: StructuralScanMode;
   effectiveScanMode?: StructuralEffectiveScanMode;
@@ -590,8 +558,6 @@ export interface CorruptionDetectionCompleteEvent {
   stateCommitted?: boolean;
   scanSummary?: StructuralScanSummary;
   success: boolean;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   cancelled?: boolean;
@@ -604,23 +570,17 @@ export interface CorruptionDetectionCompleteEvent {
   coverage?: CorruptionScanCoverage | null;
 }
 
-export interface GameDetectionStartedEvent {
-  operationId: string;
+export interface GameDetectionStartedEvent extends OperationEvent {
   scanType?: 'full' | 'incremental';
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   timestamp?: string;
   showNotification?: boolean;
 }
 
-export interface GameDetectionProgressEvent {
-  operationId: string;
+export interface GameDetectionProgressEvent extends OperationEvent {
   percentComplete: number;
   status: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   gamesDetected?: number;
@@ -630,11 +590,8 @@ export interface GameDetectionProgressEvent {
   showNotification?: boolean;
 }
 
-export interface GameDetectionCompleteEvent {
-  operationId: string;
+export interface GameDetectionCompleteEvent extends OperationEvent {
   success: boolean;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message: string;
   cancelled?: boolean;
@@ -648,30 +605,21 @@ export interface GameDetectionCompleteEvent {
 }
 
 // Database Reset Events
-export interface DatabaseResetStartedEvent {
-  operationId: string;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
+export interface DatabaseResetStartedEvent extends OperationEvent {
   /** @deprecated use stageKey instead */
   message: string;
 }
-export interface DatabaseResetProgressEvent {
-  operationId: string;
+export interface DatabaseResetProgressEvent extends OperationEvent {
   percentComplete: number;
   status: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
 }
 
 // Cache Clear Event Types (used by CacheClearingProgress/CacheClearingComplete handlers)
-export interface CacheClearProgressEvent {
-  operationId: string;
+export interface CacheClearProgressEvent extends OperationEvent {
   percentComplete: number;
   status: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   statusMessage?: string;
@@ -683,11 +631,8 @@ export interface CacheClearProgressEvent {
   datasourceName?: string;
 }
 
-export interface CacheClearCompleteEvent {
-  operationId: string;
+export interface CacheClearCompleteEvent extends OperationEvent {
   success: boolean;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message: string;
   cancelled?: boolean;
@@ -701,10 +646,7 @@ export interface CacheClearCompleteEvent {
 }
 
 // Standardized Cache Clearing Events
-export interface CacheClearingStartedEvent {
-  operationId: string;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
+export interface CacheClearingStartedEvent extends OperationEvent {
   /** @deprecated use stageKey instead */
   message?: string;
 }
@@ -932,21 +874,15 @@ export interface AllowedTimeFormatsChangedEvent {
 }
 
 // Data Import Events
-export interface DataImportStartedEvent {
-  operationId: string;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
+export interface DataImportStartedEvent extends OperationEvent {
   /** @deprecated use stageKey instead */
   message?: string;
   importType?: string;
 }
 
-export interface DataImportProgressEvent {
-  operationId: string;
+export interface DataImportProgressEvent extends OperationEvent {
   percentComplete: number;
   status: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   recordsProcessed?: number;
@@ -955,16 +891,13 @@ export interface DataImportProgressEvent {
   recordsSkipped?: number;
 }
 
-export interface DataImportCompleteEvent {
-  operationId: string;
+export interface DataImportCompleteEvent extends OperationEvent {
   success: boolean;
   /**
    * True when the user stopped the import rather than it failing. The completion handler reads
    * this to pick the cancelled status, which is why a stopped import reads grey and not red.
    */
   cancelled?: boolean;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message: string;
   recordsImported?: number;
@@ -1130,35 +1063,26 @@ export interface ScheduledPrefillCompletedEvent {
 // emitted; `showNotification` (stamped once per run from the effective mode + trigger)
 // gates whether the frontend displays a card.
 
-export interface ScheduledRunStartedEvent {
+export interface ScheduledRunStartedEvent extends OperationEvent {
   serviceKey: string;
-  operationId: string;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   showNotification?: boolean;
 }
 
-export interface ScheduledRunProgressEvent {
+export interface ScheduledRunProgressEvent extends OperationEvent {
   serviceKey: string;
-  operationId: string;
   status: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   percentComplete: number;
   showNotification?: boolean;
 }
 
-export interface ScheduledRunCompleteEvent {
+export interface ScheduledRunCompleteEvent extends OperationEvent {
   serviceKey: string;
-  operationId: string;
   success: boolean;
   /**
    * True when the user stopped the run rather than it failing. The completion handler reads this
    * to pick the cancelled status, which is why a stopped scheduled run reads grey and not red.
    */
   cancelled?: boolean;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   percentComplete: number;
   error?: string;
   showNotification?: boolean;
@@ -1212,20 +1136,14 @@ export interface XboxGameMappingsUpdatedEvent {
   resolvedCount?: number;
 }
 
-export interface EvictionScanStartedEvent {
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
+export interface EvictionScanStartedEvent extends OperationEvent {
   /** @deprecated use stageKey instead. The C# records never emit this. */
   message?: string;
-  operationId: string;
   showNotification?: boolean;
 }
 
-export interface EvictionScanProgressEvent {
-  operationId: string;
+export interface EvictionScanProgressEvent extends OperationEvent {
   status: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead. The C# records never emit this. */
   message?: string;
   percentComplete: number;
@@ -1246,11 +1164,8 @@ export function isSkippedRun(event: { status?: OperationStatus }): boolean {
   return event.status === 'skipped';
 }
 
-export interface EvictionScanCompleteEvent {
+export interface EvictionScanCompleteEvent extends OperationEvent {
   success: boolean;
-  operationId: string;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead. The C# records never emit this. */
   message?: string;
   processed: number;
@@ -1266,18 +1181,12 @@ export interface EvictionScanCompleteEvent {
   status?: OperationStatus;
 }
 
-export interface CacheSizeScanStartedEvent {
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
-  operationId: string;
+export interface CacheSizeScanStartedEvent extends OperationEvent {
   showNotification?: boolean;
 }
 
-export interface CacheSizeScanProgressEvent {
-  operationId: string;
+export interface CacheSizeScanProgressEvent extends OperationEvent {
   status: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   percentComplete: number;
   directoriesScanned: number;
   totalDirectories: number;
@@ -1286,11 +1195,8 @@ export interface CacheSizeScanProgressEvent {
   showNotification?: boolean;
 }
 
-export interface CacheSizeScanCompleteEvent {
+export interface CacheSizeScanCompleteEvent extends OperationEvent {
   success: boolean;
-  operationId: string;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   totalFiles: number;
   totalBytes: number;
   formattedSize?: string;
@@ -1344,10 +1250,7 @@ export interface OperationWaitingCompleteEvent {
   skipped?: boolean;
 }
 
-export interface EvictionRemovalStartedEvent {
-  operationId: string;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
+export interface EvictionRemovalStartedEvent extends OperationEvent {
   /** @deprecated use stageKey instead */
   message?: string;
   gameName?: string;
@@ -1356,11 +1259,8 @@ export interface EvictionRemovalStartedEvent {
   showNotification?: boolean;
 }
 
-export interface EvictionRemovalProgressEvent {
-  operationId: string;
+export interface EvictionRemovalProgressEvent extends OperationEvent {
   status?: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   percentComplete?: number;
@@ -1369,11 +1269,8 @@ export interface EvictionRemovalProgressEvent {
   showNotification?: boolean;
 }
 
-export interface EvictionRemovalCompleteEvent {
+export interface EvictionRemovalCompleteEvent extends OperationEvent {
   success: boolean;
-  operationId: string;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   cancelled?: boolean;
