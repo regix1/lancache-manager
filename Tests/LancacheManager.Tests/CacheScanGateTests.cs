@@ -634,6 +634,11 @@ public sealed class CacheScanGateTests
         SetField(service, "_cacheScanGate", gate);
         SetEmptyInstance(service, "_evictionScanTerminalStates");
         SetField(service, "_stateService", VisibleClientsStateService());
+        // No constructor runs on an uninitialized object, so no field initializer does either, and a
+        // refused promoted scan now holds the run by waking its own loop. That wake takes this lock,
+        // which every real instance gets from the base class and this one would otherwise reach as
+        // null, failing as a timeout in whichever test awaits the run.
+        SetField(service, "<IntervalLock>k__BackingField", new object());
         return service;
     }
 
