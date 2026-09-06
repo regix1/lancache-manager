@@ -7,3 +7,10 @@ docker-compose.yml text eol=lf
 
 # A carriage return here is copied into workflow outputs and Docker build arguments
 VERSION     text eol=lf
+
+# Source files kept at LF so an editor or tool on a Windows checkout cannot flip a
+# whole file and bury a few real changed lines in a diff of every line.
+*.cs        text eol=lf
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.rs        text eol=lf
