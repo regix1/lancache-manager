@@ -264,14 +264,31 @@ async fn get_game_depot_ids(pool: &PgPool, game_app_id: u32) -> Result<HashSet<u
 /// lines on `depot_id ∈ valid_depot_ids`, so feeding a shared depot id would strip the OTHER game's
 /// HIT/MISS lines (cross-game data loss). Subtracting this set from `valid_depot_ids` yields the
 /// "safe" depot set, mirroring the C# `safeDepotIds` partial-eviction guard but at cross-game scope.
-async fn get_shared_depot_ids(pool: &PgPool, game_app_id: u32) -> Result<HashSet<u32>> {
+///
+/// Asked only about the depots this game claims. The caller subtracts the answer from that same set
+/// (`compute_safe_depot_ids` is a difference), so a depot belonging to neither game can never change
+/// the outcome, and reading every other depot in the database to discard it is pure cost. Unbounded,
+/// these were two sequential scans of tables holding hundreds of thousands of rows, with `<>` on the
+/// filtered column so no index applied - the removal sat at 5% for minutes with nothing to report.
+async fn get_shared_depot_ids(
+    pool: &PgPool,
+    game_app_id: u32,
+    claimed_depot_ids: &HashSet<u32>,
+) -> Result<HashSet<u32>> {
     let mut shared: HashSet<u32> = HashSet::new();
+
+    let claimed: Vec<i64> = claimed_depot_ids.iter().map(|id| *id as i64).collect();
+    if claimed.is_empty() {
+        return Ok(shared);
+    }
 
     // Depots mapped to a DIFFERENT AppId in SteamDepotMappings.
     let mapping_rows = sqlx::query(
-        "SELECT DISTINCT \"DepotId\" FROM \"SteamDepotMappings\" WHERE \"AppId\" <> $1"
+        "SELECT DISTINCT \"DepotId\" FROM \"SteamDepotMappings\"
+         WHERE \"DepotId\" = ANY($2) AND \"AppId\" <> $1"
     )
     .bind(game_app_id as i64)
+    .bind(&claimed)
     .fetch_all(pool)
     .await?;
 
@@ -283,9 +300,10 @@ async fn get_shared_depot_ids(pool: &PgPool, game_app_id: u32) -> Result<HashSet
     // Depots that another game's Downloads rows carry (GameAppId set and != this game).
     let download_rows = sqlx::query(
         "SELECT DISTINCT \"DepotId\" FROM \"Downloads\"
-         WHERE \"DepotId\" IS NOT NULL AND \"GameAppId\" IS NOT NULL AND \"GameAppId\" <> $1"
+         WHERE \"DepotId\" = ANY($2) AND \"GameAppId\" IS NOT NULL AND \"GameAppId\" <> $1"
     )
     .bind(game_app_id as i64)
+    .bind(&claimed)
     .fetch_all(pool)
     .await?;
 
@@ -397,7 +415,7 @@ async fn main() -> Result<()> {
     let safe_depot_ids: HashSet<u32> = if valid_depot_ids.is_empty() {
         HashSet::new()
     } else {
-        let shared_depot_ids = get_shared_depot_ids(&pool, game_app_id).await?;
+        let shared_depot_ids = get_shared_depot_ids(&pool, game_app_id, &valid_depot_ids).await?;
         compute_safe_depot_ids(&valid_depot_ids, &shared_depot_ids)
     };
     let excluded_depot_count = valid_depot_ids.len() - safe_depot_ids.len();

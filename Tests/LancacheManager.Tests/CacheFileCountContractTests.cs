@@ -120,9 +120,11 @@ public sealed partial class CacheFileCountContractTests
         var source = ReadWebSource(
             "components", "features", "management", "game-detection", "GameCacheDetector.tsx");
 
-        // The confirm button must stay unreachable until the count lands, and closing the dialog
-        // must stop a walk that runs for minutes.
-        AssertMatches(ConfirmDisabledRegex(), source, "a confirm button disabled until the count lands");
+        // The confirm button must stay unreachable while the count is still running, and closing the
+        // dialog must stop a walk that runs for minutes. A count that FAILED is a different state:
+        // it leaves no number, and refusing on that alone left the dialog saying the count failed
+        // with a Remove button that could never be pressed.
+        AssertMatches(ConfirmDisabledRegex(), source, "a confirm button disabled only while the count runs");
         Assert.Contains("ApiService.cancelOperation(", source, StringComparison.Ordinal);
 
         // Both confirmations are counted, not only the service one: a game removal reaches the
@@ -314,6 +316,6 @@ public sealed partial class CacheFileCountContractTests
     [GeneratedRegex(@"/cache/count/\$\{\s*encodeURIComponent\(\s*operationId\s*\)\s*\}/status")]
     private static partial Regex CountStatusRouteRegex();
 
-    [GeneratedRegex(@"confirmDisabled=\{\s*cacheFileCount\s*===\s*null\s*\}")]
+    [GeneratedRegex(@"confirmDisabled=\{\s*cacheFileCount\s*===\s*null\s*&&\s*!countFailed\s*\}")]
     private static partial Regex ConfirmDisabledRegex();
 }
