@@ -121,9 +121,18 @@ fn normalize_service(service: &str) -> String {
 /// Stop the logical removal when a bare-metal candidate could not prove its
 /// recipe-computed key. Keeping the access-log and database rows makes the skipped
 /// object discoverable for a corrected retry; deleting those rows would orphan it.
-/// Primary URL query: $1 = GameName, $2 = lowercased owning service. Gates identity on
+/// The URL query: $1 = GameName, $2 = lowercased owning service. Gates identity on
 /// `LOWER(d."Service") = $2` (the Download side) and returns each row's own `le."Service"`
-/// (the cache-hash service) without constraining it.
+/// (the cache-hash service) without constraining it. That last part is what lets an `xbox`
+/// identity return its `wsus`-tagged URLs, and it is why this query alone is enough.
+///
+/// A second "fallback" query used to run after this one, selecting the same columns through
+/// `le."DownloadId" IN (SELECT "Id" FROM "Downloads" WHERE <the same four predicates>)`. It could
+/// never add a row: `Downloads."Id"` is the primary key, so the inner join above and that subquery
+/// select exactly the same log rows, and the DISTINCT is over `le` columns either way. Every
+/// Blizzard, Riot and Xbox removal paid for the table twice and merged the second result into the
+/// first, changing nothing. Its comment defended it against constraining `le."Service"` - which
+/// this query never did either.
 const PRIMARY_URL_QUERY: &str =
     "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
          FROM \"LogEntries\" le
@@ -133,26 +142,6 @@ const PRIMARY_URL_QUERY: &str =
            AND d.\"EpicAppId\" IS NULL
            AND LOWER(d.\"Service\") = $2
            AND le.\"Url\" IS NOT NULL";
-
-/// Fallback URL query: $1 = GameName, $2 = lowercased owning service. The owning service is
-/// scoped via the Downloads subquery (`LOWER("Service") = $2`), NOT via `le.Service`.
-/// This is load-bearing for the cache-service split: an Xbox game has Downloads.Service='xbox'
-/// but its LogEntries are tagged le.Service='wsus' (the cache-hash service). Filtering the
-/// fallback on `LOWER(le.Service) = 'xbox'` would return ZERO rows for Xbox. Constraining only
-/// the Download side keeps the fallback correct for Xbox while staying a no-op-superset for
-/// Blizzard/Riot/Epic (where le.Service == d.Service anyway). The DownloadId-IN subquery is what
-/// ties each log row to the right game; le.Service must NOT be constrained.
-const FALLBACK_URL_QUERY: &str =
-    "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
-         FROM \"LogEntries\" le
-         WHERE le.\"Url\" IS NOT NULL
-           AND le.\"DownloadId\" IN (
-               SELECT \"Id\" FROM \"Downloads\"
-               WHERE \"GameName\" = $1
-                 AND \"GameAppId\" IS NULL
-                 AND \"EpicAppId\" IS NULL
-                 AND LOWER(\"Service\") = $2
-           )";
 
 /// Query the database for all URLs associated with a name-keyed game.
 /// Joins LogEntries with Downloads via DownloadId, scoped to the (Service, GameName)
@@ -188,27 +177,6 @@ async fn get_named_game_urls_from_db(
         entry.1 = entry.1.max(bytes_served);
     }
 
-    // Fallback: any LogEntries row pointing at one of this game's Download rows. Scoped on the
-    // Download side ONLY — see `FALLBACK_URL_QUERY` for why `le.Service` must NOT be constrained
-    // (load-bearing for the Xbox wsus cache-service split).
-    let fallback_rows = sqlx::query(FALLBACK_URL_QUERY)
-    .bind(game_name)
-    .bind(service)
-    .fetch_all(pool)
-    .await?;
-
-    for row in fallback_rows {
-        let row_service: String = row.get("Service");
-        let url: String = row.get("Url");
-        let bytes_served: i64 = row.get("BytesServed");
-        let service_lower = row_service.to_lowercase();
-
-        let entry = url_data
-            .entry(url)
-            .or_insert_with(|| (service_lower.clone(), 0));
-
-        entry.1 = entry.1.max(bytes_served);
-    }
 
     eprintln!(
         "  Found {} unique URLs for named game '{}/{}'",
@@ -460,19 +428,19 @@ mod tests {
         assert!(PRIMARY_URL_QUERY.contains("d.\"EpicAppId\" IS NULL"));
     }
 
-    /// Load-bearing: the fallback scopes via the Downloads subquery and must NEVER constrain
-    /// `le.Service`, or Xbox removal (le.Service='wsus', identity 'xbox') returns zero rows and
-    /// leaves cache/log behind. Guards the G3 fix against regression.
+    /// Load-bearing, and it outlived the second query it was written for: constraining
+    /// `le.Service` anywhere in this path makes Xbox removal (le.Service='wsus', identity 'xbox')
+    /// return zero rows and leave cache and log behind. The query scopes on the Download side and
+    /// must keep doing so.
     #[test]
-    fn fallback_query_does_not_constrain_log_entry_service() {
-        // No predicate of the shape `LOWER(le."Service") = ...` anywhere in the fallback.
+    fn url_query_does_not_constrain_log_entry_service() {
+        // No predicate of the shape `LOWER(le."Service") = ...` anywhere in it.
         assert!(
-            !FALLBACK_URL_QUERY.contains("LOWER(le.\"Service\")"),
-            "fallback must not constrain le.Service (breaks the Xbox wsus cache-service split)"
+            !PRIMARY_URL_QUERY.contains("LOWER(le.\"Service\")"),
+            "the URL query must not constrain le.Service (breaks the Xbox wsus cache-service split)"
         );
-        // It DOES scope on the Download side via the DownloadId-IN subquery.
-        assert!(FALLBACK_URL_QUERY.contains("le.\"DownloadId\" IN ("));
-        assert!(FALLBACK_URL_QUERY.contains("LOWER(\"Service\") = $2"));
+        // Identity is gated on the Download side instead.
+        assert!(PRIMARY_URL_QUERY.contains("LOWER(d.\"Service\") = $2"));
     }
 
     /// The named-removal starting/complete stage keys must be the existing AppID-free

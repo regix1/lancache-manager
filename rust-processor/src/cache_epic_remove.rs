@@ -69,20 +69,16 @@ const EPIC_STAGE_KEYS: RemovalStageKeys = RemovalStageKeys {
 /// Preserve URL provenance when a bare-metal candidate's recipe-computed key
 /// could not be verified. The cache helper leaves that file untouched, so the
 /// access-log and database rows must remain available for a corrected retry.
+/// A second "fallback" query used to run after this one and merge into the same map. It could only
+/// ever return a subset: the same `DownloadId IN (SELECT ... )` scoping as the join below, plus
+/// `LOWER(le."Service") = 'epicgames'` on top. Its comment said it caught rows with no DownloadId,
+/// but requiring `DownloadId IN (...)` excludes exactly those. Every Epic removal read the table
+/// twice for nothing.
 const PRIMARY_URL_QUERY: &str =
     "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
          FROM \"LogEntries\" le
          INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
          WHERE d.\"GameName\" = $1 AND d.\"EpicAppId\" IS NOT NULL AND le.\"Url\" IS NOT NULL";
-
-const FALLBACK_URL_QUERY: &str =
-    "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
-         FROM \"LogEntries\" le
-         WHERE LOWER(le.\"Service\") = 'epicgames'
-         AND le.\"Url\" IS NOT NULL
-         AND le.\"DownloadId\" IN (
-             SELECT \"Id\" FROM \"Downloads\" WHERE \"GameName\" = $1 AND \"EpicAppId\" IS NOT NULL
-         )";
 
 /// Query the database for all URLs associated with an Epic game.
 /// Joins LogEntries with Downloads via DownloadId to find URLs for the specific game.
@@ -109,26 +105,6 @@ async fn get_epic_game_urls_from_db(pool: &PgPool, game_name: &str) -> Result<Ha
             .or_insert_with(|| (service_lower.clone(), 0));
 
         // Track max bytes for chunk calculation
-        entry.1 = entry.1.max(bytes_served);
-    }
-
-    // Also get URLs from LogEntries that match epicgames service but may not have DownloadId set
-    // (fallback for entries processed before Epic game mapping was established)
-    let fallback_rows = sqlx::query(FALLBACK_URL_QUERY)
-    .bind(game_name)
-    .fetch_all(pool)
-    .await?;
-
-    for row in fallback_rows {
-        let service: String = row.get("Service");
-        let url: String = row.get("Url");
-        let bytes_served: i64 = row.get("BytesServed");
-        let service_lower = service.to_lowercase();
-
-        let entry = url_data
-            .entry(url)
-            .or_insert_with(|| (service_lower.clone(), 0));
-
         entry.1 = entry.1.max(bytes_served);
     }
 
@@ -303,20 +279,12 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FALLBACK_URL_QUERY, PRIMARY_URL_QUERY};
+    use super::PRIMARY_URL_QUERY;
 
     #[test]
     fn primary_query_gates_identity_on_game_name_and_epic_app_id() {
         assert!(PRIMARY_URL_QUERY.contains("d.\"GameName\" = $1"));
         assert!(PRIMARY_URL_QUERY.contains("d.\"EpicAppId\" IS NOT NULL"));
         assert!(PRIMARY_URL_QUERY.contains("le.\"Url\" IS NOT NULL"));
-    }
-
-    #[test]
-    fn fallback_query_gates_epic_service_and_download_identity() {
-        assert!(FALLBACK_URL_QUERY.contains("LOWER(le.\"Service\") = 'epicgames'"));
-        assert!(FALLBACK_URL_QUERY.contains("le.\"DownloadId\" IN ("));
-        assert!(FALLBACK_URL_QUERY.contains("\"GameName\" = $1"));
-        assert!(FALLBACK_URL_QUERY.contains("\"EpicAppId\" IS NOT NULL"));
     }
 }
