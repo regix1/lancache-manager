@@ -26,6 +26,8 @@ interface CacheRemovalModalProps {
   /** What the count is doing, or why it produced no number. Shown until `fileCount` arrives. */
   statusMessage?: string;
   confirmDisabled?: boolean;
+  /** True while the count is still walking, so the confirm button spins rather than only graying out. */
+  confirmBusy?: boolean;
 }
 
 const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
@@ -38,7 +40,8 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
   evictedBytes,
   fileCount,
   statusMessage,
-  confirmDisabled
+  confirmDisabled,
+  confirmBusy
 }) => {
   const { t } = useTranslation();
 
@@ -92,6 +95,7 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
       onConfirm={onConfirm}
       title={modalTitle}
       confirmDisabled={confirmDisabled}
+      confirmBusy={confirmBusy}
       confirmLabel={
         titleOverride !== undefined && evictedCount !== undefined
           ? t('modals.cacheRemoval.removeEvictedButton')

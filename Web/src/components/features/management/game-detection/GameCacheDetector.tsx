@@ -1374,6 +1374,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // count failed and a Remove button that could never be pressed. The figure tells the
         // reader how much is about to go; not having it is a reason to warn, not to refuse.
         confirmDisabled={cacheFileCount === null && !countFailed}
+        confirmBusy={cacheFileCount === null && !countFailed}
       />
 
       {/* Service Removal Confirmation Modal */}
@@ -1388,6 +1389,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // count failed and a Remove button that could never be pressed. The figure tells the
         // reader how much is about to go; not having it is a reason to warn, not to refuse.
         confirmDisabled={cacheFileCount === null && !countFailed}
+        confirmBusy={cacheFileCount === null && !countFailed}
       />
 
       {/* Remove All Cached Games/Services Confirmation Modal */}

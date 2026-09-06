@@ -25,6 +25,12 @@ interface ConfirmationModalProps {
   loading?: boolean;
   confirmDisabled?: boolean;
   /**
+   * Spins the confirm button while the dialog waits on work it did not start itself. Unlike
+   * `loading` it leaves Cancel enabled and the close handler intact, which is what a dialog needs
+   * when closing it is how the user cancels that work.
+   */
+  confirmBusy?: boolean;
+  /**
    * Replaces the default warning triangle in the title row. Pass a `w-6 h-6` icon when the dialog
    * needs a stronger or gentler signal than "caution" — e.g. a red trash for a permanent delete, or
    * a shield for lifting a ban. The default suits any ordinary destructive confirmation.
@@ -44,6 +50,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   confirmColor = 'destructive',
   loading = false,
   confirmDisabled = false,
+  confirmBusy = false,
   icon,
   size = 'md'
 }) => {
@@ -84,10 +91,10 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             variant="filled"
             color={confirmColor}
             onClick={onConfirm}
-            loading={loading}
+            loading={loading || confirmBusy}
             stableWidth
             disabled={confirmDisabled}
-            aria-busy={loading}
+            aria-busy={loading || confirmBusy}
             className="w-full sm:w-auto min-h-[44px] sm:min-h-10"
           >
             {confirmLabel || t('common.confirm')}
