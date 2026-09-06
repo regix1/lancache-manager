@@ -211,6 +211,31 @@ struct PendingLogEntry {
     datasource: String,
 }
 
+/// Splits a session's served bytes into the cache-hit and cache-miss totals a download row carries.
+///
+/// Every served byte lands in one of the two, because together they ARE the download's size on every
+/// page that reads it. This used to match `== "HIT"` and `== "MISS"` exactly, so a line whose status
+/// was anything else - a different case, or one of the BYPASS, EXPIRED and STALE values the parser
+/// preserves verbatim - counted as neither, and a session made of those recorded zero bytes while its
+/// log entries kept the real figures. The pages then hid it as an empty session.
+///
+/// HIT is matched the way the speed tracker matches it, ignoring case; everything else that served
+/// bytes is a miss. The cache-status vocabulary still belongs to whoever reads
+/// `LogEntries."CacheStatus"`, which keeps the literal value: corruption detection reads it there and
+/// needs the distinctions this sum deliberately flattens.
+fn split_hit_miss_bytes<'a>(entries: impl Iterator<Item = (&'a str, i64)>) -> (i64, i64) {
+    let mut hit = 0i64;
+    let mut miss = 0i64;
+    for (status, bytes) in entries {
+        if status.eq_ignore_ascii_case("HIT") {
+            hit += bytes;
+        } else {
+            miss += bytes;
+        }
+    }
+    (hit, miss)
+}
+
 #[derive(Serialize)]
 struct Progress {
     /// Total line count is only known once processing finishes (the expensive
@@ -1453,17 +1478,22 @@ impl Processor {
         let first_timestamp = new_entries.iter().map(|e| e.timestamp).min().unwrap();
         let last_timestamp = new_entries.iter().map(|e| e.timestamp).max().unwrap();
 
-        let total_hit_bytes: i64 = new_entries
-            .iter()
-            .filter(|e| e.cache_status == "HIT")
-            .map(|e| e.bytes_served)
-            .sum();
-
-        let total_miss_bytes: i64 = new_entries
-            .iter()
-            .filter(|e| e.cache_status == "MISS")
-            .map(|e| e.bytes_served)
-            .sum();
+        // Every served byte has to land in one of these two totals, because together they ARE the
+        // download's size on every page that reads it. Matching `== "HIT"` and `== "MISS"` exactly
+        // meant a line whose status was anything else - a different case, or one of the BYPASS,
+        // EXPIRED and STALE values the parser deliberately preserves verbatim - counted as neither,
+        // and a session made entirely of those recorded zero bytes while its log entries kept the
+        // real figures. That is a download the pages then hide as an empty session.
+        //
+        // HIT is matched the way the speed tracker matches it, ignoring case; everything else that
+        // served bytes is a miss. Cache-status vocabulary belongs to whoever reads
+        // LogEntries."CacheStatus", which still holds the literal value - corruption detection reads
+        // it there and needs the distinctions this sum deliberately flattens.
+        let (total_hit_bytes, total_miss_bytes) = split_hit_miss_bytes(
+            new_entries
+                .iter()
+                .map(|e| (e.cache_status.as_str(), e.bytes_served)),
+        );
 
         // Extract primary depot ID (most common) - use new_entries, not all entries
         let primary_depot_id = new_entries
@@ -2416,9 +2446,9 @@ mod classification_tests {
 #[cfg(test)]
 mod log_entry_clamp_tests {
     use super::{
-        clamp_chars, LOG_ENTRY_CLIENT_IP_MAX_CHARS, LOG_ENTRY_DATASOURCE_MAX_CHARS,
-        LOG_ENTRY_HTTP_RANGE_MAX_CHARS, LOG_ENTRY_SERVICE_MAX_CHARS,
-        LOG_ENTRY_URL_MAX_CHARS, LOG_ENTRY_VARCHAR_MAX_CHARS,
+        clamp_chars, split_hit_miss_bytes, LOG_ENTRY_CLIENT_IP_MAX_CHARS,
+        LOG_ENTRY_DATASOURCE_MAX_CHARS, LOG_ENTRY_HTTP_RANGE_MAX_CHARS,
+        LOG_ENTRY_SERVICE_MAX_CHARS, LOG_ENTRY_URL_MAX_CHARS, LOG_ENTRY_VARCHAR_MAX_CHARS,
     };
 
     #[test]
@@ -2472,6 +2502,42 @@ mod log_entry_clamp_tests {
         let oversized = "s".repeat(LOG_ENTRY_SERVICE_MAX_CHARS + 1);
         let clamped = clamp_chars(&oversized, LOG_ENTRY_SERVICE_MAX_CHARS);
         assert_eq!(clamped.chars().count(), LOG_ENTRY_SERVICE_MAX_CHARS);
+    }
+
+    /// The bug this pins: a download whose lines all carried a status outside the exact literals
+    /// `HIT` and `MISS` recorded zero bytes, so every page that reads a download's size showed
+    /// nothing while the log entries held the real figures, and the views that hide empty sessions
+    /// dropped the download entirely.
+    #[test]
+    fn every_served_byte_lands_in_a_total() {
+        let entries = [
+            ("HIT", 100),
+            ("hit", 10),
+            ("MISS", 1000),
+            ("miss", 200),
+            ("BYPASS", 30),
+            ("EXPIRED", 7),
+            ("UNKNOWN", 3),
+            ("-", 1),
+        ];
+        let (hit, miss) = split_hit_miss_bytes(entries.iter().copied());
+
+        assert_eq!(hit, 110, "HIT is matched however the log cased it");
+        assert_eq!(miss, 1241, "everything else that served bytes counts as a miss");
+        assert_eq!(
+            hit + miss,
+            entries.iter().map(|(_, bytes)| bytes).sum::<i64>(),
+            "no served byte may be dropped by either total"
+        );
+    }
+
+    #[test]
+    fn a_session_of_bypassed_lines_is_not_a_zero_byte_download() {
+        // The shape that emptied the downloads page: real traffic, no HIT and no MISS anywhere.
+        let (hit, miss) = split_hit_miss_bytes([("BYPASS", 5_000), ("BYPASS", 1_500)].into_iter());
+
+        assert_eq!(hit, 0);
+        assert_eq!(miss, 6_500, "the session's size is the bytes it served");
     }
 
     #[test]
