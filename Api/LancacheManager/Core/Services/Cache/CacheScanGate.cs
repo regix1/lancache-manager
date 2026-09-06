@@ -127,6 +127,18 @@ public sealed class CacheScanGate
     }
 
     /// <summary>
+    /// How many clients are pushing bytes through the cache right now. A caller naming what a
+    /// schedule is waiting for needs this: with one client the only running download is whatever the
+    /// app itself started, and with more than one it cannot say whose bytes tripped the gate.
+    /// Zero when nothing is downloading or the tracker has not reported.
+    /// </summary>
+    public int ActiveDownloadingClients()
+    {
+        var (_, snapshot) = _speedTracker.ReadUnfilteredState();
+        return snapshot.HasActiveDownloads ? snapshot.ClientSpeeds.Count : 0;
+    }
+
+    /// <summary>
     /// What a SCHEDULE is told when this gate refuses it, as opposed to the sentences above, which are
     /// written for a person who clicked something and whose request really is over. A schedule's run is
     /// kept and starts by itself, so telling the reader to try again describes work they do not have to

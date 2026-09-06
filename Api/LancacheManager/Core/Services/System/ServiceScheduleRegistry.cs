@@ -105,6 +105,13 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     // impossible by construction rather than by a second bookkeeping set.
     private readonly Dictionary<string, Guid> _deferredRuns = new(StringComparer.OrdinalIgnoreCase);
 
+    // What each held run's card was told it is waiting for, kept so a page refresh can be answered
+    // with the same sentence. The recovery route rebuilds a waiting card from the tracker, and the
+    // tracker stores no blocker: the queue answers for its own waiters from its waiter list, and a
+    // run held here is not in it. Written under the _deferredRuns lock and cleared with it, so the
+    // name cannot outlive the hold it belongs to. Absent for a hold that named nothing.
+    private readonly Dictionary<Guid, string> _heldRunBlockerNames = [];
+
     // What the waiting card calls each schedule it can hold. The display name is what the card reads,
     // and every other start site in the app writes its own literal rather than looking one up, so
     // these are the same three strings their real runs already register with.
@@ -357,6 +364,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         if (_tracker is null || heldId == Guid.Empty)
         {
             return;
+        }
+
+        lock (_deferredRuns)
+        {
+            _heldRunBlockerNames.Remove(heldId);
         }
 
         _tracker.CompleteOperation(heldId, success: true);
@@ -908,12 +920,25 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
 
         // The prefill is the only blocker the app tracks that can be writing to the cache, so it is
-        // the only one that can be named. The gate answers whether bytes are landing, not whose, so a
-        // client download with no prefill running leaves this null and the card falls back to its own
-        // "waiting for another process to complete" wording, which is true either way.
-        var blockerName = _tracker
-            .GetActiveOperations(OperationType.ScheduledPrefill)
-            .FirstOrDefault(op => op.Metadata is not ScheduledPrefillServiceRunState)?.Name;
+        // the only one that can be named - but the gate answers whether bytes are landing, not whose.
+        // Naming it while a machine on the LAN is also downloading would be a guess, and a wrong one
+        // sends the reader to watch the prefill finish while the scan stays held for the other
+        // download. So it is named only when the prefill is the single client on the wire; anything
+        // else leaves this null and the card falls back to "waiting for another process to
+        // complete", which is true whoever it is.
+        var blockerName = _cacheScanGate?.ActiveDownloadingClients() == 1
+            ? _tracker
+                .GetActiveOperations(OperationType.ScheduledPrefill)
+                .FirstOrDefault(op => op.Metadata is not ScheduledPrefillServiceRunState)?.Name
+            : null;
+
+        if (blockerName is not null)
+        {
+            lock (_deferredRuns)
+            {
+                _heldRunBlockerNames[heldId] = blockerName;
+            }
+        }
 
         _ = _notifications.NotifyAllAsync(
             SignalREvents.OperationWaiting,
@@ -931,6 +956,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             if (_deferredRuns.TryGetValue(serviceKey, out var held) && held == heldId)
             {
                 _deferredRuns.Remove(serviceKey);
+                _heldRunBlockerNames.Remove(heldId);
             }
         }
     }
@@ -984,6 +1010,18 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         FindScheduleLoop(serviceKey)?.TriggerImmediateRun();
 
         return Task.FromResult<(ScheduleRunStatus, string?)>((statusBeforeTrigger, null));
+    }
+
+    /// <summary>
+    /// What a run held for a download is waiting for, or null when nothing could be named. Read by
+    /// the recovery route so a card rebuilt after a page refresh says the same thing it said before.
+    /// </summary>
+    public string? GetHeldRunBlockerName(Guid heldOperationId)
+    {
+        lock (_deferredRuns)
+        {
+            return _heldRunBlockerNames.TryGetValue(heldOperationId, out var name) ? name : null;
+        }
     }
 
     public ScheduleRunStatus? GetRunStatus(string serviceKey)

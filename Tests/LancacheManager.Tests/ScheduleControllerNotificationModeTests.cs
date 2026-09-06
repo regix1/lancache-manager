@@ -393,5 +393,6 @@ public class ScheduleControllerNotificationModeTests
         public void NotifySchedulesChanged() { }
         public Task BroadcastSchedulesAsync() => Task.CompletedTask;
         public ScheduleRunStatus? GetRunStatus(string serviceKey) => RunStatus;
+        public string? GetHeldRunBlockerName(Guid heldOperationId) => null;
     }
 }

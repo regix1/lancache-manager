@@ -18,15 +18,18 @@ public class OperationsController : ControllerBase
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly OperationCancellationService _cancellationService;
     private readonly IOperationQueue _operationQueue;
+    private readonly IServiceScheduleRegistry _scheduleRegistry;
 
     public OperationsController(
         IUnifiedOperationTracker operationTracker,
         OperationCancellationService cancellationService,
-        IOperationQueue operationQueue)
+        IOperationQueue operationQueue,
+        IServiceScheduleRegistry scheduleRegistry)
     {
         _operationTracker = operationTracker;
         _cancellationService = cancellationService;
         _operationQueue = operationQueue;
+        _scheduleRegistry = scheduleRegistry;
     }
 
     /// <summary>
@@ -71,7 +74,11 @@ public class OperationsController : ControllerBase
                 OperationId = op.Id,
                 OperationType = op.Type.ToWireString(),
                 Name = op.Name,
+                // Two owners park operations and each answers for its own: the queue for a run
+                // waiting on another operation, the schedule registry for one held for a download.
+                // Asking only the queue lost the blocker's name on every refresh of a held run.
                 BlockedByName = _operationQueue.GetWaitingBlockerName(op.Id)
+                    ?? _scheduleRegistry.GetHeldRunBlockerName(op.Id)
             })
             .ToList();
 

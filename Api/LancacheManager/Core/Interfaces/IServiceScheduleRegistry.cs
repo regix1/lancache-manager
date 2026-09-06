@@ -5,6 +5,12 @@ namespace LancacheManager.Core.Interfaces;
 
 public interface IServiceScheduleRegistry
 {
+    /// <summary>
+    /// What a run held for a download is waiting for, or null when nothing could be named. The
+    /// recovery route asks so a waiting card rebuilt after a page refresh keeps its blocker.
+    /// </summary>
+    string? GetHeldRunBlockerName(Guid heldOperationId);
+
     IReadOnlyList<ServiceScheduleInfo> GetAll();
     ServiceScheduleInfo? Get(string serviceKey);
     void SetInterval(string serviceKey, double intervalHours);

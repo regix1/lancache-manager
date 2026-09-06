@@ -514,10 +514,16 @@ public sealed class OperationQueueService : IOperationQueue
 
                         if (retryLimitReached)
                         {
+                            // Skipped rather than failed: nothing went wrong, the start gate simply
+                            // never freed up inside the retry window. Failed paints the card red with
+                            // an internal sentence no reader can act on, and skipped also lets the
+                            // schedule registry hold the run when the reason turns out to be a
+                            // download - the one cause that outlasts this window by hours.
                             _tracker.CompleteOperation(
                                 waiter.WaitingId,
-                                success: false,
-                                error: "Queued operation could not acquire its local start gate");
+                                success: true,
+                                error: "Queued operation could not acquire its local start gate",
+                                skipped: true);
                         }
                         // Otherwise the waiting operation was cancelled while promotion was in
                         // flight; its cancellation path already completed the card.

@@ -266,6 +266,69 @@ public class ScheduleRunGateTests
         Assert.False(service.HasPendingRun);
     }
 
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(2, false)]
+    public async Task HeldRun_NamesThePrefillOnlyWhenItIsTheOnlyClientDownloadingAsync(
+        int downloadingClients,
+        bool expectNamed)
+    {
+        // The gate reports that bytes are landing, never whose. With one client on the wire the only
+        // download running is the one this app started; with a second machine downloading too, saying
+        // "waiting for Scheduled Prefill to finish" sends the reader to watch the wrong thing and the
+        // scan stays held after the prefill ends.
+        using var service = new RunGateProbeService(EvictionKey);
+        var snapshot = new DownloadSpeedSnapshot();
+        CacheScanGateHarness.MakeBusy(snapshot);
+        snapshot.ClientSpeeds = [.. Enumerable.Range(0, downloadingClients)
+            .Select(index => new ClientSpeedInfo { ClientIp = $"10.0.0.{index + 5}", BytesPerSecond = 1_000_000 })];
+
+        var cards = new List<OperationWaitingNotification>();
+        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
+        {
+            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
+                && (string?)args?[0] == SignalREvents.OperationWaiting
+                && args[1] is OperationWaitingNotification card)
+            {
+                lock (cards)
+                {
+                    cards.Add(card);
+                }
+            }
+
+            return Task.CompletedTask;
+        });
+
+        var tracker = CreateRealTracker();
+        using var prefillCts = new CancellationTokenSource();
+        tracker.RegisterOperation(OperationType.ScheduledPrefill, "Scheduled Prefill", prefillCts);
+
+        var previous = ScheduledServiceBase.ScheduleRunGate;
+        try
+        {
+            var registry = new ServiceScheduleRegistry(
+                [service],
+                CacheScanGateHarness.VisibleClientsStateService(),
+                notifications,
+                tracker,
+                activityRegistry: null,
+                cacheScanGate: CacheScanGateHarness.With(snapshot));
+
+            Assert.NotNull(ScheduledServiceBase.ScheduleRunGate!(EvictionKey, RunTrigger.Scheduled));
+
+            var card = await WaitForOneAsync(cards);
+            Assert.Equal(expectNamed ? "Scheduled Prefill" : null, card.BlockedByName);
+
+            // The same answer the recovery route gives a card rebuilt after a page refresh, which
+            // the queue cannot answer for because a run held here is not one of its waiters.
+            Assert.Equal(card.BlockedByName, registry.GetHeldRunBlockerName(card.OperationId));
+        }
+        finally
+        {
+            ScheduledServiceBase.ScheduleRunGate = previous;
+        }
+    }
+
     [Fact]
     public async Task SilentSchedule_IsHeldWithoutACardThatStaysAsync()
     {
