@@ -487,6 +487,12 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("EpicAppId")
                         .HasDatabaseName("IX_Downloads_EpicAppId");
 
+                    b.HasIndex("GameAppId")
+                        .HasDatabaseName("IX_Downloads_GameAppId");
+
+                    b.HasIndex("GameName")
+                        .HasDatabaseName("IX_Downloads_GameName");
+
                     b.HasIndex("IsActive")
                         .HasDatabaseName("IX_Downloads_IsActive");
 

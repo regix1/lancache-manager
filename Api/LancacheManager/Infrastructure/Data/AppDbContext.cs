@@ -73,6 +73,19 @@ public class AppDbContext : DbContext
             .HasIndex(d => d.XboxProductId)
             .HasDatabaseName("IX_Downloads_XboxProductId");
 
+        // Every game removal reads Downloads by the game it is removing, several times over: the
+        // depot lookup, the URL collection and the delete all filter on one of these two columns.
+        // Without them Postgres reads the whole table for each of those, which is what a removal on
+        // a busy install spends its time doing. GameName is the name-keyed path (Blizzard, Riot,
+        // Xbox), GameAppId the Steam and Epic one.
+        modelBuilder.Entity<Download>()
+            .HasIndex(d => d.GameAppId)
+            .HasDatabaseName("IX_Downloads_GameAppId");
+
+        modelBuilder.Entity<Download>()
+            .HasIndex(d => d.GameName)
+            .HasDatabaseName("IX_Downloads_GameName");
+
         // Composite index for dashboard query performance. PostgreSQL serves any leading-column
         // subset from a multi-column btree, so this single index also answers plain
         // (IsEvicted, StartTimeUtc) filters. A separate two-column index on the same leading
