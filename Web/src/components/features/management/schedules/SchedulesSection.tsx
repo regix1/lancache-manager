@@ -21,7 +21,7 @@ import { useNotifications } from '@contexts/notifications';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import ScheduleIntervalPicker from './ScheduleIntervalPicker';
-import { getNotificationStyleOptions } from './constants';
+import { cacheQueuedReasonKey, getNotificationStyleOptions } from './constants';
 import type { CustomSchedule } from './custom-schedule/types';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -1852,10 +1852,16 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
             type: 'generic',
             status: 'skipped',
             // The server sends a translation key, not a sentence: it has no locale and the card and
-            // this toast are both rendered here.
-            message: result.skippedReason
-              ? t(result.skippedReason)
-              : t('management.schedules.runNowSkipped', { service: displayName }),
+            // this toast are both rendered here. The cache-gate reason has a second wording that
+            // names the run, and this is the only place that knows which name to give it - the
+            // same reason also answers Run All, which refuses several services at once and has no
+            // single name to put in it.
+            message:
+              result.skippedReason === cacheQueuedReasonKey
+                ? t('management.schedules.queuedUntilCacheFreeNamed', { name: displayName })
+                : result.skippedReason
+                  ? t(result.skippedReason)
+                  : t('management.schedules.runNowSkipped', { service: displayName }),
             details: { notificationType: 'warning', serviceKey: key }
           });
         } else if (result.alreadyRunning) {

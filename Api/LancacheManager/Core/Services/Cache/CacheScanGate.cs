@@ -149,4 +149,13 @@ public sealed class CacheScanGate
     /// - they answer an HTTP request and are already English on the wire.
     /// </summary>
     public const string ScheduleQueuedReasonKey = "management.schedules.queuedUntilCacheFree";
+
+    /// <summary>
+    /// The same sentence with the run's own name in it, for the one refusal that has a name to give:
+    /// the card a silent schedule raises when its run is held. Several schedules can be waiting at
+    /// once, so "this run" leaves the reader guessing which. The key above stays for the answers that
+    /// cover more than one schedule, where there is no single name and this one would render its
+    /// placeholder as literal text.
+    /// </summary>
+    public const string ScheduleQueuedReasonNamedKey = "management.schedules.queuedUntilCacheFreeNamed";
 }

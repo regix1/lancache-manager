@@ -16,6 +16,11 @@ export const getScheduleIntervalOptions = (t: TFunction): DropdownOption[] => [
   { value: 'custom', label: t('management.schedules.intervals.custom') }
 ];
 
+// The reason the server returns when the cache gate refuses a run. It arrives as a translation key
+// rather than a sentence, and the row that renders it is the only place that knows which service
+// was clicked, so the key has to be recognised there to swap in the wording that names the run.
+export const cacheQueuedReasonKey = 'management.schedules.queuedUntilCacheFree';
+
 // Used by the schedule table rows and by scheduled prefill, which keeps its own card and so
 // cannot read a copy local to the rows.
 export const getNotificationStyleOptions = (t: TFunction): DropdownOption[] => [

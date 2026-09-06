@@ -382,9 +382,12 @@ public class ScheduleRunGateTests
 
             var notice = await WaitForOneAsync(skipped);
             Assert.Equal(OperationStatus.Skipped, notice.Status);
-            // The wording travels as the stage key the card translates, never as raw text.
+            // The wording travels as the stage key the card translates, never as raw text, and the
+            // run's name rides beside it so the card can say which schedule is waiting.
             Assert.Null(notice.Error);
-            Assert.Equal(CacheScanGate.ScheduleQueuedReasonKey, notice.StageKey);
+            Assert.Equal(CacheScanGate.ScheduleQueuedReasonNamedKey, notice.StageKey);
+            Assert.NotNull(notice.Context);
+            Assert.Equal("Eviction Scan", notice.Context!["name"]);
 
             lock (waiting)
             {

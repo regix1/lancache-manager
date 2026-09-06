@@ -876,9 +876,12 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     serviceKey,
                     noticeId,
                     // No reason: the card prints that field verbatim and translates the stage key
-                    // beside it, so the wording has to travel as the key alone.
+                    // beside it, so the wording has to travel as the key alone. The name travels
+                    // beside it as an interpolation value, which is the only way the card can say
+                    // which of several waiting schedules it is reporting.
                     reason: null,
-                    CacheScanGate.ScheduleQueuedReasonKey));
+                    CacheScanGate.ScheduleQueuedReasonNamedKey,
+                    new Dictionary<string, object?> { ["name"] = displayName }));
             _tracker.CompleteOperation(noticeId, success: true, skipped: true);
             return;
         }
@@ -964,8 +967,15 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// <summary>
     /// Announces a refused run on the schedule's own terminal event: a translation key for the card
     /// to render, and the gate's own sentence beside it for anything that reports the raw reason.
+    /// A stage key with a placeholder in it needs <paramref name="context"/> filled, or the card
+    /// shows the placeholder; a key that reads on its own leaves it null.
     /// </summary>
-    private async Task EmitSkippedRunAsync(string serviceKey, Guid operationId, string? reason, string stageKey)
+    private async Task EmitSkippedRunAsync(
+        string serviceKey,
+        Guid operationId,
+        string? reason,
+        string stageKey,
+        Dictionary<string, object?>? context = null)
     {
         if (!_runCompleteEvents.TryGetValue(serviceKey, out var completeEvent))
         {
@@ -980,7 +990,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // A run that was refused did nothing, so there is no progress to claim.
             PercentComplete: 0,
             Error: reason,
-            Context: null,
+            Context: context,
             // Always shown. A schedule set to Silent is asking for its routine runs to stay out of
             // the way, and a run that was refused is not one of those.
             ShowNotification: true,
