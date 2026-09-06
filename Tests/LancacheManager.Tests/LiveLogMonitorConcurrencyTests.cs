@@ -48,16 +48,34 @@ public class LiveLogMonitorConcurrencyTests
             LiveLogMonitorService.CanBypassConflictForIncrementalIngestion(conflict, pendingBytes));
     }
 
+    /// Two things disqualify an operation from running beside a live ingest, and each of these
+    /// fails one. Log removal and a database reset rewrite what ingestion reads and writes. The
+    /// eviction scan never touches access.log but flags Download rows IsEvicted while it runs, and
+    /// those are the rows ingestion is inserting and updating.
     [Theory]
     [InlineData(OperationType.LogRemoval)]
-    [InlineData(OperationType.GameDetection)]
-    [InlineData(OperationType.CacheSizeScan)]
     [InlineData(OperationType.DatabaseReset)]
-    public void IncrementalBatch_DoesNotBypassOtherOperationTypes(OperationType activeType)
+    [InlineData(OperationType.EvictionScan)]
+    public void IncrementalBatch_DoesNotBypassOperationsThatWriteWhatIngestionWrites(
+        OperationType activeType)
     {
         var conflict = ConflictFor(activeType);
 
         Assert.False(
+            LiveLogMonitorService.CanBypassConflictForIncrementalIngestion(conflict, 10_000));
+    }
+
+    /// These only read the cache tree, the log and Downloads, writing to their own tables instead.
+    /// Blocking a small ingest through one of them froze the dashboard at zero for the length of a
+    /// scan while downloads were running.
+    [Theory]
+    [InlineData(OperationType.GameDetection)]
+    [InlineData(OperationType.CacheSizeScan)]
+    public void IncrementalBatch_BypassesOperationsThatOnlyRead(OperationType activeType)
+    {
+        var conflict = ConflictFor(activeType);
+
+        Assert.True(
             LiveLogMonitorService.CanBypassConflictForIncrementalIngestion(conflict, 10_000));
     }
 

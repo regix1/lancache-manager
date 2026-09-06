@@ -370,8 +370,8 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                 if (conflict != null)
                 {
                     _logger.LogDebug(
-                        "Allowing {PendingBytes} byte incremental live ingestion for '{Name}' during corruption detection",
-                        sizeIncrease, datasource.Name);
+                        "Allowing {PendingBytes} byte incremental live ingestion for '{Name}' during {ActiveType}",
+                        sizeIncrease, datasource.Name, conflict.ActiveOperationType);
                 }
 
                 // Start processing
@@ -447,13 +447,31 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         }
     }
 
+    /// The heavy operations a live ingest may run beside. Two things disqualify one, and both have
+    /// to be clear: writing access.log, which ingestion reads and keeps a position in, and writing
+    /// the Downloads projection, which ingestion inserts and updates. Log processing and log removal
+    /// fail the first by definition, and the entity removals purge the removed game's log lines as
+    /// one of their steps. The eviction scan passes the first and fails the second - it flags rows
+    /// IsEvicted while running - so it stays excluded even though it never touches the log.
+    ///
+    /// The three below only read the cache tree, the log and Downloads, and write elsewhere:
+    /// corruption detection to its own tables, game detection to the cached detections, the cache
+    /// size scan to the snapshots. Holding statistics still while one of those runs bought nothing
+    /// and left the dashboard reading zero through a long scan while traffic was flowing.
+    private static readonly HashSet<string> _ingestionSafeActiveOperations =
+    [
+        nameof(OperationType.CorruptionDetection),
+        nameof(OperationType.GameDetection),
+        nameof(OperationType.CacheSizeScan),
+    ];
+
     internal static bool CanBypassConflictForIncrementalIngestion(
         OperationConflictResponse conflict,
         long pendingBytes) =>
         pendingBytes > 0 &&
+        // The cap is what keeps this an INCREMENTAL allowance: a full backlog import still waits
+        // for the slot rather than running a whole-log pass beside another heavy operation.
         pendingBytes <= MaxConcurrentCorruptionIngestionBytes &&
-        string.Equals(
-            conflict.ActiveOperationType,
-            nameof(OperationType.CorruptionDetection),
-            StringComparison.Ordinal);
+        conflict.ActiveOperationType is { } activeType &&
+        _ingestionSafeActiveOperations.Contains(activeType);
 }
