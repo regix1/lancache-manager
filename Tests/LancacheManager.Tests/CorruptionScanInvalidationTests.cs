@@ -227,6 +227,15 @@ public sealed class CorruptionScanInvalidationTests
                 LastDetectedUtc = DateTime.UtcNow,
                 CreatedAtUtc = DateTime.UtcNow
             });
+            setup.PrefillCachedDepots.Add(new PrefillCachedDepot
+            {
+                AppId = 730,
+                DepotId = 731,
+                ManifestId = 12345,
+                AppName = "Counter-Strike 2",
+                CachedAtUtc = DateTime.UtcNow,
+                TotalBytes = 1024
+            });
             await setup.SaveChangesAsync();
         }
 
@@ -242,6 +251,7 @@ public sealed class CorruptionScanInvalidationTests
             Assert.Equal(1, result.Services);
             Assert.Equal(1, result.CorruptionCandidates);
             Assert.Equal(1, result.CorruptionScans);
+            Assert.Equal(1, result.PrefillDepots);
         }
 
         await using (var assertContext = new AppDbContext(database.Options))
@@ -256,6 +266,10 @@ public sealed class CorruptionScanInvalidationTests
             Assert.True(states["already-evicted"]);
             Assert.Empty(await assertContext.CachedGameDetections.ToListAsync());
             Assert.Empty(await assertContext.CachedServiceDetections.ToListAsync());
+
+            // The clear deleted the files those badges stood for, so a game must not keep reading
+            // "Cached" in the prefill picker (and be skipped by the daemon) afterwards.
+            Assert.Empty(await assertContext.PrefillCachedDepots.ToListAsync());
         }
 
         await AssertScanCountsAsync(database.Options, scans: 0, candidates: 0);

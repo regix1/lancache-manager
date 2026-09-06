@@ -368,11 +368,79 @@ test('clear, reopen, and cache removal keep their existing ownership paths', () 
       },
       setSearch: () => undefined,
       setImportText: () => undefined,
-      setImportResult: () => undefined
+      setImportResult: () => undefined,
+      setClearCacheConfirmOpen: () => undefined
     }
   );
   resetSelection();
 
   assert.deepEqual([...selection], ['2', '3']);
   assert.equal(modalFile.text.includes('onRemoveFromCache(game.appId)'), true);
+});
+
+/**
+ * The per-game cache removal is drawn only when the parent hands down `onRemoveFromCache`, so a
+ * parent that renders this picker without it silently loses the control - which is exactly what
+ * happened to the scheduled-prefill picker. Both parents are pinned here, along with the
+ * clear-everything button beside it, because neither is reachable from the component's own tests.
+ */
+test('both pickers keep the per-game and clear-all cache controls wired', () => {
+  const panel = parseSource('src/components/features/prefill/PrefillPanel.tsx', ts.ScriptKind.TSX);
+  const scheduled = parseSource(
+    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
+    ts.ScriptKind.TSX
+  );
+
+  for (const [name, source] of [
+    ['PrefillPanel', panel],
+    ['ScheduledPrefillConfigModal', scheduled]
+  ]) {
+    assert.equal(
+      source.text.includes('onRemoveFromCache='),
+      true,
+      `${name} must pass onRemoveFromCache or the per-game remove button disappears`
+    );
+    assert.equal(
+      source.text.includes('onClearAllCache='),
+      true,
+      `${name} must pass onClearAllCache or the clear-all button disappears`
+    );
+  }
+
+  // Both controls are admin-only server-side, so offering either to a guest could only ever 403.
+  assert.equal(panel.text.includes('isAdmin ? handleClearAllFromCache : undefined'), true);
+});
+
+/**
+ * The toolbar button wipes every cached tag, which is the same action the Utilities menu already
+ * puts behind a confirmation. Pinned because the button reads as ordinary next to Show Cached and
+ * Rescan, so a later edit could easily wire it straight to the callback again.
+ */
+test('the clear-all button asks before wiping the cached tags', () => {
+  assert.equal(modalFile.text.includes('onClick={() => setClearCacheConfirmOpen(true)}'), true);
+  assert.equal(modalFile.text.includes('<ConfirmationModal'), true);
+  assert.equal(modalFile.text.includes('void onClearAllCache();'), true);
+});
+
+/**
+ * A clear or a removal re-reads the library itself so the badges are right with the socket down,
+ * and the PrefillCacheChanged broadcast re-reads it too. Both go through reloadGamesOnce so one
+ * click costs one pass; a direct loadGames(true) anywhere else brings the double fetch back.
+ */
+test('every library reload in the prefill panel goes through the shared pass', () => {
+  const panel = parseSource('src/components/features/prefill/PrefillPanel.tsx', ts.ScriptKind.TSX);
+  const forcedReloads = panel.text.match(/loadGames\(true\)/g) ?? [];
+  assert.equal(
+    forcedReloads.length,
+    1,
+    'loadGames(true) belongs only inside reloadGamesOnce; every other caller awaits that'
+  );
+  for (const caller of ['handleClearAllFromCache', 'handleRemoveFromCache']) {
+    assert.equal(
+      panel.text.includes(caller),
+      true,
+      `${caller} must stay in the panel for the shared reload to have a caller`
+    );
+  }
+  assert.equal(panel.text.includes('void reloadGamesOnce();'), true);
 });

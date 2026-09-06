@@ -10,6 +10,7 @@ import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import { SearchInput } from '../../ui/SearchInput';
 import { Check, Gamepad2, Import, Database, Trash2 } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import './GameSelectionModal.css';
@@ -34,6 +35,9 @@ interface GameSelectionModalProps {
   onRescan?: () => Promise<void>;
   onRemoveFromCache?: (appId: string) => Promise<void>;
   removingAppId?: string | null;
+  /** Drops every cached tag at once, for when the cache was emptied outside the app. */
+  onClearAllCache?: () => Promise<void>;
+  isClearingAllCache?: boolean;
 }
 
 export function GameSelectionModal({
@@ -48,7 +52,9 @@ export function GameSelectionModal({
   isUsingCache = false,
   onRescan,
   onRemoveFromCache,
-  removingAppId = null
+  removingAppId = null,
+  onClearAllCache,
+  isClearingAllCache = false
 }: GameSelectionModalProps) {
   const { t } = useTranslation();
   const { notifyError } = useErrorHandler();
@@ -56,6 +62,7 @@ export function GameSelectionModal({
   const [localSelected, setLocalSelected] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [hideCached, setHideCached] = useState(false);
+  const [clearCacheConfirmOpen, setClearCacheConfirmOpen] = useState(false);
   const gameListRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pendingFocusAppId = useRef<string | null>(null);
@@ -83,6 +90,9 @@ export function GameSelectionModal({
       setSearch('');
       setImportText('');
       setImportResult(null);
+      // Escape closes both dialogs at once, which leaves this flag set with nothing on screen.
+      // Without the reset the next open would greet the user with the wipe confirmation.
+      setClearCacheConfirmOpen(false);
     }
   }, [opened, selectedAppIds]);
 
@@ -418,6 +428,19 @@ export function GameSelectionModal({
                 {t('prefill.gameSelection.showCached')}
               </Button>
             )}
+            {cachedCount > 0 && onClearAllCache && (
+              <Button
+                variant="filled"
+                color="secondary"
+                size="sm"
+                onClick={() => setClearCacheConfirmOpen(true)}
+                loading={isClearingAllCache}
+                disabled={isClearingAllCache}
+                className="flex-1 basis-[calc(50%-0.25rem)] min-[560px]:basis-0 min-[560px]:min-w-[6rem] min-h-[44px] sm:min-h-8"
+              >
+                {t('prefill.gameSelection.clearAllCached')}
+              </Button>
+            )}
             {onRescan && (
               <Button
                 variant="filled"
@@ -715,6 +738,24 @@ export function GameSelectionModal({
           </Button>
         </div>
       </div>
+
+      {/* Modal portals to the body, so this confirmation paints over the picker rather than
+          inside it. Both hosts of this picker get the same prompt from here, and it matches the
+          one the Utilities menu already shows for the same wipe. */}
+      {onClearAllCache && (
+        <ConfirmationModal
+          opened={clearCacheConfirmOpen}
+          onClose={() => setClearCacheConfirmOpen(false)}
+          onConfirm={() => {
+            setClearCacheConfirmOpen(false);
+            void onClearAllCache();
+          }}
+          title={t('prefill.confirm.clearDbTitle')}
+          confirmLabel={t('prefill.gameSelection.clearAllCached')}
+        >
+          {t('prefill.confirm.clearDbMessage')}
+        </ConfirmationModal>
+      )}
     </Modal>
   );
 }

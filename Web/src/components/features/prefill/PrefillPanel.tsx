@@ -109,6 +109,8 @@ function ServicePrefillPanel({
     hasData: boolean;
   } | null>(null);
   const gamesCacheWindowMs = 5 * 60 * 1000;
+  const reloadGamesRef = useRef<Promise<void> | null>(null);
+  const reloadGamesAgainRef = useRef(false);
 
   // Use context for log entries (persists across tab switches)
   const {
@@ -149,6 +151,7 @@ function ServicePrefillPanel({
   const [cachedAppIds, setCachedAppIds] = useState<string[]>([]);
   const [isUsingGamesCache, setIsUsingGamesCache] = useState(false);
   const [removingAppId, setRemovingAppId] = useState<string | null>(null);
+  const [isClearingAllCache, setIsClearingAllCache] = useState(false);
 
   // Prefill settings state
   const [selectedOS, setSelectedOS] = useState<string[]>(['windows', 'linux', 'macos']);
@@ -549,30 +552,68 @@ function ServicePrefillPanel({
     [signalR.session, addLog, t, serviceBasePath, gamesCacheWindowMs, serviceId]
   );
 
+  // Every source of a library reload goes through here: the PrefillCacheChanged broadcast, the
+  // reconnect catch-up, and the clear/remove handlers that re-read on their own so the badges are
+  // right with the socket down. One click reaches two of them, and a first-ever run emits one
+  // event per newly cached game, so without this each reload's three sequential requests (the
+  // daemon round trip among them) would stack. A caller arriving mid-pass is queued rather than
+  // dropped - the running pass may have started before that caller's delete committed, since a
+  // game finishing anywhere raises the same event - and awaits the pass that will include it.
+  const reloadGamesOnce = useCallback((): Promise<void> => {
+    if (reloadGamesRef.current) {
+      reloadGamesAgainRef.current = true;
+      return reloadGamesRef.current;
+    }
+    const pass = (async () => {
+      try {
+        do {
+          reloadGamesAgainRef.current = false;
+          await loadGames(true);
+        } while (reloadGamesAgainRef.current);
+      } finally {
+        reloadGamesRef.current = null;
+      }
+    })();
+    reloadGamesRef.current = pass;
+    return pass;
+  }, [loadGames]);
+
   // The cached-depot table is shared by every container and every browser, so a game finishing
   // anywhere - or a cached entry removed anywhere - must reach this library without a Rescan.
   // The backend broadcasts this only when rows actually changed, so an all-already-cached run
   // cannot turn into one event per game.
   useEffect(() => {
-    // A first-ever run still emits one event per newly cached game, and each reload is three
-    // sequential requests including the slow daemon round trip, so a burst must not stack them.
-    let isRefetching = false;
     const handlePrefillCacheChanged = () => {
-      if (isRefetching) return;
-      isRefetching = true;
-      void loadGames(true).finally(() => {
-        isRefetching = false;
-      });
+      void reloadGamesOnce();
     };
     onSignalR('PrefillCacheChanged', handlePrefillCacheChanged);
     return () => {
       offSignalR('PrefillCacheChanged', handlePrefillCacheChanged);
     };
-  }, [onSignalR, offSignalR, loadGames]);
+  }, [onSignalR, offSignalR, reloadGamesOnce]);
 
   // A broadcast that lands while the socket is down is lost, leaving the cached badges stale until
   // the next Rescan. Re-read once the main hub is live again.
-  useReconnectRefetch(isMainHubConnected, () => void loadGames(true));
+  useReconnectRefetch(isMainHubConnected, () => void reloadGamesOnce());
+
+  const handleClearAllFromCache = useCallback(async () => {
+    setIsClearingAllCache(true);
+    try {
+      await ApiService.clearAllPrefillCache();
+      addLog('info', t('prefill.log.clearedAllFromCache'));
+      // Same reasoning as the per-game removal below: re-read rather than waiting for the
+      // broadcast, so the badges are right even with the socket down. The forced reload is also
+      // what rewrites gamesCacheRef - blanking only the React state leaves the ref holding the
+      // pre-clear snapshot, and the next unforced loadGames restores every badge from it.
+      await reloadGamesOnce();
+    } catch (err) {
+      notifyError(t('prefill.errors.clearAllFromCacheFailed'), err, {
+        logLabel: 'Failed to clear the prefill cache'
+      });
+    } finally {
+      setIsClearingAllCache(false);
+    }
+  }, [reloadGamesOnce, notifyError, t, addLog]);
 
   const handleRemoveFromCache = useCallback(
     async (appId: string) => {
@@ -590,7 +631,7 @@ function ServicePrefillPanel({
         }
         // Re-read rather than trusting the broadcast to come back to this browser: with the
         // socket down, the row the user just acted on would otherwise keep its Cached badge.
-        await loadGames(true);
+        await reloadGamesOnce();
       } catch (err) {
         addLog('error', t('prefill.log.removeFromCacheFailed', { game: gameName }));
         notifyError(t('prefill.errors.removeFromCacheFailed'), err, {
@@ -600,7 +641,7 @@ function ServicePrefillPanel({
         setRemovingAppId(null);
       }
     },
-    [loadGames, notifyError, t, ownedGames, addLog]
+    [reloadGamesOnce, notifyError, t, ownedGames, addLog]
   );
 
   const executeCommand = useCallback(
@@ -707,14 +748,7 @@ function ServicePrefillPanel({
             break;
           }
           case 'clear-cache-data': {
-            addLog('info', t('prefill.log.clearingCacheDb'));
-            try {
-              const result = await ApiService.clearAllPrefillCache();
-              addLog('success', result.message || t('prefill.log.cacheDbCleared'));
-              setCachedAppIds([]);
-            } catch (err) {
-              addLog('error', getErrorMessage(err) || t('prefill.log.failedClearCacheDb'));
-            }
+            await handleClearAllFromCache();
             break;
           }
         }
@@ -747,6 +781,7 @@ function ServicePrefillPanel({
       selectedAppIds,
       addLog,
       loadGames,
+      handleClearAllFromCache,
       t
     ]
   );
@@ -1210,13 +1245,15 @@ function ServicePrefillPanel({
         isLoading={isLoadingGames}
         cachedAppIds={cachedAppIds}
         isUsingCache={isUsingGamesCache}
-        onRescan={() => loadGames(true)}
+        onRescan={reloadGamesOnce}
         onRemoveFromCache={
           // The delete route is AccountHolder-only while the read that fills this list is not, so a
           // guest offered this control could only ever be answered with a 403.
           isAdmin ? handleRemoveFromCache : undefined
         }
         removingAppId={removingAppId}
+        onClearAllCache={isAdmin ? handleClearAllFromCache : undefined}
+        isClearingAllCache={isClearingAllCache}
       />
 
       {/* Large Prefill Confirmation Dialog */}

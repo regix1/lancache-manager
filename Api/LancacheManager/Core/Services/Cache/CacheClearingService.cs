@@ -568,12 +568,20 @@ public class CacheClearingService : ScheduledBackgroundService
                 validCachePaths.Select(path => path.Name).ToArray(),
                 finalizationToken);
             _logger.LogInformation(
-                "[CacheClearing] Reconciled successful clear: {DownloadsEvicted} downloads marked evicted; cleared {Games} game, {Services} service, {CorruptionCandidates} corruption candidate, and {CorruptionScans} corruption scan projections",
+                "[CacheClearing] Reconciled successful clear: {DownloadsEvicted} downloads marked evicted; cleared {Games} game, {Services} service, {CorruptionCandidates} corruption candidate, and {CorruptionScans} corruption scan projections, and {PrefillDepots} prefill cached-depot rows",
                 reconciliation.DownloadsEvicted,
                 reconciliation.Games,
                 reconciliation.Services,
                 reconciliation.CorruptionCandidates,
-                reconciliation.CorruptionScans);
+                reconciliation.CorruptionScans,
+                reconciliation.PrefillDepots);
+
+            // The prefill game picker keeps its "Cached" badges in memory, so an open browser would
+            // keep showing the pre-clear ones until it is reloaded.
+            if (reconciliation.PrefillDepots > 0)
+            {
+                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+            }
 
             // The filesystem mutation is now complete and the PostgreSQL projections are no
             // longer authoritative. Drop each affected baseline before publishing success so a
@@ -693,7 +701,8 @@ public class CacheClearingService : ScheduledBackgroundService
         int Games,
         int Services,
         int CorruptionCandidates,
-        int CorruptionScans)> InvalidateCachedDetectionResultsAsync(
+        int CorruptionScans,
+        int PrefillDepots)> InvalidateCachedDetectionResultsAsync(
         AppDbContext context,
         CancellationToken cancellationToken)
     {
@@ -731,7 +740,8 @@ public class CacheClearingService : ScheduledBackgroundService
         int Games,
         int Services,
         int CorruptionCandidates,
-        int CorruptionScans)> ReconcileSuccessfulCacheClearAsync(
+        int CorruptionScans,
+        int PrefillDepots)> ReconcileSuccessfulCacheClearAsync(
         AppDbContext context,
         IReadOnlyCollection<string> clearedDatasourceNames,
         CancellationToken cancellationToken)
@@ -780,7 +790,8 @@ public class CacheClearingService : ScheduledBackgroundService
                     invalidated.Games,
                     invalidated.Services,
                     invalidated.CorruptionCandidates,
-                    invalidated.CorruptionScans);
+                    invalidated.CorruptionScans,
+                    invalidated.PrefillDepots);
             }
             catch
             {
@@ -794,7 +805,8 @@ public class CacheClearingService : ScheduledBackgroundService
         int Games,
         int Services,
         int CorruptionCandidates,
-        int CorruptionScans)> InvalidateCachedDetectionResultsCoreAsync(
+        int CorruptionScans,
+        int PrefillDepots)> InvalidateCachedDetectionResultsCoreAsync(
         AppDbContext context,
         CancellationToken cancellationToken)
     {
@@ -810,7 +822,16 @@ public class CacheClearingService : ScheduledBackgroundService
             .Where(summary => summary.Id == CachedDetectionSummary.SingletonId)
             .ExecuteDeleteAsync(cancellationToken);
 
-        return (games, services, corruptionCandidates, corruptionScans);
+        // The prefill "Cached" badges are a record of what prefill put on disk, so the clear that
+        // deleted those files falsifies every one of them. Left behind, the game picker reports
+        // games as cached that are not, and the daemon skips them on the next run - the user sees
+        // a prefill that appears to do nothing. Wiped wholesale like the detection tables above:
+        // the row carries no datasource, so there is no per-datasource answer to give, and the
+        // safe direction is a badge that under-claims (a re-prefill costs bandwidth) rather than
+        // one that over-claims (a game silently never prefills).
+        var prefillDepots = await context.PrefillCachedDepots.ExecuteDeleteAsync(cancellationToken);
+
+        return (games, services, corruptionCandidates, corruptionScans, prefillDepots);
     }
 
     internal static async Task InvalidateStructuralCorruptionStateAsync(

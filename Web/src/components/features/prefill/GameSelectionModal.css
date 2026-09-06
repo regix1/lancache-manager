@@ -1,6 +1,5 @@
 .game-selection-modal__list {
   border-radius: var(--theme-border-radius);
-  background: var(--theme-bg-tertiary);
 }
 
 .game-selection-modal__toolbar {
@@ -49,7 +48,6 @@
   overflow: hidden;
   border: 1px solid var(--theme-border-secondary);
   border-radius: var(--theme-border-radius);
-  background: var(--theme-bg-secondary);
 }
 
 .game-selection-modal__pane-header {

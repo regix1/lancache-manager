@@ -325,6 +325,8 @@ export function ScheduledPrefillConfigModal({
   const [loadingGameSelectionService, setLoadingGameSelectionService] =
     useState<ScheduledPrefillServiceKey | null>(null);
   const [gameSelectionError, setGameSelectionError] = useState<string | null>(null);
+  const [removingCachedAppId, setRemovingCachedAppId] = useState<string | null>(null);
+  const [isClearingCachedGames, setIsClearingCachedGames] = useState(false);
   const [persistentLoginTarget, setPersistentLoginTarget] =
     useState<ScheduledPrefillServiceKey | null>(null);
   const [closingEditSession, setClosingEditSession] = useState(false);
@@ -1639,6 +1641,39 @@ export function ScheduledPrefillConfigModal({
     []
   );
 
+  // Clearing a cached tag only drops the row that says the game is already on disk, so the next run
+  // downloads it again. Both handlers lean on the server's PrefillCacheChanged broadcast, which the
+  // effect below turns into a reload of this picker's badges, so neither re-reads by hand.
+  const handleRemoveGameFromCache = useCallback(
+    async (appId: string) => {
+      setRemovingCachedAppId(appId);
+      try {
+        const removal = await ApiService.deletePrefillCachedApp(appId);
+        if (removal.removedDepots === 0) {
+          // Cached status is read per depot and manifest with no app term, so a game whose files
+          // were all downloaded under another game owns no rows and keeps its badge after this.
+          setGameSelectionError(t('prefill.errors.removeFromCacheSharedFiles'));
+        }
+      } catch (error: unknown) {
+        setGameSelectionError(getErrorMessage(error));
+      } finally {
+        setRemovingCachedAppId(null);
+      }
+    },
+    [t]
+  );
+
+  const handleClearAllCachedGames = useCallback(async () => {
+    setIsClearingCachedGames(true);
+    try {
+      await ApiService.clearAllPrefillCache();
+    } catch (error: unknown) {
+      setGameSelectionError(getErrorMessage(error));
+    } finally {
+      setIsClearingCachedGames(false);
+    }
+  }, []);
+
   // The cached-depot table is shared by every container and every browser, so a game finishing in
   // any of them has to reach this picker while it is open. Nothing to re-read when it is closed:
   // the reload needs the open selection's service and session, and reopening loads them anyway.
@@ -1655,8 +1690,6 @@ export function ScheduledPrefillConfigModal({
     };
   }, [onSignalR, offSignalR, gameSelection, loadGameSelection]);
 
-  // A broadcast that lands while the socket is down is lost, leaving the cached badges stale for
-  // as long as the picker stays open. Re-read once the connection is live again.
   useReconnectRefetch(isConnected, () => {
     if (!opened) {
       return;
@@ -1664,6 +1697,8 @@ export function ScheduledPrefillConfigModal({
     void loadIntegrationLoginAvailability();
   });
 
+  // A broadcast that lands while the socket is down is lost, leaving the cached badges stale for
+  // as long as the picker stays open. Re-read once the connection is live again.
   useReconnectRefetch(isConnected, () => {
     if (!gameSelection) {
       return;
@@ -2318,6 +2353,10 @@ export function ScheduledPrefillConfigModal({
         onSave={handleSaveGameSelection}
         isLoading={loadingGameSelectionService !== null}
         cachedAppIds={gameSelection?.cachedAppIds ?? []}
+        onRemoveFromCache={handleRemoveGameFromCache}
+        removingAppId={removingCachedAppId}
+        onClearAllCache={handleClearAllCachedGames}
+        isClearingAllCache={isClearingCachedGames}
       />
       <ConfirmationModal
         opened={clearLoginsConfirmOpen}
