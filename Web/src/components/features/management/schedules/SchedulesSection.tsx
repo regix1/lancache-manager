@@ -1783,12 +1783,12 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
                   count: triggeredCount,
                   queued: queuedNext,
                   skipped: refused,
-                  reason: skippedReason ?? ''
+                  reason: skippedReason ? t(skippedReason) : ''
                 })
               : t('management.schedules.runAllTriggeredWithSkipped', {
                   count: triggeredCount,
                   skipped: refused,
-                  reason: skippedReason ?? ''
+                  reason: skippedReason ? t(skippedReason) : ''
                 }),
           details: { notificationType: 'warning' }
         });
@@ -1851,9 +1851,11 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           addNotification({
             type: 'generic',
             status: 'skipped',
-            message:
-              result.skippedReason ||
-              t('management.schedules.runNowSkipped', { service: displayName }),
+            // The server sends a translation key, not a sentence: it has no locale and the card and
+            // this toast are both rendered here.
+            message: result.skippedReason
+              ? t(result.skippedReason)
+              : t('management.schedules.runNowSkipped', { service: displayName }),
             details: { notificationType: 'warning', serviceKey: key }
           });
         } else if (result.alreadyRunning) {

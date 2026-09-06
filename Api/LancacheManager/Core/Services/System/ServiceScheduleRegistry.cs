@@ -61,10 +61,9 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     private const string SkippedBeforeStartStageKey = "management.gameDetection.skippedBeforeStart";
 
     // What every schedule route reports for a refused run: the Run Now response, the Run All summary,
-    // and the card's own message. A sentence rather than a key because these routes hand it straight
-    // to the caller, which is what the gate's sentence used to do here.
-    private const string QueuedUntilCacheIsFree =
-        "This run is queued and starts on its own as soon as the cache can be scanned.";
+    // and the card's own message. Shared with the eviction scan, which reads the gate again from inside
+    // its own promoted run and has to say the same thing there.
+    private const string QueuedUntilCacheIsFree = CacheScanGate.ScheduleQueuedReasonKey;
 
     // The one schedule whose run type the user chooses. Named here because both the setter and the
     // mapper below have to agree on which card carries a scan mode, and they are far apart.
@@ -236,10 +235,33 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // terminal broadcast of its own. This registry is already listening here and is the one
         // place that knows which card the schedule owns, so the refusal is announced from here
         // rather than by giving the queue a dependency on schedules.
+        // A scan that got past the loop gate and only met the download when its start delegate finally
+        // ran. That refusal is thrown inside the delegate and never reaches the run gate, so nothing
+        // has held it and nothing will bring it back: the queue cannot park on a download, and this
+        // terminal is the last anyone hears of the run. Held here instead, on the same card the other
+        // refusals raise.
+        // Not gated on the declined-before-start marker, because only one of the two ways in carries
+        // it: a run refused the moment it is enqueued is marked, while one refused at promotion
+        // completes the waiter itself and is not. Asked of the gate rather than read off the message
+        // because this is also reached by heavy-operation conflicts, which the queue parks and retries
+        // on its own and must keep doing.
+        if (operation.Status == OperationStatus.Skipped
+            && _cacheReadingOperations.Contains(operation.Type)
+            && _cacheScanGate?.CheckDownloadInProgress() is not null
+            && TryFindScheduleKey(operation.Type, out var heldKey))
+        {
+            // Off this callback: the tracker is mid-terminal for one operation and holding registers
+            // another, which is the tracker re-entered from inside its own notify.
+            var heldType = operation.Type;
+            _ = Task.Run(() => HoldRefusedRun(heldKey, heldType));
+            return;
+        }
+
         if (operation.Status == OperationStatus.Skipped
             && ReadDeclinedBeforeStart(operation.Metadata)
             && TryFindScheduleKey(operation.Type, out var declinedKey))
         {
+
             // Passed through as it stands, empty or not. The card reads the reason as
             // error-or-stage-key, and an empty string is neither null nor undefined there, so
             // substituting one for a missing message would render a blank card instead of falling
@@ -307,6 +329,16 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // already out of the set by this point, so leaving its card open would leave it on
             // screen for the life of the process with nothing able to clear it.
             CloseHeldRunCard(heldId);
+
+            // A schedule already running is doing the work this hold was waiting for, so waking it
+            // would only arm a follow-up that queues behind the run in progress - and the queue names
+            // a blocker by its display name, so that card reads "Eviction Scan: waiting for Eviction
+            // Scan to finish".
+            if (GetRunStatus(serviceKey)?.IsRunning == true)
+            {
+                continue;
+            }
+
             FindScheduleLoop(serviceKey)?.TriggerDeferredRun();
         }
     }

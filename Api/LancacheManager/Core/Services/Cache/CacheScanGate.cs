@@ -125,4 +125,16 @@ public sealed class CacheScanGate
         _logger.LogDebug("[CacheScanGate] {Reason}", reason);
         return reason;
     }
+
+    /// <summary>
+    /// What a SCHEDULE is told when this gate refuses it, as opposed to the sentences above, which are
+    /// written for a person who clicked something and whose request really is over. A schedule's run is
+    /// kept and starts by itself, so telling the reader to try again describes work they do not have to
+    /// do. It lives here because the gate is the one thing every refusing schedule already depends on.
+    ///
+    /// A translation key and not a sentence: everything that reads this renders it through i18next, so
+    /// an English string would reach a Chinese browser untranslated. The sentences above are different
+    /// - they answer an HTTP request and are already English on the wire.
+    /// </summary>
+    public const string ScheduleQueuedReasonKey = "management.schedules.queuedUntilCacheFree";
 }

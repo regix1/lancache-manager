@@ -614,14 +614,16 @@ public class ScheduleRunGateTests
             await PromoteWithStartFailureAsync(new DownloadInProgressException(DownloadReason));
 
         Assert.Equal(OperationStatus.Skipped, status.Status);
-        Assert.Equal(DownloadReason, status.Message);
+        // A translation key, not the gate's sentence. The card renders whatever lands here through
+        // i18next, and the gate's own wording is written for an HTTP caller in English.
+        Assert.Equal(CacheScanGate.ScheduleQueuedReasonKey, status.Message);
 
         // The waiting card must be told the run was declined, not that something took it over.
         // Promoted removes the card without reading the reason, so the two cannot both be true.
         Assert.NotNull(waitingComplete);
         Assert.True(waitingComplete!.Skipped);
         Assert.False(waitingComplete.Promoted);
-        Assert.Equal(DownloadReason, waitingComplete.Error);
+        Assert.Equal(CacheScanGate.ScheduleQueuedReasonKey, waitingComplete.Error);
     }
 
     [Fact]
@@ -742,7 +744,7 @@ public class ScheduleRunGateTests
 
             var terminal = await announced.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Equal(OperationStatus.Skipped, terminal.Status);
-            Assert.Equal(DownloadReason, terminal.Error);
+            Assert.Equal(CacheScanGate.ScheduleQueuedReasonKey, terminal.Error);
             Assert.True(terminal.ShowNotification);
         }
         finally

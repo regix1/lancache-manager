@@ -153,7 +153,14 @@ public sealed class OperationQueueService : IOperationQueue
                             displayName,
                             new CancellationTokenSource(),
                             metadata: new Dictionary<string, object?> { [DeclinedRunMetadata.Key] = true });
-                        _tracker.CompleteOperation(declinedId, success: true, error: ex.Message, skipped: true);
+                        // A key, not ex.Message: the gate's sentence is written for an HTTP caller and
+                        // the card renders whatever lands here through i18next, so the English would
+                        // reach every locale untranslated.
+                        _tracker.CompleteOperation(
+                            declinedId,
+                            success: true,
+                            error: CacheScanGate.ScheduleQueuedReasonKey,
+                            skipped: true);
                     }
 
                     throw;
@@ -414,7 +421,9 @@ public sealed class OperationQueueService : IOperationQueue
                         // This catch must stay above that one; the derived type is unreachable
                         // otherwise.
                         startDeclined = true;
-                        startError = ex.Message;
+                        // Same reason as the immediate door above: this string is rendered, not read
+                        // by a caller, so it travels as a key.
+                        startError = CacheScanGate.ScheduleQueuedReasonKey;
                         _logger.LogInformation(
                             "Queued {Type} '{Name}' declined at promotion: {Reason}",
                             waiter.Type, waiter.Name, ex.Message);

@@ -15,7 +15,10 @@ import { bindLifted, collectNodes, findSoleNode, parseSource } from './transpile
  */
 
 const SCHEDULES = 'src/components/features/management/schedules/SchedulesSection.tsx';
-const REASON = 'A client download is writing to the cache right now. Try again once it finishes.';
+// What the server sends for a refused schedule: a translation key, not a sentence. The gate's own
+// English is written for an HTTP caller and would reach every locale untranslated.
+const REASON_KEY = 'management.schedules.queuedUntilCacheFree';
+const TRANSLATED_REASON = { key: REASON_KEY, args: undefined };
 
 const sourceFile = parseSource(SCHEDULES, typescript.ScriptKind.TSX);
 
@@ -63,11 +66,11 @@ test('the services that will run again survive a refusal in the same fan-out', (
     triggeredCount: 1,
     queuedNext: 2,
     refused: 3,
-    skippedReason: REASON
+    skippedReason: REASON_KEY
   });
 
   assert.equal(both.key, 'management.schedules.runAllTriggeredWithSkippedAndQueued');
-  assert.deepEqual(both.args, { count: 1, queued: 2, skipped: 3, reason: REASON });
+  assert.deepEqual(both.args, { count: 1, queued: 2, skipped: 3, reason: TRANSLATED_REASON });
 });
 
 test('a refusal with nothing already running keeps the plainer sentence', () => {
@@ -75,11 +78,11 @@ test('a refusal with nothing already running keeps the plainer sentence', () => 
     triggeredCount: 0,
     queuedNext: 0,
     refused: 3,
-    skippedReason: REASON
+    skippedReason: REASON_KEY
   });
 
   assert.equal(only.key, 'management.schedules.runAllTriggeredWithSkipped');
-  assert.deepEqual(only.args, { count: 0, skipped: 3, reason: REASON });
+  assert.deepEqual(only.args, { count: 0, skipped: 3, reason: TRANSLATED_REASON });
 });
 
 /**

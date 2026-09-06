@@ -3707,6 +3707,7 @@
       "runAll": "全部运行",
       "runAllTriggered": "已触发 {{count}} 个服务",
       "runAllTriggeredWithQueued": "已启动 {{count}} 个服务，另有 {{queued}} 个正在运行中，将在结束后再次运行",
+      "queuedUntilCacheFree": "本次运行已排队，缓存可以扫描后会自动开始。",
       "runAllTriggeredWithSkipped": "已启动 {{count}} 个服务，{{skipped}} 个正在等待缓存。{{reason}}",
       "runAllTriggeredWithSkippedAndQueued": "已启动 {{count}} 个服务，另有 {{queued}} 个正在运行中，将在结束后再次运行，{{skipped}} 个正在等待缓存。{{reason}}",
       "runAllFailed": "运行所有计划失败",

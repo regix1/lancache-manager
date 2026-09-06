@@ -412,6 +412,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 // it there until downloads stop. Only the download branch arms this: the capability
                 // refusal below can stay true indefinitely, and waking for that would be a loop.
                 TriggerDeferredRun();
+
+                // The card reads this error in preference to any translation key, so handing it the
+                // gate's own sentence tells the reader to try again for a run that is already coming
+                // back on its own.
+                return new EvictionScanRunOutcome(
+                    Success: false,
+                    Error: CacheScanGate.ScheduleQueuedReasonKey,
+                    Skipped: true);
             }
 
             return new EvictionScanRunOutcome(Success: false, Error: downloadDenial, Skipped: true);
