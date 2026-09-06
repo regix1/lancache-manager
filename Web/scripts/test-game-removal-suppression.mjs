@@ -121,6 +121,7 @@ test('a batch declaring two item types suppresses both and leaves other types al
 const QUEUED_BEHIND_SCAN = {
   operationType: 'irrelevant-for-this-test',
   operationId: 'op-1',
+  name: 'Eviction Scan',
   blockedByName: 'Cache File Scan'
 };
 
@@ -159,7 +160,7 @@ const runWaitingHandler = async (
     findBulkCardOwningOperation,
     eventTargetsCard,
     isTerminalNotificationStatus,
-    i18n: { t: (key) => key },
+    i18n: { t: (key, values) => (values?.name ? `${key}:${values.name}` : key) },
     waitingCardMessage: (source) =>
       source.blockedByName ? `waiting for ${source.blockedByName}` : 'waiting'
   });
@@ -172,7 +173,8 @@ const runWaitingHandler = async (
  * A run whose schedule told it to keep its cards to itself still has to say it was queued: with no
  * card at all, a person who set the schedule reads the silence as the run having been dropped. It
  * says it once, in the amber notice that times out on its own, and never puts up the purple card
- * that would sit there until the blocker finished.
+ * that would sit there until the blocker finished. The notice names the run, because several
+ * schedules can be silent and a sentence about "this run" does not say which one is waiting.
  */
 test('a silent queued run gets the self-clearing notice instead of the purple waiting card', async () => {
   const dismissed = [];
@@ -187,8 +189,8 @@ test('a silent queued run gets the self-clearing notice instead of the purple wa
   assert.equal(card.status, 'skipped', 'a silent run must not raise the purple waiting card');
   assert.equal(
     card.message,
-    'management.schedules.queuedUntilCacheFree',
-    'it says the run is queued and starts by itself, not who it is parked behind'
+    'management.schedules.queuedUntilCacheFreeNamed:Eviction Scan',
+    'it names the run and says it starts by itself, not who it is parked behind'
   );
   assert.deepEqual(
     dismissed,

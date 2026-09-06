@@ -293,7 +293,7 @@ export function useNotificationHandlers(
           type: entry.type,
           status: event.silent ? 'skipped' : 'waiting',
           message: event.silent
-            ? i18n.t('management.schedules.queuedUntilCacheFree')
+            ? i18n.t('management.schedules.queuedUntilCacheFreeNamed', { name: event.name })
             : waitingCardMessage(event),
           startedAt: existing?.startedAt ?? new Date(),
           details: { operationId: event.operationId }
