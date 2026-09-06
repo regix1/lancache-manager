@@ -722,6 +722,19 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                     await RemoveContainerForceAsync(target.ID, cancellationToken);
                 }
             }
+            catch (FileNotFoundException)
+            {
+                // The container outlived its data directory: the manager only bind-mounts the folder
+                // the daemon publishes its socket into, so wiping the data directory leaves a running
+                // container listening on a path that no longer exists on this host. Removing it is the
+                // whole answer, and it is the outcome this path is written to produce, so it reads as
+                // one line rather than a stack trace for a failure nobody has to look into. The reason
+                // was already logged where the socket was found missing.
+                _logger.LogInformation(
+                    "Removing persistent {ServiceName} container {Id}: its data directory is gone, so it can no longer be reached",
+                    ServiceName, ShortContainerId(target.ID));
+                await RemoveContainerForceAsync(target.ID, cancellationToken);
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
@@ -2025,7 +2038,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 // container's own logs say nothing about a host-side mount, so both would only delay
                 // the outcome. Rethrowing immediately hands the caller its existing recovery, which
                 // removes the container so a clean one takes over on the next start.
-                _logger.LogWarning(
+                // Information, not a warning: nothing here needs looking into. The container outlived
+                // the directory it publishes into, the caller removes it, and the pair of lines is
+                // the normal account of that cleanup rather than a problem report.
+                _logger.LogInformation(
                     "Session {SessionId} has no daemon socket at {SocketPath}; its data directory was deleted or remounted, so the container is being removed rather than retried",
                     sessionId, ex.FileName ?? "the expected path");
                 throw;
