@@ -111,7 +111,11 @@ async fn get_game_name_from_db(pool: &PgPool, game_app_id: u32) -> Result<String
 /// Query the database for all URLs (and their depot ids) owned by this Steam game.
 /// Returns: HashMap<URL, (service_lowercase, max_bytes_served, depot_ids)>. The depot
 /// set rides along for the final report; cache-file deletion uses only (service, url).
-async fn get_game_urls_from_db(pool: &PgPool, game_app_id: u32) -> Result<HashMap<String, (String, i64, HashSet<u32>)>> {
+async fn get_game_urls_from_db(
+    pool: &PgPool,
+    game_app_id: u32,
+    safe_depot_ids: &HashSet<u32>,
+) -> Result<HashMap<String, (String, i64, HashSet<u32>)>> {
     eprintln!("Querying database for game URLs and depot IDs...");
 
     // Query 1: Mapped games - join LogEntries to SteamDepotMappings via DepotId.
@@ -133,20 +137,22 @@ async fn get_game_urls_from_db(pool: &PgPool, game_app_id: u32) -> Result<HashMa
     // below keep cache-file scope == log-purge scope. (Query 3 below, the Downloads-FK path, remains
     // fully AppId-scoped and is the correct delisted-app/Aion route — it returns this game's OWN
     // urls and is intentionally NOT narrowed by the shared-depot filter.)
+    //
+    // That exclusion is applied as the caller's already-computed safe set rather than as two NOT IN
+    // subqueries. The subqueries read every mapping and every download belonging to any other app,
+    // for each candidate row and on a column no index could serve, which on a full depot table left
+    // the removal sitting here with nothing to report. The set is the same one the log purge uses,
+    // so cache-file scope and log-purge scope still cannot drift: they are now literally one value.
+    let safe_depots: Vec<i64> = safe_depot_ids.iter().map(|id| *id as i64).collect();
     let rows = sqlx::query(
         "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"DepotId\", le.\"BytesServed\"
          FROM \"LogEntries\" le
          INNER JOIN \"SteamDepotMappings\" sdm ON le.\"DepotId\" = sdm.\"DepotId\"
          WHERE sdm.\"AppId\" = $1 AND le.\"Url\" IS NOT NULL
-           AND le.\"DepotId\" NOT IN (
-               SELECT \"DepotId\" FROM \"SteamDepotMappings\" WHERE \"AppId\" <> $1
-           )
-           AND le.\"DepotId\" NOT IN (
-               SELECT \"DepotId\" FROM \"Downloads\"
-               WHERE \"DepotId\" IS NOT NULL AND \"GameAppId\" IS NOT NULL AND \"GameAppId\" <> $1
-           )"
+           AND le.\"DepotId\" = ANY($2)"
     )
     .bind(game_app_id as i64)
+    .bind(&safe_depots)
     .fetch_all(pool)
     .await?;
 
@@ -434,7 +440,7 @@ async fn main() -> Result<()> {
 
     // Query database directly for URLs - much faster than scanning logs!
     removal_core::write_progress(&progress_path, &reporter, "querying_database", "signalr.gameRemove.db.collectingUrls", json!({}), 8.0, 0, 0)?;
-    let url_data = get_game_urls_from_db(&pool, game_app_id).await?;
+    let url_data = get_game_urls_from_db(&pool, game_app_id, &safe_depot_ids).await?;
 
     // A count run stops here. It walks the same list a removal would walk, reports how many of
     // those files exist on disk, and returns before the cache sweep, the directory cleanup, the
