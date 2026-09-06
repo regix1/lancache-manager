@@ -955,9 +955,17 @@ const DownloadsTab: React.FC = () => {
   const itemsToDisplay = useMemo<DownloadGroup[]>(
     () =>
       serverPage.items.map((row) => {
+        // An expanded group whose fetch came back empty keeps the row it already had. A group of
+        // zero-byte sessions only exists while they are active, and the cleanup pass clears that
+        // flag after fifteen idle seconds, so the by-ids read re-applies the empty-session filter
+        // and returns nothing. Taking that literally left the card with no member at all, and the
+        // datasource badge, the banner art and the on-disk figure all read off that member: they
+        // vanished on expand while the title, which comes from the group, stayed.
+        const fetched =
+          expandedMembers && expandedMembers.groupId === row.id ? expandedMembers.downloads : null;
         const members =
-          expandedMembers && expandedMembers.groupId === row.id
-            ? expandedMembers.downloads
+          fetched && fetched.length > 0
+            ? fetched
             : row.primaryDownload
               ? [row.primaryDownload]
               : [];
