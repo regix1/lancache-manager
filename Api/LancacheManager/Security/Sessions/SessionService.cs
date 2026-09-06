@@ -894,8 +894,20 @@ public class SessionService
             return;
         }
 
-        persistedSession.LastSeenAtUtc = now;
-        await context.SaveChangesAsync();
+        // Written straight at the row rather than by saving the entity that was just read. A database
+        // reset deletes every session while requests are still in flight, and saving a tracked entity
+        // whose row went away in that gap throws a concurrency exception the caller can only log:
+        // there is nothing to reconcile, the session is simply gone. A targeted update affects no rows
+        // instead, which is the same fact without the noise.
+        var rowsUpdated = await context.UserSessions
+            .Where(s => s.Id == session.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.LastSeenAtUtc, now));
+
+        if (rowsUpdated == 0)
+        {
+            return;
+        }
+
         session.LastSeenAtUtc = now;
 
         // Broadcast SessionLastSeenUpdated (already throttled to 60s)
