@@ -173,8 +173,10 @@ fn collect_cache_digests(
     let total_urls = urls.len();
     let urls_walked = AtomicUsize::new(0);
     let last_reported_percent = AtomicUsize::new(0);
+    let service_owned = service.to_string();
 
-    urls.par_iter()
+    let walked: Vec<(u128, Option<String>)> = urls
+        .par_iter()
         .flat_map(|(url, _total_bytes)| {
             let digests = match scheme {
                 cache_utils::CacheKeyScheme::Monolithic => {
@@ -215,7 +217,21 @@ fn collect_cache_digests(
 
             digests
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    // Slices behind a partial-eviction hole wider than the walk's miss tolerance are invisible
+    // above; recover them from their own KEY headers so the removal covers the whole object
+    // (see removal_core::key_header_residue).
+    let claimed: HashSet<u128> = walked.iter().map(|(digest, _)| *digest).collect();
+    let bases = removal_core::object_key_bases(urls.keys().map(|url| (&service_owned, url)));
+
+    let mut digests = walked;
+    digests.extend(
+        removal_core::key_header_residue(cache_dir, &bases, &claimed)
+            .into_iter()
+            .map(|(digest, key)| (digest, Some(key))),
+    );
+    digests
 }
 
 fn remove_cache_files_for_service(

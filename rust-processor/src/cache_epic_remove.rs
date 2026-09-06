@@ -230,6 +230,7 @@ async fn main() -> Result<()> {
             &output_json,
             game_name,
             cache_utils::active_key_scheme(),
+            removal_core::SliceReach::ForwardWalkIsComplete,
             &collection_progress,
         )?;
         removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.epicRemove.counting.complete", json!({ "files": cache_files_found, "gameName": game_name }), 100.0, cache_files_found, cache_files_found)?;
@@ -268,6 +269,8 @@ async fn main() -> Result<()> {
         &EPIC_STAGE_KEYS,
         &lifecycle,
         ProgressCadence::OnPercentAdvance,
+        // An Epic chunk object is at most two slices, which a walk from slice 0 always reaches.
+        removal_core::SliceReach::ForwardWalkIsComplete,
         args.stem_positions.as_deref(),
         &write_failure_report,
     )?

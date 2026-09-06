@@ -434,6 +434,7 @@ async fn main() -> Result<()> {
             &output_json,
             &game_name,
             cache_utils::active_key_scheme(),
+            removal_core::SliceReach::ForwardWalkIsComplete,
             &collection_progress,
         )?;
         removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.gameRemove.counting.complete", json!({ "files": cache_files_found, "gameName": game_name }), 100.0, cache_files_found, cache_files_found)?;
@@ -495,6 +496,9 @@ async fn main() -> Result<()> {
             &STEAM_STAGE_KEYS,
             ProgressCadence::OnPercentAdvanceOrEveryEighth,
             cache_utils::active_key_scheme(),
+            // A Steam depot chunk is one or two slices, so the forward walk cannot miss one,
+            // and a game's millions of URLs make a per-file header sweep the wrong trade.
+            removal_core::SliceReach::ForwardWalkIsComplete,
         )?;
 
         // If cancellation arrived during cache removal, finish directory cleanup of dirs

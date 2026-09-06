@@ -80,6 +80,24 @@ pub enum ProgressCadence {
     OnPercentAdvanceOrEveryEighth,
 }
 
+/// Whether the forward slice walk already reaches every slice of this removal's objects, or
+/// the KEY-header pass has to look for the ones it cannot.
+///
+/// A range-served object (a wsus payload, a Blizzard TACT archive, a Riot bundle) spans many
+/// 1 MiB slices, and partial eviction can hide some behind a hole wider than the walk's miss
+/// tolerance. A Steam depot chunk or an Epic chunk is at most two slices, which a walk from
+/// slice 0 always reaches, so those removals skip the pass rather than pay a header read per
+/// unclaimed cache file. This is the same split detection makes when it decides which buckets
+/// to register for late attribution.
+#[derive(Clone, Copy, PartialEq)]
+#[allow(dead_code)]
+pub enum SliceReach {
+    /// Steam / Epic: every slice is reachable by walking forward from slice 0.
+    ForwardWalkIsComplete,
+    /// Services and named games: sweep KEY headers for slices behind eviction holes.
+    SweepKeyHeaders,
+}
+
 /// Outcome of the cache-file deletion phase.
 pub struct CacheRemovalOutcome {
     pub deleted_files: usize,
@@ -137,10 +155,14 @@ pub fn report_collection_progress(
 /// `remove_cache_files` deletes exactly this list, so `collect_cache_paths(..).len()` is
 /// the count of files a removal will delete and it reaches no delete loop. Deriving that
 /// number any other way would compute a cache key nginx never wrote.
+///
+/// The forward walk above is joined by [`key_header_residue`], which recovers the slices it
+/// cannot reach, so both the count and the delete loop see the whole object.
 pub fn collect_cache_paths(
     cache_dir: &Path,
     url_data: &HashMap<String, (String, i64)>,
     scheme: cache_utils::CacheKeyScheme,
+    reach: SliceReach,
     progress: Option<&CollectionProgress<'_>>,
 ) -> Vec<(PathBuf, Option<String>)> {
     use rayon::prelude::*;
@@ -150,7 +172,7 @@ pub fn collect_cache_paths(
     let urls_walked = AtomicUsize::new(0);
     let last_reported_percent = AtomicUsize::new(0);
 
-    url_data
+    let walked: Vec<(PathBuf, Option<String>)> = url_data
         .par_iter()
         .flat_map(|(url, (service, _total_bytes))| {
             let paths =
@@ -176,6 +198,92 @@ pub fn collect_cache_paths(
 
             paths
         })
+        .collect::<Vec<_>>();
+
+    if reach == SliceReach::ForwardWalkIsComplete {
+        return walked;
+    }
+
+    let claimed: HashSet<u128> = walked
+        .iter()
+        .filter_map(|(path, _)| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .and_then(cache_utils::parse_cache_file_digest)
+        })
+        .collect();
+
+    let bases = object_key_bases(url_data.iter().map(|(url, (service, _))| (service, url)));
+
+    let mut paths = walked;
+    paths.extend(
+        key_header_residue(cache_dir, &bases, &claimed)
+            .into_iter()
+            .map(|(digest, key)| (cache_utils::cache_path_for_digest(cache_dir, digest), Some(key))),
+    );
+    paths
+}
+
+/// The md5 digest of each (service, url)'s unsliced object key: what a cache file's own
+/// `KEY:` header hashes to once its slice suffix is stripped.
+pub fn object_key_bases<'a>(
+    url_data: impl Iterator<Item = (&'a String, &'a String)>,
+) -> HashSet<u128> {
+    url_data
+        .filter_map(|(service, url)| cache_utils::object_key_base(service, url))
+        .map(|base| cache_utils::calculate_md5_digest(&base))
+        .collect()
+}
+
+/// The cache files whose own `KEY:` header names one of `bases`' objects but which the
+/// forward slice walk never reached.
+///
+/// That walk stops after `CONSECUTIVE_MISS_LIMIT` absent slices, so a slice sitting behind a
+/// wider partial-eviction hole is invisible to it. Detection has recovered exactly those files
+/// since Aug 2026 by reading each unclaimed file's embedded key (`cache_game_detect` Phase 5);
+/// without the same reach a removal deletes what it can walk, leaves the rest on disk, and then
+/// purges the log rows that were the only way to identify them afterwards. A real removal left
+/// 369 of 398 files behind that way.
+///
+/// Costs one directory walk plus a header read per file the walk did not already claim, so the
+/// deleting pass pays it once rather than per URL. Files already claimed are skipped without
+/// being opened.
+pub fn key_header_residue(
+    cache_dir: &Path,
+    bases: &HashSet<u128>,
+    claimed: &HashSet<u128>,
+) -> Vec<(u128, String)> {
+    use rayon::prelude::*;
+
+    if bases.is_empty() {
+        return Vec::new();
+    }
+
+    jwalk::WalkDir::new(cache_dir)
+        .parallelism(jwalk::Parallelism::RayonNewPool(num_cpus::get()))
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().is_file())
+        .par_bridge()
+        .filter_map(|entry| {
+            if cancel::is_cancelled() {
+                return None;
+            }
+
+            // A name that is not a 32-hex md5 was never written by nginx as a cache key, so no
+            // key can hash to it; skipped before the file is opened, like the detection index.
+            let digest = entry
+                .file_name()
+                .to_str()
+                .and_then(cache_utils::parse_cache_file_digest)?;
+            if claimed.contains(&digest) {
+                return None;
+            }
+
+            let key = cache_utils::read_cache_file_key(&entry.path())?;
+            let base = cache_utils::calculate_md5_digest(cache_utils::cache_key_base_of(&key));
+            bases.contains(&base).then_some((digest, key))
+        })
         .collect()
 }
 
@@ -199,9 +307,11 @@ pub fn count_cache_files(
     output_json: &Path,
     entity: &str,
     scheme: cache_utils::CacheKeyScheme,
+    reach: SliceReach,
     progress: &CollectionProgress<'_>,
 ) -> Result<usize> {
-    let cache_files_found = collect_cache_paths(cache_dir, url_data, scheme, Some(progress)).len();
+    let cache_files_found =
+        collect_cache_paths(cache_dir, url_data, scheme, reach, Some(progress)).len();
 
     fs::write(
         output_json,
@@ -230,6 +340,7 @@ pub fn remove_cache_files(
     keys: &RemovalStageKeys,
     cadence: ProgressCadence,
     scheme: cache_utils::CacheKeyScheme,
+    reach: SliceReach,
 ) -> Result<CacheRemovalOutcome> {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -245,7 +356,7 @@ pub fn remove_cache_files(
 
     // Re-walked from disk here, inside the deleting process, so the set deleted is the set
     // that exists now rather than one an earlier pass recorded.
-    let paths_to_check = collect_cache_paths(cache_dir, url_data, scheme, None);
+    let paths_to_check = collect_cache_paths(cache_dir, url_data, scheme, reach, None);
 
     let total_paths = paths_to_check.len();
     eprintln!("Checking {} potential cache file locations...", total_paths);
@@ -589,6 +700,7 @@ pub fn run_url_removal_steps(
     per_file_keys: &RemovalStageKeys,
     lifecycle: &RemovalLifecycleKeys,
     cadence: ProgressCadence,
+    reach: SliceReach,
     stem_positions_path: Option<&str>,
     write_failure_report: &dyn Fn(&RemovalTail) -> Result<()>,
 ) -> Result<Option<RemovalTail>> {
@@ -604,6 +716,7 @@ pub fn run_url_removal_steps(
         per_file_keys,
         cadence,
         cache_utils::active_key_scheme(),
+        reach,
     )?;
 
     // If cancellation arrived during cache removal, do directory cleanup and exit 0.
@@ -706,6 +819,7 @@ mod tests {
             &TEST_STAGE_KEYS,
             ProgressCadence::OnPercentAdvance,
             scheme,
+            SliceReach::SweepKeyHeaders,
         )
         .unwrap()
     }
@@ -731,6 +845,7 @@ mod tests {
             &output_json,
             "Some Game",
             cache_utils::CacheKeyScheme::Monolithic,
+            SliceReach::SweepKeyHeaders,
             &CollectionProgress {
                 progress_path: &progress_path,
                 reporter: &reporter,
@@ -770,6 +885,7 @@ mod tests {
             &temp.path().join("count.json"),
             "Some Game",
             cache_utils::CacheKeyScheme::Monolithic,
+            SliceReach::SweepKeyHeaders,
             &CollectionProgress {
                 progress_path: &progress_path,
                 reporter: &reporter,
@@ -865,5 +981,79 @@ mod tests {
         assert!(!cache_path.exists());
         assert_eq!(outcome.deleted_files, 1);
         assert_eq!(outcome.verification_skips, 0);
+    }
+
+    // -------------------------------------------------------------------------------------
+    // The KEY-header pass. lancache slices a range-served object into 1 MiB pieces and nginx
+    // evicts them unevenly; the forward walk gives up after CONSECUTIVE_MISS_LIMIT absences,
+    // so a piece behind a wider hole is only findable by reading the piece's own key.
+    // -------------------------------------------------------------------------------------
+
+    fn write_keyed_cache_file(root: &Path, key: &str) -> u128 {
+        let digest = cache_utils::calculate_md5_digest(key);
+        let path = cache_utils::cache_path_for_digest(root, digest);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, format!("KEY: {key}\nbody")).unwrap();
+        digest
+    }
+
+    #[test]
+    fn the_key_header_pass_finds_a_slice_the_forward_walk_cannot_reach() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+
+        let base = "wsus/filestreamingservice/files/object";
+        // Chunk 0 is what a forward walk reaches; chunk 400 sits behind a hole far wider than
+        // the walk's tolerance, which is exactly the file a removal used to leave behind.
+        let reachable = write_keyed_cache_file(&root, &format!("{base}bytes=0-1048575"));
+        let stranded = write_keyed_cache_file(
+            &root,
+            &format!("{base}bytes={}-{}", 400 * 1_048_576, 401 * 1_048_576 - 1),
+        );
+        // A file belonging to something else must survive the sweep untouched.
+        write_keyed_cache_file(&root, "steam/depot/1234/chunk/abcdef");
+
+        let bases: HashSet<u128> = [cache_utils::calculate_md5_digest(base)].into_iter().collect();
+        let claimed: HashSet<u128> = [reachable].into_iter().collect();
+
+        let residue = key_header_residue(&root, &bases, &claimed);
+
+        let (digest, key) = assert_single(residue);
+        assert_eq!(digest, stranded);
+        assert!(key.starts_with(base));
+    }
+
+    #[test]
+    fn the_key_header_pass_reports_nothing_when_the_walk_already_claimed_everything() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+
+        let base = "riot/bundle/one";
+        let only_slice = write_keyed_cache_file(&root, &format!("{base}bytes=0-1048575"));
+
+        let bases: HashSet<u128> = [cache_utils::calculate_md5_digest(base)].into_iter().collect();
+        let claimed: HashSet<u128> = [only_slice].into_iter().collect();
+
+        assert!(key_header_residue(&root, &bases, &claimed).is_empty());
+    }
+
+    #[test]
+    fn object_key_bases_hashes_the_unsliced_key_each_slice_strips_back_to() {
+        let service = "wsus".to_string();
+        let url = "/filestreamingservice/files/object".to_string();
+
+        let bases = object_key_bases([(&service, &url)].into_iter());
+
+        let slice_key = format!(
+            "{}bytes=0-1048575",
+            cache_utils::object_key_base(&service, &url).unwrap()
+        );
+        let from_header = cache_utils::calculate_md5_digest(cache_utils::cache_key_base_of(&slice_key));
+        assert!(bases.contains(&from_header));
+    }
+
+    fn assert_single<T>(mut items: Vec<T>) -> T {
+        assert_eq!(items.len(), 1);
+        items.pop().unwrap()
     }
 }

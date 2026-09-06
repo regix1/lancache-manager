@@ -345,6 +345,7 @@ pub async fn run(service: &str) -> Result<()> {
             &output_json,
             game_name,
             cache_utils::active_key_scheme(),
+            removal_core::SliceReach::SweepKeyHeaders,
             &collection_progress,
         )?;
         removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.gameRemove.counting.complete", json!({ "files": cache_files_found, "gameName": game_name }), 100.0, cache_files_found, cache_files_found)?;
@@ -383,6 +384,9 @@ pub async fn run(service: &str) -> Result<()> {
         &NAMED_STAGE_KEYS,
         &lifecycle,
         ProgressCadence::OnPercentAdvance,
+        // Blizzard TACT archives, Riot bundles and Xbox payloads are range-served, so a slice
+        // can sit behind an eviction hole the forward walk cannot cross.
+        removal_core::SliceReach::SweepKeyHeaders,
         args.stem_positions.as_deref(),
         &write_failure_report,
     )?
