@@ -311,11 +311,36 @@ public class SessionService
                     return readopted.Value;
                 }
 
+                // Read before the pointer is overwritten below: whoever it names is about to become
+                // unreachable, and the row has to be retired with it.
+                var replacedSessionId = _stateService.GetSharedAdminSessionId();
+
                 var (rawToken, session) = await PersistAdminSessionAsync(httpContext);
 
                 _authDisabledAdminSession = (session.Id, rawToken);
                 _stateService.SetSharedAdminSessionId(session.Id);
                 _authDisabledRetryAfterUtc = DateTime.MinValue;
+
+                // The row the pointer used to name can never be presented again: its token lived only
+                // in the memory of a process that has gone. These sessions are minted to expire in
+                // 2099 and the active list hides only revoked or expired rows, so left alone each
+                // replacement adds a permanent entry that reads as another person signed in. Revoked
+                // here rather than through RetireSharedAdminSessionAsync, which takes the lock this
+                // method is already holding. Best effort: the caller needs its session either way.
+                if (replacedSessionId is not null && replacedSessionId != session.Id)
+                {
+                    try
+                    {
+                        await RevokeSessionAsync(replacedSessionId.Value);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(
+                            ex,
+                            "Could not revoke the shared management session {SessionId} that was just replaced",
+                            replacedSessionId);
+                    }
+                }
                 _logger.LogInformation(
                     "Created shared unauthenticated management session {SessionId}",
                     session.Id);
