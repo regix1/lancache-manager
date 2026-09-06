@@ -50,19 +50,9 @@ docker compose up -d
 
 Then open `http://<host>:8080` and get your API key with `docker exec lancache-manager cat /data/security/api_key.txt`.
 
-Starting with 1.10.7, the first setup step asks you to choose username/password, API key plus username/password, API key plus single sign-on, single sign-on, or unauthenticated access. Existing installations confirm this choice once after upgrading. The installation API key always remains available for ownership and recovery and is associated with the first account, the primary administrator. Only the two API-key sign-in modes require entering it at login.
+On first run you choose how people sign in: username and password, either of those behind the API key, single sign-on with Google, GitHub, Microsoft, Apple or OIDC, or no authentication at all on a trusted LAN. Upgrading installs confirm the choice once, and the primary administrator can change it later at **Users → Accounts → Access and sign-in**. The API key stays valid for ownership and recovery whichever mode you pick.
 
-The primary administrator can change the method, including turning authentication off or back on, under **Users → Accounts → Access and sign-in**. Authentication is configured in the app; the Docker Compose `Security__EnableAuthentication` switch is no longer used to override a saved choice. Unauthenticated access gives anyone who can reach the app management access. Local HTTP is supported for password/API-key sign-in and unauthenticated access; use HTTPS to protect credentials and session cookies on untrusted networks. MFA, if enabled in an external sign-in service, is handled by that service; this app does not configure or enforce it.
-
-Single sign-on is self-hosted: the app includes Google, GitHub, Microsoft, and Apple integrations, plus custom OpenID Connect. There is no central login service. Choose a preset, register your own application with that service, and enter its credentials. Register both exact callback URLs shown in setup, then use **Test connection** to complete a real sign-in. A successful test connects the verified identity to the primary administrator and activates the staged settings; a failed test leaves the current settings and working sign-in connections unchanged. Multiple tested services can be available together. Additional users must be explicitly allowed using stable identity identifiers, not email addresses or display names.
-
-Google and GitHub require a client ID and client secret. Microsoft also requires a tenant ID, or `consumers` for personal Microsoft accounts; tenant-independent `common` and `organizations` configurations are not supported. Apple requires a Services ID, Team ID, Key ID, and `.p8` private key from your Apple Developer configuration; the server generates its short-lived client secret. Apple requires a registered HTTPS domain and does not support localhost or IP-address callbacks. Custom OpenID Connect also requires the issuer URL.
-
-Callback URLs are return addresses already handled by this app: one for everyday sign-in, the other for testing a connection. Copy them into your service's application registration; you do not need to build or open them yourself. Open setup at the address people will use to reach the app. [Google permits HTTP localhost and loopback addresses for local testing](https://developers.google.com/identity/protocols/oauth2/web-server#uri-validation), so `http://localhost:8080` works as a local development origin when the browser and app run on the same computer. It does not point to your server from another device. For Google sign-in from other devices, use an HTTPS domain, not a raw LAN IP address. That domain can reach a server accessible only on your LAN or VPN; HTTPS does not require public hosting. Other services have their own callback requirements, including Apple's stricter restriction above.
-
-Changing the method keeps existing account sessions; end them from **Users → Sessions** when needed. Shared unauthenticated access stops when a sign-in mode is selected. An administrator created through SSO must establish local credentials before switching to a password mode. If SSO becomes unavailable, run the existing `./data/scripts/reset-main-admin-password.sh` recovery script on the host. It uses a separate server-held recovery token, opens the recovery screen, and establishes a primary-admin session after the password is reset so the sign-in method can be repaired.
-
-Full walkthrough, including the cache path gotcha that catches most people, is in the [Quick Start guide](https://regix1.github.io/lancache-manager/quick-start/).
+Setup details, provider requirements and how to recover from a locked-out SSO are in [Sign-in and Access](https://regix1.github.io/lancache-manager/sign-in/). The [Quick Start guide](https://regix1.github.io/lancache-manager/quick-start/) has the full walkthrough, including the cache path gotcha that catches most people.
 
 ## Documentation
 
@@ -71,6 +61,7 @@ The full documentation lives at **[regix1.github.io/lancache-manager](https://re
 | Guide | What it covers |
 |---|---|
 | [Quick Start](https://regix1.github.io/lancache-manager/quick-start/) | Install, first run, API key |
+| [Sign-in and Access](https://regix1.github.io/lancache-manager/sign-in/) | Choosing a sign-in mode, single sign-on, recovery |
 | [Upgrading](https://regix1.github.io/lancache-manager/upgrading/) | Moving up a version, what carries over |
 | [What You Get](https://regix1.github.io/lancache-manager/what-you-get/) | A tour of every page in the app |
 | [Prefill](https://regix1.github.io/lancache-manager/prefill/) | Steam, Epic, Battle.net, Riot, Xbox, and scheduling |
