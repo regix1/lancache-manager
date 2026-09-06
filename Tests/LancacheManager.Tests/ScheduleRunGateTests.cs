@@ -368,10 +368,11 @@ public class ScheduleRunGateTests
     }
 
     [Fact]
-    public async Task RefusedRunNow_IsNotHeldForLaterAsync()
+    public async Task RefusedRunNow_IsHeldAndRunsWhenTheCacheIsFreeAsync()
     {
-        // A click gets its answer on the response it is waiting for. Holding it as well would start
-        // the schedule again minutes later with nothing on screen tying that run to the click.
+        // A click is held like any other refused run. Run All is why: it refuses several schedules at
+        // once and used to report them as simply not run, leaving the person to come back and press
+        // it again once the download finished.
         using var service = new RunGateProbeService(EvictionKey);
         using var asksLater = new RunGateProbeService("cacheSizeScan");
         var snapshot = new DownloadSpeedSnapshot();
@@ -381,12 +382,17 @@ public class ScheduleRunGateTests
 
         var (_, skippedReason) = await registry.TriggerRunAsync(EvictionKey);
         Assert.NotNull(skippedReason);
+        // The answer says the run is kept rather than telling the person to try again, which is what
+        // the gate's own sentence does for the controllers.
+        Assert.Contains("queued", skippedReason);
+        Assert.False(service.HasPendingRun);
 
         CacheScanGateHarness.MakeIdle(snapshot);
         await registry.TriggerRunAsync("cacheSizeScan");
 
+        // Held on the deferred flag, so the run it eventually gets still reports as Scheduled.
+        Assert.True(service.TakePendingDeferredRun());
         Assert.False(service.HasPendingRun);
-        Assert.False(service.TakePendingDeferredRun());
     }
 
     [Fact]

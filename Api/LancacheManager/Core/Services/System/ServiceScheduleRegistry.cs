@@ -59,17 +59,20 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     // own English sentence: the three cache scans render their terminal card through
     // i18n.t(event.stageKey), so a sentence there would only appear because i18next echoes an unknown
     // key back, and would turn into an empty message or a fragment of itself the moment a missing-key
-    // handler is configured. The gate's sentence still travels, on the error field beside it.
-    private const string SkippedWhileDownloadingStageKey = "management.gameDetection.blockedWhileDownloading";
-
-    // The card a held run puts up instead. Same refusal, different outcome: this one starts by
-    // itself when the download ends, so it must not read as the run having been thrown away.
+    // handler is configured. Every refusal is held now, whoever asked for the run, so there is one
+    // key and it says the run is queued rather than gone.
     private const string QueuedWhileDownloadingStageKey = "management.gameDetection.queuedWhileDownloading";
 
     // The fallback for a run the queue refused before it started, which can be a download or another
     // heavy operation. It names neither, because the card shows this only when the refusal's own
     // message is missing and a wrong cause is worse than no cause.
     private const string SkippedBeforeStartStageKey = "management.gameDetection.skippedBeforeStart";
+
+    // What every schedule route reports for a refused run: the Run Now response, the Run All summary,
+    // and the card's own message. A sentence rather than a key because these routes hand it straight
+    // to the caller, which is what the gate's sentence used to do here.
+    private const string QueuedUntilCacheIsFree =
+        "This run is queued and starts on its own as soon as the cache can be scanned.";
 
     // The one schedule whose run type the user chooses. Named here because both the setter and the
     // mapper below have to agree on which card carries a scan mode, and they are far apart.
@@ -713,7 +716,26 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         // A job that never walks the cache tree has no reason to wait for a download to finish, so it
         // gets the same question and a different answer.
-        return _cacheReadingOperations.Contains(operationType) ? downloadDenial : null;
+        if (!_cacheReadingOperations.Contains(operationType))
+        {
+            return null;
+        }
+
+        // Held here rather than at each caller because every route that refuses a run comes through
+        // this one method: the schedule loops, Run Now, and Run All. Holding it at the callers is
+        // what left Run All reporting three schedules as simply not run.
+        lock (_deferredRuns)
+        {
+            _deferredRuns.Add(serviceKey);
+        }
+
+        // Not the gate's own sentence, which ends in "try again once it finishes" and is written for
+        // the controllers, where a refused scan really is over. A schedule's run is kept, so telling
+        // the person to come back and repeat it describes work they do not have to do. The gate's two
+        // causes, a download writing and the tracker not having reported yet, are deliberately not
+        // repeated: they differ in what a person would do about them, and here there is nothing to do
+        // about either. The controllers still get the gate's own wording.
+        return QueuedUntilCacheIsFree;
     }
 
     /// <summary>
@@ -762,31 +784,13 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             return null;
         }
 
-        // A manual attempt is not held: the person is waiting on this call and gets the reason back
-        // on the response, so queueing it as well would run the schedule again minutes later with
-        // nothing on screen tying that run to the click. Every other trigger has nobody watching, so
-        // it is remembered here and started when the download ends.
-        var deferred = trigger != RunTrigger.Manual;
-        if (deferred)
-        {
-            lock (_deferredRuns)
-            {
-                _deferredRuns.Add(serviceKey);
-            }
-        }
-
         // A run someone asked for is always reported. By the time the loop asks, it has already taken
         // the pending Run Now flag, so the click is spent: staying quiet here because this schedule
         // already announced a skip earlier in the same download would leave the person with a
         // response that said the run started and nothing at all afterwards.
         if (trigger == RunTrigger.Manual || ClaimSkipAnnouncement(serviceKey))
         {
-            // The two cards say different things because the two outcomes are different: the held run
-            // will happen on its own, the refused click will not.
-            RecordSkippedRun(
-                serviceKey,
-                denial,
-                deferred ? QueuedWhileDownloadingStageKey : SkippedWhileDownloadingStageKey);
+            RecordSkippedRun(serviceKey, denial, QueuedWhileDownloadingStageKey);
         }
 
         return denial;
