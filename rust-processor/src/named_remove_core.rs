@@ -177,7 +177,6 @@ async fn get_named_game_urls_from_db(
         entry.1 = entry.1.max(bytes_served);
     }
 
-
     eprintln!(
         "  Found {} unique URLs for named game '{}/{}'",
         url_data.len(),

@@ -213,23 +213,28 @@ struct PendingLogEntry {
 
 /// Splits a session's served bytes into the cache-hit and cache-miss totals a download row carries.
 ///
-/// Every served byte lands in one of the two, because together they ARE the download's size on every
-/// page that reads it. This used to match `== "HIT"` and `== "MISS"` exactly, so a line whose status
-/// was anything else - a different case, or one of the BYPASS, EXPIRED and STALE values the parser
-/// preserves verbatim - counted as neither, and a session made of those recorded zero bytes while its
-/// log entries kept the real figures. The pages then hid it as an empty session.
+/// Together the two totals ARE the download's size on every page that reads it. This used to match
+/// `== "HIT"` and `== "MISS"` exactly, so a line whose status was anything else - a different case, or
+/// one of the EXPIRED and STALE values the parser preserves verbatim - counted as neither, and a
+/// session made of those recorded zero bytes while its log entries kept the real figures. The pages
+/// then hid it as an empty session.
 ///
 /// HIT is matched the way the speed tracker matches it, ignoring case; everything else that served
-/// bytes is a miss. The cache-status vocabulary still belongs to whoever reads
-/// `LogEntries."CacheStatus"`, which keeps the literal value: corruption detection reads it there and
-/// needs the distinctions this sum deliberately flattens.
+/// bytes is a miss, BYPASS aside. nginx never consulted the cache on a BYPASS line, so no file was
+/// written, and the eviction scan reads these two totals as proof that one was: counting bypassed
+/// bytes as a miss makes such a download claim content that can never be found on disk, which flags
+/// it evicted forever. A session of nothing but BYPASS keeps zero bytes and stays hidden.
+///
+/// The cache-status vocabulary still belongs to whoever reads `LogEntries."CacheStatus"`, which keeps
+/// the literal value: corruption detection reads it there and needs the distinctions this sum
+/// deliberately flattens.
 fn split_hit_miss_bytes<'a>(entries: impl Iterator<Item = (&'a str, i64)>) -> (i64, i64) {
     let mut hit = 0i64;
     let mut miss = 0i64;
     for (status, bytes) in entries {
         if status.eq_ignore_ascii_case("HIT") {
             hit += bytes;
-        } else {
+        } else if !status.eq_ignore_ascii_case("BYPASS") {
             miss += bytes;
         }
     }
@@ -1478,17 +1483,6 @@ impl Processor {
         let first_timestamp = new_entries.iter().map(|e| e.timestamp).min().unwrap();
         let last_timestamp = new_entries.iter().map(|e| e.timestamp).max().unwrap();
 
-        // Every served byte has to land in one of these two totals, because together they ARE the
-        // download's size on every page that reads it. Matching `== "HIT"` and `== "MISS"` exactly
-        // meant a line whose status was anything else - a different case, or one of the BYPASS,
-        // EXPIRED and STALE values the parser deliberately preserves verbatim - counted as neither,
-        // and a session made entirely of those recorded zero bytes while its log entries kept the
-        // real figures. That is a download the pages then hide as an empty session.
-        //
-        // HIT is matched the way the speed tracker matches it, ignoring case; everything else that
-        // served bytes is a miss. Cache-status vocabulary belongs to whoever reads
-        // LogEntries."CacheStatus", which still holds the literal value - corruption detection reads
-        // it there and needs the distinctions this sum deliberately flattens.
         let (total_hit_bytes, total_miss_bytes) = split_hit_miss_bytes(
             new_entries
                 .iter()
@@ -2507,15 +2501,17 @@ mod log_entry_clamp_tests {
     /// The bug this pins: a download whose lines all carried a status outside the exact literals
     /// `HIT` and `MISS` recorded zero bytes, so every page that reads a download's size showed
     /// nothing while the log entries held the real figures, and the views that hide empty sessions
-    /// dropped the download entirely.
+    /// dropped the download entirely. BYPASS is the one exception, because nginx never consulted
+    /// the cache on such a line and nothing was written to disk.
     #[test]
-    fn every_served_byte_lands_in_a_total() {
+    fn only_bypassed_bytes_stay_out_of_both_totals() {
         let entries = [
             ("HIT", 100),
             ("hit", 10),
             ("MISS", 1000),
             ("miss", 200),
             ("BYPASS", 30),
+            ("bypass", 4),
             ("EXPIRED", 7),
             ("UNKNOWN", 3),
             ("-", 1),
@@ -2523,21 +2519,27 @@ mod log_entry_clamp_tests {
         let (hit, miss) = split_hit_miss_bytes(entries.iter().copied());
 
         assert_eq!(hit, 110, "HIT is matched however the log cased it");
-        assert_eq!(miss, 1241, "everything else that served bytes counts as a miss");
         assert_eq!(
-            hit + miss,
+            miss, 1211,
+            "everything else that served bytes counts as a miss, BYPASS aside"
+        );
+        assert_eq!(
+            hit + miss + 34,
             entries.iter().map(|(_, bytes)| bytes).sum::<i64>(),
-            "no served byte may be dropped by either total"
+            "every served byte is still accounted for: the 34 bypassed ones are the only bytes \
+             either total leaves out"
         );
     }
 
     #[test]
-    fn a_session_of_bypassed_lines_is_not_a_zero_byte_download() {
-        // The shape that emptied the downloads page: real traffic, no HIT and no MISS anywhere.
+    fn a_session_of_bypassed_lines_records_no_bytes() {
+        // nginx answered these from upstream without consulting the cache, so no file was written
+        // and the download has no cached size to report. The eviction scan reads these totals as
+        // proof content reached disk, and such a session would otherwise be flagged evicted forever.
         let (hit, miss) = split_hit_miss_bytes([("BYPASS", 5_000), ("BYPASS", 1_500)].into_iter());
 
         assert_eq!(hit, 0);
-        assert_eq!(miss, 6_500, "the session's size is the bytes it served");
+        assert_eq!(miss, 0, "bypassed bytes are not the session's cached size");
     }
 
     #[test]

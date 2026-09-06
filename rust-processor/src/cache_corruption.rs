@@ -751,7 +751,7 @@ fn affected_download_delete_sql(placeholders: &str) -> String {
 
 fn affected_survivor_recompute_sql(placeholders: &str) -> String {
     format!(
-        "UPDATE \"Downloads\" SET \"CacheHitBytes\" = COALESCE((SELECT SUM(\"BytesServed\") FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\" AND \"CacheStatus\" = 'HIT'), 0), \"CacheMissBytes\" = COALESCE((SELECT SUM(\"BytesServed\") FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\" AND \"CacheStatus\" IN ('MISS', 'UNKNOWN')), 0) WHERE \"Id\" IN ({placeholders})"
+        "UPDATE \"Downloads\" SET \"CacheHitBytes\" = COALESCE((SELECT SUM(\"BytesServed\") FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\" AND UPPER(\"CacheStatus\") = 'HIT'), 0), \"CacheMissBytes\" = COALESCE((SELECT SUM(\"BytesServed\") FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\" AND UPPER(\"CacheStatus\") NOT IN ('HIT', 'BYPASS')), 0) WHERE \"Id\" IN ({placeholders})"
     )
 }
 
@@ -2360,6 +2360,14 @@ mod tests {
         assert!(delete.contains("NOT EXISTS"));
         let update = affected_survivor_recompute_sql("$1");
         assert!(update.contains("COALESCE((SELECT SUM(\"BytesServed\")"));
+        // The recompute must split bytes exactly the way ingest does, or it overwrites every total
+        // ingest wrote for a surviving download. Matching HIT case-sensitively dropped a lowercase
+        // `hit` line's bytes from both totals; naming MISS and UNKNOWN dropped every other status.
+        assert!(update.contains("UPPER(\"CacheStatus\") = 'HIT'"));
+        assert!(!update.contains("IN ('MISS', 'UNKNOWN')"));
+        // BYPASS means nginx answered without consulting the cache, so nothing was written to disk
+        // and those bytes belong to neither total.
+        assert!(update.contains("UPPER(\"CacheStatus\") NOT IN ('HIT', 'BYPASS')"));
     }
 
     #[test]
