@@ -60,7 +60,8 @@ import type {
   XboxGameMappingDto,
   XboxMappingStats,
   XboxMappingAuthStatus,
-  PicsStatus
+  PicsStatus,
+  OrphanedDownloadsResponse
 } from '../types';
 import type { StructuralScanMode } from '../types/corruptionScan';
 import type { ImportResult, ValidationResult } from '../types/migration';
@@ -783,14 +784,12 @@ class ApiService {
   static async getEvictionSettings(signal?: AbortSignal): Promise<{
     evictedDataMode: string;
     evictionScanNotifications: boolean;
-    pruneOrphanedDownloads: boolean;
   }> {
     try {
       const res = await fetch(`${API_BASE}/stats/eviction`, this.getFetchOptions({ signal }));
       return await this.handleResponse<{
         evictedDataMode: string;
         evictionScanNotifications: boolean;
-        pruneOrphanedDownloads: boolean;
       }>(res);
     } catch (error: unknown) {
       if (isAbortError(error)) {
@@ -804,12 +803,10 @@ class ApiService {
 
   static async updateEvictionSettings(
     evictedDataMode?: string,
-    evictionScanNotifications?: boolean,
-    pruneOrphanedDownloads?: boolean
+    evictionScanNotifications?: boolean
   ): Promise<{
     evictedDataMode: string;
     evictionScanNotifications: boolean;
-    pruneOrphanedDownloads: boolean;
   }> {
     try {
       const res = await fetch(
@@ -817,8 +814,7 @@ class ApiService {
         this.getJsonFetchOptions(
           {
             evictedDataMode,
-            evictionScanNotifications,
-            pruneOrphanedDownloads
+            evictionScanNotifications
           },
           { method: 'PUT' }
         )
@@ -826,12 +822,44 @@ class ApiService {
       return await this.handleResponse<{
         evictedDataMode: string;
         evictionScanNotifications: boolean;
-        pruneOrphanedDownloads: boolean;
       }>(res);
     } catch (error: unknown) {
       {
         console.error('updateEvictionSettings error:', error);
       }
+      throw error;
+    }
+  }
+
+  /**
+   * Download records no log entry backs any more, grouped by game or service. The eviction scan
+   * cannot verify them, so the user chooses which groups to remove.
+   */
+  static async getOrphanedDownloads(signal?: AbortSignal): Promise<OrphanedDownloadsResponse> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/stats/eviction/orphans`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<OrphanedDownloadsResponse>(res);
+    } catch (error: unknown) {
+      if (!isAbortError(error)) {
+        console.error('getOrphanedDownloads error:', error);
+      }
+      throw error;
+    }
+  }
+
+  /** Deletes the chosen download records; rows that regained log history are left alone. */
+  static async removeOrphanedDownloads(downloadIds: number[]): Promise<{ removed: number }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/stats/eviction/orphans/remove`,
+        this.getJsonFetchOptions({ downloadIds }, { method: 'POST' })
+      );
+      return await this.handleResponse<{ removed: number }>(res);
+    } catch (error: unknown) {
+      console.error('removeOrphanedDownloads error:', error);
       throw error;
     }
   }

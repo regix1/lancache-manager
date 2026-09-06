@@ -229,6 +229,8 @@ public sealed class EndpointAuthorizationContractTests
         "StatsController.GetClients",
         "StatsController.GetExcludedClients",
         "StatsController.GetEvictionSettings",
+        "StatsController.GetOrphanedDownloads",
+        "StatsController.RemoveOrphanedDownloads",
         "StatsController.EvictionScanStatus",
         "StatsController.UpdateExcludedClients",
         "StatsController.UpdateEvictionSettings",

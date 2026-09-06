@@ -2308,16 +2308,6 @@ public class StateService : IStateService
         return GetState().EvictionScanNotifications;
     }
 
-    public bool GetPruneOrphanedDownloads()
-    {
-        return GetState().PruneOrphanedDownloads;
-    }
-
-    public void SetPruneOrphanedDownloads(bool enabled)
-    {
-        UpdateState(state => state.PruneOrphanedDownloads = enabled);
-    }
-
     public void SetEvictionScanNotifications(bool enabled)
     {
         UpdateState(state => state.EvictionScanNotifications = enabled);

@@ -359,7 +359,7 @@
         "xboxCatalogUpdate": "Xbox Catalog Update",
         "battleNetGameMapping": "Battle.net Game Mapping",
         "riotGameMapping": "Riot Game Mapping",
-        "evictionScan": "Cache Scan",
+        "evictionScan": "Eviction Scan",
         "evictionRemoval": "Eviction Removal",
         "cacheSizeScan": "Cache File Scan",
         "scheduledPrefill": "Scheduled Prefill",
@@ -388,7 +388,7 @@
       "cancelXboxGameMapping": "Cancel Xbox game mapping",
       "cancelBattleNetGameMapping": "Cancel Battle.net game mapping",
       "cancelRiotGameMapping": "Cancel Riot game mapping",
-      "cancelEvictionScan": "Cancel cache scan",
+      "cancelEvictionScan": "Cancel eviction scan",
       "cancelCacheSizeScan": "Cancel cache file scan",
       "cancelScheduledPrefill": "Cancel scheduled prefill",
       "cancelEvictionRemoval": "Cancel eviction removal",
@@ -2235,8 +2235,15 @@
         "gameCacheRemoveAllConfirmMessage": "This will permanently delete cache files, log entries, and database records for all {{count}} currently-cached games and services. Items are removed one at a time. The operation cannot be undone.",
         "gameCacheRemoveAllConfirmWarning": "This is irreversible. Any client that re-downloads these games will have to pull the full payload from upstream, not the cache.",
         "runEvictionScan": "Scan",
-        "pruneOrphanedDownloads": "Prune download records with no log history",
-        "pruneOrphanedDownloadsDescription": "During eviction scans, deletes download records only when no log entries remain. Leave this off to preserve statistics for services whose logs were cleared.",
+        "orphanedDownloadsHeading": "Records Without Log History",
+        "orphanedDownloadsHelp": "The eviction scan checks a download against its log entries, so a record whose logs were cleared can never be verified and keeps counting toward your statistics. Pick the ones you no longer want and remove them.",
+        "orphanedDownloadsRemoveSelected": "Remove Selected ({{count}})",
+        "orphanedDownloadsRemoveConfirmTitle": "Remove selected records?",
+        "orphanedDownloadsRemoveConfirmMessage": "This deletes {{count}} download records from the database. No cache files and no log entries are touched.",
+        "orphanedDownloadsRemoveConfirmWarning": "This cannot be undone. The statistics these records contribute will go away with them.",
+        "orphanedDownloadsRemoveSuccess": "Removed {{count}} download records",
+        "orphanedDownloadsRemoveError": "Failed to remove the selected download records",
+        "orphanedDownloadsLoadError": "Failed to load download records without log history",
         "resetEvictions": "Reset Evictions",
         "resetEvictionsSuccess": "Reset {{count}} evicted downloads back to normal",
         "resetEvictionsError": "Failed to reset evictions",
@@ -3036,6 +3043,10 @@
       "partialEvictedBadge": "{{count}} evicted",
       "removeEvictedTooltip": "Remove evicted download records and log entries. Active cached files will not be deleted.",
       "noEvictedItems": "No evicted items",
+      "noOrphanedDownloads": "No download records without log history",
+      "noOrphanedDownloadsDescription": "Every download record still has log entries behind it, so the eviction scan can verify them all.",
+      "loadingOrphanedDownloads": "Loading download records without log history...",
+      "orphanedDownloadsMeta": "{{service}} · {{count}} records · last seen {{lastSeen}}",
       "loadingEvictedGames": "Loading evicted games...",
       "noGamesMatching": "No games found matching \"{{query}}\"",
       "clearSearch": "Clear search",
@@ -4187,7 +4198,7 @@
           "loss": "If nginx has lost log access, new download activity will not be recorded until the next rotation run"
         },
         "cacheReconciliation": {
-          "displayName": "Cache Scan",
+          "displayName": "Eviction Scan",
           "description": "Runs a full game detection, then compares your cache directory against the database to see what is still on disk vs. what nginx has evicted. Keeps game sizes and the 'evicted' badges in the UI accurate.",
           "summary": "Checks which cached files nginx has evicted.",
           "gain": "Eviction badges and cache status in the UI are more accurate and up to date",
@@ -7441,11 +7452,11 @@
       "postProcessing": "Updating detection records...",
       "refreshingSummary": "Refreshing detection summary of cached files...",
       "complete": "Scan complete: {{totalProcessed}} processed, {{totalEvicted}} evicted, {{totalUnEvicted}} un-evicted",
-      "cancelled": "Cache scan cancelled",
+      "cancelled": "Eviction scan cancelled",
       "error": {
-        "fatal": "Cache scan failed: {{errorDetail}}"
+        "fatal": "Eviction scan failed: {{errorDetail}}"
       },
-      "stale": "Cache scan completed"
+      "stale": "Eviction scan completed"
     },
     "cacheSizeScan": {
       "starting": "Starting cache file scan...",

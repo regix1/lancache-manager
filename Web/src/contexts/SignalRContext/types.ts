@@ -1256,7 +1256,6 @@ export interface EvictionScanCompleteEvent {
   processed: number;
   evicted: number;
   unEvicted: number;
-  prunedOrphans?: number;
   error?: string;
   showNotification?: boolean;
   cancelled?: boolean;

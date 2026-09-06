@@ -912,6 +912,25 @@ export interface EpicScheduleStatus {
   progressPercent: number;
 }
 
+/**
+ * One game or service whose download records have no log entries left. The eviction scan probes a
+ * download through its log entries, so it can never verify or flag these rows; they are listed for
+ * the user to remove by choice.
+ */
+export interface OrphanedDownloadGroup {
+  key: string;
+  service: string;
+  gameName: string;
+  downloadCount: number;
+  totalBytes: number;
+  lastSeenUtc: string;
+  downloadIds: number[];
+}
+
+export interface OrphanedDownloadsResponse {
+  groups: OrphanedDownloadGroup[];
+}
+
 /** PICS data status returned by the /depots/status API endpoint */
 export interface PicsStatus {
   isScanning: boolean;

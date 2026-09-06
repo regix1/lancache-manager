@@ -7,12 +7,12 @@ import {
   Search,
   RotateCcw,
   Trash2,
+  FileQuestion,
   ChevronsDownUp,
   ChevronsUpDown
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import { Checkbox } from '@components/ui/Checkbox';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
@@ -51,6 +51,7 @@ import { useBulkRemoval, type EvictedQueueEntry } from '@contexts/BulkRemovalCon
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import EvictedItemsList from '../game-detection/EvictedItemsList';
+import OrphanedDownloadsList from '../game-detection/OrphanedDownloadsList';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
 import LogRemovalManager from '../log-processing/LogRemovalManager';
 import CacheManager from '../cache/CacheManager';
@@ -76,7 +77,7 @@ import {
   useCompletedRemovalPruning,
   useScheduledRemovalRefresh
 } from '../game-detection/cacheRemovalHelpers';
-import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
+import type { GameCacheInfo, ServiceCacheInfo, OrphanedDownloadGroup } from '../../../../types';
 import { FAILED_TO_REMOVE_GAME_I18N_KEY } from '@contexts/notifications/constants';
 import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
 import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
@@ -140,16 +141,13 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // Eviction Settings State
   const [evictionMode, setEvictionMode] = useState<string>('show');
   const [savedEvictionMode, setSavedEvictionMode] = useState<string>('show');
-  const [pruneOrphanedDownloads, setPruneOrphanedDownloads] = useState(false);
-  const [savedPruneOrphanedDownloads, setSavedPruneOrphanedDownloads] = useState(false);
   const [evictionLoading, setEvictionLoading] = useState(false);
   const [evictionSaving, setEvictionSaving] = useState(false);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [isStartingEvictionScan, setIsStartingEvictionScan] = useState(false);
   const evictionScanInFlightRef = useRef(false);
   const [resettingEvictions, setResettingEvictions] = useState(false);
-  const isEvictionDirty =
-    evictionMode !== savedEvictionMode || pruneOrphanedDownloads !== savedPruneOrphanedDownloads;
+  const isEvictionDirty = evictionMode !== savedEvictionMode;
 
   const { notifications, addNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
@@ -465,6 +463,23 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     setEvictedItemsExpanded((prev) => !prev)
   );
 
+  const [orphanedDownloadsExpanded, setOrphanedDownloadsExpanded] = useSectionExpanded(
+    MANAGEMENT_STORAGE_KEYS.ORPHANED_DOWNLOADS_EXPANDED,
+    false
+  );
+  useAccordionGroupItem('storage-orphaned-downloads', orphanedDownloadsExpanded, () =>
+    setOrphanedDownloadsExpanded((prev) => !prev)
+  );
+
+  // Download records the eviction scan can never verify: no log entries back them, so it neither
+  // flags nor removes them. Listed for the user to remove by choice, keyed by the group key the
+  // server builds.
+  const [orphanedGroups, setOrphanedGroups] = useState<OrphanedDownloadGroup[]>([]);
+  const [orphanedLoading, setOrphanedLoading] = useState(true);
+  const [removingOrphaned, setRemovingOrphaned] = useState(false);
+  const [confirmRemoveOrphaned, setConfirmRemoveOrphaned] = useState(false);
+  const orphanedSelection: SelectionSet<string> = useSelectionSet<string>();
+
   // "Remove All" state - sequential per-item eviction removal. One at a time
   // mirrors the per-item Remove flow (each item gets its own SignalR operation,
   // its own log-purge, its own progress bar) so the user sees exactly what's
@@ -552,12 +567,98 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     selectedEvictedNginxReopenGate.available
   ]);
 
-  const evictionAllExpanded = evictionSettingsExpanded && evictedItemsExpanded;
+  const selectedOrphanedGroups = useMemo(
+    () => orphanedGroups.filter((group) => orphanedSelection.isSelected(group.key)),
+    [orphanedGroups, orphanedSelection]
+  );
+  const selectedOrphanedCount = selectedOrphanedGroups.length;
+  const selectedOrphanedRecordCount = selectedOrphanedGroups.reduce(
+    (total, group) => total + group.downloadCount,
+    0
+  );
+
+  const orphanedSelectionProp: SelectionAdapter = useMemo(
+    () => ({
+      isSelected: orphanedSelection.isSelected,
+      onToggle: orphanedSelection.toggle,
+      setMany: orphanedSelection.setMany
+    }),
+    [orphanedSelection]
+  );
+
+  const fetchOrphanedDownloads = useCallback(
+    async (signal?: AbortSignal) => {
+      if (mockMode) {
+        setOrphanedLoading(false);
+        return;
+      }
+      try {
+        const response = await ApiService.getOrphanedDownloads(signal);
+        setOrphanedGroups(response.groups);
+      } catch (err: unknown) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        onError(t('management.sections.data.orphanedDownloadsLoadError'));
+      } finally {
+        setOrphanedLoading(false);
+      }
+    },
+    [mockMode, onError, t]
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchOrphanedDownloads(controller.signal);
+    return () => controller.abort();
+  }, [fetchOrphanedDownloads]);
+
+  // A scan or a log removal changes which records still have history behind them.
+  useEffect(() => {
+    const handleRefreshed = () => void fetchOrphanedDownloads();
+    on('EvictionScanComplete', handleRefreshed);
+    on('LogRemovalComplete', handleRefreshed);
+    return () => {
+      off('EvictionScanComplete', handleRefreshed);
+      off('LogRemovalComplete', handleRefreshed);
+    };
+  }, [on, off, fetchOrphanedDownloads]);
+
+  const handleRemoveSelectedOrphaned = useCallback(async () => {
+    setConfirmRemoveOrphaned(false);
+    if (!isAdmin || selectedOrphanedGroups.length === 0) return;
+    setRemovingOrphaned(true);
+    try {
+      const ids = selectedOrphanedGroups.flatMap((group) => group.downloadIds);
+      const result = await ApiService.removeOrphanedDownloads(ids);
+      orphanedSelection.clear();
+      await fetchOrphanedDownloads();
+      onSuccess(
+        t('management.sections.data.orphanedDownloadsRemoveSuccess', { count: result.removed })
+      );
+      onDataRefresh();
+    } catch (err: unknown) {
+      onError(getErrorMessage(err) || t('management.sections.data.orphanedDownloadsRemoveError'));
+    } finally {
+      setRemovingOrphaned(false);
+    }
+  }, [
+    isAdmin,
+    selectedOrphanedGroups,
+    orphanedSelection,
+    fetchOrphanedDownloads,
+    onSuccess,
+    onError,
+    onDataRefresh,
+    t
+  ]);
+
+  const evictionAllExpanded =
+    evictionSettingsExpanded && evictedItemsExpanded && orphanedDownloadsExpanded;
 
   const handleEvictionExpandCollapseAll = () => {
     const next = !evictionAllExpanded;
     setEvictionSettingsExpanded(next);
     setEvictedItemsExpanded(next);
+    setOrphanedDownloadsExpanded(next);
   };
 
   const loadEvictionSettings = useCallback(
@@ -572,8 +673,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         const response = await ApiService.getEvictionSettings(signal);
         setEvictionMode(response.evictedDataMode);
         setSavedEvictionMode(response.evictedDataMode);
-        setPruneOrphanedDownloads(response.pruneOrphanedDownloads);
-        setSavedPruneOrphanedDownloads(response.pruneOrphanedDownloads);
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         onError(t('management.sections.data.evictionLoadError'));
@@ -593,15 +692,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const performEvictionSave = async () => {
     setEvictionSaving(true);
     try {
-      const response = await ApiService.updateEvictionSettings(
-        evictionMode,
-        undefined,
-        pruneOrphanedDownloads
-      );
+      const response = await ApiService.updateEvictionSettings(evictionMode);
       setEvictionMode(response.evictedDataMode);
       setSavedEvictionMode(response.evictedDataMode);
-      setPruneOrphanedDownloads(response.pruneOrphanedDownloads);
-      setSavedPruneOrphanedDownloads(response.pruneOrphanedDownloads);
       const detail: EvictionSettingsChangedDetail = {
         evictedDataMode: response.evictedDataMode,
         evictionScanNotifications: response.evictionScanNotifications
@@ -998,28 +1091,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                         ))}
                       </div>
 
-                      {/* Prune toggle styled as the same option-card language as the modes:
-                            accent left edge while enabled, description in the card body. */}
-                      <label
-                        className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition duration-150${pruneOrphanedDownloads ? ' eviction-mode-option-selected' : ''}`}
-                      >
-                        <Checkbox
-                          checked={pruneOrphanedDownloads}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                            setPruneOrphanedDownloads(e.target.checked)
-                          }
-                          className="mt-1"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-themed-primary">
-                            {t('management.sections.data.pruneOrphanedDownloads')}
-                          </div>
-                          <div className="text-sm text-themed-secondary mt-1">
-                            {t('management.sections.data.pruneOrphanedDownloadsDescription')}
-                          </div>
-                        </div>
-                      </label>
-
                       <div className="flex justify-end pt-3 border-t border-themed-primary">
                         <Button
                           onClick={handleSaveEviction}
@@ -1062,6 +1133,43 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                     loading={evictedItemsLoading}
                   />
                 </AccordionSection>
+
+                {/* Sub-accordion 3: records the scan cannot verify, removed by choice */}
+                <AccordionSection
+                  title={t('management.sections.data.orphanedDownloadsHeading')}
+                  count={orphanedGroups.length > 0 ? orphanedGroups.length : undefined}
+                  surface="well"
+                  icon={FileQuestion}
+                  isExpanded={orphanedDownloadsExpanded}
+                  onToggle={() => setOrphanedDownloadsExpanded((prev) => !prev)}
+                >
+                  <div className="space-y-3">
+                    <p className="text-sm text-themed-secondary">
+                      {t('management.sections.data.orphanedDownloadsHelp')}
+                    </p>
+                    <OrphanedDownloadsList
+                      groups={orphanedGroups}
+                      isAdmin={isAdmin}
+                      loading={orphanedLoading}
+                      selection={orphanedSelectionProp}
+                    />
+                    {isAdmin && selectedOrphanedCount > 0 && (
+                      <div className="flex justify-end">
+                        <Button
+                          onClick={() => setConfirmRemoveOrphaned(true)}
+                          variant="filled"
+                          color="red"
+                          loading={removingOrphaned}
+                          disabled={removingOrphaned}
+                        >
+                          {t('management.sections.data.orphanedDownloadsRemoveSelected', {
+                            count: selectedOrphanedCount
+                          })}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </AccordionSection>
               </div>
             </AccordionSection>
           </HighlightGlow>
@@ -1082,6 +1190,29 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         </p>
         <Alert color="yellow">
           <p className="text-sm">{t('management.sections.data.evictionRemoveConfirmWarning')}</p>
+        </Alert>
+      </ConfirmationModal>
+
+      {/* Orphaned Download Records Confirmation Modal */}
+      <ConfirmationModal
+        opened={confirmRemoveOrphaned}
+        onClose={() => setConfirmRemoveOrphaned(false)}
+        onConfirm={handleRemoveSelectedOrphaned}
+        title={t('management.sections.data.orphanedDownloadsRemoveConfirmTitle')}
+        confirmLabel={t('management.sections.data.orphanedDownloadsRemoveSelected', {
+          count: selectedOrphanedCount
+        })}
+        loading={removingOrphaned}
+      >
+        <p className="text-themed-secondary">
+          {t('management.sections.data.orphanedDownloadsRemoveConfirmMessage', {
+            count: selectedOrphanedRecordCount
+          })}
+        </p>
+        <Alert color="yellow">
+          <p className="text-sm">
+            {t('management.sections.data.orphanedDownloadsRemoveConfirmWarning')}
+          </p>
         </Alert>
       </ConfirmationModal>
 

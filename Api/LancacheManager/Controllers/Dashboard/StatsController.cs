@@ -1,5 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Configuration;
+using LancacheManager.Core.Cache;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
@@ -329,8 +330,7 @@ public class StatsController : ControllerBase
     /// Gets the current eviction settings.
     /// </summary>
     /// <remarks>
-    /// Includes the evicted-data display mode, whether eviction scans notify, and whether
-    /// orphaned downloads are pruned.
+    /// Includes the evicted-data display mode and whether eviction scans notify.
     /// </remarks>
     [HttpGet("eviction")]
     [Authorize(Policy = "AccountHolder")]
@@ -339,13 +339,50 @@ public class StatsController : ControllerBase
     {
         var evictedDataMode = _stateRepository.GetEvictedDataMode();
         var evictionScanNotifications = _stateRepository.GetEvictionScanNotifications();
-        var pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads();
         return Ok(new EvictionSettingsResponse
         {
             EvictedDataMode = evictedDataMode,
-            EvictionScanNotifications = evictionScanNotifications,
-            PruneOrphanedDownloads = pruneOrphanedDownloads
+            EvictionScanNotifications = evictionScanNotifications
         });
+    }
+
+    /// <summary>
+    /// Lists download records that no log entry backs any more, grouped by game or service.
+    /// </summary>
+    /// <remarks>
+    /// The eviction scan cannot verify these rows, so it never flags or removes them; the user
+    /// picks which groups to remove.
+    /// </remarks>
+    [HttpGet("eviction/orphans")]
+    [Authorize(Policy = "AccountHolder")]
+    [ProducesResponseType(typeof(OrphanedDownloadsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<OrphanedDownloadsResponse>> GetOrphanedDownloadsAsync(CancellationToken cancellationToken)
+    {
+        var groups = await OrphanedDownloadRecords.ListAsync(_context, cancellationToken);
+        return Ok(new OrphanedDownloadsResponse { Groups = groups });
+    }
+
+    /// <summary>
+    /// Removes the chosen download records. Only rows that still have no log entries are deleted;
+    /// nothing on disk or in the logs is touched.
+    /// </summary>
+    [HttpPost("eviction/orphans/remove")]
+    [Authorize(Policy = "AccountHolder")]
+    [ProducesResponseType(typeof(OrphanedDownloadsRemovedResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<OrphanedDownloadsRemovedResponse>> RemoveOrphanedDownloadsAsync(
+        [FromBody] RemoveOrphanedDownloadsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var removed = await OrphanedDownloadRecords.RemoveAsync(_context, request.DownloadIds, cancellationToken);
+        if (removed > 0)
+        {
+            await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
+            {
+                reason = "orphaned-downloads-removed"
+            });
+        }
+
+        return Ok(new OrphanedDownloadsRemovedResponse { Removed = removed });
     }
 
     /// <summary>
@@ -405,10 +442,6 @@ public class StatsController : ControllerBase
             // matching how the per-service control surfaces the change.
             _scheduleRegistry.NotifySchedulesChanged();
         }
-        if (request.PruneOrphanedDownloads.HasValue)
-        {
-            _stateRepository.SetPruneOrphanedDownloads(request.PruneOrphanedDownloads.Value);
-        }
         // Notify clients to refresh downloads/stats since eviction mode affects all tabs
         await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
         {
@@ -435,7 +468,6 @@ public class StatsController : ControllerBase
                 {
                     evictedDataMode = _stateRepository.GetEvictedDataMode(),
                     evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(),
-                    pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads(),
                     operationId = (Guid?)queuedOutcome.OperationId,
                     queued = queuedOutcome.Queued
                 });
@@ -443,14 +475,13 @@ public class StatsController : ControllerBase
 
             var operationId = await _reconciliationService.StartBulkEvictionRemovalAsync(HttpContext.RequestAborted);
 
-            return Accepted(new { evictedDataMode = _stateRepository.GetEvictedDataMode(), evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads(), operationId });
+            return Accepted(new { evictedDataMode = _stateRepository.GetEvictedDataMode(), evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), operationId });
         }
 
         return Ok(new EvictionSettingsResponse
         {
             EvictedDataMode = _stateRepository.GetEvictedDataMode(),
-            EvictionScanNotifications = _stateRepository.GetEvictionScanNotifications(),
-            PruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads()
+            EvictionScanNotifications = _stateRepository.GetEvictionScanNotifications()
         });
     }
 

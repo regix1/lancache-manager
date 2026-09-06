@@ -140,9 +140,6 @@ public class AppState
     // Whether the eviction scan shows the universal notification bar (false = silent/no notification)
     public bool EvictionScanNotifications { get; set; } = false;
 
-    // Whether the eviction scan also prunes orphaned downloads (no log entries backing them)
-    public bool PruneOrphanedDownloads { get; set; } = false;
-
     // Whether client addresses are looked up on the network's DNS server and shown by name.
     // Off by default: a network without reverse DNS entries can be slow to answer.
     public bool ClientHostnameLookup { get; set; } = false;

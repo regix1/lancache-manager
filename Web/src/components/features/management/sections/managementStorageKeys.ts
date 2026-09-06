@@ -7,7 +7,8 @@ export const MANAGEMENT_STORAGE_KEYS = {
   GAME_CACHE_EXPANDED: 'management-game-cache-expanded',
   EVICTED_DATA_EXPANDED: 'management-evicted-data-expanded-v2',
   EVICTION_SETTINGS_EXPANDED: 'management-eviction-settings-expanded',
-  EVICTED_ITEMS_EXPANDED: 'management-evicted-items-expanded'
+  EVICTED_ITEMS_EXPANDED: 'management-evicted-items-expanded',
+  ORPHANED_DOWNLOADS_EXPANDED: 'management-orphaned-downloads-expanded'
 } as const;
 
 /**

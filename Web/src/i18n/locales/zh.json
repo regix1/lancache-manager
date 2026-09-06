@@ -359,7 +359,7 @@
         "xboxCatalogUpdate": "Xbox 目录更新",
         "battleNetGameMapping": "Battle.net 游戏映射",
         "riotGameMapping": "Riot 游戏映射",
-        "evictionScan": "缓存扫描",
+        "evictionScan": "淘汰扫描",
         "evictionRemoval": "淘汰移除",
         "cacheSizeScan": "缓存文件扫描",
         "scheduledPrefill": "计划预填充",
@@ -388,7 +388,7 @@
       "cancelXboxGameMapping": "取消 Xbox 游戏映射",
       "cancelBattleNetGameMapping": "取消 Battle.net 游戏映射",
       "cancelRiotGameMapping": "取消 Riot 游戏映射",
-      "cancelEvictionScan": "取消缓存扫描",
+      "cancelEvictionScan": "取消淘汰扫描",
       "cancelCacheSizeScan": "取消缓存文件扫描",
       "cancelScheduledPrefill": "取消计划预填充",
       "cancelEvictionRemoval": "取消淘汰移除",
@@ -2235,8 +2235,15 @@
         "gameCacheRemoveAllConfirmMessage": "这将永久删除所有 {{count}} 个当前缓存的游戏和服务的缓存文件、日志条目和数据库记录。项目逐个移除。此操作无法撤销。",
         "gameCacheRemoveAllConfirmWarning": "这是不可逆的。任何重新下载这些游戏的客户端都将必须从上游而非缓存获取完整负载。",
         "runEvictionScan": "扫描",
-        "pruneOrphanedDownloads": "清理没有日志历史的下载记录",
-        "pruneOrphanedDownloadsDescription": "淘汰扫描期间，仅删除已无任何日志条目的下载记录。如需保留日志已清除服务的统计信息，请关闭此选项。",
+        "orphanedDownloadsHeading": "缺少日志历史的记录",
+        "orphanedDownloadsHelp": "淘汰扫描通过下载记录的日志条目进行核对，因此日志被清除的记录永远无法验证，并会持续计入统计数据。请选择不再需要的记录并移除。",
+        "orphanedDownloadsRemoveSelected": "移除所选 ({{count}})",
+        "orphanedDownloadsRemoveConfirmTitle": "移除所选记录？",
+        "orphanedDownloadsRemoveConfirmMessage": "这将从数据库中删除 {{count}} 条下载记录。不会触及任何缓存文件或日志条目。",
+        "orphanedDownloadsRemoveConfirmWarning": "此操作无法撤销。这些记录贡献的统计数据也会随之消失。",
+        "orphanedDownloadsRemoveSuccess": "已移除 {{count}} 条下载记录",
+        "orphanedDownloadsRemoveError": "移除所选下载记录失败",
+        "orphanedDownloadsLoadError": "加载缺少日志历史的下载记录失败",
         "resetEvictions": "重置淘汰",
         "resetEvictionsSuccess": "已将 {{count}} 个已淘汰下载重置为正常",
         "resetEvictionsError": "重置淘汰失败",
@@ -3036,6 +3043,10 @@
       "partialEvictedBadge": "{{count}} 个已淘汰",
       "removeEvictedTooltip": "移除被淘汰的下载记录和日志条目。活跃的缓存文件不会被删除。",
       "noEvictedItems": "没有已淘汰的项目",
+      "noOrphanedDownloads": "没有缺少日志历史的下载记录",
+      "noOrphanedDownloadsDescription": "每条下载记录都仍有日志条目支撑，因此淘汰扫描可以验证全部记录。",
+      "loadingOrphanedDownloads": "正在加载缺少日志历史的下载记录...",
+      "orphanedDownloadsMeta": "{{service}} · {{count}} 条记录 · 最后出现于 {{lastSeen}}",
       "loadingEvictedGames": "正在加载被淘汰的游戏...",
       "noGamesMatching": "未找到匹配\"{{query}}\"的游戏",
       "clearSearch": "清除搜索",
@@ -4187,7 +4198,7 @@
           "loss": "如果 nginx 失去了日志访问权限，新的下载活动将不会记录，直到下次轮换运行"
         },
         "cacheReconciliation": {
-          "displayName": "缓存扫描",
+          "displayName": "淘汰扫描",
           "description": "先运行一次完整的游戏检测，然后将缓存目录与数据库进行比较，查看哪些仍存在于磁盘上，哪些已被 nginx 淘汰。保持界面中的游戏大小和\"已驱逐\"徽章准确。",
           "summary": "检查哪些缓存文件已被 nginx 逐出。",
           "gain": "界面中的淘汰徽章和缓存状态更准确和最新",
@@ -7407,11 +7418,11 @@
       "postProcessing": "正在更新检测记录...",
       "refreshingSummary": "正在刷新缓存文件检测摘要...",
       "complete": "扫描完成: 已处理 {{totalProcessed}}，已淘汰 {{totalEvicted}}，已取消淘汰 {{totalUnEvicted}}",
-      "cancelled": "缓存扫描已取消",
+      "cancelled": "淘汰扫描已取消",
       "error": {
-        "fatal": "缓存扫描失败: {{errorDetail}}"
+        "fatal": "淘汰扫描失败: {{errorDetail}}"
       },
-      "stale": "缓存扫描完成"
+      "stale": "淘汰扫描完成"
     },
     "cacheSizeScan": {
       "starting": "正在启动缓存文件扫描...",

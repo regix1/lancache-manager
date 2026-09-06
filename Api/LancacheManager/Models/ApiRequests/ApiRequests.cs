@@ -252,7 +252,11 @@ public class UpdateEvictionSettingsRequest
 {
     public string EvictedDataMode { get; set; } = string.Empty;
     public bool? EvictionScanNotifications { get; set; }
-    public bool? PruneOrphanedDownloads { get; set; }
+}
+
+public class RemoveOrphanedDownloadsRequest
+{
+    public List<long> DownloadIds { get; set; } = new();
 }
 
 #endregion

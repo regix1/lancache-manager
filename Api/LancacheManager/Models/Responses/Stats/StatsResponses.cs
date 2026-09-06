@@ -228,13 +228,37 @@ public class StatsExclusionsResponse
 }
 
 /// <summary>
-/// Response for eviction settings (display mode, scan notifications, orphan pruning).
+/// Response for eviction settings (display mode, scan notifications).
 /// </summary>
 public class EvictionSettingsResponse
 {
     public string EvictedDataMode { get; set; } = string.Empty;
     public bool EvictionScanNotifications { get; set; }
-    public bool PruneOrphanedDownloads { get; set; }
+}
+
+/// <summary>
+/// One game or service whose download records have no log entries left, with the row ids the
+/// user can choose to remove.
+/// </summary>
+public class OrphanedDownloadGroup
+{
+    public string Key { get; set; } = string.Empty;
+    public string Service { get; set; } = string.Empty;
+    public string GameName { get; set; } = string.Empty;
+    public int DownloadCount { get; set; }
+    public long TotalBytes { get; set; }
+    public DateTime LastSeenUtc { get; set; }
+    public List<long> DownloadIds { get; set; } = new();
+}
+
+public class OrphanedDownloadsResponse
+{
+    public List<OrphanedDownloadGroup> Groups { get; set; } = new();
+}
+
+public class OrphanedDownloadsRemovedResponse
+{
+    public int Removed { get; set; }
 }
 
 /// <summary>

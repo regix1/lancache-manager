@@ -558,7 +558,6 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         ExcludedClientRules = new() { new ClientExclusionRule { Ip = "10.0.0.5", Mode = ClientExclusionModes.Hide } },
         EvictedDataMode = EvictedDataMode.Hide,
         EvictionScanNotifications = true,
-        PruneOrphanedDownloads = true,
         ClientHostnameLookup = true,
         ClientHostnameResolver = "172.16.1.222",
         ClientHostnameGuestAccess = true,

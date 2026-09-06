@@ -200,10 +200,6 @@ public interface IStateService
     bool GetEvictionScanNotifications();
     void SetEvictionScanNotifications(bool enabled);
 
-    // Orphaned Downloads Prune Methods (eviction scan opt-in)
-    bool GetPruneOrphanedDownloads();
-    void SetPruneOrphanedDownloads(bool enabled);
-
     // Client Hostname Lookup Methods (reverse DNS on client addresses)
     bool GetClientHostnameLookup();
     void SetClientHostnameLookup(bool enabled);
