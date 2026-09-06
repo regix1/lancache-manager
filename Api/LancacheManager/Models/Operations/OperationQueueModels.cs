@@ -8,12 +8,19 @@ namespace LancacheManager.Models;
 /// conflict (null when the blocker is unknown, e.g. a local start-gate refusal). The queue
 /// re-emits this event with the new blocker when a waiter stays parked behind a different
 /// operation after its previous blocker finished, so the card always names the current one.
+///
+/// <see cref="Silent"/> marks a run whose schedule asked it to keep its cards to itself. It is
+/// parked exactly like any other run, but the frontend answers it with the notice that clears
+/// itself rather than the purple card, and the queue sends it only once: the blocker re-emit above
+/// would be a card the reader was told they would not get. Saying nothing at all was worse, because
+/// no card at the scheduled time reads as the run having been dropped.
 /// </summary>
 public record OperationWaitingNotification(
     Guid OperationId,
     string OperationType,
     string Name,
-    string? BlockedByName = null);
+    string? BlockedByName = null,
+    bool Silent = false);
 
 /// <summary>
 /// Marks an operation that exists only to report a run the server declined before it started, so it

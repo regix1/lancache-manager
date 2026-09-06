@@ -1,10 +1,12 @@
 using System.Reflection;
+using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -65,6 +67,7 @@ public sealed class OperationWaitingBlockerTests
         }
         Assert.Equal(queued.OperationId, emitted.OperationId);
         Assert.Equal("Cache File Scan", emitted.BlockedByName);
+        Assert.False(emitted.Silent);
         Assert.Equal("Cache File Scan", queue.GetWaitingBlockerName(queued.OperationId));
     }
 
@@ -120,6 +123,129 @@ public sealed class OperationWaitingBlockerTests
         Assert.Equal("Game Detection", reannounced.Name);
         Assert.Equal(0, startCalls);
         Assert.Equal("Eviction Scan", queue.GetWaitingBlockerName(queued.OperationId));
+    }
+
+    [Fact]
+    public async Task SilentRun_AnnouncesItsParkingOnceAndNotAgainOnHandoffAsync()
+    {
+        var tracker = CreateTracker();
+        var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var waitingEvents = new List<OperationWaitingNotification>();
+        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
+        {
+            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
+            {
+                if ((string)args![0]! == SignalREvents.OperationWaiting
+                    && args[1] is OperationWaitingNotification waiting)
+                {
+                    lock (waitingEvents)
+                    {
+                        waitingEvents.Add(waiting);
+                    }
+                }
+
+                return Task.CompletedTask;
+            }
+
+            return DefaultReturn(method.ReturnType);
+        });
+        var queue = new OperationQueueService(
+            tracker, conflictChecker, notifications, NullLogger<OperationQueueService>.Instance);
+
+        var firstBlockerId = tracker.RegisterOperation(
+            OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
+
+        var startCalls = 0;
+        var queued = await queue.EnqueueAsync(
+            OperationType.GameDetection,
+            ConflictScope.Bulk(),
+            "Game Detection",
+            () =>
+            {
+                Interlocked.Increment(ref startCalls);
+                return Task.FromResult<Guid?>(Guid.NewGuid());
+            },
+            CancellationToken.None,
+            showWaitingCard: false);
+
+        Assert.True(queued.Queued);
+        lock (waitingEvents)
+        {
+            var announced = Assert.Single(waitingEvents);
+            Assert.True(announced.Silent);
+            Assert.Equal(queued.OperationId, announced.OperationId);
+        }
+
+        // The blocker changes hands, which is the one thing that makes a parked run speak twice.
+        // A silent run stays quiet through it, but the queue must still record the new blocker:
+        // the recovery endpoint reads that name for every waiter, silent or not.
+        tracker.RegisterOperation(
+            OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        tracker.CompleteOperation(firstBlockerId, success: true);
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (queue.GetWaitingBlockerName(queued.OperationId) != "Eviction Scan"
+            && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(25);
+        }
+
+        Assert.Equal("Eviction Scan", queue.GetWaitingBlockerName(queued.OperationId));
+        Assert.Equal(0, startCalls);
+        lock (waitingEvents)
+        {
+            Assert.Single(waitingEvents);
+        }
+    }
+
+    [Fact]
+    public async Task WaitingRecovery_ReturnsTheParkedRunAndLeavesTheSilentOneOutAsync()
+    {
+        var tracker = CreateTracker();
+        var conflictChecker = new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var notifications = CreateProxy<ISignalRNotificationService>((method, _) => DefaultReturn(method.ReturnType));
+        var queue = new OperationQueueService(
+            tracker, conflictChecker, notifications, NullLogger<OperationQueueService>.Instance);
+
+        tracker.RegisterOperation(
+            OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
+
+        var announced = await queue.EnqueueAsync(
+            OperationType.GameDetection,
+            ConflictScope.Bulk(),
+            "Game Detection",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()),
+            CancellationToken.None);
+        var silent = await queue.EnqueueAsync(
+            OperationType.EvictionScan,
+            ConflictScope.Bulk(),
+            "Eviction Scan",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()),
+            CancellationToken.None,
+            showWaitingCard: false);
+
+        Assert.True(announced.Queued);
+        Assert.True(silent.Queued);
+        Assert.False(queue.IsWaiterSilent(announced.OperationId));
+        Assert.True(queue.IsWaiterSilent(silent.OperationId));
+
+        var controller = new OperationsController(
+            tracker,
+            new OperationCancellationService(
+                tracker,
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                NullLogger<OperationCancellationService>.Instance),
+            queue,
+            CreateRegistry(new IdleScanProbeService(), tracker));
+
+        // Both runs are parked, so both are Waiting operations the tracker would hand back. The
+        // refresh must rebuild only the card that is actually on screen: the silent run's notice
+        // already came and went, and reissuing it here is a second announcement for one parking.
+        var rows = Assert.IsType<List<WaitingOperationResponse>>(
+            Assert.IsType<OkObjectResult>(controller.GetWaitingOperations().Result).Value);
+        var row = Assert.Single(rows);
+        Assert.Equal(announced.OperationId, row.OperationId);
+        Assert.Equal("Cache File Scan", row.BlockedByName);
     }
 
     [Fact]

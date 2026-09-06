@@ -746,5 +746,7 @@ public sealed class GameImagesControllerCacheContractTests
         }
 
         public string? GetWaitingBlockerName(Guid waitingOperationId) => null;
+
+        public bool IsWaiterSilent(Guid waitingOperationId) => false;
     }
 }

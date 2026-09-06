@@ -118,8 +118,23 @@ test('a batch declaring two item types suppresses both and leaves other types al
  * supplied directly, the same way test-context-resync-wiring.mjs runs a recovery callback
  * lifted out of a hook call.
  */
-/** Runs waitingHandler for one queued event of `type` against a starting card list. */
-const runWaitingHandler = async (type, startingCards) => {
+const QUEUED_BEHIND_SCAN = {
+  operationType: 'irrelevant-for-this-test',
+  operationId: 'op-1',
+  blockedByName: 'Cache File Scan'
+};
+
+/**
+ * Runs waitingHandler for one queued event of `type` against a starting card list. `event` and
+ * `dismissed` are for the silent run, which sends a different event and is the only case that
+ * arms the dismiss timer from in here.
+ */
+const runWaitingHandler = async (
+  type,
+  startingCards,
+  event = QUEUED_BEHIND_SCAN,
+  dismissed = []
+) => {
   const { findBulkCardOwningOperation, eventTargetsCard } = await loadHandlerFactories();
   const { isTerminalNotificationStatus } = await import(
     await compileToUrl('../src/contexts/notifications/notificationStatus.ts')
@@ -139,21 +154,58 @@ const runWaitingHandler = async (type, startingCards) => {
     registry: [],
     findEntryForWireType: () => ({ type, id: `${type}_card` }),
     cancelAutoDismissTimer: () => undefined,
+    scheduleAutoDismiss: (id) => dismissed.push(id),
     setNotifications,
     findBulkCardOwningOperation,
     eventTargetsCard,
     isTerminalNotificationStatus,
+    i18n: { t: (key) => key },
     waitingCardMessage: (source) =>
       source.blockedByName ? `waiting for ${source.blockedByName}` : 'waiting'
   });
 
-  waitingHandler({
-    operationType: 'irrelevant-for-this-test',
-    operationId: 'op-1',
-    blockedByName: 'Cache File Scan'
-  });
+  waitingHandler(event);
   return state;
 };
+
+/**
+ * A run whose schedule told it to keep its cards to itself still has to say it was queued: with no
+ * card at all, a person who set the schedule reads the silence as the run having been dropped. It
+ * says it once, in the amber notice that times out on its own, and never puts up the purple card
+ * that would sit there until the blocker finished.
+ */
+test('a silent queued run gets the self-clearing notice instead of the purple waiting card', async () => {
+  const dismissed = [];
+  const state = await runWaitingHandler(
+    'game_removal',
+    [],
+    { ...QUEUED_BEHIND_SCAN, silent: true },
+    dismissed
+  );
+
+  const card = state.find((n) => n.id === 'game_removal_card');
+  assert.equal(card.status, 'skipped', 'a silent run must not raise the purple waiting card');
+  assert.equal(
+    card.message,
+    'management.schedules.queuedUntilCacheFree',
+    'it says the run is queued and starts by itself, not who it is parked behind'
+  );
+  assert.deepEqual(
+    dismissed,
+    ['game_removal_card'],
+    'the notice clears itself; nothing else is coming to remove it'
+  );
+});
+
+test('a run that is not silent still gets the purple waiting card naming its blocker', async () => {
+  const dismissed = [];
+  const state = await runWaitingHandler('game_removal', [], QUEUED_BEHIND_SCAN, dismissed);
+
+  const card = state.find((n) => n.id === 'game_removal_card');
+  assert.equal(card.status, 'waiting');
+  assert.equal(card.message, 'waiting for Cache File Scan');
+  assert.deepEqual(dismissed, [], 'the purple card stays up until the operation leaves the queue');
+});
 
 test('a queued item opens its waiting card when no owning bulk card is running', async () => {
   const state = await runWaitingHandler('game_removal', [

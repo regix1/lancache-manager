@@ -284,14 +284,23 @@ export function useNotificationHandlers(
             ? slotCard
             : undefined;
         const filtered = prev.filter((n) => n.id !== entry.id);
+        // A run told to keep its cards to itself still says it was queued, or no card at the
+        // scheduled time reads as the run having been dropped. It says it once and the card times
+        // out, where the purple card stays up until the blocker finishes and carries a cancel X.
+        // The blocker is not named: this reader asked not to be kept posted on it.
         const waitingNotification: UnifiedNotification = {
           id: entry.id,
           type: entry.type,
-          status: 'waiting',
-          message: waitingCardMessage(event),
+          status: event.silent ? 'skipped' : 'waiting',
+          message: event.silent
+            ? i18n.t('management.schedules.queuedUntilCacheFree')
+            : waitingCardMessage(event),
           startedAt: existing?.startedAt ?? new Date(),
           details: { operationId: event.operationId }
         };
+        if (event.silent) {
+          scheduleAutoDismiss(entry.id);
+        }
         return [...filtered, waitingNotification];
       });
     };

@@ -1318,6 +1318,12 @@ export interface OperationWaitingEvent {
    * new value when the waiter ends up parked behind a different operation.
    */
   blockedByName?: string | null;
+  /**
+   * True when the run's schedule asked it to keep its cards to itself. It is parked like any
+   * other run, but it gets the notice that clears itself instead of the purple card, and the
+   * backend sends this event for it exactly once, never again on a blocker change.
+   */
+  silent?: boolean;
 }
 
 /**

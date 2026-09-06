@@ -51,4 +51,12 @@ public interface IOperationQueue
     /// recovery endpoint restore cards that name their blocker after a page refresh.
     /// </summary>
     string? GetWaitingBlockerName(Guid waitingOperationId);
+
+    /// <summary>
+    /// Whether the given parked waiter keeps its cards to itself, false for anything not parked
+    /// here. The waiting recovery endpoint leaves those out: a silent run says once that it was
+    /// queued and the notice clears itself, so rebuilding a card for it on every page refresh would
+    /// be both a card its schedule asked not to see and an announcement repeated for one parking.
+    /// </summary>
+    bool IsWaiterSilent(Guid waitingOperationId);
 }

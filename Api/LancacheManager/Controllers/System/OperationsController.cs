@@ -68,6 +68,11 @@ public class OperationsController : ControllerBase
     public ActionResult<List<WaitingOperationResponse>> GetWaitingOperations()
     {
         var waiting = _operationTracker.GetWaitingOperations()
+            // A run whose schedule told it to keep its cards to itself said once that it was queued,
+            // in a notice that cleared itself. Rebuilding a card from it here put the purple card
+            // that run never shows on screen at every refresh, and said the same thing again for a
+            // parking that was announced hours earlier.
+            .Where(op => !_operationQueue.IsWaiterSilent(op.Id))
             .OrderBy(op => op.StartedAt)
             .Select(op => new WaitingOperationResponse
             {

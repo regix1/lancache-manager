@@ -45,6 +45,12 @@ public sealed class OperationQueueService : IOperationQueue
         public required long Sequence { get; init; }
         public int PromotionRefusals { get; set; }
         /// <summary>
+        /// True when this run keeps its cards to itself. Read by
+        /// <see cref="AnnounceBlockerChangeAsync"/>, which is the one place a parked run speaks a
+        /// second time and the one place a silent run must not.
+        /// </summary>
+        public required bool Silent { get; init; }
+        /// <summary>
         /// The blocker last announced to the frontend for this waiter (id + display name).
         /// Both mutate only under <see cref="_gate"/>; the name is additionally read under
         /// <see cref="_sync"/> by the recovery-endpoint accessor.
@@ -252,7 +258,8 @@ public sealed class OperationQueueService : IOperationQueue
                     Start = start,
                     Sequence = Interlocked.Increment(ref _nextSequence),
                     LastBlockerId = conflict?.ActiveOperationId,
-                    LastBlockerName = blockerName
+                    LastBlockerName = blockerName,
+                    Silent = !showWaitingCard
                 });
             }
 
@@ -271,15 +278,15 @@ public sealed class OperationQueueService : IOperationQueue
                     type, displayName, waitingId, conflict.ActiveOperationType, conflict.ActiveOperationId);
             }
 
-            // A schedule set to Silent parks like any other, it just does not put the card up. The
-            // notification is the only thing suppressed: the wait, the promotion and the cancel path
-            // all still work, and its own terminal still reports whatever the run did.
-            if (showWaitingCard)
-            {
-                await _notifications.NotifyAllAsync(
-                    SignalREvents.OperationWaiting,
-                    new OperationWaitingNotification(waitingId, typeWire, displayName, blockerName));
-            }
+            // A schedule set to Silent parks like any other: the wait, the promotion and the cancel
+            // path all still work, and its own terminal still reports whatever the run did. It says
+            // so once, and the flag is how the frontend knows to answer with the notice that clears
+            // itself instead of the purple card that sits there until the blocker finishes. It used
+            // to say nothing, which at the scheduled time reads as the run having been dropped.
+            await _notifications.NotifyAllAsync(
+                SignalREvents.OperationWaiting,
+                new OperationWaitingNotification(
+                    waitingId, typeWire, displayName, blockerName, Silent: !showWaitingCard));
 
             if (retryAfterParking)
             {
@@ -304,6 +311,14 @@ public sealed class OperationQueueService : IOperationQueue
         lock (_sync)
         {
             return _waiters.FirstOrDefault(w => w.WaitingId == waitingOperationId)?.LastBlockerName;
+        }
+    }
+
+    public bool IsWaiterSilent(Guid waitingOperationId)
+    {
+        lock (_sync)
+        {
+            return _waiters.FirstOrDefault(w => w.WaitingId == waitingOperationId)?.Silent == true;
         }
     }
 
@@ -333,6 +348,14 @@ public sealed class OperationQueueService : IOperationQueue
         {
             waiter.LastBlockerId = conflict.ActiveOperationId;
             waiter.LastBlockerName = blockerName;
+        }
+        // The name is still recorded above, because the recovery endpoint reads it for every waiter.
+        // Only the re-announcement stops here: a silent run's one notice never named a blocker, so a
+        // change of blocker has nothing to correct, and a run parked for an hour would otherwise
+        // speak every time the operation ahead of it changed.
+        if (waiter.Silent)
+        {
+            return;
         }
         await _notifications.NotifyAllAsync(
             SignalREvents.OperationWaiting,

@@ -264,5 +264,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         }
 
         public string? GetWaitingBlockerName(Guid waitingOperationId) => null;
+
+        public bool IsWaiterSilent(Guid waitingOperationId) => false;
     }
 }
