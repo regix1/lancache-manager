@@ -842,6 +842,33 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
 
         var displayName = _heldRunDisplayNames.TryGetValue(serviceKey, out var name) ? name : serviceKey;
+
+        // Silent is asking for this schedule to stay out of the way, and a card that sits in the bar
+        // until the download finishes is the opposite of that. The run is still held either way; only
+        // how it says so changes. Silent gets the notice that clears itself, so a person who set the
+        // schedule to stay quiet still learns the run is waiting rather than gone.
+        if (FindScheduleLoop(serviceKey)?.EffectiveNotificationMode == NotificationMode.Silent)
+        {
+            // Registered and completed rather than announced straight off, because the card is keyed
+            // to a real operation id and the browser drops a terminal naming an id it never saw start.
+            Guid noticeId = default;
+            noticeId = _tracker.RegisterOperation(
+                operationType,
+                displayName,
+                new CancellationTokenSource(),
+                onTerminalEmit: (OperationTerminalInfo _) => EmitSkippedRunAsync(
+                    serviceKey,
+                    noticeId,
+                    CacheScanGate.ScheduleQueuedReasonKey,
+                    CacheScanGate.ScheduleQueuedReasonKey));
+            _tracker.CompleteOperation(
+                noticeId,
+                success: true,
+                error: CacheScanGate.ScheduleQueuedReasonKey,
+                skipped: true);
+            return;
+        }
+
         var typeWire = operationType.ToWireString();
         var cts = new CancellationTokenSource();
 

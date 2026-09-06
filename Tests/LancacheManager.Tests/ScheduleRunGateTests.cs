@@ -267,6 +267,95 @@ public class ScheduleRunGateTests
     }
 
     [Fact]
+    public async Task SilentSchedule_IsHeldWithoutACardThatStaysAsync()
+    {
+        // Silent asks this schedule to stay out of the way, so the run is still held but says so with
+        // the notice that clears itself rather than a card that sits in the bar until the download
+        // finishes.
+        using var service = new RunGateProbeService(EvictionKey);
+        service.SetNotificationMode(NotificationMode.Silent);
+
+        var waiting = new List<OperationWaitingNotification>();
+        var skipped = new List<ScheduledRunCompleteEvent>();
+        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
+        {
+            if (method.Name != nameof(ISignalRNotificationService.NotifyAllAsync))
+            {
+                return Task.CompletedTask;
+            }
+
+            if ((string?)args?[0] == SignalREvents.OperationWaiting
+                && args[1] is OperationWaitingNotification card)
+            {
+                lock (waiting)
+                {
+                    waiting.Add(card);
+                }
+            }
+            else if ((string?)args?[0] == SignalREvents.EvictionScanComplete
+                && args[1] is ScheduledRunCompleteEvent complete)
+            {
+                lock (skipped)
+                {
+                    skipped.Add(complete);
+                }
+            }
+
+            return Task.CompletedTask;
+        });
+
+        var previous = ScheduledServiceBase.ScheduleRunGate;
+        try
+        {
+            _ = new ServiceScheduleRegistry(
+                [service],
+                CacheScanGateHarness.VisibleClientsStateService(),
+                notifications,
+                CreateRealTracker(),
+                activityRegistry: null,
+                cacheScanGate: CacheScanGateHarness.Downloading());
+
+            Assert.NotNull(ScheduledServiceBase.ScheduleRunGate!(EvictionKey, RunTrigger.Scheduled));
+
+            var notice = await WaitForOneAsync(skipped);
+            Assert.Equal(OperationStatus.Skipped, notice.Status);
+            Assert.Equal(CacheScanGate.ScheduleQueuedReasonKey, notice.Error);
+
+            lock (waiting)
+            {
+                Assert.Empty(waiting);
+            }
+        }
+        finally
+        {
+            ScheduledServiceBase.ScheduleRunGate = previous;
+        }
+    }
+
+    private static async Task<T> WaitForOneAsync<T>(List<T> items)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            lock (items)
+            {
+                if (items.Count > 0)
+                {
+                    return items[0];
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(25));
+        }
+
+        lock (items)
+        {
+            Assert.NotEmpty(items);
+            return items[0];
+        }
+    }
+
+    [Fact]
     public async Task HeldSchedule_ShowsOneWaitingCardPerDownloadAsync()
     {
         using var service = new RunGateProbeService(EvictionKey);
