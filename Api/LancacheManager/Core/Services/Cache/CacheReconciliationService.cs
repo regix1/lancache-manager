@@ -109,14 +109,26 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// manual trigger (it bypasses TriggerImmediateRun entirely, so CurrentRunTrigger cannot be
     /// relied on here - RunTrigger.Manual is passed explicitly instead).
     /// </summary>
-    public Guid? RunManualAsync() => StartScanInBackground("Eviction Scan", silent: RunSilentFor(RunTrigger.Manual));
+    public Guid? RunManualAsync() => StartScanInBackground(
+        "Eviction Scan",
+        silent: RunSilentFor(RunTrigger.Manual),
+        deferIfDownloading: false);
 
     /// <summary>
     /// Starts a scan whose lifetime belongs to this singleton rather than to the scheduler
     /// invocation that requested it. This is required for wait-queue promotion, which may happen
     /// long after the original scheduled tick and its scoped DbContext have ended.
     /// </summary>
-    private Guid? StartScanInBackground(string name, bool silent, Action? onCompleted = null)
+    /// <param name="deferIfDownloading">
+    /// True for the runs nobody is watching, so a scan promoted into a download that started while it
+    /// waited is owed rather than lost. False for a person's own scan: they are told why it stopped,
+    /// and one arriving by itself an hour later would be a surprise.
+    /// </param>
+    private Guid? StartScanInBackground(
+        string name,
+        bool silent,
+        bool deferIfDownloading,
+        Action? onCompleted = null)
     {
         if (!TryBeginRun())
         {
@@ -144,7 +156,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 {
                     using var scope = _serviceProvider.CreateScope();
                     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                    outcome = await ReconcileCacheFilesAsync(context, operationId, cts.Token, silent);
+                    outcome = await ReconcileCacheFilesAsync(
+                        context,
+                        operationId,
+                        cts.Token,
+                        silent,
+                        deferIfDownloading);
                 }
                 catch (Exception ex)
                 {
@@ -270,6 +287,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             Task<Guid?> StartStartupScanAsync() => Task.FromResult(StartScanInBackground(
                 "Eviction Scan",
                 silent,
+                deferIfDownloading: true,
                 () => scanCompleted.TrySetResult()));
 
             // No reportRefusal here: that only fires for a refusal the start delegate throws, and
@@ -320,7 +338,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
 
         Task<Guid?> StartScheduledScanAsync() => Task.FromResult(
-            StartScanInBackground("Eviction Scan", silent));
+            StartScanInBackground("Eviction Scan", silent, deferIfDownloading: true));
 
         // Same as the startup path: the start delegate cannot throw a refusal, so asking the queue
         // to announce one would announce nothing. The refusal this run can hit is reported by the
@@ -356,7 +374,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         AppDbContext context,
         Guid operationId,
         CancellationToken stoppingToken,
-        bool silent = false)
+        bool silent,
+        bool deferIfDownloading)
     {
         // Display silence is the schedule notification mode only. Evicted-data mode (including
         // Remove) does not hide the scan card. Lifecycle events are ALWAYS emitted - the incoming
@@ -385,6 +404,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         if (downloadDenial != null)
         {
             _logger.LogWarning("[EvictionScan] Skipping eviction scan: {Reason}", downloadDenial);
+            if (deferIfDownloading)
+            {
+                // This refusal is read here, inside the promoted run, and never reaches the schedule's
+                // own run gate, so nothing else has recorded that a run is owed. Waking the loop puts
+                // the run back in front of that gate, which refuses it for the same download and holds
+                // it there until downloads stop. Only the download branch arms this: the capability
+                // refusal below can stay true indefinitely, and waking for that would be a loop.
+                TriggerDeferredRun();
+            }
+
             return new EvictionScanRunOutcome(Success: false, Error: downloadDenial, Skipped: true);
         }
 

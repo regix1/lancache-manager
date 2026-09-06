@@ -27,6 +27,7 @@ public abstract class ScheduledServiceBase : BackgroundService
     // a run was manual. Accessed only through Interlocked, so the loop and an HTTP-thread Run Now can
     // race on it safely.
     private int _pendingManualRun;
+    private int _pendingDeferredRun;
 
     protected ScheduledServiceBase(ILogger logger)
     {
@@ -107,6 +108,12 @@ public abstract class ScheduledServiceBase : BackgroundService
     protected bool HasPendingManualRun() => Interlocked.CompareExchange(ref _pendingManualRun, 0, 0) == 1;
 
     /// <summary>
+    /// Takes the pending deferred-run flag, clearing it. Set when a run this service was already due
+    /// for was refused by the download gate and is owed once downloads stop.
+    /// </summary>
+    protected bool ConsumePendingDeferredRun() => Interlocked.Exchange(ref _pendingDeferredRun, 0) == 1;
+
+    /// <summary>
     /// Wake the service immediately - cancels the current sleep so work runs on the next loop.
     /// </summary>
     public virtual void TriggerImmediateRun()
@@ -118,6 +125,21 @@ public abstract class ScheduledServiceBase : BackgroundService
         CancelIntervalDelay();
 
         _logger.LogDebug("{ServiceName} immediate run triggered", ServiceName);
+    }
+
+    /// <summary>
+    /// Wake the service for a run it was already due for and was refused, which is a separate flag
+    /// from the Run Now one so the run is still reported as Scheduled. Reusing the manual flag would
+    /// put a run card in front of anyone who set this schedule to notify only on runs they clicked,
+    /// for a run nobody clicked.
+    /// </summary>
+    public virtual void TriggerDeferredRun()
+    {
+        Interlocked.Exchange(ref _pendingDeferredRun, 1);
+
+        CancelIntervalDelay();
+
+        _logger.LogDebug("{ServiceName} deferred run triggered", ServiceName);
     }
 
     // Shared interruptible-sleep machinery. Guards the delay token source AND each loop's own

@@ -205,10 +205,15 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             // Manual. Mirrors ConfigurableScheduledService's ordering.
             var manualPending = ConsumePendingManualRun();
 
+            // A run this service was already due for, refused while a download was writing to the
+            // cache and owed now that it has stopped. It reaches the work branch the same way a Run
+            // Now does, and is attributed Scheduled below, because that is what it is.
+            var deferredPending = ConsumePendingDeferredRun();
+
             var schedule = ConfiguredCustomSchedule;
             var interval = EffectiveInterval;
 
-            if (skipFirstExecution && !manualPending)
+            if (skipFirstExecution && !manualPending && !deferredPending)
             {
                 skipFirstExecution = false;
                 NextRunUtc = ComputeNextRun(schedule, interval);
@@ -239,7 +244,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
 
             // Skip work if woken by an interval change with no manual run pending - just re-sleep
             // with the new interval.
-            if (IntervalJustChanged && !manualPending)
+            if (IntervalJustChanged && !manualPending && !deferredPending)
             {
                 IntervalJustChanged = false;
             }
@@ -249,7 +254,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             // to an occurrence, so the gate is whether the schedule can fire at all - a schedule with
             // no next run idles on the interval sleep, and running the work then would run it on
             // exactly the schedule the user set to stop it.
-            else if (manualPending || schedule is null || IsWorkDue(schedule, interval))
+            else if (manualPending || deferredPending || schedule is null || IsWorkDue(schedule, interval))
             {
                 skipFirstExecution = false;
                 IntervalJustChanged = false;

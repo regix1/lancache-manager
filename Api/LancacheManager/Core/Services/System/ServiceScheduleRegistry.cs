@@ -62,6 +62,15 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     // handler is configured. The gate's sentence still travels, on the error field beside it.
     private const string SkippedWhileDownloadingStageKey = "management.gameDetection.blockedWhileDownloading";
 
+    // The card a held run puts up instead. Same refusal, different outcome: this one starts by
+    // itself when the download ends, so it must not read as the run having been thrown away.
+    private const string QueuedWhileDownloadingStageKey = "management.gameDetection.queuedWhileDownloading";
+
+    // The fallback for a run the queue refused before it started, which can be a download or another
+    // heavy operation. It names neither, because the card shows this only when the refusal's own
+    // message is missing and a wrong cause is worse than no cause.
+    private const string SkippedBeforeStartStageKey = "management.gameDetection.skippedBeforeStart";
+
     // The one schedule whose run type the user chooses. Named here because both the setter and the
     // mapper below have to agree on which card carries a scan mode, and they are far apart.
     private const string ScanModeServiceKey = "gameDetection";
@@ -106,6 +115,16 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     // and a later one begins. Guarded by locking on the set itself, which is private to this class:
     // schedule loops ask from many threads at once.
     private readonly HashSet<string> _announcedSkips = new(StringComparer.OrdinalIgnoreCase);
+
+    // Schedules refused while something was downloading, held so the run happens once the download
+    // ends instead of waiting out the whole interval - a nightly scan refused during a prefill used
+    // to slip a full day. Separate from _announcedSkips even though the two fill up together: that
+    // set is re-armed by any schedule polling and finding the download gone, and draining a pending
+    // run on that poll would drop every other schedule's deferred run. This one empties only when
+    // its keys are handed to WakeScheduleLoop. A key is added at most once per download because the
+    // loop that was refused sleeps its ordinary interval and asks again later, by which point either
+    // the download is gone or this already holds the key.
+    private readonly HashSet<string> _deferredRuns = new(StringComparer.OrdinalIgnoreCase);
 
     // Optional (like _tracker) so unit tests that construct the registry directly keep compiling; at
     // runtime DI always supplies it. Every schedule broadcast mirrors the running set into the unified
@@ -235,7 +254,15 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // error-or-stage-key, and an empty string is neither null nor undefined there, so
             // substituting one for a missing message would render a blank card instead of falling
             // back to the stage key.
-            _ = EmitSkippedRunAsync(declinedKey, operation.Id, operation.Message);
+            // Reached by a conflict with another operation as well as by a download, so the fallback
+            // wording names neither. The specific reason travels on the message above; this is only
+            // what the card shows when that message is missing, and blaming a download for a run a
+            // heavy operation refused sends the reader looking for a download that was never there.
+            _ = EmitSkippedRunAsync(
+                declinedKey,
+                operation.Id,
+                operation.Message,
+                SkippedBeforeStartStageKey);
         }
     }
 
@@ -248,11 +275,64 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     private void OnDownloadsEnded()
     {
         // Raised on the tracker's stdout thread, so this has to be safe off the loop threads. It
-        // takes the same lock every other reader of the set takes and does nothing else.
+        // takes the same lock every other reader of the set takes, and the deferred runs it starts
+        // only set a flag and cancel a sleep on the loops that own them.
         lock (_announcedSkips)
         {
             _announcedSkips.Clear();
         }
+
+        StartDeferredRuns(alreadyStarting: null);
+    }
+
+    /// <summary>
+    /// Starts every run that was refused while a download was in flight. Each one wakes its own loop
+    /// rather than running here, so the work still happens on the thread that owns it and under that
+    /// loop's own bookkeeping. Draining under the lock and waking outside it keeps a loop that asks
+    /// the gate on its way up from blocking on the thread that woke it.
+    /// </summary>
+    /// <param name="alreadyStarting">
+    /// The schedule whose own gate call is draining this. Waking it would buy a second, pointless
+    /// pass right after the run it is already starting. Null from the tracker's edge.
+    /// </param>
+    private void StartDeferredRuns(string? alreadyStarting)
+    {
+        string[] deferred;
+        lock (_deferredRuns)
+        {
+            if (alreadyStarting is not null)
+            {
+                _deferredRuns.Remove(alreadyStarting);
+            }
+
+            if (_deferredRuns.Count == 0)
+            {
+                return;
+            }
+
+            deferred = [.. _deferredRuns];
+            _deferredRuns.Clear();
+        }
+
+        foreach (var serviceKey in deferred)
+        {
+            FindScheduleLoop(serviceKey)?.TriggerDeferredRun();
+        }
+    }
+
+    /// <summary>
+    /// The loop that owns a schedule key, whichever of the two bases it runs on. Callers pick the
+    /// trigger themselves because the two differ in how the run is attributed: a click is Manual, a
+    /// run that was owed keeps the attribution it would have had.
+    /// </summary>
+    private ScheduledServiceBase? FindScheduleLoop(string serviceKey)
+    {
+        if (_scheduledServices.TryGetValue(serviceKey, out var scheduled))
+        {
+            return scheduled;
+        }
+
+        return _configurableServices.TryGetValue(serviceKey, out var configurable) ? configurable : null;
     }
 
     private static bool ReadDeclinedBeforeStart(object? metadata)
@@ -622,6 +702,12 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 _announcedSkips.Clear();
             }
 
+            // The same backstop the announcements get. The edge above is missed when the process
+            // starts with a download already running, and when the tracker dies it stops answering
+            // rather than reporting that anything finished - in both cases the schedules waiting on
+            // that edge would otherwise sit until their next ordinary interval.
+            StartDeferredRuns(alreadyStarting: serviceKey);
+
             return null;
         }
 
@@ -676,13 +762,31 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             return null;
         }
 
+        // A manual attempt is not held: the person is waiting on this call and gets the reason back
+        // on the response, so queueing it as well would run the schedule again minutes later with
+        // nothing on screen tying that run to the click. Every other trigger has nobody watching, so
+        // it is remembered here and started when the download ends.
+        var deferred = trigger != RunTrigger.Manual;
+        if (deferred)
+        {
+            lock (_deferredRuns)
+            {
+                _deferredRuns.Add(serviceKey);
+            }
+        }
+
         // A run someone asked for is always reported. By the time the loop asks, it has already taken
         // the pending Run Now flag, so the click is spent: staying quiet here because this schedule
         // already announced a skip earlier in the same download would leave the person with a
         // response that said the run started and nothing at all afterwards.
         if (trigger == RunTrigger.Manual || ClaimSkipAnnouncement(serviceKey))
         {
-            RecordSkippedRun(serviceKey, denial);
+            // The two cards say different things because the two outcomes are different: the held run
+            // will happen on its own, the refused click will not.
+            RecordSkippedRun(
+                serviceKey,
+                denial,
+                deferred ? QueuedWhileDownloadingStageKey : SkippedWhileDownloadingStageKey);
         }
 
         return denial;
@@ -703,7 +807,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
     }
 
-    private void RecordSkippedRun(string serviceKey, string reason)
+    private void RecordSkippedRun(string serviceKey, string reason, string stageKey)
     {
         if (_tracker is null || !_runStatusOperationTypes.TryGetValue(serviceKey, out var operationType))
         {
@@ -717,7 +821,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             operationType,
             serviceKey,
             new CancellationTokenSource(),
-            onTerminalEmit: (OperationTerminalInfo _) => EmitSkippedRunAsync(serviceKey, operationId, reason));
+            onTerminalEmit: (OperationTerminalInfo _) => EmitSkippedRunAsync(serviceKey, operationId, reason, stageKey));
         _tracker.CompleteOperation(operationId, success: true, error: reason, skipped: true);
     }
 
@@ -725,7 +829,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// Announces a refused run on the schedule's own terminal event: a translation key for the card
     /// to render, and the gate's own sentence beside it for anything that reports the raw reason.
     /// </summary>
-    private async Task EmitSkippedRunAsync(string serviceKey, Guid operationId, string? reason)
+    private async Task EmitSkippedRunAsync(string serviceKey, Guid operationId, string? reason, string stageKey)
     {
         if (!_runCompleteEvents.TryGetValue(serviceKey, out var completeEvent))
         {
@@ -736,7 +840,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             serviceKey,
             operationId,
             Success: true,
-            StageKey: SkippedWhileDownloadingStageKey,
+            StageKey: stageKey,
             // A run that was refused did nothing, so there is no progress to claim.
             PercentComplete: 0,
             Error: reason,
@@ -767,14 +871,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // call collides with, not a state the trigger call itself could have changed.
         var statusBeforeTrigger = GetRunStatus(serviceKey) ?? new ScheduleRunStatus { IsRunning = false, ShowNotification = true };
 
-        if (_scheduledServices.TryGetValue(serviceKey, out var scheduled))
-        {
-            scheduled.TriggerImmediateRun();
-        }
-        else if (_configurableServices.TryGetValue(serviceKey, out var configurable))
-        {
-            configurable.TriggerImmediateRun();
-        }
+        FindScheduleLoop(serviceKey)?.TriggerImmediateRun();
 
         return Task.FromResult<(ScheduleRunStatus, string?)>((statusBeforeTrigger, null));
     }

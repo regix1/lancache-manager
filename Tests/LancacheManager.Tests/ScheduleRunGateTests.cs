@@ -328,6 +328,68 @@ public class ScheduleRunGateTests
     }
 
     [Fact]
+    public void ScheduleRefusedForADownload_RunsOnceTheDownloadStops()
+    {
+        // The whole point of holding the run: a nightly scan refused during a prefill used to slip a
+        // full interval. Another schedule asking after the download stops is the backstop path, and
+        // it is the one a test can drive without the tracker's own edge.
+        using var refused = new RunGateProbeService(EvictionKey);
+        using var asksLater = new RunGateProbeService("cacheSizeScan");
+        var snapshot = new DownloadSpeedSnapshot();
+        var previous = ScheduledServiceBase.ScheduleRunGate;
+        try
+        {
+            _ = new ServiceScheduleRegistry(
+                [refused, asksLater],
+                CacheScanGateHarness.VisibleClientsStateService(),
+                CreateDefaultProxy<ISignalRNotificationService>(),
+                CreateRealTracker(),
+                activityRegistry: null,
+                cacheScanGate: CacheScanGateHarness.With(snapshot));
+            var gate = ScheduledServiceBase.ScheduleRunGate!;
+
+            CacheScanGateHarness.MakeBusy(snapshot);
+            Assert.NotNull(gate(EvictionKey, RunTrigger.Scheduled));
+            Assert.False(refused.TakePendingDeferredRun());
+
+            CacheScanGateHarness.MakeIdle(snapshot);
+            Assert.Null(gate("cacheSizeScan", RunTrigger.Scheduled));
+
+            // The held run is armed on the schedule that was refused, not on the one that asked, and
+            // on the deferred flag rather than the Run Now one so it is still reported as Scheduled.
+            Assert.True(refused.TakePendingDeferredRun());
+            Assert.False(refused.HasPendingRun);
+            Assert.False(asksLater.TakePendingDeferredRun());
+        }
+        finally
+        {
+            ScheduledServiceBase.ScheduleRunGate = previous;
+        }
+    }
+
+    [Fact]
+    public async Task RefusedRunNow_IsNotHeldForLaterAsync()
+    {
+        // A click gets its answer on the response it is waiting for. Holding it as well would start
+        // the schedule again minutes later with nothing on screen tying that run to the click.
+        using var service = new RunGateProbeService(EvictionKey);
+        using var asksLater = new RunGateProbeService("cacheSizeScan");
+        var snapshot = new DownloadSpeedSnapshot();
+        var gate = CacheScanGateHarness.With(snapshot);
+        CacheScanGateHarness.MakeBusy(snapshot);
+        var registry = CreateRegistry([service, asksLater], gate);
+
+        var (_, skippedReason) = await registry.TriggerRunAsync(EvictionKey);
+        Assert.NotNull(skippedReason);
+
+        CacheScanGateHarness.MakeIdle(snapshot);
+        await registry.TriggerRunAsync("cacheSizeScan");
+
+        Assert.False(service.HasPendingRun);
+        Assert.False(service.TakePendingDeferredRun());
+    }
+
+    [Fact]
     public async Task ManualRunRefusedAfterItsTriggerWasTaken_IsStillReportedAsync()
     {
         // The loop takes the pending Run Now flag before it asks the gate, so a click that is refused
@@ -939,6 +1001,8 @@ public class ScheduleRunGateTests
         public bool WorkRan { get; private set; }
         public bool EndBroadcast { get; private set; }
         public bool HasPendingRun => HasPendingManualRun();
+
+        public bool TakePendingDeferredRun() => ConsumePendingDeferredRun();
 
         public void SetLastRunUtc(DateTime value) => LastRunUtc = value;
 
