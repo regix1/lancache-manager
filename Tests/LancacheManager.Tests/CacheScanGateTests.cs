@@ -639,12 +639,16 @@ public sealed class CacheScanGateTests
 
     /// <summary>
     /// The outcome record is private to the service, so the run is driven and read reflectively.
+    /// Reflection means a changed signature shows up as a timeout in whichever test awaits the run
+    /// rather than as a compile error, so the argument list is spelled out against the parameters:
+    /// context, operationId, token, silent, deferIfDownloading. Deferring is on, which is what an
+    /// automatic run passes; a person's own scan passes false and is not held.
     /// </summary>
     private static async Task<(bool Success, string? Error)> RunReconcileAsync(CacheReconciliationService service)
     {
         var reconcile = typeof(CacheReconciliationService).GetMethod(
             "ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var run = (Task)reconcile.Invoke(service, [null, Guid.NewGuid(), CancellationToken.None, false])!;
+        var run = (Task)reconcile.Invoke(service, [null, Guid.NewGuid(), CancellationToken.None, false, true])!;
         await run;
 
         var outcome = run.GetType().GetProperty("Result")!.GetValue(run)!;

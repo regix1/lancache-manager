@@ -595,8 +595,10 @@ public class ScheduleRunGateTests
             Assert.Equal(reason, terminal.Error);
             // A translation key, not the sentence: the three cache scans render this card through
             // i18n.t(event.stageKey), and a sentence there survives only by i18next echoing an
-            // unknown key back. The key must exist in every locale file.
-            Assert.Equal("management.gameDetection.blockedWhileDownloading", terminal.StageKey);
+            // unknown key back. The key must exist in every locale file. A scheduled refusal gets the
+            // queued wording because the run is held and starts when downloads stop; only a refused
+            // click gets the blocked wording, because that one really is gone.
+            Assert.Equal("management.gameDetection.queuedWhileDownloading", terminal.StageKey);
             Assert.Equal(0, terminal.PercentComplete);
         }
         finally
