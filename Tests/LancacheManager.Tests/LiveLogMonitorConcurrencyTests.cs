@@ -65,13 +65,16 @@ public class LiveLogMonitorConcurrencyTests
             LiveLogMonitorService.CanBypassConflictForIncrementalIngestion(conflict, 10_000));
     }
 
-    /// These only read the cache tree, the log and Downloads, writing to their own tables instead.
-    /// Blocking a small ingest through one of them froze the dashboard at zero for the length of a
-    /// scan while downloads were running.
+    /// Neither of these writes what ingestion writes. The cache size scan only reads the cache
+    /// tree, the log and Downloads, putting its totals in the snapshots. Game detection does write
+    /// Downloads, but only to clear IsEvicted on rows whose probe found files, and ingestion never
+    /// writes that column. Blocking a small ingest through one of them froze the dashboard at zero
+    /// for the length of a scan while downloads were running.
     [Theory]
     [InlineData(OperationType.GameDetection)]
     [InlineData(OperationType.CacheSizeScan)]
-    public void IncrementalBatch_BypassesOperationsThatOnlyRead(OperationType activeType)
+    public void IncrementalBatch_BypassesOperationsThatDoNotWriteWhatIngestionWrites(
+        OperationType activeType)
     {
         var conflict = ConflictFor(activeType);
 

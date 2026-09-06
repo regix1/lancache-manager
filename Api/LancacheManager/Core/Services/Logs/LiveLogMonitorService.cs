@@ -454,10 +454,14 @@ public class LiveLogMonitorService : ScheduledBackgroundService
     /// one of their steps. The eviction scan passes the first and fails the second - it flags rows
     /// IsEvicted while running - so it stays excluded even though it never touches the log.
     ///
-    /// The three below only read the cache tree, the log and Downloads, and write elsewhere:
-    /// corruption detection to its own tables, game detection to the cached detections, the cache
-    /// size scan to the snapshots. Holding statistics still while one of those runs bought nothing
-    /// and left the dashboard reading zero through a long scan while traffic was flowing.
+    /// Game detection writes the Downloads projection too, clearing IsEvicted on the rows whose
+    /// probe found files back on disk, and it still belongs here. That write is one-directional,
+    /// only ever clearing the flag and never setting it, and ingestion writes no IsEvicted at all,
+    /// so the two updates touch disjoint columns of the same row. Corruption detection writes its
+    /// own tables and the cache size scan the snapshots; the corruption removal that acts on a
+    /// scan's evidence does rewrite Download rows, but it runs under its own operation type and is
+    /// not on this list. Holding statistics still while one of these runs bought nothing and left
+    /// the dashboard reading zero through a long scan while traffic was flowing.
     private static readonly HashSet<string> _ingestionSafeActiveOperations =
     [
         nameof(OperationType.CorruptionDetection),
