@@ -1892,7 +1892,8 @@ public partial class CacheManagementService
         IReadOnlyList<string> cachePaths,
         CancellationToken callerToken,
         Action<Guid>? onScanStarted = null,
-        bool showNotification = true)
+        bool showNotification = true,
+        RunNotice? notice = null)
     {
         // Heavy data ops run one at a time (OperationConflictChecker section 1a). Both scan
         // entry points (the queued manual refresh and the scheduled service) funnel through
@@ -1922,6 +1923,7 @@ public partial class CacheManagementService
             OperationType.CacheSizeScan,
             "Cache File Scan",
             cts,
+            metadata: new Dictionary<string, object?> { ["runNotice"] = notice, ["showNotification"] = showNotification },
             onTerminalCleanup: () =>
             {
                 _currentCacheSizeScanProgressContext = null;
@@ -2068,14 +2070,14 @@ public partial class CacheManagementService
     /// service continues the scan, persists the result, and emits <see cref="SignalREvents.CacheScanComplete"/>
     /// after the cached result is ready for readers. Intended for <see cref="IOperationQueue"/> promotion.
     /// </summary>
-    public Task<Guid?> StartCacheSizeScanInBackgroundAsync(bool showNotification = true)
+    public Task<Guid?> StartCacheSizeScanInBackgroundAsync(bool showNotification = true, RunNotice? notice = null)
     {
         var started = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ = RunCacheSizeScanInBackgroundAsync(started, showNotification);
+        _ = RunCacheSizeScanInBackgroundAsync(started, showNotification, notice);
         return started.Task;
     }
 
-    private async Task RunCacheSizeScanInBackgroundAsync(TaskCompletionSource<Guid?> started, bool showNotification)
+    private async Task RunCacheSizeScanInBackgroundAsync(TaskCompletionSource<Guid?> started, bool showNotification, RunNotice? notice)
     {
         Guid? operationId = null;
         try
@@ -2099,7 +2101,8 @@ public partial class CacheManagementService
                     operationId = id;
                     started.TrySetResult(id);
                 },
-                showNotification: showNotification);
+                showNotification: showNotification,
+                notice: notice);
 
             // A last-moment conflict can still make the start path decline after the queue's
             // eligibility check. Returning null lets OperationQueue terminate the waiting card
@@ -2138,7 +2141,8 @@ public partial class CacheManagementService
         string? datasource = null,
         CancellationToken cancellationToken = default,
         Action<Guid>? onScanStarted = null,
-        bool showNotification = true)
+        bool showNotification = true,
+        RunNotice? notice = null)
     {
         // Per-datasource scans are always live - no caching
         if (!string.IsNullOrEmpty(datasource))
@@ -2181,7 +2185,7 @@ public partial class CacheManagementService
         {
             // A forced scan is either a queued manual refresh or the scheduled service.
             _logger.LogInformation("Force rescan requested - running fresh cache size scan");
-            var freshResult = await RunFullScanAsync(allCachePaths, cancellationToken, onScanStarted, showNotification);
+            var freshResult = await RunFullScanAsync(allCachePaths, cancellationToken, onScanStarted, showNotification, notice);
             if (freshResult != null)
             {
                 var usedCacheSizeByMount = OperatingSystemDetector.IsWindows

@@ -47,7 +47,7 @@ public sealed class PrefillCacheChangeTests
 
         var (controller, recorder) = NewController(options);
 
-        var response = await controller.ClearAppCacheAsync(CachedAppId);
+        var response = await controller.ClearAppCacheAsync(CachedAppId.ToString(CultureInfo.InvariantCulture), PrefillPlatform.Steam);
 
         Assert.IsType<OkObjectResult>(response.Result);
 
@@ -72,7 +72,7 @@ public sealed class PrefillCacheChangeTests
 
         var (controller, _) = NewController(options);
 
-        var response = await controller.ClearAppCacheAsync(CachedAppId);
+        var response = await controller.ClearAppCacheAsync(CachedAppId.ToString(CultureInfo.InvariantCulture), PrefillPlatform.Steam);
 
         var body = Assert.IsType<PrefillCacheRemovalResponse>(
             Assert.IsType<OkObjectResult>(response.Result).Value);
@@ -103,13 +103,71 @@ public sealed class PrefillCacheChangeTests
         Assert.Equal(CachedDepotId + 1, Assert.Single(depotIds));
     }
 
-    [Fact]
-    public async Task CompletedApp_NewDepot_AnnouncesTheCacheChange()
+    [Theory]
+    [InlineData("Success")]
+    [InlineData("AlreadyUpToDate")]
+    [InlineData("Skipped")]
+    [InlineData("NoDepotsToDownload")]
+    [InlineData("CompletedWithWarnings")]
+    public async Task CompletedApp_NewDepot_AnnouncesTheCacheChange(string result)
     {
         var (daemon, session, recorder) = NewDaemon(NewOptions());
 
-        await InvokeCompletedAppAsync(daemon, session, "Success");
+        await InvokeCompletedAppAsync(daemon, session, result);
 
+        Assert.Single(CacheChangeBroadcasts(recorder));
+    }
+
+    [Fact]
+    public async Task FailedCompletion_WritesNeitherStore()
+    {
+        var options = NewOptions();
+        var (daemon, session, recorder) = NewDaemon(options);
+        await InvokeCompletedAppAsync(daemon, session, "Failed");
+        await using var context = new AppDbContext(options);
+        Assert.Empty(await context.PrefillCachedApps.ToListAsync());
+        Assert.Empty(await context.PrefillCachedDepots.ToListAsync());
+        Assert.Empty(CacheChangeBroadcasts(recorder));
+    }
+
+    [Fact]
+    public async Task CancelledSessionCompletion_WritesNeitherStore()
+    {
+        var options = NewOptions();
+        var (daemon, session, recorder) = NewDaemon(options);
+        await session.CancellationTokenSource.CancelAsync();
+        await InvokeCompletedAppAsync(daemon, session, "Success");
+        await using var context = new AppDbContext(options);
+        Assert.Empty(await context.PrefillCachedApps.ToListAsync());
+        Assert.Empty(await context.PrefillCachedDepots.ToListAsync());
+        Assert.Empty(CacheChangeBroadcasts(recorder));
+    }
+
+    [Fact]
+    public async Task CompletionWithoutAppId_WritesNeitherStore()
+    {
+        var options = NewOptions();
+        var (daemon, session, recorder) = NewDaemon(options);
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "NotifyPrefillProgressAsync", session,
+            new PrefillProgress { State = "app_completed", Result = "Success" });
+        await using var context = new AppDbContext(options);
+        Assert.Empty(await context.PrefillCachedApps.ToListAsync());
+        Assert.Empty(await context.PrefillCachedDepots.ToListAsync());
+        Assert.Empty(CacheChangeBroadcasts(recorder));
+    }
+
+    [Fact]
+    public async Task DuplicateCompletion_DoesNotRecreateDeletedRecords()
+    {
+        var options = NewOptions();
+        var (daemon, session, recorder) = NewDaemon(options);
+        await InvokeCompletedAppAsync(daemon, session, "Success");
+        var service = new PrefillCacheService(new TestDbContextFactory(options), NullLogger<PrefillCacheService>.Instance);
+        await service.ClearAppCacheAsync(PrefillPlatform.Steam, CachedAppId.ToString(CultureInfo.InvariantCulture));
+        await InvokeCompletedAppAsync(daemon, session, "Success");
+        await using var context = new AppDbContext(options);
+        Assert.Empty(await context.PrefillCachedApps.ToListAsync());
+        Assert.Empty(await context.PrefillCachedDepots.ToListAsync());
         Assert.Single(CacheChangeBroadcasts(recorder));
     }
 
@@ -120,6 +178,12 @@ public sealed class PrefillCacheChangeTests
         await using (var seed = new AppDbContext(options))
         {
             seed.PrefillCachedDepots.Add(NewCachedDepot(CachedAppId, CachedDepotId));
+            seed.PrefillCachedApps.Add(new PrefillCachedApp
+            {
+                Platform = PrefillPlatform.Steam,
+                AppId = CachedAppId.ToString(CultureInfo.InvariantCulture),
+                CachedAtUtc = DateTime.UtcNow
+            });
             await seed.SaveChangesAsync();
         }
 
@@ -163,7 +227,7 @@ public sealed class PrefillCacheChangeTests
                 && (invocation.Args[0] as string) == SignalREvents.PrefillCacheChanged)
             .ToList();
 
-    private static (PrefillAdminController Controller, RecordingNotificationProxy Recorder) NewController(
+    internal static (PrefillAdminController Controller, RecordingNotificationProxy Recorder) NewController(
         DbContextOptions<AppDbContext> options)
     {
         var factory = new TestDbContextFactory(options);
@@ -187,7 +251,7 @@ public sealed class PrefillCacheChangeTests
         return (controller, (RecordingNotificationProxy)(object)notifications);
     }
 
-    private static (TestableSteamDaemonService Daemon, DaemonSession Session, RecordingNotificationProxy Recorder)
+    internal static (TestableSteamDaemonService Daemon, DaemonSession Session, RecordingNotificationProxy Recorder)
         NewDaemon(DbContextOptions<AppDbContext> options)
     {
         var factory = new TestDbContextFactory(options);

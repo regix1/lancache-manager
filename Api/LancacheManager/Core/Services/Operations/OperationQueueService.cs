@@ -49,7 +49,8 @@ public sealed class OperationQueueService : IOperationQueue
         /// <see cref="AnnounceBlockerChangeAsync"/>, which is the one place a parked run speaks a
         /// second time and the one place a silent run must not.
         /// </summary>
-        public required bool Silent { get; init; }
+        public required bool Silent { get; set; }
+        public RunNotice? Notice { get; init; }
         /// <summary>
         /// The blocker last announced to the frontend for this waiter (id + display name).
         /// Both mutate only under <see cref="_gate"/>; the name is additionally read under
@@ -95,8 +96,10 @@ public sealed class OperationQueueService : IOperationQueue
         Func<Task<Guid?>> start,
         CancellationToken ct,
         bool reportRefusal = false,
-        bool showWaitingCard = true)
+        bool showWaitingCard = true,
+        RunNotice? notice = null)
     {
+        showWaitingCard = notice?.ShowNotification ?? showWaitingCard;
         await _gate.WaitAsync(ct);
         try
         {
@@ -110,6 +113,16 @@ public sealed class OperationQueueService : IOperationQueue
                     && string.Equals(w.Name, displayName, StringComparison.Ordinal));
                 if (duplicateWaiter != null)
                 {
+                    if (notice?.Trigger == RunTrigger.Manual && duplicateWaiter.Notice is { } retained)
+                    {
+                        retained.Trigger = RunTrigger.Manual;
+                        if (duplicateWaiter.Silent && retained.ShowNotification)
+                        {
+                            duplicateWaiter.Silent = false;
+                            _ = _notifications.NotifyAllAsync(SignalREvents.OperationWaiting,
+                                new OperationWaitingNotification(duplicateWaiter.WaitingId, type.ToWireString(), displayName, duplicateWaiter.LastBlockerName));
+                        }
+                    }
                     return new QueuedOperationResponse
                     {
                         OperationId = duplicateWaiter.WaitingId,
@@ -159,7 +172,7 @@ public sealed class OperationQueueService : IOperationQueue
                             type,
                             displayName,
                             new CancellationTokenSource(),
-                            metadata: new Dictionary<string, object?> { [DeclinedRunMetadata.Key] = true });
+                            metadata: new Dictionary<string, object?> { [DeclinedRunMetadata.Key] = true, ["runNotice"] = notice });
                         // No error text. The card prints this field VERBATIM and only translates the
                         // stage key beside it, so the gate's English would reach every locale as-is
                         // and a translation key would show as the key itself. Leaving it null lets
@@ -218,7 +231,7 @@ public sealed class OperationQueueService : IOperationQueue
                 // A declined run rides the success flag too, so it is excluded from Promoted and
                 // reported on its own: nothing started and nothing replaced the card, and saying
                 // otherwise removes the card without ever showing the reason.
-                onTerminalEmit: info => !showWaitingCard
+                onTerminalEmit: info => !(notice?.ShowNotification ?? showWaitingCard)
                     ? Task.CompletedTask
                     : _notifications.NotifyAllAsync(
                         SignalREvents.OperationWaitingComplete,
@@ -233,7 +246,8 @@ public sealed class OperationQueueService : IOperationQueue
                             info.Skipped ? null : info.Error,
                             Promoted: info.Success && !info.Skipped,
                             Skipped: info.Skipped)),
-                initialStatus: OperationStatus.Waiting);
+                initialStatus: OperationStatus.Waiting,
+                metadata: new Dictionary<string, object?> { ["runNotice"] = notice });
 
             // A waiting op has no worker, so the queue is its worker: when the universal
             // cancel path cancels the CTS, complete the op as cancelled (CompletedFlag makes
@@ -259,7 +273,8 @@ public sealed class OperationQueueService : IOperationQueue
                     Sequence = Interlocked.Increment(ref _nextSequence),
                     LastBlockerId = conflict?.ActiveOperationId,
                     LastBlockerName = blockerName,
-                    Silent = !showWaitingCard
+                    Silent = !showWaitingCard,
+                    Notice = notice
                 });
             }
 
@@ -283,10 +298,13 @@ public sealed class OperationQueueService : IOperationQueue
             // so once, and the flag is how the frontend knows to answer with the notice that clears
             // itself instead of the purple card that sits there until the blocker finishes. It used
             // to say nothing, which at the scheduled time reads as the run having been dropped.
-            await _notifications.NotifyAllAsync(
-                SignalREvents.OperationWaiting,
-                new OperationWaitingNotification(
-                    waitingId, typeWire, displayName, blockerName, Silent: !showWaitingCard));
+            if (showWaitingCard || (notice?.Mode == NotificationMode.Silent && notice.TryAcknowledge()))
+            {
+                await _notifications.NotifyAllAsync(
+                    SignalREvents.OperationWaiting,
+                    new OperationWaitingNotification(
+                        waitingId, typeWire, displayName, blockerName, Silent: !showWaitingCard));
+            }
 
             if (retryAfterParking)
             {

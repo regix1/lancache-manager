@@ -1,4 +1,7 @@
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Hubs;
+using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
 
@@ -25,6 +28,10 @@ public partial class CacheManagementService
         await _cacheLock.WaitAsync(cancellationToken);
         try
         {
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            var appIds = await PrefillCacheService.MatchingCachedApps(dbContext,
+                dbContext.Downloads.Where(d => d.Service == "epicgames" && d.GameName == gameName))
+                .Select(a => a.Id).ToListAsync(cancellationToken);
             var aggregatedReport = await RunGameRemovalAcrossDatasourcesAsync(
                 logTag: "[EpicGameRemoval]",
                 rustBinaryPath: _pathResolver.GetRustEpicRemoverPath(),
@@ -44,6 +51,13 @@ public partial class CacheManagementService
             // Rust cache_epic_remove delete). Mirrors the Steam/named detection-row cleanup; without it
             // the Epic detection row only got pruned later by the Epic mapping loop's full re-detection.
             await _gameCacheDetectionService.RemoveEpicGameFromCacheAsync(gameName);
+            var removedApps = await dbContext.PrefillCachedApps
+                .Where(a => a.Platform == PrefillPlatform.Epic && (appIds.Contains(a.Id) || a.AppName == gameName))
+                .ExecuteDeleteAsync(cancellationToken);
+            if (removedApps > 0)
+            {
+                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+            }
 
             await FinalizeGameRemovalAsync(cancellationToken);
 

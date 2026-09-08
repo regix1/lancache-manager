@@ -71,9 +71,10 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
             // Stamp the run-stable display flag from the effective mode + this run's trigger. The
             // lifecycle events are always emitted (recovery/state stay accurate); the frontend gates
             // whether the card is shown.
-            var showNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+            var notice = CurrentRunNotice;
+            var showNotification = notice.ShowNotification;
 
-            Task<Guid?> StartScanAsync() => _cacheService.StartCacheSizeScanInBackgroundAsync(showNotification);
+            Task<Guid?> StartScanAsync() => _cacheService.StartCacheSizeScanInBackgroundAsync(notice.ShowNotification, notice);
 
             var outcome = await _operationQueue.EnqueueAsync(
                 OperationType.CacheSizeScan,
@@ -82,7 +83,8 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
                 StartScanAsync,
                 stoppingToken,
                 reportRefusal: true,
-                showWaitingCard: showNotification);
+                showWaitingCard: showNotification,
+                notice: notice);
 
             if (outcome.Queued)
             {

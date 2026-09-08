@@ -578,7 +578,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
             // The prefill game picker keeps its "Cached" badges in memory, so an open browser would
             // keep showing the pre-clear ones until it is reloaded.
-            if (reconciliation.PrefillDepots > 0)
+            if (reconciliation.PrefillDepots + reconciliation.PrefillApps > 0)
             {
                 await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
             }
@@ -702,7 +702,8 @@ public class CacheClearingService : ScheduledBackgroundService
         int Services,
         int CorruptionCandidates,
         int CorruptionScans,
-        int PrefillDepots)> InvalidateCachedDetectionResultsAsync(
+        int PrefillDepots,
+        int PrefillApps)> InvalidateCachedDetectionResultsAsync(
         AppDbContext context,
         CancellationToken cancellationToken)
     {
@@ -741,7 +742,8 @@ public class CacheClearingService : ScheduledBackgroundService
         int Services,
         int CorruptionCandidates,
         int CorruptionScans,
-        int PrefillDepots)> ReconcileSuccessfulCacheClearAsync(
+        int PrefillDepots,
+        int PrefillApps)> ReconcileSuccessfulCacheClearAsync(
         AppDbContext context,
         IReadOnlyCollection<string> clearedDatasourceNames,
         CancellationToken cancellationToken)
@@ -791,7 +793,8 @@ public class CacheClearingService : ScheduledBackgroundService
                     invalidated.Services,
                     invalidated.CorruptionCandidates,
                     invalidated.CorruptionScans,
-                    invalidated.PrefillDepots);
+                    invalidated.PrefillDepots,
+                    invalidated.PrefillApps);
             }
             catch
             {
@@ -806,7 +809,8 @@ public class CacheClearingService : ScheduledBackgroundService
         int Services,
         int CorruptionCandidates,
         int CorruptionScans,
-        int PrefillDepots)> InvalidateCachedDetectionResultsCoreAsync(
+        int PrefillDepots,
+        int PrefillApps)> InvalidateCachedDetectionResultsCoreAsync(
         AppDbContext context,
         CancellationToken cancellationToken)
     {
@@ -830,8 +834,9 @@ public class CacheClearingService : ScheduledBackgroundService
         // safe direction is a badge that under-claims (a re-prefill costs bandwidth) rather than
         // one that over-claims (a game silently never prefills).
         var prefillDepots = await context.PrefillCachedDepots.ExecuteDeleteAsync(cancellationToken);
+        var prefillApps = await context.PrefillCachedApps.ExecuteDeleteAsync(cancellationToken);
 
-        return (games, services, corruptionCandidates, corruptionScans, prefillDepots);
+        return (games, services, corruptionCandidates, corruptionScans, prefillDepots, prefillApps);
     }
 
     internal static async Task InvalidateStructuralCorruptionStateAsync(

@@ -1,5 +1,13 @@
 using System.Text.RegularExpressions;
+using System.Reflection;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
@@ -12,6 +20,35 @@ namespace LancacheManager.Tests;
 /// </summary>
 public sealed partial class DatabaseResetOfferedTablesTests
 {
+    [Theory]
+    [InlineData("PrefillCachedApps", 0)]
+    [InlineData("PrefillCachedDepots", 1)]
+    public async Task CachedTableReset_CountsAndClearsMatchingMembership(string table, int remaining)
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = new AppDbContext(database.Options);
+        context.PrefillCachedApps.AddRange(
+            new PrefillCachedApp { Platform = PrefillPlatform.Steam, AppId = "123", CachedAtUtc = DateTime.UtcNow },
+            new PrefillCachedApp { Platform = PrefillPlatform.Epic, AppId = "opaque", CachedAtUtc = DateTime.UtcNow });
+        context.PrefillCachedDepots.Add(new PrefillCachedDepot
+        {
+            AppId = 123, DepotId = 456, ManifestId = 789, CachedAtUtc = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        Assert.Equal(2, await DatabaseService.CountResetTableRowsAsync(context, "PrefillCachedApps", CancellationToken.None));
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var service = new DatabaseService(context, notifications, NullLogger<DatabaseService>.Instance,
+            null!, new TestDbContextFactory(database.Options), null!, null!, null!, null!, null!, null!, null!, tracker);
+        var id = tracker.RegisterOperation(OperationType.DatabaseReset, "reset", new CancellationTokenSource());
+        var method = typeof(DatabaseService).GetMethod("DoResetAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await ((Task)method.Invoke(service, [id, new List<string> { table }, false, CancellationToken.None])!);
+        Assert.Equal(OperationStatus.Completed, tracker.GetOperation(id)!.Status);
+        Assert.Equal(remaining, await DatabaseService.CountResetTableRowsAsync(context, "PrefillCachedApps", CancellationToken.None));
+        if (remaining > 0) Assert.Equal(PrefillPlatform.Epic, (await context.PrefillCachedApps.AsNoTracking().SingleAsync()).Platform);
+    }
+
     [Fact]
     public void EveryTableTheScreenOffersSurvivesResetResolution()
     {
@@ -21,6 +58,7 @@ public sealed partial class DatabaseResetOfferedTablesTests
         // nothing from passing the loop below.
         Assert.Contains("XboxGameMappings", offered);
         Assert.Contains("XboxCdnPatterns", offered);
+        Assert.Contains("PrefillCachedApps", offered);
 
         foreach (var table in offered)
         {

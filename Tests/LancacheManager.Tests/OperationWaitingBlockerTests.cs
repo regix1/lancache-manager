@@ -22,6 +22,45 @@ namespace LancacheManager.Tests;
 /// </summary>
 public sealed class OperationWaitingBlockerTests
 {
+    [Theory]
+    [InlineData(NotificationMode.All, RunTrigger.Manual, true, false)]
+    [InlineData(NotificationMode.All, RunTrigger.Scheduled, true, false)]
+    [InlineData(NotificationMode.All, RunTrigger.Startup, true, false)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Manual, true, false)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, false, false)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Startup, false, false)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Manual, false, true)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, false, true)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Startup, false, true)]
+    public async Task QueuedRun_UsesAdmittedModeAndTrigger(NotificationMode mode, RunTrigger trigger, bool visible, bool acknowledge)
+    {
+        var tracker = CreateTracker();
+        var events = new List<OperationWaitingNotification>();
+        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
+        {
+            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
+            {
+                if (args?[1] is OperationWaitingNotification waiting) events.Add(waiting);
+                return Task.CompletedTask;
+            }
+            return DefaultReturn(method.ReturnType);
+        });
+        var queue = new OperationQueueService(tracker,
+            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            notifications, NullLogger<OperationQueueService>.Instance);
+        tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
+        var notice = new RunNotice(mode, trigger);
+        var queued = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
+        var duplicate = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
+        Assert.Equal(queued.OperationId, duplicate.OperationId);
+        Assert.Equal(!visible, queue.IsWaiterSilent(queued.OperationId));
+        Assert.Equal(visible || acknowledge ? 1 : 0, events.Count);
+        if (events.Count != 0) Assert.Equal(acknowledge, events[0].Silent);
+        if (acknowledge) Assert.False(notice.TryAcknowledge());
+    }
+
     [Fact]
     public async Task EnqueueBehindActiveOperation_WaitingEventNamesBlockerAsync()
     {
@@ -166,7 +205,8 @@ public sealed class OperationWaitingBlockerTests
                 return Task.FromResult<Guid?>(Guid.NewGuid());
             },
             CancellationToken.None,
-            showWaitingCard: false);
+            showWaitingCard: false,
+            notice: new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled));
 
         Assert.True(queued.Queued);
         lock (waitingEvents)

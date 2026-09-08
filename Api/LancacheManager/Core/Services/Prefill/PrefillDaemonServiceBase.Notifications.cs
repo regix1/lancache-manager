@@ -683,7 +683,7 @@ public abstract partial class PrefillDaemonServiceBase
                     status = "Completed";
                 }
 
-                await _sessionService.CompleteEntryAsync(
+                var entry = await _sessionService.CompleteEntryAsync(
                     session.Id,
                     progress.CurrentAppId,
                     status,
@@ -712,26 +712,28 @@ public abstract partial class PrefillDaemonServiceBase
 
                 // Record cached depots for successful downloads (including AlreadyUpToDate)
                 // This allows us to skip re-downloading games that are already cached
-                if (progress.Result is "Success" or "AlreadyUpToDate" && progress.Depots != null && progress.Depots.Count > 0)
+                if (entry != null && progress.Result != "Failed" && !session.CancellationTokenSource.IsCancellationRequested)
                 {
                     try
                     {
-                        if (uint.TryParse(progress.CurrentAppId, out var numericAppId))
+                        var recorded = await _cacheService.RecordCachedAppAsync(
+                            Platform, progress.CurrentAppId, progress.CurrentAppName, totalBytes, session.AccountUsername);
+                        if (IsSessionLive(session) && !session.CancellationTokenSource.IsCancellationRequested
+                            && Platform == PrefillPlatform.Steam
+                            && progress.Result is "Success" or "AlreadyUpToDate"
+                            && progress.Depots != null && progress.Depots.Count > 0
+                            && uint.TryParse(progress.CurrentAppId, out var numericAppId))
                         {
-                            var recorded = await _cacheService.RecordCachedDepotsAsync(
+                            recorded |= await _cacheService.RecordCachedDepotsAsync(
                                 numericAppId,
                                 progress.CurrentAppName,
                                 progress.Depots.Select(d => (d.DepotId, d.ManifestId, d.TotalBytes)),
                                 session.AccountUsername);
 
-                            // An AlreadyUpToDate app re-records depots the table already holds, so a
-                            // prefill of 200 already-cached games reaches this line 200 times with
-                            // nothing new to say. Only a depot that was actually written moves a game
-                            // between the game picker's cached and available groups.
-                            if (recorded)
-                            {
-                                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
-                            }
+                        }
+                        if (recorded && IsSessionLive(session) && !session.CancellationTokenSource.IsCancellationRequested)
+                        {
+                            await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
                         }
                     }
                     catch (Exception cacheEx)

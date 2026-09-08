@@ -1,4 +1,7 @@
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Hubs;
+using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
 
@@ -29,6 +32,11 @@ public partial class CacheManagementService
         await _cacheLock.WaitAsync(cancellationToken);
         try
         {
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            var platform = service.ToPrefillPlatform();
+            var appIds = await PrefillCacheService.MatchingCachedApps(dbContext,
+                dbContext.Downloads.Where(d => d.Service == service && d.GameName == gameName))
+                .Select(a => a.Id).ToListAsync(cancellationToken);
             // Rust positional args (LOCKED CONTRACT): log_dir cache_dir game_name output_json progress_json.
             // The owning service is pinned by the per-service binary (cache_{service}_remove), so it is
             // NOT passed as a positional arg - the contract matches the Epic remover.
@@ -53,6 +61,14 @@ public partial class CacheManagementService
             // survives and the game keeps showing in the Game Cache Detection grid after the frontend
             // refetch (the Xbox cache-split stores Service='xbox' lowercase, matched case-insensitively).
             await _gameCacheDetectionService.RemoveNamedGameFromCacheAsync(service, gameName);
+            var removedApps = platform.HasValue
+                ? await dbContext.PrefillCachedApps
+                    .Where(a => a.Platform == platform.Value && (appIds.Contains(a.Id) || a.AppName == gameName))
+                    .ExecuteDeleteAsync(cancellationToken) : 0;
+            if (removedApps > 0)
+            {
+                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+            }
 
             await FinalizeGameRemovalAsync(cancellationToken);
 

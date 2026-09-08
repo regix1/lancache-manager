@@ -2653,9 +2653,15 @@ class ApiService {
   // =====================
 
   // Get all cached apps
-  static async getPrefillCachedApps(signal?: AbortSignal): Promise<CachedAppDto[]> {
+  static async getPrefillCachedApps(
+    service: string,
+    signal?: AbortSignal
+  ): Promise<CachedAppDto[]> {
     try {
-      const res = await fetch(`${API_BASE}/prefill-admin/cache`, this.getFetchOptions({ signal }));
+      const res = await fetch(
+        `${API_BASE}/prefill-admin/cache?service=${encodeURIComponent(service)}`,
+        this.getFetchOptions({ signal })
+      );
       return await this.handleResponse<CachedAppDto[]>(res);
     } catch (error: unknown) {
       if (!isAbortError(error)) console.error('getPrefillCachedApps error:', error);
@@ -2673,7 +2679,15 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/${serviceBasePath}/sessions/${sessionId}/cache-status`,
-        this.getJsonFetchOptions({ appIds }, { method: 'POST', signal })
+        this.getJsonFetchOptions(
+          { appIds },
+          {
+            method: 'POST',
+            signal: signal
+              ? AbortSignal.any([signal, AbortSignal.timeout(45000)])
+              : AbortSignal.timeout(45000)
+          }
+        )
       );
       return await this.handleResponse<PrefillCacheStatusDto>(res);
     } catch (error: unknown) {
@@ -2683,10 +2697,10 @@ class ApiService {
   }
 
   // Clear entire prefill cache
-  static async clearAllPrefillCache(): Promise<{ message: string }> {
+  static async clearAllPrefillCache(service: string): Promise<{ message: string }> {
     try {
       const res = await fetch(
-        `${API_BASE}/prefill-admin/cache`,
+        `${API_BASE}/prefill-admin/cache?service=${encodeURIComponent(service)}`,
         this.getFetchOptions({
           method: 'DELETE'
         })
@@ -2700,16 +2714,21 @@ class ApiService {
 
   // Drop one app's cached-depot records (database rows only, never cache files on disk)
   static async deletePrefillCachedApp(
-    appId: string
-  ): Promise<{ message: string; removedDepots: number }> {
+    appId: string,
+    service: string
+  ): Promise<{ message: string; removedDepots: number; removedApps: number }> {
     try {
       const res = await fetch(
-        `${API_BASE}/prefill-admin/cache/${encodeURIComponent(appId)}`,
+        `${API_BASE}/prefill-admin/cache/${encodeURIComponent(appId)}?service=${encodeURIComponent(service)}`,
         this.getFetchOptions({
           method: 'DELETE'
         })
       );
-      return await this.handleResponse<{ message: string; removedDepots: number }>(res);
+      return await this.handleResponse<{
+        message: string;
+        removedDepots: number;
+        removedApps: number;
+      }>(res);
     } catch (error: unknown) {
       console.error('deletePrefillCachedApp error:', error);
       throw error;
@@ -3470,7 +3489,11 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/games?service=${encodeURIComponent(service)}`,
-        this.getFetchOptions({ signal })
+        this.getFetchOptions({
+          signal: signal
+            ? AbortSignal.any([signal, AbortSignal.timeout(45000)])
+            : AbortSignal.timeout(45000)
+        })
       );
       return await this.handleResponse<PersistentPrefillGamesDto>(res);
     } catch (error: unknown) {
@@ -4371,6 +4394,7 @@ interface CachedAppDto {
 interface PrefillCacheStatusDto {
   upToDateAppIds: string[];
   outdatedAppIds: string[];
+  unknownAppIds: string[];
   message?: string;
 }
 
@@ -4382,6 +4406,7 @@ interface PersistentPrefillOwnedGameDto {
 interface PersistentPrefillGamesDto {
   games: PersistentPrefillOwnedGameDto[];
   cachedAppIds: string[];
+  unknownAppIds: string[];
 }
 
 export default ApiService;

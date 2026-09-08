@@ -1,4 +1,5 @@
 using LancacheManager.Hubs;
+using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
@@ -68,7 +69,10 @@ public partial class CacheManagementService
             var prefillDepotsDeleted = await dbContext.PrefillCachedDepots
                 .Where(depot => depot.AppId == gameAppId)
                 .ExecuteDeleteAsync();
-            if (prefillDepotsDeleted > 0)
+            var appId = gameAppId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var prefillAppsDeleted = await dbContext.PrefillCachedApps
+                .Where(a => a.Platform == PrefillPlatform.Steam && a.AppId == appId).ExecuteDeleteAsync();
+            if (prefillDepotsDeleted + prefillAppsDeleted > 0)
             {
                 _logger.LogInformation("[GameRemoval] Removed {Count} prefill cached-depot rows for AppID: {AppId}", prefillDepotsDeleted, gameAppId);
                 await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);

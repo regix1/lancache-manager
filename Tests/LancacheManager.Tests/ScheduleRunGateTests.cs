@@ -28,6 +28,67 @@ public class ScheduleRunGateTests
     private const string DownloadReason = "A client download is writing to the cache right now.";
     private const string EvictionKey = "cacheReconciliation";
 
+    [Theory]
+    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, 0)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Startup, 0)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Manual, 1)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, 1)]
+    public async Task HeldRun_RetainsNoticeThroughReleaseAndASecondWait(
+        NotificationMode mode, RunTrigger trigger, int expected)
+    {
+        using var service = new RunGateProbeService(EvictionKey);
+        service.SetNotificationMode(mode);
+        var notice = new RunNotice(mode, trigger);
+        service.SelectRunNotice(notice);
+        var announcements = new List<OperationWaitingNotification>();
+        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
+        {
+            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync)
+                && (string?)args?[0] == SignalREvents.OperationWaiting
+                && args[1] is OperationWaitingNotification waiting)
+            {
+                lock (announcements) announcements.Add(waiting);
+            }
+            return Task.CompletedTask;
+        });
+        var previousGate = ScheduledServiceBase.ScheduleRunGate;
+        var previousWait = ScheduledServiceBase.WaitForDownloadAnswer;
+        try
+        {
+            _ = new ServiceScheduleRegistry([service], CacheScanGateHarness.VisibleClientsStateService(),
+                notifications, CreateRealTracker(), activityRegistry: null,
+                cacheScanGate: CacheScanGateHarness.Downloading());
+            Assert.NotNull(ScheduledServiceBase.ScheduleRunGate!(EvictionKey, trigger));
+            if (expected > 0) await WaitForCountAsync(announcements, expected);
+            Assert.Equal(expected, announcements.Count);
+            service.SetNotificationMode(NotificationMode.All);
+            RaiseDownloadsEnded();
+            Assert.Equal(trigger == RunTrigger.Manual, service.HasPendingRun);
+            Assert.Equal(trigger != RunTrigger.Manual, service.TakePendingDeferredRun());
+            await WithGateAsync(DeclineOnly("other"), () =>
+                service.InvokeRunScheduledWorkAsync(trigger, CancellationToken.None));
+            Assert.Same(notice, service.CurrentRunNotice);
+            Assert.Equal(mode, service.CurrentRunNotice.Mode);
+            Assert.Equal(trigger, service.CurrentRunNotice.Trigger);
+            if (mode == NotificationMode.Silent)
+            {
+                var tracker = CreateRealTracker();
+                tracker.RegisterOperation(OperationType.EvictionScan, "scan", new CancellationTokenSource());
+                var queue = new OperationQueueService(tracker,
+                    new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+                    notifications, NullLogger<OperationQueueService>.Instance);
+                await queue.EnqueueAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), "size",
+                    () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
+                Assert.Single(announcements);
+            }
+        }
+        finally
+        {
+            ScheduledServiceBase.ScheduleRunGate = previousGate;
+            ScheduledServiceBase.WaitForDownloadAnswer = previousWait;
+        }
+    }
+
     [Fact]
     public async Task DeclinedRun_LeavesLastRunUtcAndTheRunningFlagUntouchedAsync()
     {
@@ -380,19 +441,12 @@ public class ScheduleRunGateTests
 
             Assert.NotNull(ScheduledServiceBase.ScheduleRunGate!(EvictionKey, RunTrigger.Scheduled));
 
-            var notice = await WaitForOneAsync(skipped);
-            Assert.Equal(OperationStatus.Skipped, notice.Status);
-            // The wording travels as the stage key the card translates, never as raw text, and the
-            // run's name rides beside it so the card can say which schedule is waiting.
-            Assert.Null(notice.Error);
-            Assert.Equal(CacheScanGate.ScheduleQueuedReasonNamedKey, notice.StageKey);
-            Assert.NotNull(notice.Context);
-            Assert.Equal("Eviction Scan", notice.Context!["name"]);
-
-            lock (waiting)
-            {
-                Assert.Empty(waiting);
-            }
+            var notice = await WaitForOneAsync(waiting);
+            Assert.True(notice.Silent);
+            Assert.Equal("Eviction Scan", notice.Name);
+            Assert.Empty(skipped);
+            Assert.NotNull(ScheduledServiceBase.ScheduleRunGate!(EvictionKey, RunTrigger.Scheduled));
+            Assert.Single(waiting);
         }
         finally
         {
@@ -548,9 +602,8 @@ public class ScheduleRunGateTests
         CacheScanGateHarness.MakeIdle(snapshot);
         await registry.TriggerRunAsync("cacheSizeScan");
 
-        // Held on the deferred flag, so the run it eventually gets still reports as Scheduled.
-        Assert.True(service.TakePendingDeferredRun());
-        Assert.False(service.HasPendingRun);
+        Assert.False(service.TakePendingDeferredRun());
+        Assert.True(service.HasPendingRun);
     }
 
     [Fact]

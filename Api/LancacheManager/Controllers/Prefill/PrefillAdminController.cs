@@ -485,13 +485,17 @@ public class PrefillAdminController : ControllerBase
     [Authorize(Policy = "AnyPrefillAccess")]
     [HttpGet("cache")]
     [ProducesResponseType(typeof(List<CachedAppDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<List<CachedAppDto>>> GetCachedAppsAsync()
+    public async Task<ActionResult<List<CachedAppDto>>> GetCachedAppsAsync([FromQuery] PrefillPlatform? service)
     {
-        var apps = await _cacheService.GetCachedAppsAsync();
+        if (!service.HasValue || !Enum.IsDefined(service.Value))
+        {
+            return BadRequest(ApiResponse.Error("A valid prefill service is required"));
+        }
+        var apps = await _cacheService.GetCachedAppsAsync(service.Value, HttpContext.RequestAborted);
 
         return Ok(apps.Select(a => new CachedAppDto
         {
-            AppId = a.AppId.ToString(),
+            AppId = a.AppId,
             AppName = a.AppName,
             DepotCount = a.DepotCount,
             TotalBytes = a.TotalBytes,
@@ -506,11 +510,18 @@ public class PrefillAdminController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("cache")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<MessageOnlyResponse>> ClearAllCacheAsync()
+    public async Task<ActionResult<MessageOnlyResponse>> ClearAllCacheAsync([FromQuery] PrefillPlatform? service)
     {
-        await _cacheService.ClearAllCacheAsync();
+        if (!service.HasValue || !Enum.IsDefined(service.Value))
+        {
+            return BadRequest(ApiResponse.Error("A valid prefill service is required"));
+        }
+        var removed = await _cacheService.ClearAllCacheAsync(service.Value);
         _logger.LogInformation("Entire prefill cache cleared by session {SessionId}", HttpContext.GetRequiredSessionId());
-        await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+        if (removed.RemovedApps + removed.RemovedDepots > 0)
+        {
+            await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+        }
         return Ok(new MessageOnlyResponse { Message = "Prefill cache cleared" });
     }
 
@@ -518,17 +529,25 @@ public class PrefillAdminController : ControllerBase
     /// Clears the prefill cache for a single app so its next prefill downloads it again.
     /// </summary>
     [Authorize(Policy = "AccountHolder")]
-    [HttpDelete("cache/{appId:long}")]
+    [HttpDelete("cache/{appId}")]
     [ProducesResponseType(typeof(PrefillCacheRemovalResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<PrefillCacheRemovalResponse>> ClearAppCacheAsync(long appId)
+    public async Task<ActionResult<PrefillCacheRemovalResponse>> ClearAppCacheAsync(string appId, [FromQuery] PrefillPlatform? service)
     {
-        var removedDepots = await _cacheService.ClearAppCacheAsync(appId);
+        if (!service.HasValue || !Enum.IsDefined(service.Value))
+        {
+            return BadRequest(ApiResponse.Error("A valid prefill service is required"));
+        }
+        var (removedApps, removedDepots) = await _cacheService.ClearAppCacheAsync(service.Value, appId);
         _logger.LogInformation("Prefill cache cleared for app {AppId} ({Count} depots) by session {SessionId}", appId, removedDepots, HttpContext.GetRequiredSessionId());
-        await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+        if (removedApps + removedDepots > 0)
+        {
+            await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+        }
         return Ok(new PrefillCacheRemovalResponse
         {
             Message = $"Prefill cache cleared for app {appId}",
-            RemovedDepots = removedDepots
+            RemovedDepots = removedDepots,
+            RemovedApps = removedApps
         });
     }
 

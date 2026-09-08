@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { resolveCachedAppIds } from './cachedApps';
 import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Tooltip } from '../../ui/Tooltip';
@@ -111,6 +112,7 @@ function ServicePrefillPanel({
   const gamesCacheWindowMs = 5 * 60 * 1000;
   const reloadGamesRef = useRef<Promise<void> | null>(null);
   const reloadGamesAgainRef = useRef(false);
+  const gamesRequestRef = useRef<AbortController | null>(null);
 
   // Use context for log entries (persists across tab switches)
   const {
@@ -458,10 +460,21 @@ function ServicePrefillPanel({
     [selectedOS, maxConcurrency, signalR.isCancelling, serviceBasePath]
   );
 
+  useEffect(() => {
+    gamesRequestRef.current?.abort();
+    gamesCacheRef.current = null;
+    setCachedAppIds([]);
+    setIsLoadingGames(false);
+    return () => gamesRequestRef.current?.abort();
+  }, [serviceId, signalR.session?.id]);
+
   const loadGames = useCallback(
     async (force = false) => {
       if (!signalR.session) return;
-
+      gamesRequestRef.current?.abort();
+      const controller = new AbortController();
+      gamesRequestRef.current = controller;
+      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]);
       setIsLoadingGames(true);
       try {
         const gamesCache = gamesCacheRef.current;
@@ -484,16 +497,17 @@ function ServicePrefillPanel({
         // Fetch owned games via direct API call
         const gamesResponse = await fetch(
           `${API_BASE}/${serviceBasePath}/sessions/${signalR.session.id}/games`,
-          { credentials: 'include' }
+          { credentials: 'include', signal }
         );
         if (!gamesResponse.ok) {
           throw new Error(`Failed to get games: HTTP ${gamesResponse.status}`);
         }
-        const games = await gamesResponse.json();
+        const games: OwnedGame[] = await gamesResponse.json();
         const normalizedGames = (games || []).map((game: OwnedGame) => ({
           ...game,
           appId: String(game.appId)
         }));
+        if (controller.signal.aborted) return;
         setOwnedGames(normalizedGames);
         if (serviceId !== 'battlenet' && serviceId !== 'riot') {
           // Battle.net/Riot have a fixed public catalog - "owned games" framing is inaccurate
@@ -501,24 +515,29 @@ function ServicePrefillPanel({
         }
 
         // Get cached apps via ApiService and verify against daemon manifests/build versions
-        const cachedApps = await ApiService.getPrefillCachedApps();
-        let cachedIds = cachedApps.map((a) => String(a.appId));
+        const cachedApps = await ApiService.getPrefillCachedApps(serviceId, signal);
+        const eligible = cachedApps
+          .map((a) => String(a.appId))
+          .filter((id) => normalizedGames.some((game) => game.appId === id));
+        let cachedIds: string[] = [];
+        let unknownIds = eligible;
         // Tracks whether the cached-status verification produced an authoritative answer. A
         // transient failure here must not be persisted as "nothing is cached" for the whole
         // cache window (that showed wrong cached badges until expiry) - mark the snapshot
         // non-authoritative instead so the next load re-verifies.
         let cacheStatusResolved = true;
 
-        if (cachedIds.length > 0) {
+        if (eligible.length > 0) {
           try {
             const cacheStatus = await ApiService.getPrefillCacheStatus(
               signalR.session.id,
-              cachedIds,
-              serviceBasePath
+              eligible,
+              serviceBasePath,
+              signal
             );
-            cachedIds = cacheStatus.upToDateAppIds.length
-              ? cacheStatus.upToDateAppIds.map((id: string) => String(id))
-              : [];
+            cachedIds = cacheStatus.upToDateAppIds.filter((id) => eligible.includes(id));
+            unknownIds = cacheStatus.unknownAppIds.filter((id) => eligible.includes(id));
+            cacheStatusResolved = unknownIds.length === 0;
           } catch {
             cachedIds = [];
             cacheStatusResolved = false;
@@ -527,9 +546,8 @@ function ServicePrefillPanel({
 
         // Same reason the snapshot is withheld: a failed check is not proof nothing is cached, so
         // the badges already on screen stay put rather than blanking mid-run.
-        if (cacheStatusResolved) {
-          setCachedAppIds(cachedIds);
-        }
+        if (controller.signal.aborted) return;
+        setCachedAppIds((previous) => resolveCachedAppIds(previous, cachedIds, unknownIds));
         // Only persist an authoritative snapshot: the cached-status check resolved AND the
         // library actually came back. An empty/failed transient is left uncached (hasData:false)
         // so a later load retries instead of reusing a wrong-empty library until cache expiry.
@@ -544,9 +562,9 @@ function ServicePrefillPanel({
           addLog('info', t('prefill.log.gamesCached', { count: cachedIds.length }));
         }
       } catch {
-        addLog('error', t('prefill.log.failedLoadLibrary'));
+        if (!controller.signal.aborted) addLog('error', t('prefill.log.failedLoadLibrary'));
       } finally {
-        setIsLoadingGames(false);
+        if (gamesRequestRef.current === controller) setIsLoadingGames(false);
       }
     },
     [signalR.session, addLog, t, serviceBasePath, gamesCacheWindowMs, serviceId]
@@ -599,7 +617,10 @@ function ServicePrefillPanel({
   const handleClearAllFromCache = useCallback(async () => {
     setIsClearingAllCache(true);
     try {
-      await ApiService.clearAllPrefillCache();
+      await ApiService.clearAllPrefillCache(serviceId);
+      gamesRequestRef.current?.abort();
+      gamesCacheRef.current = null;
+      setCachedAppIds([]);
       addLog('info', t('prefill.log.clearedAllFromCache'));
       // Same reasoning as the per-game removal below: re-read rather than waiting for the
       // broadcast, so the badges are right even with the socket down. The forced reload is also
@@ -613,22 +634,18 @@ function ServicePrefillPanel({
     } finally {
       setIsClearingAllCache(false);
     }
-  }, [reloadGamesOnce, notifyError, t, addLog]);
+  }, [reloadGamesOnce, notifyError, t, addLog, serviceId]);
 
   const handleRemoveFromCache = useCallback(
     async (appId: string) => {
       setRemovingAppId(appId);
       const gameName = ownedGames.find((g) => g.appId === appId)?.name ?? `#${appId}`;
       try {
-        const removal = await ApiService.deletePrefillCachedApp(appId);
-        if (removal.removedDepots === 0) {
-          // Cached status is read per depot and manifest with no app term, so a game whose files
-          // were all downloaded under another game owns no rows and keeps its badge after this.
-          addLog('warning', t('prefill.log.removeFromCacheSharedFiles', { game: gameName }));
-          notifyError(t('prefill.errors.removeFromCacheSharedFiles'));
-        } else {
-          addLog('info', t('prefill.log.removedFromCache', { game: gameName }));
-        }
+        await ApiService.deletePrefillCachedApp(appId, serviceId);
+        gamesRequestRef.current?.abort();
+        gamesCacheRef.current = null;
+        setCachedAppIds((previous) => previous.filter((id) => id !== appId));
+        addLog('info', t('prefill.log.removedFromCache', { game: gameName }));
         // Re-read rather than trusting the broadcast to come back to this browser: with the
         // socket down, the row the user just acted on would otherwise keep its Cached badge.
         await reloadGamesOnce();
@@ -641,7 +658,7 @@ function ServicePrefillPanel({
         setRemovingAppId(null);
       }
     },
-    [reloadGamesOnce, notifyError, t, ownedGames, addLog]
+    [reloadGamesOnce, notifyError, t, ownedGames, addLog, serviceId]
   );
 
   const executeCommand = useCallback(

@@ -167,14 +167,17 @@ public partial class CacheManagementService
             // "Cached" for every game. Removing any other service leaves the Steam cache untouched
             // and those rows still true. Compared against the platform rather than a bare string so
             // the tie to the table's owner is visible.
-            if (string.Equals(serviceName, nameof(PrefillPlatform.Steam), StringComparison.OrdinalIgnoreCase))
+            var platform = serviceName.ToPrefillPlatform();
+            var prefillAppsDeleted = platform.HasValue
+                ? await dbContext.PrefillCachedApps.Where(a => a.Platform == platform.Value).ExecuteDeleteAsync() : 0;
+            var prefillDepotsDeleted = 0;
+            if (platform == PrefillPlatform.Steam)
             {
-                var prefillDepotsDeleted = await dbContext.PrefillCachedDepots.ExecuteDeleteAsync();
-                if (prefillDepotsDeleted > 0)
-                {
-                    _logger.LogInformation("[ServiceRemoval] Removed {Count} prefill cached-depot rows", prefillDepotsDeleted);
-                    await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
-                }
+                prefillDepotsDeleted = await dbContext.PrefillCachedDepots.ExecuteDeleteAsync();
+            }
+            if (prefillAppsDeleted + prefillDepotsDeleted > 0)
+            {
+                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
             }
 
             await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(cancellationToken);

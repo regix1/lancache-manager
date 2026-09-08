@@ -323,15 +323,14 @@ public class PersistentPrefillController : ControllerBase
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        // Game picker cache badges use manager DB only. Do not call the daemon (set-selected-apps /
-        // get-selected-apps-status / check-cache-status): that is slow for large libraries, mutates
-        // selection, and fails with 500 if the socket drops while the session is stopping.
-        var cachedAppIds = await ResolveCachedAppIdsForGamePickerAsync(ownedAppIds, cancellationToken);
+        var (cachedAppIds, unknownAppIds) = await ResolveCachedAppIdsForGamePickerAsync(
+            service, daemon, session.Id, ownedAppIds, cancellationToken);
 
         return Ok(new PersistentPrefillGamesDto
         {
             Games = games,
-            CachedAppIds = cachedAppIds
+            CachedAppIds = cachedAppIds,
+            UnknownAppIds = unknownAppIds
         });
     }
 
@@ -1243,29 +1242,47 @@ public class PersistentPrefillController : ControllerBase
     /// <summary>
     /// Resolves cached app ids for the game picker using manager DB only (no live daemon commands).
     /// </summary>
-    private async Task<List<string>> ResolveCachedAppIdsForGamePickerAsync(
+    private async Task<(List<string> CachedAppIds, List<string> UnknownAppIds)> ResolveCachedAppIdsForGamePickerAsync(
+        PrefillPlatform platform,
+        PrefillDaemonServiceBase daemon,
+        string sessionId,
         List<string> ownedAppIds,
         CancellationToken cancellationToken)
     {
         if (ownedAppIds.Count == 0)
         {
-            return [];
+            return ([], []);
         }
 
+        List<string> eligible;
         try
         {
-            var cachedApps = await _cacheService.GetCachedAppsAsync();
+            var cachedApps = await _cacheService.GetCachedAppsAsync(platform, cancellationToken);
             var ownedSet = new HashSet<string>(ownedAppIds, StringComparer.Ordinal);
-            return cachedApps
-                .Select(a => a.AppId.ToString())
+            eligible = cachedApps
+                .Select(a => a.AppId)
                 .Where(id => ownedSet.Contains(id))
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(ex, "Failed to resolve cached app ids for persistent game picker");
-            return [];
+            return ([], ownedAppIds);
+        }
+        if (eligible.Count == 0) return ([], []);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            var status = await daemon.GetCacheStatusAsync(sessionId, eligible, timeout.Token);
+            var (verified, _, unknown) = status.ResolveAppIds(eligible);
+            return (verified, unknown);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Failed to verify cached app ids for persistent game picker");
+            return ([], eligible);
         }
     }
 
@@ -1580,4 +1597,5 @@ public sealed class PersistentPrefillGamesDto
 
     /// <summary>App ids whose cached content is up to date for the session.</summary>
     public required List<string> CachedAppIds { get; init; }
+    public List<string> UnknownAppIds { get; init; } = [];
 }

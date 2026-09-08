@@ -3,6 +3,7 @@ using System;
 using LancacheManager.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,19 +12,21 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace LancacheManager.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260908024054_AddPrefillCachedApps")]
+    partial class AddPrefillCachedApps
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder model)
         {
 #pragma warning disable 612, 618
-            modelBuilder
+            model
                 .HasAnnotation("ProductVersion", "10.0.5")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
-            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(model, "citext");
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(model);
 
-            modelBuilder.Entity("LancacheManager.Models.BannedPrefillUser", b =>
+            model.Entity("LancacheManager.Models.BannedPrefillUser", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -83,7 +86,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("BannedPrefillUsers");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.CacheSnapshot", b =>
+            model.Entity("LancacheManager.Models.CacheSnapshot", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -108,7 +111,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("CacheSnapshots");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.CachedCorruptionDetection", b =>
+            model.Entity("LancacheManager.Models.CachedCorruptionDetection", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -154,7 +157,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("CachedCorruptionDetections");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.CachedCorruptionScan", b =>
+            model.Entity("LancacheManager.Models.CachedCorruptionScan", b =>
                 {
                     b.Property<Guid>("ScanId")
                         .ValueGeneratedOnAdd()
@@ -209,7 +212,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("CachedCorruptionScans");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.CachedDetectionSummary", b =>
+            model.Entity("LancacheManager.Models.CachedDetectionSummary", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -243,7 +246,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("CachedDetectionSummaries");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.CachedGameDetection", b =>
+            model.Entity("LancacheManager.Models.CachedGameDetection", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -303,7 +306,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("CachedGameDetections");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.CachedServiceDetection", b =>
+            model.Entity("LancacheManager.Models.CachedServiceDetection", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -351,7 +354,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("CachedServiceDetections");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.ClientGroup", b =>
+            model.Entity("LancacheManager.Models.ClientGroup", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -384,7 +387,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("ClientGroups");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.ClientGroupMember", b =>
+            model.Entity("LancacheManager.Models.ClientGroupMember", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -414,7 +417,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("ClientGroupMembers");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.Download", b =>
+            model.Entity("LancacheManager.Models.Download", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -512,7 +515,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("Downloads");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.EpicCdnPattern", b =>
+            model.Entity("LancacheManager.Models.EpicCdnPattern", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -554,7 +557,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("EpicCdnPatterns");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.EpicGameMapping", b =>
+            model.Entity("LancacheManager.Models.EpicGameMapping", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -602,7 +605,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("EpicGameMappings");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.Event", b =>
+            model.Entity("LancacheManager.Models.Event", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -643,7 +646,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("Events");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.EventDownload", b =>
+            model.Entity("LancacheManager.Models.EventDownload", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -678,7 +681,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("EventDownloads");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.GameImage", b =>
+            model.Entity("LancacheManager.Models.GameImage", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -720,7 +723,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("GameImages");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.IdentityAuditEntry", b =>
+            model.Entity("LancacheManager.Models.IdentityAuditEntry", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -752,7 +755,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("IdentityAuditEntries");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.LogEntryRecord", b =>
+            model.Entity("LancacheManager.Models.LogEntryRecord", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -829,7 +832,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("LogEntries");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.PrefillCachedApp", b =>
+            model.Entity("LancacheManager.Models.PrefillCachedApp", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -867,7 +870,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("PrefillCachedApps");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.PrefillCachedDepot", b =>
+            model.Entity("LancacheManager.Models.PrefillCachedDepot", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -908,7 +911,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("PrefillCachedDepots");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.PrefillHistoryEntry", b =>
+            model.Entity("LancacheManager.Models.PrefillHistoryEntry", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -964,7 +967,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("PrefillHistoryEntries");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.PrefillSession", b =>
+            model.Entity("LancacheManager.Models.PrefillSession", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -1060,7 +1063,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("PrefillSessions");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.SteamDepotMapping", b =>
+            model.Entity("LancacheManager.Models.SteamDepotMapping", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -1102,7 +1105,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("SteamDepotMappings");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.UserAccount", b =>
+            model.Entity("LancacheManager.Models.UserAccount", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1146,7 +1149,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("UserAccounts");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.UserPreferences", b =>
+            model.Entity("LancacheManager.Models.UserPreferences", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -1214,7 +1217,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("UserPreferences");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.UserSession", b =>
+            model.Entity("LancacheManager.Models.UserSession", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1326,7 +1329,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("UserSessions");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.XboxCdnPattern", b =>
+            model.Entity("LancacheManager.Models.XboxCdnPattern", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -1368,7 +1371,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("XboxCdnPatterns");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.XboxGameMapping", b =>
+            model.Entity("LancacheManager.Models.XboxGameMapping", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -1408,7 +1411,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("XboxGameMappings");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.CachedCorruptionDetection", b =>
+            model.Entity("LancacheManager.Models.CachedCorruptionDetection", b =>
                 {
                     b.HasOne("LancacheManager.Models.CachedCorruptionScan", "Scan")
                         .WithMany("Candidates")
@@ -1419,7 +1422,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Navigation("Scan");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.ClientGroupMember", b =>
+            model.Entity("LancacheManager.Models.ClientGroupMember", b =>
                 {
                     b.HasOne("LancacheManager.Models.ClientGroup", "ClientGroup")
                         .WithMany("Members")
@@ -1430,7 +1433,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Navigation("ClientGroup");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.EventDownload", b =>
+            model.Entity("LancacheManager.Models.EventDownload", b =>
                 {
                     b.HasOne("LancacheManager.Models.Download", "Download")
                         .WithMany()
@@ -1449,7 +1452,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Navigation("Event");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.LogEntryRecord", b =>
+            model.Entity("LancacheManager.Models.LogEntryRecord", b =>
                 {
                     b.HasOne("LancacheManager.Models.Download", "Download")
                         .WithMany()
@@ -1458,7 +1461,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Navigation("Download");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.PrefillHistoryEntry", b =>
+            model.Entity("LancacheManager.Models.PrefillHistoryEntry", b =>
                 {
                     b.HasOne("LancacheManager.Models.PrefillSession", "Session")
                         .WithMany("PrefillHistory")
@@ -1470,7 +1473,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Navigation("Session");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.UserPreferences", b =>
+            model.Entity("LancacheManager.Models.UserPreferences", b =>
                 {
                     b.HasOne("LancacheManager.Models.UserSession", "Session")
                         .WithOne("Preferences")
@@ -1481,27 +1484,27 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Navigation("Session");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.CachedCorruptionScan", b =>
+            model.Entity("LancacheManager.Models.CachedCorruptionScan", b =>
                 {
                     b.Navigation("Candidates");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.ClientGroup", b =>
+            model.Entity("LancacheManager.Models.ClientGroup", b =>
                 {
                     b.Navigation("Members");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.Event", b =>
+            model.Entity("LancacheManager.Models.Event", b =>
                 {
                     b.Navigation("EventDownloads");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.PrefillSession", b =>
+            model.Entity("LancacheManager.Models.PrefillSession", b =>
                 {
                     b.Navigation("PrefillHistory");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.UserSession", b =>
+            model.Entity("LancacheManager.Models.UserSession", b =>
                 {
                     b.Navigation("Preferences");
                 });

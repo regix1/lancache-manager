@@ -2364,6 +2364,11 @@
             "description": "Totals and last-run time for the detection scans",
             "details": "The header above the game and service results. Clearing the detections without this leaves a last-run time with nothing under it."
           },
+          "prefillCachedApps": {
+            "label": "Prefill Cached Games",
+            "description": "Completed prefill games across all services",
+            "details": "Records used to verify cached badges with each service. Clearing these records removes badges until games are prefilled again."
+          },
           "prefillCachedDepots": {
             "label": "Prefill Cache Status",
             "description": "Which game depots are already in the cache",
@@ -5077,7 +5082,7 @@
       "endingSession": "Ending session...",
       "loginCancelled": "Login cancelled",
       "removedFromCache": "Removed {{game}} from the cached list",
-      "clearedAllFromCache": "Cleared every game from the cached list",
+      "clearedAllFromCache": "Cleared this service's cached game records",
       "removeFromCacheSharedFiles": "Nothing was removed for {{game}} because its files are shared with another game",
       "removeFromCacheFailed": "Failed to remove {{game}} from the cached list",
       "sessionEnded": "Session ended: {{reason}}",
@@ -5106,7 +5111,7 @@
       "title": "Select Games to Prefill",
       "importAppIds": "Import App IDs",
       "showCached": "Show Cached",
-      "clearAllCached": "Clear Cached",
+      "clearAllCached": "Clear Service's Cached Games",
       "usingCached": "Using cached results (last scan < 5 min ago)",
       "rescan": "Rescan",
       "importHelp": "Paste Steam App IDs from SteamPrefill or any comma-separated list",

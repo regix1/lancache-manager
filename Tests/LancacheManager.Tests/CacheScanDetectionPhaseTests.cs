@@ -4,12 +4,15 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Platform;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.EntityFrameworkCore;
 using static LancacheManager.Tests.CacheScanGateHarness;
 
 namespace LancacheManager.Tests;
@@ -22,6 +25,80 @@ namespace LancacheManager.Tests;
 /// </summary>
 public sealed class CacheScanDetectionPhaseTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task RemovalStartsUnderActiveScanAndCancellationKeepsCompetitorsWaiting(bool cancel, bool populated)
+    {
+        using var ctx = new PhaseContext();
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = new AppDbContext(database.Options);
+        foreach (var platform in populated ? Enum.GetValues<PrefillPlatform>() : [])
+        {
+            context.PrefillCachedApps.Add(new PrefillCachedApp
+            {
+                Platform = platform, AppId = "123", AppName = "Removed", CachedAtUtc = DateTime.UtcNow
+            });
+            context.PrefillCachedApps.Add(new PrefillCachedApp
+            {
+                Platform = platform, AppId = "456", AppName = "Kept", CachedAtUtc = DateTime.UtcNow
+            });
+            context.Downloads.Add(new Download
+            {
+                Service = platform.ToService(), ClientIp = "127.0.0.1", Datasource = "Default",
+                GameAppId = platform == PrefillPlatform.Steam ? 123 : null,
+                EpicAppId = platform == PrefillPlatform.Epic ? "123" : null,
+                XboxProductId = platform == PrefillPlatform.Xbox ? "123" : null,
+                GameName = "Removed", IsEvicted = true, StartTimeUtc = DateTime.UtcNow, EndTimeUtc = DateTime.UtcNow
+            });
+        }
+        await context.SaveChangesAsync();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var scanId = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var queue = new OperationQueueService(tracker,
+            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            (ISignalRNotificationService)(object)ctx.Notifications, NullLogger<OperationQueueService>.Instance);
+        var promoted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queued = await queue.EnqueueAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), "Cache File Scan",
+            () => { promoted.TrySetResult(); return Task.FromResult<Guid?>(Guid.NewGuid()); }, CancellationToken.None);
+        Assert.True(queued.Queued);
+        var terminals = new System.Collections.Concurrent.ConcurrentBag<Guid>();
+        var childTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var scanTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        tracker.OperationTerminal += operation =>
+        {
+            terminals.Add(operation.Id);
+            if (operation.Type == OperationType.EvictionRemoval) childTerminal.TrySetResult();
+            if (operation.Id == scanId) scanTerminal.TrySetResult();
+        };
+        Guid removalId = default;
+        ctx.Notifications.OnSent = (eventName, value) =>
+        {
+            if (eventName != SignalREvents.EvictionRemovalStarted || value is not EvictionRemovalStarted started) return;
+            removalId = started.OperationId;
+            Assert.Equal(OperationStatus.Running, tracker.GetOperation(scanId)!.Status);
+            Assert.Equal(OperationStatus.Running, tracker.GetOperation(removalId)!.Status);
+            Assert.False(promoted.Task.IsCompleted);
+            if (cancel) tracker.CancelOperation(removalId);
+        };
+        await ctx.Scan.RemoveEvictedRecordsAsync(context, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.NotEqual(Guid.Empty, removalId);
+        // Without cancellation removal reaches the fixture's absent summary service after commit.
+        Assert.Equal(cancel ? OperationStatus.Cancelled : OperationStatus.Failed, tracker.GetOperation(removalId)!.Status);
+        Assert.Equal(populated ? cancel ? 10 : 5 : 0, await context.PrefillCachedApps.CountAsync());
+        if (!cancel) Assert.All(await context.PrefillCachedApps.AsNoTracking().ToListAsync(), app => Assert.Equal("456", app.AppId));
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(scanId)!.Status);
+        Assert.False(promoted.Task.IsCompleted);
+        tracker.CompleteOperation(scanId, success: true);
+        await promoted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.WhenAll(childTerminal.Task, scanTerminal.Task).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, terminals.Count(id => id == removalId));
+        Assert.Equal(1, terminals.Count(id => id == scanId));
+    }
+
     [Fact]
     public async Task ThePhaseStartsAHiddenFullDetectionForwardsItsPercentAndWaitsForItsTerminal()
     {
@@ -76,6 +153,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         public FakeTracker Tracker { get; }
         public RecordingNotifications Notifications { get; }
+        public CacheReconciliationService Scan => _scan;
 
         public PhaseContext()
         {
@@ -133,6 +211,12 @@ public sealed class CacheScanDetectionPhaseTests
             SetField(_scan, "_operationTracker", (IUnifiedOperationTracker)(object)Tracker);
             SetField(_scan, "_notifications", (ISignalRNotificationService)(object)Notifications);
             SetField(_scan, "_gameCacheDetectionService", detection);
+            SetField(_scan, "_capabilityService", capabilityService);
+            foreach (var name in new[] { "_silentRemovalOperationIds", "_evictionRemovalTerminalStates" })
+            {
+                var field = typeof(CacheReconciliationService).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!;
+                field.SetValue(_scan, Activator.CreateInstance(field.FieldType));
+            }
         }
 
         public Task RunPhaseAsync(Guid scanOperationId, CancellationToken token)
@@ -154,7 +238,7 @@ public sealed class CacheScanDetectionPhaseTests
             }
         }
 
-        private static void SetField(object target, string name, object value)
+        internal static void SetField(object target, string name, object value)
             => typeof(CacheReconciliationService)
                 .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(target, value);
@@ -316,6 +400,7 @@ public sealed class CacheScanDetectionPhaseTests
     /// </summary>
     public class RecordingNotifications : DispatchProxy
     {
+        internal Action<string, object?>? OnSent { get; set; }
         private readonly object _sync = new();
         private readonly List<(string Event, object? Payload)> _sent = [];
 
@@ -323,6 +408,7 @@ public sealed class CacheScanDetectionPhaseTests
         {
             if (args is [string eventName, ..])
             {
+                OnSent?.Invoke(eventName, args.Length > 1 ? args[1] : null);
                 lock (_sync)
                 {
                     _sent.Add((eventName, args.Length > 1 ? args[1] : null));

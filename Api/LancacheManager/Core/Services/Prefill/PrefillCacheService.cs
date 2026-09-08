@@ -249,26 +249,72 @@ public class PrefillCacheService
     /// <summary>
     /// Gets all cached apps with their cache timestamps.
     /// </summary>
-    public async Task<List<CachedAppInfo>> GetCachedAppsAsync()
+    public async Task<bool> RecordCachedAppAsync(
+        PrefillPlatform platform, string appId, string? appName, long totalBytes, string? cachedBy)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(appId);
         await using var context = await _contextFactory.CreateDbContextAsync();
+        var existing = await context.PrefillCachedApps
+            .FirstOrDefaultAsync(a => a.Platform == platform && a.AppId == appId);
+        var app = existing ?? new PrefillCachedApp { Platform = platform, AppId = appId };
+        app.CachedAtUtc = DateTime.UtcNow;
+        app.TotalBytes = totalBytes;
+        if (!string.IsNullOrWhiteSpace(appName)) app.AppName = appName;
+        if (!string.IsNullOrWhiteSpace(cachedBy)) app.CachedBy = cachedBy;
+        if (existing == null) context.PrefillCachedApps.Add(app);
+        try
+        {
+            await context.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogDebug(ex, "App {AppId} for {Platform} was recorded by another writer", appId, platform);
+            return false;
+        }
+        return existing == null;
+    }
 
-        var cachedApps = await context.PrefillCachedDepots
+    public async Task<List<CachedAppInfo>> GetCachedAppsAsync(PrefillPlatform platform, CancellationToken cancellationToken = default)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var evicted = MatchingCachedApps(context, context.Downloads.Where(d => d.IsEvicted));
+        var cachedApps = await context.PrefillCachedApps
             .AsNoTracking()
-            .GroupBy(d => d.AppId)
-            .Select(g => new CachedAppInfo
+            .Where(a => a.Platform == platform && !evicted.Any(e => e.Id == a.Id))
+            .Select(a => new CachedAppInfo
             {
-                AppId = g.Key,
-                AppName = g.First().AppName,
-                DepotCount = g.Count(),
-                TotalBytes = g.Sum(d => d.TotalBytes),
-                CachedAtUtc = g.Max(d => d.CachedAtUtc),
-                CachedBy = g.First().CachedBy
+                AppId = a.AppId,
+                AppName = a.AppName,
+                DepotCount = platform == PrefillPlatform.Steam
+                    ? context.PrefillCachedDepots.Count(d => d.AppId.ToString() == a.AppId) : 0,
+                TotalBytes = a.TotalBytes,
+                CachedAtUtc = a.CachedAtUtc,
+                CachedBy = a.CachedBy
             })
             .OrderByDescending(a => a.CachedAtUtc)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return cachedApps;
+    }
+
+    internal static IQueryable<PrefillCachedApp> MatchingCachedApps(AppDbContext context, IQueryable<Download> downloads)
+    {
+        var steam = PrefillPlatform.Steam.ToService();
+        var epic = PrefillPlatform.Epic.ToService();
+        var xbox = PrefillPlatform.Xbox.ToService();
+        var battleNet = PrefillPlatform.BattleNet.ToService();
+        var riot = PrefillPlatform.Riot.ToService();
+        return context.PrefillCachedApps.Where(a => downloads.Any(d =>
+            (a.Platform == PrefillPlatform.Steam && d.Service == steam && d.GameAppId.ToString() == a.AppId)
+            || (a.Platform == PrefillPlatform.Epic && d.Service == epic
+                && ((!string.IsNullOrWhiteSpace(d.EpicAppId) && d.EpicAppId == a.AppId)
+                    || (string.IsNullOrWhiteSpace(d.EpicAppId) && !string.IsNullOrWhiteSpace(a.AppName) && a.AppName == d.GameName)))
+            || (a.Platform == PrefillPlatform.Xbox && d.Service == xbox
+                && ((!string.IsNullOrWhiteSpace(d.XboxProductId) && d.XboxProductId == a.AppId)
+                    || (string.IsNullOrWhiteSpace(d.XboxProductId) && !string.IsNullOrWhiteSpace(a.AppName) && a.AppName == d.GameName)))
+            || (((a.Platform == PrefillPlatform.BattleNet && d.Service == battleNet)
+                    || (a.Platform == PrefillPlatform.Riot && d.Service == riot))
+                && !string.IsNullOrWhiteSpace(a.AppName) && a.AppName == d.GameName)));
     }
 
     /// <summary>
@@ -279,34 +325,33 @@ public class PrefillCacheService
     /// so an app whose depots all sit under another app's rows reads as cached while owning none,
     /// and clearing it removes nothing.
     /// </returns>
-    public async Task<int> ClearAppCacheAsync(long appId)
+    public async Task<(int RemovedApps, int RemovedDepots)> ClearAppCacheAsync(PrefillPlatform platform, string appId)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
-        var entries = await context.PrefillCachedDepots
-            .Where(d => d.AppId == appId)
-            .ToListAsync();
-
-        if (entries.Any())
-        {
-            context.PrefillCachedDepots.RemoveRange(entries);
-            await context.SaveChangesAsync();
-            _logger.LogInformation("Cleared cache for app {AppId} ({Count} depots)", appId, entries.Count);
-        }
-
-        return entries.Count;
+        var apps = await context.PrefillCachedApps.Where(a => a.Platform == platform && a.AppId == appId).ToListAsync();
+        var entries = platform == PrefillPlatform.Steam && long.TryParse(appId, out var numericAppId)
+            ? await context.PrefillCachedDepots.Where(d => d.AppId == numericAppId).ToListAsync()
+            : [];
+        context.PrefillCachedApps.RemoveRange(apps);
+        context.PrefillCachedDepots.RemoveRange(entries);
+        await context.SaveChangesAsync();
+        return (apps.Count, entries.Count);
     }
 
     /// <summary>
     /// Clears the entire prefill cache (for admin use).
     /// </summary>
-    public async Task ClearAllCacheAsync()
+    public async Task<(int RemovedApps, int RemovedDepots)> ClearAllCacheAsync(PrefillPlatform platform)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
-        var count = await context.PrefillCachedDepots.CountAsync();
-        await context.PrefillCachedDepots.ExecuteDeleteAsync();
-        _logger.LogInformation("Cleared entire prefill cache ({Count} entries)", count);
+        var apps = await context.PrefillCachedApps.Where(a => a.Platform == platform).ToListAsync();
+        var depots = platform == PrefillPlatform.Steam ? await context.PrefillCachedDepots.ToListAsync() : [];
+        context.PrefillCachedApps.RemoveRange(apps);
+        context.PrefillCachedDepots.RemoveRange(depots);
+        await context.SaveChangesAsync();
+        return (apps.Count, depots.Count);
     }
 
     /// <summary>
@@ -357,7 +402,7 @@ public class PrefillCacheService
 /// </summary>
 public class CachedAppInfo
 {
-    public long AppId { get; set; }
+    public string AppId { get; set; } = string.Empty;
     public string? AppName { get; set; }
     public int DepotCount { get; set; }
     public long TotalBytes { get; set; }

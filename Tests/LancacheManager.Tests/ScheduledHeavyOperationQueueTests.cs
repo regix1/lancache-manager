@@ -32,10 +32,13 @@ public sealed class ScheduledHeavyOperationQueueTests
                 pathResolver,
                 queue,
                 CreateStateService());
+            var notice = new RunNotice(NotificationMode.Manual, RunTrigger.Manual);
+            service.SelectRunNotice(notice);
 
             await service.InvokeScheduledAsync(CancellationToken.None);
 
             AssertQueueRequest(queue, OperationType.CacheSizeScan, "Cache File Scan");
+            Assert.Same(notice, queue.Notice);
         }
         finally
         {
@@ -48,10 +51,13 @@ public sealed class ScheduledHeavyOperationQueueTests
     {
         var queue = new RecordingOperationQueue();
         var service = new TestGameDetectionService(queue, CreateStateService());
+        var notice = new RunNotice(NotificationMode.Manual, RunTrigger.Startup);
+        service.SelectRunNotice(notice);
 
         await service.InvokeScheduledAsync(CancellationToken.None);
 
         AssertQueueRequest(queue, OperationType.GameDetection, "Game Detection");
+        Assert.Same(notice, queue.Notice);
     }
 
     [Fact]
@@ -69,10 +75,13 @@ public sealed class ScheduledHeavyOperationQueueTests
             .AddSingleton(context)
             .BuildServiceProvider();
         var service = new TestCacheReconciliationService(provider, queue, CreateStateService());
+        var notice = new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled);
+        service.SelectRunNotice(notice);
 
         await service.InvokeScheduledAsync(provider, CancellationToken.None);
 
         AssertQueueRequest(queue, OperationType.EvictionScan, "Eviction Scan");
+        Assert.Same(notice, queue.Notice);
     }
 
     [Fact]
@@ -96,11 +105,14 @@ public sealed class ScheduledHeavyOperationQueueTests
             .AddSingleton(context)
             .BuildServiceProvider();
         var service = new TestCacheReconciliationService(provider, queue, CreateStateService());
+        var notice = new RunNotice(NotificationMode.Manual, RunTrigger.Startup);
+        service.SelectRunNotice(notice);
 
         await service.InvokeStartupAsync(CancellationToken.None)
             .WaitAsync(TimeSpan.FromSeconds(2));
 
         AssertQueueRequest(queue, OperationType.EvictionScan, "Eviction Scan");
+        Assert.Same(notice, queue.Notice);
         Assert.True(service.FirstStartupScanComplete.IsCompletedSuccessfully);
     }
 
@@ -482,6 +494,7 @@ public sealed class ScheduledHeavyOperationQueueTests
         public ConflictScope? Scope { get; private set; }
         public string? DisplayName { get; private set; }
         public Func<Task<Guid?>>? Start { get; private set; }
+        public RunNotice? Notice { get; private set; }
 
         public Task<QueuedOperationResponse> EnqueueAsync(
             OperationType type,
@@ -490,12 +503,14 @@ public sealed class ScheduledHeavyOperationQueueTests
             Func<Task<Guid?>> start,
             CancellationToken ct,
             bool reportRefusal = false,
-            bool showWaitingCard = true)
+            bool showWaitingCard = true,
+            RunNotice? notice = null)
         {
             Type = type;
             Scope = scope;
             DisplayName = displayName;
             Start = start;
+            Notice = notice;
             return Task.FromResult(_response);
         }
 

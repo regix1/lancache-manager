@@ -128,8 +128,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         string name,
         bool silent,
         bool deferIfDownloading,
-        Action? onCompleted = null)
+        Action? onCompleted = null,
+        RunNotice? notice = null)
     {
+        silent = notice is null ? silent : !notice.ShowNotification;
         if (!TryBeginRun())
         {
             return null;
@@ -144,7 +146,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // must still stop with the host so its Rust child cannot outlive application shutdown.
             cts = CancellationTokenSource.CreateLinkedTokenSource(
                 _applicationLifetime.ApplicationStopping);
-            operationId = RegisterEvictionScanOperation(name, cts, silent);
+            operationId = RegisterEvictionScanOperation(name, cts, silent, notice);
             operationRegistered = true;
 
             _ = Task.Run(async () =>
@@ -265,7 +267,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         // Wait for setup to complete so datasources and database are configured
         await _stateService.WaitForSetupCompletedAsync(stoppingToken);
 
-        var silent = RunSilentFor(CurrentRunTrigger);
+        var notice = CurrentRunNotice;
+        var silent = !notice.ShowNotification;
 
         try
         {
@@ -288,7 +291,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 "Eviction Scan",
                 silent,
                 deferIfDownloading: true,
-                () => scanCompleted.TrySetResult()));
+                () => scanCompleted.TrySetResult(), notice));
 
             // No reportRefusal here: that only fires for a refusal the start delegate throws, and
             // this one cannot. StartScanInBackground returns an id before any download is checked,
@@ -300,7 +303,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 "Eviction Scan",
                 StartStartupScanAsync,
                 stoppingToken,
-                showWaitingCard: !silent);
+                showWaitingCard: !silent,
+                notice: notice);
 
             if (outcome.Queued || outcome.AlreadyRunning)
             {
@@ -328,7 +332,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
-        var silent = RunSilentFor(CurrentRunTrigger);
+        var notice = CurrentRunNotice;
+        var silent = !notice.ShowNotification;
         var context = scopedServices.GetRequiredService<AppDbContext>();
 
         // Skip scan if there are no downloads in the database
@@ -339,7 +344,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
 
         Task<Guid?> StartScheduledScanAsync() => Task.FromResult(
-            StartScanInBackground("Eviction Scan", silent, deferIfDownloading: true));
+            StartScanInBackground("Eviction Scan", silent, deferIfDownloading: true, notice: notice));
 
         // Same as the startup path: the start delegate cannot throw a refusal, so asking the queue
         // to announce one would announce nothing. The refusal this run can hit is reported by the
@@ -350,7 +355,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             "Eviction Scan",
             StartScheduledScanAsync,
             stoppingToken,
-            showWaitingCard: !silent);
+            showWaitingCard: !silent,
+            notice: notice);
 
         if (outcome.Queued)
         {
@@ -413,7 +419,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 // the run back in front of that gate, which refuses it for the same download and holds
                 // it there until downloads stop. Only the download branch arms this: the capability
                 // refusal below can stay true indefinitely, and waking for that would be a loop.
-                TriggerDeferredRun();
+                // The terminal listener retains this admitted run until downloads stop.
 
                 // No error text: the card prints this field verbatim in preference to any
                 // translation key, so the gate's English would tell the reader to try again for a
@@ -634,6 +640,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 // pre-scan snapshot until an unrelated operation invalidates it.
                 if (scanResult.Evicted > 0 || scanResult.UnEvicted > 0)
                 {
+                    await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
                     await ReportScanProgressAsync(
                         operationId,
                         92.0,
@@ -738,7 +745,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// The terminal ALWAYS emits; the scan-phase display flag (Silent) is negated into
     /// ShowNotification so the frontend gates the card instead of the transport suppressing it.
     /// </summary>
-    private Guid RegisterEvictionScanOperation(string name, CancellationTokenSource cts, bool silent = false)
+    private Guid RegisterEvictionScanOperation(string name, CancellationTokenSource cts, bool silent = false, RunNotice? notice = null)
     {
         var terminalState = new EvictionScanTerminalState { Silent = silent };
         Guid operationId = default;
@@ -746,6 +753,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             OperationType.EvictionScan,
             name,
             cts,
+            metadata: new Dictionary<string, object?> { ["runNotice"] = notice, ["showNotification"] = !silent },
             onTerminalCleanup: () => _evictionScanTerminalStates.TryRemove(operationId, out _),
             onTerminalEmit: info =>
             {
@@ -1611,6 +1619,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             int logEntriesDeleted = 0;
             int downloadsDeleted = 0;
             int prefillDepotsDeleted = 0;
+            int prefillAppsDeleted = 0;
 
             var strategy = context.Database.CreateExecutionStrategy();
             await strategy.ExecuteAsync(async () =>
@@ -1620,6 +1629,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 logEntriesDeleted = 0;
                 downloadsDeleted = 0;
                 prefillDepotsDeleted = 0;
+                prefillAppsDeleted = 0;
 
                 await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
                 try
@@ -1645,7 +1655,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     // cached and the daemon skips them on the next run. Matched through Downloads
                     // because a prefill row carries only a Steam app id.
                     var evictedGameAppIds = await context.Downloads
-                        .Where(d => d.IsEvicted && d.GameAppId != null && d.GameAppId > 0)
+                        .Where(d => d.IsEvicted && d.Service == "steam" && d.GameAppId != null && d.GameAppId > 0)
                         .Select(d => d.GameAppId!.Value)
                         .Distinct()
                         .ToListAsync(stoppingToken);
@@ -1653,6 +1663,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     prefillDepotsDeleted = await context.PrefillCachedDepots
                         .Where(depot => evictedGameAppIds.Contains(depot.AppId))
                         .ExecuteDeleteAsync(stoppingToken);
+                    prefillAppsDeleted = await PrefillCacheService.MatchingCachedApps(context,
+                        context.Downloads.Where(d => d.IsEvicted)).ExecuteDeleteAsync(stoppingToken);
 
                     // Step 2: delete LogEntries for evicted downloads (FK constraint).
                     await ReportRemovalProgressAsync(
@@ -1706,7 +1718,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             // The prefill game picker holds its "Cached" badges in memory, so an open browser would
             // keep showing the pre-removal ones until it is reloaded.
-            if (prefillDepotsDeleted > 0)
+            if (prefillDepotsDeleted + prefillAppsDeleted > 0)
             {
                 await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
             }
@@ -2217,6 +2229,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             int logEntriesDeleted = 0;
             int downloadsDeleted = 0;
             int prefillDepotsDeleted = 0;
+            int prefillAppsDeleted = 0;
 
             await ReportRemovalProgressAsync(
                 opId,
@@ -2234,6 +2247,22 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
                 try
                 {
+                    prefillAppsDeleted = 0;
+                    prefillDepotsDeleted = 0;
+                    logEntriesDeleted = 0;
+                    downloadsDeleted = 0;
+                    var downloads = context.Downloads.Where(d => d.IsEvicted);
+                    downloads = scope switch
+                    {
+                        EvictionScope.Steam => downloads.Where(d => d.Service == "steam" && d.GameAppId == long.Parse(key)),
+                        EvictionScope.Epic => downloads.Where(d => d.Service == "epicgames" && d.EpicAppId == key),
+                        EvictionScope.Named => downloads.Where(d => d.GameAppId == null && d.EpicAppId == null
+                            && d.Service == keyLower && d.GameName == namedGameName),
+                        EvictionScope.Service => downloads.Where(d => d.GameAppId == null && d.EpicAppId == null && d.Service == keyLower),
+                        _ => throw new ArgumentOutOfRangeException(nameof(scope))
+                    };
+                    prefillAppsDeleted = await PrefillCacheService.MatchingCachedApps(context, downloads)
+                        .ExecuteDeleteAsync(stoppingToken);
                     // Step 1: Delete LogEntries for this entity's evicted Downloads (FK constraint).
                     logEntriesDeleted = scope switch
                     {
@@ -2340,7 +2369,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             // The prefill game picker holds its "Cached" badges in memory, so an open browser would
             // keep showing the pre-removal one until it is reloaded.
-            if (prefillDepotsDeleted > 0)
+            if (prefillDepotsDeleted + prefillAppsDeleted > 0)
             {
                 await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
             }

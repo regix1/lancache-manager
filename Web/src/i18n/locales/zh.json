@@ -2364,6 +2364,11 @@
             "description": "检测扫描的总计和上次运行时间",
             "details": "位于游戏和服务检测结果上方的汇总行。只清除检测结果而保留它，会留下一个没有内容的上次运行时间。"
           },
+          "prefillCachedApps": {
+            "label": "预填充缓存游戏",
+            "description": "所有服务中已完成预填充的游戏",
+            "details": "用于向各服务验证缓存标记的记录。清除后，游戏再次预填充之前不会显示缓存标记。"
+          },
           "prefillCachedDepots": {
             "label": "预填充缓存状态",
             "description": "哪些游戏仓库已在缓存中",
@@ -5077,7 +5082,7 @@
       "endingSession": "正在结束会话...",
       "loginCancelled": "登录已取消",
       "removedFromCache": "已将 {{game}} 从已缓存列表中移除",
-      "clearedAllFromCache": "已从已缓存列表中清除全部游戏",
+      "clearedAllFromCache": "已清除此服务的已缓存游戏记录",
       "removeFromCacheSharedFiles": "未移除 {{game}} 的任何内容，因为它的文件与另一个游戏共享",
       "removeFromCacheFailed": "无法将 {{game}} 从已缓存列表中移除",
       "sessionEnded": "会话已结束：{{reason}}",
@@ -5106,7 +5111,7 @@
       "title": "选择要预填充的游戏",
       "importAppIds": "导入应用 ID",
       "showCached": "显示已缓存",
-      "clearAllCached": "清除已缓存",
+      "clearAllCached": "清除此服务的已缓存游戏",
       "usingCached": "使用缓存的结果（上次扫描 < 5 分钟前）",
       "rescan": "重新扫描",
       "importHelp": "粘贴来自 SteamPrefill 的 Steam 应用 ID 或任何逗号分隔的列表",

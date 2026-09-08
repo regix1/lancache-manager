@@ -28,6 +28,15 @@ public record OperationWaitingNotification(
 /// watches for this on the tracker's terminal hook and sends that broadcast; without the flag such an
 /// operation is indistinguishable from one that already reported itself, and would be announced twice.
 /// </summary>
+public sealed class RunNotice(NotificationMode mode, RunTrigger trigger)
+{
+    private int _acknowledged;
+    public NotificationMode Mode { get; } = mode;
+    public RunTrigger Trigger { get; internal set; } = trigger;
+    public bool ShowNotification => Mode.AllowsTrigger(Trigger);
+    public bool TryAcknowledge() => Interlocked.Exchange(ref _acknowledged, 1) == 0;
+}
+
 public static class DeclinedRunMetadata
 {
     public const string Key = "declinedBeforeStart";

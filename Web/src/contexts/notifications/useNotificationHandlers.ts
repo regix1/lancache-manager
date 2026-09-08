@@ -4,7 +4,7 @@
  * for all standard lifecycle notification types using the existing factory functions.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type {
   SetNotifications,
   ScheduleAutoDismiss,
@@ -175,6 +175,7 @@ export function useNotificationHandlers(
   removeNotification: RemoveNotification
 ): void {
   const signalR = useSignalR();
+  const acknowledgedIds = useRef(new Set<string>());
 
   useEffect(() => {
     // Track all subscriptions for cleanup
@@ -237,6 +238,27 @@ export function useNotificationHandlers(
     const waitingHandler = (event: OperationWaitingEvent): void => {
       const entry = findEntryForWireType(registry, event.operationType);
       if (!entry) return;
+      if (event.silent) {
+        const id = `queued_${event.operationId}`;
+        if (acknowledgedIds.current.has(id)) return;
+        acknowledgedIds.current.add(id);
+        createCompletionHandler<OperationWaitingEvent & { success: boolean; status: string }>(
+          {
+            type: 'generic',
+            getId: (queued) => `queued_${queued.operationId}`,
+            storageKey: '',
+            getSuccessMessage: (queued) =>
+              i18n.t('management.schedules.queuedUntilCacheFreeNamed', { name: queued.name }),
+            getSuccessDetails: (queued) => ({
+              operationId: queued.operationId,
+              notificationType: 'warning'
+            })
+          },
+          setNotifications,
+          scheduleAutoDismiss
+        )({ ...event, success: true, status: 'skipped' });
+        return;
+      }
       setNotifications((prev: UnifiedNotification[]) => {
         // A batch that owns this item type already has a card on screen, so a second card
         // would just repeat it. The blocker name is the one thing that card does not know,
@@ -291,16 +313,11 @@ export function useNotificationHandlers(
         const waitingNotification: UnifiedNotification = {
           id: entry.id,
           type: entry.type,
-          status: event.silent ? 'skipped' : 'waiting',
-          message: event.silent
-            ? i18n.t('management.schedules.queuedUntilCacheFreeNamed', { name: event.name })
-            : waitingCardMessage(event),
+          status: 'waiting',
+          message: waitingCardMessage(event),
           startedAt: existing?.startedAt ?? new Date(),
           details: { operationId: event.operationId }
         };
-        if (event.silent) {
-          scheduleAutoDismiss(entry.id);
-        }
         return [...filtered, waitingNotification];
       });
     };

@@ -103,7 +103,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     // to slip a full day. The value is the waiting operation putting the card on screen for that
     // hold, so the two live and die together: one entry means one card, and holding a key twice is
     // impossible by construction rather than by a second bookkeeping set.
-    private readonly Dictionary<string, Guid> _deferredRuns = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (Guid Id, RunNotice Notice)> _deferredRuns = new(StringComparer.OrdinalIgnoreCase);
 
     // What each held run's card was told it is waiting for, kept so a page refresh can be answered
     // with the same sentence. The recovery route rebuilds a waiting card from the tracker, and the
@@ -260,7 +260,9 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // Off this callback: the tracker is mid-terminal for one operation and holding registers
             // another, which is the tracker re-entered from inside its own notify.
             var heldType = operation.Type;
-            _ = Task.Run(() => HoldRefusedRun(heldKey, heldType));
+            var notice = ReadRunNotice(operation.Metadata)
+                ?? new RunNotice(FindScheduleLoop(heldKey)?.EffectiveNotificationMode ?? NotificationMode.All, RunTrigger.Scheduled);
+            _ = Task.Run(() => HoldRefusedRun(heldKey, heldType, notice));
             return;
         }
 
@@ -268,6 +270,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             && ReadDeclinedBeforeStart(operation.Metadata)
             && TryFindScheduleKey(operation.Type, out var declinedKey))
         {
+            if (ReadRunNotice(operation.Metadata) is { } notice
+                && (!notice.ShowNotification && (notice.Mode != NotificationMode.Silent || !notice.TryAcknowledge())))
+            {
+                return;
+            }
 
             // Passed through as it stands, empty or not. The card reads the reason as
             // error-or-stage-key, and an empty string is neither null nor undefined there, so
@@ -315,14 +322,15 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// </param>
     private void StartDeferredRuns(string? alreadyStarting)
     {
-        KeyValuePair<string, Guid>[] deferred;
+        KeyValuePair<string, (Guid Id, RunNotice Notice)>[] deferred;
         lock (_deferredRuns)
         {
             if (alreadyStarting is not null && _deferredRuns.Remove(alreadyStarting, out var startingHeldId))
             {
                 // Its own run is what this call is on its way to start, so its card closes with the
                 // rest rather than waiting for a loop it is already inside.
-                CloseHeldRunCard(startingHeldId);
+                CloseHeldRunCard(startingHeldId.Id);
+                FindScheduleLoop(alreadyStarting)?.SelectRunNotice(startingHeldId.Notice);
             }
 
             if (_deferredRuns.Count == 0)
@@ -339,7 +347,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // The card closes whether or not a loop was found. A key with no loop behind it is
             // already out of the set by this point, so leaving its card open would leave it on
             // screen for the life of the process with nothing able to clear it.
-            CloseHeldRunCard(heldId);
+            CloseHeldRunCard(heldId.Id);
 
             // A schedule already running is doing the work this hold was waiting for, so waking it
             // would only arm a follow-up that queues behind the run in progress - and the queue names
@@ -350,7 +358,9 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 continue;
             }
 
-            FindScheduleLoop(serviceKey)?.TriggerDeferredRun();
+            var loop = FindScheduleLoop(serviceKey);
+            if (heldId.Notice.Trigger == RunTrigger.Manual) loop?.TriggerImmediateRun(heldId.Notice);
+            else loop?.TriggerDeferredRun(heldId.Notice);
         }
     }
 
@@ -738,7 +748,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// which is what keeps every other subclass of the two scheduled bases - the speed tracker that
     /// produces the download answer among them - running exactly as it did.
     /// </summary>
-    private string? CheckScheduleRun(string serviceKey)
+    private string? CheckScheduleRun(string serviceKey, RunTrigger trigger, RunNotice? notice = null)
     {
         if (_cacheScanGate is null || !_runStatusOperationTypes.TryGetValue(serviceKey, out var operationType))
         {
@@ -767,7 +777,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // Held here rather than at each caller because every route that refuses a run comes through
         // this one method: the schedule loops, Run Now, and Run All. Holding it at the callers is
         // what left Run All reporting three schedules as simply not run.
-        HoldRefusedRun(serviceKey, operationType);
+        HoldRefusedRun(serviceKey, operationType,
+            notice ?? new RunNotice(FindScheduleLoop(serviceKey)?.EffectiveNotificationMode ?? NotificationMode.All, trigger));
 
         // Not the gate's own sentence, which ends in "try again once it finishes" and is written for
         // the controllers, where a refused scan really is over. A schedule's run is kept, so telling
@@ -818,7 +829,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             ? scheduleKey
             : announcedKey;
 
-        var denial = CheckScheduleRun(serviceKey);
+        var notice = FindScheduleLoop(serviceKey)?.CurrentRunNotice;
+        var denial = CheckScheduleRun(serviceKey, trigger, notice?.Trigger == trigger ? notice : null);
         if (denial is null)
         {
             return null;
@@ -833,13 +845,13 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// from the operation queue. The hold and the card are one entry: a schedule already holding one
     /// does not raise a second, so a loop refused every interval for an hour shows one card.
     /// </summary>
-    private void HoldRefusedRun(string serviceKey, OperationType operationType)
+    private void HoldRefusedRun(string serviceKey, OperationType operationType, RunNotice notice)
     {
         if (_tracker is null)
         {
             lock (_deferredRuns)
             {
-                _deferredRuns[serviceKey] = Guid.Empty;
+                _deferredRuns[serviceKey] = (Guid.Empty, notice);
             }
 
             return;
@@ -847,14 +859,17 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         lock (_deferredRuns)
         {
-            if (_deferredRuns.ContainsKey(serviceKey))
+            if (_deferredRuns.TryGetValue(serviceKey, out var held))
             {
-                return;
+                if (held.Notice.Trigger == RunTrigger.Manual || notice.Trigger != RunTrigger.Manual) return;
+                held.Notice.Trigger = RunTrigger.Manual;
+                notice = held.Notice;
+                if (held.Id != Guid.Empty) return;
             }
 
             // Claimed before the card is raised, so two loops refused at once cannot both get past
             // the check above and put two cards up for one schedule.
-            _deferredRuns[serviceKey] = Guid.Empty;
+            _deferredRuns[serviceKey] = (Guid.Empty, notice);
         }
 
         var displayName = _heldRunDisplayNames.TryGetValue(serviceKey, out var name) ? name : serviceKey;
@@ -863,26 +878,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // until the download finishes is the opposite of that. The run is still held either way; only
         // how it says so changes. Silent gets the notice that clears itself, so a person who set the
         // schedule to stay quiet still learns the run is waiting rather than gone.
-        if (FindScheduleLoop(serviceKey)?.EffectiveNotificationMode == NotificationMode.Silent)
+        if (!notice.ShowNotification)
         {
-            // Registered and completed rather than announced straight off, because the card is keyed
-            // to a real operation id and the browser drops a terminal naming an id it never saw start.
-            Guid noticeId = default;
-            noticeId = _tracker.RegisterOperation(
-                operationType,
-                displayName,
-                new CancellationTokenSource(),
-                onTerminalEmit: (OperationTerminalInfo _) => EmitSkippedRunAsync(
-                    serviceKey,
-                    noticeId,
-                    // No reason: the card prints that field verbatim and translates the stage key
-                    // beside it, so the wording has to travel as the key alone. The name travels
-                    // beside it as an interpolation value, which is the only way the card can say
-                    // which of several waiting schedules it is reporting.
-                    reason: null,
-                    CacheScanGate.ScheduleQueuedReasonNamedKey,
-                    new Dictionary<string, object?> { ["name"] = displayName }));
-            _tracker.CompleteOperation(noticeId, success: true, skipped: true);
+            if (notice.Mode != NotificationMode.Silent || !notice.TryAcknowledge()) return;
+            _ = _notifications.NotifyAllAsync(SignalREvents.OperationWaiting,
+                new OperationWaitingNotification(Guid.NewGuid(), operationType.ToWireString(), displayName, null, Silent: true));
             return;
         }
 
@@ -919,7 +919,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         lock (_deferredRuns)
         {
-            _deferredRuns[serviceKey] = heldId;
+            _deferredRuns[serviceKey] = (heldId, notice);
         }
 
         // The prefill is the only blocker the app tracks that can be writing to the cache, so it is
@@ -956,7 +956,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         lock (_deferredRuns)
         {
-            if (_deferredRuns.TryGetValue(serviceKey, out var held) && held == heldId)
+            if (_deferredRuns.TryGetValue(serviceKey, out var held) && held.Id == heldId)
             {
                 _deferredRuns.Remove(serviceKey);
                 _heldRunBlockerNames.Remove(heldId);
@@ -1004,7 +1004,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         // Asked before either TriggerImmediateRun below, so a run that would be declined never arms
         // the pending-run flag and the loop is not woken only to turn around.
-        var runDenial = CheckScheduleRun(serviceKey);
+        var runDenial = CheckScheduleRun(serviceKey, RunTrigger.Manual);
         if (runDenial is not null)
         {
             return Task.FromResult<(ScheduleRunStatus, string?)>(
@@ -1075,6 +1075,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
     private static bool ReadShowNotification(object? metadata)
     {
+        if (ReadRunNotice(metadata) is { } run)
+        {
+            return run.ShowNotification;
+        }
         var value = metadata switch
         {
             IReadOnlyDictionary<string, object?> readOnly when readOnly.TryGetValue("showNotification", out var v) => v,
@@ -1084,6 +1088,15 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         return value is not bool show || show;
     }
+
+    private static RunNotice? ReadRunNotice(object? state) => state switch
+    {
+        RunNotice notice => notice,
+        GameDetectionMetrics metrics => metrics.Notice,
+        IReadOnlyDictionary<string, object?> values when values.TryGetValue("runNotice", out var value) => value as RunNotice,
+        IDictionary<string, object> values when values.TryGetValue("runNotice", out var value) => value as RunNotice,
+        _ => null
+    };
 
     // The reporter mirrors each run's latest interpolation context into the operation metadata under
     // "context" so a mid-run page refresh can rehydrate the card with its {{processed}}/{{total}}
@@ -1117,7 +1130,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // mid-run: one that is keeps its own single pending-run flag, so this arms one
             // follow-up run instead of starting a second concurrent one, and the already-running
             // count reports what was running when this fan-out reached it.
-            var scheduledDenial = CheckScheduleRun(key);
+            var scheduledDenial = CheckScheduleRun(key, RunTrigger.Manual);
             if (scheduledDenial is not null)
             {
                 skippedCount++;
@@ -1139,7 +1152,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         foreach (var (key, service) in _configurableServices)
         {
-            var configurableDenial = CheckScheduleRun(key);
+            var configurableDenial = CheckScheduleRun(key, RunTrigger.Manual);
             if (configurableDenial is not null)
             {
                 skippedCount++;

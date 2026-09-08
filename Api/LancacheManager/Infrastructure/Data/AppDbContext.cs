@@ -33,8 +33,18 @@ public class AppDbContext : DbContext
     public DbSet<XboxCdnPattern> XboxCdnPatterns { get; set; }
     public DbSet<GameImage> GameImages { get; set; }
 
+    public DbSet<PrefillCachedApp> PrefillCachedApps { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<PrefillCachedApp>()
+            .Property(a => a.Platform)
+            .HasConversion<string>();
+
+        modelBuilder.Entity<PrefillCachedApp>()
+            .HasIndex(a => new { a.Platform, a.AppId })
+            .IsUnique();
+
         // Downloads indexes for fast queries
         modelBuilder.Entity<Download>()
             .HasIndex(d => new { d.ClientIp, d.Service, d.IsActive })

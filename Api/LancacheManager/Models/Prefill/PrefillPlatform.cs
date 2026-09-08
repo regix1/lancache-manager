@@ -14,6 +14,25 @@ public enum PrefillPlatform
 
 public static class PrefillPlatformExtensions
 {
+    public static string ToService(this PrefillPlatform platform) => platform switch
+    {
+        PrefillPlatform.Steam => "steam",
+        PrefillPlatform.Epic => "epicgames",
+        PrefillPlatform.BattleNet => "blizzard",
+        PrefillPlatform.Riot => "riot",
+        PrefillPlatform.Xbox => "xbox",
+        _ => throw new ArgumentOutOfRangeException(nameof(platform))
+    };
+
+    public static PrefillPlatform? ToPrefillPlatform(this string service) => service.ToLowerInvariant() switch
+    {
+        "steam" => PrefillPlatform.Steam,
+        "epicgames" or "epic" => PrefillPlatform.Epic,
+        "blizzard" or "battlenet" => PrefillPlatform.BattleNet,
+        "riot" => PrefillPlatform.Riot,
+        "xbox" => PrefillPlatform.Xbox,
+        _ => null
+    };
     /// <summary>
     /// Whether prefilling this platform needs an account. Battle.net and Riot pull public CDN content
     /// anonymously - their daemons override <c>InitialAuthState</c> to Authenticated and report

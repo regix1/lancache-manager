@@ -106,13 +106,16 @@ public sealed class PrefillCachedBadgeRemovalTests
     [Theory]
     [InlineData("CacheManagementService.SteamRemoval.cs")]
     [InlineData("CacheManagementService.ServiceRemoval.cs")]
+    [InlineData("CacheManagementService.EpicRemoval.cs")]
+    [InlineData("CacheManagementService.NamedRemoval.cs")]
     [InlineData("CacheReconciliationService.cs")]
     [InlineData("CacheClearingService.cs")]
     public void RemovalPath_ClearsTheBadgeRowsAndAnnouncesTheChange(string fileName)
     {
         var source = ReadCacheServiceSource(fileName);
 
-        Assert.Contains("PrefillCachedDepots", source, StringComparison.Ordinal);
+        Assert.True(source.Contains("PrefillCachedApps", StringComparison.Ordinal)
+            || source.Contains("MatchingCachedApps", StringComparison.Ordinal));
         Assert.Contains("SignalREvents.PrefillCacheChanged", source, StringComparison.Ordinal);
     }
 

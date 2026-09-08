@@ -62,6 +62,7 @@ const TABLE_DESTINATIONS: Record<string, readonly TableDestination[]> = {
   PrefillSessions: [{ section: 'prefill-sessions' }],
   PrefillHistoryEntries: [{ section: 'prefill-sessions' }],
   PrefillCachedDepots: [{ tab: 'prefill' }],
+  PrefillCachedApps: [{ tab: 'prefill' }],
   BannedPrefillUsers: [{ section: 'prefill-sessions' }],
   UserPreferences: [{ section: 'settings' }, { section: 'preferences' }],
   CacheSnapshots: [{ tab: 'dashboard' }],
@@ -244,6 +245,12 @@ const DataSection: React.FC<DataSectionProps> = ({
       label: t('management.sections.data.tables.prefillCachedDepots.label'),
       description: t('management.sections.data.tables.prefillCachedDepots.description'),
       details: t('management.sections.data.tables.prefillCachedDepots.details')
+    },
+    {
+      name: 'PrefillCachedApps',
+      label: t('management.sections.data.tables.prefillCachedApps.label'),
+      description: t('management.sections.data.tables.prefillCachedApps.description'),
+      details: t('management.sections.data.tables.prefillCachedApps.details')
     },
     {
       name: 'BannedPrefillUsers',

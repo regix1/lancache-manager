@@ -28,6 +28,42 @@ public abstract class ScheduledServiceBase : BackgroundService
     // race on it safely.
     private int _pendingManualRun;
     private int _pendingDeferredRun;
+    private RunNotice? _manualNotice;
+    private RunNotice? _deferredNotice;
+    private RunNotice? _currentNotice;
+    public RunNotice CurrentRunNotice
+    {
+        get => _currentNotice ??= new RunNotice(EffectiveNotificationMode, CurrentRunTrigger);
+        private set => _currentNotice = value;
+    }
+
+    internal void SelectRunNotice(RunNotice notice)
+    {
+        CurrentRunNotice = notice;
+        CurrentRunTrigger = notice.Trigger;
+    }
+
+    protected void SelectRunNotice(RunTrigger trigger)
+    {
+        _currentNotice = trigger == RunTrigger.Manual
+            ? Interlocked.Exchange(ref _manualNotice, null)
+            : Interlocked.Exchange(ref _deferredNotice, null);
+        if (trigger == RunTrigger.Manual) Interlocked.Exchange(ref _deferredNotice, null);
+        _currentNotice ??= new RunNotice(EffectiveNotificationMode, trigger);
+        CurrentRunTrigger = CurrentRunNotice.Trigger;
+    }
+
+    public void TriggerImmediateRun(RunNotice notice)
+    {
+        Interlocked.Exchange(ref _manualNotice, notice);
+        TriggerImmediateRun();
+    }
+
+    public void TriggerDeferredRun(RunNotice notice)
+    {
+        Interlocked.Exchange(ref _deferredNotice, notice);
+        TriggerDeferredRun();
+    }
 
     protected ScheduledServiceBase(ILogger logger)
     {
@@ -496,7 +532,8 @@ public abstract class ScheduledServiceBase : BackgroundService
         // The pending Run Now flag has already been taken by the loop above by the time this runs, so
         // a manual attempt refused here is gone. That is why the trigger is handed over: whoever
         // answers has to report a refused manual attempt rather than let the click disappear.
-        var runDenial = ScheduleRunGate?.Invoke(serviceKey, trigger);
+        SelectRunNotice(trigger);
+        var runDenial = ScheduleRunGate?.Invoke(serviceKey, CurrentRunTrigger);
         if (runDenial is not null)
         {
             _logger.LogInformation("{ServiceName} run skipped: {Reason}", ServiceName, runDenial);

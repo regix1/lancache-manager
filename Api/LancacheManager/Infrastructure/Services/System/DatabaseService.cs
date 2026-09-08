@@ -56,6 +56,7 @@ public class DatabaseService
         "PrefillSessions",
         "PrefillHistoryEntries",
         "PrefillCachedDepots",
+        "PrefillCachedApps",
         "BannedPrefillUsers",
         "CacheSnapshots",
         "EpicGameMappings",
@@ -826,6 +827,8 @@ public class DatabaseService
                         case "PrefillCachedDepots":
                             // Use ExecuteDeleteAsync for direct deletion
                             var prefillCachedDepotsCount = await context.PrefillCachedDepots.ExecuteDeleteAsync(cancellationToken);
+                            prefillCachedDepotsCount += await context.PrefillCachedApps
+                                .Where(a => a.Platform == PrefillPlatform.Steam).ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {prefillCachedDepotsCount:N0} prefill cached depots");
                             deletedRows += prefillCachedDepotsCount;
 
@@ -836,6 +839,19 @@ public class DatabaseService
 
                             // Open game pickers are holding the cached app ids this table produced.
                             await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+                            break;
+
+                        case "PrefillCachedApps":
+                            var prefillCachedAppsCount = await context.PrefillCachedApps.ExecuteDeleteAsync(cancellationToken);
+                            deletedRows += prefillCachedAppsCount;
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "PrefillCachedApps", prefillCachedAppsCount,
+                                $"Cleared prefill cached apps ({prefillCachedAppsCount:N0} rows)");
+                            if (prefillCachedAppsCount > 0)
+                            {
+                                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+                            }
                             break;
 
                         case "CacheSnapshots":
@@ -1313,6 +1329,7 @@ public class DatabaseService
             "PrefillSessions" => await context.PrefillSessions.CountAsync(cancellationToken),
             "PrefillHistoryEntries" => await context.PrefillHistoryEntries.CountAsync(cancellationToken),
             "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(cancellationToken),
+            "PrefillCachedApps" => await context.PrefillCachedApps.CountAsync(cancellationToken),
             "BannedPrefillUsers" => await context.BannedPrefillUsers.CountAsync(cancellationToken),
             "CacheSnapshots" => await context.CacheSnapshots.CountAsync(cancellationToken),
             "EpicGameMappings" => await context.EpicGameMappings.CountAsync(cancellationToken),

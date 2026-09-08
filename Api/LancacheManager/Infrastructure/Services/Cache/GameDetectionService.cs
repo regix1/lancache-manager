@@ -52,7 +52,8 @@ public class GameDetectionService : ScheduledBackgroundService
     {
         // Stamp the run-stable display flag from the effective mode and the trigger that produced this
         // run; the detection service carries it verbatim through every lifecycle event.
-        var showNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        var notice = CurrentRunNotice;
+        var showNotification = notice.ShowNotification;
 
         // Resolve the run once. Hybrid picks incremental or full from the clock, so asking twice could
         // log one scan and start the other. Read at the top of each run rather than held on this
@@ -77,7 +78,7 @@ public class GameDetectionService : ScheduledBackgroundService
         // shows a stale blocker, before failing with an unrelated "start gate" error. A null
         // return stays reserved for the genuinely transient case (a detection already active).
         Task<Guid?> StartDetectionAsync() =>
-            _detectionService.StartDetectionAsync(incremental: incremental, showNotification: showNotification);
+            _detectionService.StartDetectionAsync(incremental: incremental, showNotification: showNotification, notice: notice);
 
         var outcome = await _operationQueue.EnqueueAsync(
             OperationType.GameDetection,
@@ -86,7 +87,8 @@ public class GameDetectionService : ScheduledBackgroundService
             StartDetectionAsync,
             ct,
             reportRefusal: true,
-            showWaitingCard: showNotification);
+            showWaitingCard: showNotification,
+            notice: notice);
 
         var disposition = outcome.Queued
             ? "queued"

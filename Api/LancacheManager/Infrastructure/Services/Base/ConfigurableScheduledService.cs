@@ -183,7 +183,6 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                     runTrigger,
                     async () =>
                     {
-                        CurrentRunTrigger = runTrigger;
                         // Broadcast the start so the Schedules status dot lights up for the whole run.
                         // Poll-style services (see BroadcastRunStart) opt out to avoid a per-tick flash
                         // and raise the start themselves only when a real run begins.

@@ -136,7 +136,8 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                 await WaitForDownloadAnswer(ServiceKey, stoppingToken);
             }
 
-            startupDenial = ScheduleRunGate?.Invoke(ServiceKey, RunTrigger.Startup);
+            SelectRunNotice(ConsumePendingManualRun() ? RunTrigger.Manual : RunTrigger.Startup);
+            startupDenial = ScheduleRunGate?.Invoke(ServiceKey, CurrentRunTrigger);
         }
 
         if (startupDenial is not null)
@@ -153,9 +154,6 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                 // Manual takes priority over Startup (same ternary as ConfigurableScheduledService):
                 // a Run Now landing around startup must be consumed here, or the stale flag would
                 // misattribute a later scheduled tick as Manual.
-                CurrentRunTrigger = ConsumePendingManualRun()
-                    ? RunTrigger.Manual
-                    : RunTrigger.Startup;
                 // Broadcast the start so the Schedules status dot lights up for the whole run.
                 ServiceExecutionStateChanged?.Invoke(ServiceKey);
                 await OnStartupAsync(stoppingToken);
@@ -268,7 +266,6 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                     runTrigger,
                     async () =>
                     {
-                        CurrentRunTrigger = runTrigger;
                         // Broadcast the start so the Schedules status dot lights up for the whole run.
                         ServiceExecutionStateChanged?.Invoke(ServiceKey);
                         await ExecuteWorkAsync(stoppingToken);

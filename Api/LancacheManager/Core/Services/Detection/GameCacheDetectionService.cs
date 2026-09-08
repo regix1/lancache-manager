@@ -139,8 +139,9 @@ public partial class GameCacheDetectionService : IDisposable
         RestoreInterruptedOperations();
     }
 
-    public async Task<Guid?> StartDetectionAsync(bool incremental = true, bool showNotification = true)
+    public async Task<Guid?> StartDetectionAsync(bool incremental = true, bool showNotification = true, RunNotice? notice = null)
     {
+        showNotification = notice?.ShowNotification ?? showNotification;
         // Game detection derives logical objects from cache keys, so ambiguous datasource
         // evidence must be rejected even when this service is called without a controller.
         // The caller awaits this before any background work starts, so the refusal is answered
@@ -193,7 +194,7 @@ public partial class GameCacheDetectionService : IDisposable
                 : "signalr.gameDetect.starting.full";
 
             // Register with unified operation tracker for centralized cancellation
-            var metadata = new GameDetectionMetrics { ScanType = scanType, ShowNotification = showNotification };
+            var metadata = new GameDetectionMetrics { ScanType = scanType, ShowNotification = showNotification, Notice = notice };
             var registeredId = default(Guid);
             _currentTrackerOperationId = _operationTracker.RegisterOperation(
                 OperationType.GameDetection,

@@ -302,7 +302,7 @@ public sealed class CacheScanGateTests
         var register = typeof(CacheReconciliationService).GetMethod(
             "RegisterEvictionScanOperation", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var operationId = (Guid)register.Invoke(
-            service, ["Eviction Scan", new CancellationTokenSource(), false])!;
+            service, ["Eviction Scan", new CancellationTokenSource(), false, null])!;
 
         const string reason = "A client download is writing to the cache right now.";
         operationTracker.CompleteOperation(operationId, success: true, error: reason, skipped: true);

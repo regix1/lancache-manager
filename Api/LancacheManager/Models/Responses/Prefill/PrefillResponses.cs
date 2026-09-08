@@ -11,6 +11,7 @@ public class PrefillCacheStatusResponse
 {
     public List<string> UpToDateAppIds { get; set; } = new();
     public List<string> OutdatedAppIds { get; set; } = new();
+    public List<string> UnknownAppIds { get; set; } = new();
 
     /// <summary>
     /// A note about the cache check as a whole, such as apps it could not inspect. Null when every
@@ -27,10 +28,10 @@ public class PrefillCacheRemovalResponse
     public string Message { get; set; } = string.Empty;
 
     /// <summary>
-    /// Depot rows actually removed. Zero means the app read as cached off another app's rows and
-    /// owned none of its own, which is the only case where the badge survives the delete.
+    /// Steam depot rows actually removed.
     /// </summary>
     public int RemovedDepots { get; set; }
+    public int RemovedApps { get; set; }
 }
 
 /// <summary>

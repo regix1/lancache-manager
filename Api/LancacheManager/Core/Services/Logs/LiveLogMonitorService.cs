@@ -447,6 +447,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         }
     }
 
+    /// <summary>
     /// The heavy operations a live ingest may run beside. Two things disqualify one, and both have
     /// to be clear: writing access.log, which ingestion reads and keeps a position in, and writing
     /// the Downloads projection, which ingestion inserts and updates. Log processing and log removal
@@ -462,6 +463,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
     /// scan's evidence does rewrite Download rows, but it runs under its own operation type and is
     /// not on this list. Holding statistics still while one of these runs bought nothing and left
     /// the dashboard reading zero through a long scan while traffic was flowing.
+    /// </summary>
     private static readonly HashSet<string> _ingestionSafeActiveOperations =
     [
         nameof(OperationType.CorruptionDetection),

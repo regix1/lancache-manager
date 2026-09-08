@@ -9,6 +9,7 @@ import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import ApiService from '@services/api.service';
 import { GameSelectionModal } from '@components/features/prefill/GameSelectionModal';
+import { resolveCachedAppIds } from '@components/features/prefill/cachedApps';
 import { NumberInput } from '@components/ui/NumberInput';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import {
@@ -325,6 +326,12 @@ export function ScheduledPrefillConfigModal({
   const [loadingGameSelectionService, setLoadingGameSelectionService] =
     useState<ScheduledPrefillServiceKey | null>(null);
   const [gameSelectionError, setGameSelectionError] = useState<string | null>(null);
+  const gameRequestRef = useRef<{
+    key: string;
+    controller: AbortController;
+    again: boolean;
+    promise: Promise<void>;
+  } | null>(null);
   const [removingCachedAppId, setRemovingCachedAppId] = useState<string | null>(null);
   const [isClearingCachedGames, setIsClearingCachedGames] = useState(false);
   const [persistentLoginTarget, setPersistentLoginTarget] =
@@ -1608,35 +1615,77 @@ export function ScheduledPrefillConfigModal({
 
   const loadGameSelection = useCallback(
     async (serviceKey: ScheduledPrefillServiceKey, sessionId: string) => {
+      const key = `${serviceKey}:${sessionId}`;
+      if (gameRequestRef.current?.key === key) {
+        gameRequestRef.current.again = true;
+        return gameRequestRef.current.promise;
+      }
+      gameRequestRef.current?.controller.abort();
+      const controller = new AbortController();
+      const request = { key, controller, again: false, promise: Promise.resolve() };
+      gameRequestRef.current = request;
       setLoadingGameSelectionService(serviceKey);
       setGameSelectionError(null);
+      request.promise = (async () => {
+        try {
+          do {
+            request.again = false;
+            // Persistent sessions are system-owned, so the user-scoped games route 403s. Use the
+            // AdminOnly endpoint that resolves the running persistent session and bypasses ownership.
+            const { games, cachedAppIds, unknownAppIds } =
+              await ApiService.getPersistentPrefillGames(
+                getPersistentServiceId(serviceKey),
+                controller.signal
+              );
+            if (controller.signal.aborted) return;
 
-      try {
-        // Persistent sessions are system-owned, so the user-scoped games route 403s. Use the
-        // AdminOnly endpoint that resolves the running persistent session and bypasses ownership.
-        const { games, cachedAppIds } = await ApiService.getPersistentPrefillGames(
-          getPersistentServiceId(serviceKey)
-        );
+            const normalizedGames: ScheduledPrefillOwnedGame[] = games.map((game) => ({
+              name: game.name,
+              appId: String(game.appId)
+            }));
 
-        const normalizedGames: ScheduledPrefillOwnedGame[] = games.map((game) => ({
-          name: game.name,
-          appId: String(game.appId)
-        }));
+            setGameSelection((current) =>
+              current?.serviceKey === serviceKey && current.sessionId === sessionId
+                ? {
+                    ...current,
+                    games: normalizedGames,
+                    cachedAppIds: resolveCachedAppIds(
+                      current.cachedAppIds,
+                      cachedAppIds,
+                      unknownAppIds
+                    )
+                  }
+                : current
+            );
+          } while (request.again && !controller.signal.aborted);
+        } catch (error: unknown) {
+          if (!controller.signal.aborted) setGameSelectionError(getErrorMessage(error));
+        } finally {
+          if (gameRequestRef.current === request) {
+            gameRequestRef.current = null;
+            setLoadingGameSelectionService(null);
+          }
+        }
+      })();
+      return request.promise;
+    },
+    []
+  );
 
-        setGameSelection((current) =>
-          current?.serviceKey === serviceKey && current.sessionId === sessionId
-            ? {
-                ...current,
-                games: normalizedGames,
-                cachedAppIds: cachedAppIds.map((appId) => String(appId))
-              }
-            : current
-        );
-      } catch (error: unknown) {
-        setGameSelectionError(getErrorMessage(error));
-      } finally {
-        setLoadingGameSelectionService(null);
-      }
+  useEffect(() => {
+    const key =
+      gameSelection?.serviceKey && `${gameSelection.serviceKey}:${gameSelection.sessionId}`;
+    if (!key || !opened || (gameRequestRef.current && gameRequestRef.current.key !== key)) {
+      gameRequestRef.current?.controller.abort();
+      gameRequestRef.current = null;
+      setLoadingGameSelectionService(null);
+    }
+  }, [gameSelection?.serviceKey, gameSelection?.sessionId, opened]);
+
+  useEffect(
+    () => () => {
+      gameRequestRef.current?.controller.abort();
+      gameRequestRef.current = null;
     },
     []
   );
@@ -1646,33 +1695,45 @@ export function ScheduledPrefillConfigModal({
   // effect below turns into a reload of this picker's badges, so neither re-reads by hand.
   const handleRemoveGameFromCache = useCallback(
     async (appId: string) => {
+      if (!gameSelection) return;
       setRemovingCachedAppId(appId);
       try {
-        const removal = await ApiService.deletePrefillCachedApp(appId);
-        if (removal.removedDepots === 0) {
-          // Cached status is read per depot and manifest with no app term, so a game whose files
-          // were all downloaded under another game owns no rows and keeps its badge after this.
-          setGameSelectionError(t('prefill.errors.removeFromCacheSharedFiles'));
-        }
+        await ApiService.deletePrefillCachedApp(
+          appId,
+          getPersistentServiceId(gameSelection.serviceKey)
+        );
+        gameRequestRef.current?.controller.abort();
+        gameRequestRef.current = null;
+        setGameSelection((current) =>
+          current
+            ? { ...current, cachedAppIds: current.cachedAppIds.filter((id) => id !== appId) }
+            : current
+        );
+        await loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
       } catch (error: unknown) {
         setGameSelectionError(getErrorMessage(error));
       } finally {
         setRemovingCachedAppId(null);
       }
     },
-    [t]
+    [gameSelection, loadGameSelection]
   );
 
   const handleClearAllCachedGames = useCallback(async () => {
+    if (!gameSelection) return;
     setIsClearingCachedGames(true);
     try {
-      await ApiService.clearAllPrefillCache();
+      await ApiService.clearAllPrefillCache(getPersistentServiceId(gameSelection.serviceKey));
+      gameRequestRef.current?.controller.abort();
+      gameRequestRef.current = null;
+      setGameSelection((current) => (current ? { ...current, cachedAppIds: [] } : current));
+      await loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
     } catch (error: unknown) {
       setGameSelectionError(getErrorMessage(error));
     } finally {
       setIsClearingCachedGames(false);
     }
-  }, []);
+  }, [gameSelection, loadGameSelection]);
 
   // The cached-depot table is shared by every container and every browser, so a game finishing in
   // any of them has to reach this picker while it is open. Nothing to re-read when it is closed:

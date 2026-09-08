@@ -43,7 +43,8 @@ public interface IOperationQueue
         Func<Task<Guid?>> start,
         CancellationToken ct,
         bool reportRefusal = false,
-        bool showWaitingCard = true);
+        bool showWaitingCard = true,
+        RunNotice? notice = null);
 
     /// <summary>
     /// Display name of the operation the given parked waiter is currently blocked behind, or

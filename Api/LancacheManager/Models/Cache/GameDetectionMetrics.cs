@@ -8,6 +8,8 @@ namespace LancacheManager.Models;
 /// </summary>
 public class GameDetectionMetrics
 {
+    [JsonIgnore]
+    public RunNotice? Notice { get; set; }
     /// <summary>
     /// Type of scan performed - <see cref="DetectionScanType.Full"/> or <see cref="DetectionScanType.Incremental"/>.
     /// </summary>

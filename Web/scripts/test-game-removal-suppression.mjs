@@ -134,9 +134,11 @@ const runWaitingHandler = async (
   type,
   startingCards,
   event = QUEUED_BEHIND_SCAN,
-  dismissed = []
+  dismissed = [],
+  repeats = 1
 ) => {
-  const { findBulkCardOwningOperation, eventTargetsCard } = await loadHandlerFactories();
+  const { createCompletionHandler, findBulkCardOwningOperation, eventTargetsCard } =
+    await loadHandlerFactories();
   const { isTerminalNotificationStatus } = await import(
     await compileToUrl('../src/contexts/notifications/notificationStatus.ts')
   );
@@ -153,6 +155,8 @@ const runWaitingHandler = async (
 
   const waitingHandler = bindLifted(arrowSource, {
     registry: [],
+    acknowledgedIds: { current: new Set() },
+    createCompletionHandler,
     findEntryForWireType: () => ({ type, id: `${type}_card` }),
     cancelAutoDismissTimer: () => undefined,
     scheduleAutoDismiss: (id) => dismissed.push(id),
@@ -165,7 +169,7 @@ const runWaitingHandler = async (
       source.blockedByName ? `waiting for ${source.blockedByName}` : 'waiting'
   });
 
-  waitingHandler(event);
+  for (let index = 0; index < repeats; index++) waitingHandler(event);
   return state;
 };
 
@@ -185,7 +189,7 @@ test('a silent queued run gets the self-clearing notice instead of the purple wa
     dismissed
   );
 
-  const card = state.find((n) => n.id === 'game_removal_card');
+  const card = state.find((n) => n.id === `queued_${QUEUED_BEHIND_SCAN.operationId}`);
   assert.equal(card.status, 'skipped', 'a silent run must not raise the purple waiting card');
   assert.equal(
     card.message,
@@ -194,9 +198,31 @@ test('a silent queued run gets the self-clearing notice instead of the purple wa
   );
   assert.deepEqual(
     dismissed,
-    ['game_removal_card'],
+    [`queued_${QUEUED_BEHIND_SCAN.operationId}`],
     'the notice clears itself; nothing else is coming to remove it'
   );
+});
+
+test('silent acknowledgment preserves an occupied live slot and dismisses once', async () => {
+  const live = {
+    id: 'game_removal_card',
+    type: 'game_removal',
+    status: 'running',
+    details: { operationId: 'other' }
+  };
+  const dismissed = [];
+  const state = await runWaitingHandler(
+    'game_removal',
+    [live],
+    { ...QUEUED_BEHIND_SCAN, silent: true },
+    dismissed,
+    2
+  );
+  assert.equal(state.length, 2);
+  assert.equal(state[0], live);
+  assert.equal(state[1].type, 'generic');
+  assert.equal(state[1].status, 'skipped');
+  assert.equal(dismissed.length, 1);
 });
 
 test('a run that is not silent still gets the purple waiting card naming its blocker', async () => {
