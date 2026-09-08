@@ -2103,6 +2103,7 @@ export function ScheduledPrefillConfigModal({
         <div className="scheduled-prefill-config-modal">
           <div ref={setScrollAreaEl} className="scheduled-prefill-config-modal__scroll-area">
             <CustomScrollbar
+              className="scheduled-prefill-config-modal__viewport"
               maxHeight={scrollAreaHeight != null ? `${scrollAreaHeight}px` : '100%'}
               radius="none"
             >
@@ -2135,9 +2136,6 @@ export function ScheduledPrefillConfigModal({
                   <>
                     <div className="scheduled-prefill-config-modal__overview">
                       <div className="scheduled-prefill-config-modal__overview-main">
-                        <p className="scheduled-prefill-config-modal__overview-description">
-                          {t(`${baseKey}.modalDescription`)}
-                        </p>
                         <div className="scheduled-prefill-config-modal__overview-status cluster">
                           <Badge variant="info">
                             {t(`${baseKey}.summary`, {
@@ -2147,6 +2145,14 @@ export function ScheduledPrefillConfigModal({
                           </Badge>
                           <HelpPopover position="left" width={360} maxHeight="20rem">
                             <ul className="scheduled-prefill-config-modal__help-list help-list">
+                              {servicesNeedingLogin.length > 0 && (
+                                <li className="schedule-extra-help">
+                                  {t(`${baseKey}.authWarning`, {
+                                    services: servicesNeedingLogin.join(', '),
+                                    count: servicesNeedingLogin.length
+                                  })}
+                                </li>
+                              )}
                               <li className="schedule-extra-help">
                                 {t(`${baseKey}.auth.authPathsBattleNet`)}
                               </li>
@@ -2161,26 +2167,13 @@ export function ScheduledPrefillConfigModal({
                         </div>
                       </div>
 
-                      {servicesNeedingLogin.length > 0 && (
-                        <p className="scheduled-prefill-config-modal__overview-warning">
-                          {t(`${baseKey}.authWarning`, {
-                            services: servicesNeedingLogin.join(', '),
-                            count: servicesNeedingLogin.length
-                          })}
-                        </p>
-                      )}
-
                       <div className="scheduled-prefill-config-modal__settings-list">
                         <div className="scheduled-prefill-config-modal__setting-row">
-                          <div className="scheduled-prefill-config-modal__setting-copy">
-                            <span className="scheduled-prefill-config-modal__global-label">
-                              {t(`${baseKey}.bulkToggle.label`)}
-                            </span>
-                            <p className="scheduled-prefill-config-modal__global-help">
-                              {t(`${baseKey}.bulkToggle.help`)}
-                            </p>
-                          </div>
-                          <div className="scheduled-prefill-config-modal__setting-actions scheduled-prefill-config-modal__setting-actions--bulk-toggle">
+                          <div
+                            className="scheduled-prefill-config-modal__setting-actions scheduled-prefill-config-modal__setting-actions--bulk-toggle"
+                            role="group"
+                            aria-label={t(`${baseKey}.bulkToggle.label`)}
+                          >
                             <Button
                               type="button"
                               variant="default"
@@ -2211,110 +2204,7 @@ export function ScheduledPrefillConfigModal({
                             </Button>
                           </div>
                         </div>
-
-                        <div className="scheduled-prefill-config-modal__setting-row">
-                          <div className="scheduled-prefill-config-modal__setting-copy">
-                            <label
-                              className="scheduled-prefill-config-modal__global-label"
-                              htmlFor="scheduled-prefill-persistent-validity-days"
-                            >
-                              {t(`${baseKey}.settings.persistentValidityLabel`)}
-                            </label>
-                            <p className="scheduled-prefill-config-modal__global-help">
-                              {t(`${baseKey}.settings.persistentValidityHelp`, {
-                                min: PERSISTENT_PREFILL_VALIDITY_BOUNDS.min,
-                                max: PERSISTENT_PREFILL_VALIDITY_BOUNDS.max
-                              })}
-                            </p>
-                          </div>
-                          <div className="scheduled-prefill-config-modal__setting-actions">
-                            {/* Saved by the modal's single Save button - no inline save here. */}
-                            <NumberInput
-                              id="scheduled-prefill-persistent-validity-days"
-                              className="scheduled-prefill-number-cap scheduled-prefill-number-cap--full"
-                              min={PERSISTENT_PREFILL_VALIDITY_BOUNDS.min}
-                              max={PERSISTENT_PREFILL_VALIDITY_BOUNDS.max}
-                              step={1}
-                              value={persistentValidityDays}
-                              disabled={savedValidityDays === null || editSessionActionsDisabled}
-                              aria-label={t(`${baseKey}.settings.persistentValidityLabel`)}
-                              onChange={handlePersistentValidityDaysChange}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="scheduled-prefill-config-modal__setting-row">
-                          <div className="scheduled-prefill-config-modal__setting-copy">
-                            <span
-                              id="scheduled-prefill-persistence-mode-label"
-                              className="scheduled-prefill-config-modal__global-label"
-                            >
-                              {t(`${baseKey}.settings.persistenceModeLabel`)}
-                            </span>
-                            <p className="scheduled-prefill-config-modal__global-help">
-                              {t(`${baseKey}.settings.persistenceModeHelp`)}
-                            </p>
-                          </div>
-                          <div className="scheduled-prefill-config-modal__setting-actions">
-                            {/* Saved by the modal's single Save button - no inline save here. */}
-                            <div
-                              role="group"
-                              aria-labelledby="scheduled-prefill-persistence-mode-label"
-                            >
-                              <SegmentedControl
-                                options={PERSISTENCE_MODE_OPTIONS.map((option) => ({
-                                  value: option,
-                                  label: t(`${baseKey}.settings.persistenceMode.${option}`),
-                                  disabled: !config || editSessionActionsDisabled || loadingConfig
-                                }))}
-                                value={config?.persistenceMode ?? 'keepAcrossRestart'}
-                                onChange={(value) => {
-                                  if (!isScheduledPrefillPersistenceMode(value)) return;
-                                  handlePersistenceModeChange(value);
-                                }}
-                                size="md"
-                                showLabels
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="scheduled-prefill-config-modal__setting-row">
-                          <div className="scheduled-prefill-config-modal__setting-copy">
-                            <span className="scheduled-prefill-config-modal__global-label">
-                              {t(`${baseKey}.settings.clearLogins.zoneTitle`)}
-                            </span>
-                            <p className="scheduled-prefill-config-modal__global-help">
-                              {t(`${baseKey}.settings.clearLogins.help`)}
-                            </p>
-                          </div>
-                          <div className="scheduled-prefill-config-modal__setting-actions">
-                            <Button
-                              type="button"
-                              variant="default"
-                              fullWidth
-                              className="scheduled-prefill-clear-logins-button"
-                              size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                              onClick={() => setClearLoginsConfirmOpen(true)}
-                              disabled={clearingLogins}
-                              loading={clearingLogins}
-                            >
-                              {clearingLogins
-                                ? t(`${baseKey}.settings.clearLogins.clearing`)
-                                : t(`${baseKey}.settings.clearLogins.button`)}
-                            </Button>
-                          </div>
-                        </div>
                       </div>
-
-                      {config?.persistenceMode === 'fullPersistence' && (
-                        <Alert
-                          color="yellow"
-                          title={t(`${baseKey}.settings.persistenceMode.fullPersistence`)}
-                        >
-                          {t(`${baseKey}.settings.persistenceModeWarning`)}
-                        </Alert>
-                      )}
 
                       {banner && (
                         <Alert
@@ -2330,6 +2220,120 @@ export function ScheduledPrefillConfigModal({
 
                     {config ? (
                       <ScheduledPrefillPlatformsPanel
+                        containerSettings={
+                          <>
+                            <p className="scheduled-prefill-config-modal__global-help">
+                              {t(`${baseKey}.settings.description`)}
+                            </p>
+                            <div className="scheduled-prefill-config-modal__settings-list">
+                              <div className="scheduled-prefill-config-modal__setting-row">
+                                <div className="scheduled-prefill-config-modal__setting-copy">
+                                  <label
+                                    className="scheduled-prefill-config-modal__global-label"
+                                    htmlFor="scheduled-prefill-persistent-validity-days"
+                                  >
+                                    {t(`${baseKey}.settings.persistentValidityLabel`)}
+                                  </label>
+                                  <p className="scheduled-prefill-config-modal__global-help">
+                                    {t(`${baseKey}.settings.persistentValidityHelp`, {
+                                      min: PERSISTENT_PREFILL_VALIDITY_BOUNDS.min,
+                                      max: PERSISTENT_PREFILL_VALIDITY_BOUNDS.max
+                                    })}
+                                  </p>
+                                </div>
+                                <div className="scheduled-prefill-config-modal__setting-actions">
+                                  {/* Saved by the modal's single Save button - no inline save here. */}
+                                  <NumberInput
+                                    id="scheduled-prefill-persistent-validity-days"
+                                    className="scheduled-prefill-number-cap scheduled-prefill-number-cap--full"
+                                    min={PERSISTENT_PREFILL_VALIDITY_BOUNDS.min}
+                                    max={PERSISTENT_PREFILL_VALIDITY_BOUNDS.max}
+                                    step={1}
+                                    value={persistentValidityDays}
+                                    disabled={
+                                      savedValidityDays === null || editSessionActionsDisabled
+                                    }
+                                    aria-label={t(`${baseKey}.settings.persistentValidityLabel`)}
+                                    onChange={handlePersistentValidityDaysChange}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="scheduled-prefill-config-modal__setting-row">
+                                <div className="scheduled-prefill-config-modal__setting-copy">
+                                  <span
+                                    id="scheduled-prefill-persistence-mode-label"
+                                    className="scheduled-prefill-config-modal__global-label"
+                                  >
+                                    {t(`${baseKey}.settings.persistenceModeLabel`)}
+                                  </span>
+                                  <p className="scheduled-prefill-config-modal__global-help">
+                                    {t(`${baseKey}.settings.persistenceModeHelp`)}
+                                  </p>
+                                </div>
+                                <div className="scheduled-prefill-config-modal__setting-actions">
+                                  {/* Saved by the modal's single Save button - no inline save here. */}
+                                  <div
+                                    role="group"
+                                    aria-labelledby="scheduled-prefill-persistence-mode-label"
+                                  >
+                                    <SegmentedControl
+                                      options={PERSISTENCE_MODE_OPTIONS.map((option) => ({
+                                        value: option,
+                                        label: t(`${baseKey}.settings.persistenceMode.${option}`),
+                                        disabled:
+                                          !config || editSessionActionsDisabled || loadingConfig
+                                      }))}
+                                      value={config?.persistenceMode ?? 'keepAcrossRestart'}
+                                      onChange={(value) => {
+                                        if (!isScheduledPrefillPersistenceMode(value)) return;
+                                        handlePersistenceModeChange(value);
+                                      }}
+                                      size="md"
+                                      showLabels
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="scheduled-prefill-config-modal__setting-row">
+                                <div className="scheduled-prefill-config-modal__setting-copy">
+                                  <span className="scheduled-prefill-config-modal__global-label">
+                                    {t(`${baseKey}.settings.clearLogins.zoneTitle`)}
+                                  </span>
+                                  <p className="scheduled-prefill-config-modal__global-help">
+                                    {t(`${baseKey}.settings.clearLogins.help`)}
+                                  </p>
+                                </div>
+                                <div className="scheduled-prefill-config-modal__setting-actions">
+                                  <Button
+                                    type="button"
+                                    variant="default"
+                                    fullWidth
+                                    className="scheduled-prefill-clear-logins-button"
+                                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                                    onClick={() => setClearLoginsConfirmOpen(true)}
+                                    disabled={clearingLogins}
+                                    loading={clearingLogins}
+                                  >
+                                    {clearingLogins
+                                      ? t(`${baseKey}.settings.clearLogins.clearing`)
+                                      : t(`${baseKey}.settings.clearLogins.button`)}
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {config?.persistenceMode === 'fullPersistence' && (
+                              <Alert
+                                color="yellow"
+                                title={t(`${baseKey}.settings.persistenceMode.fullPersistence`)}
+                              >
+                                {t(`${baseKey}.settings.persistenceModeWarning`)}
+                              </Alert>
+                            )}
+                          </>
+                        }
                         config={config}
                         initialServiceKey={initialServiceKey}
                         initialScheduleId={openedScheduleId}

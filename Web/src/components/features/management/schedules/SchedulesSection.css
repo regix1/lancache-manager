@@ -1,4 +1,3 @@
-/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 · genre: modern-minimal · tone: utilitarian · macrostructure: Workbench · anchor: existing theme accent · contrast: pass (40–41) · responsive: pass (34, 49–57) */
 .schedules-section {
   display: flex;
   flex-direction: column;
@@ -933,6 +932,12 @@
   min-height: 0;
 }
 
+/* Keep touch scrolling inside the modal. Reaching either end must not hand the gesture to the
+   page underneath or trigger the browser's pull-to-refresh treatment. */
+.scheduled-prefill-config-modal__viewport .overflow-y-auto {
+  overscroll-behavior: contain;
+}
+
 /* The rounded scrollbar clip used to shave the overview box's top-left border corner; that fix now
    lives in CustomScrollbar itself via `radius="none"` (see its `radius` prop), so no clip override
    is needed here anymore. */
@@ -952,12 +957,11 @@
    The only primary action ("Save schedule") lives in the footer. */
 .scheduled-prefill-config-modal__overview {
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  padding: 1rem;
-  border: 1px solid var(--theme-border-secondary);
-  border-radius: var(--theme-border-radius);
-  background: var(--theme-bg-secondary);
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .scheduled-prefill-config-modal__overview-main {
@@ -1044,7 +1048,7 @@
    control in each row (Disable all, Save settings) starts at a slightly different x and the two
    rows read as unaligned even though the row itself starts at a shared column edge. */
 .scheduled-prefill-config-modal__setting-actions > :first-child {
-  min-width: 7rem;
+  min-width: 8.5rem;
 }
 
 /* Same idea for the SECOND control (Disable all, Save settings): "Save settings" is the longer
@@ -1186,9 +1190,9 @@
   flex-direction: column;
   gap: 1rem;
   min-width: 0;
-  /* Same well as the sibling platform blocks. */
+  padding: 1.25rem;
   background: var(--theme-bg-secondary-emphasis);
-  border-color: var(--theme-border-well);
+  border: 1px solid var(--theme-border-well);
 }
 
 .scheduled-prefill-persistent-card__state {
@@ -1201,9 +1205,10 @@
 
 .scheduled-prefill-persistent-card__header {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.5rem 1rem;
 }
 
 .scheduled-prefill-persistent-card__title-block {
@@ -1212,8 +1217,8 @@
 
 .scheduled-prefill-persistent-card__title {
   margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: 700;
+  font-size: var(--font-size-md);
+  font-weight: 600;
   color: var(--theme-text-primary);
 }
 
@@ -1249,16 +1254,23 @@
   color: var(--theme-text-secondary);
 }
 
-.scheduled-prefill-persistent-card__meta {
+.scheduled-prefill-persistent-card__facts {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 0.75rem;
+  gap: 0.75rem 1.25rem;
+  padding-block: 0.25rem 0.85rem;
+  border-bottom: 1px solid var(--theme-border-secondary);
 }
 
-.scheduled-prefill-persistent-card__meta-item {
+.scheduled-prefill-persistent-card__fact {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  min-width: 0;
+}
+
+.scheduled-prefill-persistent-card__fact-label {
+  color: var(--theme-text-muted);
 }
 
 .scheduled-prefill-persistent-card__meta-value {
@@ -1273,21 +1285,11 @@
   color: var(--theme-text-muted);
 }
 
-/* Games-selected count and live download readout are plain inline text, not boxes. */
-.scheduled-prefill-persistent-card__games {
-  margin: 0;
-  font-size: var(--font-size-base);
-  color: var(--theme-text-secondary);
-}
-
-.scheduled-prefill-persistent-card__games strong {
-  font-weight: 700;
-  color: var(--theme-text-primary);
-}
-
-/* Shared .tabular-nums is tabular only; lining figures must be restated with tabular
-   because font-variant-numeric replaces rather than merges across rules. */
+/* Shared .tabular-nums is tabular only; lining figures must be restated with tabular because
+   font-variant-numeric replaces rather than merges across rules. */
 .tabular-nums.scheduled-prefill-persistent-card__games-count {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
   font-variant-numeric: tabular-nums lining-nums;
 }
 
@@ -1346,66 +1348,61 @@
   font-weight: 600;
 }
 
-/* The footer is the Actions menu and the one primary button, right-aligned like the modal's
-   own footer. The menu trigger takes the same 12rem track as the platform header's, so the two
-   menus read as one control. */
 .scheduled-prefill-persistent-card__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
   gap: 0.5rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--theme-border-secondary);
 }
 
-.scheduled-prefill-persistent-card__actions > div {
-  flex: 0 0 12rem;
+.scheduled-prefill-persistent-card__actions > button {
   min-width: 0;
+  white-space: nowrap;
 }
 
-.scheduled-prefill-persistent-card__actions > div > div {
-  width: 100%;
+.scheduled-prefill-persistent-card__settings {
+  min-width: 0;
+  margin-top: 0.5rem;
+}
+
+.scheduled-prefill-persistent-card__settings .scheduled-prefill-config-modal__settings-list {
+  padding-top: 0;
+  border-top: 0;
 }
 
 @media (min-width: 768px) {
-  .scheduled-prefill-persistent-card__meta {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .scheduled-prefill-persistent-card__facts {
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
   }
 }
 
 .scheduled-prefill-platforms {
   display: grid;
-  /* Nav column is wide enough to hold a platform's worst-case content on one line: the name, the
-     "Login required" hint, and the stacked On/Container badges. A narrower column wrapped the hint
-     and cramped the badges. */
-  grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
-  gap: 1.25rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
   min-width: 0;
 }
 
 .scheduled-prefill-platforms__nav {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
   min-width: 0;
 }
 
 .scheduled-prefill-platforms__nav-item {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  width: 100%;
-  padding: 0.65rem 0.75rem;
+  justify-content: center;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
   border: 1px solid var(--theme-border-secondary);
   border-radius: var(--theme-border-radius);
   background: var(--theme-bg-tertiary);
   color: var(--theme-text-secondary);
-  text-align: left;
   cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    background-color 0.15s ease;
 }
 
 .scheduled-prefill-platforms__nav-item:hover {
@@ -1427,16 +1424,13 @@
 }
 
 .scheduled-prefill-platforms__nav-text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
   min-width: 0;
-  flex: 1;
 }
 
 .scheduled-prefill-platforms__nav-label {
   font-size: var(--font-size-base);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .scheduled-prefill-platforms__nav-hint {
@@ -1465,27 +1459,21 @@
   min-width: 0;
 }
 
-/* The platform header: the identity on its own line, then the two captioned record fields and
-   Actions on ONE control line beneath it, so the controls sit at the same
-   x on every platform whatever the title's length. The captioned fields are taller than the bare
-   controls by their label, so that line aligns to its bottom edge and every 40px control lands
-   on the same baseline. */
 .scheduled-prefill-platforms__records {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-  padding-bottom: 0.85rem;
-  border-bottom: 1px solid var(--theme-border-secondary);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'schedule actions' 'name name';
+  align-items: end;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
 }
 
 .scheduled-prefill-platforms__platform {
   display: flex;
   align-items: center;
   gap: 0.625rem;
-  /* The whole first line, which pushes the controls onto the next one. */
-  flex: 1 0 100%;
+  min-width: 0;
+  margin-bottom: 1rem;
 }
 
 /* A bare glyph on the title's own line, not a boxed chip below it. */
@@ -1505,18 +1493,17 @@
 }
 
 .scheduled-prefill-platforms__record-field {
-  flex: 1 1 12rem;
+  grid-area: schedule;
   min-width: 0;
 }
 
 .scheduled-prefill-platforms__record-field--name {
-  flex: 1 1 16rem;
+  grid-area: name;
 }
 
-/* The trigger and its menu panel share this width, so the panel sits exactly under the
-   trigger instead of sticking out past its left edge. */
 .scheduled-prefill-platforms__record-actions {
-  flex: 0 0 12rem;
+  grid-area: actions;
+  width: auto;
   min-width: 0;
 }
 
@@ -1620,6 +1607,11 @@
 }
 
 @media (min-width: 640px) {
+  .scheduled-prefill-platforms__records {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr) auto;
+    grid-template-areas: 'schedule name actions';
+  }
+
   .scheduled-prefill-platform-block .scheduled-prefill-config-modal__settings-list {
     grid-template-columns: minmax(0, 1fr) minmax(14rem, max-content);
   }
@@ -1632,10 +1624,6 @@
 }
 
 @media (min-width: 900px) {
-  .scheduled-prefill-platforms {
-    grid-template-columns: minmax(11rem, 13rem) minmax(0, 1fr);
-  }
-
   .scheduled-prefill-config-modal__skeleton-body {
     grid-template-columns: minmax(11rem, 13rem) minmax(0, 1fr);
   }
@@ -1753,15 +1741,7 @@
   }
 
   .scheduled-prefill-persistent-card__actions {
-    flex-direction: column;
     align-items: stretch;
-  }
-
-  /* In a column the desktop flex-basis would become a HEIGHT; the menu and the primary button
-     go back to their content height and fill the width. */
-  .scheduled-prefill-persistent-card__actions > div {
-    flex: 0 0 auto;
-    width: 100%;
   }
 
   .scheduled-prefill-persistent-card__actions > button {
@@ -1813,17 +1793,138 @@
 /* The just-completed flash is provided by the shared HighlightGlow component
    (see utils/highlightGlow.ts + animations.css), so the Schedules page uses the
    same pulse animation as the Integrations-section navigation glow. */
-@media (max-width: 639.98px) {
-  .scheduled-prefill-platforms__records {
-    align-items: stretch;
-    flex-direction: column;
+
+.scheduled-prefill-config-modal__overview > .scheduled-prefill-config-modal__settings-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0;
+  border: 0;
+}
+
+.scheduled-prefill-platforms__records .form-field-label {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.scheduled-prefill-persistent-card__settings-toggle {
+  padding: 0.5rem 0;
+  justify-content: flex-start;
+  color: var(--theme-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.scheduled-prefill-persistent-card__settings-content {
+  padding-top: 1rem;
+}
+
+.scheduled-prefill-persistent-card__settings-content
+  .scheduled-prefill-config-modal__global-help
+  + .scheduled-prefill-config-modal__settings-list {
+  margin-top: 1rem;
+}
+
+.scheduled-prefill-platform-block .scheduled-prefill-config-modal__settings-list {
+  padding-top: 0;
+  border: 0;
+}
+
+@media (min-width: 1024px) {
+  .scheduled-prefill-platform-section__blocks {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 1rem;
   }
 
-  /* In a column the desktop flex-basis would become a HEIGHT, so every child goes back to
-     sizing by its content and fills the width instead. */
-  .scheduled-prefill-platforms__record-field,
-  .scheduled-prefill-platforms__record-actions {
-    flex: 0 0 auto;
+  .scheduled-prefill-persistent-card,
+  .scheduled-prefill-platform-block--schedule {
+    grid-column: 1 / -1;
+  }
+
+  .scheduled-prefill-platform-block:not(.scheduled-prefill-platform-block--schedule)
+    .scheduled-prefill-config-modal__settings-list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+
+  .scheduled-prefill-platform-block:not(.scheduled-prefill-platform-block--schedule)
+    .scheduled-prefill-config-modal__setting-copy:not(:first-child) {
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 639px) {
+  .scheduled-prefill-config-modal__overview > .scheduled-prefill-config-modal__settings-list {
+    width: 100%;
+  }
+
+  .scheduled-prefill-config-modal__setting-actions--bulk-toggle {
+    width: 100%;
+  }
+
+  .scheduled-prefill-platforms__records {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'schedule' 'name' 'actions';
+  }
+
+  .scheduled-prefill-platform-section {
+    padding: 0.75rem;
+    border: 1px solid var(--theme-border-secondary);
+  }
+
+  .scheduled-prefill-platforms__nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scheduled-prefill-persistent-card,
+  .scheduled-prefill-platform-block {
+    padding: 0.75rem;
+  }
+
+  .scheduled-prefill-platforms__record-actions button {
+    min-height: 2.75rem;
+  }
+
+  .scheduled-prefill-persistent-card__settings-toggle {
+    min-height: 2.75rem;
+  }
+}
+
+@media (max-width: 399px) {
+  .scheduled-prefill-platforms__nav-item {
+    padding-inline: 0.375rem;
+  }
+
+  .scheduled-prefill-platform-block--notifications
+    .scheduled-prefill-config-modal__settings-list
+    .segmented-control-container {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .scheduled-prefill-platform-block--notifications
+    .scheduled-prefill-config-modal__settings-list
+    .segmented-control-button {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+}
+
+.scheduled-prefill-persistent-card__login-help,
+.scheduled-prefill-persistent-card__login-help > span {
+  display: inline-flex;
+}
+
+@media (max-width: 639px) {
+  .scheduled-prefill-persistent-card__login-help,
+  .scheduled-prefill-persistent-card__login-help > span,
+  .scheduled-prefill-persistent-card__login-help button {
     width: 100%;
   }
 }

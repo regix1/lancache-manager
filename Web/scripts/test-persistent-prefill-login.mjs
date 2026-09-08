@@ -41,6 +41,8 @@ const components = Object.fromEntries(
     'Card',
     'Alert',
     'Badge',
+    'Tooltip',
+    'CollapsibleRegion',
     'LoadingSpinner',
     'StatusDot',
     'ChevronDown'
@@ -53,6 +55,7 @@ const bindings = {
   useEffect: () => undefined,
   useRef: (value) => ({ current: value }),
   useState: (value) => [value, () => undefined],
+  useId: () => 'container-settings',
   useTranslation: () => ({ t: translate }),
   useFormattedDateTime: () => '',
   usePersistentLoginStoreState: () => ({ sessionUnavailableState: null }),
@@ -83,12 +86,12 @@ const card = (props = {}) =>
       ...props
     })
   );
-const text = (nodes) => nodes.filter((node) => typeof node === 'string').join(' ');
-const reuse = (nodes) =>
-  nodes.find(
-    (node) => node.type === 'ActionMenuItem' && node.children.includes('Use my saved login')
-  );
-
+const text = (nodes) =>
+  nodes
+    .flatMap((node) =>
+      typeof node === 'string' ? [node] : node?.type === 'Tooltip' ? [node.props.content] : []
+    )
+    .join(' ');
 for (const [reason, sentence] of [
   ['account-required', 'Sign in with your own LANCache account'],
   ['no-saved-login', 'No usable login is saved for this LANCache account'],
@@ -101,29 +104,25 @@ for (const [reason, sentence] of [
     });
     assert.ok(text(nodes).includes(sentence));
     assert.equal(text(nodes).includes('other-account'), false);
-    assert.equal(reuse(nodes).props.disabled, true);
   });
 }
 
-test('available current-account login stays enabled and uses its own username', () => {
+test('available current-account login displays its own username', () => {
   const nodes = card({
     integrationLoginAvailability: { available: true, account: 'my-steam-login', reason: null }
   });
   assert.ok(text(nodes).includes('Saved login: my-steam-login.'));
-  assert.equal(reuse(nodes).props.disabled, false);
 });
 
 test('loading and authentication display their own status', () => {
   const loading = card({ integrationLoginAvailabilityLoading: true });
   assert.ok(text(loading).includes('Checking your saved login'));
-  assert.ok(loading.some((node) => node.type === 'LoadingSpinner' && node.props.inline));
-  assert.equal(reuse(loading).props.disabled, true);
+  assert.ok(loading.some((node) => node.type === 'Button' && node.props.disabled));
   const busy = card({
     authenticating: true,
     integrationLoginAvailability: { available: false, reason: 'no-saved-login' }
   });
-  assert.equal(text(busy).includes('No usable login'), false);
-  assert.equal(reuse(busy).props.disabled, true);
+  assert.ok(busy.some((node) => node.type === 'LoadingSpinner' && node.props.inline));
 });
 
 test('REST false flags override stale activity and remove download state', () => {

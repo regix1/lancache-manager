@@ -1,16 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useId, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import {
-  ActionMenu,
-  ActionMenuDangerItem,
-  ActionMenuDivider,
-  ActionMenuItem
-} from '@components/ui/ActionMenu';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
+import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import StatusDot from '@components/common/StatusDot';
 import { formatTimeRemaining } from '@components/features/prefill/types';
@@ -35,52 +31,15 @@ interface StatusDisplay {
   busy: boolean;
 }
 
-// Overshoot past the footer's bottom so the last row of buttons clears the scroll fold comfortably
-// instead of resting flush against (and half-clipped by) the container edge.
-const SCROLL_ACTIONS_OVERSHOOT_PX = 32;
-
-// Scroll the modal's scroll area so the card's action footer is fully visible. scrollIntoView with
-// block:'nearest' only nudges the nearest edge into view and, if the card is still growing when it
-// fires, lands a few pixels short — so instead we find the scrollable ancestor (the modal's
-// CustomScrollbar content) and compute the exact distance from live layout, plus an overshoot, then
-// clamp to the max scroll. Reading the rects at scroll time (not effect time) keeps it correct even
-// if the freshly-grown card hasn't fully settled its height yet.
-const scrollActionsIntoView = (footer: HTMLElement | null): void => {
-  if (!footer) {
-    return;
-  }
-
-  let scrollParent: HTMLElement | null = footer.parentElement;
-  while (scrollParent) {
-    const { overflowY } = getComputedStyle(scrollParent);
-    if (
-      (overflowY === 'auto' || overflowY === 'scroll') &&
-      scrollParent.scrollHeight > scrollParent.clientHeight
-    ) {
-      break;
-    }
-    scrollParent = scrollParent.parentElement;
-  }
-
-  if (!scrollParent) {
-    footer.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    return;
-  }
-
-  const parentRect = scrollParent.getBoundingClientRect();
-  const footerRect = footer.getBoundingClientRect();
-  const delta = footerRect.bottom - parentRect.bottom + SCROLL_ACTIONS_OVERSHOOT_PX;
-  if (delta <= 0) {
-    return;
-  }
-
-  const maxScrollTop = scrollParent.scrollHeight - scrollParent.clientHeight;
-  const target = Math.min(scrollParent.scrollTop + delta, maxScrollTop);
-  scrollParent.scrollTo({ top: target, behavior: 'smooth' });
-};
-
 export function ScheduledPrefillPersistentCard({
   serviceKey,
+  scheduleControls,
+  containerSettings,
+  gameSelectionLoading = false,
+  onSelectGames,
+  onClearGames,
+  onStop,
+  onLogout,
   container,
   selectedGamesCount,
   disabled = false,
@@ -90,17 +49,14 @@ export function ScheduledPrefillPersistentCard({
   integrationLoginAvailability,
   integrationLoginAvailabilityLoading = false,
   action = null,
-  gameSelectionLoading = false,
   onStart,
-  onStop,
   onLogin,
-  onLogout,
-  onSelectGames,
-  onClearGames,
   onDownload,
   onCancelDownload
 }: ScheduledPrefillPersistentCardProps) {
   const { t } = useTranslation();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsId = useId();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const containersKey = `${baseKey}.persistentContainers`;
   const authExpiresAt = useFormattedDateTime(container?.authExpiresAtUtc);
@@ -135,12 +91,6 @@ export function ScheduledPrefillPersistentCard({
   // running; authenticated services are only ready once login succeeds.
   const isReady = isAnonymous || isAuthenticated;
   const isAuthInProgress = !isAnonymous && isRunning && !isAuthenticated && authenticating;
-  const reuseIntegrationDisabled =
-    disabled ||
-    isAuthInProgress ||
-    integrationLoginAvailabilityLoading ||
-    !integrationLoginAvailability?.available;
-  const isGameSelectionBlocked = isRunning && !isReady;
   const savedLoginHint = (() => {
     if (integrationLoginAvailabilityLoading) return t(`${containersKey}.savedLoginChecking`);
     if (integrationLoginAvailability?.available && integrationLoginAvailability.account?.trim()) {
@@ -161,47 +111,15 @@ export function ScheduledPrefillPersistentCard({
   // out while it is switched off. Starting, stopping and logging the container in or out do not,
   // because the container serves every schedule on the platform.
   const selectionDisabled = disabled || !scheduleEnabled;
+  const containerActionPending = action === 'stop' || action === 'logout';
+  const reuseIntegrationDisabled =
+    disabled ||
+    containerActionPending ||
+    isAuthInProgress ||
+    integrationLoginAvailabilityLoading ||
+    !integrationLoginAvailability?.available;
   // Initial container probe with nothing resolved yet — show the loading view.
   const isContainerLoading = statusLoading && container === undefined;
-
-  // The footer holds every action button. When the container transitions to running the card
-  // grows (status line, meta, games, workflow hint), which can push the buttons below the modal's
-  // scroll fold. Bring the actions back into view on that transition — same scrollIntoView pattern
-  // SchedulesSection uses for its View Schedule buttons. The ref lives on the footer so the buttons
-  // themselves land in view, not just the (now off-screen) card header.
-  //
-  // Gated on a user-initiated Start of THIS card only: `action === 'start'` is set while this card's
-  // Start click is in flight, so we remember that intent and consume it when the container actually
-  // comes up. A background refresh that flips the container to running (a scheduled run, another
-  // tab, a resumed session) never carries that intent, so it never yanks the view.
-  const actionsRef = useRef<HTMLElement>(null);
-  const wasRunningRef = useRef(isRunning);
-  const startRequestedRef = useRef(false);
-  const [actionsOpen, setActionsOpen] = useState(false);
-
-  useEffect(() => {
-    const wasRunning = wasRunningRef.current;
-    wasRunningRef.current = isRunning;
-
-    // Record the in-flight Start click; it stays remembered until the container comes up (consumed
-    // below) or the action settles without the container running (cleared below).
-    if (action === 'start') {
-      startRequestedRef.current = true;
-    }
-
-    if (!wasRunning && isRunning && startRequestedRef.current) {
-      startRequestedRef.current = false;
-      // rAF so the freshly-grown card has settled its layout before we measure/scroll.
-      const frame = requestAnimationFrame(() => scrollActionsIntoView(actionsRef.current));
-      return () => cancelAnimationFrame(frame);
-    }
-
-    // Start settled (button no longer loading) but the container never came up — drop the intent so
-    // a later unrelated running transition can't inherit this click's scroll.
-    if (action !== 'start' && !isRunning) {
-      startRequestedRef.current = false;
-    }
-  }, [action, isRunning]);
 
   // One compact status line replaces the three tinted pipeline boxes: a coloured
   // dot carries meaning (green = logged in, info = downloading, amber = needs
@@ -242,11 +160,10 @@ export function ScheduledPrefillPersistentCard({
     if (isPrefilling) {
       return null;
     }
-    return t(`${containersKey}.workflow.ready`);
+    return null;
   })();
 
-  // The one visible action is the workflow's next step, the same step the hint above the footer
-  // names in words: start the container, log in, then download (or cancel the download running).
+  // The primary action follows the container's current state.
   let primaryAction: ReactNode;
   if (!isRunning) {
     primaryAction = (
@@ -307,25 +224,24 @@ export function ScheduledPrefillPersistentCard({
 
   return (
     <Card padding="md" className="scheduled-prefill-persistent-card">
+      {scheduleControls}
       <header className="scheduled-prefill-persistent-card__header">
         <div className="scheduled-prefill-persistent-card__title-block">
           <h4 className="scheduled-prefill-persistent-card__title">
             {t(`${baseKey}.platforms.sections.persistentContainer`)}
           </h4>
-          <p className="scheduled-prefill-persistent-card__subtitle">
-            {isAnonymous
-              ? t(`${containersKey}.anonymous.${serviceKey}.description`)
-              : t(`${baseKey}.persistentContainer.help`)}
-          </p>
         </div>
-        {(isAnonymous || statusLoading) && (
-          <div className="scheduled-prefill-persistent-card__header-badges">
-            {isAnonymous && (
-              <Badge variant="success">{t(`${containersKey}.anonymous.badge`)}</Badge>
-            )}
-            {statusLoading && <LoadingSpinner inline size="sm" />}
-          </div>
-        )}
+        <span
+          className="scheduled-prefill-persistent-card__status"
+          role="status"
+          aria-live="polite"
+        >
+          <StatusDot tone={statusDisplay.tone} label={statusDisplay.label} />
+          <span className="scheduled-prefill-persistent-card__status-text">
+            {(statusDisplay.busy || statusLoading) && <LoadingSpinner inline size="xs" />}
+            {statusDisplay.label}
+          </span>
+        </span>
       </header>
 
       {isContainerLoading ? (
@@ -335,17 +251,27 @@ export function ScheduledPrefillPersistentCard({
         </div>
       ) : (
         <>
-          <div
-            className="scheduled-prefill-persistent-card__status"
-            role="status"
-            aria-live="polite"
-          >
-            <StatusDot tone={statusDisplay.tone} label={statusDisplay.label} />
-            <span className="scheduled-prefill-persistent-card__status-text">
-              {statusDisplay.busy && <LoadingSpinner inline size="xs" />}
-              {statusDisplay.label}
-            </span>
-          </div>
+          {!isAnonymous && container && isRunning && isAuthenticated && (
+            <div className="scheduled-prefill-persistent-card__fact">
+              <span className="caps-label scheduled-prefill-persistent-card__fact-label">
+                {t('prefill.persistent.reloginRequiredBy')}
+              </span>
+              <span className="scheduled-prefill-persistent-card__meta-value">
+                {authExpiresAt}
+                <span className="scheduled-prefill-persistent-card__meta-detail">
+                  {/* Zero gets a finished sentence of its own instead of being poured into
+                        "{{time}} remaining". formatTimeRemaining answers zero with a word, not a
+                        duration, so the two together read "Expiring... remaining" in English and
+                        stack two expiry clauses in Chinese. */}
+                  {container.authTimeRemainingSeconds > 0
+                    ? t('prefill.persistent.timeRemaining', {
+                        time: formatTimeRemaining(container.authTimeRemainingSeconds)
+                      })
+                    : t('prefill.persistent.signInExpired')}
+                </span>
+              </span>
+            </div>
+          )}
 
           {isSessionUnavailable && (
             <Alert color="yellow" className="scheduled-prefill-persistent-card__auth-alert">
@@ -362,37 +288,6 @@ export function ScheduledPrefillPersistentCard({
               {t('prefill.persistent.loginFailed', { error: loginError })}
             </Alert>
           )}
-
-          {!isAnonymous && container && isRunning && (
-            <div className="scheduled-prefill-persistent-card__meta">
-              <div className="scheduled-prefill-persistent-card__meta-item">
-                <span className="caps-label scheduled-prefill-persistent-card__meta-label">
-                  {t('prefill.persistent.reloginRequiredBy')}
-                </span>
-                <span className="scheduled-prefill-persistent-card__meta-value">
-                  {authExpiresAt}
-                  <span className="scheduled-prefill-persistent-card__meta-detail">
-                    {/* Zero gets a finished sentence of its own instead of being poured into
-                        "{{time}} remaining". formatTimeRemaining answers zero with a word, not a
-                        duration, so the two together read "Expiring... remaining" in English and
-                        stack two expiry clauses in Chinese. */}
-                    {container.authTimeRemainingSeconds > 0
-                      ? t('prefill.persistent.timeRemaining', {
-                          time: formatTimeRemaining(container.authTimeRemainingSeconds)
-                        })
-                      : t('prefill.persistent.signInExpired')}
-                  </span>
-                </span>
-              </div>
-            </div>
-          )}
-
-          <p className="scheduled-prefill-persistent-card__games">
-            {t(`${containersKey}.stats.gamesSelected`)}:{' '}
-            <strong className="tabular-nums scheduled-prefill-persistent-card__games-count">
-              {selectedGamesCount}
-            </strong>
-          </p>
 
           {isPrefilling && container && (
             <p className="scheduled-prefill-persistent-card__downloading">
@@ -418,7 +313,7 @@ export function ScheduledPrefillPersistentCard({
             </div>
           )}
 
-          {workflowHint && (
+          {container?.needsRelogin && workflowHint && (
             <p
               className={`scheduled-prefill-persistent-card__hint${
                 !isAnonymous && container?.needsRelogin
@@ -430,98 +325,111 @@ export function ScheduledPrefillPersistentCard({
             </p>
           )}
 
-          {isRunning && !isAnonymous && !isAuthenticated && !isAuthInProgress && (
-            <p className="scheduled-prefill-persistent-card__hint">
-              {integrationLoginAvailabilityLoading && <LoadingSpinner inline size="xs" />}
-              {savedLoginHint}
-            </p>
-          )}
-
-          <footer ref={actionsRef} className="scheduled-prefill-persistent-card__actions">
-            {/* Everything but the next step lives in one menu, in a fixed order, so the footer
-                reads the same in every state: an action that cannot run right now is disabled
-                rather than missing. The two items that undo work, clearing the selection and
-                stopping the container, sit together behind a divider in the danger register. */}
-            <ActionMenu
-              isOpen={actionsOpen}
-              onClose={() => setActionsOpen(false)}
-              align="right"
-              width="w-48"
-              trigger={
-                <Button
-                  type="button"
-                  variant="menu"
-                  size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                  open={actionsOpen}
-                  className="w-full"
-                  disabled={
-                    disabled || action === 'stop' || action === 'logout' || gameSelectionLoading
-                  }
-                  onClick={() => setActionsOpen((open) => !open)}
-                  aria-expanded={actionsOpen}
-                  aria-haspopup="menu"
-                  rightSection={<ChevronDown size={16} aria-hidden="true" />}
-                >
-                  {t('management.actions.menuLabel')}
-                </Button>
-              }
-            >
-              <ActionMenuItem
-                onClick={() => {
-                  setActionsOpen(false);
-                  onSelectGames();
-                }}
-                disabled={selectionDisabled || !isRunning || isGameSelectionBlocked}
+          <footer className="scheduled-prefill-persistent-card__actions">
+            {primaryAction}
+            {isRunning && !isReady && (
+              <Tooltip
+                content={savedLoginHint}
+                className="scheduled-prefill-persistent-card__login-help"
               >
-                {t(`${baseKey}.actions.selectGames`)}
-              </ActionMenuItem>
-              {isRunning && !isReady && (
-                <ActionMenuItem
-                  onClick={() => {
-                    setActionsOpen(false);
-                    onLogin(true);
-                  }}
-                  disabled={reuseIntegrationDisabled}
+                <span
+                  tabIndex={reuseIntegrationDisabled ? 0 : undefined}
+                  aria-label={savedLoginHint}
                 >
-                  {t(`${containersKey}.reuseIntegrationLogin`)}
-                </ActionMenuItem>
-              )}
-              {!isAnonymous && isRunning && isAuthenticated && (
-                <ActionMenuItem
-                  onClick={() => {
-                    setActionsOpen(false);
-                    onLogout();
-                  }}
-                  disabled={disabled || isPrefilling || action === 'start' || action === 'stop'}
-                >
-                  {t('prefill.persistent.logOut')}
-                </ActionMenuItem>
-              )}
-              <ActionMenuDivider />
-              <ActionMenuDangerItem
-                onClick={() => {
-                  setActionsOpen(false);
-                  onClearGames();
-                }}
-                disabled={selectionDisabled || selectedGamesCount === 0 || isPrefilling}
+                  <Button
+                    type="button"
+                    variant="default"
+                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                    onClick={() => onLogin(true)}
+                    disabled={reuseIntegrationDisabled}
+                  >
+                    {t(`${containersKey}.reuseIntegrationLogin`)}
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
+            <Button
+              type="button"
+              variant="default"
+              size={SCHEDULED_PREFILL_BUTTON_SIZE}
+              onClick={onSelectGames}
+              disabled={
+                selectionDisabled ||
+                containerActionPending ||
+                !isRunning ||
+                !isReady ||
+                gameSelectionLoading
+              }
+              loading={gameSelectionLoading}
+            >
+              {t(`${baseKey}.actions.selectGames`)}
+              <Badge variant="info">{selectedGamesCount}</Badge>
+            </Button>
+            {selectedGamesCount > 0 && (
+              <Button
+                type="button"
+                variant="default"
+                size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                onClick={onClearGames}
+                disabled={selectionDisabled || containerActionPending || isPrefilling}
               >
                 {t(`${baseKey}.actions.clearGames`)}
-              </ActionMenuDangerItem>
-              {isRunning && (
-                <ActionMenuDangerItem
-                  onClick={() => {
-                    setActionsOpen(false);
-                    onStop();
-                  }}
-                  disabled={disabled || action === 'start'}
-                >
-                  {t('prefill.persistent.actions.stop')}
-                </ActionMenuDangerItem>
-              )}
-            </ActionMenu>
-            {primaryAction}
+              </Button>
+            )}
+            {!isAnonymous && isRunning && isAuthenticated && (
+              <Button
+                type="button"
+                variant="default"
+                size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                onClick={onLogout}
+                disabled={disabled || isPrefilling || action === 'start' || containerActionPending}
+                loading={action === 'logout'}
+              >
+                {t('prefill.persistent.logOut')}
+              </Button>
+            )}
+            {isRunning && (
+              <Button
+                type="button"
+                variant="default"
+                size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                onClick={onStop}
+                disabled={disabled || action === 'start' || containerActionPending}
+                loading={action === 'stop'}
+              >
+                {t('prefill.persistent.actions.stop')}
+              </Button>
+            )}
           </footer>
         </>
+      )}
+      {containerSettings && (
+        <div className="scheduled-prefill-persistent-card__settings">
+          <Button
+            type="button"
+            variant="transparent"
+            size={SCHEDULED_PREFILL_BUTTON_SIZE}
+            className="scheduled-prefill-persistent-card__settings-toggle"
+            aria-expanded={settingsOpen}
+            aria-controls={settingsId}
+            onClick={() => setSettingsOpen((open) => !open)}
+            leftSection={
+              <ChevronDown
+                size={16}
+                aria-hidden="true"
+                className={`transition-transform duration-300 motion-reduce:transition-none ${settingsOpen ? 'rotate-180' : ''}`}
+              />
+            }
+          >
+            {t(`${baseKey}.settings.sharedContainerSettings`)}
+          </Button>
+          <CollapsibleRegion
+            open={settingsOpen}
+            contentClassName="scheduled-prefill-persistent-card__settings-content"
+          >
+            <div id={settingsId}>{containerSettings}</div>
+          </CollapsibleRegion>
+        </div>
       )}
     </Card>
   );

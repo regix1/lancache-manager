@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type {
   PersistentIntegrationLoginAvailability,
   PersistentPrefillContainerDto
@@ -18,6 +19,13 @@ export interface ScheduledPrefillPersistentActionState {
 }
 
 export interface ScheduledPrefillPersistentCardProps {
+  scheduleControls?: ReactNode;
+  containerSettings?: ReactNode;
+  gameSelectionLoading?: boolean;
+  onSelectGames: () => void;
+  onClearGames: () => void;
+  onStop: () => void;
+  onLogout: () => void;
   serviceKey: ScheduledPrefillServiceKey;
   container?: PersistentPrefillContainerDto;
   selectedGamesCount: number;
@@ -30,13 +38,8 @@ export interface ScheduledPrefillPersistentCardProps {
   integrationLoginAvailability?: PersistentIntegrationLoginAvailability;
   integrationLoginAvailabilityLoading?: boolean;
   action?: ScheduledPrefillPersistentAction;
-  gameSelectionLoading?: boolean;
   onStart: () => void;
-  onStop: () => void;
   onLogin: (reuseIntegration: boolean) => void;
-  onLogout: () => void;
-  onSelectGames: () => void;
-  onClearGames: () => void;
   onDownload: () => void;
   onCancelDownload: () => void;
 }

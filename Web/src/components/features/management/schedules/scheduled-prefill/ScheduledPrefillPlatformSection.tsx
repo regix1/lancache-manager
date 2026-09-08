@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import type {
@@ -16,6 +17,13 @@ import type { ScheduledPrefillSchedule, ScheduledPrefillServiceKey } from './typ
 
 interface ScheduledPrefillPlatformSectionProps {
   serviceKey: ScheduledPrefillServiceKey;
+  scheduleControls?: ReactNode;
+  containerSettings?: ReactNode;
+  gameSelectionLoading?: boolean;
+  onSelectGames: () => void;
+  onClearGames: () => void;
+  onStop: () => void;
+  onLogout: () => void;
   config: ScheduledPrefillSchedule;
   disabled?: boolean;
   statusLoading?: boolean;
@@ -25,20 +33,22 @@ interface ScheduledPrefillPlatformSectionProps {
   authenticating: boolean;
   integrationLoginAvailability?: PersistentIntegrationLoginAvailability;
   integrationLoginAvailabilityLoading?: boolean;
-  gameSelectionLoading: boolean;
   onChange: (config: ScheduledPrefillSchedule) => void;
   onStart: () => void;
-  onStop: () => void;
   onLogin: (reuseIntegration: boolean) => void;
-  onLogout: () => void;
-  onSelectGames: () => void;
-  onClearGames: () => void;
   onDownload: () => void;
   onCancelDownload: () => void;
 }
 
 export function ScheduledPrefillPlatformSection({
   serviceKey,
+  scheduleControls,
+  containerSettings,
+  gameSelectionLoading,
+  onSelectGames,
+  onClearGames,
+  onStop,
+  onLogout,
   config,
   disabled = false,
   statusLoading = false,
@@ -48,14 +58,9 @@ export function ScheduledPrefillPlatformSection({
   authenticating,
   integrationLoginAvailability,
   integrationLoginAvailabilityLoading = false,
-  gameSelectionLoading,
   onChange,
   onStart,
-  onStop,
   onLogin,
-  onLogout,
-  onSelectGames,
-  onClearGames,
   onDownload,
   onCancelDownload
 }: ScheduledPrefillPlatformSectionProps) {
@@ -75,7 +80,34 @@ export function ScheduledPrefillPlatformSection({
       aria-label={t(`${baseKey}.services.${serviceKey}`)}
     >
       <div className="scheduled-prefill-platform-section__blocks">
-        <Card padding="md" className="scheduled-prefill-platform-block">
+        <ScheduledPrefillPersistentCard
+          scheduleControls={scheduleControls}
+          containerSettings={containerSettings}
+          gameSelectionLoading={gameSelectionLoading}
+          onSelectGames={onSelectGames}
+          onClearGames={onClearGames}
+          onStop={onStop}
+          onLogout={onLogout}
+          serviceKey={serviceKey}
+          container={container}
+          selectedGamesCount={selectedGamesCount}
+          disabled={disabled}
+          scheduleEnabled={config.enabled}
+          statusLoading={statusLoading}
+          authenticating={authenticating}
+          integrationLoginAvailability={integrationLoginAvailability}
+          integrationLoginAvailabilityLoading={integrationLoginAvailabilityLoading}
+          action={persistentAction?.serviceKey === serviceKey ? persistentAction.action : null}
+          onStart={onStart}
+          onLogin={onLogin}
+          onDownload={onDownload}
+          onCancelDownload={onCancelDownload}
+        />
+
+        <Card
+          padding="md"
+          className="scheduled-prefill-platform-block scheduled-prefill-platform-block--schedule"
+        >
           <h4 className="scheduled-prefill-platform-block__title">
             {t(`${baseKey}.platforms.sections.schedule`)}
           </h4>
@@ -103,7 +135,10 @@ export function ScheduledPrefillPlatformSection({
           </div>
         </Card>
 
-        <Card padding="md" className="scheduled-prefill-platform-block">
+        <Card
+          padding="md"
+          className="scheduled-prefill-platform-block scheduled-prefill-platform-block--notifications"
+        >
           <h4 className="scheduled-prefill-platform-block__title">
             {t(`${baseKey}.platforms.sections.notifications`)}
           </h4>
@@ -116,28 +151,6 @@ export function ScheduledPrefillPlatformSection({
             />
           </div>
         </Card>
-
-        <ScheduledPrefillPersistentCard
-          serviceKey={serviceKey}
-          container={container}
-          selectedGamesCount={selectedGamesCount}
-          disabled={disabled}
-          scheduleEnabled={config.enabled}
-          statusLoading={statusLoading}
-          authenticating={authenticating}
-          integrationLoginAvailability={integrationLoginAvailability}
-          integrationLoginAvailabilityLoading={integrationLoginAvailabilityLoading}
-          action={persistentAction?.serviceKey === serviceKey ? persistentAction.action : null}
-          gameSelectionLoading={gameSelectionLoading}
-          onStart={onStart}
-          onStop={onStop}
-          onLogin={onLogin}
-          onLogout={onLogout}
-          onSelectGames={onSelectGames}
-          onClearGames={onClearGames}
-          onDownload={onDownload}
-          onCancelDownload={onCancelDownload}
-        />
       </div>
     </section>
   );

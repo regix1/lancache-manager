@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
 
@@ -23,6 +24,10 @@ const persistentCardSource = parseSource(
   ts.ScriptKind.TSX
 );
 const actionMenuSource = parseSource('src/components/ui/ActionMenu.tsx', ts.ScriptKind.TSX);
+const schedulesCss = readFileSync(
+  new URL('../src/components/features/management/schedules/SchedulesSection.css', import.meta.url),
+  'utf8'
+);
 const focusUrl = await compileToUrl('../src/utils/focus.ts');
 const { getFocusable } = await import(focusUrl);
 globalThis.HTMLInputElement = class HTMLInputElement {};
@@ -32,14 +37,14 @@ function getTagName(element) {
 }
 
 function getAttribute(element, source, name) {
-  const attribute = element.openingElement.attributes.properties.find(
+  const attribute = (element.openingElement ?? element).attributes.properties.find(
     (property) => ts.isJsxAttribute(property) && property.name.text === name
   );
-  assert.ok(attribute, `${getTagName(element)} has ${name}`);
-  assert.ok(attribute.initializer, `${getTagName(element)} ${name} has a value`);
+  assert.ok(attribute, `element has ${name}`);
+  assert.ok(attribute.initializer, `${name} has a value`);
   if (ts.isStringLiteral(attribute.initializer)) return JSON.stringify(attribute.initializer.text);
   assert.ok(ts.isJsxExpression(attribute.initializer));
-  assert.ok(attribute.initializer.expression, `${getTagName(element)} ${name} has an expression`);
+  assert.ok(attribute.initializer.expression, `${name} has an expression`);
   return attribute.initializer.expression.getText(source);
 }
 
@@ -156,7 +161,7 @@ test('row and record Actions offer Enable for an off schedule and Disable for an
   assert.deepEqual(changes.pop(), ['steam', { id: 'schedule-a', name: 'Default', enabled: false }]);
 });
 
-test('row Actions shares one disabled rule between its trigger and every item', () => {
+test('Actions triggers stay stable and Configure has one schedule menu', () => {
   const row = getComponent(detailSource, 'ScheduledPrefillServiceScheduleRow');
   const menuTrigger = getMenuItems(row, detailSource, 'Button').find(
     (button) => getAttribute(button, detailSource, 'variant') === '"menu"'
@@ -167,20 +172,31 @@ test('row Actions shares one disabled rule between its trigger and every item', 
   // itself with the notification; a spinner on the trigger flashed on every click, so no
   // scheduled-prefill Actions trigger carries `loading`.
   assert.equal(hasAttribute(menuTrigger, 'loading'), false, 'row trigger has no spinner');
-  const panelTrigger = getMenuItems(
+  const panelTriggers = getMenuItems(
     getComponent(panelSource, 'ScheduledPrefillPlatformsPanel'),
     panelSource,
     'Button'
-  ).find((button) => getAttribute(button, panelSource, 'variant') === '"menu"');
+  ).filter((button) => getAttribute(button, panelSource, 'variant') === '"menu"');
+  assert.equal(panelTriggers.length, 1, 'platform header has one schedule menu trigger');
+  const [panelTrigger] = panelTriggers;
   assert.ok(panelTrigger, 'record group has a menu trigger');
   assert.equal(hasAttribute(panelTrigger, 'loading'), false, 'record trigger has no spinner');
-  const footerTrigger = getMenuItems(
+  const footerTriggers = getMenuItems(
     getComponent(persistentCardSource, 'ScheduledPrefillPersistentCard'),
     persistentCardSource,
     'Button'
-  ).find((button) => getAttribute(button, persistentCardSource, 'variant') === '"menu"');
-  assert.ok(footerTrigger, 'persistent card footer has a menu trigger');
-  assert.equal(hasAttribute(footerTrigger, 'loading'), false, 'footer trigger has no spinner');
+  ).filter((button) => getAttribute(button, persistentCardSource, 'variant') === '"menu"');
+  assert.equal(footerTriggers.length, 0, 'persistent card does not repeat the Actions menu');
+  assert.doesNotMatch(
+    persistentCardSource.text,
+    /scrollIntoView|scrollTo\s*\(/,
+    'container actions never move the modal scroll position'
+  );
+  assert.equal(
+    panelSource.text.includes('key={activeSchedule.id}'),
+    false,
+    'switching schedules updates the controlled section without forcing a remount'
+  );
 
   const run = getItemWithCallback(row, detailSource, 'ActionMenuItem', 'onRun');
   const open = getItemWithCallback(row, detailSource, 'ActionMenuItem', 'onOpen');
@@ -214,6 +230,60 @@ test('row Actions shares one disabled rule between its trigger and every item', 
   })();
   assert.equal(stateUpdates.length, 1);
   assert.equal(stateUpdates[0](true), false, 'the mounted trigger can close its own menu');
+});
+
+test('container buttons retain the selected platform and schedule when moved out of Actions', () => {
+  const section = findSoleNode(
+    panelSource,
+    'active platform section',
+    (node) =>
+      ts.isJsxSelfClosingElement(node) &&
+      node.tagName.getText(panelSource) === 'ScheduledPrefillPlatformSection'
+  );
+
+  for (const [callbackName, input, expected] of [
+    ['onSelectGames', undefined, ['steam', 'schedule-a']],
+    ['onLogin', true, ['steam', true]],
+    ['onLogout', undefined, ['steam']],
+    ['onClearGames', undefined, ['steam', 'schedule-a']],
+    ['onStop', undefined, ['steam']]
+  ]) {
+    const calls = [];
+    bindLifted(getAttribute(section, panelSource, callbackName), {
+      activeServiceKey: 'steam',
+      activeSchedule: { id: 'schedule-a' },
+      [callbackName]: (...args) => calls.push(args)
+    })(input);
+    assert.deepEqual(calls.pop(), expected);
+  }
+
+  const card = getComponent(persistentCardSource, 'ScheduledPrefillPersistentCard');
+  const buttons = getMenuItems(card, persistentCardSource, 'Button');
+  for (const callbackName of ['onSelectGames', 'onClearGames', 'onLogout', 'onStop']) {
+    const button = buttons.find(
+      (item) => getAttribute(item, persistentCardSource, 'onClick') === callbackName
+    );
+    assert.ok(button, `${callbackName} is available as a direct button`);
+    assert.equal(getAttribute(button, persistentCardSource, 'type'), '"button"');
+  }
+});
+
+test('Actions cannot submit and the mobile modal contains touch scrolling', () => {
+  assert.match(
+    actionMenuSource.text,
+    /export const ActionMenuItem[\s\S]*?return \(\s*<button\s+type="button"/,
+    'regular menu items never submit an ancestor form'
+  );
+  assert.match(
+    actionMenuSource.text,
+    /export const ActionMenuDangerItem[\s\S]*?return \(\s*<button\s+type="button"/,
+    'danger menu items never submit an ancestor form'
+  );
+  assert.match(
+    schedulesCss,
+    /\.scheduled-prefill-config-modal__viewport \.overflow-y-auto\s*\{\s*overscroll-behavior: contain;/,
+    'touch scrolling cannot escape the modal or trigger pull-to-refresh'
+  );
 });
 
 test('record-group Actions closes before new, save-as, and delete callbacks', () => {
