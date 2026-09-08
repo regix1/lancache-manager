@@ -396,6 +396,7 @@
       "cancelPrefillLogin": "取消登录",
       "cancelOperationAria": "取消操作",
       "forceKillOperation": "再次点击以强制终止",
+      "forceStop": "强制停止",
       "cancelOperationFailed": "取消操作失败",
       "forceKillOperationFailed": "强制终止操作失败",
       "cancelling": "取消中...",

@@ -396,6 +396,7 @@
       "cancelPrefillLogin": "Cancel sign-in",
       "cancelOperationAria": "Cancel operation",
       "forceKillOperation": "Click again to force kill",
+      "forceStop": "Force stop",
       "cancelOperationFailed": "Failed to cancel operation",
       "forceKillOperationFailed": "Failed to force kill operation",
       "cancelling": "Cancelling...",

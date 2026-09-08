@@ -48,7 +48,7 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
   }
 
   if (notification.status === 'running') {
-    return <LoadingSpinner inline size="sm" className="flex-shrink-0" style={{ color }} />;
+    return null;
   }
 
   if (notification.status === 'waiting') {
@@ -355,17 +355,28 @@ export const UnifiedNotificationItem = ({
   };
 
   if (notification.controlOnly && !isTerminalNotificationStatus(notification.status)) {
+    const canForceStop =
+      notification.details?.cancelRequested === true &&
+      notification.details?.cancelSent === true &&
+      Boolean(notification.details?.operationId) &&
+      CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind === 'serverOp';
+
     return (
-      <div className="background-task-control-row flex min-h-11 items-center gap-3 rounded px-3 py-1 text-sm text-themed-primary">
-        <span className="min-w-0 flex-1 truncate">
+      <div className="background-task-control-row rounded text-sm text-themed-primary">
+        <span className="background-task-control-row__name">
           {titleKey ? t(titleKey) : notification.message}
           {notification.details?.service && (
             <span className="capitalize"> · {notification.details.service}</span>
           )}
           {notification.details?.gameName && <> · {notification.details.gameName}</>}
         </span>
-        <span className="text-xs text-themed-secondary capitalize" role="status">
-          {notification.details?.cancelRequested ? 'cancelling' : notification.status}
+        <span
+          className="background-task-control-row__status text-xs text-themed-secondary capitalize"
+          role="status"
+        >
+          {t(
+            `common.notifications.condensedStatus.${notification.details?.cancelRequested ? 'cancelling' : notification.status}`
+          )}
         </span>
         {onCancel && (
           <Button
@@ -374,15 +385,19 @@ export const UnifiedNotificationItem = ({
             variant="filled"
             color="stop"
             size="sm"
+            className="background-task-control-row__cancel"
             loading={notification.details?.cancelPending}
+            disabled={notification.details?.cancelRequested && !canForceStop}
             stableWidth
+            aria-busy={notification.details?.cancelPending === true}
             aria-label={t(
-              notification.details?.cancelRequested
-                ? FORCE_KILL_TOOLTIP_KEY
+              canForceStop
+                ? 'common.notifications.forceStop'
                 : 'common.notifications.cancelOperationAria'
             )}
+            title={canForceStop ? t(FORCE_KILL_TOOLTIP_KEY) : undefined}
           >
-            {t(notification.details?.cancelRequested ? FORCE_KILL_TOOLTIP_KEY : 'common.cancel')}
+            {t(canForceStop ? 'common.notifications.forceStop' : 'common.cancel')}
           </Button>
         )}
       </div>
