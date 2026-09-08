@@ -394,6 +394,11 @@ public class PrefillSelectedAppsEmptyTests
                 return BlockSelection ? SelectionRelease.Task : Task.CompletedTask;
             }
 
+            if (targetMethod?.Name == nameof(IDaemonClient.GetStatusAsync))
+            {
+                return Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = "logged-in" });
+            }
+
             if (targetMethod?.Name == nameof(IDaemonClient.PrefillAsync))
             {
                 return Task.FromResult(new PrefillResult { Success = true });

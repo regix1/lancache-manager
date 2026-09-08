@@ -113,7 +113,7 @@ public class PrefillProgressLoginPhaseGuardTests
     [Fact]
     public async Task ErrorProgress_SessionPrefilling_StampsTheDaemonReasonOnTheSession()
     {
-        var (daemon, session, _) = CreateDaemonWithSession();
+        var (daemon, session, recorder) = CreateDaemonWithSession();
 
         session.IsPrefilling = true;
         session.PrefillState = PrefillState.Downloading;
@@ -126,6 +126,21 @@ public class PrefillProgressLoginPhaseGuardTests
 
         Assert.Equal(PrefillState.Failed, session.PrefillState);
         Assert.Equal("Prefill failed: Steam connection was lost", session.ErrorMessage);
+        var completedAt = session.LastPrefillCompletedAt;
+        var emissions = recorder.Invocations.Count;
+
+        await daemon.InvokeNotifyPrefillProgressAsync(
+            session,
+            new PrefillProgress { State = "failed", ErrorMessage = "A later socket failure" });
+
+        Assert.Equal("Prefill failed: Steam connection was lost", session.ErrorMessage);
+        Assert.Equal(completedAt, session.LastPrefillCompletedAt);
+        Assert.Equal(emissions, recorder.Invocations.Count);
+        Assert.Equal(1, session.TerminalCompletedFlag);
+        Assert.Single(recorder.Invocations, invocation =>
+            invocation.Method == nameof(ISignalRNotificationService.NotifySteamHubAsync)
+            && invocation.Args.Length > 0
+            && (invocation.Args[0] as string) == SignalREvents.PrefillStateChanged);
     }
 
     [Fact]
@@ -180,8 +195,108 @@ public class PrefillProgressLoginPhaseGuardTests
         await notification;
     }
 
+    [Fact]
+    public async Task PersistentAcknowledgement_StallsOnceAndHoldsMutationUntilCancelFinishes()
+    {
+        var (daemon, session, _) = CreateDaemonWithSession(persistent: true);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new FakeReconnectDaemonClient
+        {
+            PrefillHandler = _ => Task.FromResult(new PrefillResult { Success = true }),
+            CancelPrefillHandler = async ct => { entered.SetResult(); await release.Task.WaitAsync(ct); }
+        };
+        session.Client = client;
+        var result = await daemon.PrefillAsync(session.Id, force: true);
+        var now = DateTime.UtcNow.AddSeconds(181);
+        var expiry = daemon.ProcessSessionExpiryAsync(now);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            Assert.False(session.IsPrefilling);
+            Assert.Equal(PrefillState.Failed, session.PrefillState);
+            Assert.NotNull(session.LastPrefillCompletedAt);
+            Assert.Contains("stalled", session.ErrorMessage);
+            Assert.Null(session.LastProgress);
+            Assert.Null(session.CurrentAppId);
+            Assert.False(daemon.PersistentEditSessionGate.TryEnterMutation(out _));
+            Assert.Equal(0, (await daemon.ProcessSessionExpiryAsync(now)).StalledFailed);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+        Assert.Equal(1, (await expiry).StalledFailed);
+        Assert.Equal(1, client.CancelPrefillCount);
+        Assert.Equal(result.RunId, session.PrefillRunId);
+        Assert.True(daemon.PersistentEditSessionGate.TryEnterMutation(out var mutation));
+        await mutation!.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ScheduledOwnership_ExcludesCentralTimeoutAndRejectsStaleRunRecovery()
+    {
+        var (daemon, session, _) = CreateDaemonWithSession(persistent: true);
+        var client = new FakeReconnectDaemonClient
+        {
+            PrefillHandler = _ => Task.FromResult(new PrefillResult { Success = true }),
+            CancelPrefillHandler = _ => Task.CompletedTask
+        };
+        session.Client = client;
+        var previous = await daemon.PrefillAsync(session.Id, force: true);
+        await daemon.InvokeNotifyPrefillProgressAsync(session, new PrefillProgress { State = "completed" });
+        var result = await daemon.PrefillAsync(session.Id, force: true, scheduleId: Guid.NewGuid());
+        var now = DateTime.UtcNow.AddSeconds(181);
+        Assert.Equal(0, (await daemon.ProcessSessionExpiryAsync(now)).StalledFailed);
+        Assert.True(session.IsPrefilling);
+        Assert.False(await daemon.FailStalledSessionAsync(session, previous.RunId, now, TimeSpan.FromSeconds(180), "old run"));
+        Assert.False(await daemon.FailStalledSessionAsync(session, result.RunId, now, TimeSpan.FromSeconds(180), "manual timeout"));
+        Assert.Equal(result.RunId, session.PrefillRunId);
+        Assert.Equal(0, client.CancelPrefillCount);
+        Assert.Null(session.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task PersistentStall_CancelThrows_LeavesTerminalAndReleasesLease()
+    {
+        var (daemon, session, _) = CreateDaemonWithSession(persistent: true);
+        session.Client = new FakeReconnectDaemonClient
+        {
+            PrefillHandler = _ => Task.FromResult(new PrefillResult { Success = true }),
+            CancelPrefillHandler = _ => Task.FromException(new IOException("offline"))
+        };
+        await daemon.PrefillAsync(session.Id, force: true);
+        Assert.Equal(1, (await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddSeconds(181))).StalledFailed);
+        Assert.Equal(PrefillState.Failed, session.PrefillState);
+        Assert.False(session.IsPrefilling);
+        Assert.True(daemon.PersistentEditSessionGate.TryEnterMutation(out var mutation));
+        await mutation!.DisposeAsync();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoginRejection_FailsOnceAndPreservesReason(bool success)
+    {
+        var (daemon, session, recorder) = CreateDaemonWithSession(persistent: true);
+        session.Client = new FakeReconnectDaemonClient
+        {
+            PrefillHandler = _ => Task.FromResult(new PrefillResult { Success = success, RequiresLogin = true, ErrorMessage = "Login expired" })
+        };
+        var result = await daemon.PrefillAsync(session.Id, force: true);
+        Assert.False(result.Success);
+        Assert.True(result.RequiresLogin);
+        Assert.Equal("Login expired", session.ErrorMessage);
+        Assert.False(session.IsPrefilling);
+        Assert.Equal(PrefillState.Failed, session.PrefillState);
+        var count = recorder.Invocations.Count;
+        await daemon.InvokeNotifyPrefillProgressAsync(session, new PrefillProgress { State = "error" });
+        Assert.Equal(count, recorder.Invocations.Count);
+        Assert.Equal("Login expired", session.ErrorMessage);
+    }
+
     private static (TestableSteamDaemonService Daemon, DaemonSession Session, RecordingNotificationProxy Recorder)
-        CreateDaemonWithSession(IDbContextFactory<AppDbContext>? dbFactory = null)
+        CreateDaemonWithSession(IDbContextFactory<AppDbContext>? dbFactory = null, bool persistent = false)
     {
         dbFactory ??= new InMemoryDbContextFactory(
             new DbContextOptionsBuilder<AppDbContext>()
@@ -203,6 +318,7 @@ public class PrefillProgressLoginPhaseGuardTests
         var session = new DaemonSession
         {
             Id = Guid.NewGuid().ToString("N")[..16],
+            IsPersistent = persistent,
             UserId = Guid.NewGuid(),
             Status = DaemonSessionStatus.Active,
             AuthState = DaemonAuthState.DeviceConfirmationRequired,

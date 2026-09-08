@@ -128,12 +128,14 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     /// <summary>
     /// Check if we're truly using Steam authenticated mode (not just connected)
     /// </summary>
-    private bool IsSteamAuthenticated
+    public bool IsSteamAuthenticated
     {
         get
         {
             var authMode = _stateService.GetSteamAuthMode();
-            var isAuthenticated = authMode == SteamAuthMode.Authenticated && !string.IsNullOrEmpty(_stateService.GetSteamRefreshToken());
+            var isAuthenticated = authMode == SteamAuthMode.Authenticated
+                && !string.IsNullOrWhiteSpace(_stateService.GetSteamUsername())
+                && !string.IsNullOrWhiteSpace(_stateService.GetSteamRefreshToken());
             return isAuthenticated;
         }
     }
@@ -769,10 +771,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         var totalMappings = _depotToAppMappings.Count;
         var newMappingsInSession = Math.Max(0, totalMappings - _sessionStartDepotCount);
 
-        // Check if we're using authenticated mode (refresh token saved) or anonymous mode
-        var authMode = _stateService.GetSteamAuthMode();
-        var isAuthenticated = authMode == SteamAuthMode.Authenticated && !string.IsNullOrEmpty(_stateService.GetSteamRefreshToken());
-
         // Check if Web API is available (V2 or V1 with key) for Full/Incremental scans
         var isWebApiAvailable = _steamWebApiService.IsAvailableCached();
 
@@ -795,7 +793,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             LastScanWasForced = _lastScanWasForced,
             AutomaticScanSkipped = _automaticScanSkipped,
             IsConnected = _steamClient?.IsConnected == true,
-            IsLoggedOn = _isLoggedOn && isAuthenticated, // Only true if both connected AND using authenticated mode
+            IsLoggedOn = _isLoggedOn && IsSteamAuthenticated, // Only true if both connected AND using authenticated mode
             ErrorMessage = _lastErrorMessage,
             IsWebApiAvailable = isWebApiAvailable, // True if V2 is active OR V1 is configured with API key
             OperationId = _currentPicsOperationId,

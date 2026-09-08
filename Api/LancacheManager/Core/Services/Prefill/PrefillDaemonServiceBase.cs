@@ -1901,9 +1901,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // silently dropped.
         => useTcpMode && tcpHostPort.HasValue
             ? new TcpDaemonClient(GetTcpHost(), tcpHostPort.Value, socketSecret, _logger)
-                { HkdfInfo = CredentialEncryptionHkdfInfo }
+            { HkdfInfo = CredentialEncryptionHkdfInfo }
             : new SocketDaemonClient(socketPath, socketSecret, _logger)
-                { HkdfInfo = CredentialEncryptionHkdfInfo };
+            { HkdfInfo = CredentialEncryptionHkdfInfo };
 
     /// <summary>
     /// Builds the in-memory <see cref="DaemonSession"/> for an already-created/running daemon container,
@@ -3952,7 +3952,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         bool force = false,
         List<string>? operatingSystems = null,
         int? maxConcurrency = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Guid? scheduleId = null)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
@@ -3969,6 +3970,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         var runId = Guid.NewGuid();
         session.PrefillRunId = runId;
+        session.PrefillScheduleId = scheduleId;
         session.IsPrefilling = true;
         session.LastProgress = null;
         session.PreviousAppId = null;
@@ -4030,6 +4032,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             }
 
             result.RunId = runId;
+            if (result.RequiresLogin)
+            {
+                result.Success = false;
+            }
 
             // NOTE: Don't notify completion here - the daemon returns immediately with an acknowledgement.
             // The actual completion is detected via the socket progress terminal events.
@@ -4037,7 +4043,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             // route through the single terminal funnel to clear IsPrefilling and emit Failed once.
             if (!result.Success)
             {
-                await TransitionToTerminalAsync(session, PrefillState.Failed);
+                await TransitionToTerminalAsync(session, PrefillState.Failed, result.ErrorMessage);
             }
 
             // Don't complete apps here - the daemon returns immediately with "Prefill started".
@@ -5098,21 +5104,26 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var stallThreshold = TimeSpan.FromSeconds(GetStallTimeoutSeconds());
         var stalledSessions = _sessions.Values
             .Where(s => s.Status == DaemonSessionStatus.Active &&
-                        !s.IsPersistent &&
+                        (!s.IsPersistent || !s.PrefillScheduleId.HasValue) &&
                         (s.PrefillState == PrefillState.Started || s.PrefillState == PrefillState.Downloading) &&
                         IsPrefillStalled(s, nowUtc, stallThreshold))
+            .Select(s => (Session: s, RunId: s.PrefillRunId))
             .ToList();
 
-        async Task ProcessStalledSessionAsync(DaemonSession session)
+        async Task ProcessStalledSessionAsync((DaemonSession Session, Guid? RunId) candidate)
         {
+            var session = candidate.Session;
             try
             {
                 _logger.LogWarning(
                     "Prefill stall detected for session {SessionId}: no new bytes for >{ThresholdSeconds}s. Failing the run.",
                     session.Id, stallThreshold.TotalSeconds);
-                session.ErrorMessage = $"Prefill stalled: no bytes transferred for {(int)stallThreshold.TotalSeconds} seconds.";
-                await FailStalledSessionAsync(session);
-                Interlocked.Increment(ref stalledFailed);
+                if ((!session.IsPersistent || !session.PrefillScheduleId.HasValue)
+                    && await FailStalledSessionAsync(session, candidate.RunId, nowUtc, stallThreshold,
+                        $"Prefill stalled: no bytes transferred for {(int)stallThreshold.TotalSeconds} seconds."))
+                {
+                    Interlocked.Increment(ref stalledFailed);
+                }
             }
             catch (Exception ex)
             {
@@ -5164,8 +5175,58 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// directly to the client rather than via <see cref="CancelPrefillAsync"/> so the terminal state
     /// stays <c>Failed</c> (a stall is a failure, not a user cancellation).
     /// </summary>
-    internal async Task FailStalledSessionAsync(DaemonSession session)
+    internal async Task<bool> FailStalledSessionAsync(
+        DaemonSession session, Guid? runId, DateTime nowUtc, TimeSpan stallThreshold, string reason,
+        Guid? scheduleId = null)
     {
+        if (session.IsPersistent)
+        {
+            if (!PersistentEditSessionGate.TryEnterMutation(out var mutation))
+            {
+                return false;
+            }
+
+            await using (mutation!)
+            {
+                if (!_sessions.TryGetValue(session.Id, out var current)
+                    || !ReferenceEquals(current, session)
+                    || session.Status != DaemonSessionStatus.Active
+                    || session.PrefillRunId != runId
+                    || session.PrefillScheduleId != scheduleId
+                    || !IsPrefillStalled(session, nowUtc, stallThreshold)
+                    || Volatile.Read(ref session.TerminalCompletedFlag) != 0)
+                {
+                    return false;
+                }
+
+                if (!await TransitionToTerminalAsync(session, PrefillState.Failed, reason))
+                {
+                    return false;
+                }
+
+                try
+                {
+                    using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                    await session.Client.CancelPrefillAsync(cancellation.Token);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Best-effort cancel of stalled prefill failed for session {SessionId}", session.Id);
+                }
+
+                return true;
+            }
+        }
+
+        if (!_sessions.TryGetValue(session.Id, out var registered)
+            || !ReferenceEquals(registered, session)
+            || session.Status != DaemonSessionStatus.Active
+            || session.PrefillRunId != runId
+            || !IsPrefillStalled(session, nowUtc, stallThreshold))
+        {
+            return false;
+        }
+
         try
         {
             await session.Client.CancelPrefillAsync(CancellationToken.None);
@@ -5177,7 +5238,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 session.Id);
         }
 
-        await TransitionToTerminalAsync(session, PrefillState.Failed);
+        if (session.PrefillRunId != runId || !session.IsPrefilling
+            || Volatile.Read(ref session.TerminalCompletedFlag) != 0)
+        {
+            return false;
+        }
+
+        return await TransitionToTerminalAsync(session, PrefillState.Failed, reason);
     }
 
     /// <summary>

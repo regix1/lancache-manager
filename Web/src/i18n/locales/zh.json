@@ -3343,15 +3343,15 @@
       "connected": "已连接",
       "switchedToAnonymous": "已切换至匿名 Steam 模式，Depot 映射已保留；所有运行中的 Steam 预填充会话已被结束。",
       "prefillWarning": {
-        "description": "预填充会话不支持自动登录。让预填充连接复用管理器已保存的 Steam 会话可能导致 Steam 断开其中一个连接，因此每个预填充会话都必须手动登录。"
+        "description": "预填充使用独立的容器登录。请手动登录，或在可用时明确选择使用您自己的 LANCache 账户保存的登录。"
       },
       "autoLogout": {
         "title": "Steam 会话自动登出"
       },
       "status": {
-        "anonymous": "使用匿名模式",
-        "canAccessRestricted": "可以访问试玩和受限游戏",
-        "publicOnly": "仅公开游戏可用"
+        "anonymous": "Steam 账户登录不可用",
+        "canAccessRestricted": "已配置用于游戏映射的 Steam 账户登录",
+        "publicOnly": "无需账户登录即可使用公开游戏映射"
       },
       "accountLogin": "使用 Steam 登录",
       "anonymous": "匿名",
@@ -3361,6 +3361,7 @@
       "automatic": "自动",
       "manual": "手动",
       "steamUser": "Steam 用户",
+      "signInAgain": "重新登录",
       "logout": "登出",
       "help": {
         "authModes": {
@@ -3385,7 +3386,7 @@
             "description": "您从仓库映射部分自行触发重建。"
           }
         },
-        "note": "账户登录通过 SteamKit2 直接连接到 Steam，独立于 Steam Web API 工作。Web API（V2/V1）仅用于完整仓库扫描。"
+        "note": "这是用于游戏映射的共享 Steam 登录。计划预填充使用独立的容器登录。只有保存在您自己的 LANCache 账户下的登录才可复用。"
       }
     },
     "depotMapping": {
@@ -4014,6 +4015,11 @@
               "loadingStatus": "正在加载容器状态…",
               "manualLogin": "手动登录",
               "reuseIntegrationLogin": "使用我保存的登录",
+              "savedLoginChecking": "正在检查您保存的登录...",
+              "savedLoginAccountRequired": "请使用您自己的 LANCache 账户登录，以使用保存的登录。",
+              "savedLoginMissing": "此 LANCache 账户没有保存可用的登录。请在集成中重新登录，或在此处手动登录。",
+              "savedLoginUnknown": "无法检查您保存的登录。请重新打开此设置以重试，或在此处手动登录。",
+              "savedLoginAvailable": "已保存的登录：{{account}}。",
               "pipelineLabel": "容器状态",
               "steps": {
                 "container": "容器",
@@ -7680,7 +7686,7 @@
       "skippedContainerNotReady": "持久容器正在运行，但尚未就绪。此平台无需登录，请等待容器启动完成。",
       "skippedAlreadyRunning": "预填充已在进行中",
       "needsPersistentContainer": "没有正在运行的持久容器。请先启动持久容器并在其中登录，再设置计划。",
-      "needsPersistentLogin": "持久容器正在运行，但尚未登录。请先在持久容器中登录，再设置计划。",
+      "needsPersistentLogin": "持久容器正在运行，但尚未登录。请登录后再次运行，或等待下一次计划尝试。",
       "reusingContainer": "正在复用持久容器",
       "failedToStart": "预填充启动失败",
       "running": "预填充进行中",
@@ -7826,7 +7832,9 @@
       "editCleanupWaiting": "编辑会话清理正在等待持久容器启动完成，之后才能释放会话 {{sessionId}}。",
       "noRunningSession": "服务 '{{service}}' 没有正在运行的持久会话",
       "sessionReplaced": "此持久会话已被新的会话替换。请重新启动。",
-      "logoutBeforeSavedLogin": "请先退出当前账户，再使用您保存的登录信息。"
+      "logoutBeforeSavedLogin": "请先退出当前账户，再使用您保存的登录信息。",
+      "statusUnavailable": "无法检查容器登录状态。请重试。",
+      "startUnavailable": "容器无法启动预填充。请重试。"
     },
     "rateLimit": {
       "tooManyRequests": "来自此地址的请求过多。请等待限制重置后重试。"

@@ -42,16 +42,17 @@ public class SteamAuthController : ControllerBase
     [ProducesResponseType(typeof(SteamAuthStatusResponse), StatusCodes.Status200OK)]
     public ActionResult<SteamAuthStatusResponse> GetStatus()
     {
-        var authMode = _stateService.GetSteamAuthMode();
-        var isConnected = _steamKit2Service.IsReady;
-        var username = _stateService.GetSteamUsername();
+        var isAuthenticated = _steamKit2Service.IsSteamAuthenticated;
+        var authMode = isAuthenticated ? SteamAuthMode.Authenticated : SteamAuthMode.Anonymous;
+        var username = isAuthenticated ? _stateService.GetSteamUsername() : null;
+        var isConnected = _steamKit2Service.GetProgress().IsConnected;
 
-        var authModeWire = authMode?.ToWireString() ?? string.Empty;
+        var authModeWire = authMode.ToWireString();
         return Ok(new SteamAuthStatusResponse
         {
             Mode = authModeWire,
             Username = username ?? string.Empty,
-            IsAuthenticated = !string.IsNullOrEmpty(username),
+            IsAuthenticated = isAuthenticated,
             // Legacy fields for backward compatibility
             AuthMode = authModeWire,
             IsConnected = isConnected

@@ -373,39 +373,58 @@ export function ScheduledPrefillConfigModal({
   }, []);
 
   // Single-flight: the click-handler path (runPersistentStartFlow etc.) and the SignalR onRefresh
-  // subscription both call this independently, and used to double-fire back-to-back on the same
-  // click, each toggling loadingPersistentContainers and producing two visible flicker cycles
-  // (diagnostic §3 step 2). A concurrent second call now just joins the first's in-flight promise
-  // instead of starting a redundant fetch - kept as a join rather than dropping either caller's
-  // load, since the manual call is still the only path when SignalR is disconnected.
-  const persistentContainersRequestRef = useRef<Promise<void> | null>(null);
+  // subscription both call this independently. Triggers during a request queue a trailing pass
+  // so a terminal event cannot be hidden by an older response captured while downloading.
+  const persistentContainersRequestRef = useRef<{
+    controller: AbortController;
+    again: boolean;
+    promise: Promise<void>;
+  } | null>(null);
 
   const loadPersistentContainers = useCallback(async (signal?: AbortSignal) => {
-    if (persistentContainersRequestRef.current) {
-      return persistentContainersRequestRef.current;
+    if (signal?.aborted) return;
+    if (
+      persistentContainersRequestRef.current &&
+      !persistentContainersRequestRef.current.controller.signal.aborted
+    ) {
+      persistentContainersRequestRef.current.again = true;
+      return persistentContainersRequestRef.current.promise;
     }
 
-    const request = (async () => {
-      setLoadingPersistentContainers(true);
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    const request = { controller, again: false, promise: Promise.resolve() };
+    persistentContainersRequestRef.current = request;
+    setLoadingPersistentContainers(true);
+    request.promise = (async () => {
       try {
-        const nextContainers = await ApiService.getPersistentPrefillContainers(signal);
-        setPersistentContainers(nextContainers);
-        setPersistentError(null);
+        do {
+          request.again = false;
+          const nextContainers = await ApiService.getPersistentPrefillContainers(controller.signal);
+          if (controller.signal.aborted || persistentContainersRequestRef.current !== request)
+            return;
+          setPersistentContainers(nextContainers);
+          setPersistentError(null);
+        } while (request.again && !controller.signal.aborted);
       } catch (error: unknown) {
-        if (!isAbortError(error)) {
+        if (
+          !controller.signal.aborted &&
+          persistentContainersRequestRef.current === request &&
+          !isAbortError(error)
+        ) {
           setPersistentError(getErrorMessage(error));
         }
       } finally {
-        setLoadingPersistentContainers(false);
+        signal?.removeEventListener('abort', abort);
+        if (persistentContainersRequestRef.current === request) {
+          persistentContainersRequestRef.current = null;
+          setLoadingPersistentContainers(false);
+        }
       }
     })();
 
-    persistentContainersRequestRef.current = request;
-    try {
-      await request;
-    } finally {
-      persistentContainersRequestRef.current = null;
-    }
+    return request.promise;
   }, []);
 
   const loadIntegrationLoginAvailability = useCallback(
@@ -689,6 +708,7 @@ export function ScheduledPrefillConfigModal({
 
     return () => {
       controller.abort();
+      persistentContainersRequestRef.current?.controller.abort();
     };
   }, [
     opened,
@@ -1894,8 +1914,9 @@ export function ScheduledPrefillConfigModal({
         editSessionId: editSession.editSessionId,
         editActionId
       });
-      void loadPersistentContainers();
+      await loadPersistentContainers();
     } catch (error: unknown) {
+      await loadPersistentContainers();
       setPersistentError(getErrorMessage(error));
     } finally {
       setPersistentAction(null);

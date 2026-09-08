@@ -1251,6 +1251,9 @@ public abstract class DaemonClientBase : IDaemonClient
             timeout: TimeSpan.FromHours(24),
             cancellationToken: cancellationToken);
 
+        if (response.RequiresLogin == true)
+            return new PrefillResult { Success = false, RequiresLogin = true, ErrorMessage = response.Error ?? "Log in before starting prefill." };
+
         if (!response.Success)
             throw new InvalidOperationException(response.Error ?? "Prefill failed");
 

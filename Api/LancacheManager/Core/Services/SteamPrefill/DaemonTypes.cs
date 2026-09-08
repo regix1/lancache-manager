@@ -368,6 +368,9 @@ public class EncryptedCredentialResponse
 
 public class PrefillResult
 {
+    [JsonPropertyName("requiresLogin")]
+    public bool RequiresLogin { get; set; }
+
     /// <summary>
     /// Identifier of the prefill run for this session. Null when this response does not start a
     /// prefill run.

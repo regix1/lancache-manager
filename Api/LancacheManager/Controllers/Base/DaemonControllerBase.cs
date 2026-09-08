@@ -183,6 +183,22 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
                 operatingSystems: request?.OperatingSystems,
                 maxConcurrency: request?.MaxConcurrency);
 
+            if (result.RequiresLogin)
+            {
+                throw new ValidationException("Log in before downloading.")
+                {
+                    StageKey = "management.schedules.services.scheduledPrefill.config.persistentContainer.downloadRequiresAuth"
+                };
+            }
+
+            if (!result.Success)
+            {
+                throw new ServiceUnavailableException("The container could not start the prefill. Try again.")
+                {
+                    StageKey = "errors.prefill.startUnavailable"
+                };
+            }
+
             return Ok(result);
         }
         catch (PrefillAlreadyRunningException ex)

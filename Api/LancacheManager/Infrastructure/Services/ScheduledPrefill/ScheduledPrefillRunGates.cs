@@ -45,7 +45,7 @@ public static class ScheduledPrefillRunGates
     /// <see cref="TryGetRunnablePersistentSession"/> so UI and logs can tell the two apart.
     /// </summary>
     public const string LoggedOutNeedsLoginReason =
-        "The persistent container is running but not logged in. Log in to the persistent container before scheduling.";
+        "The persistent container is running but not logged in. Log in, then run again or wait for the next scheduled interval.";
 
     /// <summary>
     /// Top-level needs-login progress message. The two prerequisite failures are deliberately
@@ -54,7 +54,7 @@ public static class ScheduledPrefillRunGates
     /// </summary>
     public static string BuildNeedsLoginMessage(PrefillPlatform serviceId, bool containerRunning) =>
         containerRunning
-            ? $"Persistent container for {serviceId} is running but not logged in"
+            ? $"Persistent container for {serviceId} is running but not logged in. Log in, then run again or wait for the next scheduled interval."
             : $"No running persistent container for {serviceId}";
 
     /// <summary>

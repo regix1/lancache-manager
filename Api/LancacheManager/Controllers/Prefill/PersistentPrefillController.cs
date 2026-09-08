@@ -387,8 +387,8 @@ public class PersistentPrefillController : ControllerBase
                 if (!ReferenceEquals(claimedDaemon, daemon)
                     || !ReferenceEquals(claimedSession, session)
                     || daemon.PersistentEditSessionGate.HasPendingStart()
-                    || claimedSession!.LoginOperationId.HasValue
-                    || claimedSession.IsPrefilling)
+                      || claimedSession!.LoginOperationId.HasValue
+                      || claimedSession.IsPrefilling)
                 {
                     outcome = PersistentPrefillEditActionOutcome.Conflict;
                     return Conflict(ApiResponse.Error($"The persistent {request.Service} container is busy."));
@@ -473,10 +473,48 @@ public class PersistentPrefillController : ControllerBase
                     || !ReferenceEquals(claimedSession, session)
                     || daemon.PersistentEditSessionGate.HasPendingStart()
                     || claimedSession!.LoginOperationId.HasValue
+                    || claimedSession.PrefillScheduleId.HasValue
                     || claimedSession.IsPrefilling)
                 {
                     outcome = PersistentPrefillEditActionOutcome.Conflict;
                     return Conflict(ApiResponse.Error($"The persistent {request.Service} container is busy."));
+                }
+
+                if (request.Service.RequiresLogin())
+                {
+                    DaemonStatus? status;
+                    try
+                    {
+                        status = await daemon.GetSessionStatusAsync(claimedSession.Id, cancellationToken);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not check persistent container login for session {SessionId}", claimedSession.Id);
+                        throw new ServiceUnavailableException("The container login status could not be checked. Try again.")
+                        {
+                            StageKey = "errors.prefill.statusUnavailable"
+                        };
+                    }
+
+                    if (status is null)
+                    {
+                        throw new ServiceUnavailableException("The container login status could not be checked. Try again.")
+                        {
+                            StageKey = "errors.prefill.statusUnavailable"
+                        };
+                    }
+
+                    if (status.Status != "logged-in")
+                    {
+                        throw new ValidationException("Log in to the persistent container before downloading.")
+                        {
+                            StageKey = "management.schedules.services.scheduledPrefill.config.persistentContainer.downloadRequiresAuth"
+                        };
+                    }
                 }
 
                 if (request.AppIds is not null)
@@ -495,6 +533,22 @@ public class PersistentPrefillController : ControllerBase
                     operatingSystems: request.OperatingSystems,
                     maxConcurrency: request.MaxConcurrency,
                     cancellationToken: cancellationToken);
+
+                if (result.RequiresLogin)
+                {
+                    throw new ValidationException("Log in to the persistent container before downloading.")
+                    {
+                        StageKey = "management.schedules.services.scheduledPrefill.config.persistentContainer.downloadRequiresAuth"
+                    };
+                }
+
+                if (!result.Success)
+                {
+                    throw new ServiceUnavailableException("The container could not start the prefill. Try again.")
+                    {
+                        StageKey = "errors.prefill.startUnavailable"
+                    };
+                }
 
                 if (result.Success)
                 {
@@ -516,6 +570,14 @@ public class PersistentPrefillController : ControllerBase
         {
             outcome = PersistentPrefillEditActionOutcome.Cancelled;
             throw;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Could not start persistent prefill for session {SessionId}", session!.Id);
+            throw new ServiceUnavailableException("The container could not start the prefill. Try again.")
+            {
+                StageKey = "errors.prefill.startUnavailable"
+            };
         }
         finally
         {

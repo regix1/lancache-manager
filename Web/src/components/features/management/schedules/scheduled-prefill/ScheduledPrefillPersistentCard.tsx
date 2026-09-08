@@ -121,17 +121,15 @@ export function ScheduledPrefillPersistentCard({
   // never started, so this picks between two copies rather than one generic message.
   const sessionUnavailableState = isAnonymous ? null : loginState.sessionUnavailableState;
   const isSessionUnavailable = sessionUnavailableState !== null;
-  // Persistent-container run/login state now flows through the unified activity registry, keyed by the
-  // lowercase platform token (battleNet -> battlenet). The fetched container stays the pre-seed fallback
-  // (activity.isActive(...) || existing), so the status dot updates the instant a snapshot arrives.
+  // The REST snapshot owns confirmed state; activity fills the initial loading window only.
   const activity = useActivityStatus();
   const activityPlatformKey = serviceKey.toLowerCase();
   const isRunning =
-    activity.isActive('persistentContainer', activityPlatformKey, 'running') ||
-    (container?.isRunning ?? false);
+    container?.isRunning ??
+    activity.isActive('persistentContainer', activityPlatformKey, 'running');
   const isAuthenticated =
-    activity.isActive('persistentContainer', activityPlatformKey, 'authenticated') ||
-    (container?.isAuthenticated ?? false);
+    container?.isAuthenticated ??
+    activity.isActive('persistentContainer', activityPlatformKey, 'authenticated');
   const isPrefilling = container?.isPrefilling ?? false;
   // Anonymous services never need to authenticate, so they're "ready" the moment they're
   // running; authenticated services are only ready once login succeeds.
@@ -143,6 +141,22 @@ export function ScheduledPrefillPersistentCard({
     integrationLoginAvailabilityLoading ||
     !integrationLoginAvailability?.available;
   const isGameSelectionBlocked = isRunning && !isReady;
+  const savedLoginHint = (() => {
+    if (integrationLoginAvailabilityLoading) return t(`${containersKey}.savedLoginChecking`);
+    if (integrationLoginAvailability?.available && integrationLoginAvailability.account?.trim()) {
+      return t(`${containersKey}.savedLoginAvailable`, {
+        account: integrationLoginAvailability.account
+      });
+    }
+    switch (integrationLoginAvailability?.reason) {
+      case 'account-required':
+        return t(`${containersKey}.savedLoginAccountRequired`);
+      case 'no-saved-login':
+        return t(`${containersKey}.savedLoginMissing`);
+      default:
+        return t(`${containersKey}.savedLoginUnknown`);
+    }
+  })();
   // What this schedule downloads, and downloading it by hand, belong to the schedule: both grey
   // out while it is switched off. Starting, stopping and logging the container in or out do not,
   // because the container serves every schedule on the platform.
@@ -413,6 +427,13 @@ export function ScheduledPrefillPersistentCard({
               }`}
             >
               {workflowHint}
+            </p>
+          )}
+
+          {isRunning && !isAnonymous && !isAuthenticated && !isAuthInProgress && (
+            <p className="scheduled-prefill-persistent-card__hint">
+              {integrationLoginAvailabilityLoading && <LoadingSpinner inline size="xs" />}
+              {savedLoginHint}
             </p>
           )}
 

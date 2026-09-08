@@ -298,6 +298,130 @@ public class PersistentLoginSessionPinningTests
         Assert.True(daemon.GetSession("session-shared")!.IsPrefilling);
     }
 
+    [Theory]
+    [InlineData("awaiting-login")]
+    [InlineData("logging-in")]
+    public async Task PrefillLiveLoginRequired_DoesNotDispatchOrAllocateRun(string status)
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-shared");
+        var session = daemon.GetSession("session-shared")!;
+        session.AuthState = DaemonAuthState.Authenticated;
+        client.LiveStatus = status;
+        var exception = await Assert.ThrowsAsync<ValidationException>(() => controller.StartPrefillAsync(
+            new PersistentStartPrefillRequest
+            {
+                Service = PrefillPlatform.Steam,
+                SessionId = session.Id,
+                AppIds = ["10"],
+                EditSessionId = "edit-live",
+                EditActionId = "start-live"
+            }, CancellationToken.None));
+        Assert.Equal("management.schedules.services.scheduledPrefill.config.persistentContainer.downloadRequiresAuth", exception.StageKey);
+        Assert.Null(session.PrefillRunId);
+        Assert.False(session.IsPrefilling);
+        Assert.DoesNotContain(nameof(IDaemonClient.PrefillAsync), client.InvokedMethods);
+        Assert.DoesNotContain(nameof(IDaemonClient.SetSelectedAppsAsync), client.InvokedMethods);
+        Assert.Empty(daemon.PersistentEditSessionGate.GetCompensableResources("edit-live", PersistentPrefillEditResourceKind.Prefill));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PrefillStatusUnavailable_DoesNotDispatch(bool throws)
+    {
+        var (controller, daemon, _) = CreateControllerWithActiveSession("session-shared");
+        var session = daemon.GetSession("session-shared")!;
+        var client = new FakeReconnectDaemonClient
+        {
+            StatusHandler = _ => throws ? Task.FromException<DaemonStatus?>(new IOException("offline")) : Task.FromResult<DaemonStatus?>(null)
+        };
+        session.Client = client;
+        var exception = await Assert.ThrowsAsync<ServiceUnavailableException>(() => controller.StartPrefillAsync(
+            new PersistentStartPrefillRequest { Service = PrefillPlatform.Steam, SessionId = session.Id, AppIds = ["10"] }, CancellationToken.None));
+        Assert.Equal("errors.prefill.statusUnavailable", exception.StageKey);
+        Assert.Equal(0, client.SelectionCount);
+        Assert.Equal(0, client.PrefillCount);
+        Assert.Null(session.PrefillRunId);
+    }
+
+    [Fact]
+    public async Task PrefillScheduledOutcomePending_RemainsBusy()
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-shared");
+        daemon.GetSession("session-shared")!.PrefillScheduleId = Guid.NewGuid();
+        var result = await controller.StartPrefillAsync(
+            new PersistentStartPrefillRequest { Service = PrefillPlatform.Steam, SessionId = "session-shared" }, CancellationToken.None);
+        Assert.IsType<ConflictObjectResult>(result.Result);
+        Assert.Empty(client.InvokedMethods);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PrefillRejected_AfterLiveLogin_ReturnsTypedFailure(bool requiresLogin)
+    {
+        var (controller, daemon, _) = CreateControllerWithActiveSession("session-shared");
+        var session = daemon.GetSession("session-shared")!;
+        var client = new FakeReconnectDaemonClient
+        {
+            StatusHandler = _ => Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = "logged-in" }),
+            SelectionHandler = (_, _) => Task.CompletedTask,
+            PrefillHandler = _ => Task.FromResult(new PrefillResult { Success = false, RequiresLogin = requiresLogin, ErrorMessage = "Rejected" })
+        };
+        session.Client = client;
+        var exception = await Record.ExceptionAsync(() => controller.StartPrefillAsync(
+            new PersistentStartPrefillRequest { Service = PrefillPlatform.Steam, SessionId = session.Id, AppIds = ["10"], Force = true }, CancellationToken.None));
+        if (requiresLogin)
+        {
+            Assert.IsType<ValidationException>(exception);
+        }
+        else
+        {
+            Assert.IsType<ServiceUnavailableException>(exception);
+        }
+        Assert.Equal(1, client.SelectionCount);
+        Assert.Equal(1, client.PrefillCount);
+        Assert.False(session.IsPrefilling);
+        Assert.Equal("Rejected", session.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task PrefillLivePoll_CallerCancellationPropagates()
+    {
+        var (controller, daemon, _) = CreateControllerWithActiveSession("session-shared");
+        using var cancellation = new CancellationTokenSource();
+        var client = new FakeReconnectDaemonClient
+        {
+            StatusHandler = ct => { cancellation.Cancel(); return Task.FromCanceled<DaemonStatus?>(ct); }
+        };
+        daemon.GetSession("session-shared")!.Client = client;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => controller.StartPrefillAsync(
+            new PersistentStartPrefillRequest { Service = PrefillPlatform.Steam, SessionId = "session-shared" }, cancellation.Token));
+        Assert.Equal(0, client.PrefillCount);
+        Assert.Equal(0, client.SelectionCount);
+        Assert.True(daemon.PersistentEditSessionGate.TryEnterMutation(out var mutation));
+        await mutation!.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task PrefillAcknowledgedWithoutTerminal_WatchdogClearsRun()
+    {
+        var (controller, daemon, _) = CreateControllerWithActiveSession("session-shared");
+        var session = daemon.GetSession("session-shared")!;
+        session.Client = new FakeReconnectDaemonClient
+        {
+            StatusHandler = _ => Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = "logged-in" }),
+            PrefillHandler = _ => Task.FromResult(new PrefillResult { Success = true }),
+            CancelPrefillHandler = _ => Task.CompletedTask
+        };
+        var started = await controller.StartPrefillAsync(
+            new PersistentStartPrefillRequest { Service = PrefillPlatform.Steam, SessionId = session.Id, Force = true }, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(started.Result);
+        Assert.Equal(1, (await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddSeconds(181))).StalledFailed);
+        Assert.False(session.IsPrefilling);
+        Assert.NotNull(session.PrefillRunId);
+    }
+
     [Fact]
     public async Task CreatedSessionAdoptedByLaterEdit_IsRetainedAndEarlierSelectionIsRestored()
     {
@@ -563,10 +687,10 @@ public class PersistentLoginSessionPinningTests
     private static PersistentPrefillEditSessionCleanupRequest CreateCleanupRequest(
         string editSessionId,
         string baselineSessionId) => new()
-    {
-        EditSessionId = editSessionId,
-        CleanupId = $"cleanup-{editSessionId}",
-        Services =
+        {
+            EditSessionId = editSessionId,
+            CleanupId = $"cleanup-{editSessionId}",
+            Services =
         [
             new PersistentPrefillEditSessionCleanupServiceRequest
             {
@@ -579,7 +703,7 @@ public class PersistentLoginSessionPinningTests
                 SelectionSessionId = null
             }
         ]
-    };
+        };
 
     private static TestableSteamDaemonService CreateDaemon()
     {

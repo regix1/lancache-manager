@@ -120,6 +120,29 @@ public sealed class DaemonClientConnectionLifecycleTests
         await server;
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PrefillAsync_LoginRejectionPreservesTypedResult(bool useTcp)
+    {
+        using var endpoint = LoopbackEndpoint.Create(useTcp);
+        using var client = endpoint.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var server = Task.Run(async () =>
+        {
+            using var connection = await endpoint.AcceptAsync(timeout.Token);
+            using var stream = new NetworkStream(connection, ownsSocket: false);
+            var request = await ReadRequestAsync(stream, timeout.Token);
+            Assert.Equal("prefill", request.Type);
+            await WriteResponseAsync(stream, request.Id, false, null, "Login expired", timeout.Token, requiresLogin: true);
+        }, timeout.Token);
+        var result = await client.PrefillAsync(cancellationToken: timeout.Token);
+        Assert.False(result.Success);
+        Assert.True(result.RequiresLogin);
+        Assert.Equal("Login expired", result.ErrorMessage);
+        await server;
+    }
+
     private static bool IsConnected(IDaemonClient client)
         => client switch
         {
@@ -150,7 +173,8 @@ public sealed class DaemonClientConnectionLifecycleTests
         bool success,
         string? message,
         string? error,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requiresLogin = false)
     {
         var responseJson = JsonSerializer.Serialize(new
         {
@@ -158,6 +182,7 @@ public sealed class DaemonClientConnectionLifecycleTests
             success,
             message,
             error,
+            requiresLogin,
             completedAt = DateTime.UtcNow
         });
         var responseBytes = Encoding.UTF8.GetBytes(responseJson);

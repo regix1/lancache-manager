@@ -304,7 +304,7 @@ public sealed class AuthCredentialFormatTests : IDisposable
     /// Swaps the first stored ENC2 secret for <paramref name="replacement"/>, leaving the rest of the
     /// file exactly as the service wrote it.
     /// </summary>
-    private static void ReplaceStoredSecret(string path, string replacement)
+    internal static void ReplaceStoredSecret(string path, string replacement)
     {
         var json = File.ReadAllText(path);
         var start = json.IndexOf("\"ENC2:", StringComparison.Ordinal);
@@ -327,7 +327,7 @@ public sealed class AuthCredentialFormatTests : IDisposable
         }
     }
 
-    private sealed class TempDirPathResolver : PathResolverBase
+    internal sealed class TempDirPathResolver : PathResolverBase
     {
         private readonly string _basePath;
 

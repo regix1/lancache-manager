@@ -45,7 +45,6 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
     autoStartPics,
     loginStatusNotifications: true,
     onSuccess: (message) => {
-      setContextSteamAuthMode('authenticated');
       setShowAuthModal(false);
       refreshSteamAuth();
       onSuccess?.(message);
@@ -193,16 +192,27 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
             <div className="mgmt-row__actions">
               {canManage ? (
                 isAuthenticated ? (
-                  <Button
-                    onClick={handleSwitchToAnonymous}
-                    loading={loading}
-                    variant="filled"
-                    color="secondary"
-                    size="sm"
-                    stableWidth
-                  >
-                    {t('management.steamAuth.logout')}
-                  </Button>
+                  <>
+                    <Button
+                      onClick={() => setShowAuthModal(true)}
+                      variant="filled"
+                      color="primary"
+                      size="sm"
+                      disabled={loading}
+                    >
+                      {t('management.steamAuth.signInAgain')}
+                    </Button>
+                    <Button
+                      onClick={handleSwitchToAnonymous}
+                      loading={loading}
+                      variant="filled"
+                      color="secondary"
+                      size="sm"
+                      stableWidth
+                    >
+                      {t('management.steamAuth.logout')}
+                    </Button>
+                  </>
                 ) : (
                   <Button
                     onClick={() => setShowAuthModal(true)}

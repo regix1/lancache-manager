@@ -313,6 +313,11 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
     public int CancelPrefillCount { get; private set; }
     public Func<CancellationToken, Task>? CancelPrefillHandler { get; set; }
     public Func<CancellationToken, Task<List<OwnedGame>>>? OwnedGamesHandler { get; set; }
+    public Func<CancellationToken, Task<DaemonStatus?>>? StatusHandler { get; set; }
+    public Func<CancellationToken, Task<PrefillResult>>? PrefillHandler { get; set; }
+    public Func<List<string>, CancellationToken, Task>? SelectionHandler { get; set; }
+    public int PrefillCount { get; private set; }
+    public int SelectionCount { get; private set; }
 
     public Task ConnectAsync(CancellationToken cancellationToken = default)
     {
@@ -322,7 +327,7 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
 
     // The reconnect flow reconciles once with live status; returning null leaves the conservative default.
     public Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult<DaemonStatus?>(null);
+        => StatusHandler is null ? Task.FromResult<DaemonStatus?>(null) : StatusHandler(cancellationToken);
 
     public Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
     {
@@ -365,9 +370,15 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
     public Task<List<CdnInfo>> GetCdnInfoAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
     public Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
+    {
+        SelectionCount++;
+        return SelectionHandler is null ? throw new NotSupportedException() : SelectionHandler(appIds, cancellationToken);
+    }
     public Task<PrefillResult> PrefillAsync(bool all = false, bool recent = false, bool recentlyPurchased = false, int? top = null, bool force = false, List<string>? operatingSystems = null, int? maxConcurrency = null, List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
+    {
+        PrefillCount++;
+        return PrefillHandler is null ? throw new NotSupportedException() : PrefillHandler(cancellationToken);
+    }
     public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
     public Task<ClearCacheResult> GetCacheInfoAsync(CancellationToken cancellationToken = default)

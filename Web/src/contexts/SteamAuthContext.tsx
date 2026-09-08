@@ -30,12 +30,19 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
       const response = await fetch('/api/steam-auth/status', ApiService.getFetchOptions());
       if (response.ok) {
         const authState: SteamAuthenticationState = await response.json();
-        setSteamAuthMode(authState.mode);
-        setUsername(
-          authState.mode === 'authenticated' && authState.username ? authState.username : ''
-        );
+        const authenticated =
+          authState.mode === 'authenticated' &&
+          authState.isAuthenticated === true &&
+          Boolean(authState.username?.trim());
+        setSteamAuthMode(authenticated ? 'authenticated' : 'anonymous');
+        setUsername(authenticated ? authState.username! : '');
+      } else {
+        setSteamAuthMode('anonymous');
+        setUsername('');
       }
     } catch (error) {
+      setSteamAuthMode('anonymous');
+      setUsername('');
       // Background poll (mount + SteamAutoLogout/SteamSessionError SignalR recovery). Steam
       // auth state degrades to its 'anonymous' default, which already gates Steam-prefill UI.
       // Deliberately silent.

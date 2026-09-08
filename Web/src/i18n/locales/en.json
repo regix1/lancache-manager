@@ -3343,15 +3343,15 @@
       "connected": "Connected",
       "switchedToAnonymous": "Switched to anonymous Steam mode. Depot mappings preserved; any running Steam prefill sessions were ended.",
       "prefillWarning": {
-        "description": "Auto-login is not available for prefill sessions. Reusing the manager's saved Steam session for a prefill connection risks Steam dropping one of the two connections, so each prefill session must be logged in manually."
+        "description": "Prefill uses a separate container login. Log in manually, or explicitly use a saved login from your own LANCache account when available."
       },
       "autoLogout": {
         "title": "Steam Session Auto-Logout"
       },
       "status": {
-        "anonymous": "Using anonymous mode",
-        "canAccessRestricted": "Can access playtest and restricted games",
-        "publicOnly": "Only public games available"
+        "anonymous": "Steam account login unavailable",
+        "canAccessRestricted": "Steam account login configured for game mapping",
+        "publicOnly": "Public game mapping is available without an account login"
       },
       "accountLogin": "Login with Steam",
       "anonymous": "Anonymous",
@@ -3361,6 +3361,7 @@
       "automatic": "Automatic",
       "manual": "Manual",
       "steamUser": "Steam User",
+      "signInAgain": "Sign in again",
       "logout": "Logout",
       "help": {
         "authModes": {
@@ -3385,7 +3386,7 @@
             "description": "You trigger the rebuild yourself from the Depot Mapping section."
           }
         },
-        "note": "Account login connects directly to Steam via SteamKit2 and works independently of the Steam Web API. The Web API (V2/V1) is only used for full depot scans."
+        "note": "This is the shared Steam login used for game mapping. Scheduled Prefill uses a separate container login. Saved-login reuse is available only for a login saved under your LANCache account."
       }
     },
     "depotMapping": {
@@ -4014,6 +4015,11 @@
               "loadingStatus": "Loading container status...",
               "manualLogin": "Log in manually",
               "reuseIntegrationLogin": "Use my saved login",
+              "savedLoginChecking": "Checking your saved login...",
+              "savedLoginAccountRequired": "Sign in with your own LANCache account to use a saved login.",
+              "savedLoginMissing": "No usable login is saved for this LANCache account. Sign in again in Integrations, or log in manually here.",
+              "savedLoginUnknown": "Your saved login could not be checked. Reopen this setup to try again, or log in manually here.",
+              "savedLoginAvailable": "Saved login: {{account}}.",
               "pipelineLabel": "Container status",
               "steps": {
                 "container": "Container",
@@ -7714,7 +7720,7 @@
       "skippedContainerNotReady": "The persistent container is running but has not reported ready yet. This platform needs no login, so wait for the container to finish starting.",
       "skippedAlreadyRunning": "A prefill is already in progress",
       "needsPersistentContainer": "No running persistent container. Start and log in the persistent container before scheduling.",
-      "needsPersistentLogin": "The persistent container is running but not logged in. Log in to the persistent container before scheduling.",
+      "needsPersistentLogin": "The persistent container is running but not logged in. Log in, then run again, or wait for the next scheduled attempt.",
       "reusingContainer": "Reusing persistent container",
       "failedToStart": "Prefill failed to start",
       "running": "Prefill in progress",
@@ -7860,7 +7866,9 @@
       "editCleanupWaiting": "Edit-session cleanup is waiting for a persistent start before releasing session {{sessionId}}.",
       "noRunningSession": "No running persistent session for service '{{service}}'",
       "sessionReplaced": "This persistent session was replaced by a newer one. Please start it again.",
-      "logoutBeforeSavedLogin": "Log out the current account before using your saved login."
+      "logoutBeforeSavedLogin": "Log out the current account before using your saved login.",
+      "statusUnavailable": "The container login status could not be checked. Try again.",
+      "startUnavailable": "The container could not start the prefill. Try again."
     },
     "rateLimit": {
       "tooManyRequests": "Too many requests from this address. Wait for the limit to reset and try again."

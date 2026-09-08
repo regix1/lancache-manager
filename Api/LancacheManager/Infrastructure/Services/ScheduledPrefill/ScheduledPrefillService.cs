@@ -897,236 +897,262 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             serviceConfig.Force,
             serviceConfig.SelectedAppIds.Count);
 
-        PrefillResult result;
         try
         {
-            result = await daemon.PrefillAsync(
-                sessionId,
-                all: all,
-                recent: recent,
-                recentlyPurchased: false,
-                top: top,
-                force: serviceConfig.Force,
-                operatingSystems: operatingSystems,
-                maxConcurrency: maxConcurrency,
-                cancellationToken: ct);
-        }
-        catch (PrefillAlreadyRunningException)
-        {
-            await ReportProgressAsync(notifications, serviceRun, "skipped", "A prefill is already in progress", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
-            return ScheduledPrefillServiceRunResult.Skipped;
-        }
-
-        await mutation.DisposeAsync();
-
-        // A failed start may leave IsPrefilling already false, which would make the poll loop
-        // exit immediately and wrongly report "completed". Treat a non-Success start as failed.
-        if (!result.Success)
-        {
-            var daemonFailure = !string.IsNullOrWhiteSpace(result.ErrorMessage);
-            var failureMessage = daemonFailure ? result.ErrorMessage! : "Prefill failed to start";
-            await ReportProgressAsync(
-                notifications,
-                serviceRun,
-                "failed",
-                failureMessage,
-                runShowNotification,
-                percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                // The daemon's own text has no key to translate it by, so only the generic sentence
-                // this method wrote itself carries one.
-                stageKey: daemonFailure ? null : "signalr.scheduledPrefill.failedToStart");
-            return ScheduledPrefillServiceRunResult.Failed;
-        }
-
-        await ReportProgressAsync(
-            notifications,
-            serviceRun,
-            "running",
-            "Prefill in progress",
-            runShowNotification,
-            downloadSessionId: sessionId,
-            percent: ScheduledPrefillRunGates.ComputeRunPercent(0),
-            stageKey: "signalr.scheduledPrefill.running");
-
-        // Live progress is PUSHED, never sampled. The daemon already raises a tick for every chunk it
-        // finishes (it has to - the prefill page renders from those very ticks); the scheduler used to
-        // ignore that and re-read session.LastProgress on a ten-second timer, which is why the card
-        // lagged by up to ten seconds and moved in coarse steps. The relay below subscribes to that
-        // push instead. The loop that follows never touches LastProgress again: it is purely a guard
-        // for the run deadline, the stall detector, cancellation, and stop detection - none of which a
-        // progress push can do, because all four are about the ABSENCE of progress or an external stop.
-        var relay = new ScheduledPrefillProgressRelay(
-            this,
-            notifications,
-            session,
-            serviceRun,
-            sessionId,
-            runShowNotification);
-
-        Func<DaemonSession, PrefillProgress, long, Task> onDaemonProgress = relay.OnProgressAsync;
-        daemon.PrefillProgressUpdated += onDaemonProgress;
-        var relayStopped = false;
-
-        // Silences the relay and waits for any send already inside its gate to finish. MUST run before
-        // this service emits any terminal event, or a live tick still in flight could land on the card
-        // after "completed"/"cancelled". Idempotent: the finally calls it again on the exception paths.
-        async Task StopRelayAsync()
-        {
-            if (relayStopped)
+            PrefillResult result;
+            try
             {
-                return;
+                result = await daemon.PrefillAsync(
+                    sessionId,
+                    all: all,
+                    recent: recent,
+                    recentlyPurchased: false,
+                    top: top,
+                    force: serviceConfig.Force,
+                    operatingSystems: operatingSystems,
+                    maxConcurrency: maxConcurrency,
+                    cancellationToken: ct,
+                    scheduleId: serviceConfig.ScheduleId);
+            }
+            catch (PrefillAlreadyRunningException)
+            {
+                await ReportProgressAsync(notifications, serviceRun, "skipped", "A prefill is already in progress", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+                return ScheduledPrefillServiceRunResult.Skipped;
             }
 
-            relayStopped = true;
-            daemon.PrefillProgressUpdated -= onDaemonProgress;
-            await relay.DeactivateAndDrainAsync();
-        }
+            await mutation.DisposeAsync();
+            var runId = result.RunId;
 
-        try
-        {
-            // Arm only now, so the explicit "running / 0%" event above is always the card's first
-            // live line. Then replay whatever the daemon has already pushed while we were wiring up -
-            // a one-shot catch-up for the dispatch-to-subscribe window, not a poll.
-            relay.Arm();
-            await relay.ReplayLatestAsync();
-
-            var runDeadline = DateTime.UtcNow + config.MaxServiceRuntime;
-            while (session.IsPrefilling)
+            // A failed start may leave IsPrefilling already false, which would make the poll loop
+            // exit immediately and wrongly report "completed". Treat a non-Success start as failed.
+            if (!result.Success)
             {
-                // The whole body sits inside the try, because the catch is the only thing that stops
-                // the container. A cancel landing between the delay loop below exiting and the check
-                // at the top would otherwise throw straight past it, leaving the daemon downloading
-                // while this service's card says it stopped. The window is microseconds wide, but
-                // every card now has its own cancel, so it is entered once per running service
-                // instead of once per run. [45]
-                try
+                if (result.RequiresLogin)
                 {
-                    ct.ThrowIfCancellationRequested();
-
-                    if (DateTime.UtcNow >= runDeadline)
-                    {
-                        await StopRelayAsync();
-                        await ReportProgressAsync(notifications, serviceRun, "failed", "Exceeded maximum service runtime", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1), stageKey: "signalr.scheduledPrefill.failedMaxRuntime");
-                        return ScheduledPrefillServiceRunResult.Failed;
-                    }
-
-                    if (PrefillDaemonServiceBase.IsPrefillStalled(session, DateTime.UtcNow, config.StallTimeout))
-                    {
-                        await StopRelayAsync();
-                        session.ErrorMessage = "Prefill stalled: no bytes transferred within the configured timeout.";
-                        await daemon.FailStalledSessionAsync(session);
-                        await ReportProgressAsync(notifications, serviceRun, "failed", "Prefill stalled (no progress)", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1), stageKey: "signalr.scheduledPrefill.failedStalled");
-                        return ScheduledPrefillServiceRunResult.Failed;
-                    }
-
-                    // Wait out the guard cadence in slices, breaking the moment the prefill stops, so a
-                    // stop is acted on in ~250ms instead of up to a full ten seconds.
-                    //
-                    // Counted slices, NOT a wall-clock deadline: DateTime.UtcNow is not monotonic, so an
-                    // NTP correction, a VM resume or an admin moving the clock backwards would otherwise
-                    // suspend the guard checks for the length of the jump.
-                    var slices = (int)Math.Ceiling(_guardCheckInterval / _stopDetectionSlice);
-                    for (var slice = 0; slice < slices && session.IsPrefilling; slice++)
-                    {
-                        await Task.Delay(_stopDetectionSlice, ct);
-                    }
+                    await ReportProgressAsync(
+                        notifications, serviceRun, "needs-login",
+                        ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: true),
+                        runShowNotification, ScheduledPrefillRunGates.LoggedOutNeedsLoginReason,
+                        percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                        stageKey: "signalr.scheduledPrefill.needsPersistentLogin");
+                    return ScheduledPrefillServiceRunResult.NeedsLogin;
                 }
-                catch (OperationCanceledException)
-                {
-                    await daemon.CancelPrefillAsync(sessionId, CancellationToken.None);
-                    throw;
-                }
-            }
 
-            await StopRelayAsync();
-
-            // A prefill the user STOPPED leaves the loop above exactly like a natural finish: the
-            // modal's stop cancels the DAEMON session (not this run's token), and the terminal funnel is
-            // the sole writer of IsPrefilling=false, stamping the reason on the session as it goes.
-            // Without this check a stopped prefill was reported as a completed run - it stamped the
-            // genuine "Last run" and told the user their cancelled prefill had succeeded.
-            if (session.PrefillState == PrefillState.Cancelled)
-            {
-                await ReportProgressAsync(
-                    notifications,
-                    serviceRun,
-                    "cancelled",
-                    "Prefill stopped",
-                    runShowNotification,
-                    downloadSessionId: sessionId,
-                    percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                    stageKey: "signalr.scheduledPrefill.stopped");
-                return ScheduledPrefillServiceRunResult.Cancelled;
-            }
-
-            // A run the daemon ENDED WITH AN ERROR leaves the loop the same way a natural finish does,
-            // and it usually transferred zero bytes, so the completion message below classified it as
-            // "all selected games were already cached" and stamped a successful run. The terminal
-            // funnel is the sole writer of this state, so it is the authoritative outcome. [1]
-            if (session.PrefillState == PrefillState.Failed)
-            {
-                var daemonFailure = !string.IsNullOrWhiteSpace(session.ErrorMessage);
+                var daemonFailure = !string.IsNullOrWhiteSpace(result.ErrorMessage);
+                var failureMessage = daemonFailure ? result.ErrorMessage! : "Prefill failed to start";
                 await ReportProgressAsync(
                     notifications,
                     serviceRun,
                     "failed",
-                    daemonFailure ? session.ErrorMessage! : "Prefill failed",
+                    failureMessage,
                     runShowNotification,
-                    downloadSessionId: sessionId,
                     percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                    // The daemon's own text has no key to translate it by, so only the generic
-                    // sentence this method wrote itself carries one.
-                    stageKey: daemonFailure ? null : "signalr.scheduledPrefill.failed");
+                    // The daemon's own text has no key to translate it by, so only the generic sentence
+                    // this method wrote itself carries one.
+                    stageKey: daemonFailure ? null : "signalr.scheduledPrefill.failedToStart");
                 return ScheduledPrefillServiceRunResult.Failed;
             }
 
-            // The daemon calls a run successful when every app in it failed individually: nothing
-            // threw, so its own result carries Success=true and the branch above never fires. Its
-            // per-app failure count is the only evidence left, and a run that downloaded none of the
-            // games it was asked for is not a completed run. Checked AFTER the daemon's own error so
-            // a reported reason, which names the actual cause, still wins over this count. [34]
-            var failedApps = relay.FailedApps;
-            if (failedApps > 0)
-            {
-                // The daemon reports TotalApps over the socket and can send 0 with an app_completed
-                // tick, which would read as "2 of 0 games". The failures themselves are the floor.
-                var attemptedApps = Math.Max(relay.TotalApps, failedApps);
-                await ReportProgressAsync(
-                    notifications,
-                    serviceRun,
-                    "failed",
-                    $"{failedApps} of {attemptedApps} games failed to download",
-                    runShowNotification,
-                    downloadSessionId: sessionId,
-                    percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                    stageKey: "signalr.scheduledPrefill.failedApps",
-                    stageContext: new Dictionary<string, object?>
-                    {
-                        ["failed"] = failedApps,
-                        ["total"] = attemptedApps
-                    });
-                return ScheduledPrefillServiceRunResult.Failed;
-            }
-
-            var completion = BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force);
             await ReportProgressAsync(
                 notifications,
                 serviceRun,
-                "completed",
-                completion.Message,
+                "running",
+                "Prefill in progress",
                 runShowNotification,
-                bytesDownloaded: session.TotalBytesTransferred,
                 downloadSessionId: sessionId,
-                percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                stageKey: completion.StageKey,
-                stageContext: completion.Context);
-            return ScheduledPrefillServiceRunResult.Ran;
+                percent: ScheduledPrefillRunGates.ComputeRunPercent(0),
+                stageKey: "signalr.scheduledPrefill.running");
+
+            // Live progress is PUSHED, never sampled. The daemon already raises a tick for every chunk it
+            // finishes (it has to - the prefill page renders from those very ticks); the scheduler used to
+            // ignore that and re-read session.LastProgress on a ten-second timer, which is why the card
+            // lagged by up to ten seconds and moved in coarse steps. The relay below subscribes to that
+            // push instead. The loop that follows never touches LastProgress again: it is purely a guard
+            // for the run deadline, the stall detector, cancellation, and stop detection - none of which a
+            // progress push can do, because all four are about the ABSENCE of progress or an external stop.
+            var relay = new ScheduledPrefillProgressRelay(
+                this,
+                notifications,
+                session,
+                serviceRun,
+                sessionId,
+                runShowNotification);
+
+            Func<DaemonSession, PrefillProgress, long, Task> onDaemonProgress = relay.OnProgressAsync;
+            daemon.PrefillProgressUpdated += onDaemonProgress;
+            var relayStopped = false;
+
+            // Silences the relay and waits for any send already inside its gate to finish. MUST run before
+            // this service emits any terminal event, or a live tick still in flight could land on the card
+            // after "completed"/"cancelled". Idempotent: the finally calls it again on the exception paths.
+            async Task StopRelayAsync()
+            {
+                if (relayStopped)
+                {
+                    return;
+                }
+
+                relayStopped = true;
+                daemon.PrefillProgressUpdated -= onDaemonProgress;
+                await relay.DeactivateAndDrainAsync();
+            }
+
+            try
+            {
+                // Arm only now, so the explicit "running / 0%" event above is always the card's first
+                // live line. Then replay whatever the daemon has already pushed while we were wiring up -
+                // a one-shot catch-up for the dispatch-to-subscribe window, not a poll.
+                relay.Arm();
+                await relay.ReplayLatestAsync();
+
+                var runDeadline = DateTime.UtcNow + config.MaxServiceRuntime;
+                while (session.IsPrefilling)
+                {
+                    // The whole body sits inside the try, because the catch is the only thing that stops
+                    // the container. A cancel landing between the delay loop below exiting and the check
+                    // at the top would otherwise throw straight past it, leaving the daemon downloading
+                    // while this service's card says it stopped. The window is microseconds wide, but
+                    // every card now has its own cancel, so it is entered once per running service
+                    // instead of once per run. [45]
+                    try
+                    {
+                        ct.ThrowIfCancellationRequested();
+
+                        if (DateTime.UtcNow >= runDeadline)
+                        {
+                            await StopRelayAsync();
+                            await ReportProgressAsync(notifications, serviceRun, "failed", "Exceeded maximum service runtime", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1), stageKey: "signalr.scheduledPrefill.failedMaxRuntime");
+                            return ScheduledPrefillServiceRunResult.Failed;
+                        }
+
+                        if (PrefillDaemonServiceBase.IsPrefillStalled(session, DateTime.UtcNow, config.StallTimeout))
+                        {
+                            if (await daemon.FailStalledSessionAsync(session, runId, DateTime.UtcNow,
+                                config.StallTimeout, "Prefill stalled: no bytes transferred within the configured timeout.",
+                                scheduleId: serviceConfig.ScheduleId))
+                            {
+                                await StopRelayAsync();
+                                await ReportProgressAsync(notifications, serviceRun, "failed", "Prefill stalled (no progress)", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1), stageKey: "signalr.scheduledPrefill.failedStalled");
+                                return ScheduledPrefillServiceRunResult.Failed;
+                            }
+                        }
+
+                        // Wait out the guard cadence in slices, breaking the moment the prefill stops, so a
+                        // stop is acted on in ~250ms instead of up to a full ten seconds.
+                        //
+                        // Counted slices, NOT a wall-clock deadline: DateTime.UtcNow is not monotonic, so an
+                        // NTP correction, a VM resume or an admin moving the clock backwards would otherwise
+                        // suspend the guard checks for the length of the jump.
+                        var slices = (int)Math.Ceiling(_guardCheckInterval / _stopDetectionSlice);
+                        for (var slice = 0; slice < slices && session.IsPrefilling; slice++)
+                        {
+                            await Task.Delay(_stopDetectionSlice, ct);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        await daemon.CancelPrefillAsync(sessionId, CancellationToken.None);
+                        throw;
+                    }
+                }
+
+                await StopRelayAsync();
+
+                // A prefill the user STOPPED leaves the loop above exactly like a natural finish: the
+                // modal's stop cancels the DAEMON session (not this run's token), and the terminal funnel is
+                // the sole writer of IsPrefilling=false, stamping the reason on the session as it goes.
+                // Without this check a stopped prefill was reported as a completed run - it stamped the
+                // genuine "Last run" and told the user their cancelled prefill had succeeded.
+                if (session.PrefillState == PrefillState.Cancelled)
+                {
+                    await ReportProgressAsync(
+                        notifications,
+                        serviceRun,
+                        "cancelled",
+                        "Prefill stopped",
+                        runShowNotification,
+                        downloadSessionId: sessionId,
+                        percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                        stageKey: "signalr.scheduledPrefill.stopped");
+                    return ScheduledPrefillServiceRunResult.Cancelled;
+                }
+
+                // A run the daemon ENDED WITH AN ERROR leaves the loop the same way a natural finish does,
+                // and it usually transferred zero bytes, so the completion message below classified it as
+                // "all selected games were already cached" and stamped a successful run. The terminal
+                // funnel is the sole writer of this state, so it is the authoritative outcome. [1]
+                if (session.PrefillState == PrefillState.Failed)
+                {
+                    var daemonFailure = !string.IsNullOrWhiteSpace(session.ErrorMessage);
+                    await ReportProgressAsync(
+                        notifications,
+                        serviceRun,
+                        "failed",
+                        daemonFailure ? session.ErrorMessage! : "Prefill failed",
+                        runShowNotification,
+                        downloadSessionId: sessionId,
+                        percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                        // The daemon's own text has no key to translate it by, so only the generic
+                        // sentence this method wrote itself carries one.
+                        stageKey: daemonFailure ? null : "signalr.scheduledPrefill.failed");
+                    return ScheduledPrefillServiceRunResult.Failed;
+                }
+
+                // The daemon calls a run successful when every app in it failed individually: nothing
+                // threw, so its own result carries Success=true and the branch above never fires. Its
+                // per-app failure count is the only evidence left, and a run that downloaded none of the
+                // games it was asked for is not a completed run. Checked AFTER the daemon's own error so
+                // a reported reason, which names the actual cause, still wins over this count. [34]
+                var failedApps = relay.FailedApps;
+                if (failedApps > 0)
+                {
+                    // The daemon reports TotalApps over the socket and can send 0 with an app_completed
+                    // tick, which would read as "2 of 0 games". The failures themselves are the floor.
+                    var attemptedApps = Math.Max(relay.TotalApps, failedApps);
+                    await ReportProgressAsync(
+                        notifications,
+                        serviceRun,
+                        "failed",
+                        $"{failedApps} of {attemptedApps} games failed to download",
+                        runShowNotification,
+                        downloadSessionId: sessionId,
+                        percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                        stageKey: "signalr.scheduledPrefill.failedApps",
+                        stageContext: new Dictionary<string, object?>
+                        {
+                            ["failed"] = failedApps,
+                            ["total"] = attemptedApps
+                        });
+                    return ScheduledPrefillServiceRunResult.Failed;
+                }
+
+                var completion = BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force);
+                await ReportProgressAsync(
+                    notifications,
+                    serviceRun,
+                    "completed",
+                    completion.Message,
+                    runShowNotification,
+                    bytesDownloaded: session.TotalBytesTransferred,
+                    downloadSessionId: sessionId,
+                    percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                    stageKey: completion.StageKey,
+                    stageContext: completion.Context);
+                return ScheduledPrefillServiceRunResult.Ran;
+            }
+            finally
+            {
+                // The handler must never outlive the service that owns it: a leaked closure would keep
+                // emitting this service's card from the NEXT service's daemon ticks.
+                await StopRelayAsync();
+            }
         }
         finally
         {
-            // The handler must never outlive the service that owns it: a leaked closure would keep
-            // emitting this service's card from the NEXT service's daemon ticks.
-            await StopRelayAsync();
+            if (session.PrefillScheduleId == serviceConfig.ScheduleId)
+            {
+                session.PrefillScheduleId = null;
+            }
         }
     }
 

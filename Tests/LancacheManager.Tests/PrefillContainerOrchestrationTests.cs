@@ -10,6 +10,8 @@ using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -812,6 +814,43 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         Assert.NotNull(cancelledHistory.CompletedAtUtc);
 
         daemon.Dispose();
+    }
+
+    [Fact]
+    public async Task PersistentStall_ListClearsRunIdentity()
+    {
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
+        var deps = MakeDeps(dbFactory, sessionService, Config(PersistenceMode.FullPersistence, steamEnabled: true));
+        var services = new ServiceCollection();
+        var daemon = new TestSteamDaemon(deps, new RecordingContainerGateway());
+        services.AddSingleton<SteamDaemonService>(daemon);
+        services.AddSingleton<EpicPrefillDaemonService>(new TestEpicDaemon(deps, new RecordingContainerGateway()));
+        services.AddSingleton<XboxPrefillDaemonService>(new TestXboxDaemon(deps, new RecordingContainerGateway()));
+        services.AddSingleton<BattleNetDaemonService>(new TestBattleNetDaemon(deps, new RecordingContainerGateway()));
+        services.AddSingleton<RiotDaemonService>(new TestRiotDaemon(deps, new RecordingContainerGateway()));
+        using var provider = services.BuildServiceProvider();
+        var session = new DaemonSession
+        {
+            Id = "persistent-stall", IsPersistent = true, Status = DaemonSessionStatus.Active,
+            ExpiresAt = DateTime.UtcNow.AddDays(1),
+            Client = new FakeReconnectDaemonClient
+            {
+                PrefillHandler = _ => Task.FromResult(new PrefillResult { Success = true }),
+                CancelPrefillHandler = _ => Task.CompletedTask
+            }
+        };
+        daemon.InjectSession(session);
+        await daemon.PrefillAsync(session.Id, force: true);
+        Assert.Equal(1, (await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddSeconds(181))).StalledFailed);
+        var controller = new PersistentPrefillController(provider, deps.StateService, deps.CacheService,
+            NullLogger<PersistentPrefillController>.Instance);
+        var list = await controller.ListAsync(CancellationToken.None);
+        var entries = Assert.IsType<List<PersistentPrefillSessionDto>>(Assert.IsType<OkObjectResult>(list.Result).Value);
+        var entry = Assert.Single(entries);
+        Assert.False(entry.IsPrefilling);
+        Assert.Null(entry.RunId);
+        Assert.NotNull(session.PrefillRunId);
     }
 
     [Fact]

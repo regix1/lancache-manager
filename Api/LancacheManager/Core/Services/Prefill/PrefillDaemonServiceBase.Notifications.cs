@@ -6,7 +6,7 @@ namespace LancacheManager.Core.Services;
 
 public abstract partial class PrefillDaemonServiceBase
 {
-#region Socket Event Handlers
+    #region Socket Event Handlers
 
     /// <summary>
     /// Handles credential challenge events from socket communication.
@@ -458,12 +458,17 @@ public abstract partial class PrefillDaemonServiceBase
     /// clears the <c>LastProgress</c> snapshot, and emits exactly one <c>PrefillStateChanged</c>.
     /// ALL terminal paths (completed / failed / cancelled / cancel / socket-disconnect) route here.
     /// </summary>
-    private async Task TransitionToTerminalAsync(DaemonSession session, PrefillState terminalState)
+    private async Task<bool> TransitionToTerminalAsync(DaemonSession session, PrefillState terminalState, string? reason = null)
     {
         // Idempotency: only the first caller for this run wins.
         if (Interlocked.CompareExchange(ref session.TerminalCompletedFlag, 1, 0) != 0)
         {
-            return;
+            return false;
+        }
+
+        if (reason is not null)
+        {
+            session.ErrorMessage = reason;
         }
 
         var state = terminalState switch
@@ -486,7 +491,6 @@ public abstract partial class PrefillDaemonServiceBase
         // clearing the flag first leaves a window where the loop exits and reads the PREVIOUS state,
         // so a failed run would look like a finished one and be reported as completed. [28]
         session.PrefillState = terminalState;
-        session.IsPrefilling = false;
         session.LastProgress = null;
         Volatile.Write(ref session.LastProgressTicksUtc, 0L);
         session.CurrentAppId = null;
@@ -498,6 +502,7 @@ public abstract partial class PrefillDaemonServiceBase
         session.LastPrefillCompletedAt = DateTime.UtcNow;
         session.LastPrefillDurationSeconds = durationSeconds;
         session.LastPrefillStatus = state;
+        session.IsPrefilling = false;
 
         _logger.LogInformation("Prefill {State} for session {SessionId}, duration: {Duration}s",
             state, session.Id, durationSeconds ?? 0);
@@ -523,6 +528,7 @@ public abstract partial class PrefillDaemonServiceBase
         // The run is over (IsPrefilling flipped false above); the session stays present but its downloading
         // dot clears.
         await ReportSessionActivityAsync(session, present: true);
+        return true;
     }
 
     /// <summary>
@@ -900,15 +906,10 @@ public abstract partial class PrefillDaemonServiceBase
                 return;
             }
 
-            // Carry the daemon's own words onto the session so the scheduler can tell the user why
-            // the run failed instead of a generic sentence. Mirrors the stall path, which stamps the
-            // same field before its terminal transition. [5]
-            if (terminalState == PrefillState.Failed && !string.IsNullOrWhiteSpace(progress.ErrorMessage))
-            {
-                session.ErrorMessage = progress.ErrorMessage;
-            }
-
-            await TransitionToTerminalAsync(session, terminalState);
+            var reason = terminalState == PrefillState.Failed && !string.IsNullOrWhiteSpace(progress.ErrorMessage)
+                ? progress.ErrorMessage
+                : null;
+            await TransitionToTerminalAsync(session, terminalState, reason);
             return; // Don't process further for terminal states
         }
 

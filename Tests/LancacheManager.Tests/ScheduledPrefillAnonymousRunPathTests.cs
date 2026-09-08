@@ -2,6 +2,7 @@ using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
@@ -109,6 +110,83 @@ public class ScheduledPrefillAnonymousRunPathTests
         Assert.NotNull(client.SelectedAppIdsSent);
         Assert.Empty(client.SelectedAppIdsSent);
         Assert.True(client.PrefillAllRequested);
+    }
+
+    [Fact]
+    public async Task RunServiceAsync_SteamNeedsLogin_CanOnlyRunAfterExplicitSecondAttempt()
+    {
+        var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
+        client.LiveStatus = "awaiting-login";
+        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.Steam, daemon);
+        Assert.Equal(ScheduledPrefillServiceRunResult.NeedsLogin, result);
+        Assert.Contains("needs-login", recorder.Stages);
+        Assert.Contains(
+            "Persistent container for Steam is running but not logged in. Log in, then run again or wait for the next scheduled interval.",
+            recorder.Messages);
+        Assert.Null(client.SelectedAppIdsSent);
+        Assert.False(client.PrefillCalled);
+        client.LiveStatus = "logged-in";
+        Assert.False(client.PrefillCalled);
+        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, (await RunSingleServiceAsync(PrefillPlatform.Steam, daemon)).Result);
+        Assert.Null(daemon.GetActivePersistentSession()!.PrefillScheduleId);
+    }
+
+    [Fact]
+    public async Task RunServiceAsync_DispatchNeedsLogin_ClearsScheduledOwnership()
+    {
+        var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
+        client.RequiresLogin = true;
+        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.Steam, daemon);
+        Assert.Equal(ScheduledPrefillServiceRunResult.NeedsLogin, result);
+        Assert.Contains("needs-login", recorder.Stages);
+        Assert.True(client.PrefillCalled);
+        Assert.Null(daemon.GetActivePersistentSession()!.PrefillScheduleId);
+        Assert.False(daemon.GetActivePersistentSession()!.IsPrefilling);
+    }
+
+    [Fact]
+    public async Task RunAndStampServiceAsync_NeedsLogin_CompletesSkippedAndOnlyStampsBasis()
+    {
+        var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
+        client.LiveStatus = "awaiting-login";
+        using var daemonProvider = BuildProviderWithDaemon(PrefillPlatform.Steam, daemon);
+        using var schedulerProvider = new ServiceCollection().BuildServiceProvider();
+        var state = DispatchProxy.Create<IStateService, RecordingNotificationsProxy>();
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RecordingNotificationsProxy>();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+        using var scheduler = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
+            schedulerProvider.GetRequiredService<IServiceScopeFactory>(), state);
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var serviceConfig = config.GetSchedulesInRunOrder().First(s => s.ServiceId == PrefillPlatform.Steam);
+        var method = typeof(ScheduledPrefillService).GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var result = await (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
+            new object[] { MakeServiceRun(serviceConfig), tracker, daemonProvider, notifications, config, false, CancellationToken.None })!;
+        Assert.Equal(ScheduledPrefillServiceRunResult.NeedsLogin, result);
+        var stateCalls = ((RecordingNotificationsProxy)(object)state).Calls;
+        Assert.Single(stateCalls, c => c.Method == nameof(IStateService.SetScheduledPrefillServiceLastRun));
+        Assert.DoesNotContain(stateCalls, c => c.Method == nameof(IStateService.SetScheduledPrefillServiceLastActualRun));
+        Assert.Single(((RecordingNotificationsProxy)(object)tracker).Calls,
+            c => c.Method == nameof(IUnifiedOperationTracker.CompleteOperation));
+        var completed = Assert.Single(((RecordingNotificationsProxy)(object)notifications).Calls,
+            c => c.Args.Length > 1 && c.Args[0] as string == SignalREvents.ScheduledPrefillCompleted);
+        Assert.Equal("skipped", completed.Args[1]!.GetType().GetProperty("status")!.GetValue(completed.Args[1]));
+        Assert.False(client.PrefillCalled);
+        Assert.Null(client.SelectedAppIdsSent);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunServiceAsync_DispatchThrows_ClearsScheduledOwnership(bool cancelled)
+    {
+        var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
+        client.PrefillHandler = _ => cancelled
+            ? Task.FromCanceled<PrefillResult>(new CancellationToken(canceled: true))
+            : Task.FromException<PrefillResult>(new IOException("disconnected"));
+        var exception = await Record.ExceptionAsync(() => RunSingleServiceAsync(PrefillPlatform.Steam, daemon));
+        Assert.NotNull(exception);
+        Assert.Null(daemon.GetActivePersistentSession()!.PrefillScheduleId);
+        Assert.False(daemon.GetActivePersistentSession()!.IsPrefilling);
     }
 
     /// <summary>
@@ -405,6 +483,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         Assert.False(session.IsPrefilling);
         Assert.Equal(PrefillState.Failed, session.PrefillState);
         Assert.Equal("Prefill stalled (no progress)", recorder.Messages[^1]);
+        Assert.Null(session.PrefillScheduleId);
     }
 
     /// <summary>
@@ -497,6 +576,8 @@ public class ScheduledPrefillAnonymousRunPathTests
 
         PrefillDaemonServiceBase daemon = platform switch
         {
+            PrefillPlatform.Steam => new TestableSteamDaemonService(
+                notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions),
             PrefillPlatform.BattleNet => new TestableBattleNetDaemonService(
                 NullLogger<BattleNetDaemonService>.Instance, notifications, configuration, pathResolver,
                 stateService, sessionService, cacheService, networkOptions),
@@ -530,6 +611,9 @@ public class ScheduledPrefillAnonymousRunPathTests
     {
         switch (daemon)
         {
+            case TestableSteamDaemonService steam:
+                steam.InjectSession(session);
+                break;
             case TestableBattleNetDaemonService bnet:
                 bnet.InjectSession(session);
                 break;
@@ -544,6 +628,9 @@ public class ScheduledPrefillAnonymousRunPathTests
         var services = new ServiceCollection();
         switch (platform)
         {
+            case PrefillPlatform.Steam:
+                services.AddSingleton((SteamDaemonService)daemon);
+                break;
             case PrefillPlatform.BattleNet:
                 services.AddSingleton((BattleNetDaemonService)daemon);
                 break;
@@ -576,6 +663,22 @@ public class ScheduledPrefillAnonymousRunPathTests
 
         public Task PublishProgressAsync(DaemonSession session, PrefillProgress progress)
             => NotifyPrefillProgressAsync(session, progress);
+    }
+
+    private sealed class TestableSteamDaemonService : SteamDaemonService
+    {
+        public TestableSteamDaemonService(
+            ISignalRNotificationService notifications, IConfiguration configuration,
+            IPathResolver pathResolver, IStateService stateService,
+            PrefillSessionService sessionService, PrefillCacheService cacheService,
+            IOptionsMonitor<PrefillNetworkOptions> networkOptions)
+            : base(NullLogger<SteamDaemonService>.Instance, notifications, configuration, pathResolver,
+                stateService, sessionService, cacheService, networkOptions,
+                new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
+        {
+        }
+
+        public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
     }
 
     private sealed class TestableRiotDaemonService : RiotDaemonService
@@ -642,6 +745,7 @@ public class ScheduledPrefillAnonymousRunPathTests
     // ScheduledPrefillServiceTests.CancellingTrackerProxy).
     private class RecordingNotificationsProxy : DispatchProxy
     {
+        public List<(string Method, object?[] Args)> Calls { get; } = new();
         public List<string> Stages { get; } = new();
         public List<bool> ShowNotificationValues { get; } = new();
 
@@ -664,6 +768,15 @@ public class ScheduledPrefillAnonymousRunPathTests
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
+            if (targetMethod is not null)
+            {
+                Calls.Add((targetMethod.Name, args ?? []));
+            }
+            if (targetMethod?.Name == nameof(IStateService.GetScheduledPrefillConfig))
+            {
+                return ScheduledPrefillConfigFactory.CreateDefault();
+            }
+
             if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync) && args is { Length: >= 2 })
             {
                 var stageProperty = args[1]?.GetType().GetProperty("stage");
@@ -773,6 +886,9 @@ public class ScheduledPrefillAnonymousRunPathTests
 
         public List<string>? SelectedAppIdsSent { get; private set; }
         public bool PrefillCalled { get; private set; }
+        public string LiveStatus { get; set; } = "logged-in";
+        public bool RequiresLogin { get; set; }
+        public Func<CancellationToken, Task<PrefillResult>>? PrefillHandler { get; set; }
         public bool PrefillAllRequested { get; private set; }
         public bool PrefillRecentRequested { get; private set; }
         public int? PrefillTopRequested { get; private set; }
@@ -787,7 +903,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         public Task ConnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = "logged-in" });
+            => Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = LiveStatus });
 
         public Task<CommandResponse> SendCommandAsync(
             string type, Dictionary<string, string>? parameters = null, TimeSpan? timeout = null,
@@ -850,6 +966,15 @@ public class ScheduledPrefillAnonymousRunPathTests
             CancellationToken cancellationToken = default)
         {
             PrefillCalled = true;
+            Assert.NotNull(_session.PrefillScheduleId);
+            if (PrefillHandler is not null)
+            {
+                return PrefillHandler(cancellationToken);
+            }
+            if (RequiresLogin)
+            {
+                return Task.FromResult(new PrefillResult { Success = false, RequiresLogin = true, ErrorMessage = "Login expired" });
+            }
             PrefillAllRequested = all;
             PrefillRecentRequested = recent;
             PrefillTopRequested = top;

@@ -21,6 +21,7 @@ public class DaemonSession
     /// it before the session enters the prefilling state, allowing cancel requests to reject a stale run.
     /// </summary>
     public Guid? PrefillRunId { get; set; }
+    public Guid? PrefillScheduleId { get; set; }
 
     /// <summary>
     /// The daemon's real "Login failed: &lt;reason&gt;" text from the most recent
@@ -223,7 +224,7 @@ public class DaemonSession
     /// This includes completed games + current game progress for real-time display
     /// </summary>
     public long TotalBytesTransferred { get; set; }
-    
+
     /// <summary>
     /// Bytes from completed games (used to calculate TotalBytesTransferred)
     /// </summary>

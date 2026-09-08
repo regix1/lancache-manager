@@ -148,15 +148,16 @@ const { SteamAuthProvider } = await import(
 
 /** What /steam-auth/status currently answers, and how many times it has been asked. */
 const startServer = (mode, username) => {
-  const server = { mode, username, requests: 0 };
+  const server = { mode, username, requests: 0, ok: true, failure: false };
   globalThis.fetch = async () => {
     server.requests += 1;
+    if (server.failure) throw new Error('offline');
     return {
-      ok: true,
+      ok: server.ok,
       json: async () => ({
         mode: server.mode,
         username: server.username,
-        isAuthenticated: server.mode === 'authenticated'
+        isAuthenticated: server.isAuthenticated ?? server.mode === 'authenticated'
       })
     };
   };
@@ -240,3 +241,32 @@ test('a socket that comes up after an admin mounted refetches', async () => {
   assert.equal(server.requests, 2);
   assert.equal(provider.render(true).username, 'lanadmin');
 });
+
+test('authenticated mode requires confirmed credentials and a nonblank username', async () => {
+  const server = startServer('authenticated', 'lanadmin');
+  server.isAuthenticated = false;
+  const provider = mount('authenticated', true);
+  await settle();
+  assert.equal(provider.render(true).steamAuthMode, 'anonymous');
+  assert.equal(provider.read().username, '');
+  server.isAuthenticated = true;
+  server.username = '  ';
+  await provider.read().refreshSteamAuth();
+  assert.equal(provider.render(true).steamAuthMode, 'anonymous');
+  assert.equal(provider.read().username, '');
+});
+
+for (const failure of ['http', 'network']) {
+  test(`${failure} refresh failure clears previously confirmed login`, async (context) => {
+    context.mock.method(console, 'error', () => undefined);
+    const server = startServer('authenticated', 'lanadmin');
+    const provider = mount('authenticated', true);
+    await settle();
+    assert.equal(provider.render(true).steamAuthMode, 'authenticated');
+    server.ok = failure !== 'http';
+    server.failure = failure === 'network';
+    await provider.read().refreshSteamAuth();
+    assert.equal(provider.render(true).steamAuthMode, 'anonymous');
+    assert.equal(provider.read().username, '');
+  });
+}
