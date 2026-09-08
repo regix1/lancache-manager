@@ -15,6 +15,7 @@ import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { formatCount, formatBytes } from '@utils/formatters';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
+import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
@@ -355,7 +356,7 @@ export const UnifiedNotificationItem = ({
 
   if (notification.controlOnly && !isTerminalNotificationStatus(notification.status)) {
     return (
-      <div className="flex min-h-11 items-center gap-3 rounded bg-[var(--theme-bg-secondary)] px-3 text-sm text-themed-primary">
+      <div className="background-task-control-row flex min-h-11 items-center gap-3 rounded px-3 py-1 text-sm text-themed-primary">
         <span className="min-w-0 flex-1 truncate">
           {titleKey ? t(titleKey) : notification.message}
           {notification.details?.service && (
@@ -367,22 +368,22 @@ export const UnifiedNotificationItem = ({
           {notification.details?.cancelRequested ? 'cancelling' : notification.status}
         </span>
         {onCancel && (
-          <button
+          <Button
+            type="button"
             onClick={onCancel}
-            disabled={notification.details?.cancelPending}
-            className="flex min-h-11 min-w-11 items-center justify-center rounded px-2 hover:bg-themed-hover disabled:opacity-50"
+            variant="filled"
+            color="stop"
+            size="sm"
+            loading={notification.details?.cancelPending}
+            stableWidth
             aria-label={t(
               notification.details?.cancelRequested
                 ? FORCE_KILL_TOOLTIP_KEY
                 : 'common.notifications.cancelOperationAria'
             )}
           >
-            {notification.details?.cancelPending ? (
-              <LoadingSpinner inline size="sm" />
-            ) : (
-              t(notification.details?.cancelRequested ? FORCE_KILL_TOOLTIP_KEY : 'common.cancel')
-            )}
-          </button>
+            {t(notification.details?.cancelRequested ? FORCE_KILL_TOOLTIP_KEY : 'common.cancel')}
+          </Button>
         )}
       </div>
     );

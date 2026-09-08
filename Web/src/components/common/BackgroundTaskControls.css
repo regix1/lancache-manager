@@ -1,0 +1,63 @@
+.background-task-controls {
+  overflow: hidden;
+  border: 1px solid var(--theme-warning-muted);
+  border-left: 3px solid var(--theme-warning);
+  border-radius: var(--theme-border-radius);
+  background-color: var(--theme-warning-bg);
+}
+
+.background-task-controls__header {
+  display: flex;
+  min-height: 2.75rem;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  background-color: transparent;
+  color: var(--theme-warning-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.background-task-controls__header:hover {
+  background-color: var(--theme-warning-muted);
+}
+
+.background-task-controls__header:focus-visible {
+  outline: 2px solid var(--theme-warning);
+  outline-offset: -2px;
+}
+
+.background-task-controls__chevron {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  transition: transform 0.2s ease;
+}
+
+.background-task-controls__chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.background-task-controls__content {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0 0.375rem 0.375rem;
+}
+
+.background-task-control-row {
+  border: 1px solid var(--theme-warning-muted);
+  background-color: var(--theme-bg-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .background-task-controls__header,
+  .background-task-controls__chevron {
+    transition: none;
+  }
+}

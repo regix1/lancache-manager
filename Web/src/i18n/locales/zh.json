@@ -413,6 +413,8 @@
       "logEntriesRemoved_other": "已移除 {{formattedCount}} 条日志条目",
       "progressComplete": "已完成 {{value}}%",
       "remaining": "剩余 {{value}}",
+      "backgroundTasksRunning": "{{count}} 个后台任务正在运行",
+      "backgroundTasksRunning_other": "{{count}} 个后台任务正在运行",
       "condensedStripToggle": "{{count}} 条紧凑通知。选择以展开。",
       "condensedStripToggle_other": "{{count}} 条紧凑通知。选择以展开。",
       "condensedStripCollapse": "{{count}} 条紧凑通知。选择以收起。",

@@ -413,6 +413,8 @@
       "logEntriesRemoved_other": "{{formattedCount}} log entries removed",
       "progressComplete": "{{value}}% complete",
       "remaining": "{{value}} remaining",
+      "backgroundTasksRunning": "{{count}} background task running",
+      "backgroundTasksRunning_other": "{{count}} background tasks running",
       "condensedStripToggle": "{{count}} compact notification. Select to expand.",
       "condensedStripToggle_other": "{{count}} compact notifications. Select to expand.",
       "condensedStripCollapse": "{{count}} compact notification. Select to collapse.",

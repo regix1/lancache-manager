@@ -16,6 +16,7 @@ import { APP_EVENTS } from '@utils/constants';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import { platformDisplayModeKey, useScheduleDisplayModes } from '@hooks/useScheduleDisplayModes';
 import { CondensedNotificationStrip } from './CondensedNotificationStrip';
+import { BackgroundTaskControls } from './BackgroundTaskControls';
 import { UnifiedNotificationItem } from './UnifiedNotificationItem';
 import { CANCEL_CONFIG_BY_TYPE, getNotificationColor, handleCancel } from './notificationCancel';
 import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
@@ -227,45 +228,52 @@ const UniversalNotificationBar: React.FC = () => {
   // and remains available to collapse it. The comparator above is untouched; only grouping
   // changes.
   let fullOrder = 0;
-  const controls = sorted.filter(
-    (notification) => notification.controlOnly && !isTerminalNotificationStatus(notification.status)
-  );
-  const classified = sorted
-    .filter((notification) => !controls.includes(notification))
-    .map((notification) => {
-      // Generic toasts (Run Now acknowledgments) carry their owning serviceKey in details.
-      const serviceKey =
-        SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY[notification.type] ??
-        notification.details?.serviceKey;
-      // A refused Run Now never starts a run, so it has no lifecycle notification to fold into and
-      // the compact bar would answer the click with a coloured line carrying no reason. This toast is
-      // the only answer that click gets, so it keeps its card whatever the service is set to. Routine
-      // runs are unaffected: they never arrive as 'generic'.
-      const refusedManualRun = notification.type === 'generic' && notification.status === 'skipped';
-      // Scheduled prefill runs five platforms under one service key and each picks its own style, so
-      // its cards resolve per platform first. The platform is only on the card id, which is minted as
-      // `${NOTIFICATION_IDS.SCHEDULED_PREFILL}_${serviceId}` (notificationRegistry's
-      // scheduledPrefillCardId), and the suffix is the wire name the backend keys the map by. A
-      // platform that chose nothing is absent from the map and falls back to the service's own style.
-      const platform =
-        notification.type === 'scheduled_prefill' &&
-        notification.id.startsWith(`${NOTIFICATION_IDS.SCHEDULED_PREFILL}_`)
-          ? notification.id.slice(NOTIFICATION_IDS.SCHEDULED_PREFILL.length + 1)
-          : undefined;
-      // A platform answers for itself and never inherits the schedule's own style. Scheduled prefill
-      // picks its style per platform in the config modal, so a platform that has chosen nothing takes
-      // the full-card default rather than a schedule-level value no screen can set any more.
-      const resolvedDisplayMode =
-        serviceKey === undefined
-          ? undefined
-          : platform !== undefined
-            ? displayModes[platformDisplayModeKey(serviceKey, platform)]
-            : displayModes[serviceKey];
-      const condensedByService = !refusedManualRun && resolvedDisplayMode === 'condensed';
-      const orderAmongFull = condensedByService ? -1 : fullOrder++;
-      const condensedByCap = isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;
-      return { notification, serviceKey, condensed: condensedByService || condensedByCap };
-    });
+  const classified = sorted.map((notification) => {
+    const control = notification.controlOnly && !isTerminalNotificationStatus(notification.status);
+    // Generic toasts (Run Now acknowledgments) carry their owning serviceKey in details.
+    const serviceKey =
+      SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY[notification.type] ??
+      notification.details?.serviceKey;
+    // A refused Run Now never starts a run, so it has no lifecycle notification to fold into and
+    // the compact bar would answer the click with a coloured line carrying no reason. This toast is
+    // the only answer that click gets, so it keeps its card whatever the service is set to. Routine
+    // runs are unaffected: they never arrive as 'generic'.
+    const refusedManualRun = notification.type === 'generic' && notification.status === 'skipped';
+    // Scheduled prefill runs five platforms under one service key and each picks its own style, so
+    // its cards resolve per platform first. The platform is only on the card id, which is minted as
+    // `${NOTIFICATION_IDS.SCHEDULED_PREFILL}_${serviceId}` (notificationRegistry's
+    // scheduledPrefillCardId), and the suffix is the wire name the backend keys the map by. A
+    // platform that chose nothing is absent from the map and falls back to the service's own style.
+    const platform =
+      notification.type === 'scheduled_prefill' &&
+      notification.id.startsWith(`${NOTIFICATION_IDS.SCHEDULED_PREFILL}_`)
+        ? notification.id.slice(NOTIFICATION_IDS.SCHEDULED_PREFILL.length + 1)
+        : undefined;
+    // A platform answers for itself and never inherits the schedule's own style. Scheduled prefill
+    // picks its style per platform in the config modal, so a platform that has chosen nothing takes
+    // the full-card default rather than a schedule-level value no screen can set any more.
+    const resolvedDisplayMode =
+      serviceKey === undefined
+        ? undefined
+        : platform !== undefined
+          ? displayModes[platformDisplayModeKey(serviceKey, platform)]
+          : displayModes[serviceKey];
+    const condensedByService = !refusedManualRun && resolvedDisplayMode === 'condensed';
+    const orderAmongFull = condensedByService || control ? -1 : fullOrder++;
+    const condensedByCap = !control && isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;
+    return {
+      notification,
+      serviceKey,
+      condensed: condensedByService || condensedByCap,
+      control
+    };
+  });
+  const compactControls = classified
+    .filter((item) => item.control && item.condensed)
+    .map((item) => item.notification);
+  const fullControls = classified
+    .filter((item) => item.control && !item.condensed)
+    .map((item) => item.notification);
   // One line per service in the condensed group: a manual run's acknowledgment toast and the
   // run's own lifecycle notification fold into a single disclosure instead of stacking a line
   // per notification. Notifications without a serviceKey keep a line each. Map preserves the
@@ -276,7 +284,7 @@ const UniversalNotificationBar: React.FC = () => {
   // the rest. A scheduled prefill running four platforms at once is four lines, not one.
   const condensedGroups = new Map<string, UnifiedNotification[]>();
   for (const item of classified) {
-    if (!item.condensed) {
+    if (item.control || !item.condensed) {
       continue;
     }
     const groupKey =
@@ -290,13 +298,53 @@ const UniversalNotificationBar: React.FC = () => {
       condensedGroups.set(groupKey, [item.notification]);
     }
   }
-  const fullItems = classified.filter((item) => !item.condensed);
+  const fullItems = classified.filter((item) => !item.control && !item.condensed);
+  const condensedSegments = [...condensedGroups.entries()].map(([groupKey, group]) => {
+    const representative = group.find((n) => !isTerminalNotificationStatus(n.status)) ?? group[0];
+    return {
+      key: groupKey,
+      notification: representative,
+      color: getNotificationColor(representative)
+    };
+  });
+  if (compactControls.length > 0) {
+    condensedSegments.push({
+      key: 'background-controls',
+      notification: compactControls[0],
+      color: 'var(--theme-warning)'
+    });
+  }
+  const condensedPanel = (
+    <div className="space-y-2">
+      {compactControls.length > 0 && (
+        <BackgroundTaskControls count={compactControls.length}>
+          {compactControls.map((notification) => (
+            <UnifiedNotificationItem
+              key={notification.id}
+              notification={notification}
+              onDismiss={() => handleDismiss(notification.id)}
+              onCancel={getCancelHandler(notification)}
+            />
+          ))}
+        </BackgroundTaskControls>
+      )}
+      {[...condensedGroups.values()].flat().map((notification) => (
+        <UnifiedNotificationItem
+          key={notification.id}
+          notification={notification}
+          onDismiss={() => handleDismiss(notification.id)}
+          onCancel={getCancelHandler(notification)}
+          isAnimatingOut={dismissingIds.has(notification.id)}
+        />
+      ))}
+    </div>
+  );
 
   return (
     <div className={`w-full ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}>
       <div
         className={`w-full border-b bg-[var(--theme-nav-bg)] transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none ${
-          fullItems.length > 0 || controls.length > 0 || stripOpen
+          fullItems.length > 0 || fullControls.length > 0 || stripOpen
             ? 'border-[var(--theme-nav-border)] shadow-sm'
             : 'border-transparent shadow-none'
         }`}
@@ -315,15 +363,7 @@ const UniversalNotificationBar: React.FC = () => {
             frame instead. */}
         {
           <CondensedNotificationStrip
-            segments={[...condensedGroups.entries()].map(([groupKey, group]) => {
-              const representative =
-                group.find((n) => !isTerminalNotificationStatus(n.status)) ?? group[0];
-              return {
-                key: groupKey,
-                notification: representative,
-                color: getNotificationColor(representative)
-              };
-            })}
+            segments={condensedSegments}
             canHover={canHover}
             onOpenChange={setStripOpen}
           >
@@ -334,44 +374,26 @@ const UniversalNotificationBar: React.FC = () => {
                   rounded clip would shave their corners. */}
               {isMobile ? (
                 <CustomScrollbar maxHeight="12rem" paddingMode="compact" radius="none">
-                  <div className="space-y-2">
-                    {[...condensedGroups.values()].flat().map((notification) => (
-                      <UnifiedNotificationItem
-                        key={notification.id}
-                        notification={notification}
-                        onDismiss={() => handleDismiss(notification.id)}
-                        onCancel={getCancelHandler(notification)}
-                        isAnimatingOut={dismissingIds.has(notification.id)}
-                      />
-                    ))}
-                  </div>
+                  {condensedPanel}
                 </CustomScrollbar>
               ) : (
-                <div className="space-y-2">
-                  {[...condensedGroups.values()].flat().map((notification) => (
-                    <UnifiedNotificationItem
-                      key={notification.id}
-                      notification={notification}
-                      onDismiss={() => handleDismiss(notification.id)}
-                      onCancel={getCancelHandler(notification)}
-                      isAnimatingOut={dismissingIds.has(notification.id)}
-                    />
-                  ))}
-                </div>
+                condensedPanel
               )}
             </div>
           </CondensedNotificationStrip>
         }
-        {controls.length > 0 && (
-          <div className="container mx-auto px-4 py-1 space-y-1">
-            {controls.map((notification) => (
-              <UnifiedNotificationItem
-                key={notification.id}
-                notification={notification}
-                onDismiss={() => handleDismiss(notification.id)}
-                onCancel={getCancelHandler(notification)}
-              />
-            ))}
+        {fullControls.length > 0 && (
+          <div className="container mx-auto px-4 py-1">
+            <BackgroundTaskControls count={fullControls.length}>
+              {fullControls.map((notification) => (
+                <UnifiedNotificationItem
+                  key={notification.id}
+                  notification={notification}
+                  onDismiss={() => handleDismiss(notification.id)}
+                  onCancel={getCancelHandler(notification)}
+                />
+              ))}
+            </BackgroundTaskControls>
           </div>
         )}
         {fullItems.length > 0 && (
