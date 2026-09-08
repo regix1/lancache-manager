@@ -18,7 +18,7 @@ import type { ScheduledPrefillSchedule, ScheduledPrefillServiceKey } from './typ
 interface ScheduledPrefillPlatformSectionProps {
   serviceKey: ScheduledPrefillServiceKey;
   scheduleControls?: ReactNode;
-  containerSettings?: ReactNode;
+  containerSettings?: (disabled: boolean) => ReactNode;
   gameSelectionLoading?: boolean;
   onSelectGames: () => void;
   onClearGames: () => void;
@@ -68,8 +68,6 @@ export function ScheduledPrefillPlatformSection({
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const platformMeta = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
 
-  // A schedule that is switched off greys its options out; the toggle, the name and the
-  // record menu in the header above stay live so it can be renamed or switched back on.
   const fieldsDisabled = disabled || !config.enabled;
 
   return (
@@ -91,7 +89,7 @@ export function ScheduledPrefillPlatformSection({
           serviceKey={serviceKey}
           container={container}
           selectedGamesCount={selectedGamesCount}
-          disabled={disabled}
+          disabled={fieldsDisabled}
           scheduleEnabled={config.enabled}
           statusLoading={statusLoading}
           authenticating={authenticating}

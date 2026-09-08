@@ -20,7 +20,7 @@ export interface ScheduledPrefillPersistentActionState {
 
 export interface ScheduledPrefillPersistentCardProps {
   scheduleControls?: ReactNode;
-  containerSettings?: ReactNode;
+  containerSettings?: (disabled: boolean) => ReactNode;
   gameSelectionLoading?: boolean;
   onSelectGames: () => void;
   onClearGames: () => void;
@@ -30,8 +30,7 @@ export interface ScheduledPrefillPersistentCardProps {
   container?: PersistentPrefillContainerDto;
   selectedGamesCount: number;
   disabled?: boolean;
-  /** The schedule whose game selection this card manages is switched on. Off greys out the
-   *  selection and the manual download; the container itself stays under the user's control. */
+  /** The schedule whose game selection this card manages is switched on. */
   scheduleEnabled: boolean;
   statusLoading?: boolean;
   authenticating?: boolean;

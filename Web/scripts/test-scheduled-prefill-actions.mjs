@@ -19,6 +19,14 @@ const panelSource = parseSource(
   'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPlatformsPanel.tsx',
   ts.ScriptKind.TSX
 );
+const platformSectionSource = parseSource(
+  'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPlatformSection.tsx',
+  ts.ScriptKind.TSX
+);
+const configModalSource = parseSource(
+  'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
+  ts.ScriptKind.TSX
+);
 const persistentCardSource = parseSource(
   'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillPersistentCard.tsx',
   ts.ScriptKind.TSX
@@ -266,6 +274,52 @@ test('container buttons retain the selected platform and schedule when moved out
     assert.ok(button, `${callbackName} is available as a direct button`);
     assert.equal(getAttribute(button, persistentCardSource, 'type'), '"button"');
   }
+});
+
+test('an off schedule keeps its record row live and disables every control below it', () => {
+  const platformSection = getComponent(platformSectionSource, 'ScheduledPrefillPlatformSection');
+  const persistentCard = findSoleNode(
+    platformSection,
+    'persistent container card',
+    (node) =>
+      ts.isJsxSelfClosingElement(node) &&
+      node.tagName.getText(platformSectionSource) === 'ScheduledPrefillPersistentCard'
+  );
+  assert.equal(getAttribute(persistentCard, platformSectionSource, 'disabled'), 'fieldsDisabled');
+
+  const card = getComponent(persistentCardSource, 'ScheduledPrefillPersistentCard');
+  const controls = findSoleNode(
+    card,
+    'persistent container control gate',
+    (node) => ts.isJsxElement(node) && getTagName(node) === 'fieldset'
+  );
+  assert.equal(getAttribute(controls, persistentCardSource, 'disabled'), 'disabled');
+
+  const settingsToggle = getMenuItems(card, persistentCardSource, 'Button').find(
+    (button) =>
+      hasAttribute(button, 'className') &&
+      getAttribute(button, persistentCardSource, 'className') ===
+        '"scheduled-prefill-persistent-card__settings-toggle"'
+  );
+  assert.ok(settingsToggle, 'shared container settings has a toggle');
+  assert.equal(getAttribute(settingsToggle, persistentCardSource, 'disabled'), 'disabled');
+
+  const panel = getComponent(panelSource, 'ScheduledPrefillPlatformsPanel');
+  const recordTrigger = getMenuItems(panel, panelSource, 'Button').find(
+    (button) => getAttribute(button, panelSource, 'variant') === '"menu"'
+  );
+  assert.ok(recordTrigger, 'record row keeps its Actions trigger');
+  assert.equal(
+    getAttribute(recordTrigger, panelSource, 'disabled'),
+    'disabled',
+    'record Actions follows only the modal-wide gate, not the schedule state'
+  );
+
+  assert.match(
+    configModalSource.text,
+    /containerSettings=\{\(containerDisabled\) =>[\s\S]*?disabled:\s*containerDisabled \|\|\s*!config[\s\S]*?disabled=\{containerDisabled \|\| clearingLogins\}/,
+    'custom shared-setting controls receive the selected schedule gate explicitly'
+  );
 });
 
 test('Actions cannot submit and the mobile modal contains touch scrolling', () => {

@@ -2220,7 +2220,7 @@ export function ScheduledPrefillConfigModal({
 
                     {config ? (
                       <ScheduledPrefillPlatformsPanel
-                        containerSettings={
+                        containerSettings={(containerDisabled) => (
                           <>
                             <p className="scheduled-prefill-config-modal__global-help">
                               {t(`${baseKey}.settings.description`)}
@@ -2251,7 +2251,9 @@ export function ScheduledPrefillConfigModal({
                                     step={1}
                                     value={persistentValidityDays}
                                     disabled={
-                                      savedValidityDays === null || editSessionActionsDisabled
+                                      containerDisabled ||
+                                      savedValidityDays === null ||
+                                      editSessionActionsDisabled
                                     }
                                     aria-label={t(`${baseKey}.settings.persistentValidityLabel`)}
                                     onChange={handlePersistentValidityDaysChange}
@@ -2282,7 +2284,10 @@ export function ScheduledPrefillConfigModal({
                                         value: option,
                                         label: t(`${baseKey}.settings.persistenceMode.${option}`),
                                         disabled:
-                                          !config || editSessionActionsDisabled || loadingConfig
+                                          containerDisabled ||
+                                          !config ||
+                                          editSessionActionsDisabled ||
+                                          loadingConfig
                                       }))}
                                       value={config?.persistenceMode ?? 'keepAcrossRestart'}
                                       onChange={(value) => {
@@ -2313,7 +2318,7 @@ export function ScheduledPrefillConfigModal({
                                     className="scheduled-prefill-clear-logins-button"
                                     size={SCHEDULED_PREFILL_BUTTON_SIZE}
                                     onClick={() => setClearLoginsConfirmOpen(true)}
-                                    disabled={clearingLogins}
+                                    disabled={containerDisabled || clearingLogins}
                                     loading={clearingLogins}
                                   >
                                     {clearingLogins
@@ -2333,7 +2338,7 @@ export function ScheduledPrefillConfigModal({
                               </Alert>
                             )}
                           </>
-                        }
+                        )}
                         config={config}
                         initialServiceKey={initialServiceKey}
                         initialScheduleId={openedScheduleId}

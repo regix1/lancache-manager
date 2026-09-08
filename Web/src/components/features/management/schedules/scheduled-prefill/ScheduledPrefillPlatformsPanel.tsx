@@ -23,7 +23,7 @@ import type {
 
 interface ScheduledPrefillPlatformsPanelProps {
   config: ScheduledPrefillConfigDto;
-  containerSettings?: ReactNode;
+  containerSettings?: (disabled: boolean) => ReactNode;
   initialServiceKey?: ScheduledPrefillServiceKey;
   initialScheduleId?: string;
   disabled?: boolean;

@@ -107,9 +107,8 @@ export function ScheduledPrefillPersistentCard({
         return t(`${containersKey}.savedLoginUnknown`);
     }
   })();
-  // What this schedule downloads, and downloading it by hand, belong to the schedule: both grey
-  // out while it is switched off. Starting, stopping and logging the container in or out do not,
-  // because the container serves every schedule on the platform.
+  // Every control below the schedule selector follows the schedule's enabled state. The selector
+  // and its Actions menu stay outside this gate so an individual schedule can be switched back on.
   const selectionDisabled = disabled || !scheduleEnabled;
   const containerActionPending = action === 'stop' || action === 'logout';
   const reuseIntegrationDisabled =
@@ -225,214 +224,223 @@ export function ScheduledPrefillPersistentCard({
   return (
     <Card padding="md" className="scheduled-prefill-persistent-card">
       {scheduleControls}
-      <header className="scheduled-prefill-persistent-card__header">
-        <div className="scheduled-prefill-persistent-card__title-block">
-          <h4 className="scheduled-prefill-persistent-card__title">
-            {t(`${baseKey}.platforms.sections.persistentContainer`)}
-          </h4>
-        </div>
-        <span
-          className="scheduled-prefill-persistent-card__status"
-          role="status"
-          aria-live="polite"
-        >
-          <StatusDot tone={statusDisplay.tone} label={statusDisplay.label} />
-          <span className="scheduled-prefill-persistent-card__status-text">
-            {(statusDisplay.busy || statusLoading) && <LoadingSpinner inline size="xs" />}
-            {statusDisplay.label}
+      <fieldset className="scheduled-prefill-persistent-card__controls" disabled={disabled}>
+        <header className="scheduled-prefill-persistent-card__header">
+          <div className="scheduled-prefill-persistent-card__title-block">
+            <h4 className="scheduled-prefill-persistent-card__title">
+              {t(`${baseKey}.platforms.sections.persistentContainer`)}
+            </h4>
+          </div>
+          <span
+            className="scheduled-prefill-persistent-card__status"
+            role="status"
+            aria-live="polite"
+          >
+            <StatusDot tone={statusDisplay.tone} label={statusDisplay.label} />
+            <span className="scheduled-prefill-persistent-card__status-text">
+              {(statusDisplay.busy || statusLoading) && <LoadingSpinner inline size="xs" />}
+              {statusDisplay.label}
+            </span>
           </span>
-        </span>
-      </header>
+        </header>
 
-      {isContainerLoading ? (
-        <div className="scheduled-prefill-persistent-card__state" role="status" aria-live="polite">
-          <LoadingSpinner inline size="sm" />
-          <span>{t(`${containersKey}.loadingStatus`)}</span>
-        </div>
-      ) : (
-        <>
-          {!isAnonymous && container && isRunning && isAuthenticated && (
-            <div className="scheduled-prefill-persistent-card__fact">
-              <span className="caps-label scheduled-prefill-persistent-card__fact-label">
-                {t('prefill.persistent.reloginRequiredBy')}
-              </span>
-              <span className="scheduled-prefill-persistent-card__meta-value">
-                {authExpiresAt}
-                <span className="scheduled-prefill-persistent-card__meta-detail">
-                  {/* Zero gets a finished sentence of its own instead of being poured into
+        {isContainerLoading ? (
+          <div
+            className="scheduled-prefill-persistent-card__state"
+            role="status"
+            aria-live="polite"
+          >
+            <LoadingSpinner inline size="sm" />
+            <span>{t(`${containersKey}.loadingStatus`)}</span>
+          </div>
+        ) : (
+          <>
+            {!isAnonymous && container && isRunning && isAuthenticated && (
+              <div className="scheduled-prefill-persistent-card__fact">
+                <span className="caps-label scheduled-prefill-persistent-card__fact-label">
+                  {t('prefill.persistent.reloginRequiredBy')}
+                </span>
+                <span className="scheduled-prefill-persistent-card__meta-value">
+                  {authExpiresAt}
+                  <span className="scheduled-prefill-persistent-card__meta-detail">
+                    {/* Zero gets a finished sentence of its own instead of being poured into
                         "{{time}} remaining". formatTimeRemaining answers zero with a word, not a
                         duration, so the two together read "Expiring... remaining" in English and
                         stack two expiry clauses in Chinese. */}
-                  {container.authTimeRemainingSeconds > 0
-                    ? t('prefill.persistent.timeRemaining', {
-                        time: formatTimeRemaining(container.authTimeRemainingSeconds)
-                      })
-                    : t('prefill.persistent.signInExpired')}
+                    {container.authTimeRemainingSeconds > 0
+                      ? t('prefill.persistent.timeRemaining', {
+                          time: formatTimeRemaining(container.authTimeRemainingSeconds)
+                        })
+                      : t('prefill.persistent.signInExpired')}
+                  </span>
                 </span>
-              </span>
-            </div>
-          )}
-
-          {isSessionUnavailable && (
-            <Alert color="yellow" className="scheduled-prefill-persistent-card__auth-alert">
-              {t(
-                sessionUnavailableState === 'errored'
-                  ? 'prefill.persistent.sessionErrored'
-                  : 'prefill.persistent.sessionUnavailable'
-              )}
-            </Alert>
-          )}
-
-          {loginError && !isSessionUnavailable && (
-            <Alert color="red" className="scheduled-prefill-persistent-card__auth-alert">
-              {t('prefill.persistent.loginFailed', { error: loginError })}
-            </Alert>
-          )}
-
-          {isPrefilling && container && (
-            <p className="scheduled-prefill-persistent-card__downloading">
-              {container.currentAppName
-                ? t(`${baseKey}.persistentContainer.downloadProgress`, {
-                    game: container.currentAppName,
-                    bytes: formatBytes(container.totalBytesTransferred ?? 0)
-                  })
-                : t(`${baseKey}.persistentContainer.downloadProgressGeneric`, {
-                    bytes: formatBytes(container.totalBytesTransferred ?? 0)
-                  })}
-            </p>
-          )}
-
-          {isPrefilling && (
-            <div
-              className="scheduled-prefill-persistent-card__progress"
-              role="progressbar"
-              aria-busy="true"
-              aria-label={t(`${containersKey}.steps.downloading`)}
-            >
-              <span className="scheduled-prefill-persistent-card__progress-bar" />
-            </div>
-          )}
-
-          {container?.needsRelogin && workflowHint && (
-            <p
-              className={`scheduled-prefill-persistent-card__hint${
-                !isAnonymous && container?.needsRelogin
-                  ? ' scheduled-prefill-persistent-card__hint--warning'
-                  : ''
-              }`}
-            >
-              {workflowHint}
-            </p>
-          )}
-
-          <footer className="scheduled-prefill-persistent-card__actions">
-            {primaryAction}
-            {isRunning && !isReady && (
-              <Tooltip
-                content={savedLoginHint}
-                className="scheduled-prefill-persistent-card__login-help"
-              >
-                <span
-                  tabIndex={reuseIntegrationDisabled ? 0 : undefined}
-                  aria-label={savedLoginHint}
-                >
-                  <Button
-                    type="button"
-                    variant="default"
-                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                    onClick={() => onLogin(true)}
-                    disabled={reuseIntegrationDisabled}
-                  >
-                    {t(`${containersKey}.reuseIntegrationLogin`)}
-                  </Button>
-                </span>
-              </Tooltip>
+              </div>
             )}
+
+            {isSessionUnavailable && (
+              <Alert color="yellow" className="scheduled-prefill-persistent-card__auth-alert">
+                {t(
+                  sessionUnavailableState === 'errored'
+                    ? 'prefill.persistent.sessionErrored'
+                    : 'prefill.persistent.sessionUnavailable'
+                )}
+              </Alert>
+            )}
+
+            {loginError && !isSessionUnavailable && (
+              <Alert color="red" className="scheduled-prefill-persistent-card__auth-alert">
+                {t('prefill.persistent.loginFailed', { error: loginError })}
+              </Alert>
+            )}
+
+            {isPrefilling && container && (
+              <p className="scheduled-prefill-persistent-card__downloading">
+                {container.currentAppName
+                  ? t(`${baseKey}.persistentContainer.downloadProgress`, {
+                      game: container.currentAppName,
+                      bytes: formatBytes(container.totalBytesTransferred ?? 0)
+                    })
+                  : t(`${baseKey}.persistentContainer.downloadProgressGeneric`, {
+                      bytes: formatBytes(container.totalBytesTransferred ?? 0)
+                    })}
+              </p>
+            )}
+
+            {isPrefilling && (
+              <div
+                className="scheduled-prefill-persistent-card__progress"
+                role="progressbar"
+                aria-busy="true"
+                aria-label={t(`${containersKey}.steps.downloading`)}
+              >
+                <span className="scheduled-prefill-persistent-card__progress-bar" />
+              </div>
+            )}
+
+            {container?.needsRelogin && workflowHint && (
+              <p
+                className={`scheduled-prefill-persistent-card__hint${
+                  !isAnonymous && container?.needsRelogin
+                    ? ' scheduled-prefill-persistent-card__hint--warning'
+                    : ''
+                }`}
+              >
+                {workflowHint}
+              </p>
+            )}
+
+            <footer className="scheduled-prefill-persistent-card__actions">
+              {primaryAction}
+              {isRunning && !isReady && (
+                <Tooltip
+                  content={savedLoginHint}
+                  className="scheduled-prefill-persistent-card__login-help"
+                >
+                  <span
+                    tabIndex={reuseIntegrationDisabled ? 0 : undefined}
+                    aria-label={savedLoginHint}
+                  >
+                    <Button
+                      type="button"
+                      variant="default"
+                      size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                      onClick={() => onLogin(true)}
+                      disabled={reuseIntegrationDisabled}
+                    >
+                      {t(`${containersKey}.reuseIntegrationLogin`)}
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
+              <Button
+                type="button"
+                variant="default"
+                size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                onClick={onSelectGames}
+                disabled={
+                  selectionDisabled ||
+                  containerActionPending ||
+                  !isRunning ||
+                  !isReady ||
+                  gameSelectionLoading
+                }
+                loading={gameSelectionLoading}
+              >
+                {t(`${baseKey}.actions.selectGames`)}
+                <Badge variant="info">{selectedGamesCount}</Badge>
+              </Button>
+              {selectedGamesCount > 0 && (
+                <Button
+                  type="button"
+                  variant="default"
+                  size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                  onClick={onClearGames}
+                  disabled={selectionDisabled || containerActionPending || isPrefilling}
+                >
+                  {t(`${baseKey}.actions.clearGames`)}
+                </Button>
+              )}
+              {!isAnonymous && isRunning && isAuthenticated && (
+                <Button
+                  type="button"
+                  variant="default"
+                  size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                  onClick={onLogout}
+                  disabled={
+                    disabled || isPrefilling || action === 'start' || containerActionPending
+                  }
+                  loading={action === 'logout'}
+                >
+                  {t('prefill.persistent.logOut')}
+                </Button>
+              )}
+              {isRunning && (
+                <Button
+                  type="button"
+                  variant="default"
+                  size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                  onClick={onStop}
+                  disabled={disabled || action === 'start' || containerActionPending}
+                  loading={action === 'stop'}
+                >
+                  {t('prefill.persistent.actions.stop')}
+                </Button>
+              )}
+            </footer>
+          </>
+        )}
+        {containerSettings && (
+          <div className="scheduled-prefill-persistent-card__settings">
             <Button
               type="button"
-              variant="default"
+              variant="transparent"
               size={SCHEDULED_PREFILL_BUTTON_SIZE}
-              onClick={onSelectGames}
-              disabled={
-                selectionDisabled ||
-                containerActionPending ||
-                !isRunning ||
-                !isReady ||
-                gameSelectionLoading
+              className="scheduled-prefill-persistent-card__settings-toggle"
+              disabled={disabled}
+              aria-expanded={settingsOpen}
+              aria-controls={settingsId}
+              onClick={() => setSettingsOpen((open) => !open)}
+              leftSection={
+                <ChevronDown
+                  size={16}
+                  aria-hidden="true"
+                  className={`transition-transform duration-300 motion-reduce:transition-none ${settingsOpen ? 'rotate-180' : ''}`}
+                />
               }
-              loading={gameSelectionLoading}
             >
-              {t(`${baseKey}.actions.selectGames`)}
-              <Badge variant="info">{selectedGamesCount}</Badge>
+              {t(`${baseKey}.settings.sharedContainerSettings`)}
             </Button>
-            {selectedGamesCount > 0 && (
-              <Button
-                type="button"
-                variant="default"
-                size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                onClick={onClearGames}
-                disabled={selectionDisabled || containerActionPending || isPrefilling}
-              >
-                {t(`${baseKey}.actions.clearGames`)}
-              </Button>
-            )}
-            {!isAnonymous && isRunning && isAuthenticated && (
-              <Button
-                type="button"
-                variant="default"
-                size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                onClick={onLogout}
-                disabled={disabled || isPrefilling || action === 'start' || containerActionPending}
-                loading={action === 'logout'}
-              >
-                {t('prefill.persistent.logOut')}
-              </Button>
-            )}
-            {isRunning && (
-              <Button
-                type="button"
-                variant="default"
-                size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                onClick={onStop}
-                disabled={disabled || action === 'start' || containerActionPending}
-                loading={action === 'stop'}
-              >
-                {t('prefill.persistent.actions.stop')}
-              </Button>
-            )}
-          </footer>
-        </>
-      )}
-      {containerSettings && (
-        <div className="scheduled-prefill-persistent-card__settings">
-          <Button
-            type="button"
-            variant="transparent"
-            size={SCHEDULED_PREFILL_BUTTON_SIZE}
-            className="scheduled-prefill-persistent-card__settings-toggle"
-            aria-expanded={settingsOpen}
-            aria-controls={settingsId}
-            onClick={() => setSettingsOpen((open) => !open)}
-            leftSection={
-              <ChevronDown
-                size={16}
-                aria-hidden="true"
-                className={`transition-transform duration-300 motion-reduce:transition-none ${settingsOpen ? 'rotate-180' : ''}`}
-              />
-            }
-          >
-            {t(`${baseKey}.settings.sharedContainerSettings`)}
-          </Button>
-          <CollapsibleRegion
-            open={settingsOpen}
-            contentClassName="scheduled-prefill-persistent-card__settings-content"
-          >
-            <div id={settingsId} className="flex flex-col gap-4">
-              {containerSettings}
-            </div>
-          </CollapsibleRegion>
-        </div>
-      )}
+            <CollapsibleRegion
+              open={settingsOpen}
+              contentClassName="scheduled-prefill-persistent-card__settings-content"
+            >
+              <div id={settingsId} className="flex flex-col gap-4">
+                {containerSettings(disabled)}
+              </div>
+            </CollapsibleRegion>
+          </div>
+        )}
+      </fieldset>
     </Card>
   );
 }
