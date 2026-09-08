@@ -1558,6 +1558,22 @@
   min-width: 0;
 }
 
+.scheduled-prefill-platform-section--off
+  :is(
+    .scheduled-prefill-platform-block__title,
+    .scheduled-prefill-config-modal__global-label,
+    .scheduled-prefill-config-modal__global-help,
+    .scheduled-prefill-schedule-fields__override,
+    .scheduled-prefill-persistent-card__header,
+    .scheduled-prefill-persistent-card__fact,
+    .scheduled-prefill-persistent-card__state,
+    .scheduled-prefill-persistent-card__auth-alert,
+    .scheduled-prefill-persistent-card__downloading,
+    .scheduled-prefill-persistent-card__hint
+  ) {
+  opacity: 0.5;
+}
+
 /* Sibling content blocks within a platform detail, one well language, recessed into the pane. */
 .scheduled-prefill-platform-block {
   display: flex;

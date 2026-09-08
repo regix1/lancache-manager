@@ -333,11 +333,11 @@ export function ScheduledPrefillPersistentCard({
               {primaryAction}
               {isRunning && !isReady && (
                 <Tooltip
-                  content={savedLoginHint}
+                  content={disabled ? null : savedLoginHint}
                   className="scheduled-prefill-persistent-card__login-help"
                 >
                   <span
-                    tabIndex={reuseIntegrationDisabled ? 0 : undefined}
+                    tabIndex={!disabled && reuseIntegrationDisabled ? 0 : undefined}
                     aria-label={savedLoginHint}
                   >
                     <Button

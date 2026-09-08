@@ -199,7 +199,7 @@ export function ScheduledPrefillDownloadFields({
             <span id={presetLabelId} className="scheduled-prefill-config-modal__global-label">
               {t(`${baseKey}.fields.preset`)}
             </span>
-            <HelpPopover position="left" width={320}>
+            <HelpPopover position="left" width={320} disabled={disabled}>
               <HelpSection title={t(`${baseKey}.presetHelp.title`)} variant="subtle">
                 <HelpDefinition items={presetHelpItems} />
                 <HelpNote type="warning">{t(`${baseKey}.presetHelp.overrideNote`)}</HelpNote>

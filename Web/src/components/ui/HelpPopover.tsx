@@ -15,6 +15,7 @@ interface HelpPopoverProps {
   width?: number;
   /** Max height with scroll */
   maxHeight?: string;
+  disabled?: boolean;
 }
 
 /** Gap between the trigger and the popover, whichever side it opens on. */
@@ -31,7 +32,8 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   children,
   position = 'left',
   width = 320,
-  maxHeight
+  maxHeight,
+  disabled = false
 }) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
@@ -126,6 +128,10 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
 
   const closePopover = useCallback((): void => setIsOpen(false), []);
 
+  useEffect(() => {
+    if (disabled) closePopover();
+  }, [disabled, closePopover]);
+
   // Escape sends focus back to the trigger it came from, so a keyboard reader does not
   // land at the top of the document. This cannot be `onClose`'s job: the hook also closes
   // the popover once the trigger has scrolled out of view, and focusing a trigger there
@@ -139,7 +145,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     closing,
     position: popoverPos
   } = useAnchoredPanel({
-    open: isOpen,
+    open: isOpen && !disabled,
     anchorRef: triggerRef,
     panelRef: popoverRef,
     onClose: closePopover,
@@ -192,18 +198,23 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     <>
       <button
         ref={triggerRef}
+        type="button"
+        disabled={disabled}
         aria-label={t('common.help')}
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={() => !disabled && setIsOpen((open) => !open)}
         className={`help-popover-trigger p-1 rounded-md transition-colors ${
-          isOpen
-            ? 'text-[var(--theme-primary)] bg-[var(--theme-primary-subtle)]'
-            : 'text-themed-secondary bg-transparent hover:bg-themed-hover'
+          disabled
+            ? 'text-themed-muted bg-transparent opacity-50 cursor-not-allowed'
+            : isOpen
+              ? 'text-[var(--theme-primary)] bg-[var(--theme-primary-subtle)]'
+              : 'text-themed-secondary bg-transparent hover:bg-themed-hover'
         }`}
       >
         <HelpCircle className="w-4 h-4" />
       </button>
 
       {present &&
+        !disabled &&
         createPortal(
           <div
             ref={popoverRef}
