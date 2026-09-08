@@ -5121,7 +5121,7 @@
       "title": "选择要预填充的游戏",
       "importAppIds": "导入应用 ID",
       "showCached": "显示已缓存",
-      "clearAllCached": "清除此服务的已缓存游戏",
+      "clearAllCached": "清除缓存记录",
       "usingCached": "使用缓存的结果（上次扫描 < 5 分钟前）",
       "rescan": "重新扫描",
       "importHelp": "粘贴来自 SteamPrefill 的 Steam 应用 ID 或任何逗号分隔的列表",

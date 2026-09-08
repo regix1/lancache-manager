@@ -75,15 +75,12 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       <div className="space-y-4">
         {children}
 
-        {/* Buttons stack full-width below the `sm` breakpoint so neither one is squeezed to a few
-            characters wide on a phone. Confirm sits on top there (reversed column) to stay closest
-            to the thumb, while the desktop row keeps cancel-then-confirm reading order. */}
-        <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
+        <div className="confirmation-modal__actions">
           <Button
             variant="default"
             onClick={onClose}
             disabled={loading}
-            className="w-full sm:w-auto min-h-[44px] sm:min-h-10"
+            className="min-h-[44px] sm:min-h-10"
           >
             {t('common.cancel')}
           </Button>
@@ -95,7 +92,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             stableWidth
             disabled={confirmDisabled}
             aria-busy={loading || confirmBusy}
-            className="w-full sm:w-auto min-h-[44px] sm:min-h-10"
+            className="min-h-[44px] sm:min-h-10"
           >
             {confirmLabel || t('common.confirm')}
           </Button>

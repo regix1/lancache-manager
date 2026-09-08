@@ -6,6 +6,7 @@ import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
 import { HelpPopover } from '@components/ui/HelpPopover';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { useScrollAreaHeight } from '@hooks/useScrollAreaHeight';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import ApiService from '@services/api.service';
 import { GameSelectionModal } from '@components/features/prefill/GameSelectionModal';
@@ -267,19 +268,7 @@ export function ScheduledPrefillConfigModal({
   const { t } = useTranslation();
   const { accountId, authMode, sessionId } = useAuth();
   const { on: onSignalR, off: offSignalR, isConnected } = useSignalR();
-  // CustomScrollbar's own maxHeight="100%" does not reliably resolve here: this modal's body is a
-  // pure flex-grow chain with no explicit CSS height anywhere in it, and a plain block descendant's
-  // percentage max-height needs one (measured: it fell back to unconstrained content height instead
-  // of clamping). Measuring the wrapper's actual pixel height and passing that as a concrete value
-  // sidesteps the percentage-resolution question entirely.
-  //
-  // A callback ref (not useRef + an effect keyed on `opened`) because Modal mounts this element
-  // one render AFTER `opened` flips true (it only renders `children` once its own internal
-  // `isVisible` state catches up) - an effect keyed on `opened` fires too early, finds the ref
-  // still null, bails out, and never gets a second chance since `opened` doesn't change again.
-  // The callback ref fires exactly when the node mounts, whenever that actually happens.
-  const [scrollAreaEl, setScrollAreaEl] = useState<HTMLDivElement | null>(null);
-  const [scrollAreaHeight, setScrollAreaHeight] = useState<number | null>(null);
+  const [setScrollAreaEl, scrollAreaHeight] = useScrollAreaHeight();
   const [config, setConfig] = useState<ScheduledPrefillConfigDto | null>(null);
   /** The config as it arrived, to compare against on Cancel. */
   const loadedConfigRef = useRef<string | null>(null);
@@ -662,19 +651,6 @@ export function ScheduledPrefillConfigModal({
       window.removeEventListener('pageshow', handlePageShow);
     };
   }, [retireEditSessionLoginState, retryStoredEditSessionCleanup]);
-
-  useEffect(() => {
-    if (!scrollAreaEl) {
-      return;
-    }
-
-    const updateHeight = () => setScrollAreaHeight(scrollAreaEl.clientHeight);
-    updateHeight();
-
-    const resizeObserver = new ResizeObserver(updateHeight);
-    resizeObserver.observe(scrollAreaEl);
-    return () => resizeObserver.disconnect();
-  }, [scrollAreaEl]);
 
   useEffect(() => {
     if (!opened) {

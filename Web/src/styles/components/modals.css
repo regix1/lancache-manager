@@ -305,3 +305,23 @@
     border-width: 0;
   }
 }
+.confirmation-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+.confirmation-modal__actions > button {
+  min-width: 6rem;
+  white-space: normal;
+}
+
+@media (max-width: 639.98px) {
+  .confirmation-modal__actions > button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}

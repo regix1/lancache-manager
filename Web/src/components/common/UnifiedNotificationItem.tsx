@@ -20,6 +20,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
 import { CANCEL_CONFIG_BY_TYPE, getNotificationColor } from './notificationCancel';
+import './UnifiedNotificationItem.css';
 
 const FORCE_KILL_TOOLTIP_KEY = 'common.notifications.forceKillOperation';
 
@@ -433,25 +434,27 @@ export const UnifiedNotificationItem = ({
           </div>
         )}
 
-        {renderTitle()}
+        <div className={titleKey ? 'notification-card__body' : undefined}>
+          {renderTitle()}
 
-        {/* Detail message (except for service_removal which shows details differently) */}
-        {notification.detailMessage && notification.type !== 'service_removal' && (
-          <div className="text-xs text-themed-muted mt-0.5 min-w-0 whitespace-normal break-words tabular-nums">
-            {notification.detailMessage}
-          </div>
-        )}
+          {/* Detail message (except for service_removal which shows details differently) */}
+          {notification.detailMessage && notification.type !== 'service_removal' && (
+            <div className="text-xs text-themed-muted mt-0.5 min-w-0 whitespace-normal break-words tabular-nums">
+              {notification.detailMessage}
+            </div>
+          )}
 
-        {/* Type-specific completion details */}
-        {renderCompletionDetails(rendererProps)}
+          {/* Type-specific completion details */}
+          {renderCompletionDetails(rendererProps)}
 
-        {/* Progress bar for running operations */}
-        {renderProgressBar(rendererProps)}
+          {/* Progress bar for running operations */}
+          {renderProgressBar(rendererProps)}
 
-        {/* Error message - only show if different from main message */}
-        {notification.error && notification.error !== notification.message && (
-          <div className="text-xs text-themed-muted mt-0.5">{notification.error}</div>
-        )}
+          {/* Error message - only show if different from main message */}
+          {notification.error && notification.error !== notification.message && (
+            <div className="text-xs text-themed-muted mt-0.5">{notification.error}</div>
+          )}
+        </div>
       </div>
 
       {/* Action buttons */}

@@ -328,7 +328,7 @@ export function GameSelectionModal({
     return (
       <div
         key={game.appId}
-        className={`w-full flex items-center min-h-[44px] transition-[background-color] duration-150 ease-out ${
+        className={`game-selection-modal__row w-full flex items-center min-h-[44px] transition-[background-color] duration-150 ease-out ${
           selected
             ? 'bg-[var(--theme-selected-bg)] hover:bg-[var(--theme-selected-bg-hover)]'
             : 'bg-transparent hover:bg-[var(--theme-bg-hover)]'
@@ -340,7 +340,7 @@ export function GameSelectionModal({
           data-game-app-id={game.appId}
           aria-pressed={selected}
           onClick={() => toggleGame(game.appId)}
-          className="flex-1 min-w-0 !rounded-none flex items-center gap-3 px-4 !py-0.5 text-left bg-transparent hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
+          className="game-selection-modal__row-select flex-1 min-w-0 !rounded-none flex items-center gap-3 text-left bg-transparent hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
         >
           <div
             className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center border-2 ${
@@ -357,7 +357,7 @@ export function GameSelectionModal({
                 {game.name}
               </div>
             </Tooltip>
-            <div className="text-xs text-[var(--theme-text-muted)] flex items-center gap-2">
+            <div className="game-selection-modal__row-details text-xs text-[var(--theme-text-muted)]">
               <span className="min-w-0 truncate">
                 {t('prefill.gameSelection.appId', { id: game.appId })}
               </span>
@@ -375,8 +375,9 @@ export function GameSelectionModal({
             size="sm"
             onClick={() => onRemoveFromCache(game.appId)}
             disabled={removingAppId === game.appId}
+            loading={removingAppId === game.appId}
             aria-label={t('prefill.gameSelection.removeFromCache', { name: game.name })}
-            className="btn-icon-square btn-icon-square--sm pointer-target-44 delete-hover ml-2 mr-3 flex-shrink-0"
+            className="btn-icon-square btn-icon-square--sm pointer-target-44 delete-hover ml-1 mr-3 flex-shrink-0"
           >
             <Trash2 className="w-4 h-4" />
           </Button>
@@ -395,7 +396,7 @@ export function GameSelectionModal({
     >
       <div className="flex h-[calc(100dvh-8rem)] min-h-[34rem] max-h-[calc(100dvh-8rem)] sm:max-h-[40rem] flex-col">
         {/* Search and actions */}
-        <div className="flex flex-col gap-2 mb-2">
+        <div className="game-selection-modal__search">
           <SearchInput
             ref={searchInputRef}
             placeholder={t('prefill.placeholders.searchGames')}
@@ -551,7 +552,7 @@ export function GameSelectionModal({
 
         {/* Library/filter facts only. The selected count lives once, in the Selected section
             header below, so it is not repeated here. */}
-        <div className="text-sm mb-2 text-[var(--theme-text-muted)] flex flex-wrap items-center gap-2">
+        <div className="text-sm mb-3 text-[var(--theme-text-muted)] flex flex-wrap items-center gap-2">
           {isUsingCache && (
             <span className="inline-flex items-center gap-1 text-xs">
               <Database className="h-3.5 w-3.5 text-[var(--theme-success)]" />
@@ -577,7 +578,7 @@ export function GameSelectionModal({
           ref={gameListRef}
           className="game-selection-modal__list relative min-h-40 sm:min-h-[15rem] flex-1 overflow-hidden"
         >
-          {isLoading ? (
+          {isLoading && games.length === 0 ? (
             <div
               className="game-selection-modal__loading p-3 space-y-2 rounded-lg border border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary)]"
               aria-busy="true"
@@ -628,7 +629,7 @@ export function GameSelectionModal({
                     variant="float"
                   >
                     {cachedGames.length > 0 ? (
-                      <div className="divided-list">
+                      <div className="game-selection-modal__rows">
                         {cachedGames.map((game) => renderGameRow(game, false))}
                       </div>
                     ) : (
@@ -661,7 +662,7 @@ export function GameSelectionModal({
                     variant="float"
                   >
                     {availableGames.length > 0 ? (
-                      <div className="divided-list">
+                      <div className="game-selection-modal__rows">
                         {availableGames.map((game) => renderGameRow(game, false))}
                       </div>
                     ) : (
@@ -701,7 +702,7 @@ export function GameSelectionModal({
                     variant="float"
                   >
                     {selectedGames.length > 0 ? (
-                      <div className="divided-list">
+                      <div className="game-selection-modal__rows">
                         {selectedGames.map((game) => renderGameRow(game, true))}
                       </div>
                     ) : (
@@ -717,7 +718,7 @@ export function GameSelectionModal({
         </div>
 
         {/* Actions */}
-        <div className="flex flex-row justify-end gap-2 mt-2 pt-2 sm:pt-3 border-t border-[var(--theme-border-secondary)]">
+        <div className="flex flex-row justify-end gap-2 mt-4 pt-4 border-t border-[var(--theme-border-secondary)]">
           <Button
             variant="filled"
             color="secondary"
@@ -753,7 +754,9 @@ export function GameSelectionModal({
           title={t('prefill.confirm.clearDbTitle')}
           confirmLabel={t('prefill.gameSelection.clearAllCached')}
         >
-          {t('prefill.confirm.clearDbMessage')}
+          <p className="text-sm leading-relaxed text-themed-secondary">
+            {t('prefill.confirm.clearDbMessage')}
+          </p>
         </ConfirmationModal>
       )}
     </Modal>

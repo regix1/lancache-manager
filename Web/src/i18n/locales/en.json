@@ -5121,7 +5121,7 @@
       "title": "Select Games to Prefill",
       "importAppIds": "Import App IDs",
       "showCached": "Show Cached",
-      "clearAllCached": "Clear Service's Cached Games",
+      "clearAllCached": "Clear cached",
       "usingCached": "Using cached results (last scan < 5 min ago)",
       "rescan": "Rescan",
       "importHelp": "Paste Steam App IDs from SteamPrefill or any comma-separated list",
