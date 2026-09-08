@@ -17,6 +17,7 @@ import {
   createStartedHandler,
   createStatusAwareProgressHandler,
   createCompletionHandler,
+  operationCardId,
   eventTargetsCard,
   findBulkCardOwningOperation,
   waitingCardMessage
@@ -61,9 +62,26 @@ function buildStartedHandler(
       storageKey: entry.storageKey,
       storesCardsById: entry.getId !== undefined,
       shouldDisplay: started.shouldDisplay,
+      canControl: (event: unknown) => {
+        const fields = event as { operationId?: unknown; serviceId?: unknown };
+        return (
+          entry.cancelKind !== 'none' &&
+          entry.cancelKind !== 'clientQueue' &&
+          typeof fields.operationId === 'string' &&
+          (entry.type !== 'scheduled_prefill' || typeof fields.serviceId === 'string')
+        );
+      },
       defaultMessage: started.defaultMessage,
       getMessage: started.getMessage,
-      getDetails: started.getDetails,
+      getDetails: (event: unknown) => ({
+        ...started.getDetails?.(event),
+        ...(entry.type === 'scheduled_prefill'
+          ? {
+              service: (event as { serviceId?: string }).serviceId,
+              operationId: (event as { operationId?: string }).operationId
+            }
+          : {})
+      }),
       replaceExisting: started.replaceExisting,
       progressMode: started.progressMode
     },
@@ -90,6 +108,15 @@ function buildProgressHandler(
       storageKey: entry.storageKey,
       storesCardsById: entry.getId !== undefined,
       shouldDisplay: progress.shouldDisplay,
+      canControl: (event: unknown) => {
+        const fields = event as { operationId?: unknown; serviceId?: unknown };
+        return (
+          entry.cancelKind !== 'none' &&
+          entry.cancelKind !== 'clientQueue' &&
+          typeof fields.operationId === 'string' &&
+          (entry.type !== 'scheduled_prefill' || typeof fields.serviceId === 'string')
+        );
+      },
       getMessage: progress.getMessage,
       getProgress: progress.getProgress,
       getDetailMessage: progress.getDetailMessage,
@@ -99,7 +126,15 @@ function buildProgressHandler(
       getCompletedMessage: progress.getCompletedMessage,
       getErrorMessage: progress.getErrorMessage,
       supportFastCompletion: progress.supportFastCompletion,
-      getDetails: progress.getDetails
+      getDetails: (event: unknown) => ({
+        ...progress.getDetails?.(event),
+        ...(entry.type === 'scheduled_prefill'
+          ? {
+              service: (event as { serviceId?: string }).serviceId,
+              operationId: (event as { operationId?: string }).operationId
+            }
+          : {})
+      })
     },
     setNotifications,
     scheduleAutoDismiss,
@@ -238,9 +273,36 @@ export function useNotificationHandlers(
     const waitingHandler = (event: OperationWaitingEvent): void => {
       const entry = findEntryForWireType(registry, event.operationType);
       if (!entry) return;
+      if (acknowledgedIds.current.has(`terminal_${event.operationId}`)) return;
       if (event.silent) {
+        if (entry.type !== 'scheduled_prefill')
+          setNotifications((prev) => {
+            if (findBulkCardOwningOperation(entry.type, event.operationId, prev)) return prev;
+            const existing = prev.find(
+              (n) => n.type !== 'generic' && n.details?.operationId === event.operationId
+            );
+            if (existing && existing.status !== 'waiting' && existing.status !== 'cancelling')
+              return prev;
+            const id = existing?.id ?? operationCardId(event.operationId);
+            cancelAutoDismissTimer(id);
+            return [
+              ...prev.filter((n) => n.id !== id),
+              {
+                ...existing,
+                id,
+                type: entry.type,
+                controlOnly: true,
+                status: existing?.details?.cancelRequested
+                  ? ('cancelling' as const)
+                  : ('waiting' as const),
+                message: event.name,
+                startedAt: existing?.startedAt ?? new Date(),
+                details: { ...existing?.details, operationId: event.operationId }
+              }
+            ];
+          });
         const id = `queued_${event.operationId}`;
-        if (acknowledgedIds.current.has(id)) return;
+        if (event.acknowledge === false || acknowledgedIds.current.has(id)) return;
         acknowledgedIds.current.add(id);
         createCompletionHandler<OperationWaitingEvent & { success: boolean; status: string }>(
           {
@@ -325,75 +387,80 @@ export function useNotificationHandlers(
     const waitingCompleteHandler = (event: OperationWaitingCompleteEvent): void => {
       const entry = findEntryForWireType(registry, event.operationType);
       if (!entry) return;
-
-      if (event.promoted) {
-        setNotifications((prev: UnifiedNotification[]) =>
-          prev.filter(
-            (n) =>
-              n.id !== entry.id ||
-              n.status !== 'waiting' ||
-              n.details?.operationId !== event.operationId
-          )
+      acknowledgedIds.current.add(`terminal_${event.operationId}`);
+      setNotifications((prev) => {
+        const existing = prev.find(
+          (n) => n.type !== 'generic' && n.details?.operationId === event.operationId
         );
-        return;
-      }
-
-      setNotifications((prev: UnifiedNotification[]) => {
-        let terminated = false;
-        let restored = false;
-        const next = prev.map((n) => {
-          // A batch card turns purple while its own item is parked, and it carries that item's
-          // id in details.currentOperationId, never in the per-type card's slot. The batch run
-          // is not over just because one item left the queue, so put the card back to running
-          // and leave the wording to the batch, which rewrites it for the item either way.
-          if (n.status === 'waiting' && n.details?.currentOperationId === event.operationId) {
-            restored = true;
-            return { ...n, status: 'running' as const };
-          }
-          // Guard: only terminate cards STILL waiting - if promotion already replaced the
-          // card with a running one, a late cancel/failure event must not clobber it.
+        const restored = prev.map((n) =>
+          n.status === 'waiting' && n.details?.currentOperationId === event.operationId
+            ? { ...n, status: 'running' as const }
+            : n
+        );
+        if (event.promoted) {
+          const without = restored.filter((n) => n !== existing);
           if (
-            n.id !== entry.id ||
-            n.status !== 'waiting' ||
-            n.details?.operationId !== event.operationId
+            !existing?.controlOnly ||
+            !event.nextOperationId ||
+            without.some((n) => n.details?.operationId === event.nextOperationId)
           )
-            return n;
-          terminated = true;
-          if (event.cancelled) {
-            return {
-              ...n,
-              status: 'completed' as const,
-              message: i18n.t('common.notifications.operationWaitingCancelled'),
-              details: { ...n.details, cancelled: true }
-            };
-          }
-          // A run declined at promotion never started, so it is neither a success nor a
-          // failure. Its reason rides in `error` like the failure path; dropping the card
-          // instead would leave the reader with no trace of what happened.
-          if (event.skipped) {
-            return {
-              ...n,
-              status: 'skipped' as const,
-              message: event.error ?? i18n.t(GENERIC_SKIPPED_I18N_KEY),
-              error: event.error
-            };
-          }
-          return {
-            ...n,
-            status: 'failed' as const,
-            message: event.error ?? i18n.t(GENERIC_FAILURE_I18N_KEY),
-            error: event.error
-          };
-        });
-        // Nothing became terminal, so there is nothing to time out. Arming it regardless put a
-        // dismiss timer on whatever else happened to be in that slot.
-        if (terminated) {
-          scheduleAutoDismiss(entry.id);
+            return without;
+          return [
+            ...without,
+            {
+              ...existing,
+              id: operationCardId(event.nextOperationId),
+              status:
+                event.nextStatus === 'waiting'
+                  ? ('waiting' as const)
+                  : event.nextStatus === 'cancelling'
+                    ? ('cancelling' as const)
+                    : ('running' as const),
+              details: {
+                ...existing.details,
+                operationId: event.nextOperationId,
+                cancelPending: false,
+                cancelRequested: event.nextStatus === 'cancelling',
+                cancelSent: false
+              }
+            }
+          ];
         }
-        // This runs on every wait-queue completion, most of which belong to a card nobody here is
-        // showing. Handing back the same array leaves the list identity alone so those do not
-        // re-render every card.
-        return terminated || restored ? next : prev;
+        if (event.cancelled || event.skipped) {
+          if (!existing) return restored;
+          if (existing.controlOnly) return restored.filter((n) => n.id !== existing.id);
+          scheduleAutoDismiss(existing.id);
+          return restored.map((n) =>
+            n.id === existing.id
+              ? {
+                  ...n,
+                  status: event.cancelled ? ('cancelled' as const) : ('skipped' as const),
+                  message: event.cancelled
+                    ? i18n.t('common.notifications.operationWaitingCancelled')
+                    : (event.error ?? i18n.t(GENERIC_SKIPPED_I18N_KEY)),
+                  error: undefined,
+                  details: { ...n.details, cancelled: event.cancelled }
+                }
+              : n
+          );
+        }
+        const id = existing?.id ?? operationCardId(event.operationId);
+        const message = event.error ?? i18n.t(GENERIC_FAILURE_I18N_KEY);
+        scheduleAutoDismiss(id);
+        return [
+          ...restored.filter((n) => n.id !== id),
+          {
+            ...existing,
+            id,
+            type: entry.type,
+            status: 'failed' as const,
+            controlOnly: undefined,
+            message,
+            error: message,
+            startedAt: existing?.startedAt ?? new Date(),
+            details: { ...existing?.details, operationId: event.operationId }
+          }
+        ];
       });
     };
 

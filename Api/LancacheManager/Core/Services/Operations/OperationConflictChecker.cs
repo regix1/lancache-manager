@@ -24,6 +24,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
     {
         // Snapshot active ops once. Iterate ALL types (pass null) - the matrix spans multiple types per new op.
         var active = _tracker.GetActiveOperations(null);
+        OperationConflictResponse? conflict = null;
 
         foreach (var op in active)
         {
@@ -38,11 +39,15 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 _logger.LogDebug(
                     "Conflict: new {NewType}/{NewScope} blocked by active {ActiveType} (Id={ActiveId}, Scope={ActiveScope}, StageKey={StageKey})",
                     newType, newScope.ToTrackerKey(), op.Type, op.Id, verdict.ActiveOperationScope, verdict.StageKey);
-                return Task.FromResult<OperationConflictResponse?>(verdict);
+                if (verdict.StageKey == "errors.conflict.duplicate")
+                {
+                    return Task.FromResult<OperationConflictResponse?>(verdict);
+                }
+                conflict ??= verdict;
             }
         }
 
-        return Task.FromResult<OperationConflictResponse?>(null);
+        return Task.FromResult(conflict);
     }
 
     /// <summary>

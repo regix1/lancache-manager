@@ -308,6 +308,7 @@ function mergeEventDetails(
  * @template T - The type of the SignalR event
  */
 interface StartedHandlerConfig<T> {
+  canControl?: (event: T) => boolean;
   /** Optional gate that suppresses and removes the notification for this event */
   shouldDisplay?: (event: T) => boolean;
   /** The notification type this handler creates */
@@ -358,6 +359,10 @@ interface StartedHandlerConfig<T> {
  * );
  * ```
  */
+export function operationCardId(operationId: string): string {
+  return `operation_${operationId}`;
+}
+
 export function createStartedHandler<T>(
   config: StartedHandlerConfig<T>,
   setNotifications: SetNotifications,
@@ -365,6 +370,35 @@ export function createStartedHandler<T>(
 ): (event: T) => void {
   return (event: T): void => {
     const notificationId = config.getId(event);
+
+    if (config.shouldDisplay?.(event) === false && config.canControl?.(event)) {
+      const operationId = eventOperationId(event);
+      if (!operationId) return;
+      setNotifications((prev) => {
+        if (findBulkCardOwningOperation(config.type, operationId, prev)) return prev;
+        const existing = prev.find(
+          (n) => n.type === config.type && n.details?.operationId === operationId
+        );
+        if (existing && isTerminalNotificationStatus(existing.status)) return prev;
+        const id = existing?.id ?? operationCardId(operationId);
+        cancelAutoDismissTimer?.(id);
+        const next: UnifiedNotification = {
+          ...existing,
+          id,
+          type: config.type,
+          status: existing?.details?.cancelRequested ? 'cancelling' : 'running',
+          controlOnly: true,
+          message: config.getMessage?.(event) ?? config.defaultMessage,
+          startedAt: existing?.startedAt ?? new Date(),
+          details: mergeEventDetails(existing?.details, {
+            ...config.getDetails?.(event),
+            operationId
+          })
+        };
+        return [...prev.filter((n) => n.id !== id), next];
+      });
+      return;
+    }
 
     if (config.shouldDisplay?.(event) === false) {
       setNotifications((prev: UnifiedNotification[]) => {
@@ -394,6 +428,7 @@ export function createStartedHandler<T>(
       // Check if already exists in running state (skip if running and not replacing)
       if (!config.replaceExisting) {
         const existing = prev.find((n) => n.id === notificationId);
+        if (existing && !eventTargetsCard(existing, event)) return prev;
         if (existing && existing.status === 'running') {
           const eventDetails = config.getDetails?.(event);
           if (eventDetails && Object.keys(eventDetails).length > 0) {
@@ -402,7 +437,7 @@ export function createStartedHandler<T>(
               message: config.getMessage?.(event) ?? existing.message,
               // A Started event reaching this branch always means a NEW operation (the
               // singleton card is already 'running'); strip stale cancel flags unconditionally.
-              details: mergeEventDetails(existing.details, eventDetails, true)
+              details: mergeEventDetails(existing.details, eventDetails)
             };
             persistNotification(config.storageKey, merged, config.storesCardsById);
             return prev.map((n) => (n.id === notificationId ? merged : n));
@@ -521,6 +556,8 @@ interface CompletionHandlerConfig<T> {
 export function createCompletionHandler<
   T extends {
     success: boolean;
+    operationId?: string;
+    error?: string;
     stageKey?: string;
     context?: Record<string, unknown>;
     message?: string;
@@ -535,8 +572,72 @@ export function createCompletionHandler<
 ): (event: T) => void {
   return (event: T): void => {
     const notificationId = config.getId(event);
+    const isCancelled = event.cancelled === true || event.status === 'cancelled';
+    // A skipped run reports success:true (it did not fail) and status:'skipped', so the outcome
+    // can only be read off the wire status. Checked before the success branches below.
+    const isSkipped =
+      (event.status === 'skipped' || (event as { skipped?: boolean }).skipped === true) &&
+      !isCancelled;
+    // An entry that states its own outcome overrides the wire field, which its payload does not
+    // carry: one event for the whole lifecycle means there is no run whose success to report.
+    const error = (event as { error?: unknown }).error;
+    const realError = typeof error === 'string' && error.trim() ? error : undefined;
+    const succeeded =
+      config.succeeded ?? (event.status !== 'failed' && event.success !== false && !realError);
+    const dismissDelayMs = isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : config.dismissDelayMs;
 
-    if (config.shouldDisplay?.(event) === false) {
+    const operationId = eventOperationId(event);
+    const failed = !isCancelled && !isSkipped && !succeeded;
+    if (failed || config.shouldDisplay?.(event) === false) {
+      setNotifications((prev) => {
+        const exact = operationId
+          ? prev.find((n) => n.type === config.type && n.details?.operationId === operationId)
+          : undefined;
+        const slot = prev.find((n) => n.id === notificationId);
+        const existing = exact ?? (slot && eventTargetsCard(slot, event) ? slot : undefined);
+        if (!failed) {
+          if (!existing) return prev;
+          clearPersistedNotificationIfTargeted(
+            config.storageKey,
+            event,
+            existing.id,
+            config.storesCardsById
+          );
+          return prev.filter((n) => n.id !== existing.id);
+        }
+        const id = existing?.id ?? (operationId ? operationCardId(operationId) : notificationId);
+        const message =
+          realError ??
+          config.getFailureMessage?.(event) ??
+          (event.stageKey
+            ? i18n.t(event.stageKey, event.context ?? {})
+            : i18n.t(GENERIC_FAILURE_I18N_KEY));
+        const terminal: UnifiedNotification = {
+          ...existing,
+          id,
+          type: config.type,
+          status: 'failed',
+          controlOnly: undefined,
+          message,
+          error: message,
+          detailMessage: config.getDetailMessage?.(event),
+          startedAt: existing?.startedAt ?? new Date(),
+          details: {
+            ...existing?.details,
+            ...config.getSuccessDetails?.(event, existing),
+            operationId
+          }
+        };
+        clearPersistedNotificationIfTargeted(config.storageKey, event, id, config.storesCardsById);
+        scheduleAutoDismiss(id, dismissDelayMs);
+        return [...prev.filter((n) => n.id !== id), terminal];
+      });
+      return;
+    }
+
+    // Silent is a presentation preference for routine lifecycle updates. A real failure is still
+    // an error the user must see, including when no running card was ever created for this run.
+    if (config.shouldDisplay?.(event) === false && (succeeded || isCancelled || isSkipped)) {
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((notification) => notification.id === notificationId);
         if (
@@ -558,15 +659,6 @@ export function createCompletionHandler<
       });
       return;
     }
-
-    const isCancelled = event.cancelled === true;
-    // A skipped run reports success:true (it did not fail) and status:'skipped', so the outcome
-    // can only be read off the wire status. Checked before the success branches below.
-    const isSkipped = event.status === 'skipped' && !isCancelled;
-    // An entry that states its own outcome overrides the wire field, which its payload does not
-    // carry: one event for the whole lifecycle means there is no run whose success to report.
-    const succeeded = config.succeeded ?? event.success;
-    const dismissDelayMs = isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : config.dismissDelayMs;
 
     /**
      * A skipped run's own stage key already names the reason it did nothing, so the card reuses
@@ -859,6 +951,7 @@ export function createCompletionHandler<
  * @template T - The type of the SignalR event (must have optional status field)
  */
 interface StatusAwareProgressConfig<T> {
+  canControl?: (event: T) => boolean;
   /** Optional gate that suppresses and removes the notification for this event */
   shouldDisplay?: (event: T) => boolean;
   /** The notification type this handler updates */
@@ -931,8 +1024,53 @@ export function createStatusAwareProgressHandler<T>(
 ): (event: T) => void {
   return (event: T): void => {
     const notificationId = config.getId(event);
+    const status = config.getStatus(event);
+    const failed = status?.toLowerCase() === 'failed';
 
-    if (config.shouldDisplay?.(event) === false) {
+    if (status && ['completed', 'cancelled', 'skipped', 'failed'].includes(status.toLowerCase())) {
+      const terminalStatus = status.toLowerCase();
+      createCompletionHandler(
+        {
+          type: config.type,
+          getId: () => notificationId,
+          storageKey: config.storageKey,
+          storesCardsById: config.storesCardsById,
+          shouldDisplay: () => config.shouldDisplay?.(event) !== false,
+          getSuccessMessage: () => config.getCompletedMessage?.(event) ?? config.getMessage(event),
+          getFailureMessage: () =>
+            config.getErrorMessage?.(event) ?? i18n.t(GENERIC_FAILURE_I18N_KEY),
+          getSuccessDetails: () => config.getDetails?.(event)
+        },
+        setNotifications,
+        scheduleAutoDismiss
+      )({
+        success: terminalStatus === 'completed' || terminalStatus === 'skipped',
+        cancelled: terminalStatus === 'cancelled',
+        status: terminalStatus,
+        operationId: eventOperationId(event),
+        error: (event as { error?: string }).error
+      });
+      return;
+    }
+
+    if (config.shouldDisplay?.(event) === false && config.canControl?.(event)) {
+      createStartedHandler(
+        {
+          type: config.type,
+          getId: config.getId,
+          storageKey: config.storageKey,
+          shouldDisplay: config.shouldDisplay,
+          canControl: config.canControl,
+          defaultMessage: config.getMessage(event),
+          getDetails: config.getDetails
+        },
+        setNotifications,
+        cancelAutoDismissTimer
+      )(event);
+      return;
+    }
+
+    if (config.shouldDisplay?.(event) === false && !failed) {
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((notification) => notification.id === notificationId);
         if (
@@ -952,8 +1090,6 @@ export function createStatusAwareProgressHandler<T>(
       });
       return;
     }
-
-    const status = config.getStatus(event);
 
     if (status?.toLowerCase() === 'completed') {
       setNotifications((prev: UnifiedNotification[]) => {
@@ -1028,15 +1164,34 @@ export function createStatusAwareProgressHandler<T>(
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
-        // If notification doesn't exist, nothing to do
+        // A silent run has no live card to update, but its failure must still be visible.
         if (!existing) {
-          clearPersistedNotificationIfTargeted(
-            config.storageKey,
-            event,
-            notificationId,
-            config.storesCardsById
-          );
-          return prev;
+          if (
+            !clearPersistedNotificationIfTargeted(
+              config.storageKey,
+              event,
+              notificationId,
+              config.storesCardsById
+            )
+          ) {
+            return prev;
+          }
+          if (suppressNewItemCardDuringBulk(config.type, prev)) {
+            return prev;
+          }
+
+          const failedNotification: UnifiedNotification = {
+            id: notificationId,
+            type: config.type,
+            status: 'failed',
+            message: errorMessage,
+            error: errorMessage,
+            progress: FULL_PROGRESS_PERCENT,
+            startedAt: new Date(),
+            details: config.getDetails?.(event)
+          };
+          scheduleAutoDismiss(notificationId);
+          return [...prev, failedNotification];
         }
 
         // An already-terminal card is left to its existing dismiss timer. A failure from a

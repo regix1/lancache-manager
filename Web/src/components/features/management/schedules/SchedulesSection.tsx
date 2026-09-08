@@ -1840,30 +1840,24 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       try {
         const result = await ApiService.triggerSchedule(key);
         if (result.status === 'skipped') {
-          // Nothing was armed, so retire the optimistic pending flag and the row flash that the
-          // click started rather than leaving a refused run looking like a real one.
+          // A retained hold owns its waiting event; retire the optimistic running state.
           clearPending(key);
           setCompletedKeys((prev) => {
             const next = { ...prev };
             delete next[key];
             return next;
           });
+          if (result.skippedReason === cacheQueuedReasonKey) return;
           addNotification({
             type: 'generic',
             status: 'skipped',
-            // The server sends a translation key, not a sentence: it has no locale and the card and
-            // this toast are both rendered here. The cache-gate reason has a second wording that
-            // names the run, and this is the only place that knows which name to give it - the
-            // same reason also answers Run All, which refuses several services at once and has no
-            // single name to put in it.
-            message:
-              result.skippedReason === cacheQueuedReasonKey
-                ? t('management.schedules.queuedUntilCacheFreeNamed', { name: displayName })
-                : result.skippedReason
-                  ? t(result.skippedReason)
-                  : t('management.schedules.runNowSkipped', { service: displayName }),
+            message: result.skippedReason
+              ? t(result.skippedReason)
+              : t('management.schedules.runNowSkipped', { service: displayName }),
             details: { notificationType: 'warning', serviceKey: key }
           });
+        } else if (result.showNotification === false) {
+          return;
         } else if (result.alreadyRunning) {
           // The click still armed the service's pending-run flag, so one more run follows the
           // one in progress - say that rather than only "already running", which reads as a

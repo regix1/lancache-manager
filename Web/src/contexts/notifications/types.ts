@@ -63,6 +63,7 @@ export type NotificationProgressMode = 'determinate' | 'indeterminate';
  * Represents all types of notifications in the system with a common interface.
  */
 export interface UnifiedNotification {
+  controlOnly?: boolean;
   /** Unique identifier for this notification */
   id: string;
   /** The type of operation this notification represents */
@@ -105,6 +106,7 @@ export interface UnifiedNotification {
     operationId?: string;
     /** First cancel click sent; second click force-kills. */
     cancelRequested?: boolean;
+    cancelPending?: boolean;
     /** Set after cancel/force-kill API call was invoked for this notification. */
     cancelSent?: boolean;
     cancelling?: boolean;

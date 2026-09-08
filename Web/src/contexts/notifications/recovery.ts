@@ -12,9 +12,10 @@ import {
   OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE,
   LIVE_ONLY_CANCEL_DETAIL_KEYS,
   FULL_PROGRESS_PERCENT,
+  GENERIC_FAILURE_I18N_KEY,
   REMOVING_GAME_I18N_KEY
 } from './constants';
-import { findBulkCardOwningOperation, waitingCardMessage } from './handlers';
+import { findBulkCardOwningOperation, waitingCardMessage, operationCardId } from './handlers';
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
@@ -88,7 +89,7 @@ function reconcileRecoveredCard(
 ): UnifiedNotification {
   if (
     !existing ||
-    existing.status !== 'running' ||
+    isTerminalNotificationStatus(existing.status) ||
     !isSameOperation(existing, recovered.details?.operationId)
   ) {
     return recovered;
@@ -96,6 +97,8 @@ function reconcileRecoveredCard(
 
   const merged: UnifiedNotification = {
     ...existing,
+    controlOnly: existing.controlOnly ?? recovered.controlOnly,
+    status: existing.details?.cancelRequested ? 'cancelling' : recovered.status,
     details: { ...existing.details, ...mergeableDetails(recovered.details) }
   };
 
@@ -115,6 +118,8 @@ function reconcileRecoveredCard(
 
 /** Row shape of GET /api/operations/waiting (wait-queue recovery endpoint). */
 interface WaitingOperationRow {
+  showNotification?: boolean;
+  status?: string;
   operationId: string;
   operationType: string;
   name: string;
@@ -135,7 +140,9 @@ function createWaitingOperationsRecoveryFunction(
   return async () => {
     try {
       const response = await fetchWithAuth('/api/operations/waiting');
-      if (!response.ok) return;
+      if (response.status === 401 || response.status === 403) return;
+      if (!response.ok)
+        throw new Error(`Unable to recover waiting operations (${response.status})`);
 
       const rows = (await response.json()) as WaitingOperationRow[];
       // Every row of a type, not just the last one: two operations of one type can be parked at
@@ -156,7 +163,10 @@ function createWaitingOperationsRecoveryFunction(
         // goes purple on its own while its current item is parked. Filtering on the rows alone
         // would delete a running batch's card the moment it started waiting.
         const next = prev.filter(
-          (n) => n.type === 'bulk_removal' || n.status !== 'waiting' || waitingByType.has(n.type)
+          (n) =>
+            n.type === 'bulk_removal' ||
+            n.status !== 'waiting' ||
+            rows.some((row) => row.operationId === n.details?.operationId)
         );
 
         // Create cards for queued ops that have none (and whose slot isn't already a
@@ -168,7 +178,12 @@ function createWaitingOperationsRecoveryFunction(
             // also what stops a promoted operation's running card being pushed back to waiting,
             // and it is checked before anything else is done with the row so a reconnect cannot
             // reach past a live card the same row would have been skipped for.
-            if (next.some((n) => n.id === entry.id)) continue;
+            if (
+              next.some((n) => n.type !== 'generic' && n.details?.operationId === row.operationId)
+            )
+              continue;
+            if (entry.type === 'scheduled_prefill') continue;
+            if (row.showNotification !== false && next.some((n) => n.id === entry.id)) continue;
             // The batch that started this very item owns the display. Recreating a separate card
             // here would put the same sentence on screen twice, which is what happens on a
             // reconnect or a refresh mid-batch. Hand the queue's wording to that card instead,
@@ -186,9 +201,10 @@ function createWaitingOperationsRecoveryFunction(
               continue;
             }
             next.push({
-              id: entry.id,
+              id: row.showNotification === false ? operationCardId(row.operationId) : entry.id,
               type: entry.type,
-              status: 'waiting',
+              status: row.status === 'cancelling' ? 'cancelling' : 'waiting',
+              controlOnly: row.showNotification === false,
               message: waitingCardMessage(row),
               startedAt: new Date(),
               details: { operationId: row.operationId }
@@ -198,8 +214,22 @@ function createWaitingOperationsRecoveryFunction(
 
         return next;
       });
-    } catch {
-      // Silently fail - recovery is best-effort
+    } catch (error) {
+      setNotifications((prev) =>
+        prev.some((n) => n.id === 'recovery_waiting')
+          ? prev
+          : [
+              ...prev,
+              {
+                id: 'recovery_waiting',
+                type: 'generic',
+                status: 'failed',
+                message: error instanceof Error ? error.message : i18n.t(GENERIC_FAILURE_I18N_KEY),
+                startedAt: new Date(),
+                details: { notificationType: 'error' }
+              }
+            ]
+      );
     }
   };
 }
@@ -228,14 +258,49 @@ function createSimpleRecoveryFunction<TData>(
   return async () => {
     try {
       const response = await fetchWithAuth(config.apiEndpoint);
-      if (!response.ok) return;
+      if (response.status === 401 || response.status === 403) return;
+      if (!response.ok) throw new Error(`Unable to recover operation (${response.status})`);
 
       const data = (await response.json()) as TData;
+      const outcome = data as {
+        status?: string;
+        error?: string;
+        message?: string;
+        operationId?: string;
+      };
+      if (outcome.status === 'failed') {
+        const id = outcome.operationId ? operationCardId(outcome.operationId) : notificationId;
+        const message = outcome.error ?? outcome.message ?? i18n.t(GENERIC_FAILURE_I18N_KEY);
+        setNotifications((prev) => {
+          const existing = prev.find(
+            (n) => n.type === type && n.details?.operationId === outcome.operationId
+          );
+          const target = existing?.id ?? id;
+          scheduleAutoDismiss(target);
+          return [
+            ...prev.filter((n) => n.id !== target),
+            {
+              ...existing,
+              id: target,
+              type,
+              status: 'failed',
+              controlOnly: undefined,
+              message,
+              error: message,
+              startedAt: existing?.startedAt ?? new Date(),
+              details: { ...existing?.details, operationId: outcome.operationId }
+            }
+          ];
+        });
+        return;
+      }
 
       // Check if we should skip (e.g., silent mode)
       if (config.shouldSkip?.(data)) {
         storage.removeItem(storageKey);
-        setNotifications((prev: UnifiedNotification[]) => prev.filter((n) => n.type !== type));
+        setNotifications((prev: UnifiedNotification[]) =>
+          prev.filter((n) => n.id !== notificationId || isTerminalNotificationStatus(n.status))
+        );
         return;
       }
 
@@ -243,12 +308,22 @@ function createSimpleRecoveryFunction<TData>(
         // A type that owns one card per entity rebuilds every entity still running; the
         // response names them, so the ids come from the data and not from a fixed lambda.
         if (config.recoverCards) {
-          const cards = config.recoverCards(data);
+          const cards = config.recoverCards(data).map((card) => ({
+            ...card,
+            id:
+              card.controlOnly && card.details?.operationId
+                ? operationCardId(card.details.operationId)
+                : card.id
+          }));
           const rebuilt = new Set(cards.map((card) => card.id));
           setNotifications((prev: UnifiedNotification[]) => {
             const recovered = cards.map((card) =>
               reconcileRecoveredCard(
-                prev.find((n) => n.id === card.id),
+                prev.find(
+                  (n) =>
+                    n.id === card.id ||
+                    (n.type === type && n.details?.operationId === card.details?.operationId)
+                ),
                 { type, status: 'running', startedAt: new Date(), ...card }
               )
             );
@@ -258,7 +333,11 @@ function createSimpleRecoveryFunction<TData>(
             // name stays until its own timer removes it.
             const kept = prev.filter(
               (n) =>
-                n.type !== type || (!rebuilt.has(n.id) && isTerminalNotificationStatus(n.status))
+                !rebuilt.has(n.id) &&
+                !cards.some(
+                  (card) =>
+                    card.details?.operationId && card.details.operationId === n.details?.operationId
+                )
             );
             return [...kept, ...recovered];
           });
@@ -267,15 +346,23 @@ function createSimpleRecoveryFunction<TData>(
 
         const notificationData = config.createNotification(data);
         setNotifications((prev: UnifiedNotification[]) => {
-          const existing = prev.find((n) => n.type === type);
+          const operationId = notificationData.details?.operationId;
+          const existing = prev.find(
+            (n) => n.type === type && n.details?.operationId === operationId
+          );
           const recovered: UnifiedNotification = {
-            id: notificationId,
+            id:
+              existing?.id ??
+              (notificationData.controlOnly && operationId
+                ? operationCardId(operationId)
+                : notificationId),
             type,
             status: 'running',
             startedAt: new Date(),
             ...notificationData
           };
-          const filtered = prev.filter((n) => n.type !== type);
+          if (prev.some((n) => n.id === recovered.id && n !== existing)) return prev;
+          const filtered = prev.filter((n) => n.id !== recovered.id);
           return [...filtered, reconcileRecoveredCard(existing, recovered)];
         });
       } else {
@@ -291,6 +378,7 @@ function createSimpleRecoveryFunction<TData>(
         // 2. Notifications created by a previous recovery poll (when isProcessing was true)
         //    - these don't use localStorage, so the old `if (saved)` guard missed them
         setNotifications((prev: UnifiedNotification[]) => {
+          prev = prev.filter((n) => !(n.type === type && n.controlOnly && n.status !== 'waiting'));
           const existing = prev.find((n) => n.type === type && n.status === 'running');
           if (!existing) return prev;
 
@@ -321,8 +409,24 @@ function createSimpleRecoveryFunction<TData>(
 
         scheduleAutoDismiss(notificationId);
       }
-    } catch {
-      // Silently fail - operation not running
+    } catch (error) {
+      const id = `recovery_${notificationId}`;
+      setNotifications((prev) =>
+        prev.some((n) => n.id === id)
+          ? prev
+          : [
+              ...prev,
+              {
+                id,
+                type: 'generic',
+                status: 'failed',
+                message: error instanceof Error ? error.message : i18n.t(GENERIC_FAILURE_I18N_KEY),
+                startedAt: new Date(),
+                details: { notificationType: 'error' }
+              }
+            ]
+      );
+      scheduleAutoDismiss(id);
     }
   };
 }

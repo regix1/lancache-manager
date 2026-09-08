@@ -1971,6 +1971,8 @@ public partial class CacheManagementService
             });
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(callerToken, cts.Token);
+        using var cancelRegistration = cts.Token.Register(() => notice?.Cancel(_operationTracker, operationId));
+        notice?.Attach(_operationTracker, operationId);
 
         try
         {

@@ -33,7 +33,8 @@ public class ScheduledRunReporterTests
         UnifiedOperationTracker tracker,
         bool showNotification = true,
         CancellationToken stoppingToken = default,
-        Action? onTerminalCleanup = null)
+        Action? onTerminalCleanup = null,
+        RunNotice? notice = null)
         => new(
             notifications,
             tracker,
@@ -43,7 +44,71 @@ public class ScheduledRunReporterTests
             "probe.complete",
             showNotification,
             stoppingToken,
-            onTerminalCleanup: onTerminalCleanup);
+            onTerminalCleanup: onTerminalCleanup,
+            notice: notice);
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task NoticeCancellationReachesTheStartedReporter(bool cancelBeforeStart)
+    {
+        var tracker = CreateTracker();
+        var notifications = new CapturingNotificationService();
+        var notice = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
+        var pendingCts = new CancellationTokenSource();
+        var pendingId = tracker.RegisterOperation(OperationType.GameDetection, "pending", pendingCts,
+            metadata: notice, initialStatus: OperationStatus.Waiting);
+        notice.Attach(tracker, pendingId);
+        using var registration = pendingCts.Token.Register(() => notice.Cancel(tracker, pendingId));
+        if (cancelBeforeStart) tracker.CancelOperation(pendingId);
+        await using var reporter = CreateReporter(notifications, tracker, notice: notice);
+        var token = reporter.Token;
+        await reporter.StartAsync("probe.starting");
+        if (!cancelBeforeStart) tracker.CancelOperation(pendingId);
+        Assert.True(token.IsCancellationRequested);
+        Assert.True(notice.Cancelled);
+        Assert.Equal(reporter.OperationId, notice.OperationId);
+        Assert.NotEqual(Guid.Empty, reporter.OperationId);
+        Assert.False(Assert.Single(notifications.PayloadsFor<ScheduledRunStartedEvent>(StartedEventName)).ShowNotification);
+        await reporter.CompleteAsync(success: false, cancelled: true);
+        await reporter.CompleteAsync(success: false, cancelled: true);
+        Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
+    }
+
+    [Fact]
+    public async Task FinishedNoticeDoesNotCancelAnIndependentReporter()
+    {
+        var tracker = CreateTracker();
+        var notifications = new CapturingNotificationService();
+        var notice = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
+        await using var first = CreateReporter(notifications, tracker, notice: notice);
+        await first.StartAsync("probe.starting");
+        var oldId = first.OperationId;
+        await first.CompleteAsync(success: true);
+        await using var next = CreateReporter(notifications, tracker,
+            notice: new RunNotice(NotificationMode.Silent, RunTrigger.Manual));
+        var token = next.Token;
+        await next.StartAsync("probe.starting");
+        Assert.Equal(OperationCancelResult.AlreadyFinished, tracker.CancelOperation(oldId));
+        Assert.False(token.IsCancellationRequested);
+        await next.CompleteAsync(success: true);
+    }
+
+    [Fact]
+    public async Task HiddenReporterFailureRetainsNoticeAndError()
+    {
+        var tracker = CreateTracker();
+        var notifications = new CapturingNotificationService();
+        var notice = new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled);
+        await using var reporter = CreateReporter(notifications, tracker, showNotification: true, notice: notice);
+        await reporter.StartAsync("probe.starting");
+        Assert.Same(notice, RunNotice.ReadRunNotice(tracker.GetOperation(reporter.OperationId)!.Metadata));
+        await reporter.CompleteAsync(success: false, error: "Connection closed");
+        var terminal = Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
+        Assert.False(terminal.ShowNotification);
+        Assert.Equal("Connection closed", terminal.Error);
+        Assert.Equal(OperationStatus.Failed, terminal.Status);
+    }
 
     [Fact]
     public async Task ReportAsync_ClampsPercentMonotonic_WhenALowerValueFollowsAHigherOneAsync()

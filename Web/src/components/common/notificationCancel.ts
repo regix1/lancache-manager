@@ -64,99 +64,96 @@ const notifyToastError = (i18nKey: string): void => {
  * object and erases anything the terminal handler wrote while the request was in flight - including
  * the `cancelled: true` that makes the card read as canceled and draw gray.
  */
+const pendingCancels = new Set<string>();
+
 export const handleCancel = async (
   notification: UnifiedNotification,
   updateNotification: NotificationsContextType['updateNotification'],
   removeNotification: (id: string) => void,
-  getLiveNotification: (id: string) => UnifiedNotification | undefined
-) => {
+  getLiveNotification: (id: string) => UnifiedNotification | undefined,
+  deferred = false
+): Promise<boolean> => {
   const cancelKind = CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind ?? 'none';
-
-  // Client-driven bulk notifications (cancelKind 'clientQueue') are not tied to
-  // a single server operation - the initiating BulkRemovalProvider orchestrates
-  // a loop of per-item operations. Flip cancelRequested/cancelling=true for UI
-  // feedback ONLY. The provider lives at app root and never unmounts, so its
-  // cascade effect always observes the flag and cancels the live run - no
-  // module-level registry bridge is needed.
+  if (cancelKind === 'none') return false;
   if (cancelKind === 'clientQueue') {
     updateNotification(notification.id, (current) => ({
       details: { ...current.details, cancelRequested: true, cancelling: true }
     }));
-    return;
+    return true;
   }
-
-  // cancelKind === 'serverOp' below (cancelKind 'none' types never reach here -
-  // they show no cancel button).
   const operationId = notification.details?.operationId;
-  const cancelRequested = notification.details?.cancelRequested === true;
-
-  // Race case: user clicked X before operationId arrived. Remember intent; watchdog fires cancel when opId lands.
   if (!operationId) {
     updateNotification(notification.id, (current) => ({
       details: { ...current.details, cancelRequested: true }
     }));
-    return;
+    return true;
   }
-
-  // A card's slot id is shared between a queued operation and the run promoted in its place, so by
-  // the time the server answers, this card may already belong to a DIFFERENT operation that is
-  // still going. Drop it only while it still carries the operation this click cancelled - the same
-  // guard the waiting-complete handler applies for the same promotion window.
-  const removeIfStillThisOperation = (): void => {
-    if (getLiveNotification(notification.id)?.details?.operationId === operationId) {
-      removeNotification(notification.id);
-    }
-  };
-
-  if (!cancelRequested) {
-    updateNotification(notification.id, (current) => ({
-      details: { ...current.details, cancelRequested: true, cancelSent: true }
-    }));
-
-    try {
-      const result = await ApiService.cancelOperation(operationId);
-      if (result.alreadyFinished === true) {
-        // The operation was already terminal, so no cancellation event will ever arrive for this
-        // card. Its terminal event was gated out or lost, leaving it stuck on screen - drop it,
-        // exactly as the "already gone" branch below does when the operation has been evicted.
-        removeIfStillThisOperation();
-      }
-    } catch (err) {
-      console.error('Cancel failed:', getErrorMessage(err));
-      const errorMessage = err instanceof Error ? err.message : '';
-      if (
-        errorMessage.includes('not found') ||
-        errorMessage.includes('Not Found') ||
-        errorMessage.includes('cannot be cancelled')
-      ) {
-        removeIfStillThisOperation();
-      } else {
-        // Genuine cancel failure (not the "already gone" case above) - the operation is still
-        // running, so tell the user rather than leaving the reset X button as the only signal.
-        // This is a module-level helper (no hooks available), so report via the show-toast bridge.
-        notifyToastError('common.notifications.cancelOperationFailed');
-        updateNotification(notification.id, (current) => ({
-          details: { ...current.details, cancelRequested: false, cancelSent: false }
-        }));
-      }
-    }
-    return;
-  }
-
-  updateNotification(notification.id, (current) => ({
-    details: { ...current.details, cancelSent: true }
-  }));
-
+  if (
+    pendingCancels.has(operationId) ||
+    getLiveNotification(notification.id)?.details?.cancelPending
+  )
+    return false;
+  const force = !deferred && notification.details?.cancelRequested === true;
+  pendingCancels.add(operationId);
+  updateNotification(notification.id, (current) =>
+    current.details?.operationId === operationId
+      ? {
+          details: {
+            ...current.details,
+            cancelRequested: true,
+            cancelSent: true,
+            cancelPending: true
+          }
+        }
+      : {}
+  );
   try {
-    await ApiService.forceKillOperation(operationId);
-  } catch (err) {
-    console.error('Force kill failed:', getErrorMessage(err));
-    const errorMessage = err instanceof Error ? err.message : '';
-    if (errorMessage.includes('not found') || errorMessage.includes('Not Found')) {
-      removeIfStillThisOperation();
+    const result = force
+      ? await ApiService.forceKillOperation(operationId)
+      : await ApiService.cancelOperation(operationId);
+    if (getLiveNotification(notification.id)?.details?.operationId !== operationId) return true;
+    if (result && 'alreadyFinished' in result && result.alreadyFinished === true) {
+      removeNotification(notification.id);
     } else {
-      notifyToastError('common.notifications.forceKillOperationFailed');
+      updateNotification(notification.id, (current) =>
+        current.details?.operationId === operationId
+          ? {
+              status: 'cancelling',
+              details: { ...current.details, cancelPending: false, cancelling: true }
+            }
+          : {}
+      );
     }
+    return true;
+  } catch (err) {
+    console.error('Cancellation failed:', getErrorMessage(err));
+    const errorMessage = err instanceof Error ? err.message : '';
+    if (errorMessage.toLowerCase().includes('not found')) {
+      if (getLiveNotification(notification.id)?.details?.operationId === operationId)
+        removeNotification(notification.id);
+      return true;
+    }
+    notifyToastError(
+      force
+        ? 'common.notifications.forceKillOperationFailed'
+        : 'common.notifications.cancelOperationFailed'
+    );
+    updateNotification(notification.id, (current) =>
+      current.details?.operationId === operationId
+        ? {
+            details: {
+              ...current.details,
+              cancelPending: false,
+              cancelRequested: false,
+              cancelSent: false,
+              cancelling: false
+            }
+          }
+        : {}
+    );
+    return false;
+  } finally {
+    pendingCancels.delete(operationId);
   }
 };
 

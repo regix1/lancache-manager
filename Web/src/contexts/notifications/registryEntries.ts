@@ -109,7 +109,8 @@ interface OperationStatusEvent {
  */
 function standardGetStatus(event: OperationStatusEvent): string | undefined {
   if (event.status === 'completed') return 'completed';
-  if (event.status === 'failed' || event.status === 'cancelled') return 'failed';
+  if (event.status === 'failed' || event.status === 'cancelled' || event.status === 'skipped')
+    return event.status;
   return undefined;
 }
 
@@ -339,8 +340,8 @@ export function buildMappingOperationEntry<
       translationValidation: { kind: 'stageKey', cases: recoveryCases },
       apiEndpoint: `/api/system/schedules/${serviceKey}/run-status`,
       isProcessing: (data: MappingRunStatusResponse) => data.isRunning,
-      shouldSkip: (data: MappingRunStatusResponse) => data.isRunning && !data.showNotification,
       createNotification: (data: MappingRunStatusResponse) => ({
+        controlOnly: !data.showNotification,
         message: translateRecoveryStage(
           data.stageKey,
           data.context ?? undefined,
@@ -391,6 +392,7 @@ export function buildMappingOperationEntry<
 
 /** GET /api/system/schedules/{serviceKey}/run-status - ScheduleRunStatus */
 interface ScheduledRunStatusResponse {
+  status?: string;
   isRunning: boolean;
   operationId?: string | null;
   percentComplete: number;
@@ -400,6 +402,7 @@ interface ScheduledRunStatusResponse {
 }
 
 interface ScheduledRunEntryOptions {
+  cancellable: boolean;
   type: NotificationType;
   id: string;
   storageKey: string;
@@ -435,7 +438,12 @@ export function buildScheduledRunEntry(
     type,
     id,
     storageKey,
-    cancelKind: 'none',
+    ...(options.cancellable
+      ? {
+          cancelKind: 'serverOp' as const,
+          cancelTooltipKey: 'common.notifications.cancelOperationAria'
+        }
+      : { cancelKind: 'none' as const }),
     recovery: {
       kind: 'simple',
       translationValidation: {
@@ -454,8 +462,11 @@ export function buildScheduledRunEntry(
       // A silent run must not resurrect a card when the page reloads mid-run. Only skip an ACTIVE
       // silent run: an idle service reports showNotification=true so a persisted running card is
       // stale-completed on reconnect, never deleted, after a missed terminal (mirrors scheduledPrefill).
-      shouldSkip: (data: ScheduledRunStatusResponse) => data.isRunning && !data.showNotification,
+      shouldSkip: (data: ScheduledRunStatusResponse) =>
+        !options.cancellable && data.isRunning && !data.showNotification,
       createNotification: (data: ScheduledRunStatusResponse) => ({
+        controlOnly: !data.showNotification,
+        status: data.status === 'cancelling' ? 'cancelling' : 'running',
         message: translateRecoveryStage(
           data.stageKey,
           data.context ?? undefined,

@@ -514,30 +514,21 @@ public class StatsController : ControllerBase
             return BadRequest(ApiResponse.DownloadInProgress(downloadDenial));
         }
 
-        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        Task<Guid?> StartManualScanAsync() => Task.FromResult(_reconciliationService.RunManualAsync());
-
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.EvictionScan,
-            ConflictScope.Bulk(),
-            cancellationToken);
-        if (conflict != null)
+        var notice = new RunNotice(_reconciliationService.EffectiveNotificationMode, RunTrigger.Manual);
+        Task<Guid?> StartManualScanAsync() => Task.FromResult(_reconciliationService.RunManualAsync(notice));
+        var result = await _operationQueue.EnqueueAsync(
+            OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+            StartManualScanAsync, cancellationToken, notice: notice);
+        if (result.Queued || result.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
-                StartManualScanAsync, cancellationToken));
+            return Accepted(result);
         }
 
-        var operationId = _reconciliationService.RunManualAsync();
-        if (operationId == null)
+        return Ok(new EvictionScanStartedResponse
         {
-            // Race: scan started between our check and RunManualAsync - park it.
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
-                StartManualScanAsync, cancellationToken));
-        }
-
-        return Ok(new EvictionScanStartedResponse { OperationId = operationId });
+            OperationId = result.OperationId,
+            ShowNotification = notice.ShowNotification
+        });
     }
 
     /// <summary>

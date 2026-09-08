@@ -316,7 +316,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         // Waiting ops are queued, not running: they must not block conflict checks and must
         // stay invisible to the per-type status/recovery endpoints (see IUnifiedOperationTracker).
         var operations = _operations.Values.Where(op =>
-            !op.Status.IsTerminal() && op.Status != OperationStatus.Waiting);
+            !op.Status.IsTerminal() && op.Status != OperationStatus.Waiting &&
+            !(op.Status == OperationStatus.Cancelling &&
+              (RunNotice.ReadRunNotice(op.Metadata)?.PendingId == op.Id ||
+               op.Metadata is IReadOnlyDictionary<string, object?> values && values.TryGetValue("waiting", out var waiting) && waiting is true)));
 
         if (filterType.HasValue)
         {
@@ -328,7 +331,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     public IEnumerable<OperationInfo> GetWaitingOperations()
     {
-        return _operations.Values.Where(op => op.Status == OperationStatus.Waiting).ToList();
+        return _operations.Values.Where(op => op.Status == OperationStatus.Waiting ||
+            op.Status == OperationStatus.Cancelling &&
+            (RunNotice.ReadRunNotice(op.Metadata)?.PendingId == op.Id ||
+             op.Metadata is IReadOnlyDictionary<string, object?> values && values.TryGetValue("waiting", out var waiting) && waiting is true)).ToList();
     }
 
     public void CompleteOperation(

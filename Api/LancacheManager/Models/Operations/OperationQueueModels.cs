@@ -1,3 +1,5 @@
+using LancacheManager.Core.Interfaces;
+
 namespace LancacheManager.Models;
 
 /// <summary>
@@ -20,7 +22,8 @@ public record OperationWaitingNotification(
     string OperationType,
     string Name,
     string? BlockedByName = null,
-    bool Silent = false);
+    bool Silent = false,
+    bool? Acknowledge = null);
 
 /// <summary>
 /// Marks an operation that exists only to report a run the server declined before it started, so it
@@ -31,10 +34,53 @@ public record OperationWaitingNotification(
 public sealed class RunNotice(NotificationMode mode, RunTrigger trigger)
 {
     private int _acknowledged;
+    private int _cancelled;
+    private readonly object _lock = new();
+    public Guid? OperationId { get; private set; }
+    public Guid? PendingId { get; internal set; }
+    public CancellationToken Token { get; internal set; }
+    public bool Cancelled => Volatile.Read(ref _cancelled) != 0;
     public NotificationMode Mode { get; } = mode;
     public RunTrigger Trigger { get; internal set; } = trigger;
     public bool ShowNotification => Mode.AllowsTrigger(Trigger);
     public bool TryAcknowledge() => Interlocked.Exchange(ref _acknowledged, 1) == 0;
+
+    public void Attach(IUnifiedOperationTracker tracker, Guid operationId)
+    {
+        Guid? previousId;
+        bool waiting;
+        bool cancelled;
+        lock (_lock)
+        {
+            previousId = OperationId;
+            if (previousId == operationId) return;
+            var previous = previousId.HasValue ? tracker.GetOperation(previousId.Value) : null;
+            waiting = previous?.Status == OperationStatus.Waiting;
+            cancelled = Cancelled || previous?.Cancelled == true;
+            if (previousId.HasValue) tracker.RecordHandoff(previousId.Value, operationId);
+            OperationId = operationId;
+        }
+
+        if (waiting && previousId.HasValue) tracker.CompleteOperation(previousId.Value, success: true);
+        if (cancelled || Cancelled) tracker.CancelOperation(operationId);
+    }
+
+    public void Cancel(IUnifiedOperationTracker tracker, Guid requestedId)
+    {
+        Interlocked.Exchange(ref _cancelled, 1);
+        Guid? currentId;
+        lock (_lock) currentId = OperationId;
+        if (currentId.HasValue && currentId != requestedId) tracker.CancelOperation(currentId.Value);
+    }
+
+    internal static RunNotice? ReadRunNotice(object? state) => state switch
+    {
+        RunNotice notice => notice,
+        GameDetectionMetrics metrics => metrics.Notice,
+        IReadOnlyDictionary<string, object?> values when values.TryGetValue("runNotice", out var value) => value as RunNotice,
+        IDictionary<string, object> values when values.TryGetValue("runNotice", out var value) => value as RunNotice,
+        _ => null
+    };
 }
 
 public static class DeclinedRunMetadata
@@ -59,4 +105,6 @@ public record OperationWaitingCompleteNotification(
     bool Cancelled,
     string? Error = null,
     bool Promoted = false,
-    bool Skipped = false);
+    bool Skipped = false,
+    Guid? NextOperationId = null,
+    string? NextStatus = null);

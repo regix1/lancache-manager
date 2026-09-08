@@ -106,7 +106,7 @@ public partial class SteamKit2Service
                 // Pass the trigger this loop iteration actually resolved (matching the non-GitHub
                 // dispatch below). Hardcoding Scheduled here made a Run Now look automatic, so the
                 // Manual notification mode gated every event of a user-requested import away.
-                var success = await ImportFromGitHubAsync(stoppingToken, CurrentRunTrigger);
+                var success = await ImportFromGitHubAsync(stoppingToken, CurrentRunTrigger, CurrentRunNotice);
 
                 if (success)
                 {
@@ -187,7 +187,7 @@ public partial class SteamKit2Service
                 }
             }
 
-            if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: incremental, trigger: CurrentRunTrigger))
+            if (TryStartRebuild(stoppingToken, incrementalOnly: incremental, trigger: CurrentRunTrigger, notice: CurrentRunNotice))
             {
                 // Await the background task so the base class sets LastRunUtc and fires the run-end
                 // ServiceExecutionStateChanged broadcast only after the actual PICS crawl finishes -

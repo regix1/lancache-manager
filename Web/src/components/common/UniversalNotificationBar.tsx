@@ -1,6 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import ApiService from '@services/api.service';
-import { getErrorMessage } from '@utils/error';
 import {
   useNotifications,
   type UnifiedNotification,
@@ -78,28 +76,29 @@ const UniversalNotificationBar: React.FC = () => {
         n.details?.cancelRequested &&
         !n.details.cancelSent &&
         opId &&
-        !deferredCancelFiredRef.current.has(n.id)
+        !deferredCancelFiredRef.current.has(`${n.id}:${opId}`)
       ) {
-        deferredCancelFiredRef.current.add(n.id);
-        // Reset cancelRequested so the NEXT real click is a soft cancel, not a premature force-kill.
-        updateNotification(n.id, {
-          details: { ...n.details, cancelRequested: false, cancelSent: true }
-        });
-        // Background retry of a cancel the user already requested - the notification stays visible
-        // either way, so this only needs a console trail, not a second user-facing error.
-        ApiService.cancelOperation(opId).catch((err) => {
-          console.error('[UniversalNotificationBar] Deferred cancel failed:', getErrorMessage(err));
+        const key = `${n.id}:${opId}`;
+        deferredCancelFiredRef.current.add(key);
+        void handleCancel(
+          n,
+          updateNotification,
+          removeNotification,
+          (id) => notificationsRef.current.find((item) => item.id === id),
+          true
+        ).then((accepted) => {
+          if (!accepted) deferredCancelFiredRef.current.delete(key);
         });
       }
     });
 
     // Prune entries whose notifications are no longer in the list so the set
     // doesn't leak across long sessions.
-    const currentIds = new Set(notifications.map((n) => n.id));
+    const currentIds = new Set(notifications.map((n) => `${n.id}:${n.details?.operationId}`));
     deferredCancelFiredRef.current.forEach((id) => {
       if (!currentIds.has(id)) deferredCancelFiredRef.current.delete(id);
     });
-  }, [notifications, updateNotification]);
+  }, [notifications, updateNotification, removeNotification]);
 
   // Listen for sticky notifications setting changes
   useEffect(() => {
@@ -228,40 +227,45 @@ const UniversalNotificationBar: React.FC = () => {
   // and remains available to collapse it. The comparator above is untouched; only grouping
   // changes.
   let fullOrder = 0;
-  const classified = sorted.map((notification) => {
-    // Generic toasts (Run Now acknowledgments) carry their owning serviceKey in details.
-    const serviceKey =
-      SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY[notification.type] ??
-      notification.details?.serviceKey;
-    // A refused Run Now never starts a run, so it has no lifecycle notification to fold into and
-    // the compact bar would answer the click with a coloured line carrying no reason. This toast is
-    // the only answer that click gets, so it keeps its card whatever the service is set to. Routine
-    // runs are unaffected: they never arrive as 'generic'.
-    const refusedManualRun = notification.type === 'generic' && notification.status === 'skipped';
-    // Scheduled prefill runs five platforms under one service key and each picks its own style, so
-    // its cards resolve per platform first. The platform is only on the card id, which is minted as
-    // `${NOTIFICATION_IDS.SCHEDULED_PREFILL}_${serviceId}` (notificationRegistry's
-    // scheduledPrefillCardId), and the suffix is the wire name the backend keys the map by. A
-    // platform that chose nothing is absent from the map and falls back to the service's own style.
-    const platform =
-      notification.type === 'scheduled_prefill' &&
-      notification.id.startsWith(`${NOTIFICATION_IDS.SCHEDULED_PREFILL}_`)
-        ? notification.id.slice(NOTIFICATION_IDS.SCHEDULED_PREFILL.length + 1)
-        : undefined;
-    // A platform answers for itself and never inherits the schedule's own style. Scheduled prefill
-    // picks its style per platform in the config modal, so a platform that has chosen nothing takes
-    // the full-card default rather than a schedule-level value no screen can set any more.
-    const resolvedDisplayMode =
-      serviceKey === undefined
-        ? undefined
-        : platform !== undefined
-          ? displayModes[platformDisplayModeKey(serviceKey, platform)]
-          : displayModes[serviceKey];
-    const condensedByService = !refusedManualRun && resolvedDisplayMode === 'condensed';
-    const orderAmongFull = condensedByService ? -1 : fullOrder++;
-    const condensedByCap = isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;
-    return { notification, serviceKey, condensed: condensedByService || condensedByCap };
-  });
+  const controls = sorted.filter(
+    (notification) => notification.controlOnly && !isTerminalNotificationStatus(notification.status)
+  );
+  const classified = sorted
+    .filter((notification) => !controls.includes(notification))
+    .map((notification) => {
+      // Generic toasts (Run Now acknowledgments) carry their owning serviceKey in details.
+      const serviceKey =
+        SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY[notification.type] ??
+        notification.details?.serviceKey;
+      // A refused Run Now never starts a run, so it has no lifecycle notification to fold into and
+      // the compact bar would answer the click with a coloured line carrying no reason. This toast is
+      // the only answer that click gets, so it keeps its card whatever the service is set to. Routine
+      // runs are unaffected: they never arrive as 'generic'.
+      const refusedManualRun = notification.type === 'generic' && notification.status === 'skipped';
+      // Scheduled prefill runs five platforms under one service key and each picks its own style, so
+      // its cards resolve per platform first. The platform is only on the card id, which is minted as
+      // `${NOTIFICATION_IDS.SCHEDULED_PREFILL}_${serviceId}` (notificationRegistry's
+      // scheduledPrefillCardId), and the suffix is the wire name the backend keys the map by. A
+      // platform that chose nothing is absent from the map and falls back to the service's own style.
+      const platform =
+        notification.type === 'scheduled_prefill' &&
+        notification.id.startsWith(`${NOTIFICATION_IDS.SCHEDULED_PREFILL}_`)
+          ? notification.id.slice(NOTIFICATION_IDS.SCHEDULED_PREFILL.length + 1)
+          : undefined;
+      // A platform answers for itself and never inherits the schedule's own style. Scheduled prefill
+      // picks its style per platform in the config modal, so a platform that has chosen nothing takes
+      // the full-card default rather than a schedule-level value no screen can set any more.
+      const resolvedDisplayMode =
+        serviceKey === undefined
+          ? undefined
+          : platform !== undefined
+            ? displayModes[platformDisplayModeKey(serviceKey, platform)]
+            : displayModes[serviceKey];
+      const condensedByService = !refusedManualRun && resolvedDisplayMode === 'condensed';
+      const orderAmongFull = condensedByService ? -1 : fullOrder++;
+      const condensedByCap = isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;
+      return { notification, serviceKey, condensed: condensedByService || condensedByCap };
+    });
   // One line per service in the condensed group: a manual run's acknowledgment toast and the
   // run's own lifecycle notification fold into a single disclosure instead of stacking a line
   // per notification. Notifications without a serviceKey keep a line each. Map preserves the
@@ -292,7 +296,7 @@ const UniversalNotificationBar: React.FC = () => {
     <div className={`w-full ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}>
       <div
         className={`w-full border-b bg-[var(--theme-nav-bg)] transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none ${
-          fullItems.length > 0 || stripOpen
+          fullItems.length > 0 || controls.length > 0 || stripOpen
             ? 'border-[var(--theme-nav-border)] shadow-sm'
             : 'border-transparent shadow-none'
         }`}
@@ -358,6 +362,18 @@ const UniversalNotificationBar: React.FC = () => {
             </div>
           </CondensedNotificationStrip>
         }
+        {controls.length > 0 && (
+          <div className="container mx-auto px-4 py-1 space-y-1">
+            {controls.map((notification) => (
+              <UnifiedNotificationItem
+                key={notification.id}
+                notification={notification}
+                onDismiss={() => handleDismiss(notification.id)}
+                onCancel={getCancelHandler(notification)}
+              />
+            ))}
+          </div>
+        )}
         {fullItems.length > 0 && (
           <div className="container mx-auto px-4 py-2 space-y-2">
             {fullItems.map(({ notification }) => (

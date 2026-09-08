@@ -77,13 +77,11 @@ test('row Actions callbacks keep a pending operation scoped to its exact service
   const row = getComponent(detailSource, 'ScheduledPrefillServiceScheduleRow');
   const opened = [];
   const runs = [];
-  const cancels = [];
   const opens = [];
   const toggles = [];
   const bindings = {
     setActionsOpen: (value) => opened.push(value),
     onRun: (...args) => runs.push(args),
-    onCancel: (...args) => cancels.push(args),
     onOpen: (...args) => opens.push(args),
     onToggleEnabled: (...args) => toggles.push(args),
     serviceId: 'Steam',
@@ -93,7 +91,6 @@ test('row Actions callbacks keep a pending operation scoped to its exact service
 
   for (const [tag, callbackName, expected] of [
     ['ActionMenuItem', 'onRun', runs],
-    ['ActionMenuDangerItem', 'onCancel', cancels],
     ['ActionMenuItem', 'onOpen', opens],
     ['ActionMenuItem', 'onToggleEnabled', toggles]
   ]) {
@@ -123,8 +120,8 @@ test('row and record Actions offer Enable for an off schedule and Disable for an
   assert.equal(rowLabel, "{t(`${baseKey}.records.${enabled ? 'disable' : 'enable'}`)}");
   assert.equal(getAttribute(rowItem, detailSource, 'disabled'), 'actionsDisabled');
 
-  // Run implies the schedule is on: an off row's menu is Open + Enable only, while a run that is
-  // already in flight keeps its Cancel regardless.
+  // Run implies the schedule is on: an off row's menu is Open + Enable only. Cancellation belongs
+  // to the global notification control instead of the schedule row.
   const gateOf = (item) => {
     let gate = item.parent;
     while (ts.isParenthesizedExpression(gate)) gate = gate.parent;
@@ -133,8 +130,6 @@ test('row and record Actions offer Enable for an off schedule and Disable for an
   };
   const runItem = getItemWithCallback(row, detailSource, 'ActionMenuItem', 'onRun');
   assert.equal(gateOf(runItem), '!isRunning && enabled');
-  const cancelItem = getItemWithCallback(row, detailSource, 'ActionMenuDangerItem', 'onCancel');
-  assert.equal(gateOf(cancelItem), 'isRunning');
 
   // The record menu in the Configure modal flips the draft the same way the Off/On toggle does.
   const panel = getComponent(panelSource, 'ScheduledPrefillPlatformsPanel');
@@ -188,11 +183,9 @@ test('row Actions shares one disabled rule between its trigger and every item', 
   assert.equal(hasAttribute(footerTrigger, 'loading'), false, 'footer trigger has no spinner');
 
   const run = getItemWithCallback(row, detailSource, 'ActionMenuItem', 'onRun');
-  const cancel = getItemWithCallback(row, detailSource, 'ActionMenuDangerItem', 'onCancel');
   const open = getItemWithCallback(row, detailSource, 'ActionMenuItem', 'onOpen');
   const enable = getItemWithCallback(row, detailSource, 'ActionMenuItem', 'onToggleEnabled');
   assert.ok(run);
-  assert.ok(cancel);
   assert.ok(open);
   assert.ok(enable);
   // A menu already open when the row turns disabled keeps its portalled items mounted, so the
@@ -202,7 +195,6 @@ test('row Actions shares one disabled rule between its trigger and every item', 
     getAttribute(run, detailSource, 'disabled'),
     'actionsDisabled || runDisabled || runPending'
   );
-  assert.equal(getAttribute(cancel, detailSource, 'disabled'), 'actionsDisabled || cancelPending');
   assert.equal(getAttribute(open, detailSource, 'disabled'), 'actionsDisabled');
   assert.equal(getAttribute(enable, detailSource, 'disabled'), 'actionsDisabled');
 

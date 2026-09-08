@@ -103,10 +103,11 @@ public class MappingOperationReporterTests
             "SteamKit2Service.Scheduling.cs"));
 
         Assert.Contains(
-            "ImportFromGitHubAsync(stoppingToken, CurrentRunTrigger)",
+            "ImportFromGitHubAsync(stoppingToken, CurrentRunTrigger, CurrentRunNotice)",
             source,
             StringComparison.Ordinal);
         Assert.Contains("trigger: CurrentRunTrigger", source, StringComparison.Ordinal);
+        Assert.Contains("notice: CurrentRunNotice", source, StringComparison.Ordinal);
         Assert.DoesNotContain("RunTrigger.Scheduled)", source, StringComparison.Ordinal);
     }
 

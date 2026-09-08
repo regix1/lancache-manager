@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
-import { ActionMenu, ActionMenuDangerItem, ActionMenuItem } from '@components/ui/ActionMenu';
+import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { ChevronDown } from 'lucide-react';
 import StatusDot from '@components/common/StatusDot';
@@ -86,13 +86,11 @@ interface ScheduledPrefillServiceScheduleRowProps {
   disabled: boolean;
   runPending: boolean;
   runDisabled: boolean;
-  /** True while this service's own run is in flight, which is when Cancel replaces nothing and appears. */
+  /** True while this service's own run is in flight. */
   isRunning: boolean;
-  cancelPending: boolean;
   /** True while this row's Enable or Disable save is in flight, which holds the Actions cluster disabled until it lands. */
   enablePending: boolean;
   onRun: (serviceId: ScheduledPrefillServiceId, scheduleId: string) => void;
-  onCancel: (serviceId: ScheduledPrefillServiceId, scheduleId: string) => void;
   onOpen: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
   /** Flips the schedule between on and off and saves it. */
   onToggleEnabled: (serviceKey: ScheduledPrefillServiceKey, scheduleId: string) => void;
@@ -133,10 +131,8 @@ function ScheduledPrefillServiceScheduleRow({
   runPending,
   runDisabled,
   isRunning,
-  cancelPending,
   enablePending,
   onRun,
-  onCancel,
   onOpen,
   onToggleEnabled,
   onIntervalChange,
@@ -283,20 +279,7 @@ function ScheduledPrefillServiceScheduleRow({
             </Button>
           }
         >
-          {isRunning && (
-            <ActionMenuDangerItem
-              onClick={() => {
-                setActionsOpen(false);
-                onCancel(serviceId, scheduleId);
-              }}
-              disabled={actionsDisabled || cancelPending}
-            >
-              {cancelPending && <LoadingSpinner inline size="xs" />}
-              {t('management.schedules.services.scheduledPrefill.cancelService')}
-            </ActionMenuDangerItem>
-          )}
-          {/* Run only belongs to a schedule that is switched on; an off row offers Open and
-              Enable, and a run already in flight keeps its Cancel whatever the switch says. */}
+          {/* Run only belongs to an enabled schedule without a run in flight. */}
           {!isRunning && enabled && (
             <ActionMenuItem
               onClick={() => {
@@ -356,8 +339,6 @@ export function ScheduledPrefillScheduleDetail({
   const [schedule, setSchedule] = useState<ScheduledPrefillServiceScheduleDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** Services whose cancel request is in flight, so the row can show it without waiting for SignalR. */
-  const [cancelingServices, setCancelingServices] = useState<ScheduledPrefillServiceId[]>([]);
   /** Schedules whose Enable save is in flight, so the row's Actions button shows the wait. */
   const [enablingSchedules, setEnablingSchedules] = useState<string[]>([]);
   const [modalOpened, setModalOpened] = useState(false);
@@ -517,32 +498,6 @@ export function ScheduledPrefillScheduleDetail({
       await saveServiceConfig(serviceKey, scheduleId, { customSchedule: schedule });
     },
     [saveServiceConfig]
-  );
-
-  // Cancels one service's run through its tracked operation. The row is the only place a silent
-  // run can be stopped from: it raises no notification, and the notification carried the only
-  // cancel button. The schedule refreshes over SignalR when the run ends, so nothing is set here
-  // beyond clearing the pending flag.
-  const handleCancelService = useCallback(
-    async (serviceId: ScheduledPrefillServiceId, scheduleId: string) => {
-      const operationId = schedule.find(
-        (item) => item.serviceId === serviceId && item.scheduleId === scheduleId
-      )?.operationId;
-      if (!operationId) return;
-      setCancelingServices((pending) => [...pending, serviceId]);
-      try {
-        await ApiService.cancelOperation(operationId);
-      } catch (cancelError) {
-        setError(getErrorMessage(cancelError));
-      } finally {
-        setCancelingServices((pending) => pending.filter((id) => id !== serviceId));
-        // Re-reads the rows rather than waiting for SignalR, which both drops the button as soon
-        // as the run is gone and clears a row still offering Cancel for an id the tracker has
-        // already reaped.
-        await refreshSchedule();
-      }
-    },
-    [schedule, refreshSchedule]
   );
 
   useEffect(() => {
@@ -916,12 +871,8 @@ export function ScheduledPrefillScheduleDetail({
                       runPending={isRunServicePending(row.serviceId, row.scheduleId)}
                       runDisabled={runServiceDisabled || backendUpdateRequired || row.isRunning}
                       isRunning={row.isRunning && row.operationId !== null}
-                      cancelPending={cancelingServices.includes(row.serviceId)}
                       enablePending={enablingSchedules.includes(row.scheduleId)}
                       onRun={onRunService}
-                      onCancel={(serviceId, scheduleId) =>
-                        void handleCancelService(serviceId, scheduleId)
-                      }
                       onOpen={handleOpenSchedule}
                       onToggleEnabled={(serviceKey, scheduleId) =>
                         void handleToggleSchedule(serviceKey, scheduleId)

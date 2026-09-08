@@ -113,6 +113,7 @@ public sealed class OperationQueueService : IOperationQueue
                     && string.Equals(w.Name, displayName, StringComparison.Ordinal));
                 if (duplicateWaiter != null)
                 {
+                    notice?.Attach(_tracker, duplicateWaiter.WaitingId);
                     if (notice?.Trigger == RunTrigger.Manual && duplicateWaiter.Notice is { } retained)
                     {
                         retained.Trigger = RunTrigger.Manual;
@@ -185,6 +186,7 @@ public sealed class OperationQueueService : IOperationQueue
 
                 if (startedId.HasValue)
                 {
+                    notice?.Attach(_tracker, startedId.Value);
                     return new QueuedOperationResponse
                     {
                         OperationId = startedId.Value,
@@ -197,15 +199,12 @@ public sealed class OperationQueueService : IOperationQueue
                 // Preserve this request as a real waiter and let the bounded promotion retry
                 // acquire that gate after the previous worker finishes unwinding.
                 retryAfterParking = true;
+                conflict = await _conflictChecker.CheckAsync(type, scope, ct);
             }
             // Identical op already ACTIVE -> idempotent accept (never rejected, never doubled).
-            else if (conflict.StageKey == "errors.conflict.duplicate"
-                && conflict.ActiveOperationId is { } activeId && activeId != Guid.Empty
-                && string.Equals(
-                    _tracker.GetOperation(activeId)?.Name,
-                    displayName,
-                    StringComparison.Ordinal))
+            if (GetDuplicateId(conflict, displayName) is { } activeId)
             {
+                notice?.Attach(_tracker, activeId);
                 return new QueuedOperationResponse
                 {
                     OperationId = activeId,
@@ -231,9 +230,7 @@ public sealed class OperationQueueService : IOperationQueue
                 // A declined run rides the success flag too, so it is excluded from Promoted and
                 // reported on its own: nothing started and nothing replaced the card, and saying
                 // otherwise removes the card without ever showing the reason.
-                onTerminalEmit: info => !(notice?.ShowNotification ?? showWaitingCard)
-                    ? Task.CompletedTask
-                    : _notifications.NotifyAllAsync(
+                onTerminalEmit: info => _notifications.NotifyAllAsync(
                         SignalREvents.OperationWaitingComplete,
                         new OperationWaitingCompleteNotification(
                             waitingId,
@@ -245,9 +242,11 @@ public sealed class OperationQueueService : IOperationQueue
                             // message, which is the one a reader has to see.
                             info.Skipped ? null : info.Error,
                             Promoted: info.Success && !info.Skipped,
-                            Skipped: info.Skipped)),
+                            Skipped: info.Skipped,
+                            NextOperationId: notice?.OperationId != waitingId ? notice?.OperationId : null,
+                            NextStatus: notice?.OperationId is { } nextId && nextId != waitingId ? _tracker.GetOperation(nextId)?.Status.ToWireString() : null)),
                 initialStatus: OperationStatus.Waiting,
-                metadata: new Dictionary<string, object?> { ["runNotice"] = notice });
+                metadata: new Dictionary<string, object?> { ["runNotice"] = notice, ["waiting"] = true });
 
             // A waiting op has no worker, so the queue is its worker: when the universal
             // cancel path cancels the CTS, complete the op as cancelled (CompletedFlag makes
@@ -257,8 +256,11 @@ public sealed class OperationQueueService : IOperationQueue
             // cancelled on all of them. No attribution — at this point the code cannot tell a person
             // clicking cancel from the app shutting down.
             var capturedWaitingId = waitingId;
-            cts.Token.Register(() => _ = Task.Run(() =>
-                _tracker.CompleteOperation(capturedWaitingId, success: false, cancelled: true)));
+            cts.Token.Register(() =>
+            {
+                notice?.Cancel(_tracker, capturedWaitingId);
+                _ = Task.Run(() => _tracker.CompleteOperation(capturedWaitingId, success: false, cancelled: true));
+            });
 
             var blockerName = ResolveBlockerName(conflict);
             lock (_sync)
@@ -277,6 +279,8 @@ public sealed class OperationQueueService : IOperationQueue
                     Notice = notice
                 });
             }
+
+            notice?.Attach(_tracker, waitingId);
 
             if (conflict == null)
             {
@@ -298,13 +302,11 @@ public sealed class OperationQueueService : IOperationQueue
             // so once, and the flag is how the frontend knows to answer with the notice that clears
             // itself instead of the purple card that sits there until the blocker finishes. It used
             // to say nothing, which at the scheduled time reads as the run having been dropped.
-            if (showWaitingCard || (notice?.Mode == NotificationMode.Silent && notice.TryAcknowledge()))
-            {
-                await _notifications.NotifyAllAsync(
+            await _notifications.NotifyAllAsync(
                     SignalREvents.OperationWaiting,
                     new OperationWaitingNotification(
-                        waitingId, typeWire, displayName, blockerName, Silent: !showWaitingCard));
-            }
+                        waitingId, typeWire, displayName, blockerName, Silent: !showWaitingCard,
+                        Acknowledge: notice?.Mode == NotificationMode.Silent && notice.TryAcknowledge()));
 
             if (retryAfterParking)
             {
@@ -371,17 +373,13 @@ public sealed class OperationQueueService : IOperationQueue
         // Only the re-announcement stops here: a silent run's one notice never named a blocker, so a
         // change of blocker has nothing to correct, and a run parked for an hour would otherwise
         // speak every time the operation ahead of it changed.
-        if (waiter.Silent)
-        {
-            return;
-        }
         await _notifications.NotifyAllAsync(
             SignalREvents.OperationWaiting,
             new OperationWaitingNotification(
                 waiter.WaitingId,
                 waiter.Type.ToWireString(),
                 waiter.Name,
-                blockerName));
+                blockerName, Silent: waiter.Silent, Acknowledge: false));
     }
 
     private bool RemoveWaiter(Guid waitingId)
@@ -411,6 +409,21 @@ public sealed class OperationQueueService : IOperationQueue
     /// Serialized by <see cref="_gate"/>; re-entrant terminal events (the waiting op's own
     /// completion fires OperationTerminal too) simply run a later, idempotent pass.
     /// </summary>
+    private Guid? GetDuplicateId(OperationConflictResponse? conflict, string displayName)
+    {
+        if (conflict?.StageKey != "errors.conflict.duplicate"
+            || conflict.ActiveOperationId is not { } activeId || activeId == Guid.Empty)
+        {
+            return null;
+        }
+
+        var operation = _tracker.GetOperation(activeId);
+        return operation != null && !operation.Status.IsTerminal() && operation.Status != OperationStatus.Waiting
+            && string.Equals(operation.Name, displayName, StringComparison.Ordinal)
+                ? activeId
+                : null;
+    }
+
     private async Task PromoteEligibleAsync()
     {
         try
@@ -437,7 +450,8 @@ public sealed class OperationQueueService : IOperationQueue
                     }
 
                     var conflict = await _conflictChecker.CheckAsync(waiter.Type, waiter.Scope, CancellationToken.None);
-                    if (conflict != null)
+                    var startedId = GetDuplicateId(conflict, waiter.Name);
+                    if (conflict != null && !startedId.HasValue)
                     {
                         // Still blocked; independent-scope waiters behind it may still promote.
                         // The blocker may be a DIFFERENT operation than last announced (the one
@@ -453,12 +467,14 @@ public sealed class OperationQueueService : IOperationQueue
                         continue;
                     }
 
-                    Guid? startedId = null;
                     string? startError = null;
                     var startDeclined = false;
                     try
                     {
-                        startedId = await waiter.Start();
+                        if (!startedId.HasValue)
+                        {
+                            startedId = await waiter.Start();
+                        }
                     }
                     catch (DownloadInProgressException ex)
                     {
@@ -497,6 +513,7 @@ public sealed class OperationQueueService : IOperationQueue
                         // cancel arriving from this moment on reaches the operation now doing the
                         // work rather than the parked card it replaced.
                         _tracker.RecordHandoff(waiter.WaitingId, startedId.Value);
+                        waiter.Notice?.Attach(_tracker, startedId.Value);
 
                         // Successful handoff emits Promoted=true; the frontend keeps a running
                         // replacement card or removes the waiting card for a silent operation.

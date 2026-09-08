@@ -266,6 +266,8 @@ public class OrphanedDownloadsRemovedResponse
 /// </summary>
 public class EvictionScanStartedResponse
 {
+    public bool ShowNotification { get; set; } = true;
+
     /// <summary>
     /// The started scan's operation id. Null when the scan could not start immediately and was
     /// parked in the wait-queue instead (the queued-operation response is returned in that case).

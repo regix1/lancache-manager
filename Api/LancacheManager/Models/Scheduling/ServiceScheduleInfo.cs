@@ -76,6 +76,7 @@ public class FullScanRequirement
 /// </summary>
 public class ScheduleRunStatus
 {
+    public string? Status { get; set; }
     public bool IsRunning { get; set; }
     public string? OperationId { get; set; }
     public double PercentComplete { get; set; }

@@ -68,17 +68,14 @@ public class OperationsController : ControllerBase
     public ActionResult<List<WaitingOperationResponse>> GetWaitingOperations()
     {
         var waiting = _operationTracker.GetWaitingOperations()
-            // A run whose schedule told it to keep its cards to itself said once that it was queued,
-            // in a notice that cleared itself. Rebuilding a card from it here put the purple card
-            // that run never shows on screen at every refresh, and said the same thing again for a
-            // parking that was announced hours earlier.
-            .Where(op => !_operationQueue.IsWaiterSilent(op.Id))
             .OrderBy(op => op.StartedAt)
             .Select(op => new WaitingOperationResponse
             {
                 OperationId = op.Id,
                 OperationType = op.Type.ToWireString(),
                 Name = op.Name,
+                ShowNotification = RunNotice.ReadRunNotice(op.Metadata)?.ShowNotification ?? !_operationQueue.IsWaiterSilent(op.Id),
+                Status = op.Status.ToWireString(),
                 // Two owners park operations and each answers for its own: the queue for a run
                 // waiting on another operation, the schedule registry for one held for a download.
                 // Asking only the queue lost the blocker's name on every refresh of a held run.

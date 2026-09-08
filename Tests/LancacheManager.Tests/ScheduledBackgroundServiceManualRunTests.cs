@@ -17,6 +17,29 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class ScheduledBackgroundServiceManualRunTests
 {
+    [Fact]
+    public void ConsumedNoticesStaySeparateFromLaterPendingRequests()
+    {
+        using var service = new GatedManualRunProbeService(TimeSpan.FromHours(1));
+        var first = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
+        var deferred = new RunNotice(NotificationMode.Manual, RunTrigger.Startup);
+        service.TriggerImmediateRun(first);
+        service.TriggerDeferredRun(deferred);
+        Assert.True(service.TakePendingManualRun(out var consumed));
+        Assert.True(service.TakePendingDeferredRun(out var coalesced));
+        Assert.Same(deferred, coalesced);
+        var second = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        var later = new RunNotice(NotificationMode.Silent, RunTrigger.Startup);
+        service.TriggerImmediateRun(second);
+        service.TriggerDeferredRun(later);
+        service.SelectNotice(consumed);
+        Assert.Same(first, service.CurrentRunNotice);
+        Assert.True(service.TakePendingManualRun(out var pending));
+        Assert.Same(second, pending);
+        Assert.True(service.TakePendingDeferredRun(out var pendingDeferred));
+        Assert.Same(later, pendingDeferred);
+    }
+
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 
     [Fact]
@@ -71,7 +94,8 @@ public class ScheduledBackgroundServiceManualRunTests
     private static async Task StartAndTriggerDuringRunAsync(GatedManualRunProbeService service)
     {
         // First trigger starts run #1 (the gated probe blocks inside it until released).
-        service.TriggerImmediateRun();
+        var first = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
+        service.TriggerImmediateRun(first);
         await service.StartAsync(CancellationToken.None);
 
         try
@@ -79,10 +103,15 @@ public class ScheduledBackgroundServiceManualRunTests
             await service.FirstRunStarted.WaitAsync(Timeout);
 
             // Second trigger lands while run #1 is still executing - the regression scenario.
-            service.TriggerImmediateRun();
+            Assert.Same(first, service.CurrentRunNotice);
+            var second = new RunNotice(NotificationMode.Manual, RunTrigger.Manual);
+            Assert.Same(second, service.TriggerImmediateRun(second));
+            Assert.Same(second, service.TriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.Manual)));
+            Assert.Same(first, service.CurrentRunNotice);
             service.ReleaseFirstRun();
 
             await service.SecondRunCompleted.WaitAsync(Timeout);
+            Assert.Same(second, service.CurrentRunNotice);
         }
         finally
         {
@@ -142,6 +171,9 @@ public class ScheduledBackgroundServiceManualRunTests
         public Task FirstRunStarted => _firstRunStarted.Task;
         public Task SecondRunCompleted => _secondRunCompleted.Task;
         public RunTrigger? SecondRunTrigger { get; private set; }
+        public bool TakePendingManualRun(out RunNotice? notice) => ConsumePendingManualRun(out notice);
+        public bool TakePendingDeferredRun(out RunNotice? notice) => ConsumePendingDeferredRun(out notice);
+        public void SelectNotice(RunNotice? notice) => SelectRunNotice(RunTrigger.Manual, notice);
 
         public void ReleaseFirstRun() => _releaseFirstRun.TrySetResult();
 
@@ -174,6 +206,29 @@ public class ScheduledBackgroundServiceManualRunTests
 /// </summary>
 public class ConfigurableScheduledServiceManualRunTests
 {
+    [Fact]
+    public void ConsumedNoticesStaySeparateFromLaterPendingRequests()
+    {
+        using var service = new GatedConfigurableProbeService(TimeSpan.FromHours(1));
+        var first = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
+        var deferred = new RunNotice(NotificationMode.Manual, RunTrigger.Startup);
+        service.TriggerImmediateRun(first);
+        service.TriggerDeferredRun(deferred);
+        Assert.True(service.TakePendingManualRun(out var consumed));
+        Assert.True(service.TakePendingDeferredRun(out var coalesced));
+        Assert.Same(deferred, coalesced);
+        var second = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        var later = new RunNotice(NotificationMode.Silent, RunTrigger.Startup);
+        service.TriggerImmediateRun(second);
+        service.TriggerDeferredRun(later);
+        service.SelectNotice(consumed);
+        Assert.Same(first, service.CurrentRunNotice);
+        Assert.True(service.TakePendingManualRun(out var pending));
+        Assert.Same(second, pending);
+        Assert.True(service.TakePendingDeferredRun(out var pendingDeferred));
+        Assert.Same(later, pendingDeferred);
+    }
+
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 
     [Fact]
@@ -200,17 +255,23 @@ public class ConfigurableScheduledServiceManualRunTests
 
     private static async Task StartAndTriggerDuringRunAsync(GatedConfigurableProbeService service)
     {
-        service.TriggerImmediateRun();
+        var first = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
+        service.TriggerImmediateRun(first);
         await service.StartAsync(CancellationToken.None);
 
         try
         {
             await service.FirstRunStarted.WaitAsync(Timeout);
 
-            service.TriggerImmediateRun();
+            Assert.Same(first, service.CurrentRunNotice);
+            var second = new RunNotice(NotificationMode.Manual, RunTrigger.Manual);
+            Assert.Same(second, service.TriggerImmediateRun(second));
+            Assert.Same(second, service.TriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.Manual)));
+            Assert.Same(first, service.CurrentRunNotice);
             service.ReleaseFirstRun();
 
             await service.SecondRunCompleted.WaitAsync(Timeout);
+            Assert.Same(second, service.CurrentRunNotice);
         }
         finally
         {
@@ -237,6 +298,9 @@ public class ConfigurableScheduledServiceManualRunTests
         public Task FirstRunStarted => _firstRunStarted.Task;
         public Task SecondRunCompleted => _secondRunCompleted.Task;
         public RunTrigger? SecondRunTrigger { get; private set; }
+        public bool TakePendingManualRun(out RunNotice? notice) => ConsumePendingManualRun(out notice);
+        public bool TakePendingDeferredRun(out RunNotice? notice) => ConsumePendingDeferredRun(out notice);
+        public void SelectNotice(RunNotice? notice) => SelectRunNotice(RunTrigger.Manual, notice);
 
         public void ReleaseFirstRun() => _releaseFirstRun.TrySetResult();
 

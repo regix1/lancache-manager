@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using LancacheManager.Controllers;
+using LancacheManager.Configuration;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
@@ -25,6 +26,83 @@ namespace LancacheManager.Tests;
 /// </summary>
 public sealed class CacheScanGateTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DirectSilentScanCarriesItsAdmittedNotice(bool blocked)
+    {
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();
+        var recorder = (RecordingNotifications)(object)notifications;
+        var gate = Idle();
+        var service = ReconciliationServiceWith(gate);
+        service.SetNotificationMode(NotificationMode.Silent);
+        SetField(service, "_operationTracker", tracker);
+        SetField(service, "_notifications", notifications);
+        SetField(service, "_applicationLifetime", DispatchProxy.Create<IHostApplicationLifetime, NullReturningProxy>());
+        var sources = (DatasourceService)RuntimeHelpers.GetUninitializedObject(typeof(DatasourceService));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        SetField(sources, "_datasources", new List<ResolvedDatasource>
+        {
+            new() { Name = "test", Enabled = true, CachePath = path, LogPath = path, ConfiguredLogPath = path,
+                SchemeOverride = DatasourceSchemeOverride.Monolithic }
+        });
+        var capability = new DatasourceCapabilityService(sources);
+        var queue = new OperationQueueService(tracker,
+            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance), notifications,
+            NullLogger<OperationQueueService>.Instance);
+        var controller = (StatsController)RuntimeHelpers.GetUninitializedObject(typeof(StatsController));
+        SetField(controller, "_reconciliationService", service);
+        SetField(controller, "_operationQueue", queue);
+        SetField(controller, "_cacheScanGate", gate);
+        SetField(controller, "_capabilityService", capability);
+        Guid? blocker = blocked
+            ? tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource())
+            : null;
+        var registered = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        tracker.OperationTerminal += operation =>
+        {
+            if (operation.Type == OperationType.EvictionScan && operation.Status != OperationStatus.Waiting
+                && operation.Metadata is IReadOnlyDictionary<string, object?> values && values.ContainsKey("runNotice"))
+                registered.TrySetResult(operation);
+        };
+        var result = await controller.ReconcileAsync(CancellationToken.None);
+        RunNotice? admitted = null;
+        if (blocker.HasValue)
+        {
+            var queued = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>(result.Result).Value);
+            Assert.True(queued.Queued);
+            var waitingValues = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(tracker.GetOperation(queued.OperationId)!.Metadata);
+            admitted = Assert.IsType<RunNotice>(waitingValues["runNotice"]);
+            var duplicate = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>((await controller.ReconcileAsync(CancellationToken.None)).Result).Value);
+            Assert.Equal(queued.OperationId, duplicate.OperationId);
+            lock (recorder.Waiting) Assert.True(Assert.Single(recorder.Waiting).Silent);
+            service.SetNotificationMode(NotificationMode.All);
+            tracker.CompleteOperation(blocker.Value, success: true);
+        }
+        else
+        {
+            var started = Assert.IsType<EvictionScanStartedResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
+            Assert.False(started.ShowNotification);
+            lock (recorder.Waiting) Assert.Empty(recorder.Waiting);
+        }
+        var operation = await registered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var values = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(operation.Metadata);
+        var notice = Assert.IsType<RunNotice>(values["runNotice"]);
+        Assert.Equal(NotificationMode.Silent, notice.Mode);
+        Assert.Equal(RunTrigger.Manual, notice.Trigger);
+        Assert.False(notice.ShowNotification);
+        if (admitted is not null) Assert.Same(admitted, notice);
+        SetField(controller, "_cacheScanGate", Downloading());
+        var refused = Assert.IsType<BadRequestObjectResult>((await controller.ReconcileAsync(CancellationToken.None)).Result);
+        Assert.Equal(ErrorResponse.DownloadInProgressCode, Assert.IsType<ErrorResponse>(refused.Value).Code);
+        SetField(sources, "_datasources", new List<ResolvedDatasource>());
+        var invalid = Assert.IsType<BadRequestObjectResult>((await controller.ReconcileAsync(CancellationToken.None)).Result);
+        Assert.Null(Assert.IsType<ErrorResponse>(invalid.Value).Code);
+        lock (recorder.Waiting) Assert.Equal(blocked ? 1 : 0, recorder.Waiting.Count);
+    }
+
     [Fact]
     public void EmptySnapshotReadsAsIdle()
     {
@@ -689,12 +767,15 @@ public sealed class CacheScanGateTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal List<string> Sent { get; } = [];
+        internal List<OperationWaitingNotification> Waiting { get; } = [];
 
         internal Task<object?> FirstPayload => _firstPayload.Task;
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             Sent.Add((string)args![0]!);
+            if (args.Length > 1 && args[1] is OperationWaitingNotification waiting)
+                lock (Waiting) Waiting.Add(waiting);
             _firstPayload.TrySetResult(args.Length > 1 ? args[1] : null);
             return Task.CompletedTask;
         }

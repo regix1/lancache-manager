@@ -15,7 +15,8 @@ public partial class SteamKit2Service
     public bool TryStartRebuild(
         CancellationToken cancellationToken = default,
         bool incrementalOnly = false,
-        RunTrigger trigger = RunTrigger.Manual)
+        RunTrigger trigger = RunTrigger.Manual,
+        RunNotice? notice = null)
     {
         if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
         {
@@ -28,7 +29,7 @@ public partial class SteamKit2Service
         // against the effective notification mode, while the scheduled dispatch passes its own
         // computed trigger. A run that opts out of notifications still emits every event; the flag
         // only gates whether the frontend renders the card.
-        _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(trigger);
+        _depotRunShowNotification = notice?.ShowNotification ?? EffectiveNotificationMode.AllowsTrigger(trigger);
 
         _logger.LogInformation("Starting Steam PICS depot crawl");
         _lastScanWasForced = false; // Reset flag at start of new scan
@@ -59,7 +60,7 @@ public partial class SteamKit2Service
 
         async Task RunAsync()
         {
-            await using var reporter = CreateTrackedRebuildReporter(runCts);
+            await using var reporter = CreateTrackedRebuildReporter(runCts, notice);
 
             try
             {
@@ -186,7 +187,8 @@ public partial class SteamKit2Service
 
     private MappingOperationReporter CreateDepotMappingReporter(
         CancellationToken token,
-        Action? onTerminalCleanup = null) =>
+        Action? onTerminalCleanup = null,
+        RunNotice? notice = null) =>
         new(
             _notifications,
             _operationTracker,
@@ -195,7 +197,8 @@ public partial class SteamKit2Service
             token,
             _logger,
             CreateDepotPayloadFactories(),
-            onTerminalCleanup);
+            onTerminalCleanup,
+            notice);
 
     /// <summary>
     /// The reporter every rebuild-style depot run uses (PICS, GitHub, apply-to-downloads): its
@@ -203,7 +206,7 @@ public partial class SteamKit2Service
     /// then clears the rebuild flag and re-publishes execution state. One home for the closure
     /// the three run entry points used to carry as identical copies.
     /// </summary>
-    private MappingOperationReporter CreateTrackedRebuildReporter(CancellationTokenSource runCts)
+    private MappingOperationReporter CreateTrackedRebuildReporter(CancellationTokenSource runCts, RunNotice? notice = null)
     {
         var reporter = CreateDepotMappingReporter(
             runCts.Token,
@@ -218,7 +221,7 @@ public partial class SteamKit2Service
 
                 Interlocked.Exchange(ref _rebuildActive, 0);
                 RaiseExecutionStateChanged();
-            });
+            }, notice);
         _currentMappingReporter = reporter;
         return reporter;
     }

@@ -243,17 +243,21 @@ const liftRecovery = async () => {
   const mergeableDetails = recoveryFunction('mergeableDetails', {
     LIVE_ONLY_CANCEL_DETAIL_KEYS: constants.LIVE_ONLY_CANCEL_DETAIL_KEYS
   });
-  const reconcileRecoveredCard = recoveryFunction('reconcileRecoveredCard', {
-    isSameOperation,
-    mergeableDetails
-  });
   const { isTerminalNotificationStatus } = await import(
     await compileToUrl('../src/contexts/notifications/notificationStatus.ts')
   );
+  const { operationCardId } = await loadHandlers();
+  const reconcileRecoveredCard = recoveryFunction('reconcileRecoveredCard', {
+    isSameOperation,
+    mergeableDetails,
+    isTerminalNotificationStatus
+  });
   return recoveryFunction('createSimpleRecoveryFunction', {
     storage,
     reconcileRecoveredCard,
     isTerminalNotificationStatus,
+    operationCardId,
+    GENERIC_FAILURE_I18N_KEY: constants.GENERIC_FAILURE_I18N_KEY,
     i18n: i18nStub,
     FULL_PROGRESS_PERCENT: constants.FULL_PROGRESS_PERCENT
   });

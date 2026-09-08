@@ -97,6 +97,7 @@ public sealed class CacheScanDetectionPhaseTests
         await Task.WhenAll(childTerminal.Task, scanTerminal.Task).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1, terminals.Count(id => id == removalId));
         Assert.Equal(1, terminals.Count(id => id == scanId));
+        Assert.Equal(queued.OperationId, Assert.Single(ctx.Notifications.Waiting).OperationId);
     }
 
     [Fact]
@@ -122,6 +123,7 @@ public sealed class CacheScanDetectionPhaseTests
         ctx.Tracker.Complete(detection.Id);
 
         await phase.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Empty(ctx.Notifications.Waiting);
     }
 
     [Fact]
@@ -137,6 +139,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         await phase.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Contains(detection.Id, ctx.Tracker.Cancelled);
+        Assert.Empty(ctx.Notifications.Waiting);
     }
 
     /// <summary>
@@ -403,6 +406,10 @@ public sealed class CacheScanDetectionPhaseTests
         internal Action<string, object?>? OnSent { get; set; }
         private readonly object _sync = new();
         private readonly List<(string Event, object? Payload)> _sent = [];
+        internal IReadOnlyList<OperationWaitingNotification> Waiting
+        {
+            get { lock (_sync) return _sent.Select(item => item.Payload).OfType<OperationWaitingNotification>().ToList(); }
+        }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {

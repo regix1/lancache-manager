@@ -23,9 +23,8 @@ public abstract class ScheduledServiceBase : BackgroundService
     protected readonly ILogger _logger;
 
     // Trigger provenance for the run currently executing. Set by TriggerImmediateRun and consumed by
-    // the loop just before it calls ExecuteWorkAsync, so a subclass can gate notifications on whether
-    // a run was manual. Accessed only through Interlocked, so the loop and an HTTP-thread Run Now can
-    // race on it safely.
+    // the loop just before it calls ExecuteWorkAsync. IntervalLock protects each pending flag
+    // together with its admitted notice so a later request cannot replace the current run's notice.
     private int _pendingManualRun;
     private int _pendingDeferredRun;
     private RunNotice? _manualNotice;
@@ -43,26 +42,49 @@ public abstract class ScheduledServiceBase : BackgroundService
         CurrentRunTrigger = notice.Trigger;
     }
 
-    protected void SelectRunNotice(RunTrigger trigger)
+    protected void SelectRunNotice(RunTrigger trigger, RunNotice? notice = null)
     {
-        _currentNotice = trigger == RunTrigger.Manual
-            ? Interlocked.Exchange(ref _manualNotice, null)
-            : Interlocked.Exchange(ref _deferredNotice, null);
-        if (trigger == RunTrigger.Manual) Interlocked.Exchange(ref _deferredNotice, null);
-        _currentNotice ??= new RunNotice(EffectiveNotificationMode, trigger);
+        _currentNotice = notice ?? new RunNotice(EffectiveNotificationMode, trigger);
         CurrentRunTrigger = CurrentRunNotice.Trigger;
     }
 
-    public void TriggerImmediateRun(RunNotice notice)
+    public RunNotice TriggerImmediateRun(RunNotice notice, Action<RunNotice>? admitted = null)
     {
-        Interlocked.Exchange(ref _manualNotice, notice);
-        TriggerImmediateRun();
+        lock (IntervalLock)
+        {
+            _manualNotice ??= notice;
+            admitted?.Invoke(_manualNotice);
+            TriggerImmediateRun();
+            return _manualNotice;
+        }
     }
+
+    public void CancelPendingRun(RunNotice notice)
+    {
+        lock (IntervalLock)
+        {
+            if (ReferenceEquals(_manualNotice, notice))
+            {
+                _manualNotice = null;
+                Interlocked.Exchange(ref _pendingManualRun, 0);
+            }
+            if (ReferenceEquals(_deferredNotice, notice))
+            {
+                _deferredNotice = null;
+                Interlocked.Exchange(ref _pendingDeferredRun, 0);
+            }
+        }
+    }
+
+    internal Action<RunNotice, string, string?, bool>? RunCompleted { get; set; }
 
     public void TriggerDeferredRun(RunNotice notice)
     {
-        Interlocked.Exchange(ref _deferredNotice, notice);
-        TriggerDeferredRun();
+        lock (IntervalLock)
+        {
+            _deferredNotice ??= notice;
+            TriggerDeferredRun();
+        }
     }
 
     protected ScheduledServiceBase(ILogger logger)
@@ -134,7 +156,18 @@ public abstract class ScheduledServiceBase : BackgroundService
     /// honored by this loop iteration. Consuming it here (rather than leaving it set) is what stops a
     /// later, genuinely scheduled tick from being misattributed as Manual.
     /// </summary>
-    protected bool ConsumePendingManualRun() => Interlocked.Exchange(ref _pendingManualRun, 0) == 1;
+    protected bool ConsumePendingManualRun() => ConsumePendingManualRun(out _);
+
+    protected bool ConsumePendingManualRun(out RunNotice? notice)
+    {
+        lock (IntervalLock)
+        {
+            var pending = Interlocked.Exchange(ref _pendingManualRun, 0) == 1;
+            notice = pending ? _manualNotice ?? new RunNotice(EffectiveNotificationMode, RunTrigger.Manual) : null;
+            _manualNotice = null;
+            return pending;
+        }
+    }
 
     /// <summary>
     /// Reads the pending manual-run flag without clearing it, so the loop can spot a Run Now that
@@ -147,7 +180,18 @@ public abstract class ScheduledServiceBase : BackgroundService
     /// Takes the pending deferred-run flag, clearing it. Set when a run this service was already due
     /// for was refused by the download gate and is owed once downloads stop.
     /// </summary>
-    protected bool ConsumePendingDeferredRun() => Interlocked.Exchange(ref _pendingDeferredRun, 0) == 1;
+    protected bool ConsumePendingDeferredRun() => ConsumePendingDeferredRun(out _);
+
+    protected bool ConsumePendingDeferredRun(out RunNotice? notice)
+    {
+        lock (IntervalLock)
+        {
+            var pending = Interlocked.Exchange(ref _pendingDeferredRun, 0) == 1;
+            notice = pending ? _deferredNotice ?? new RunNotice(EffectiveNotificationMode, RunTrigger.Scheduled) : null;
+            _deferredNotice = null;
+            return pending;
+        }
+    }
 
     /// <summary>
     /// Wake the service immediately - cancels the current sleep so work runs on the next loop.
@@ -156,9 +200,12 @@ public abstract class ScheduledServiceBase : BackgroundService
     {
         // Mark the next work run as manually triggered. Set before waking the loop so the woken
         // iteration observes it when it computes CurrentRunTrigger.
-        Interlocked.Exchange(ref _pendingManualRun, 1);
-
-        CancelIntervalDelay();
+        lock (IntervalLock)
+        {
+            _manualNotice ??= new RunNotice(EffectiveNotificationMode, RunTrigger.Manual);
+            Interlocked.Exchange(ref _pendingManualRun, 1);
+            CancelIntervalDelay();
+        }
 
         _logger.LogDebug("{ServiceName} immediate run triggered", ServiceName);
     }
@@ -171,9 +218,12 @@ public abstract class ScheduledServiceBase : BackgroundService
     /// </summary>
     public virtual void TriggerDeferredRun()
     {
-        Interlocked.Exchange(ref _pendingDeferredRun, 1);
-
-        CancelIntervalDelay();
+        lock (IntervalLock)
+        {
+            _deferredNotice ??= new RunNotice(EffectiveNotificationMode, RunTrigger.Scheduled);
+            Interlocked.Exchange(ref _pendingDeferredRun, 1);
+            CancelIntervalDelay();
+        }
 
         _logger.LogDebug("{ServiceName} deferred run triggered", ServiceName);
     }
@@ -519,10 +569,11 @@ public abstract class ScheduledServiceBase : BackgroundService
     protected async Task<(bool ShuttingDown, bool RunFailed)> RunScheduledWorkAsync(
         string serviceKey,
         RunTrigger trigger,
-        Func<Task> executeWork,
+        Func<CancellationToken, Task> executeWork,
         CancellationToken stoppingToken,
         string errorLogMessage,
-        Action broadcastEnd)
+        Action broadcastEnd,
+        RunNotice? notice = null)
     {
         // Asked before the try is entered, so a declined run never reaches the finally below: it
         // leaves LastRunUtc on the time of the last run that really happened, never flips
@@ -532,7 +583,13 @@ public abstract class ScheduledServiceBase : BackgroundService
         // The pending Run Now flag has already been taken by the loop above by the time this runs, so
         // a manual attempt refused here is gone. That is why the trigger is handed over: whoever
         // answers has to report a refused manual attempt rather than let the click disappear.
-        SelectRunNotice(trigger);
+        SelectRunNotice(trigger, notice);
+        var runNotice = CurrentRunNotice;
+        if (runNotice.Cancelled)
+        {
+            RunCompleted?.Invoke(runNotice, serviceKey, null, true);
+            return (false, false);
+        }
         var runDenial = ScheduleRunGate?.Invoke(serviceKey, CurrentRunTrigger);
         if (runDenial is not null)
         {
@@ -540,12 +597,19 @@ public abstract class ScheduledServiceBase : BackgroundService
             return (false, false);
         }
 
+        runNotice = CurrentRunNotice;
         IsCurrentlyExecuting = true;
+        var workStarted = false;
         var runFailed = false;
         var shuttingDown = false;
+        string? error = null;
+        using var runCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, runNotice.Token);
         try
         {
-            await executeWork();
+            if (runNotice.Cancelled) return (false, false);
+            runCts.Token.ThrowIfCancellationRequested();
+            workStarted = true;
+            await executeWork(runCts.Token);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -554,8 +618,13 @@ public abstract class ScheduledServiceBase : BackgroundService
             // instead of silently ending the service loop.
             shuttingDown = true;
         }
+        catch (OperationCanceledException) when (runNotice.Cancelled || runCts.IsCancellationRequested)
+        {
+            // A cancelled admission does not change the next scheduled occurrence.
+        }
         catch (Exception ex)
         {
+            error = ex.Message;
             _logger.LogError(ex, errorLogMessage, ServiceName);
             runFailed = true;
             // The next attempt is the retry below, not the elapsed schedule - point the
@@ -570,11 +639,12 @@ public abstract class ScheduledServiceBase : BackgroundService
             // failed run's end-broadcast carrying an unchanged time, which held that button
             // disabled until a safety timeout expired. Shutdown is excluded because the work
             // never reached a terminal state - the service is stopping, not finishing.
-            if (!shuttingDown)
+            if (!shuttingDown && workStarted)
             {
                 LastRunUtc = DateTime.UtcNow;
             }
             IsCurrentlyExecuting = false;
+            if (!shuttingDown) RunCompleted?.Invoke(runNotice, serviceKey, error, runNotice.Cancelled || runCts.IsCancellationRequested);
             // Broadcast the end AFTER clearing the flag so GetAll() reports the run finished and
             // the dot clears - including on the failed-run path.
             broadcastEnd();

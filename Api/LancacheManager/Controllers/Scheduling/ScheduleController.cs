@@ -235,15 +235,14 @@ public class ScheduleController : ControllerBase
             return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
-        var (status, skippedReason) = await _registry.TriggerRunAsync(serviceKey);
+        var (status, skippedReason, showNotification) = await _registry.TriggerRunAsync(serviceKey);
         if (skippedReason is not null)
         {
-            // Nothing was armed, so no run will follow and no state change will be broadcast. The
-            // reason is the whole answer here: without it the caller sees a success for a run that
-            // never happened.
+            // The run is retained until downloads finish; its waiting event owns the acknowledgment.
             return Accepted(new QueuedOperationResponse
             {
                 Status = "skipped",
+                ShowNotification = showNotification,
                 SkippedReason = skippedReason
             });
         }
@@ -261,6 +260,7 @@ public class ScheduleController : ControllerBase
             return Accepted(new QueuedOperationResponse
             {
                 Status = "alreadyRunning",
+                ShowNotification = showNotification,
                 AlreadyRunning = true,
                 OperationId = activeOperationId
             });
@@ -268,7 +268,8 @@ public class ScheduleController : ControllerBase
 
         return Accepted(new QueuedOperationResponse
         {
-            Status = "started"
+            Status = "started",
+            ShowNotification = showNotification
         });
     }
 
@@ -316,7 +317,7 @@ public class TriggerAllResponse
     /// again once the current run finishes.</summary>
     public int AlreadyRunningCount { get; set; }
 
-    /// <summary>Services that were refused before a run was armed. Nothing was queued for these.</summary>
+    /// <summary>Services retained until downloads finish before their loop is armed.</summary>
     public int SkippedCount { get; set; }
 
     /// <summary>The one reason behind every skip in this call, or null when nothing was skipped.

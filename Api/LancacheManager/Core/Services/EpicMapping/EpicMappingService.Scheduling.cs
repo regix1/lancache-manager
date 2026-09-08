@@ -34,12 +34,12 @@ public partial class EpicMappingService
         await WaitForAutoReconnectAsync(stoppingToken);
         if (!_isAuthenticated || _currentTokens is null)
         {
-            await RunWithoutSignInAsync(stoppingToken);
+            await RunWithoutSignInAsync(stoppingToken, CurrentRunNotice);
             return;
         }
 
         _logger.LogInformation("Starting scheduled Epic catalog refresh");
-        if (TryStartRefresh(stoppingToken, CurrentRunTrigger) && _currentRefreshTask is not null)
+        if (TryStartRefresh(stoppingToken, CurrentRunTrigger, CurrentRunNotice) && _currentRefreshTask is not null)
         {
             await _currentRefreshTask;
         }
@@ -47,7 +47,8 @@ public partial class EpicMappingService
 
     public bool TryStartRefresh(
         CancellationToken cancellationToken = default,
-        RunTrigger trigger = RunTrigger.Manual)
+        RunTrigger trigger = RunTrigger.Manual,
+        RunNotice? notice = null)
     {
         if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0)
         {
@@ -60,7 +61,7 @@ public partial class EpicMappingService
             return false;
         }
 
-        _showNotification = EffectiveNotificationMode.AllowsTrigger(trigger);
+        _showNotification = notice?.ShowNotification ?? EffectiveNotificationMode.AllowsTrigger(trigger);
         CancellationTokenSource runCts;
         try
         {
@@ -94,7 +95,7 @@ public partial class EpicMappingService
                     _currentProgressPercent = 0;
                     _currentStatus = EpicMappingStatus.Idle;
                     Interlocked.Exchange(ref _isProcessingInt, 0);
-                });
+                }, notice);
             _currentMappingReporter = reporter;
 
             try
@@ -154,17 +155,17 @@ public partial class EpicMappingService
     /// and goes through the same reporter and terminal stage-key override as every other outcome, so
     /// the notification mode still decides whether it is shown.
     /// </summary>
-    private async Task RunWithoutSignInAsync(CancellationToken stoppingToken)
+    private async Task RunWithoutSignInAsync(CancellationToken stoppingToken, RunNotice? notice = null)
     {
         _logger.LogInformation(
             "Epic catalog refresh: no Epic account is signed in, so no new catalog is collected - resolving downloads against the stored patterns instead");
-        _showNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        _showNotification = notice?.ShowNotification ?? EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
         // No catalog is collected on this path, so the counts a signed-in run left behind are not
         // this run's. The two signed-in paths clear them at the top of their own run for the same
         // reason; without this the terminal carries the previous run's numbers.
         _lastNewGames = 0;
         _lastUpdatedGames = 0;
-        await using var reporter = CreateEpicMappingReporter(stoppingToken);
+        await using var reporter = CreateEpicMappingReporter(stoppingToken, notice: notice);
         // This pass may finish having changed nothing, so it stays quiet either way rather than
         // claiming progress it might then report as skipped.
         reporter.SuppressProgress();
@@ -173,7 +174,7 @@ public partial class EpicMappingService
         var resolved = 0;
         try
         {
-            resolved = await ResolveDownloadsAsync(stoppingToken);
+            resolved = await ResolveDownloadsAsync(reporter.Token);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -193,7 +194,8 @@ public partial class EpicMappingService
 
     private MappingOperationReporter CreateEpicMappingReporter(
         CancellationToken token,
-        Action? onTerminalCleanup = null) =>
+        Action? onTerminalCleanup = null,
+        RunNotice? notice = null) =>
         new(
             _notifications,
             _operationTracker,
@@ -201,7 +203,8 @@ public partial class EpicMappingService
             _showNotification,
             token,
             _logger,
-            onTerminalCleanup: onTerminalCleanup);
+            onTerminalCleanup: onTerminalCleanup,
+            notice: notice);
 
     private Dictionary<string, object?> CreateEpicContext(string? errorDetail = null) =>
         new()

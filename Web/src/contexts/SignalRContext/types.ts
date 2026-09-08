@@ -1221,6 +1221,7 @@ export interface CacheSizeScanCompleteEvent extends OperationEvent {
  * operation. operationType is the backend OperationType wire string (camelCase).
  */
 export interface OperationWaitingEvent {
+  acknowledge?: boolean;
   operationId: string;
   operationType: string;
   name: string;
@@ -1244,6 +1245,8 @@ export interface OperationWaitingEvent {
  * the running operation is intentionally notification-silent.
  */
 export interface OperationWaitingCompleteEvent {
+  nextOperationId?: string;
+  nextStatus?: string;
   operationId: string;
   operationType: string;
   cancelled: boolean;

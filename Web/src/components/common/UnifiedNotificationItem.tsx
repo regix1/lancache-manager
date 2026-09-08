@@ -353,6 +353,41 @@ export const UnifiedNotificationItem = ({
     }
   };
 
+  if (notification.controlOnly && !isTerminalNotificationStatus(notification.status)) {
+    return (
+      <div className="flex min-h-11 items-center gap-3 rounded bg-[var(--theme-bg-secondary)] px-3 text-sm text-themed-primary">
+        <span className="min-w-0 flex-1 truncate">
+          {titleKey ? t(titleKey) : notification.message}
+          {notification.details?.service && (
+            <span className="capitalize"> · {notification.details.service}</span>
+          )}
+          {notification.details?.gameName && <> · {notification.details.gameName}</>}
+        </span>
+        <span className="text-xs text-themed-secondary capitalize" role="status">
+          {notification.details?.cancelRequested ? 'cancelling' : notification.status}
+        </span>
+        {onCancel && (
+          <button
+            onClick={onCancel}
+            disabled={notification.details?.cancelPending}
+            className="flex min-h-11 min-w-11 items-center justify-center rounded px-2 hover:bg-themed-hover disabled:opacity-50"
+            aria-label={t(
+              notification.details?.cancelRequested
+                ? FORCE_KILL_TOOLTIP_KEY
+                : 'common.notifications.cancelOperationAria'
+            )}
+          >
+            {notification.details?.cancelPending ? (
+              <LoadingSpinner inline size="sm" />
+            ) : (
+              t(notification.details?.cancelRequested ? FORCE_KILL_TOOLTIP_KEY : 'common.cancel')
+            )}
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       className="flex items-start sm:items-center gap-3 p-2 rounded-lg bg-[var(--theme-bg-secondary)] transition-opacity duration-300 ease-out motion-reduce:transition-none"
@@ -415,7 +450,9 @@ export const UnifiedNotificationItem = ({
             cancelRequested, sent nothing, and then re-labelled itself a force kill. clientQueue
             cards carry no operation id by design and keep theirs. */}
         {notification.type in CANCEL_CONFIG_BY_TYPE &&
-          (notification.status === 'running' || notification.status === 'waiting') &&
+          (notification.status === 'running' ||
+            notification.status === 'waiting' ||
+            notification.status === 'cancelling') &&
           (CANCEL_CONFIG_BY_TYPE[notification.type].cancelKind !== 'serverOp' ||
             CANCEL_CONFIG_BY_TYPE[notification.type].allowsDeferredCancel ||
             Boolean(notification.details?.operationId)) &&
@@ -431,6 +468,7 @@ export const UnifiedNotificationItem = ({
             >
               <button
                 onClick={onCancel}
+                disabled={notification.details?.cancelPending}
                 className="flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded transition-colors hover:bg-themed-hover motion-reduce:transition-none"
                 aria-label={
                   notification.details?.cancelRequested &&
@@ -439,7 +477,11 @@ export const UnifiedNotificationItem = ({
                     : t('common.notifications.cancelOperationAria')
                 }
               >
-                <X className="w-4 h-4 text-themed-secondary" />
+                {notification.details?.cancelPending ? (
+                  <LoadingSpinner inline size="sm" />
+                ) : (
+                  <X className="w-4 h-4 text-themed-secondary" />
+                )}
               </button>
             </Tooltip>
           )}

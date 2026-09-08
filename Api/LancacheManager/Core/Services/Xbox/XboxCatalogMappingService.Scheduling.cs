@@ -20,7 +20,7 @@ public partial class XboxCatalogMappingService
     /// </summary>
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        await RefreshNowAsync(stoppingToken, CurrentRunTrigger);
+        await RefreshNowAsync(stoppingToken, CurrentRunTrigger, CurrentRunNotice);
     }
 
     /// <summary>
@@ -34,19 +34,20 @@ public partial class XboxCatalogMappingService
     /// mode the user set gates the two differently.</param>
     public async Task<XboxCatalogRefreshResult> RefreshNowAsync(
         CancellationToken ct = default,
-        RunTrigger trigger = RunTrigger.Manual)
+        RunTrigger trigger = RunTrigger.Manual,
+        RunNotice? notice = null)
     {
         await _refreshGate.WaitAsync(ct);
         try
         {
-            _refreshShowNotification = EffectiveNotificationMode.AllowsTrigger(trigger);
+            _refreshShowNotification = notice?.ShowNotification ?? EffectiveNotificationMode.AllowsTrigger(trigger);
             await using var reporter = new MappingOperationReporter(
                 _notifications,
                 _operationTracker,
                 MappingOperations.Xbox,
                 _refreshShowNotification,
                 ct,
-                _logger);
+                _logger, notice: notice);
             _currentMappingReporter = reporter;
 
             try

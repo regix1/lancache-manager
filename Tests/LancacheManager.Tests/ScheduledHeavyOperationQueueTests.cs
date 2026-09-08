@@ -17,6 +17,36 @@ namespace LancacheManager.Tests;
 public sealed class ScheduledHeavyOperationQueueTests
 {
     [Fact]
+    public async Task ImmediateStartRefusalAcceptsTheEquivalentRegisteredScan()
+    {
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var events = new List<OperationWaitingNotification>();
+        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
+        {
+            if (args?.Length > 1 && args[1] is OperationWaitingNotification waiting) events.Add(waiting);
+            return DefaultReturn(method.ReturnType);
+        });
+        var queue = new OperationQueueService(tracker,
+            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            notifications, NullLogger<OperationQueueService>.Instance);
+        var starts = 0;
+        Guid active = default;
+        var result = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan", () =>
+        {
+            starts++;
+            active = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+            return Task.FromResult<Guid?>(null);
+        }, CancellationToken.None);
+        Assert.True(result.AlreadyRunning);
+        Assert.False(result.Queued);
+        Assert.Equal(active, result.OperationId);
+        Assert.Equal(1, starts);
+        Assert.Empty(events);
+        Assert.Empty(tracker.GetWaitingOperations());
+    }
+
+    [Fact]
     public async Task CacheFileScan_ScheduledRun_EntersUniversalOperationQueueAsync()
     {
         var rustBinaryPath = Path.GetTempFileName();

@@ -866,6 +866,7 @@ class ApiService {
 
   static async startEvictionScan(): Promise<{
     operationId: string;
+    showNotification?: boolean;
     queued?: boolean;
     alreadyRunning?: boolean;
   }> {
@@ -876,6 +877,7 @@ class ApiService {
       );
       return await this.handleResponse<{
         operationId: string;
+        showNotification?: boolean;
         queued?: boolean;
         alreadyRunning?: boolean;
       }>(res);

@@ -136,7 +136,8 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                 await WaitForDownloadAnswer(ServiceKey, stoppingToken);
             }
 
-            SelectRunNotice(ConsumePendingManualRun() ? RunTrigger.Manual : RunTrigger.Startup);
+            var manualPending = ConsumePendingManualRun(out var notice);
+            SelectRunNotice(manualPending ? RunTrigger.Manual : RunTrigger.Startup, notice);
             startupDenial = ScheduleRunGate?.Invoke(ServiceKey, CurrentRunTrigger);
         }
 
@@ -146,8 +147,11 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
         }
 
         // Optional: Run once at startup
-        if (RunOnStartup && startupDenial is null)
+        if (RunOnStartup && startupDenial is null && !CurrentRunNotice.Cancelled)
         {
+            var startupNotice = CurrentRunNotice;
+            string? startupError = null;
+            using var startupCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, startupNotice.Token);
             try
             {
                 IsCurrentlyExecuting = true;
@@ -156,16 +160,24 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                 // misattribute a later scheduled tick as Manual.
                 // Broadcast the start so the Schedules status dot lights up for the whole run.
                 ServiceExecutionStateChanged?.Invoke(ServiceKey);
-                await OnStartupAsync(stoppingToken);
+                startupCts.Token.ThrowIfCancellationRequested();
+                await OnStartupAsync(startupCts.Token);
                 LastRunUtc = DateTime.UtcNow;
+            }
+            catch (OperationCanceledException) when (startupNotice.Cancelled && !stoppingToken.IsCancellationRequested)
+            {
+                // The next scheduled occurrence remains enabled after cancellation.
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                startupError = ex.Message;
                 _logger.LogError(ex, "{ServiceName} startup execution failed", ServiceName);
             }
             finally
             {
                 IsCurrentlyExecuting = false;
+                if (!stoppingToken.IsCancellationRequested)
+                    RunCompleted?.Invoke(startupNotice, ServiceKey, startupError, startupNotice.Cancelled);
                 // Whether startup succeeded or failed, the next thing is the main loop's skip-first
                 // sleep, so set the countdown to that before the END broadcast rather than shipping a
                 // null "Soon". The skip-first sleep re-sets this authoritatively.
@@ -201,12 +213,12 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             // _pendingManualRun in the other branch silently drops a same-tick Run Now (no work
             // happens) AND leaves the flag stale to misattribute a LATER genuinely scheduled tick as
             // Manual. Mirrors ConfigurableScheduledService's ordering.
-            var manualPending = ConsumePendingManualRun();
+            var manualPending = ConsumePendingManualRun(out var manualNotice);
 
             // A run this service was already due for, refused while a download was writing to the
             // cache and owed now that it has stopped. It reaches the work branch the same way a Run
             // Now does, and is attributed Scheduled below, because that is what it is.
-            var deferredPending = ConsumePendingDeferredRun();
+            var deferredPending = ConsumePendingDeferredRun(out var deferredNotice);
 
             var schedule = ConfiguredCustomSchedule;
             var interval = EffectiveInterval;
@@ -264,11 +276,11 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                 var (shuttingDown, runFailed) = await RunScheduledWorkAsync(
                     ServiceKey,
                     runTrigger,
-                    async () =>
+                    async runToken =>
                     {
                         // Broadcast the start so the Schedules status dot lights up for the whole run.
                         ServiceExecutionStateChanged?.Invoke(ServiceKey);
-                        await ExecuteWorkAsync(stoppingToken);
+                        await ExecuteWorkAsync(runToken);
                         // Advance NextRunUtc now so the run-END broadcast carries the fresh next-run
                         // instead of the just-elapsed one. The bottom-of-loop sleep re-sets this
                         // authoritatively; this only keeps the END snapshot from shipping a stale
@@ -277,7 +289,8 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                     },
                     stoppingToken,
                     "{ServiceName} error in execution loop",
-                    () => ServiceExecutionStateChanged?.Invoke(ServiceKey));
+                    () => ServiceExecutionStateChanged?.Invoke(ServiceKey),
+                    manualPending ? manualNotice : deferredNotice);
 
                 if (shuttingDown)
                 {

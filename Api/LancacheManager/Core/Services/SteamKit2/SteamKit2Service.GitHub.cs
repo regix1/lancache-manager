@@ -12,7 +12,8 @@ public partial class SteamKit2Service
     /// </summary>
     public async Task<bool> ImportFromGitHubAsync(
         CancellationToken cancellationToken = default,
-        RunTrigger trigger = RunTrigger.Manual)
+        RunTrigger trigger = RunTrigger.Manual,
+        RunNotice? notice = null)
     {
         if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
         {
@@ -20,7 +21,7 @@ public partial class SteamKit2Service
             return true;
         }
 
-        _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(trigger);
+        _depotRunShowNotification = notice?.ShowNotification ?? EffectiveNotificationMode.AllowsTrigger(trigger);
         _activeDepotScanMode = DepotScanMode.Github;
         _emitTotalMappings = 0;
         _emitDownloadsUpdated = 0;
@@ -38,7 +39,7 @@ public partial class SteamKit2Service
         }
 
         _currentRebuildCts = runCts;
-        await using var reporter = CreateTrackedRebuildReporter(runCts);
+        await using var reporter = CreateTrackedRebuildReporter(runCts, notice);
 
         async Task<bool> FailAsync(string message)
         {

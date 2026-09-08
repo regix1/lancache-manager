@@ -113,7 +113,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
             return;
         }
 
-        var show = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        var show = CurrentRunNotice.ShowNotification;
         await using var reporter = new ScheduledRunReporter(
             _notifications,
             _operationTracker,
@@ -122,7 +122,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
             _eventNames,
             $"{StageBase}.complete",
             show,
-            stoppingToken);
+            stoppingToken, notice: CurrentRunNotice);
 
         await reporter.StartAsync($"{StageBase}.starting");
 
@@ -138,8 +138,9 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
             TotalCacheSize = cacheInfo.TotalCacheSize
         };
 
+        reporter.Token.ThrowIfCancellationRequested();
         scopedDb.DbContext.CacheSnapshots.Add(snapshot);
-        await scopedDb.DbContext.SaveChangesAsync(stoppingToken);
+        await scopedDb.DbContext.SaveChangesAsync(reporter.Token);
 
         _logger.LogDebug("Recorded cache snapshot: {UsedSize} / {TotalSize}",
             FormatBytes(cacheInfo.UsedCacheSize), FormatBytes(cacheInfo.TotalCacheSize));

@@ -304,7 +304,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         // Scheduled / startup / Run Now path: surface a progress card via a run reporter. The reporter
         // only starts once real fetch work is confirmed (inside FetchImagesAsync), so a run with no
         // downloads yet never shows a card.
-        var show = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        var show = CurrentRunNotice.ShowNotification;
         await using var reporter = new ScheduledRunReporter(
             _notifications,
             _operationTracker,
@@ -313,7 +313,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             _eventNames,
             $"{StageBase}.complete",
             show,
-            stoppingToken);
+            stoppingToken, notice: CurrentRunNotice);
 
         await RunFetchAsync(scopedServices, reporter, stoppingToken);
     }

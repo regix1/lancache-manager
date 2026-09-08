@@ -8,6 +8,8 @@ import {
   collectNodes,
   compileToUrl,
   liftConstArrow,
+  liftHookCallback,
+  parseSource,
   moduleUrl
 } from './transpile-module.mjs';
 
@@ -23,7 +25,7 @@ import {
 
 const I18N_STUB = moduleUrl(`export default { t: (key) => key };`);
 
-const loadHandlerFactories = async () => {
+const loadHandlerFactories = async (i18nUrl = I18N_STUB) => {
   const constantsUrl = await compileToUrl('../src/contexts/notifications/constants.ts');
   const statusUrl = await compileToUrl('../src/contexts/notifications/notificationStatus.ts');
   const storageUrl = await compileToUrl('../src/utils/storage.ts');
@@ -31,7 +33,7 @@ const loadHandlerFactories = async () => {
     './constants': constantsUrl,
     './notificationStatus': statusUrl,
     '@utils/storage': storageUrl,
-    '@/i18n': I18N_STUB
+    '@/i18n': i18nUrl
   });
   return await import(handlersUrl);
 };
@@ -69,6 +71,578 @@ const runStartedForType = async (type, bulkCardItemTypes) => {
 };
 
 const hasCard = (state, type) => state.some((n) => n.type === type);
+
+test('cancel requests serialize clicks and protect replacement operations', async () => {
+  const errors = [];
+  let release;
+  let calls = 0;
+  let state = {
+    id: 'slot',
+    type: 'game_detection',
+    status: 'running',
+    controlOnly: true,
+    details: { operationId: 'first' }
+  };
+  const cancel = bindLifted(
+    liftConstArrow('src/components/common/notificationCancel.ts', 'handleCancel'),
+    {
+      CANCEL_CONFIG_BY_TYPE: { game_detection: { cancelKind: 'serverOp' } },
+      pendingCancels: new Set(),
+      notifyToastError: (key) => errors.push(key),
+      getErrorMessage: String,
+      ApiService: {
+        cancelOperation: () => {
+          calls++;
+          return new Promise((resolve) => {
+            release = resolve;
+          });
+        },
+        forceKillOperation: () => {
+          calls++;
+          return Promise.reject(new Error('Connection closed'));
+        }
+      }
+    }
+  );
+  const update = (_id, change) => {
+    state = { ...state, ...(typeof change === 'function' ? change(state) : change) };
+  };
+  const remove = () => {
+    state = undefined;
+  };
+  const get = () => state;
+  const first = cancel(state, update, remove, get);
+  await cancel(state, update, remove, get);
+  assert.equal(calls, 1);
+  assert.equal(state.details.cancelPending, true);
+  release({});
+  await first;
+  assert.equal(state.status, 'cancelling');
+  await cancel(state, update, remove, get);
+  assert.equal(errors.length, 1);
+  assert.equal(state.controlOnly, true);
+  assert.equal(state.details.cancelRequested, false);
+  const deferred = cancel(
+    { ...state, details: { ...state.details, cancelRequested: true } },
+    update,
+    remove,
+    get,
+    true
+  );
+  const replacement = {
+    id: 'slot',
+    type: 'game_detection',
+    status: 'running',
+    details: { operationId: 'second' }
+  };
+  state = replacement;
+  release({ alreadyFinished: true });
+  await deferred;
+  assert.equal(state, replacement);
+  assert.equal(calls, 3);
+});
+
+test('platform starts create only per-platform hidden controls', async () => {
+  globalThis.localStorage = new MemoryStorage();
+  globalThis.sessionStorage = new MemoryStorage();
+  const handlers = await loadHandlerFactories();
+  const source = parseSource('src/contexts/notifications/useNotificationHandlers.ts');
+  const declaration = collectNodes(
+    source,
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'buildStartedHandler'
+  )[0];
+  const build = bindLifted(declaration.getText(source), {
+    createStartedHandler: handlers.createStartedHandler
+  });
+  let state = [];
+  const started = build(
+    { type: 'scheduled_prefill', id: 'prefill', storageKey: '', cancelKind: 'serverOp' },
+    { shouldDisplay: () => false, defaultMessage: 'Prefill' },
+    (update) => {
+      state = update(state);
+    },
+    () => undefined
+  );
+  started({ operationId: 'aggregate' });
+  assert.equal(state.length, 0);
+  started({ operationId: 'steam-op', serviceId: 'steam' });
+  started({ operationId: 'epic-op', serviceId: 'epic' });
+  assert.equal(state.length, 2);
+  assert.deepEqual(state.map((n) => n.details.service).sort(), ['epic', 'steam']);
+  assert.ok(state.every((n) => n.controlOnly));
+});
+
+test('hidden waiting handoff preserves the exact replacement in either event order', async () => {
+  const handlers = await loadHandlerFactories();
+  const old = {
+    id: handlers.operationCardId('old'),
+    type: 'game_detection',
+    status: 'waiting',
+    controlOnly: true,
+    message: 'Detection',
+    details: { operationId: 'old' }
+  };
+  for (const arrived of [false, true]) {
+    const next = {
+      ...old,
+      id: handlers.operationCardId('new'),
+      status: 'running',
+      details: { operationId: 'new' }
+    };
+    const result = await runWaitingCompleteHandler(
+      'game_detection',
+      arrived ? [old, next] : [old],
+      {
+        operationId: 'old',
+        operationType: 'gameDetection',
+        promoted: true,
+        nextOperationId: 'new',
+        nextStatus: 'running'
+      }
+    );
+    assert.equal(result.state.length, 1);
+    assert.equal(result.state[0].details.operationId, 'new');
+    assert.equal(result.state[0].controlOnly, true);
+    const failed = await runWaitingCompleteHandler('game_detection', result.state, {
+      operationId: 'different',
+      operationType: 'gameDetection',
+      error: 'Validation failed'
+    });
+    assert.equal(failed.state.length, 2);
+    assert.equal(failed.state.find((n) => n.status === 'failed').error, 'Validation failed');
+  }
+});
+
+test('hidden operations keep separate controls and preserve cancellation during replay', async () => {
+  globalThis.localStorage = new MemoryStorage();
+  globalThis.sessionStorage = new MemoryStorage();
+  const handlers = await loadHandlerFactories();
+  const live = {
+    id: 'slot',
+    type: 'game_detection',
+    status: 'running',
+    details: { operationId: 'visible' }
+  };
+  let state = [live];
+  const set = (update) => {
+    state = update(state);
+  };
+  const config = {
+    type: 'game_detection',
+    getId: () => 'slot',
+    storageKey: 'hidden',
+    shouldDisplay: () => false,
+    canControl: () => true,
+    defaultMessage: 'Detection',
+    getDetails: (event) => ({ operationId: event.operationId })
+  };
+  const started = handlers.createStartedHandler(config, set);
+  started({ operationId: 'first' });
+  started({ operationId: 'second' });
+  const first = state.find((n) => n.details.operationId === 'first');
+  first.details.cancelRequested = true;
+  first.details.cancelPending = true;
+  started({ operationId: 'first' });
+  assert.equal(state.length, 3);
+  assert.equal(
+    state.find((n) => n.id === 'slot'),
+    live
+  );
+  assert.equal(state.find((n) => n.id === first.id).details.cancelPending, true);
+  assert.equal(state.filter((n) => n.controlOnly).length, 2);
+  assert.equal(globalThis.localStorage.getItem('hidden'), null);
+  for (const useAnimationDelay of [true, false]) {
+    const complete = handlers.createCompletionHandler(
+      { ...config, useAnimationDelay },
+      set,
+      () => undefined
+    );
+    complete({ operationId: 'first', success: false, error: 'Connection closed' });
+    complete({ operationId: 'first', success: false, error: 'Connection closed' });
+    const failed = state.find((n) => n.details.operationId === 'first');
+    assert.equal(failed.status, 'failed');
+    assert.equal(failed.error, 'Connection closed');
+    assert.equal(failed.controlOnly, undefined);
+    assert.equal(state.length, 3);
+  }
+  handlers.createCompletionHandler(
+    config,
+    set,
+    () => undefined
+  )({ operationId: 'second', success: true });
+  assert.equal(state.length, 2);
+  assert.equal(state[0], live);
+});
+
+test('hidden skipped and cancelled progress are quiet while failures survive occupied slots', async () => {
+  globalThis.localStorage = new MemoryStorage();
+  const handlers = await loadHandlerFactories();
+  for (const status of ['skipped', 'cancelled', 'failed']) {
+    const live = {
+      id: 'slot',
+      type: 'game_detection',
+      status: 'completed',
+      details: { operationId: 'other' }
+    };
+    let state = [live];
+    const progress = handlers.createStatusAwareProgressHandler(
+      {
+        type: 'game_detection',
+        getId: () => 'slot',
+        storageKey: '',
+        shouldDisplay: () => false,
+        canControl: () => true,
+        getStatus: (event) => event.status,
+        getMessage: () => 'Detection',
+        getProgress: () => 42,
+        getErrorMessage: () => 'Write failed',
+        getDetails: (event) => ({ operationId: event.operationId })
+      },
+      (update) => {
+        state = update(state);
+      },
+      () => undefined
+    );
+    progress({ operationId: 'hidden', status: 'running' });
+    progress({ operationId: 'hidden', status, error: 'Write failed' });
+    assert.equal(state[0], live);
+    assert.equal(state.length, status === 'failed' ? 2 : 1);
+    if (status === 'failed') assert.equal(state[1].error, 'Write failed');
+  }
+});
+
+test('eviction waiting wire routes once through warning rendering and actual dismissal', async () => {
+  globalThis.localStorage = new MemoryStorage();
+  globalThis.sessionStorage = new MemoryStorage();
+  const english = JSON.parse(
+    readFileSync(new URL('../src/i18n/locales/en.json', import.meta.url), 'utf8')
+  );
+  const i18n = {
+    t: (key, values = {}) => {
+      const sentence = key.split('.').reduce((value, part) => value?.[part], english) ?? key;
+      return sentence.replace(/{{(\w+)}}/g, (_, name) => String(values[name] ?? ''));
+    }
+  };
+  const i18nUrl = moduleUrl(
+    `const english = ${JSON.stringify(english)}; export default { t: ${i18n.t.toString()} };`
+  );
+  const handlers = await loadHandlerFactories(i18nUrl);
+  const constants = await import(await compileToUrl('../src/contexts/notifications/constants.ts'));
+  const { isTerminalNotificationStatus } = await import(
+    await compileToUrl('../src/contexts/notifications/notificationStatus.ts')
+  );
+  const source = parseSource('src/contexts/notifications/useNotificationHandlers.ts');
+  const lookup = collectNodes(
+    source,
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'findEntryForWireType'
+  )[0];
+  const findEntryForWireType = bindLifted(
+    `(registry, wireType) => { ${lookup.getText(source)} return findEntryForWireType(registry, wireType); }`,
+    constants
+  );
+  const entries = parseSource('src/contexts/notifications/notificationRegistry.ts');
+  const entry = collectNodes(
+    entries,
+    (node) =>
+      ts.isObjectLiteralExpression(node) &&
+      node.properties.some(
+        (property) =>
+          ts.isPropertyAssignment(property) &&
+          property.name.getText(entries) === 'type' &&
+          property.initializer.getText(entries) === "'eviction_scan'"
+      )
+  )[0];
+  const registry = [
+    Object.fromEntries(
+      ['type', 'id'].map((name) => {
+        const value = entry.properties
+          .find((property) => property.name?.getText(entries) === name)
+          .initializer.getText(entries);
+        return [name, bindLifted(`() => (${value})`, constants)()];
+      })
+    )
+  ];
+  assert.equal(findEntryForWireType(registry, 'evictionScan'), registry[0]);
+  assert.equal(findEntryForWireType(registry, 'unknown'), undefined);
+  const live = { ...registry[0], status: 'running', details: { operationId: 'existing' } };
+  let state = [live];
+  const setNotifications = (update) => {
+    state = update(state);
+  };
+  const timers = [];
+  const setTimeout = (callback) => {
+    timers.push(callback);
+    return timers.length;
+  };
+  const autoDismissTimersRef = { current: new Map() };
+  let keep = false;
+  const removeNotificationAnimated = bindLifted(
+    liftHookCallback(
+      'src/contexts/notifications/NotificationsContext.tsx',
+      'useCallback',
+      'NOTIFICATION_REMOVING'
+    ),
+    {
+      window: { dispatchEvent: () => undefined },
+      CustomEvent: class {},
+      APP_EVENTS: { NOTIFICATION_REMOVING: 'removing' },
+      setTimeout,
+      setNotifications,
+      NOTIFICATION_ANIMATION_DURATION_MS: constants.NOTIFICATION_ANIMATION_DURATION_MS
+    }
+  );
+  const scheduleAutoDismiss = bindLifted(
+    liftHookCallback(
+      'src/contexts/notifications/NotificationsContext.tsx',
+      'useCallback',
+      'const currentTimer'
+    ),
+    {
+      shouldAutoDismiss: () => !keep,
+      cancelAutoDismissTimer: () => undefined,
+      getNextInstanceId: () => 1,
+      autoDismissTimersRef,
+      setNotifications,
+      setTimeout,
+      queueMicrotask: (callback) => callback(),
+      removeNotificationAnimated,
+      isTerminalNotificationStatus,
+      AUTO_DISMISS_DELAY_MS: constants.AUTO_DISMISS_DELAY_MS
+    }
+  );
+  const waiting = bindLifted(
+    liftConstArrow('src/contexts/notifications/useNotificationHandlers.ts', 'waitingHandler'),
+    {
+      registry,
+      findEntryForWireType,
+      acknowledgedIds: { current: new Set() },
+      ...handlers,
+      cancelAutoDismissTimer: () => undefined,
+      scheduleAutoDismiss,
+      setNotifications,
+      isTerminalNotificationStatus,
+      i18n
+    }
+  );
+  const event = {
+    operationId: 'admitted',
+    operationType: 'evictionScan',
+    name: 'Eviction Scan',
+    blockedByName: 'Cache File Scan',
+    silent: true
+  };
+  for (const eventFirst of [true, false]) {
+    const key = `http-${eventFirst}`;
+    const response = { status: 'skipped', skippedReason: 'held', showNotification: false };
+    const handleRunNow = bindLifted(
+      liftHookCallback(
+        'src/components/features/management/schedules/SchedulesSection.tsx',
+        'useCallback',
+        'ApiService.triggerSchedule(key)'
+      ),
+      {
+        ApiService: { triggerSchedule: async () => response },
+        t: i18n.t,
+        markStarting: () => undefined,
+        clearPending: () => undefined,
+        setCompletedKeys: () => undefined,
+        setTimeout: () => undefined,
+        addNotification: (notice) => {
+          state.push(notice);
+        },
+        cacheQueuedReasonKey: 'held',
+        getErrorMessage: String
+      }
+    );
+    if (eventFirst) waiting({ ...event, operationId: key });
+    await handleRunNow('cacheReconciliation');
+    if (!eventFirst) waiting({ ...event, operationId: key });
+    assert.equal(state.length, 3);
+    assert.equal(state.find((n) => n.type === 'generic').id, `queued_${key}`);
+    timers.shift()();
+    timers.shift()();
+    assert.equal(state.length, 2);
+    assert.equal(state.find((n) => n.controlOnly).details.operationId, key);
+    state = [live];
+  }
+  waiting(event);
+  waiting(event);
+  assert.equal(state[0], live);
+  const card = state.find((n) => n.type === 'generic');
+  assert.equal(card.id, 'queued_admitted');
+  assert.equal(card.type, 'generic');
+  assert.equal(card.status, 'skipped');
+  assert.equal(card.details.notificationType, 'warning');
+  assert.equal(card.progress, undefined);
+  assert.equal(
+    card.message,
+    i18n.t('management.schedules.queuedUntilCacheFreeNamed', { name: event.name })
+  );
+  const color = bindLifted(
+    liftConstArrow('src/components/common/notificationCancel.ts', 'getNotificationColor'),
+    {}
+  );
+  assert.equal(color(card), 'var(--theme-warning)');
+  const bar = parseSource('src/components/common/UniversalNotificationBar.tsx', ts.ScriptKind.TSX);
+  const classified = collectNodes(
+    bar,
+    (node) => ts.isVariableDeclaration(node) && node.name.getText(bar) === 'classified'
+  )[0];
+  const classify = bindLifted(
+    `() => { let fullOrder = 0; return ${classified.initializer.getText(bar)}; }`,
+    {
+      sorted: [card],
+      controls: [],
+      SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: {},
+      displayModes: { cacheReconciliation: 'condensed' },
+      NOTIFICATION_IDS: constants.NOTIFICATION_IDS,
+      isMobile: false,
+      MOBILE_FULL_CARD_CAP: 2
+    }
+  );
+  assert.equal(classify()[0].condensed, false);
+  assert.equal(timers.length, 1);
+  timers.shift()();
+  timers.shift()();
+  assert.equal(state.length, 2);
+  assert.equal(state.find((n) => n.controlOnly).details.operationId, 'admitted');
+  waiting(event);
+  assert.equal(state.length, 2);
+  assert.equal(timers.length, 0);
+  keep = true;
+  waiting({ ...event, operationId: 'kept' });
+  assert.equal(state.find((n) => n.type === 'generic').status, 'skipped');
+  assert.equal(timers.length, 0);
+  assert.equal(
+    handlers.waitingCardMessage({ name: 'Eviction Scan', blockedByName: 'Eviction Scan' }),
+    'Eviction Scan: waiting for Eviction Scan to finish...'
+  );
+});
+
+test('schedule HTTP responses leave retained and hidden acknowledgment to the waiting event', async () => {
+  const source = liftHookCallback(
+    'src/components/features/management/schedules/SchedulesSection.tsx',
+    'useCallback',
+    'ApiService.triggerSchedule(key)'
+  );
+  for (const eventFirst of [true, false]) {
+    for (const response of [
+      { status: 'skipped', skippedReason: 'held', showNotification: false },
+      { status: 'alreadyRunning', alreadyRunning: true, showNotification: false },
+      { status: 'started', showNotification: false }
+    ]) {
+      const notices = [];
+      const handler = bindLifted(source, {
+        ApiService: { triggerSchedule: async () => response },
+        t: (key) => key,
+        markStarting: () => undefined,
+        clearPending: () => undefined,
+        setCompletedKeys: () => undefined,
+        setTimeout: () => undefined,
+        addNotification: (notice) => notices.push(notice),
+        cacheQueuedReasonKey: 'held',
+        getErrorMessage: String
+      });
+      const yellow = {
+        type: 'generic',
+        status: 'skipped',
+        details: { notificationType: 'warning' }
+      };
+      if (eventFirst && response.status !== 'started') notices.push(yellow);
+      await handler('cacheReconciliation');
+      if (!eventFirst && response.status !== 'started') notices.push(yellow);
+      assert.deepEqual(notices, response.status === 'started' ? [] : [yellow]);
+    }
+  }
+});
+
+test('hidden immediate Storage scan response creates no running seed', async () => {
+  const source = liftConstArrow(
+    'src/components/features/management/sections/StorageSection.tsx',
+    'handleStartEvictionScan'
+  );
+  const identity = parseSource(
+    'src/components/features/management/game-detection/gameRemovalEntity.ts'
+  );
+  const predicate = collectNodes(
+    identity,
+    (node) =>
+      ts.isFunctionDeclaration(node) && node.name?.text === 'shouldPinOperationIdFromResponse'
+  )[0];
+  const { shouldPinOperationIdFromResponse } = await import(
+    moduleUrl(
+      ts.transpileModule(predicate.getText(identity), {
+        compilerOptions: { module: ts.ModuleKind.ESNext }
+      }).outputText
+    )
+  );
+  let result = { operationId: 'scan', showNotification: false };
+  let seeded = false;
+  const handler = bindLifted(source, {
+    evictionScanInFlightRef: { current: false },
+    setIsStartingEvictionScan: () => undefined,
+    ApiService: {
+      startEvictionScan: async () => result
+    },
+    shouldPinOperationIdFromResponse,
+    addNotification: () => {
+      seeded = true;
+    },
+    buildSeededRunningNotification: () => ({}),
+    t: (key) => key,
+    onError: (error) => {
+      throw new Error(error);
+    },
+    getErrorMessage: String,
+    isMountedRef: { current: true }
+  });
+  await handler();
+  assert.equal(seeded, false);
+  result = { operationId: 'scan', queued: true };
+  await handler();
+  assert.equal(seeded, false);
+  result = { operationId: 'scan', alreadyRunning: true };
+  await handler();
+  assert.equal(seeded, false);
+  result = { operationId: 'scan', showNotification: true };
+  await handler();
+  assert.equal(seeded, true);
+});
+
+test('schedule responses retain visible success and genuine skipped or failed messages', async () => {
+  const source = liftHookCallback(
+    'src/components/features/management/schedules/SchedulesSection.tsx',
+    'useCallback',
+    'ApiService.triggerSchedule(key)'
+  );
+  for (const [response, expected] of [
+    [{ status: 'skipped', skippedReason: 'unrelated', showNotification: false }, 'warning'],
+    [{ status: 'started', showNotification: true }, 'success'],
+    [{ status: 'alreadyRunning', alreadyRunning: true, showNotification: true }, 'info'],
+    [null, 'error']
+  ]) {
+    const notices = [];
+    const handler = bindLifted(source, {
+      ApiService: {
+        triggerSchedule: async () => {
+          if (!response) throw new Error('failure');
+          return response;
+        }
+      },
+      t: (key) => key,
+      markStarting: () => undefined,
+      clearPending: () => undefined,
+      setCompletedKeys: () => undefined,
+      setTimeout: () => undefined,
+      addNotification: (notice) => notices.push(notice),
+      cacheQueuedReasonKey: 'held',
+      getErrorMessage: String
+    });
+    await handler('cacheReconciliation');
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].details.notificationType, expected);
+  }
+});
 
 const CASES = [
   ['game_removal', 'cache batch, game items'],
@@ -137,8 +711,12 @@ const runWaitingHandler = async (
   dismissed = [],
   repeats = 1
 ) => {
-  const { createCompletionHandler, findBulkCardOwningOperation, eventTargetsCard } =
-    await loadHandlerFactories();
+  const {
+    createCompletionHandler,
+    findBulkCardOwningOperation,
+    eventTargetsCard,
+    operationCardId
+  } = await loadHandlerFactories();
   const { isTerminalNotificationStatus } = await import(
     await compileToUrl('../src/contexts/notifications/notificationStatus.ts')
   );
@@ -157,6 +735,7 @@ const runWaitingHandler = async (
     registry: [],
     acknowledgedIds: { current: new Set() },
     createCompletionHandler,
+    operationCardId,
     findEntryForWireType: () => ({ type, id: `${type}_card` }),
     cancelAutoDismissTimer: () => undefined,
     scheduleAutoDismiss: (id) => dismissed.push(id),
@@ -218,10 +797,10 @@ test('silent acknowledgment preserves an occupied live slot and dismisses once',
     dismissed,
     2
   );
-  assert.equal(state.length, 2);
+  assert.equal(state.length, 3);
   assert.equal(state[0], live);
-  assert.equal(state[1].type, 'generic');
-  assert.equal(state[1].status, 'skipped');
+  assert.equal(state.filter((n) => n.controlOnly).length, 1);
+  assert.equal(state.find((n) => n.type === 'generic').status, 'skipped');
   assert.equal(dismissed.length, 1);
 });
 
@@ -462,6 +1041,8 @@ const runWaitingCompleteHandler = async (type, startingCards, event) => {
 
   const waitingCompleteHandler = bindLifted(arrowSource, {
     registry: [],
+    acknowledgedIds: { current: new Set() },
+    operationCardId: (await loadHandlerFactories()).operationCardId,
     findEntryForWireType: () => ({ type, id: `${type}_card` }),
     setNotifications,
     scheduleAutoDismiss: (id) => dismissed.push(id),

@@ -109,10 +109,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// manual trigger (it bypasses TriggerImmediateRun entirely, so CurrentRunTrigger cannot be
     /// relied on here - RunTrigger.Manual is passed explicitly instead).
     /// </summary>
-    public Guid? RunManualAsync() => StartScanInBackground(
-        "Eviction Scan",
-        silent: RunSilentFor(RunTrigger.Manual),
-        deferIfDownloading: false);
+    public Guid? RunManualAsync(RunNotice? notice = null)
+    {
+        notice ??= new RunNotice(EffectiveNotificationMode, RunTrigger.Manual);
+        return StartScanInBackground(
+            "Eviction Scan",
+            silent: !notice.ShowNotification,
+            deferIfDownloading: false,
+            notice: notice);
+    }
 
     /// <summary>
     /// Starts a scan whose lifetime belongs to this singleton rather than to the scheduler
@@ -253,14 +258,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         return base.IsEnabled();
     }
-
-    /// <summary>
-    /// Run-level silence for a scan triggered by <paramref name="trigger"/>: purely this service's
-    /// schedule notification mode. Scan progress and Remove-mode cleanup both honor this flag so the
-    /// Schedules control is the only place that hides those cards.
-    /// </summary>
-    private bool RunSilentFor(RunTrigger trigger) =>
-        !EffectiveNotificationMode.AllowsTrigger(trigger);
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
@@ -824,6 +821,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             });
 
         _evictionScanTerminalStates[operationId] = terminalState;
+        cts.Token.Register(() => notice?.Cancel(_operationTracker, operationId));
+        notice?.Attach(_operationTracker, operationId);
         return operationId;
     }
 

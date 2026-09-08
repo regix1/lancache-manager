@@ -330,9 +330,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       kind: 'simple',
       translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/logs/process/status',
-      isProcessing: (data: LogProcessingStatusResponse) => data.isProcessing && !data.silentMode,
-      shouldSkip: (data: LogProcessingStatusResponse) => data.isProcessing && data.silentMode,
+      isProcessing: (data: LogProcessingStatusResponse) => data.isProcessing,
       createNotification: (data: LogProcessingStatusResponse) => ({
+        controlOnly: data.silentMode,
         message: formatLogProcessingRecoveryMessage(data.mbProcessed, data.mbTotal),
         detailMessage: formatLogProcessingRecoveryDetailMessage(data.entriesProcessed),
         progress: Math.min(ACTIVE_PROGRESS_PERCENT_CAP, data.percentComplete),
@@ -657,15 +657,14 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/games/detect/active',
       isProcessing: (data: GameDetectionStatusResponse) =>
-        data.isProcessing && data.operation !== null && data.showNotification !== false,
+        data.isProcessing && data.operation !== null,
       // A silent automatic run still emits its terminal (display-gated). Skip recovery so a page
       // reload mid-run does not resurrect a visible card that the silent terminal can never clear.
-      shouldSkip: (data: GameDetectionStatusResponse) =>
-        data.isProcessing && data.operation !== null && data.showNotification === false,
       createNotification: (data: GameDetectionStatusResponse) => {
         // `isProcessing` guard above ensures `data.operation !== null` here.
         const op = data.operation!;
         return {
+          controlOnly: data.showNotification === false,
           message: translateStageKeyMessage(
             op.statusMessage,
             buildGameDetectionInterpolation(op.context, {
@@ -979,9 +978,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         ]
       },
       apiEndpoint: '/api/stats/eviction/scan/status',
-      isProcessing: (data: EvictionScanStatusResponse) => data.isProcessing && !data.silentMode,
-      shouldSkip: (data: EvictionScanStatusResponse) => data.isProcessing && data.silentMode,
+      isProcessing: (data: EvictionScanStatusResponse) => data.isProcessing,
       createNotification: (data: EvictionScanStatusResponse) => ({
+        controlOnly: data.silentMode,
         message: translateRecoveryStage(
           data.stageKey,
           data.context,
@@ -1046,13 +1045,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         ]
       },
       apiEndpoint: '/api/cache/size/scan/status',
-      isProcessing: (data: CacheSizeScanStatusResponse) =>
-        data.isProcessing && data.showNotification !== false,
+      isProcessing: (data: CacheSizeScanStatusResponse) => data.isProcessing,
       // A silent automatic scan still emits its terminal (display-gated). Skip recovery so a page
       // reload mid-run does not resurrect a visible card that the silent terminal can never clear.
-      shouldSkip: (data: CacheSizeScanStatusResponse) =>
-        data.isProcessing && data.showNotification === false,
       createNotification: (data: CacheSizeScanStatusResponse) => ({
+        controlOnly: data.showNotification === false,
         message: translateRecoveryStage(
           data.stageKey,
           data.context,
@@ -1112,18 +1109,19 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       kind: 'simple',
       translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/system/schedules/scheduledPrefill/run-status',
-      isProcessing: (data: ScheduledPrefillRunStatusResponse) =>
-        data.isRunning && data.showNotification !== false,
-      shouldSkip: (data: ScheduledPrefillRunStatusResponse) =>
-        data.isRunning && data.showNotification === false,
+      isProcessing: (data: ScheduledPrefillRunStatusResponse) => data.isRunning,
       // One card per service still running, each on the operation that service's own cancel
       // needs, so a reload mid-run comes back with the run it left rather than one card for it.
       recoverCards: (data: ScheduledPrefillRunStatusResponse) =>
         data.services.map((service) => ({
           id: scheduledPrefillCardId(service.serviceId),
+          controlOnly: data.showNotification === false,
           message: scheduledPrefillServiceMessage(service),
           progress: service.percentComplete ?? undefined,
-          details: { operationId: service.operationId ?? undefined }
+          details: {
+            operationId: service.operationId ?? undefined,
+            service: scheduledPrefillServiceLabel(service.serviceId)
+          }
         })),
       staleMessageKey: 'signalr.scheduledPrefill.stale'
     } satisfies SimpleRecoveryConfig<ScheduledPrefillRunStatusResponse>,
@@ -1301,6 +1299,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   // ========== Scheduled service runs (standard, built by factory) ==========
   buildScheduledRunEntry({
     type: 'log_rotation',
+    cancellable: false,
     id: NOTIFICATION_IDS.LOG_ROTATION,
     storageKey: NOTIFICATION_STORAGE_KEYS.LOG_ROTATION,
     serviceKey: 'logRotation',
@@ -1312,6 +1311,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   }),
   buildScheduledRunEntry({
     type: 'game_image_fetch',
+    cancellable: true,
     id: NOTIFICATION_IDS.GAME_IMAGE_FETCH,
     storageKey: NOTIFICATION_STORAGE_KEYS.GAME_IMAGE_FETCH,
     serviceKey: 'gameImageFetch',
@@ -1323,6 +1323,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   }),
   buildScheduledRunEntry({
     type: 'cache_snapshot',
+    cancellable: true,
     id: NOTIFICATION_IDS.CACHE_SNAPSHOT,
     storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_SNAPSHOT,
     serviceKey: 'cacheSnapshot',
@@ -1334,6 +1335,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   }),
   buildScheduledRunEntry({
     type: 'operation_history_cleanup',
+    cancellable: true,
     id: NOTIFICATION_IDS.OPERATION_HISTORY_CLEANUP,
     storageKey: NOTIFICATION_STORAGE_KEYS.OPERATION_HISTORY_CLEANUP,
     serviceKey: 'operationHistoryCleanup',
@@ -1345,6 +1347,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   }),
   buildScheduledRunEntry({
     type: 'dashboard_cache_warmer',
+    cancellable: true,
     id: NOTIFICATION_IDS.DASHBOARD_CACHE_WARMER,
     storageKey: NOTIFICATION_STORAGE_KEYS.DASHBOARD_CACHE_WARMER,
     serviceKey: 'dashboardCacheWarmer',

@@ -211,6 +211,9 @@ public partial class GameCacheDetectionService : IDisposable
             );
             var operationId = _currentTrackerOperationId.Value;
             registeredId = operationId;
+            var cancellationToken = _cancellationTokenSource.Token;
+            cancellationToken.Register(() => notice?.Cancel(_operationTracker, operationId));
+            notice?.Attach(_operationTracker, operationId);
 
             // Set initial progress message
             _operationTracker.UpdateProgress(operationId, 0, stageKeyStarting);
@@ -238,8 +241,7 @@ public partial class GameCacheDetectionService : IDisposable
             });
 
             // Start detection in background with cancellation token
-            var cancellationToken = _cancellationTokenSource.Token;
-            _ = Task.Run(async () => await RunDetectionAsync(operationId, incremental, showNotification, cancellationToken), cancellationToken);
+            _ = Task.Run(async () => await RunDetectionAsync(operationId, incremental, showNotification, cancellationToken), CancellationToken.None);
 
             return operationId;
         }

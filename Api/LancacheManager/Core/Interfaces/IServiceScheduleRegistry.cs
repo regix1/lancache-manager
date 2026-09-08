@@ -47,10 +47,10 @@ public interface IServiceScheduleRegistry
     /// (see <c>ScheduledServiceBase.TriggerImmediateRun</c>'s single pending-run flag) - the caller is
     /// colliding with the run described by the returned status, not starting a new one.
     ///
-    /// SkippedReason is set instead when the run was refused before it was armed, and is the sentence
-    /// to show the caller: nothing was triggered and no run will follow.
+    /// SkippedReason identifies a retained download hold before the loop is armed.
+    /// ShowNotification reflects the admitted run's notification preference.
     /// </summary>
-    Task<(ScheduleRunStatus Status, string? SkippedReason)> TriggerRunAsync(string serviceKey);
+    Task<(ScheduleRunStatus Status, string? SkippedReason, bool ShowNotification)> TriggerRunAsync(string serviceKey);
 
     /// <summary>
     /// Returns the live run status for a service by its key, or <c>null</c> when the key maps to no

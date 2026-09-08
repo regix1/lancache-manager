@@ -144,13 +144,13 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
             // the other conditions first and only reading _pendingManualRun in the innermost branch
             // silently drops a same-tick Run Now AND leaves the flag stale to misattribute a LATER
             // genuinely scheduled tick as Manual.
-            var manualPending = ConsumePendingManualRun();
+            var manualPending = ConsumePendingManualRun(out var manualNotice);
 
             // A run this service was already due for, refused while a download was writing to the
             // cache and owed now that it has stopped. It reaches the work branch the same way a Run
             // Now does, and keeps its Scheduled or Startup attribution below, because that is what
             // it is.
-            var deferredPending = ConsumePendingDeferredRun();
+            var deferredPending = ConsumePendingDeferredRun(out var deferredNotice);
 
             // Skip work if woken by an interval change with no manual run pending - just re-sleep
             // with the new interval.
@@ -181,7 +181,7 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                 var (shuttingDown, runFailed) = await RunScheduledWorkAsync(
                     ServiceName,
                     runTrigger,
-                    async () =>
+                    async runToken =>
                     {
                         // Broadcast the start so the Schedules status dot lights up for the whole run.
                         // Poll-style services (see BroadcastRunStart) opt out to avoid a per-tick flash
@@ -190,7 +190,7 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                         {
                             ServiceExecutionStateChanged?.Invoke(ServiceName);
                         }
-                        await ExecuteWorkAsync(stoppingToken);
+                        await ExecuteWorkAsync(runToken);
                         // Advance NextRunUtc now so the run-END broadcast carries the fresh next-run
                         // instead of the just-elapsed one. The bottom-of-loop sleep re-sets this
                         // authoritatively; this only keeps the END snapshot from shipping a stale
@@ -200,7 +200,8 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                     },
                     stoppingToken,
                     "{ServiceName} error in scheduled work",
-                    () => ServiceExecutionStateChanged?.Invoke(ServiceName));
+                    () => ServiceExecutionStateChanged?.Invoke(ServiceName),
+                    manualPending ? manualNotice : deferredNotice);
 
                 if (shuttingDown)
                 {

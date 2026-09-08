@@ -72,7 +72,7 @@ public class OperationHistoryCleanupService : ScheduledBackgroundService
             return;
         }
 
-        var show = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        var show = CurrentRunNotice.ShowNotification;
         await using var reporter = new ScheduledRunReporter(
             _notifications,
             _operationTracker,
@@ -81,13 +81,14 @@ public class OperationHistoryCleanupService : ScheduledBackgroundService
             _eventNames,
             $"{StageBase}.complete",
             show,
-            stoppingToken);
+            stoppingToken, notice: CurrentRunNotice);
 
         await reporter.StartAsync($"{StageBase}.starting", BuildContext(0, toRemove.Count));
 
         var reportStep = Math.Max(1, toRemove.Count / 20);
         for (var i = 0; i < toRemove.Count; i++)
         {
+            reporter.Token.ThrowIfCancellationRequested();
             _stateService.RemoveCacheClearOperation(toRemove[i]);
 
             var processed = i + 1;

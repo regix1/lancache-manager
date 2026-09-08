@@ -743,7 +743,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       // deduplicated the request - the OperationWaiting SignalR event (or the existing
       // card) owns the UI, so do NOT seed a running card over it. Evicted-data mode does not
       // hide the scan card; schedule notification mode is the only display gate.
-      if (shouldPinOperationIdFromResponse(result)) {
+      if (result.showNotification !== false && shouldPinOperationIdFromResponse(result)) {
         addNotification(
           buildSeededRunningNotification(
             'eviction_scan',

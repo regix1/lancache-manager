@@ -31,6 +31,8 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     private readonly ScheduledRunEventNames _events;
     private readonly string _completeStageKey;
     private readonly bool _showNotification;
+    private readonly RunNotice? _notice;
+    private CancellationTokenRegistration _cancelRegistration;
     private readonly CancellationTokenSource _cts;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private readonly ScheduledRunPayloadFactories? _payloadFactories;
@@ -75,7 +77,8 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         ScheduledRunPayloadFactories? payloadFactories = null,
         Action? onTerminalCleanup = null,
         ILogger? logger = null,
-        Func<OperationTerminalInfo, string>? externalTerminalStageKey = null)
+        Func<OperationTerminalInfo, string>? externalTerminalStageKey = null,
+        RunNotice? notice = null)
     {
         _notifications = notifications;
         _tracker = tracker;
@@ -84,7 +87,8 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         _events = events;
         _completeStageKey = completeStageKey;
         _terminalStageKey = completeStageKey;
-        _showNotification = showNotification;
+        _notice = notice;
+        _showNotification = notice?.ShowNotification ?? showNotification;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         _payloadFactories = payloadFactories;
         _onTerminalCleanup = onTerminalCleanup;
@@ -137,12 +141,16 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 {
                     ["showNotification"] = _showNotification,
                     ["context"] = context,
+                    ["runNotice"] = _notice,
                 },
                 onTerminalCleanup: null,
                 onTerminalEmit: EmitTerminalAsync);
             _ctsHandedOff = true;
             _started = true;
             _lastContext = context;
+
+            _cancelRegistration = _cts.Token.Register(() => _notice?.Cancel(_tracker, _operationId));
+            _notice?.Attach(_tracker, _operationId);
 
             _tracker.UpdateProgress(_operationId, 0, stageKey);
             var started = new ScheduledRunStartedEvent(
@@ -403,6 +411,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             _cts.Dispose();
         }
 
+        _cancelRegistration.Dispose();
         _sendGate.Dispose();
     }
 }

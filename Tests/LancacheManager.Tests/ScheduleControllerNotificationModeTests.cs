@@ -385,8 +385,8 @@ public class ScheduleControllerNotificationModeTests
             return ScanModeAccepted;
         }
 
-        public Task<(ScheduleRunStatus Status, string? SkippedReason)> TriggerRunAsync(string serviceKey)
-            => Task.FromResult<(ScheduleRunStatus, string?)>((new ScheduleRunStatus(), null));
+        public Task<(ScheduleRunStatus Status, string? SkippedReason, bool ShowNotification)> TriggerRunAsync(string serviceKey)
+            => Task.FromResult<(ScheduleRunStatus, string?, bool)>((new ScheduleRunStatus(), null, true));
         public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason)> TriggerAllAsync()
             => Task.FromResult<(int, int, int, string?)>((0, 0, 0, null));
         public void ResetToDefaults() { }
