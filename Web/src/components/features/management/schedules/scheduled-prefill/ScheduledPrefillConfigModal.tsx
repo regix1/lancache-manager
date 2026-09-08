@@ -2205,18 +2205,18 @@ export function ScheduledPrefillConfigModal({
                           </div>
                         </div>
                       </div>
-
-                      {banner && (
-                        <Alert
-                          color={banner.color}
-                          className="scheduled-prefill-config-modal__alert"
-                          withCloseButton
-                          onClose={dismissBanner}
-                        >
-                          {banner.message}
-                        </Alert>
-                      )}
                     </div>
+
+                    {banner && (
+                      <Alert
+                        color={banner.color}
+                        className="scheduled-prefill-config-modal__alert"
+                        withCloseButton
+                        onClose={dismissBanner}
+                      >
+                        {banner.message}
+                      </Alert>
+                    )}
 
                     {config ? (
                       <ScheduledPrefillPlatformsPanel

@@ -944,7 +944,7 @@
 .scheduled-prefill-config-modal__scroll-content {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
   /* 1px inset keeps the first/last box's border a hair off the scroll viewport's clip edge. */
   padding: 1px;
   /* Extra breathing room beyond CustomScrollbar's own reserved gutter - its track sits at a fixed
@@ -1821,12 +1821,6 @@
 
 .scheduled-prefill-persistent-card__settings-content {
   padding-top: 1rem;
-}
-
-.scheduled-prefill-persistent-card__settings-content
-  .scheduled-prefill-config-modal__global-help
-  + .scheduled-prefill-config-modal__settings-list {
-  margin-top: 1rem;
 }
 
 .scheduled-prefill-platform-block .scheduled-prefill-config-modal__settings-list {

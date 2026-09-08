@@ -427,7 +427,9 @@ export function ScheduledPrefillPersistentCard({
             open={settingsOpen}
             contentClassName="scheduled-prefill-persistent-card__settings-content"
           >
-            <div id={settingsId}>{containerSettings}</div>
+            <div id={settingsId} className="flex flex-col gap-4">
+              {containerSettings}
+            </div>
           </CollapsibleRegion>
         </div>
       )}
