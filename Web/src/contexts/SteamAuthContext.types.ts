@@ -6,6 +6,7 @@ interface SteamAuthContextType {
   steamAuthMode: SteamAuthMode;
   username: string;
   isLoading: boolean;
+  revision: number;
   autoLogoutMessage: string | null;
   refreshSteamAuth: () => Promise<void>;
   setSteamAuthMode: (mode: SteamAuthMode) => void;

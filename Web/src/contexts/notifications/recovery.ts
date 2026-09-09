@@ -129,12 +129,19 @@ function reconcileRecoveredCard(
   };
 
   if (recovered.progress === undefined) {
-    return merged;
+    return existing.details?.handoffPending && recovered.message.trim()
+      ? {
+          ...merged,
+          message: recovered.message,
+          details: { ...merged.details, handoffPending: undefined }
+        }
+      : merged;
   }
 
   return {
     ...merged,
     message: recovered.message,
+    details: { ...merged.details, handoffPending: undefined },
     progress: recovered.progress,
     detailMessage: recovered.detailMessage ?? existing.detailMessage,
     progressMode: recovered.progressMode ?? existing.progressMode,
@@ -430,7 +437,7 @@ function createSimpleRecoveryFunction<TData>(
             error: status === 'failed' ? message : undefined,
             progress: status === 'skipped' ? undefined : FULL_PROGRESS_PERCENT,
             startedAt: existing?.startedAt ?? startedAt,
-            details: { ...existing?.details, operationId },
+            details: { ...existing?.details, operationId, handoffPending: undefined },
             detailMessage: entry?.complete?.getDetailMessage?.(data) ?? existing?.detailMessage
           };
           if (!known && pass) {
@@ -560,6 +567,7 @@ function createSimpleRecoveryFunction<TData>(
                 {
                   ...n,
                   status: 'completed' as const,
+                  details: { ...n.details, handoffPending: undefined },
                   message: i18n.t(config.staleMessageKey),
                   progress: FULL_PROGRESS_PERCENT
                 }
@@ -842,6 +850,7 @@ function recoverEvictionRemovals(
       return {
         ...n,
         status: 'completed',
+        details: { ...n.details, handoffPending: undefined },
         message: i18n.t('signalr.evictionRemove.complete', {}),
         progress: FULL_PROGRESS_PERCENT
       };
@@ -904,7 +913,13 @@ function recoverOperations(
         n.id
       );
       scheduleAutoDismiss(n.id);
-      return { ...n, status: 'completed', message: staleMessage, progress: FULL_PROGRESS_PERCENT };
+      return {
+        ...n,
+        status: 'completed',
+        details: { ...n.details, handoffPending: undefined },
+        message: staleMessage,
+        progress: FULL_PROGRESS_PERCENT
+      };
     });
   });
 }

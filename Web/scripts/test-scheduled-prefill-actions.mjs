@@ -8,6 +8,7 @@ import {
   collectNodes,
   compileToUrl,
   findSoleNode,
+  liftHookCallback,
   parseSource
 } from './transpile-module.mjs';
 
@@ -85,6 +86,224 @@ function getItemWithCallback(component, source, tag, callbackName) {
     getHandler(item, source).includes(`${callbackName}(`)
   );
 }
+
+function modalSession() {
+  const pending = { config: [], validity: [] };
+  const state = {
+    config: null,
+    loading: false,
+    validity: 90,
+    savedValidity: null,
+    loadError: null,
+    settingsError: null
+  };
+  const bindings = {
+    opened: true,
+    persistedConfigRef: { current: null },
+    loadedConfigRef: { current: null },
+    savedValidityDaysRef: { current: null },
+    persistentContainersRequestRef: { current: null },
+    editSessionRef: { current: null },
+    editSessionRetiredRef: { current: false },
+    sessionStore: {},
+    loadScheduledPrefillEditSession: () => null,
+    retryStoredEditSessionCleanup: async () => undefined,
+    setEditSessionCleanupPending: () => undefined,
+    setConfig: (config) => {
+      state.config = config;
+    },
+    setLoadingConfig: (loading) => {
+      state.loading = loading;
+    },
+    setLoadError: (error) => {
+      state.loadError = error;
+    },
+    setPersistentValidityDays: (days) => {
+      state.validity = days;
+    },
+    setSavedValidityDays: (days) => {
+      state.savedValidity = days;
+      bindings.savedValidityDaysRef.current = days;
+    },
+    setGlobalSettingsError: (error) => {
+      state.settingsError = error;
+    },
+    setValidationError: () => undefined,
+    setSaveError: () => undefined,
+    setPersistentError: () => undefined,
+    setGameSelectionError: () => undefined,
+    setGameSelection: () => undefined,
+    setPersistentLoginTarget: () => undefined,
+    setSaving: () => undefined,
+    loadPersistentContainers: () => undefined,
+    DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS: 90,
+    PERSISTENT_PREFILL_VALIDITY_BOUNDS: { min: 1, max: 365 },
+    clampToBounds: (days) => days,
+    reconcileScheduledPrefillConfig: (config) => config,
+    isAbortError: (error) => error.name === 'AbortError',
+    getErrorMessage: (error) => error.message,
+    ApiService: {
+      getScheduledPrefillConfig: () =>
+        new Promise((resolve, reject) => pending.config.push({ resolve, reject })),
+      getPersistentPrefillValidity: () =>
+        new Promise((resolve, reject) => pending.validity.push({ resolve, reject }))
+    }
+  };
+  for (const [name, token] of [
+    ['loadConfig', 'getScheduledPrefillConfig'],
+    ['loadGlobalSettings', 'getPersistentPrefillValidity']
+  ]) {
+    bindings[name] = bindLifted(
+      liftHookCallback(configModalSource.fileName, 'useCallback', token),
+      bindings
+    );
+  }
+  return {
+    state,
+    bindings,
+    pending,
+    open: () =>
+      bindLifted(
+        liftHookCallback(configModalSource.fileName, 'useEffect', 'const storedEditSession'),
+        bindings
+      )()
+  };
+}
+
+test('first load remains pending while reopen restores confirmed config and validity instead of discarded edits', () => {
+  const f = modalSession();
+  const close = f.open();
+  assert.equal(f.state.config, null);
+  assert.equal(f.state.loading, true);
+  close();
+  const confirmed = { version: 6, steam: { enabled: true } };
+  f.bindings.persistedConfigRef.current = confirmed;
+  f.bindings.savedValidityDaysRef.current = 120;
+  f.state.config = { version: 6, steam: { enabled: false } };
+  f.state.validity = 30;
+  f.open();
+  assert.equal(f.state.config, confirmed);
+  assert.equal(f.state.validity, 120);
+  assert.equal(f.state.loading, true, 'edits remain gated during authoritative refresh');
+  const opening = liftHookCallback(
+    configModalSource.fileName,
+    'useEffect',
+    'const storedEditSession'
+  );
+  assert.doesNotMatch(opening, /setPersistentContainers\(/, 'confirmed containers remain mounted');
+});
+
+for (const outcome of ['success', 'failure']) {
+  test(`an aborted opening ${outcome} cannot write config, settings or loading over the newer opening`, async () => {
+    const f = modalSession();
+    const old = new AbortController();
+    const oldConfig = f.bindings.loadConfig(old.signal);
+    const oldSettings = f.bindings.loadGlobalSettings(old.signal);
+    old.abort();
+    const currentConfig = f.bindings.loadConfig(new AbortController().signal);
+    const currentSettings = f.bindings.loadGlobalSettings(new AbortController().signal);
+    if (outcome === 'success') {
+      f.pending.config[0].resolve({ old: true });
+      f.pending.validity[0].resolve({ days: 10 });
+    } else {
+      f.pending.config[0].reject(new Error('old config failed'));
+      f.pending.validity[0].reject(new Error('old settings failed'));
+    }
+    await Promise.all([oldConfig, oldSettings]);
+    assert.equal(f.state.config, null);
+    assert.equal(f.state.loading, true);
+    assert.equal(f.state.loadError, null);
+    assert.equal(f.state.settingsError, null);
+    assert.equal(f.state.savedValidity, null);
+    const confirmed = { current: true };
+    f.pending.config[1].resolve(confirmed);
+    f.pending.validity[1].resolve({ days: 120 });
+    await Promise.all([currentConfig, currentSettings]);
+    assert.equal(f.state.config, confirmed);
+    assert.equal(f.bindings.persistedConfigRef.current, confirmed);
+    assert.equal(f.bindings.loadedConfigRef.current, JSON.stringify(confirmed));
+    assert.equal(f.state.validity, 120);
+    assert.equal(f.state.savedValidity, 120);
+    assert.equal(f.state.loading, false);
+  });
+}
+
+test('current refresh failures retain confirmed content and prevent writing an unread validity', async () => {
+  const f = modalSession();
+  const confirmed = { current: true };
+  f.state.config = confirmed;
+  f.state.savedValidity = 120;
+  const config = f.bindings.loadConfig();
+  const settings = f.bindings.loadGlobalSettings();
+  f.pending.config[0].reject(new Error('config failed'));
+  f.pending.validity[0].reject(new Error('validity failed'));
+  await Promise.all([config, settings]);
+  assert.equal(f.state.config, confirmed);
+  assert.equal(f.state.loading, false);
+  assert.equal(f.state.loadError, 'config failed');
+  assert.equal(f.state.settingsError, 'validity failed');
+  assert.equal(f.state.savedValidity, null);
+});
+
+test('a successful save confirms the submitted snapshot before callbacks and the next open', async () => {
+  const f = modalSession();
+  const submitted = { version: 6, steam: { enabled: true } };
+  const written = [];
+  const commit = findSoleNode(
+    configModalSource,
+    'commitSave',
+    (node) =>
+      ts.isVariableDeclaration(node) && node.name.getText(configModalSource) === 'commitSave'
+  ).initializer.getText(configModalSource);
+  f.bindings.ApiService.updateScheduledPrefillConfig = async (config) => written.push(config);
+  f.bindings.ApiService.updatePersistentPrefillValidity = async (value) => written.push(value);
+  await bindLifted(commit, {
+    ...f.bindings,
+    config: submitted,
+    savedValidityDays: 90,
+    persistentValidityDays: 120,
+    onSaved: () => {
+      assert.equal(f.bindings.persistedConfigRef.current, submitted);
+      assert.equal(f.bindings.loadedConfigRef.current, JSON.stringify(submitted));
+    },
+    onClose: () => undefined
+  })();
+  assert.deepEqual(written, [submitted, { days: 120 }]);
+  f.state.config = { discarded: true };
+  f.open();
+  assert.equal(f.state.config, submitted);
+  assert.equal(f.state.validity, 120);
+});
+
+test('Steam refresh invalidates only private availability and close cancels reconnect requests', () => {
+  const effects = collectNodes(
+    configModalSource,
+    (node) =>
+      ts.isCallExpression(node) && node.expression.getText(configModalSource) === 'useEffect'
+  );
+  const availability = effects.find((node) =>
+    node.arguments[0].getText(configModalSource).includes('void loadIntegrationLoginAvailability(')
+  );
+  const opening = effects.find((node) =>
+    node.arguments[0].getText(configModalSource).includes('const storedEditSession')
+  );
+  assert.match(availability.arguments[1].getText(configModalSource), /\brevision\b/);
+  assert.doesNotMatch(opening.arguments[1].getText(configModalSource), /\brevision\b/);
+  const current = new AbortController();
+  const ref = { current };
+  let caller;
+  const cleanup = bindLifted(availability.arguments[0].getText(configModalSource), {
+    opened: true,
+    integrationLoginRequestRef: ref,
+    loadIntegrationLoginAvailability: (signal) => {
+      caller = signal;
+    }
+  })();
+  ref.current = new AbortController();
+  cleanup();
+  assert.equal(caller.aborted, true);
+  assert.equal(ref.current.signal.aborted, true, 'close cancels a request started by reconnect');
+});
 
 test('row Actions callbacks keep a pending operation scoped to its exact service and schedule', () => {
   const row = getComponent(detailSource, 'ScheduledPrefillServiceScheduleRow');

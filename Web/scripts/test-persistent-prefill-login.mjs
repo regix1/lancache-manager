@@ -181,6 +181,7 @@ test('availability responses from a previous LANCache account are discarded', as
     ),
     {
       privateAvailabilityIdentityRef: identity,
+      integrationLoginRequestRef: { current: null },
       canUseSavedLogin: true,
       requiresIndividualAccount: false,
       SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS: ['steam'],

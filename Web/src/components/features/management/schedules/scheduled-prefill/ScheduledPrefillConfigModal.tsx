@@ -88,6 +88,7 @@ import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
+import { useSteamAuth } from '@contexts/useSteamAuth';
 
 interface ScheduledPrefillConfigModalProps {
   opened: boolean;
@@ -269,6 +270,7 @@ export function ScheduledPrefillConfigModal({
 }: ScheduledPrefillConfigModalProps) {
   const { t } = useTranslation();
   const { accountId, authMode, sessionId } = useAuth();
+  const { revision } = useSteamAuth();
   const { on: onSignalR, off: offSignalR, isConnected } = useSignalR();
   const [setScrollAreaEl, scrollAreaHeight] = useScrollAreaHeight();
   const [config, setConfig] = useState<ScheduledPrefillConfigDto | null>(null);
@@ -307,6 +309,8 @@ export function ScheduledPrefillConfigModal({
   // Null also gates the field and the save, because a draft that was never seeded from the server
   // is a default, not a choice.
   const [savedValidityDays, setSavedValidityDays] = useState<number | null>(null);
+  const savedValidityDaysRef = useRef(savedValidityDays);
+  savedValidityDaysRef.current = savedValidityDays;
   const [globalSettingsError, setGlobalSettingsError] = useState<string | null>(null);
   const [clearLoginsConfirmOpen, setClearLoginsConfirmOpen] = useState(false);
   const [clearingLogins, setClearingLogins] = useState(false);
@@ -349,9 +353,11 @@ export function ScheduledPrefillConfigModal({
   const scheduleClearLoginsSuccessDismiss = useTimeoutCallback(2500);
 
   const loadConfig = useCallback(async (signal?: AbortSignal) => {
+    if (signal?.aborted) return;
     setLoadingConfig(true);
     try {
       const nextConfig = await ApiService.getScheduledPrefillConfig(signal);
+      if (signal?.aborted) return;
       const reconciled = reconcileScheduledPrefillConfig(nextConfig);
       // Snapshot what was loaded so Cancel can tell an edited form from an untouched one and only
       // warn about losing work when there is work to lose.
@@ -360,11 +366,11 @@ export function ScheduledPrefillConfigModal({
       setConfig(reconciled);
       setLoadError(null);
     } catch (error: unknown) {
-      if (!isAbortError(error)) {
+      if (!signal?.aborted && !isAbortError(error)) {
         setLoadError(getErrorMessage(error));
       }
     } finally {
-      setLoadingConfig(false);
+      if (!signal?.aborted) setLoadingConfig(false);
     }
   }, []);
 
@@ -423,11 +429,20 @@ export function ScheduledPrefillConfigModal({
     return request.promise;
   }, []);
 
+  const integrationLoginRequestRef = useRef<AbortController | null>(null);
   const loadIntegrationLoginAvailability = useCallback(
     async (signal?: AbortSignal) => {
+      if (signal?.aborted) return;
+      integrationLoginRequestRef.current?.abort();
+      const controller = new AbortController();
+      integrationLoginRequestRef.current = controller;
       const requestIdentity = privateAvailabilityIdentityRef.current;
+      const isCurrent = () =>
+        integrationLoginRequestRef.current === controller &&
+        !controller.signal.aborted &&
+        requestIdentity === privateAvailabilityIdentityRef.current;
       if (!canUseSavedLogin) {
-        if (requestIdentity === privateAvailabilityIdentityRef.current) {
+        if (isCurrent()) {
           setIntegrationLoginAvailabilityByService(
             new Map(
               requiresIndividualAccount
@@ -444,14 +459,16 @@ export function ScheduledPrefillConfigModal({
         return;
       }
 
-      setLoadingIntegrationLoginAvailability(true);
+      const abort = () => controller.abort();
+      signal?.addEventListener('abort', abort, { once: true });
+      if (isCurrent()) setLoadingIntegrationLoginAvailability(true);
       try {
         const availability = await Promise.all(
           SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map(async (serviceKey) => {
             try {
               const result = await ApiService.getPersistentIntegrationLoginAvailability(
                 getPersistentServiceId(serviceKey),
-                signal
+                controller.signal
               );
               return [serviceKey, result] as const;
             } catch (error: unknown) {
@@ -462,12 +479,12 @@ export function ScheduledPrefillConfigModal({
             }
           })
         );
-        if (requestIdentity === privateAvailabilityIdentityRef.current) {
+        if (isCurrent()) {
           setIntegrationLoginAvailabilityByService(new Map(availability));
           setIntegrationLoginAvailabilityIdentity(requestIdentity);
         }
       } catch (error: unknown) {
-        if (!isAbortError(error) && requestIdentity === privateAvailabilityIdentityRef.current) {
+        if (!isAbortError(error) && isCurrent()) {
           setIntegrationLoginAvailabilityByService(
             new Map(
               SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map((serviceKey) => [
@@ -479,7 +496,8 @@ export function ScheduledPrefillConfigModal({
           setIntegrationLoginAvailabilityIdentity(requestIdentity);
         }
       } finally {
-        if (!signal?.aborted && requestIdentity === privateAvailabilityIdentityRef.current) {
+        signal?.removeEventListener('abort', abort);
+        if (isCurrent()) {
           setLoadingIntegrationLoginAvailability(false);
         }
       }
@@ -523,23 +541,30 @@ export function ScheduledPrefillConfigModal({
 
   useEffect(() => {
     if (!opened) {
+      integrationLoginRequestRef.current?.abort();
       return;
     }
 
     const controller = new AbortController();
     void loadIntegrationLoginAvailability(controller.signal);
-    return () => controller.abort();
-  }, [opened, privateAvailabilityIdentity, loadIntegrationLoginAvailability]);
+    return () => {
+      controller.abort();
+      integrationLoginRequestRef.current?.abort();
+    };
+  }, [opened, privateAvailabilityIdentity, revision, loadIntegrationLoginAvailability]);
 
   const loadGlobalSettings = useCallback(async (signal?: AbortSignal) => {
+    if (signal?.aborted) return;
     try {
       const validity = await ApiService.getPersistentPrefillValidity(signal);
+      if (signal?.aborted) return;
       const days = clampToBounds(validity.days, PERSISTENT_PREFILL_VALIDITY_BOUNDS);
       setPersistentValidityDays(days);
       setSavedValidityDays(days);
       setGlobalSettingsError(null);
     } catch (error: unknown) {
-      if (!isAbortError(error)) {
+      if (!signal?.aborted && !isAbortError(error)) {
+        setSavedValidityDays(null);
         setGlobalSettingsError(getErrorMessage(error));
       }
     }
@@ -672,13 +697,13 @@ export function ScheduledPrefillConfigModal({
       setEditSessionCleanupPending(false);
     } else {
       void retryStoredEditSessionCleanup().catch((error: unknown) => {
-        setPersistentError(getErrorMessage(error));
+        if (!controller.signal.aborted) setPersistentError(getErrorMessage(error));
       });
     }
-    setConfig(null);
-    setPersistentContainers(null);
-    setPersistentValidityDays(DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS);
-    setSavedValidityDays(null);
+    setConfig(persistedConfigRef.current);
+    setPersistentValidityDays(
+      savedValidityDaysRef.current ?? DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS
+    );
     setValidationError(null);
     setSaveError(null);
     setPersistentError(null);
@@ -2075,6 +2100,8 @@ export function ScheduledPrefillConfigModal({
         requests.push(ApiService.updatePersistentPrefillValidity({ days: nextValidityDays }));
       }
       await Promise.all(requests);
+      persistedConfigRef.current = config;
+      loadedConfigRef.current = JSON.stringify(config);
       editSessionRetiredRef.current = true;
       const committedEditSession = editSessionRef.current;
       if (committedEditSession) {

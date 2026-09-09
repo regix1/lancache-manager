@@ -5,12 +5,11 @@ import typescript from 'typescript';
 import { compileToUrl } from './transpile-module.mjs';
 
 /**
- * Steam auth state moves on two broadcasts and nothing else, so a session the server dropped while
- * this tab was disconnected leaves the tab offering a Steam login that is already gone. The
- * provider is run for real here - compiled with its JSX and driven through a sequence of renders
- * with a stub server behind it - so the sequence that matters is the sequence asserted: connected,
- * dropped, logged out server-side, reconnected. The guest case is here too, because this provider
- * is mounted for every session and the status endpoint is not for guests.
+ * Steam auth refreshes on explicit requests, two broadcasts, and reconnect. The provider is run
+ * for real here - compiled with its JSX and driven through a sequence of renders with a stub server
+ * behind it - so completed refreshes can be checked even when mode and username do not change. The
+ * guest case is here too, because this provider is mounted for every session and the status endpoint
+ * is not for guests.
  */
 
 const toUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
@@ -97,10 +96,22 @@ const apiStubUrl = toUrl(`export default { getFetchOptions: () => ({}) };`);
 
 /** One hub object across renders, so only the flag the provider reads changes. */
 const signalRStubUrl = toUrl(`
-const hub = { on: () => {}, off: () => {}, isConnected: false };
+const handlers = new Map();
+const hub = {
+  on: (event, handler) => handlers.set(event, handler),
+  off: (event, handler) => {
+    if (handlers.get(event) === handler) handlers.delete(event);
+  },
+  isConnected: false
+};
 export const useSignalR = () => {
   hub.isConnected = globalThis.__socketLive;
   return hub;
+};
+globalThis.__emitSignalR = async (event, value) => {
+  const handler = handlers.get(event);
+  if (!handler) throw new Error('No SignalR handler for ' + event);
+  await handler(value);
 };
 `);
 
@@ -185,8 +196,25 @@ test('an admin mounting into a live socket asks once, not twice', async () => {
   await settle();
 
   assert.equal(server.requests, 1, 'the mount fetch already had the subscription up');
-  assert.equal(provider.render(true).steamAuthMode, 'authenticated');
+  const value = provider.render(true);
+  assert.equal(value.steamAuthMode, 'authenticated');
+  assert.equal(value.revision, 1, 'the initial completed refresh is published');
   assert.equal(server.requests, 1, 'a re-render at the same connection state asks nothing');
+});
+
+test('an explicit same-user refresh advances the completion revision', async () => {
+  const server = startServer('authenticated', 'lanadmin');
+  const provider = mount('authenticated', true);
+  await settle();
+  assert.equal(provider.render(true).revision, 1);
+
+  await provider.read().refreshSteamAuth();
+
+  const value = provider.render(true);
+  assert.equal(server.requests, 2);
+  assert.equal(value.steamAuthMode, 'authenticated');
+  assert.equal(value.username, 'lanadmin');
+  assert.equal(value.revision, 2, 'equal status values still publish refresh completion');
 });
 
 test('a session dropped server-side while the socket was down is noticed on recovery', async () => {
@@ -210,6 +238,7 @@ test('a session dropped server-side while the socket was down is noticed on reco
   const value = provider.render(true);
   assert.equal(value.steamAuthMode, 'anonymous', 'a Steam login offered here is already gone');
   assert.equal(value.username, '');
+  assert.equal(value.revision, 2, 'reconnect publishes its completed refresh');
 });
 
 test('a guest never asks, at mount or on recovery', async () => {
@@ -222,7 +251,9 @@ test('a guest never asks, at mount or on recovery', async () => {
   await settle();
 
   assert.equal(server.requests, 0, 'and a recovered connection does not make it one');
-  assert.equal(provider.read().isLoading, false, 'a guest is not left spinning');
+  const value = provider.render(true);
+  assert.equal(value.isLoading, false, 'a guest is not left spinning');
+  assert.equal(value.revision, 0, 'a guest does not publish a refresh that never ran');
 });
 
 test('a socket that comes up after an admin mounted refetches', async () => {
@@ -239,7 +270,55 @@ test('a socket that comes up after an admin mounted refetches', async () => {
   await settle();
 
   assert.equal(server.requests, 2);
-  assert.equal(provider.render(true).username, 'lanadmin');
+  const value = provider.render(true);
+  assert.equal(value.username, 'lanadmin');
+  assert.equal(value.revision, 2);
+});
+
+test('reconnect advances revision when the status values are unchanged', async () => {
+  const server = startServer('authenticated', 'lanadmin');
+  const provider = mount('authenticated', false);
+  await settle();
+  assert.equal(provider.render(false).revision, 1);
+
+  provider.render(true);
+  await settle();
+
+  const value = provider.render(true);
+  assert.equal(server.requests, 2);
+  assert.equal(value.username, 'lanadmin');
+  assert.equal(value.revision, 2);
+});
+
+test('invalidating events publish completed refreshes and ignore unrelated session errors', async () => {
+  const server = startServer('authenticated', 'lanadmin');
+  const provider = mount('authenticated', true);
+  await settle();
+  assert.equal(provider.render(true).revision, 1);
+
+  await globalThis.__emitSignalR('SteamAutoLogout', { message: 'Steam signed out' });
+  let value = provider.render(true);
+  assert.equal(server.requests, 2);
+  assert.equal(value.revision, 2);
+  assert.equal(value.autoLogoutMessage, 'Steam signed out');
+
+  const invalidatingTypes = [
+    'InvalidCredentials',
+    'AuthenticationRequired',
+    'SessionExpired',
+    'AutoLogout'
+  ];
+  for (const [index, errorType] of invalidatingTypes.entries()) {
+    await globalThis.__emitSignalR('SteamSessionError', { errorType });
+    value = provider.render(true);
+    assert.equal(server.requests, index + 3);
+    assert.equal(value.revision, index + 3, `${errorType} publishes refresh completion`);
+  }
+
+  await globalThis.__emitSignalR('SteamSessionError', { errorType: 'LoggedInElsewhere' });
+  value = provider.render(true);
+  assert.equal(server.requests, 6, 'non-invalidating session errors do not fetch');
+  assert.equal(value.revision, 6, 'no completion is published without a refresh');
 });
 
 test('authenticated mode requires confirmed credentials and a nonblank username', async () => {
@@ -266,7 +345,9 @@ for (const failure of ['http', 'network']) {
     server.ok = failure !== 'http';
     server.failure = failure === 'network';
     await provider.read().refreshSteamAuth();
-    assert.equal(provider.render(true).steamAuthMode, 'anonymous');
-    assert.equal(provider.read().username, '');
+    const value = provider.render(true);
+    assert.equal(value.steamAuthMode, 'anonymous');
+    assert.equal(value.username, '');
+    assert.equal(value.revision, 2, 'failed status reads still publish refresh completion');
   });
 }

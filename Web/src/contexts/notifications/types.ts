@@ -136,6 +136,8 @@ export interface UnifiedNotification {
     bytesDeleted?: number;
     operationId?: string;
     previousOperationId?: string | null;
+    /** The visible message still belongs to the predecessor operation. */
+    handoffPending?: boolean;
     parentOperationId?: string | null;
     /** First cancel click sent; second click force-kills. */
     cancelRequested?: boolean;

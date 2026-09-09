@@ -343,12 +343,186 @@ const scan = (operationId = 'N', extra = {}) => ({
   ...extra
 });
 
+for (const locale of ['en', 'zh']) {
+  for (const silent of [false, true]) {
+    for (const nextStatus of ['running', undefined]) {
+      for (const order of ['HS', 'HPS', 'SH', 'PH']) {
+        test(`handoff messages follow ${order} in ${locale}, silent=${silent}, status=${nextStatus}`, async () => {
+          language = locale;
+          const f = await lifecycle();
+          f.waiting({ ...queued(), operationType: 'cacheSizeScan', silent, acknowledge: false });
+          const original = f.state[0];
+          original.instanceVersion = 7;
+          original.startedAt = new Date('2026-09-01T00:00:00Z');
+          original.details.cancelRequested = true;
+          original.details.cancelSent = true;
+          const waitingMessage = original.message;
+          assert.ok(waitingMessage.trim());
+          let successorMessage;
+          for (const phase of order) {
+            const first = f.updates.length;
+            if (phase === 'H') f.handoff(handoff({ operationType: 'cacheSizeScan', nextStatus }));
+            else {
+              const stageKey =
+                phase === 'P' ? 'signalr.cacheSizeScan.scanning' : 'signalr.cacheSizeScan.starting';
+              const context = { directoriesScanned: 43, totalDirectories: 100, totalFiles: 12 };
+              f.event('cache_size_scan', phase === 'S' ? 'started' : 'progress', {
+                operationId: 'N',
+                previousOperationId: 'W',
+                showNotification: !silent,
+                percentComplete: phase === 'P' ? 43 : 0,
+                stageKey,
+                context
+              });
+              successorMessage =
+                successorMessage && phase === 'S' ? successorMessage : translate(stageKey, context);
+            }
+            for (const state of f.updates.slice(first)) {
+              if (order === 'PH' && phase === 'P') {
+                assert.equal(state.find((card) => card.id === original.id).message, waitingMessage);
+                assert.ok(state.every((card) => card.message.trim()));
+                const successor = state.find((card) => card.details.operationId === 'N');
+                if (successor) assert.equal(successor.message, successorMessage);
+                continue;
+              }
+              assert.equal(state.length, 1);
+              const card = state[0];
+              assert.equal(card.id, original.id);
+              assert.equal(card.startedAt, original.startedAt);
+              assert.equal(card.instanceVersion, original.instanceVersion);
+              assert.equal(card.details.operationId, 'N');
+              assert.equal(card.message, successorMessage ?? waitingMessage);
+              assert.doesNotMatch(card.message, /signalr\.|{{/);
+              assert.equal(card.details.handoffPending, successorMessage ? undefined : true);
+              assert.equal(card.details.cancelRequested, true);
+              assert.equal(card.details.cancelSent, true);
+              assert.equal(card.status, 'cancelling');
+              assert.equal(card.controlOnly, silent || undefined);
+            }
+          }
+          const beforeDuplicate = JSON.stringify(f.state);
+          f.handoff(handoff({ operationType: 'cacheSizeScan', nextStatus }));
+          assert.equal(JSON.stringify(f.state), beforeDuplicate);
+          f.event('cache_size_scan', 'complete', {
+            operationId: 'N',
+            success: false,
+            status: 'failed',
+            error: 'Disk unavailable'
+          });
+          assert.equal(f.state[0].details.handoffPending, undefined);
+          const terminal = JSON.stringify(f.state);
+          for (const phase of ['started', 'progress', 'complete'])
+            f.event('cache_size_scan', phase, {
+              operationId: 'N',
+              showNotification: !silent,
+              percentComplete: 5,
+              success: true,
+              status: phase === 'complete' ? 'completed' : 'running'
+            });
+          assert.equal(JSON.stringify(f.state), terminal);
+          language = 'en';
+        });
+      }
+    }
+    for (const phase of ['started', 'progress']) {
+      test(`retained ${phase} replaces the handoff sentence atomically in ${locale}, silent=${silent}`, async () => {
+        language = locale;
+        const f = await lifecycle();
+        f.waiting({ ...queued(), operationType: 'cacheSizeScan', silent, acknowledge: false });
+        const original = f.state[0];
+        const stageKey =
+          phase === 'started' ? 'signalr.cacheSizeScan.starting' : 'signalr.cacheSizeScan.scanning';
+        const context = { directoriesScanned: 43, totalDirectories: 100, totalFiles: 12 };
+        f.modules.rememberEvent(
+          f.events.current,
+          'cache_size_scan',
+          phase,
+          phase === 'started' ? 'CacheSizeScanStarted' : 'CacheSizeScanProgress',
+          {
+            operationId: 'N',
+            showNotification: !silent,
+            percentComplete: 43,
+            stageKey,
+            context
+          }
+        );
+        const first = f.updates.length;
+        f.handoff(handoff({ operationType: 'cacheSizeScan' }));
+        assert.equal(f.updates.length, first + 1);
+        assert.equal(f.state[0].message, translate(stageKey, context));
+        assert.doesNotMatch(f.state[0].message, /signalr\.|{{/);
+        assert.equal(f.state[0].id, original.id);
+        assert.equal(f.state[0].details.handoffPending, undefined);
+        language = 'en';
+      });
+    }
+    test(`recovery without progress consumes only a carried sentence in ${locale}, silent=${silent}`, async () => {
+      language = locale;
+      const f = await lifecycle();
+      f.waiting({ ...queued(), silent, acknowledge: false });
+      f.handoff(handoff());
+      const original = f.state[0];
+      original.progress = 27;
+      original.progressMode = 'determinate';
+      original.progressAriaValueText = '27%';
+      original.detailMessage = '27 / 100';
+      original.details.cancelRequested = true;
+      const source = parseSource('src/contexts/notifications/recovery.ts');
+      const bindings = { ...f.modules };
+      for (const name of ['isSameOperation', 'mergeableDetails', 'reconcileRecoveredCard']) {
+        const declaration = findSoleNode(
+          source,
+          name,
+          (node) => ts.isFunctionDeclaration(node) && node.name?.text === name
+        );
+        bindings[name] = bindLifted(`(${declaration.getText(source)})`, bindings);
+      }
+      const snapshot = {
+        id: original.id,
+        type: original.type,
+        status: 'running',
+        startedAt: new Date(),
+        controlOnly: silent || undefined,
+        message: translate('signalr.evictionScan.scanning'),
+        details: { operationId: 'N' }
+      };
+      f.setNotifications((state) =>
+        state.map((card) => bindings.reconcileRecoveredCard(card, snapshot))
+      );
+      const card = f.state[0];
+      assert.equal(card.message, snapshot.message);
+      assert.equal(card.details.handoffPending, undefined);
+      assert.equal(card.startedAt, original.startedAt);
+      assert.equal(card.instanceVersion, original.instanceVersion);
+      assert.equal(card.progress, 27);
+      assert.equal(card.progressMode, 'determinate');
+      assert.equal(card.progressAriaValueText, '27%');
+      assert.equal(card.detailMessage, original.detailMessage);
+      assert.equal(card.status, 'cancelling');
+      assert.equal(card.details.cancelRequested, true);
+      const later = { ...snapshot, message: translate('signalr.cacheSizeScan.starting') };
+      assert.equal(bindings.reconcileRecoveredCard(card, later).message, snapshot.message);
+      assert.equal(
+        bindings.reconcileRecoveredCard(original, { ...snapshot, message: '' }).message,
+        original.message
+      );
+      assert.equal(
+        bindings.reconcileRecoveredCard(card, { ...later, details: { operationId: 'M' } }).message,
+        later.message
+      );
+      assert.ok(f.updates.every((state) => state.length === 1 && state[0].message.trim()));
+      language = 'en';
+    });
+  }
+}
+
 for (const silent of [true, false]) {
   for (const order of ['SH', 'HS']) {
     test(`cache scan predecessor keeps one card through ${order}, silent=${silent}`, async () => {
       const f = await lifecycle();
       f.waiting({ ...queued(), operationType: 'cacheSizeScan', silent, acknowledge: false });
       const original = f.state[0];
+      original.startedAt = new Date('2026-09-01T00:00:00Z');
       for (const phase of order) {
         if (phase === 'S')
           f.event('cache_size_scan', 'started', {
@@ -580,6 +754,7 @@ for (const status of ['completed', 'failed', 'cancelled', 'skipped']) {
       assert.equal(card.startedAt, before.startedAt);
       assert.equal(card.details.operationId, 'N');
       assert.equal(card.status, status);
+      assert.equal(card.details.handoffPending, undefined);
       assert.equal(card.details.cancelRequested, true);
       assert.equal(f.dismissals.length, 1);
       const snapshot = JSON.stringify(f.state);

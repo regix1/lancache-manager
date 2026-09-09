@@ -23,6 +23,7 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
   const [steamAuthMode, setSteamAuthMode] = useState<SteamAuthMode>('anonymous');
   const [username, setUsername] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
+  const [revision, setRevision] = useState(0);
   const [autoLogoutMessage, setAutoLogoutMessage] = useState<string | null>(null);
 
   const fetchSteamAuth = useCallback(async () => {
@@ -49,6 +50,7 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
       console.error('[SteamAuth] Failed to fetch Steam auth status:', error);
     } finally {
       setIsLoading(false);
+      setRevision((current) => current + 1);
     }
   }, []);
 
@@ -127,6 +129,7 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
         steamAuthMode,
         username,
         isLoading,
+        revision,
         autoLogoutMessage,
         refreshSteamAuth,
         setSteamAuthMode,

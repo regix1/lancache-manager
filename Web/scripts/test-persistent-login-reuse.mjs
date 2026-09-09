@@ -190,6 +190,7 @@ test('an availability response from a prior account cannot populate the new acco
     ),
     {
       privateAvailabilityIdentityRef: availabilityIdentityRef,
+      integrationLoginRequestRef: { current: null },
       canUseSavedLogin: true,
       requiresIndividualAccount: false,
       setIntegrationLoginAvailabilityByService: (value) => availabilityWrites.push(value),
@@ -227,6 +228,7 @@ test('an authenticated shared caller without an individual account gets account-
     ),
     {
       privateAvailabilityIdentityRef: { current: 'authenticated::shared-session' },
+      integrationLoginRequestRef: { current: null },
       canUseSavedLogin: false,
       requiresIndividualAccount: true,
       setIntegrationLoginAvailabilityByService: (value) => availabilityWrites.push(value),
@@ -257,6 +259,157 @@ test('an authenticated shared caller without an individual account gets account-
       ['xbox', { available: false, account: null, reason: 'account-required' }]
     ]
   );
+});
+
+function availabilitySession() {
+  const pending = [];
+  const state = { values: new Map(), loading: false, identity: null };
+  const bindings = {
+    privateAvailabilityIdentityRef: { current: 'authenticated:a:session-a' },
+    integrationLoginRequestRef: { current: null },
+    canUseSavedLogin: true,
+    requiresIndividualAccount: false,
+    setIntegrationLoginAvailabilityByService: (values) => {
+      state.values = values;
+    },
+    setIntegrationLoginAvailabilityIdentity: (identity) => {
+      state.identity = identity;
+    },
+    setLoadingIntegrationLoginAvailability: (loading) => {
+      state.loading = loading;
+    },
+    SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS: ['steam', 'epic'],
+    ApiService: {
+      getPersistentIntegrationLoginAvailability: (service, signal) =>
+        new Promise((resolve, reject) => {
+          pending.push({ service, signal, resolve, reject });
+        })
+    },
+    getPersistentServiceId: (service) => service,
+    isAbortError: (error) => error.name === 'AbortError'
+  };
+  const source = liftHookCallback(
+    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
+    'useCallback',
+    'getPersistentIntegrationLoginAvailability'
+  );
+  return {
+    pending,
+    state,
+    bindings,
+    load: (signal) => bindLifted(source, bindings)(signal),
+    finish: (offset, available) => {
+      for (const request of pending.slice(offset, offset + 2)) {
+        request.resolve({
+          available,
+          account: available ? 'saved-account' : null,
+          reason: available ? null : 'no-saved-login'
+        });
+      }
+    }
+  };
+}
+
+test('a newer same-owner availability result survives an older response that ignores abort', async () => {
+  const f = availabilitySession();
+  const old = f.load();
+  const current = f.load();
+  assert.equal(f.pending[0].signal.aborted, true);
+  f.finish(2, true);
+  await current;
+  const accepted = f.state.values;
+  f.finish(0, false);
+  await old;
+  assert.equal(f.state.values, accepted);
+  assert.equal(f.state.values.get('steam').available, true);
+  assert.equal(f.state.loading, false);
+});
+
+test('fresh and refreshed availability follows authoritative truth in both directions', async () => {
+  const f = availabilitySession();
+  for (const [index, available] of [true, false, true].entries()) {
+    const previous = f.state.values;
+    const request = f.load();
+    assert.equal(f.state.values, previous, 'checking retains same-owner content');
+    assert.equal(f.state.loading, true);
+    f.finish(index * 2, available);
+    await request;
+    assert.equal(f.state.values.get('steam').available, available);
+    assert.equal(f.state.loading, false);
+  }
+});
+
+test('close, reopen and reconnect supersede pending availability without old finally clearing checking', async () => {
+  const f = availabilitySession();
+  const opening = new AbortController();
+  const old = f.load(opening.signal);
+  opening.abort();
+  const reopened = f.load(new AbortController().signal);
+  f.finish(0, false);
+  await old;
+  assert.equal(f.state.loading, true);
+  assert.equal(f.state.values.size, 0);
+  const reconnected = f.load();
+  f.pending[2].reject(new DOMException('cancelled', 'AbortError'));
+  f.pending[3].resolve({ available: false });
+  await reopened;
+  assert.equal(f.state.loading, true);
+  f.finish(4, true);
+  await reconnected;
+  assert.equal(f.state.values.get('steam').available, true);
+  assert.equal(f.state.loading, false);
+});
+
+test('account changes and ownerless transitions reject all late private writes', async () => {
+  const f = availabilitySession();
+  const old = f.load();
+  f.bindings.privateAvailabilityIdentityRef.current = 'authenticated:b:session-b';
+  const current = f.load();
+  f.finish(2, false);
+  await current;
+  f.finish(0, true);
+  await old;
+  assert.equal(f.state.identity, 'authenticated:b:session-b');
+  assert.equal(f.state.values.get('steam').available, false);
+  const pending = f.load();
+  f.bindings.privateAvailabilityIdentityRef.current = 'authenticated::shared';
+  f.bindings.canUseSavedLogin = false;
+  f.bindings.requiresIndividualAccount = true;
+  await f.load();
+  assert.equal(f.pending.length, 6, 'ownerless transition sends no request');
+  assert.equal(f.pending[4].signal.aborted, true);
+  f.finish(4, true);
+  await pending;
+  assert.equal(f.state.values.get('steam').reason, 'account-required');
+  assert.equal(f.state.loading, false);
+});
+
+test('one service failure preserves Steam success and a retry replaces the unknown hint', async () => {
+  const f = availabilitySession();
+  const request = f.load();
+  f.pending[0].resolve({ available: true, account: 'saved-account', reason: null });
+  f.pending[1].reject(new Error('unreachable'));
+  await request;
+  assert.equal(f.state.values.get('steam').available, true);
+  assert.equal(f.state.values.get('epic').reason, 'unknown');
+  const retry = f.load();
+  f.finish(2, true);
+  await retry;
+  assert.equal(f.state.values.get('epic').available, true);
+  assert.equal(f.state.values.get('epic').reason, null);
+});
+
+test('an aborted caller cannot issue requests or disturb a newer availability request', async () => {
+  const f = availabilitySession();
+  const current = f.load();
+  const closed = new AbortController();
+  closed.abort();
+  await f.load(closed.signal);
+  assert.equal(f.pending.length, 2);
+  assert.equal(f.pending[0].signal.aborted, false);
+  assert.equal(f.state.loading, true);
+  f.finish(0, true);
+  await current;
 });
 
 test('the shared API sends only availability fields and the reuse mode with session ownership', async () => {

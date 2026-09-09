@@ -564,13 +564,17 @@ export function createStartedHandler<T>(
         type: config.type,
         status: existing?.details?.cancelRequested ? 'cancelling' : 'running',
         controlOnly: hidden || undefined,
-        message: existing?.message || config.getMessage?.(event) || config.defaultMessage,
+        message:
+          (!existing?.details?.handoffPending && existing?.message) ||
+          config.getMessage?.(event) ||
+          config.defaultMessage,
         startedAt: existing?.startedAt ?? new Date(),
         instanceVersion: existing?.instanceVersion ?? (slot?.instanceVersion ?? 0) + 1,
         progress: existing?.progress ?? (hidden ? undefined : 0),
         progressMode: existing?.progressMode ?? config.progressMode,
         details: mergeEventDetails(existing?.details, {
           ...config.getDetails?.(event),
+          handoffPending: undefined,
           ...(operationId ? { operationId } : {})
         })
       };
@@ -778,6 +782,7 @@ export function createCompletionHandler<
       };
       delete details.cancelPending;
       delete details.cancelling;
+      delete details.handoffPending;
       const terminal: UnifiedNotification = {
         ...existing,
         id,
@@ -975,6 +980,7 @@ export function createStatusAwareProgressHandler<T>(
         instanceVersion: existing?.instanceVersion ?? 1,
         details: mergeEventDetails(existing?.details, {
           ...config.getDetails?.(event),
+          handoffPending: undefined,
           ...(operationId ? { operationId } : {})
         })
       };
@@ -1241,7 +1247,12 @@ export function applyHandoff(
             message,
             controlOnly: undefined,
             error: status === 'failed' ? message : undefined,
-            details: { ...n.details, cancelled: event.cancelled, cancelPending: false }
+            details: {
+              ...n.details,
+              cancelled: event.cancelled,
+              cancelPending: false,
+              handoffPending: undefined
+            }
           }
         : n
     );
@@ -1251,6 +1262,7 @@ export function applyHandoff(
   const target = prev.find(
     (n) => n.type === entry.type && n.details?.operationId === nextOperationId
   );
+  const retained = events.records.get(nextOperationId);
   let next = prev.map((n) =>
     n.details?.currentOperationId === event.operationId
       ? {
@@ -1296,11 +1308,16 @@ export function applyHandoff(
     startedAt: older.startedAt,
     instanceVersion: older.instanceVersion,
     status,
-    message: target?.message ?? '',
+    message: target?.message?.trim() ? target.message : (waiting?.message ?? target!.message),
     details: {
       ...waiting?.details,
       ...target?.details,
       operationId: nextOperationId,
+      handoffPending: isTerminalNotificationStatus(status)
+        ? undefined
+        : target?.message?.trim()
+          ? target.details?.handoffPending
+          : true,
       cancelRequested: waiting?.details?.cancelRequested || target?.details?.cancelRequested,
       cancelSent: waiting?.details?.cancelSent || target?.details?.cancelSent,
       cancelPending: false
@@ -1319,7 +1336,6 @@ export function applyHandoff(
     if (old && old.id !== card.id) cancelAutoDismissTimer(old.id);
   }
   next = next.flatMap((n) => (n === older ? [card] : n === waiting || n === target ? [] : [n]));
-  const retained = events.records.get(nextOperationId);
   const setNotifications: SetNotifications = (update) => {
     next = typeof update === 'function' ? update(next) : update;
   };
@@ -1380,6 +1396,7 @@ export function applyHandoff(
         ...n,
         status: knownStatus,
         message,
+        details: { ...n.details, handoffPending: undefined },
         controlOnly: knownStatus === 'failed' ? undefined : n.controlOnly,
         error: knownStatus === 'failed' ? message : undefined,
         progress: knownStatus === 'skipped' ? undefined : FULL_PROGRESS_PERCENT
