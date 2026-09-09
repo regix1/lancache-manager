@@ -19,7 +19,7 @@ export interface PanelPlacement {
 
 /**
  * Everything a placement decision can read, all of it in viewport CSS pixels.
- * The panel's own size is 0 on the pass before it mounts; see `useAnchoredPanel`.
+ * Before mount, width uses the optional estimate and height is 0; see `useAnchoredPanel`.
  */
 export interface PanelSpace {
   anchor: AnchorRect;
@@ -53,6 +53,8 @@ interface AnchoredPanelOptions {
   align?: 'left' | 'right';
   /** Gap between the anchor and the panel. Popovers use 8. */
   gap?: number;
+  /** Estimates width before a positive panel layout width exists. */
+  initialWidth?: (anchor: AnchorRect) => number;
   /** For a panel whose position is not an aligned box under its trigger. */
   place?: PanelPlaceHandler;
 }
@@ -133,6 +135,7 @@ export function useAnchoredPanel(options: AnchoredPanelOptions): AnchoredPanel {
     gutter,
     align = 'left',
     gap = DEFAULT_ANCHOR_GAP_PX,
+    initialWidth,
     place
   } = options;
 
@@ -148,13 +151,15 @@ export function useAnchoredPanel(options: AnchoredPanelOptions): AnchoredPanel {
   const handleAnchorMove = useCallback(
     (anchor: AnchorRect): void => {
       const panel = panelRef.current;
+      const measuredWidth = panel?.offsetWidth ?? 0;
+      const estimatedWidth = measuredWidth > 0 ? measuredWidth : (initialWidth?.(anchor) ?? 0);
       const space: PanelSpace = {
         anchor,
         // offsetWidth/offsetHeight, NOT getBoundingClientRect: the entrance keyframes
         // scale the panel, and a rect measured mid-animation reports that scaled size,
         // so an upward panel, placed by subtracting its height from the anchor's top,
         // would land on top of the trigger. Both are 0 before the panel mounts.
-        panelWidth: panel?.offsetWidth ?? 0,
+        panelWidth: Number.isFinite(estimatedWidth) && estimatedWidth >= 0 ? estimatedWidth : 0,
         panelHeight: panel?.offsetHeight ?? 0,
         // clientWidth/clientHeight over innerWidth/innerHeight: the scrollbar is not
         // space the panel can occupy, and clamping against it leaves the panel under it.
@@ -178,7 +183,7 @@ export function useAnchoredPanel(options: AnchoredPanelOptions): AnchoredPanel {
         Math.abs(prev - anchor.width) <= POSITION_EPSILON_PX ? prev : anchor.width
       );
     },
-    [panelRef, gutter, align, gap, place]
+    [panelRef, gutter, align, gap, initialWidth, place]
   );
 
   // Keyed on `present` as well as `open`: the panel mounts a render after `open` flips,

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPanel } from '@hooks/useAnchoredPanel';
+import { type AnchorRect } from '@hooks/useAnchorFollow';
+import { resolveDropdownWidthToPx } from '@utils/dropdownWidth';
 import { getFocusable } from '@utils/focus';
 import { MENU_GUTTER_PX } from '@utils/viewportClamp';
 
@@ -38,13 +40,20 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   const triggerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const initialWidth = useCallback(
+    (anchor: AnchorRect): number =>
+      Math.max(anchor.width, resolveDropdownWidthToPx(width, anchor.width)),
+    [width]
+  );
+
   const { present, closing, position, anchorWidth } = useAnchoredPanel({
     open: isOpen,
     anchorRef: triggerRef,
     panelRef: dropdownRef,
     onClose,
     gutter: MENU_GUTTER_PX,
-    align
+    align,
+    initialWidth
   });
 
   const focusTrigger = useCallback((): void => {

@@ -41,6 +41,285 @@ const focusUrl = await compileToUrl('../src/utils/focus.ts');
 const { getFocusable } = await import(focusUrl);
 globalThis.HTMLInputElement = class HTMLInputElement {};
 
+const anchoredSource = parseSource('src/hooks/useAnchoredPanel.ts');
+const { clampToViewport, MENU_GUTTER_PX } = await import(
+  await compileToUrl('../src/utils/viewportClamp.ts')
+);
+const widthImport = actionMenuSource.statements.find(
+  (node) => ts.isImportDeclaration(node) && node.moduleSpecifier.text === '@utils/dropdownWidth'
+);
+const widthModule = widthImport
+  ? await import(await compileToUrl('../src/utils/dropdownWidth.ts'))
+  : {};
+
+function placement(options = {}, browser = {}) {
+  const window = {
+    innerWidth: 390,
+    innerHeight: 844,
+    scrollX: 0,
+    scrollY: 0,
+    getComputedStyle: () => ({ fontSize: '16px' }),
+    ...browser
+  };
+  const document = {
+    documentElement: { clientWidth: window.innerWidth, clientHeight: window.innerHeight }
+  };
+  globalThis.window = window;
+  globalThis.document = document;
+  const bindings = { window, document, clampToViewport };
+  for (const name of ['DEFAULT_ANCHOR_GAP_PX', 'POSITION_EPSILON_PX']) {
+    const declaration = findSoleNode(
+      anchoredSource,
+      name,
+      (node) => ts.isVariableDeclaration(node) && node.name.getText(anchoredSource) === name
+    );
+    bindings[name] = bindLifted(`() => (${declaration.initializer.getText(anchoredSource)})`, {})();
+  }
+  for (const name of ['isSamePlacement', 'placeBelowAnchor']) {
+    const declaration = getComponent(anchoredSource, name);
+    bindings[name] = bindLifted(declaration.getText(anchoredSource), bindings);
+  }
+  const panelRef = { current: null };
+  const published = [];
+  let move;
+  let stateIndex = 0;
+  const hook = bindLifted(
+    getComponent(anchoredSource, 'useAnchoredPanel')
+      .getText(anchoredSource)
+      .replace(/^export /, ''),
+    {
+      ...bindings,
+      useCallback: (callback) => callback,
+      useRef: (current) => ({ current }),
+      useState: (initial) => {
+        let value = initial;
+        const index = stateIndex++;
+        return [
+          value,
+          (update) => {
+            value = typeof update === 'function' ? update(value) : update;
+            if (index === 0) published.push(value);
+          }
+        ];
+      },
+      useExitPresence: () => ({ present: true, closing: false }),
+      DROPDOWN_EXIT_MS: 150,
+      useLayoutEffect: () => undefined,
+      useEffect: () => undefined,
+      useAnchorFollow: ({ onAnchorMove }) => {
+        move = onAnchorMove;
+      }
+    }
+  );
+  hook({
+    open: true,
+    anchorRef: { current: null },
+    panelRef,
+    onClose: () => undefined,
+    gutter: MENU_GUTTER_PX,
+    ...options
+  });
+  return { panelRef, published, move, window };
+}
+
+function actionOptions(props = {}) {
+  const declaration = findSoleNode(
+    actionMenuSource,
+    'ActionMenu declaration',
+    (node) => ts.isVariableDeclaration(node) && node.name.getText(actionMenuSource) === 'ActionMenu'
+  ).initializer;
+  const statements = declaration.body.statements;
+  const hookIndex = statements.findIndex((node) =>
+    node.getText(actionMenuSource).includes('useAnchoredPanel(')
+  );
+  assert.ok(hookIndex >= 0);
+  let options;
+  bindLifted(
+    `(${declaration.parameters.map((node) => node.getText(actionMenuSource)).join(',')}) => {
+      ${statements
+        .slice(0, hookIndex + 1)
+        .map((node) => node.getText(actionMenuSource))
+        .join('\n')}
+    }`,
+    {
+      useRef: (current) => ({ current }),
+      useCallback: (callback) => callback,
+      ...widthModule,
+      MENU_GUTTER_PX,
+      useAnchoredPanel: (value) => {
+        options = value;
+        return { present: false, closing: false, position: {}, anchorWidth: 0 };
+      }
+    }
+  )({ isOpen: true, onClose: () => undefined, ...props });
+  const { panelRef, ...rest } = options;
+  assert.equal(panelRef.current, null);
+  return rest;
+}
+
+test('record Actions keeps its first horizontal placement when the panel mounts', () => {
+  const f = placement(actionOptions());
+  const anchor = { top: 300, bottom: 344, left: 60, right: 297, width: 237, height: 44 };
+  f.move(anchor);
+  assert.equal(f.published[0].left, 60);
+  f.panelRef.current = { offsetWidth: 237, offsetHeight: 146 };
+  f.move(anchor);
+  assert.equal(f.published[1].left, 60);
+  for (const position of f.published) assert.equal(position.left + 237, 297);
+});
+
+test('Actions width variants retain alignment at both viewport edges', () => {
+  for (const [width, triggerWidth, measuredWidth, fontSize] of [
+    [undefined, 237, 237, '16px'],
+    ['w-40', 44, 160, '16px'],
+    ['w-56', 44, 224, '16px'],
+    ['w-[200px]', 44, 200, '16px'],
+    ['w-[12rem]', 44, 192, '16px'],
+    ['w-40', 44, 200, '20px'],
+    ['w-40', 237.25, 237.25, '16px']
+  ]) {
+    for (const align of ['left', 'right']) {
+      for (const left of [2, 390 - triggerWidth - 2]) {
+        const f = placement(actionOptions({ width, align }), {
+          getComputedStyle: () => ({ fontSize })
+        });
+        const anchor = {
+          top: 300,
+          bottom: 344,
+          left,
+          right: left + triggerWidth,
+          width: triggerWidth,
+          height: 44
+        };
+        f.move(anchor);
+        f.panelRef.current = { offsetWidth: measuredWidth, offsetHeight: 146 };
+        f.move(anchor);
+        assert.equal(f.published[0].left, f.published[1].left, `${width}/${align}/${left}`);
+        for (const position of f.published) {
+          assert.ok(position.left >= 8);
+          assert.ok(position.left + measuredWidth <= 382);
+        }
+      }
+    }
+  }
+});
+
+test('panel width estimates are optional and positive measurements take precedence', () => {
+  const anchor = { top: 300, bottom: 344, left: 60, right: 297, width: 237, height: 44 };
+  let calls = 0;
+  const f = placement({
+    align: 'right',
+    initialWidth: () => {
+      calls += 1;
+      return 237;
+    }
+  });
+  f.move(anchor);
+  f.panelRef.current = { offsetWidth: 0, offsetHeight: 146 };
+  f.move(anchor);
+  assert.equal(calls, 2);
+  assert.equal(f.published[0].left, 60);
+  assert.equal(f.published[1].left, 60);
+  f.panelRef.current.offsetWidth = 224;
+  f.move(anchor);
+  assert.equal(calls, 2, 'measured layout does not call the estimate');
+  assert.equal(f.published[2].left, 73);
+
+  for (const initialWidth of [
+    undefined,
+    ...[-1, NaN, Infinity, -Infinity, 0].map((value) => () => value)
+  ]) {
+    const fallback = placement({ align: 'right', initialWidth });
+    fallback.move(anchor);
+    assert.equal(fallback.published[0].left, 297);
+  }
+  const defaultPanel = placement();
+  defaultPanel.move(anchor);
+  assert.equal(defaultPanel.published[0].left, 60, 'default alignment stays left');
+  assert.equal(defaultPanel.published[0].top, 348, 'default gap stays four pixels');
+});
+
+test('custom placement receives the same space and document offsets are added once', () => {
+  const anchor = { top: 300, bottom: 344, left: 60, right: 297, width: 237, height: 44 };
+  const spaces = [];
+  const f = placement(
+    {
+      place: (space) => {
+        spaces.push(space);
+        return { left: 20, top: 40, openUpward: true, availableHeight: 180 };
+      }
+    },
+    { scrollX: 31, scrollY: 3642 }
+  );
+  f.move(anchor);
+  assert.deepEqual(spaces[0], {
+    anchor,
+    panelWidth: 0,
+    panelHeight: 0,
+    viewportWidth: 390,
+    viewportHeight: 844,
+    gutter: 8
+  });
+  assert.deepEqual(f.published[0], { left: 51, top: 3682, openUpward: true, availableHeight: 180 });
+  f.panelRef.current = { offsetWidth: 100, offsetHeight: 200 };
+  f.move(anchor);
+  assert.deepEqual(spaces[1], { ...spaces[0], panelWidth: 100, panelHeight: 200 });
+});
+
+test('Actions follows later size and anchor changes with nonzero document scrolling', () => {
+  const f = placement(actionOptions(), { scrollX: 31, scrollY: 3642 });
+  const anchor = { top: 300, bottom: 344, left: 60, right: 297, width: 237, height: 44 };
+  f.move(anchor);
+  f.panelRef.current = { offsetWidth: 237, offsetHeight: 146 };
+  f.move(anchor);
+  for (const position of f.published) {
+    assert.equal(position.left - f.window.scrollX, 60);
+    assert.equal(position.top - f.window.scrollY, 348);
+  }
+  f.panelRef.current.offsetWidth = 250;
+  f.move(anchor);
+  assert.equal(f.published[2].left - 31, 47);
+  f.move({ ...anchor, left: 80, right: 317 });
+  assert.equal(f.published[3].left - 31, 67);
+  f.move({ ...anchor, top: 750, bottom: 794 });
+  assert.equal(f.published[4].openUpward, true);
+  assert.equal(f.published[4].top - 3642, 600);
+  f.panelRef.current.offsetHeight = 900;
+  f.move({ ...anchor, top: 750, bottom: 794 });
+  assert.equal(f.published[5].top - 3642, 8);
+});
+
+test('shared dropdown width resolution preserves tokens, units and fallbacks', () => {
+  const { window } = placement();
+  const { resolveDropdownWidthToPx } = widthModule;
+  for (const [width, expected] of [
+    [undefined, 44],
+    ['', 44],
+    ['w-40', 160],
+    ['w-56', 224],
+    ['other w-56 rounded', 224],
+    ['w-[210.5px]', 210.5],
+    ['w-[12rem]', 192],
+    ['280px', 280],
+    ['18rem', 288],
+    ['50%', 195],
+    ['50vw', 195],
+    ['123', 123],
+    ['w-auto', 44],
+    ['unrecognized', 44],
+    ['w-full', 358],
+    ['w-screen', 358]
+  ])
+    assert.equal(resolveDropdownWidthToPx(width, 44), expected, String(width));
+  window.getComputedStyle = () => ({ fontSize: '20px' });
+  assert.equal(resolveDropdownWidthToPx('w-40', 44), 200);
+  assert.equal(resolveDropdownWidthToPx('12rem', 44), 240);
+  window.getComputedStyle = () => ({ fontSize: 'invalid' });
+  assert.equal(resolveDropdownWidthToPx('w-40', 44), 160);
+  assert.equal(resolveDropdownWidthToPx('w-full', 500), 500);
+  assert.equal(resolveDropdownWidthToPx('w-[500px]', 44), 500);
+});
+
 function getTagName(element) {
   return element.openingElement.tagName.getText();
 }
