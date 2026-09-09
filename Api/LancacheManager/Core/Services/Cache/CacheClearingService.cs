@@ -151,13 +151,13 @@ public class CacheClearingService : ScheduledBackgroundService
                 : "Initializing cache clear...";
             _operationTracker.UpdateProgress(operationId, 0, initialMessage);
 
-            SaveOperationToState(trackerKey, operationId);
+            SaveOperationToState(operationId);
 
             _logger.LogInformation($"Starting cache clear operation {operationId}" +
                 (datasourceName != null ? $" for datasource: {datasourceName}" : " for all datasources"));
 
             // Start the clear operation on a background thread
-            _ = Task.Run(async () => await RunCacheClearAsync(trackerKey, operationId, datasourceName,
+            _ = Task.Run(async () => await RunCacheClearAsync(operationId, datasourceName,
                 value => completion = value), cts.Token);
 
             return operationId;
@@ -168,7 +168,7 @@ public class CacheClearingService : ScheduledBackgroundService
         }
     }
 
-    private async Task RunCacheClearAsync(string trackerKey, Guid operationId, string? datasourceName,
+    private async Task RunCacheClearAsync(Guid operationId, string? datasourceName,
         Action<CacheClearComplete> publish)
     {
         try
@@ -210,7 +210,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
                 await ReportProgressAsync(operationId);
 
-                SaveOperationToState(trackerKey, operationId);
+                SaveOperationToState(operationId);
 
                 return;
             }
@@ -241,7 +241,7 @@ public class CacheClearingService : ScheduledBackgroundService
                     if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
                     await ReportProgressAsync(operationId);
-                    SaveOperationToState(trackerKey, operationId);
+                    SaveOperationToState(operationId);
 
                     return;
                 }
@@ -313,7 +313,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
                 await ReportProgressAsync(operationId);
 
-                SaveOperationToState(trackerKey, operationId);
+                SaveOperationToState(operationId);
 
                 return;
             }
@@ -345,7 +345,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
                 await ReportProgressAsync(operationId);
 
-                SaveOperationToState(trackerKey, operationId);
+                SaveOperationToState(operationId);
 
                 return;
             }
@@ -354,7 +354,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
             _operationTracker.UpdateProgress(operationId, 0, "Starting cache clear...");
             await ReportProgressAsync(operationId);
-            SaveOperationToState(trackerKey, operationId);
+            SaveOperationToState(operationId);
 
             // Track aggregate totals across all datasources
             var totalBytesDeleted = 0L;
@@ -395,7 +395,7 @@ public class CacheClearingService : ScheduledBackgroundService
                     if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
                     await ReportProgressAsync(operationId);
-                    SaveOperationToState(trackerKey, operationId);
+                    SaveOperationToState(operationId);
 
                     return;
                 }
@@ -489,7 +489,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
                         if (progressData.DirectoriesProcessed % 10 == 0)
                         {
-                            SaveOperationToState(trackerKey, operationId);
+                            SaveOperationToState(operationId);
                         }
                     },
                     "cache_cleaner");
@@ -644,7 +644,7 @@ public class CacheClearingService : ScheduledBackgroundService
             // Terminal CacheClearingComplete is emitted by the onTerminalEmit closure inside
             // CompleteOperation above (exactly-once, CompletedFlag-gated).
 
-            SaveOperationToState(trackerKey, operationId);
+            SaveOperationToState(operationId);
         }
         catch (OperationCanceledException)
         {
@@ -662,7 +662,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 await ReportProgressAsync(operationId);
             }
 
-            SaveOperationToState(trackerKey, operationId);
+            SaveOperationToState(operationId);
         }
         catch (Exception ex)
         {
@@ -687,7 +687,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
             await ReportProgressAsync(operationId);
 
-            SaveOperationToState(trackerKey, operationId);
+            SaveOperationToState(operationId);
         }
     }
 
@@ -1050,7 +1050,7 @@ public class CacheClearingService : ScheduledBackgroundService
         }
     }
 
-    private void SaveOperationToState(string trackerKey, Guid operationId)
+    private void SaveOperationToState(Guid operationId)
     {
         try
         {

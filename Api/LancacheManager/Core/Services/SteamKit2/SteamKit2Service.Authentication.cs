@@ -434,7 +434,7 @@ public partial class SteamKit2Service
             Authenticator = authenticator
         });
 
-        var pollResponse = default(global::SteamKit2.Authentication.AuthPollResult);
+        global::SteamKit2.Authentication.AuthPollResult pollResponse;
         try
         {
             pollResponse = await authSession.PollingWaitForResultAsync(ct);

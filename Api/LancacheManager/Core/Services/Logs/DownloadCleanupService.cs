@@ -149,7 +149,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 
             // Fix service name aliases that don't match lancache nginx cache identifiers
             // The log processor previously normalized "epicgames" → "epic", but nginx cache keys use "epicgames"
-            await NormalizeServicesAsync(context, stoppingToken);
+            await NormalizeServicesAsync(context);
 
             // Normalize datasource mappings - fix inconsistent case and missing datasources
             await NormalizeDatasourceMappingsAsync(context, stoppingToken);
@@ -173,7 +173,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     /// The Rust log processor previously aliased "epicgames" → "epic", but nginx uses "epicgames" in its
     /// proxy_cache_key ($cacheidentifier$uri), causing cache file lookups to fail with wrong MD5 hashes.
     /// </summary>
-    private async Task NormalizeServicesAsync(AppDbContext context, CancellationToken stoppingToken)
+    private async Task NormalizeServicesAsync(AppDbContext context)
     {
         // Map of old (incorrect) names → correct nginx cache identifier names
         var serviceRenames = new Dictionary<string, string>

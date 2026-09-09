@@ -210,7 +210,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         foreach (var ds in datasources)
         {
             if (!ds.Enabled) continue;
-            await ProcessDatasourceAsync(ds, stoppingToken);
+            await ProcessDatasourceAsync(ds);
         }
     }
 
@@ -274,7 +274,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         return false;
     }
 
-    private async Task ProcessDatasourceAsync(ResolvedDatasource datasource, CancellationToken stoppingToken)
+    private async Task ProcessDatasourceAsync(ResolvedDatasource datasource)
     {
         // Skip if already processing
         if (_isProcessing)

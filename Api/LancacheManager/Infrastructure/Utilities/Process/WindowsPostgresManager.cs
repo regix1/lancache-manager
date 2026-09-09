@@ -43,8 +43,8 @@ public static class WindowsPostgresManager
             return;
         }
 
-        // Try starting any existing postgres container that maps to our port
-        if (await TryStartContainerAsync(port, logger))
+        // Try starting the named container or one created from a PostgreSQL image
+        if (await TryStartContainerAsync(logger))
         {
             await WaitForReadyAsync(host, port, logger);
             return;
@@ -90,10 +90,10 @@ public static class WindowsPostgresManager
     }
 
     /// <summary>
-    /// Looks for any stopped postgres container whose port mapping includes our target port,
-    /// or falls back to the well-known container name.
+    /// Looks for the well-known named container, then containers created from the configured
+    /// PostgreSQL image or a generic postgres image.
     /// </summary>
-    private static async Task<bool> TryStartContainerAsync(int port, ILogger logger)
+    private static async Task<bool> TryStartContainerAsync(ILogger logger)
     {
         // First check for our named container
         var inspect = await RunDockerAsync($"inspect --format {{{{.State.Status}}}} {ContainerName}");
@@ -111,7 +111,7 @@ public static class WindowsPostgresManager
             return start.ExitCode == 0;
         }
 
-        // Search for any stopped postgres container mapping to our port
+        // Search for any container created from the configured PostgreSQL image
         var search = await RunDockerAsync(
             $"ps -a --filter ancestor={PostgresImage} --format {{{{.Names}}}}");
         if (search.ExitCode == 0 && !string.IsNullOrWhiteSpace(search.Output))

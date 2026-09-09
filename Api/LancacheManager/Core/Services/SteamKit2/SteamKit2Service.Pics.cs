@@ -374,8 +374,8 @@ public partial class SteamKit2Service
         try
         {
             var (appIds, isIncremental) = await PrepareForScanAsync(ct, incrementalOnly);
-            await ProcessAppBatchesAsync(appIds, isIncremental, ct);
-            await FinalizeAndNotifyAsync(true, isIncremental, ct);
+            await ProcessAppBatchesAsync(appIds, ct);
+            await FinalizeAndNotifyAsync(isIncremental, ct);
         }
         catch (OperationCanceledException)
         {
@@ -496,7 +496,7 @@ public partial class SteamKit2Service
     /// <summary>
     /// Process app batches: fetch product info, scan depots, and send progress updates
     /// </summary>
-    private async Task ProcessAppBatchesAsync(List<uint> appIds, bool incrementalOnly, CancellationToken ct)
+    private async Task ProcessAppBatchesAsync(List<uint> appIds, CancellationToken ct)
     {
         // The total counts the work actually queued: every id here is chunked into a batch below, and
         // the apps discovered mid-run are added to it as they are queued.
@@ -642,7 +642,7 @@ public partial class SteamKit2Service
     /// <summary>
     /// Finalize depot index build: save to JSON/database, apply mappings, and send completion notification
     /// </summary>
-    private async Task FinalizeAndNotifyAsync(bool success, bool incrementalOnly, CancellationToken ct)
+    private async Task FinalizeAndNotifyAsync(bool incrementalOnly, CancellationToken ct)
     {
         _currentStatus = DepotScanPhase.Saving;
         _logger.LogInformation("Depot index built. Total depot mappings: {Count}", _depotToAppMappings.Count);
@@ -860,7 +860,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("Full scan requested - enumerating all apps via Web API V2/V1");
             try
             {
-                var webApiAppIds = await GetAppIdsViaWebApiAsync(ct);
+                var webApiAppIds = await GetAppIdsViaWebApiAsync();
 
                 // Success! Add all app IDs to our collection
                 foreach (var appId in webApiAppIds)
@@ -963,7 +963,7 @@ public partial class SteamKit2Service
                 {
                     // Try to enumerate via Web API (V2 or V1 with API key)
                     _logger.LogInformation("Attempting full scan via Steam Web API (V2/V1 fallback)");
-                    var webApiAppIds = await GetAppIdsViaWebApiAsync(ct);
+                    var webApiAppIds = await GetAppIdsViaWebApiAsync();
 
                     // Success! Add all app IDs to our collection
                     foreach (var appId in webApiAppIds)
@@ -1029,7 +1029,7 @@ public partial class SteamKit2Service
     /// Enumerate all app IDs via Steam Web API V2/V1 (used when PICS requires full update)
     /// Falls back from V2 (no auth) to V1 (with API key)
     /// </summary>
-    private async Task<List<uint>> GetAppIdsViaWebApiAsync(CancellationToken ct)
+    private async Task<List<uint>> GetAppIdsViaWebApiAsync()
     {
         _logger.LogInformation("Attempting to enumerate app IDs via Steam Web API (V2/V1 fallback)");
 

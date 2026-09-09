@@ -154,7 +154,7 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
                 {
                     if (string.IsNullOrEmpty(game.ImageUrl) && game.KeyImages is { Count: > 0 })
                     {
-                        game.ImageUrl = EpicApiDirectClient.GetBestImageUrl(game.KeyImages, game.Name);
+                        game.ImageUrl = EpicApiDirectClient.GetBestImageUrl(game.KeyImages);
                     }
 
                     // The picked URL is the only part anything downstream reads, so the raw entries stop

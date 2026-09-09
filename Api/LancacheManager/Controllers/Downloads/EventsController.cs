@@ -169,7 +169,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     [ProducesResponseType(typeof(List<Download>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<Download>>> GetDownloadsAsync(long id, [FromQuery] bool taggedOnly = false)
     {
-        var evt = await _eventsService.GetByIdOrThrowAsync(id, "Event");
+        await _eventsService.GetByIdOrThrowAsync(id, "Event");
 
         var downloads = await _eventsService.GetEventDownloadsAsync(id, taggedOnly);
         return Ok(downloads);
@@ -183,7 +183,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageOnlyResponse>> TagDownloadAsync(long eventId, long downloadId)
     {
-        var evt = await _eventsService.GetByIdOrThrowAsync(eventId, "Event");
+        await _eventsService.GetByIdOrThrowAsync(eventId, "Event");
 
         await _eventsService.TagDownloadAsync(eventId, downloadId, autoTagged: false);
 

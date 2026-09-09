@@ -88,7 +88,7 @@ public class EpicMappingBannerArtTests
             new() { Type = "Other", Url = "https://cdn.epicgames.com/wide.jpg", Width = 1920, Height = 1080 }
         };
 
-        var picked = EpicApiDirectClient.GetBestImageUrl(images, "Test Game");
+        var picked = EpicApiDirectClient.GetBestImageUrl(images);
 
         Assert.NotNull(picked);
         Assert.Contains("wide.jpg", picked);
@@ -102,7 +102,7 @@ public class EpicMappingBannerArtTests
             new() { Type = "Thumbnail", Url = "https://cdn.epicgames.com/portrait.jpg", Width = 600, Height = 900 }
         };
 
-        Assert.Null(EpicApiDirectClient.GetBestImageUrl(images, "Test Game"));
+        Assert.Null(EpicApiDirectClient.GetBestImageUrl(images));
     }
 
     // --- OwnedGame.KeyImages: additive field, other daemons must be unaffected ---
@@ -245,7 +245,7 @@ public class EpicMappingBannerArtTests
         };
 
         // Mirrors the pre-merge pick in EpicPrefillDaemonService.CollectSessionGameMappingsAsync.
-        game.ImageUrl = EpicApiDirectClient.GetBestImageUrl(game.KeyImages, game.Name);
+        game.ImageUrl = EpicApiDirectClient.GetBestImageUrl(game.KeyImages);
 
         await service.MergeOwnedGamesAsync(new List<OwnedGame> { game }, "hash", "prefill-login");
 
