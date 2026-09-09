@@ -1,117 +1,45 @@
-/**
- * Generic helper for awaiting a SignalR completion event that matches a per-item
- * predicate. Supports two API shapes used by the per-item cache/eviction endpoints:
- *
- * 1. "opId-in-body" - the POST response includes the operationId directly.
- *    The caller passes `match` as a payload-to-boolean predicate that checks the
- *    returned operationId against its already-known opId.
- *
- * 2. "202-Accepted + Started event" - the POST returns only a lightweight
- *    acknowledgement (e.g. `{ message, gameAppId }`) without an opId. The
- *    operationId is published later on a `*Started` SignalR event. In this
- *    case the caller provides `startedEvent` + `onStartedCapture` so the
- *    helper can correlate the opId to the current item.
- *
- * The helper registers its SignalR listeners synchronously (before the caller
- * performs the HTTP POST) so the Started event is never missed in a race.
- * Listeners are always removed on resolution - success or timeout. Cancelling a RUNNING
- * operation does not settle the wait early: the item's own terminal event (which a cancelled
- * operation still emits) is what resolves it, so the caller sees exactly one settle per item.
- *
- * An item parked in the operation wait-queue is the exception. It has no worker, so cancelling
- * it (or the queue dropping it) ends the wait-queue entry and nothing else - the item's own
- * complete event is never emitted because the work never started. `waitingOperationId` is what
- * settles those, otherwise a cancelled queued item holds its caller until the timeout elapses.
- */
+import type { RefObject } from 'react';
 import type { EventHandler, OperationWaitingCompleteEvent } from '../SignalRContext/types';
+import type { NotificationEvents, NotificationTerminal } from './types';
 
 const WAITING_COMPLETE_EVENT = 'OperationWaitingComplete';
 
 interface WaitForSignalRCompletionOptions<TStarted, TCompleted, TProgress = unknown> {
-  /** SignalR facade. Typically `{ on, off }` from `useSignalR()`. */
   signalR: {
     on: (eventName: string, handler: EventHandler) => void;
     off: (eventName: string, handler: EventHandler) => void;
   };
-  /** The SignalR event name that signals completion (e.g. "GameRemovalComplete"). */
+  events: RefObject<NotificationEvents>;
   completeEvent: string;
-  /**
-   * Predicate that returns true when a completion event payload matches this
-   * particular item. The caller is responsible for identity-key comparison.
-   */
-  match: (payload: TCompleted) => boolean;
-  /**
-   * Reads the id of the wait-queue entry this item is currently parked in, or null when it is
-   * not parked in one. The caller keeps that id in a closure variable and rebinds it as the
-   * queue promotes the item, so this is a getter rather than a value. Omit it and no
-   * OperationWaitingComplete can ever settle the wait, which is right for a caller that cannot
-   * be queued. Promotion is filtered out by the helper (a promoted operation goes on to emit
-   * the item's real completion event).
-   */
+  match: (event: TCompleted) => boolean;
   waitingOperationId?: () => string | null;
-  /**
-   * Optional Started event name. When present, the helper also subscribes to
-   * this event and calls `onStartedCapture` on each payload. Useful for the
-   * 202-Accepted + Started flow where the operationId is not known up-front.
-   */
   startedEvent?: string;
-  /**
-   * Called for every Started event that arrives while the helper is waiting.
-   * Return `{ opId }` to hand the operationId to the caller (via the
-   * `onOperationIdCaptured` callback on the outer run context). Return null
-   * if this Started event does not correspond to the current item.
-   */
-  onStartedCapture?: (payload: TStarted) => { opId?: string } | null;
-  /**
-   * Called with the captured operationId whenever `onStartedCapture` returns a
-   * non-null `opId`. This is how the caller plumbs the opId into its own
-   * cancellation bookkeeping (e.g. `currentItemOperationIdRef.current = opId`).
-   */
-  onOperationIdCaptured?: (opId: string) => void;
-  /**
-   * Optional progress event name (e.g. "EvictionRemovalProgress"). When present
-   * the helper subscribes to it for the lifetime of the wait and forwards
-   * payloads to `onProgress`. Listener cleanup runs through the same `detach`
-   * path as the complete/started subscriptions.
-   */
+  onStartedCapture?: (event: TStarted) => { opId?: string } | null;
+  onOperationIdCaptured?: (opId: string, ownsCancellation?: boolean) => void;
   progressEvent?: string;
-  /**
-   * Called for every progress event that arrives while the helper is waiting.
-   * The caller is responsible for filtering by operationId if multiple
-   * operations can share the same progress event name.
-   */
-  onProgress?: (payload: TProgress) => void;
-  /** Safety timeout in milliseconds. Defaults to 120_000 (2 minutes). */
+  onProgress?: (event: TProgress) => void;
   timeoutMs?: number;
-  /**
-   * Opaque correlation id for the current wait. Defaults to a fresh
-   * `crypto.randomUUID()`. Exposed so the caller can tie listener pairs
-   * to a single iteration in its own logging. Not used by the helper.
-   */
   requestId?: string;
 }
 
 interface WaitForSignalRCompletionResult<TCompleted> {
-  /** The matching completion payload, if the wait succeeded. */
   event?: TCompleted;
-  /** True when the wait ended because `timeoutMs` elapsed. */
+  terminal?: NotificationTerminal;
   timedOut?: boolean;
-  /**
-   * The wait-queue entry's terminal payload, when the item was cancelled or dropped from the
-   * queue before it was ever promoted. The work never ran, so there is no completion event
-   * coming and the caller must not count the item as done.
-   */
   dequeued?: OperationWaitingCompleteEvent;
 }
 
+/** The HTTP response establishes ownership; only a confirmed handoff can change its ID. */
 export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unknown>(
   opts: WaitForSignalRCompletionOptions<TStarted, TCompleted, TProgress>
-): Promise<WaitForSignalRCompletionResult<TCompleted>> {
+): Promise<WaitForSignalRCompletionResult<TCompleted>> & {
+  captureOperationId: (operationId: string | null | undefined, status?: string) => void;
+} {
   const {
     signalR,
+    events,
     completeEvent,
     match,
-    waitingOperationId,
     startedEvent,
     onStartedCapture,
     onOperationIdCaptured,
@@ -119,108 +47,212 @@ export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unkno
     onProgress,
     timeoutMs = 120_000
   } = opts;
-
-  return new Promise<WaitForSignalRCompletionResult<TCompleted>>((resolve) => {
+  const startedRevision = events.current.revision;
+  let captureOperationId: (operationId: string | null | undefined, status?: string) => void = () =>
+    undefined;
+  const promise = new Promise<WaitForSignalRCompletionResult<TCompleted>>((resolve) => {
     let settled = false;
+    let captured = false;
+    let operationId: string | null = null;
+    let parkedId: string | null = null;
+    let ownsCancellation = false;
+    let followed = false;
+    let heldId: string | null = null;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
-    const startedHandler: EventHandler = (payload: TStarted) => {
-      if (settled || !onStartedCapture) return;
-      const captured = onStartedCapture(payload);
-      if (captured && typeof captured.opId === 'string') {
-        onOperationIdCaptured?.(captured.opId);
-      }
+    const release = () => {
+      if (!heldId) return;
+      const count = events.current.held.get(heldId) ?? 0;
+      if (count <= 1) events.current.held.delete(heldId);
+      else events.current.held.set(heldId, count - 1);
+      heldId = null;
     };
-
-    const progressHandler: EventHandler = (payload: TProgress) => {
-      if (settled || !onProgress) return;
-      onProgress(payload);
+    const bind = (id: string) => {
+      if (settled || operationId === id) return;
+      release();
+      operationId = id;
+      heldId = id;
+      events.current.held.set(id, (events.current.held.get(id) ?? 0) + 1);
+      onOperationIdCaptured?.(id, ownsCancellation);
     };
-
-    const completeHandler: EventHandler = (payload: TCompleted) => {
-      if (settled) return;
-      if (!match(payload)) return;
-      finish({ event: payload });
-    };
-
-    const waitingCompleteHandler: EventHandler = (payload: OperationWaitingCompleteEvent) => {
-      if (settled || payload.promoted === true) return;
-      const parkedId = waitingOperationId?.() ?? null;
-      if (parkedId === null || payload.operationId !== parkedId) return;
-      finish({ dequeued: payload });
-    };
-
     const detach = () => {
       signalR.off(completeEvent, completeHandler);
       signalR.off(WAITING_COMPLETE_EVENT, waitingCompleteHandler);
-      if (startedEvent) {
-        signalR.off(startedEvent, startedHandler);
-      }
-      if (progressEvent) {
-        signalR.off(progressEvent, progressHandler);
-      }
+      if (startedEvent) signalR.off(startedEvent, startedHandler);
+      if (progressEvent) signalR.off(progressEvent, progressHandler);
       if (timeoutHandle !== null) {
         clearTimeout(timeoutHandle);
         timeoutHandle = null;
       }
+      release();
     };
-
     const finish = (result: WaitForSignalRCompletionResult<TCompleted>) => {
+      if (settled) return;
       settled = true;
       detach();
       resolve(result);
     };
+    const replay = () => {
+      if (settled || !operationId || parkedId) return;
+      const terminal = events.current.terminals.get(operationId);
+      if (
+        !terminal ||
+        (terminal.eventName &&
+          terminal.eventName !== completeEvent &&
+          terminal.eventName !== progressEvent)
+      )
+        return;
+      const retained = events.current.records.get(operationId)?.complete;
+      const event =
+        retained?.eventName === completeEvent ? (retained.body as TCompleted) : undefined;
+      if (event && !match(event)) return;
+      finish({ ...(event ? { event } : {}), terminal: { ...terminal } });
+    };
+    const follow = (event: OperationWaitingCompleteEvent) => {
+      if (settled || !captured || !parkedId || event.operationId !== parkedId) return;
+      const confirmed = events.current.handoffs.get(parkedId);
+      if (
+        !confirmed ||
+        confirmed.promoted !== event.promoted ||
+        confirmed.nextOperationId !== event.nextOperationId
+      )
+        return;
+      if (!event.promoted) {
+        finish({ dequeued: confirmed });
+        return;
+      }
+      if (followed || !event.nextOperationId || event.nextOperationId === parkedId) return;
+      followed = true;
+      parkedId = null;
+      if (event.nextStatus !== 'waiting') events.current.waiting.delete(event.nextOperationId);
+      bind(event.nextOperationId);
+      replay();
+      if (
+        !settled &&
+        (event.nextStatus === 'completed' ||
+          event.nextStatus === 'failed' ||
+          event.nextStatus === 'cancelled' ||
+          event.nextStatus === 'skipped')
+      ) {
+        finish({
+          terminal: {
+            operationId: event.nextOperationId,
+            status: event.nextStatus,
+            error: event.error
+          }
+        });
+      }
+    };
+    const startedHandler: EventHandler = (event: TStarted) => {
+      if (settled || !captured || operationId || parkedId || !onStartedCapture) return;
+      const candidate = onStartedCapture(event);
+      if (candidate?.opId) {
+        bind(candidate.opId);
+        replay();
+      }
+    };
+    const progressHandler: EventHandler = (event: TProgress) => {
+      if (settled || !captured || !operationId || parkedId) return;
+      if ((event as { operationId?: string }).operationId !== operationId) return;
+      onProgress?.(event);
+    };
+    const completeHandler: EventHandler = (event: TCompleted) => {
+      if (settled || !captured || !operationId || parkedId) return;
+      const fields = event as {
+        operationId?: string;
+        status?: string;
+        success?: boolean;
+        cancelled?: boolean;
+        skipped?: boolean;
+        error?: string;
+      };
+      if (fields.operationId !== operationId || !match(event)) return;
+      replay();
+      if (settled) return;
+      const error =
+        typeof fields.error === 'string' && fields.error.trim() ? fields.error : undefined;
+      const status =
+        fields.cancelled || fields.status === 'cancelled'
+          ? 'cancelled'
+          : fields.skipped || fields.status === 'skipped'
+            ? 'skipped'
+            : fields.status === 'failed' || fields.success === false || error
+              ? 'failed'
+              : 'completed';
+      finish({ event, terminal: { operationId, status, error } });
+    };
+    const waitingCompleteHandler: EventHandler = (event: OperationWaitingCompleteEvent) => {
+      if (settled || !captured || event.operationId !== parkedId) return;
+      follow(event);
+      // Subscription order is not an ordering guarantee for the shared ingress.
+      if (!settled && parkedId) queueMicrotask(() => follow(event));
+    };
 
-    // Register BEFORE the caller fires its HTTP POST so the Started event
-    // published immediately after the backend accepts the request is never
-    // missed. The caller is responsible for not performing the POST until
-    // this function has returned its Promise.
+    captureOperationId = (id, status) => {
+      if (settled || captured) return;
+      captured = true;
+      ownsCancellation = status !== 'alreadyRunning';
+      if (id) {
+        if (status === 'waiting') {
+          parkedId = id;
+          const confirmed = events.current.handoffs.get(id);
+          if (confirmed) {
+            follow(confirmed);
+            if (settled || followed) return;
+          }
+          events.current.waiting.add(id);
+        }
+        bind(id);
+        replay();
+        return;
+      }
+      // Legacy accepted responses may omit the ID; replay only a matching retained Started.
+      if (startedEvent && onStartedCapture) {
+        for (const record of events.current.records.values()) {
+          if (
+            record.started?.eventName !== startedEvent ||
+            record.started.revision <= startedRevision
+          )
+            continue;
+          const candidate = onStartedCapture(record.started.body as TStarted);
+          if (candidate?.opId) {
+            bind(candidate.opId);
+            replay();
+            break;
+          }
+        }
+      }
+    };
+
     signalR.on(completeEvent, completeHandler);
     signalR.on(WAITING_COMPLETE_EVENT, waitingCompleteHandler);
-    if (startedEvent) {
-      signalR.on(startedEvent, startedHandler);
-    }
-    if (progressEvent) {
-      signalR.on(progressEvent, progressHandler);
-    }
-
-    timeoutHandle = setTimeout(() => {
-      if (settled) return;
-      finish({ timedOut: true });
-    }, timeoutMs);
+    if (startedEvent) signalR.on(startedEvent, startedHandler);
+    if (progressEvent) signalR.on(progressEvent, progressHandler);
+    timeoutHandle = setTimeout(() => finish({ timedOut: true }), timeoutMs);
+  });
+  return Object.assign(promise, {
+    captureOperationId: (operationId: string | null | undefined, status?: string) =>
+      captureOperationId(operationId, status)
   });
 }
 
 interface SettleBatchItemOptions {
-  /** The resolved wait for this item. */
   outcome: WaitForSignalRCompletionResult<unknown>;
-  /** The item's batch context. Only `cancelRun` is read. */
   ctx: { cancelRun: () => void };
-  /** Failure text when the window elapsed, e.g. `Log removal timed out for steam`. */
   timedOutMessage: string;
-  /** Failure text when the queue dropped the item and reported no error of its own. */
   neverStartedMessage: string;
+  failedMessage?: string;
 }
 
-/**
- * Turns one item's wait outcome into that item's outcome, for a batch whose items go through the
- * operation wait-queue. Returns true when the item's own completion arrived and the caller should
- * carry on with it; returns false when the item was cancelled out of the queue, which ends the
- * whole run and leaves the caller nothing more to do for this item.
- *
- * A timeout is a failed item rather than a silent success, so the batch tally stays honest. An
- * item dequeued before promotion never ran, so nothing was removed either way: a cancel ends the
- * run as cancelled and only a queue failure counts as a failed item.
- */
+/** Convert the authoritative terminal outcome into the existing queue item's outcome. */
 export function settleBatchItem({
   outcome,
   ctx,
   timedOutMessage,
-  neverStartedMessage
+  neverStartedMessage,
+  failedMessage
 }: SettleBatchItemOptions): boolean {
-  if (outcome.timedOut) {
-    throw new Error(timedOutMessage);
-  }
+  if (outcome.timedOut) throw new Error(timedOutMessage);
   if (outcome.dequeued) {
     if (outcome.dequeued.cancelled) {
       ctx.cancelRun();
@@ -228,5 +260,13 @@ export function settleBatchItem({
     }
     throw new Error(outcome.dequeued.error ?? neverStartedMessage);
   }
+  if (outcome.terminal?.status === 'cancelled') {
+    ctx.cancelRun();
+    return false;
+  }
+  if (outcome.terminal?.status === 'failed')
+    throw new Error(outcome.terminal.error ?? failedMessage ?? neverStartedMessage);
+  if (outcome.terminal?.status === 'skipped')
+    throw new Error(outcome.terminal.error ?? neverStartedMessage);
   return true;
 }

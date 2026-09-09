@@ -19,6 +19,70 @@ namespace LancacheManager.Tests;
 /// </summary>
 public sealed class OperationQueueCancelDuringPromotionTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CancelThatCompletesThroughItsTokenStillReturnsRequested(bool background)
+    {
+        var tracker = new PromotionHarness().Tracker;
+        var cts = new CancellationTokenSource();
+        var id = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", cts);
+        using var registration = cts.Token.Register(() =>
+        {
+            if (background)
+            {
+                Task.Run(() => tracker.CompleteOperation(id, false, cancelled: true))
+                    .WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+            }
+            else
+            {
+                tracker.CompleteOperation(id, false, cancelled: true);
+            }
+        });
+
+        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(id));
+        Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(id)!.Status);
+        Assert.Equal(OperationCancelResult.AlreadyFinished, tracker.CancelOperation(id));
+    }
+
+    [Fact]
+    public async Task TerminalClaimBeforeCancelKeepsAlreadyFinishedAsync()
+    {
+        var tracker = new PromotionHarness().Tracker;
+        var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        var id = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", cts);
+        var claimed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var completion = Task.Run(() => tracker.CompleteOperation(id, true, onCompleting: _ =>
+        {
+            claimed.TrySetResult();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(5)));
+        }));
+        await claimed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var cancelling = Task.Run(() => tracker.CancelOperation(id));
+        release.Set();
+        await completion;
+        Assert.Equal(OperationCancelResult.AlreadyFinished, await cancelling);
+        Assert.False(token.IsCancellationRequested);
+        Assert.Equal(OperationStatus.Completed, tracker.GetOperation(id)!.Status);
+    }
+
+    [Fact]
+    public void RepeatedLiveCancelKeepsRequestedWithoutRepeatingTokenCallbacks()
+    {
+        var tracker = new PromotionHarness().Tracker;
+        var cts = new CancellationTokenSource();
+        var id = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", cts);
+        var callbacks = 0;
+        using var registration = cts.Token.Register(() => callbacks++);
+        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(id));
+        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(id));
+        Assert.Equal(1, callbacks);
+        Assert.Equal(OperationStatus.Cancelling, tracker.GetOperation(id)!.Status);
+        tracker.CompleteOperation(id, false, cancelled: true);
+    }
+
     [Fact]
     public async Task CancelWhileStartRuns_CancelsThePromotedOperationAsync()
     {

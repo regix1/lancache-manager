@@ -359,6 +359,31 @@ public class ScheduledRunReporterTests
     }
 
     [Fact]
+    public async Task ExternalTerminalKeepsAcceptedContextWhenWorkerFinishesLater()
+    {
+        var notifications = new CapturingNotificationService(blockedEventName: ProgressEventName);
+        var tracker = CreateTracker();
+        await using var reporter = CreateReporter(notifications, tracker);
+        await reporter.StartAsync("probe.starting");
+        var progress = reporter.ReportAsync(35, "probe.running",
+            new Dictionary<string, object?> { ["count"] = 3 });
+        await notifications.WhenBlockedSendBeginsAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        tracker.CompleteOperation(reporter.OperationId, false, error: "external failure");
+        var completion = reporter.CompleteAsync(true, stageKey: "probe.late",
+            context: new Dictionary<string, object?> { ["count"] = 99 });
+        notifications.ReleaseBlockedSend();
+        await Task.WhenAll(progress, completion).WaitAsync(TimeSpan.FromSeconds(5));
+        await reporter.ReportAsync(99, "probe.late");
+        var terminal = Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
+        Assert.Equal("external failure", terminal.Error);
+        Assert.Equal("probe.complete", terminal.StageKey);
+        Assert.Equal(3, terminal.Context!["count"]);
+        Assert.Single(notifications.PayloadsFor<ScheduledRunProgressEvent>(ProgressEventName));
+        var bag = Assert.IsType<Dictionary<string, object?>>(tracker.GetOperation(reporter.OperationId)!.Metadata);
+        Assert.Equal(3, Assert.IsType<Dictionary<string, object?>>(bag["context"])["count"]);
+    }
+
+    [Fact]
     public async Task TerminalTransport_HoldsProducerOwnershipUntilCompleteIsPublishedAsync()
     {
         var notifications = new CapturingNotificationService(blockedEventName: CompleteEventName);
@@ -414,9 +439,9 @@ public class ScheduledRunReporterTests
             lifecycle);
     }
 
-    private sealed record CapturedEvent(string EventName, object? Payload);
+    internal sealed record CapturedEvent(string EventName, object? Payload);
 
-    private sealed class CapturingNotificationService : ISignalRNotificationService
+    internal sealed class CapturingNotificationService : ISignalRNotificationService
     {
         private readonly object _lock = new();
         private readonly List<CapturedEvent> _events = new();

@@ -47,6 +47,7 @@ const compileHandlerFactory = () => {
   );
   const names = new Set([
     'eventOperationId',
+    'excludeChild',
     'eventTargetsCard',
     'clearPersistedNotificationIfTargeted',
     'createCompletionHandler'
@@ -148,10 +149,7 @@ test('catalog updates are completion-only registry entries carrying their own ca
 });
 
 test('running progress updates persist the merged notification for reload recovery', () => {
-  assert.match(
-    handlers,
-    /const updatedNotification[\s\S]*?persistNotification\(\s*config\.storageKey,\s*updatedNotification[\s\S]*?return updatedNotification/
-  );
+  assert.match(handlers, /const card[\s\S]*?persistNotification\(\s*config\.storageKey,\s*card/);
 });
 
 test('stale mapping Complete cannot mutate or clear a newer running operation', () => {

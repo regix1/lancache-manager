@@ -11,6 +11,7 @@ public record EvictionScanStarted(string StageKey, Guid OperationId, Dictionary<
 
 /// <summary>
 /// SignalR event payload emitted after each batch during an eviction scan.
+/// Context retains detectionError when the preliminary detection failed; the scan can continue.
 /// </summary>
 public record EvictionScanProgress(
     Guid OperationId,

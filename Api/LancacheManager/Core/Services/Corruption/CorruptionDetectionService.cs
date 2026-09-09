@@ -146,7 +146,11 @@ public class CorruptionDetectionService
                 DetectionOperationName(detectionMethod, scanMode),
                 cts,
                 metadata,
-                onTerminalCleanup: metadata.ClearProgress,
+                onTerminalCleanup: () =>
+                {
+                    metadata.ClearProgress();
+                    _operationStateService.RemoveState(operationId.ToString());
+                },
                 onTerminalEmit: info => EmitTerminalAsync(info, operationId, metadata));
             _operationTracker.UpdateProgress(operationId, 0, startingStageKey);
 
@@ -437,10 +441,11 @@ public class CorruptionDetectionService
                 datasourceReports.SelectMany(report => report.Report.Candidates),
                 detectionMethod);
             var coverage = AggregateCoverage(datasourceReports.Select(report => report.Report.Coverage));
-            _operationTracker.UpdateProgress(operationId, 100, "signalr.corruptionDetect.complete");
-            _operationTracker.UpdateMetadata(operationId, metadata =>
+            _operationTracker.CompleteOperation(operationId, success: true, onCompleting: operation =>
             {
-                var metrics = (CorruptionDetectionMetrics)metadata;
+                operation.PercentComplete = 100;
+                operation.Message = "signalr.corruptionDetect.complete";
+                var metrics = (CorruptionDetectionMetrics)operation.Metadata!;
                 metrics.ScanId = scanId;
                 metrics.Threshold = threshold;
                 metrics.LookbackDays = lookbackDays;
@@ -452,8 +457,6 @@ public class CorruptionDetectionService
                 metrics.LastDetectionTime = completedAtUtc;
             });
 
-            _operationStateService.RemoveState(operationId.ToString());
-            _operationTracker.CompleteOperation(operationId, success: true);
             _logger.LogInformation(
                 "[CorruptionDetection] Scan {ScanId} complete: {Services}",
                 scanId,
@@ -462,7 +465,6 @@ public class CorruptionDetectionService
         catch (OperationCanceledException)
         {
             _logger.LogInformation("[CorruptionDetection] Operation {OperationId} was cancelled", operationId);
-            _operationStateService.RemoveState(operationId.ToString());
             _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
         }
         catch (Exception ex)
@@ -480,7 +482,6 @@ public class CorruptionDetectionService
                     rustFailure.Stderr!.Trim());
             }
             _logger.LogError(ex, "[CorruptionDetection] Detection failed for operation {OperationId}", operationId);
-            _operationStateService.RemoveState(operationId.ToString());
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
         }
     }
@@ -510,13 +511,18 @@ public class CorruptionDetectionService
 
         try
         {
+            var working = new CorruptionDetectionMetrics
+            {
+                DetectionMethod = detectionMethod,
+                ScanMode = scanMode
+            };
             if (detectionMethod == CorruptionDetectionMethod.Structural)
             {
-                ResetStructuralProgressMetrics(metadata);
+                ResetStructuralProgressMetrics(working);
             }
 
             var relay = new CorruptionProgressRelay(
-                metadata,
+                working,
                 detectionMethod,
                 datasourceName,
                 datasourceIndex,
@@ -599,7 +605,7 @@ public class CorruptionDetectionService
                         var stageKey = string.IsNullOrWhiteSpace(progressData.StageKey)
                             ? "signalr.corruptionDetect.scanning"
                             : progressData.StageKey;
-                        UpdateStructuralProgressMetrics(metadata, progressData.Context);
+                        UpdateStructuralProgressMetrics(working, progressData.Context);
                         await ReportProgressAsync(relay.Capture(
                             stageKey,
                             progressData.PercentComplete,
@@ -647,7 +653,7 @@ public class CorruptionDetectionService
                     "corruption_manager reported cancellation",
                     cancellationToken);
             }
-            var scanSummary = SnapshotStructuralSummary(metadata);
+            var scanSummary = SnapshotStructuralSummary(working);
             ValidateAndAttachDatasource(
                 report,
                 datasourceName,
@@ -664,15 +670,39 @@ public class CorruptionDetectionService
 
             async Task ReportProgressAsync(CorruptionRelayDecision decision)
             {
-                if (decision.IsNew)
-                {
-                    _operationTracker.UpdateProgress(
+                var values = (working.EffectiveScanMode, working.BaselineStatus, working.StateCommitted,
+                    working.Resumed, working.FilesDiscovered, working.FilesProcessed, working.FilesReused,
+                    working.FilesInspected, working.FilesRevalidated, working.InvalidFiles,
+                    working.FilesPendingRetry, working.FilesPruned, working.StateEntries);
+                var accepted = false;
+                _operationTracker.UpdateProgress(
                         operationId,
                         decision.Snapshot.PercentComplete,
-                        decision.Snapshot.StageKey);
-                }
+                        decision.Snapshot.StageKey,
+                        _ =>
+                        {
+                            metadata.EffectiveScanMode = values.EffectiveScanMode;
+                            metadata.BaselineStatus = values.BaselineStatus;
+                            metadata.StateCommitted = values.StateCommitted;
+                            metadata.Resumed = values.Resumed;
+                            metadata.FilesDiscovered = values.FilesDiscovered;
+                            metadata.FilesProcessed = values.FilesProcessed;
+                            metadata.FilesReused = values.FilesReused;
+                            metadata.FilesInspected = values.FilesInspected;
+                            metadata.FilesRevalidated = values.FilesRevalidated;
+                            metadata.InvalidFiles = values.InvalidFiles;
+                            metadata.FilesPendingRetry = values.FilesPendingRetry;
+                            metadata.FilesPruned = values.FilesPruned;
+                            metadata.StateEntries = values.StateEntries;
+                            if (decision.IsNew)
+                            {
+                                metadata.CaptureProgress(decision.Snapshot.StageKey,
+                                    decision.Snapshot.PercentComplete, decision.Snapshot.Context);
+                            }
+                            accepted = true;
+                        });
 
-                if (!decision.ShouldEmit)
+                if (!accepted || !decision.ShouldEmit)
                 {
                     return;
                 }

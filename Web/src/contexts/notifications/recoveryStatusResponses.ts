@@ -104,6 +104,9 @@ export interface ScheduledPrefillRunStatusResponse {
 /** GET /api/games/detect/active - ActiveDetectionResponse */
 interface GameDetectionOperationInfo {
   operationId?: string;
+  parentOperationId?: string | null;
+  startedAt?: string;
+  startTime?: string;
   statusMessage: string;
   percentComplete: number;
   scanType?: 'full' | 'incremental';
@@ -159,6 +162,7 @@ export interface DataImportStatusResponse {
 /** GET /api/stats/eviction/scan/status - anonymous object from StatsController */
 export interface EvictionScanStatusResponse {
   isProcessing: boolean;
+  showNotification?: boolean;
   silentMode: boolean;
   status: string;
   percentComplete: number;
@@ -166,6 +170,20 @@ export interface EvictionScanStatusResponse {
   operationId: string | null;
   stageKey?: string;
   context?: StageContext;
+}
+
+/** GET /api/operations/{operationId}, including an exact waiter successor. */
+export interface OperationStatusResponse {
+  id: string;
+  active: boolean;
+  percentComplete?: number;
+  message?: string | null;
+  status?: OperationStatus | null;
+  startedAt?: string | null;
+  parentOperationId?: string | null;
+  nextOperationId?: string | null;
+  nextStatus?: OperationStatus | null;
+  error?: string | null;
 }
 
 export interface CacheSizeScanStatusResponse {

@@ -229,7 +229,8 @@ public static class SignalRNotifications
         int GamesDetected = 0,
         int ServicesDetected = 0,
         double ProgressPercent = 0,
-        Dictionary<string, object?>? Context = null
+        Dictionary<string, object?>? Context = null,
+        Guid? ParentOperationId = null
     );
 
     /// <summary>
@@ -255,7 +256,8 @@ public static class SignalRNotifications
         string? Error = null,
         // Run-stable display flag: the terminal carries the same visibility the run started with so a
         // silent run's terminal cannot resurrect a card. Appended to keep positional callers safe.
-        bool ShowNotification = true
+        bool ShowNotification = true,
+        Guid? ParentOperationId = null
     ) : IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;

@@ -76,6 +76,7 @@ public partial class CacheManagementService
     // Written on the scan worker thread, read on the request thread by the status endpoint.
     // volatile publishes the write so a status read on another thread sees it.
     private volatile Dictionary<string, object?>? _currentCacheSizeScanProgressContext;
+    private Guid _cacheSizeScanId;
     public Dictionary<string, object?>? CurrentCacheSizeScanProgressContext => _currentCacheSizeScanProgressContext;
 
     /// <summary>
@@ -1849,21 +1850,31 @@ public partial class CacheManagementService
             ["step"] = progress.CalibrationStep,
             ["totalSteps"] = progress.CalibrationTotalSteps
         };
-        _currentCacheSizeScanProgressContext = context;
-
-        _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey);
-
-        // Gate the broadcast (tracker update above stays per-tick for recovery accuracy):
-        // rust ticks can arrive many times per second and every emit re-renders every client.
-        // Emit on stage change or at most every 250ms; CacheSizeScanComplete carries final state.
-        var nowTicks = Environment.TickCount64;
-        if (progress.StageKey == _cacheSizeScanLastEmitStageKey &&
-            nowTicks - _cacheSizeScanLastEmitTicks < RustProcessHelper.ProgressEmitMinIntervalMs)
+        var accepted = false;
+        _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey, _ =>
+        {
+            lock (_scanCacheLock)
+            {
+                if (_cacheSizeScanId != operationId)
+                {
+                    return;
+                }
+                _currentCacheSizeScanProgressContext = context;
+                var nowTicks = Environment.TickCount64;
+                if (progress.StageKey == _cacheSizeScanLastEmitStageKey &&
+                    nowTicks - _cacheSizeScanLastEmitTicks < RustProcessHelper.ProgressEmitMinIntervalMs)
+                {
+                    return;
+                }
+                _cacheSizeScanLastEmitStageKey = progress.StageKey;
+                _cacheSizeScanLastEmitTicks = nowTicks;
+                accepted = true;
+            }
+        });
+        if (!accepted)
         {
             return;
         }
-        _cacheSizeScanLastEmitStageKey = progress.StageKey;
-        _cacheSizeScanLastEmitTicks = nowTicks;
 
         await _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanProgress, new CacheSizeScanProgress(
             OperationId: operationId,
@@ -1914,7 +1925,6 @@ public partial class CacheManagementService
 
         // Stamp the run's visibility before any Started/Progress emit so the recovery endpoint
         // reports the run-stable flag for the whole scan, even if the page reloads mid-run.
-        CurrentCacheSizeScanShowNotification = showNotification;
 
         // CTS ownership: handed to the tracker, which disposes it in CompleteOperation.
         var cts = new CancellationTokenSource();
@@ -1926,8 +1936,15 @@ public partial class CacheManagementService
             metadata: new Dictionary<string, object?> { ["runNotice"] = notice, ["showNotification"] = showNotification },
             onTerminalCleanup: () =>
             {
-                _currentCacheSizeScanProgressContext = null;
-                CurrentCacheSizeScanShowNotification = null;
+                lock (_scanCacheLock)
+                {
+                    if (_cacheSizeScanId == operationId)
+                    {
+                        _cacheSizeScanId = Guid.Empty;
+                        _currentCacheSizeScanProgressContext = null;
+                        CurrentCacheSizeScanShowNotification = null;
+                    }
+                }
             },
             onTerminalEmit: info =>
             {
@@ -1969,6 +1986,18 @@ public partial class CacheManagementService
                     Error: info.Error ?? "Rust cache size binary returned failure",
                     ShowNotification: showNotification));
             });
+
+        _operationTracker.UpdateProgress(operationId, 0, "signalr.cacheSizeScan.starting", _ =>
+        {
+            lock (_scanCacheLock)
+            {
+                _cacheSizeScanId = operationId;
+                _currentCacheSizeScanProgressContext = null;
+                CurrentCacheSizeScanShowNotification = showNotification;
+                _cacheSizeScanLastEmitStageKey = null;
+                _cacheSizeScanLastEmitTicks = 0;
+            }
+        });
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(callerToken, cts.Token);
         using var cancelRegistration = cts.Token.Register(() => notice?.Cancel(_operationTracker, operationId));
@@ -2041,10 +2070,15 @@ public partial class CacheManagementService
 
             // Capture the totals BY VALUE before completing so the onTerminalEmit closure
             // builds the success payload from real metrics.
-            terminalFiles = result.TotalFiles;
-            terminalBytes = result.TotalBytes;
-            terminalFormattedSize = result.FormattedSize;
-            _operationTracker.CompleteOperation(operationId, success: true);
+            var files = result.TotalFiles;
+            var bytes = result.TotalBytes;
+            var formattedSize = result.FormattedSize;
+            _operationTracker.CompleteOperation(operationId, success: true, onCompleting: _ =>
+            {
+                terminalFiles = files;
+                terminalBytes = bytes;
+                terminalFormattedSize = formattedSize;
+            });
             return result;
         }
         catch (OperationCanceledException)

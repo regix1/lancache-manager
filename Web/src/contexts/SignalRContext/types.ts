@@ -577,6 +577,7 @@ export interface CorruptionDetectionCompleteEvent extends OperationEvent {
 }
 
 export interface GameDetectionStartedEvent extends OperationEvent {
+  parentOperationId?: string | null;
   scanType?: 'full' | 'incremental';
   /** @deprecated use stageKey instead */
   message?: string;
@@ -585,6 +586,7 @@ export interface GameDetectionStartedEvent extends OperationEvent {
 }
 
 export interface GameDetectionProgressEvent extends OperationEvent {
+  parentOperationId?: string | null;
   percentComplete: number;
   status: OperationStatus;
   /** @deprecated use stageKey instead */
@@ -597,6 +599,7 @@ export interface GameDetectionProgressEvent extends OperationEvent {
 }
 
 export interface GameDetectionCompleteEvent extends OperationEvent {
+  parentOperationId?: string | null;
   success: boolean;
   /** @deprecated use stageKey instead */
   message: string;

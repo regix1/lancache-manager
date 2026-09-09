@@ -290,6 +290,7 @@ public class EvictionScanStatusResponse
 {
     public bool IsProcessing { get; set; }
     public bool SilentMode { get; set; }
+    /// <summary>Includes a nonfatal detection failure even when the scan started silent.</summary>
     public bool ShowNotification { get; set; }
     public OperationStatus Status { get; set; }
     public double PercentComplete { get; set; }

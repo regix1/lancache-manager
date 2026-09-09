@@ -3,6 +3,7 @@ import test from 'node:test';
 import ts from 'typescript';
 import {
   MemoryStorage,
+  notificationEvents,
   bindLifted,
   compileToUrl,
   findSoleNode,
@@ -25,7 +26,7 @@ import {
  */
 
 const REGISTRY_PATH = 'src/contexts/notifications/notificationRegistry.ts';
-const HANDLERS_PATH = 'src/contexts/notifications/useNotificationHandlers.ts';
+const HANDLERS_PATH = 'src/contexts/notifications/handlers.ts';
 const BAR_PATH = 'src/components/common/UniversalNotificationBar.tsx';
 
 /** Keeps the key and its values, so an assertion can name the service that produced a line. */
@@ -88,6 +89,7 @@ const liftHandlerBuilder = (name, bindings) => {
 };
 
 const loadHandlers = async () => {
+  globalThis.sessionStorage ??= new MemoryStorage();
   const constantsUrl = await compileToUrl('../src/contexts/notifications/constants.ts');
   const statusUrl = await compileToUrl('../src/contexts/notifications/notificationStatus.ts');
   const storageUrl = await compileToUrl('../src/utils/storage.ts');
@@ -178,7 +180,7 @@ const newCardList = () => {
   };
   cards.scheduleAutoDismiss = (id, delayMs) => cards.dismissals.push([id, delayMs]);
   cards.cancelAutoDismissTimer = () => undefined;
-  cards.removeNotification = () => undefined;
+  cards.events = notificationEvents();
   return cards;
 };
 
@@ -212,7 +214,7 @@ const driveScheduledPrefill = async () => {
     entry,
     cards.setNotifications,
     cards.scheduleAutoDismiss,
-    cards.removeNotification
+    cards.events?.current
   );
 
   return { cards, entry, onProgress, onComplete, scheduledPrefillCardId, storageKey };
@@ -246,13 +248,17 @@ const liftRecovery = async () => {
   const { isTerminalNotificationStatus } = await import(
     await compileToUrl('../src/contexts/notifications/notificationStatus.ts')
   );
-  const { operationCardId } = await loadHandlers();
+  const handlers = await loadHandlers();
+  const { operationCardId } = handlers;
   const reconcileRecoveredCard = recoveryFunction('reconcileRecoveredCard', {
     isSameOperation,
     mergeableDetails,
     isTerminalNotificationStatus
   });
   return recoveryFunction('createSimpleRecoveryFunction', {
+    ...handlers,
+    canRecover: recoveryFunction('canRecover', {}),
+    NOTIFICATION_REGISTRY: [],
     storage,
     reconcileRecoveredCard,
     isTerminalNotificationStatus,
@@ -262,6 +268,30 @@ const liftRecovery = async () => {
     FULL_PROGRESS_PERCENT: constants.FULL_PROGRESS_PERCENT
   });
 };
+
+test('recovery strips cancelPending with the other browser-only cancel flags', async () => {
+  const constants = await loadConstants();
+  assert.deepEqual(
+    [...constants.LIVE_ONLY_CANCEL_DETAIL_KEYS],
+    ['cancelRequested', 'cancelPending', 'cancelSent', 'cancelling']
+  );
+  const mergeableDetails = recoveryFunction('mergeableDetails', {
+    LIVE_ONLY_CANCEL_DETAIL_KEYS: constants.LIVE_ONLY_CANCEL_DETAIL_KEYS
+  });
+
+  assert.deepEqual(
+    mergeableDetails({
+      operationId: 'operation-1',
+      cancelRequested: true,
+      cancelPending: true,
+      cancelSent: true,
+      cancelling: true,
+      cancelled: true
+    }),
+    { operationId: 'operation-1', cancelled: true },
+    'server terminal cancellation remains while transport/session intent is discarded'
+  );
+});
 
 test('a reload mid-run rebuilds a card for every service still running', async () => {
   const { cards, entry, scheduledPrefillCardId } = await driveScheduledPrefill();
@@ -393,7 +423,7 @@ test('a run that has finished stale-completes every card it left behind', async 
   );
   assert.deepEqual(
     cards.dismissals.map(([id]) => id).filter((id) => id.startsWith(entry.id)),
-    [scheduledPrefillCardId('Steam'), scheduledPrefillCardId('Epic'), entry.id]
+    [scheduledPrefillCardId('Steam'), scheduledPrefillCardId('Epic')]
   );
 });
 
@@ -504,6 +534,136 @@ test('the run-level start and terminal open and close no card of their own', asy
 // ── The compact bar's grouping ──────────────────────────────────────────────
 
 const barFile = parseSource(BAR_PATH, ts.ScriptKind.TSX);
+
+const barInitializer = (name) =>
+  findSoleNode(
+    barFile,
+    `${name} declaration`,
+    (node) =>
+      ts.isVariableDeclaration(node) &&
+      node.name.getText(barFile) === name &&
+      node.initializer !== undefined
+  ).initializer.getText(barFile);
+
+const sortNotifications = bindLifted(`(notifications) => (${barInitializer('sorted')})`, {});
+
+test('card order is immutable chronology with ordinal id ties', () => {
+  const first = new Date('2026-09-08T10:00:00Z');
+  const tie = new Date('2026-09-08T10:01:00Z');
+  const last = new Date('2026-09-08T10:02:00Z');
+  const cards = [
+    { id: 'latest', startedAt: last, status: 'completed', progress: 100 },
+    { id: 'notification_2', startedAt: tie, status: 'failed', progress: 80 },
+    { id: 'oldest', startedAt: first, status: 'waiting', progress: 0 },
+    { id: 'notification_10', startedAt: tie, status: 'running', progress: 20 }
+  ];
+  const expected = ['oldest', 'notification_10', 'notification_2', 'latest'];
+
+  assert.deepEqual(
+    sortNotifications(cards).map((card) => card.id),
+    expected
+  );
+  const updated = cards.map((card, index) => ({
+    ...card,
+    status: index % 2 === 0 ? 'failed' : 'completed',
+    progress: 99 - index,
+    message: `phase-${index}`,
+    controlOnly: index === 0
+  }));
+  assert.deepEqual(
+    sortNotifications(updated).map((card) => card.id),
+    expected,
+    'status, progress, phase text and presentation flags are not ordering inputs'
+  );
+});
+
+test('full, condensed, background and mobile subsets retain chronological order', () => {
+  const classifiedFor = findSoleNode(
+    barFile,
+    'classified loop',
+    (node) =>
+      ts.isForOfStatement(node) &&
+      node.expression.getText(barFile) === 'classified' &&
+      node.getText(barFile).includes('condensedGroups')
+  );
+  const classify = bindLifted(
+    `(notifications, displayModes, isMobile) => {
+      const sorted = ${barInitializer('sorted')};
+      let fullOrder = 0;
+      const classified = ${barInitializer('classified')};
+      const compactControls = ${barInitializer('compactControls')};
+      const fullControls = ${barInitializer('fullControls')};
+      const condensedGroups = new Map();
+      ${classifiedFor.getText(barFile)}
+      const fullItems = ${barInitializer('fullItems')};
+      return {
+        sorted: sorted.map((card) => card.id),
+        compactControls: compactControls.map((card) => card.id),
+        fullControls: fullControls.map((card) => card.id),
+        fullItems: fullItems.map((item) => item.notification.id),
+        condensed: [...condensedGroups.values()].flat().map((card) => card.id)
+      };
+    }`,
+    {
+      isTerminalNotificationStatus: (status) =>
+        ['completed', 'failed', 'cancelled', 'skipped'].includes(status),
+      SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: {},
+      platformDisplayModeKey: (serviceKey, platform) => `${serviceKey}:${platform}`,
+      NOTIFICATION_IDS: { SCHEDULED_PREFILL: 'scheduled_prefill' },
+      MOBILE_FULL_CARD_CAP: 3,
+      TYPES_WITH_A_CARD_PER_ENTITY: new Set()
+    }
+  );
+  const at = (minute) => new Date(`2026-09-08T10:${String(minute).padStart(2, '0')}:00Z`);
+  const card = (id, minute, details = {}, controlOnly = false) => ({
+    id,
+    type: 'generic',
+    status: 'running',
+    startedAt: at(minute),
+    details,
+    controlOnly
+  });
+  const cards = [
+    card('f1', 1),
+    card('c1', 2, { serviceKey: 'control-full-1' }, true),
+    card('d1', 3, { serviceKey: 'detail-1' }),
+    card('c2', 4, { serviceKey: 'control-full-2' }, true),
+    card('k1', 5, { serviceKey: 'control-compact-1' }, true),
+    card('f2', 6),
+    card('d2', 7, { serviceKey: 'detail-2' }),
+    card('c3', 8, { serviceKey: 'control-full-3' }, true),
+    card('k2', 9, { serviceKey: 'control-compact-2' }, true),
+    card('f3', 10),
+    card('f4', 11),
+    card('f5', 12)
+  ];
+  const displayModes = {
+    'detail-1': 'condensed',
+    'detail-2': 'condensed',
+    'control-compact-1': 'condensed',
+    'control-compact-2': 'condensed'
+  };
+  const result = classify(cards.reverse(), displayModes, true);
+
+  assert.deepEqual(result.sorted, [
+    'f1',
+    'c1',
+    'd1',
+    'c2',
+    'k1',
+    'f2',
+    'd2',
+    'c3',
+    'k2',
+    'f3',
+    'f4',
+    'f5'
+  ]);
+  assert.deepEqual(result.fullControls, ['c1', 'c2', 'c3']);
+  assert.deepEqual(result.compactControls, ['k1', 'k2']);
+  assert.deepEqual(result.fullItems, ['f1', 'f2', 'f3']);
+  assert.deepEqual(result.condensed, ['d1', 'd2', 'f4', 'f5']);
+});
 
 /** The shipped `groupKey` expression, called with the item and the set it reads. */
 const groupKeyFor = () => {

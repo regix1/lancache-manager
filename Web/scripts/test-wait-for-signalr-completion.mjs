@@ -1,15 +1,31 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compileToUrl } from './transpile-module.mjs';
+import {
+  compileToUrl,
+  compileTree,
+  moduleUrl,
+  MemoryStorage,
+  notificationEvents
+} from './transpile-module.mjs';
 
 /**
  * Exercises the real waitForSignalRCompletion helper compiled from product source.
  * Uses a minimal fake SignalR bus (same pattern as test-signalr-seed-replay.mjs).
  */
 
+globalThis.localStorage = new MemoryStorage();
+globalThis.sessionStorage = new MemoryStorage();
+const { rememberEvent } = await import(
+  await compileTree('../src/contexts/notifications/handlers.ts', {
+    '@/i18n': moduleUrl('export default {t:(key)=>key};')
+  })
+);
+
 const createFakeSignalR = () => {
+  const events = notificationEvents();
   const handlers = new Map();
   return {
+    events,
     on(event, handler) {
       if (!handlers.has(event)) {
         handlers.set(event, new Set());
@@ -20,6 +36,21 @@ const createFakeSignalR = () => {
       handlers.get(event)?.delete(handler);
     },
     emit(event, payload) {
+      rememberEvent(
+        events.current,
+        event.startsWith('Service') || payload.operationType === 'serviceRemoval'
+          ? 'service_removal'
+          : 'game_removal',
+        event === 'OperationWaitingComplete'
+          ? 'handoff'
+          : event.endsWith('Started')
+            ? 'started'
+            : event.endsWith('Progress')
+              ? 'progress'
+              : 'complete',
+        event,
+        payload
+      );
       for (const handler of handlers.get(event) ?? []) {
         handler(payload);
       }
@@ -42,6 +73,7 @@ test('registers listeners before POST and resolves on matching Complete', async 
 
   const waitPromise = waitForSignalRCompletion({
     signalR,
+    events: signalR.events,
     completeEvent: 'GameRemovalComplete',
     startedEvent: 'GameRemovalStarted',
     match: (payload) => payload?.operationId === opId,
@@ -53,6 +85,7 @@ test('registers listeners before POST and resolves on matching Complete', async 
   assert.equal(signalR.listenerCount('GameRemovalComplete'), 1);
   assert.equal(signalR.listenerCount('GameRemovalStarted'), 1);
 
+  waitPromise.captureOperationId(opId, 'running');
   signalR.emit('GameRemovalStarted', { operationId: opId, gameAppId: 480 });
   signalR.emit('GameRemovalComplete', { operationId: opId, gameAppId: 480, success: true });
 
@@ -62,7 +95,7 @@ test('registers listeners before POST and resolves on matching Complete', async 
   assert.equal(signalR.listenerCount('GameRemovalComplete'), 0);
 });
 
-test('onStartedCapture re-binds promoted operationId when match uses identity first', async () => {
+test('an exact handoff rebinds the captured waiter operationId', async () => {
   const { waitForSignalRCompletion } = await loadWaitHelper();
   const signalR = createFakeSignalR();
   const waitingId = 'waiting-id';
@@ -74,6 +107,7 @@ test('onStartedCapture re-binds promoted operationId when match uses identity fi
 
   const waitPromise = waitForSignalRCompletion({
     signalR,
+    events: signalR.events,
     completeEvent: 'GameRemovalComplete',
     startedEvent: 'GameRemovalStarted',
     match: (payload) => {
@@ -92,14 +126,21 @@ test('onStartedCapture re-binds promoted operationId when match uses identity fi
     timeoutMs: 500
   });
 
-  // Queued DELETE body pins the waiting id (bulk path today).
-  capturedOpId = waitingId;
+  waitPromise.captureOperationId(waitingId, 'waiting');
+  signalR.emit('OperationWaitingComplete', {
+    operationId: waitingId,
+    operationType: 'gameRemoval',
+    promoted: true,
+    cancelled: false,
+    nextOperationId: runningId,
+    nextStatus: 'running'
+  });
 
   signalR.emit('GameRemovalStarted', { operationId: runningId, gameAppId });
   signalR.emit('GameRemovalComplete', { operationId: runningId, gameAppId, success: true });
 
   const result = await waitPromise;
-  assert.ok(result.event, 'promoted Complete should resolve after identity-based Started capture');
+  assert.ok(result.event, 'promoted Complete should resolve after the confirmed handoff');
   assert.equal(result.event.operationId, runningId);
 });
 
@@ -110,11 +151,13 @@ test('a cancelled item still resolves through its own terminal event', async () 
 
   const waitPromise = waitForSignalRCompletion({
     signalR,
+    events: signalR.events,
     completeEvent: 'GameRemovalComplete',
     match: (payload) => payload?.operationId === opId,
     timeoutMs: 500
   });
 
+  waitPromise.captureOperationId(opId, 'running');
   signalR.emit('GameRemovalComplete', { operationId: opId, success: false, cancelled: true });
 
   const result = await waitPromise;
@@ -128,6 +171,7 @@ test('timeout resolves with timedOut', async () => {
 
   const waitPromise = waitForSignalRCompletion({
     signalR,
+    events: signalR.events,
     completeEvent: 'GameRemovalComplete',
     match: () => true,
     timeoutMs: 30
@@ -145,12 +189,14 @@ test('an item dequeued before promotion settles with dequeued', async () => {
 
   const waitPromise = waitForSignalRCompletion({
     signalR,
+    events: signalR.events,
     completeEvent: 'GameRemovalComplete',
     match: () => false,
     waitingOperationId: () => waitingId,
     timeoutMs: 500
   });
 
+  waitPromise.captureOperationId(waitingId, 'waiting');
   signalR.emit('OperationWaitingComplete', {
     operationId: waitingId,
     operationType: 'gameRemoval',
@@ -172,17 +218,21 @@ test('promotion is not a dequeue - the wait stays open for the real completion',
 
   const waitPromise = waitForSignalRCompletion({
     signalR,
+    events: signalR.events,
     completeEvent: 'GameRemovalComplete',
     match: (payload) => payload?.operationId === runningId,
     waitingOperationId: () => waitingId,
     timeoutMs: 500
   });
 
+  waitPromise.captureOperationId(waitingId, 'waiting');
   signalR.emit('OperationWaitingComplete', {
     operationId: waitingId,
     operationType: 'gameRemoval',
     cancelled: false,
-    promoted: true
+    promoted: true,
+    nextOperationId: runningId,
+    nextStatus: 'running'
   });
   signalR.emit('GameRemovalComplete', { operationId: runningId, success: true });
 

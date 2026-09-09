@@ -1,4 +1,7 @@
 using System.Reflection;
+using System.Text.Json;
+using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Platform;
@@ -21,6 +24,112 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class GameDetectionVisibilityRaceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RestoringPersistedRunsPreservesIdentityAndCancelsOrphanedChildren(bool child)
+    {
+        using var ctx = new ServiceContext();
+        var id = Guid.NewGuid();
+        Guid? parent = child ? Guid.NewGuid() : null;
+        var startedAt = DateTime.UtcNow.AddMinutes(-2);
+        ctx.States.SaveState($"gameDetection_{id}", new LancacheManager.Core.Services.OperationState
+        {
+            Key = $"gameDetection_{id}", Type = OperationType.GameDetection.ToWireString(), Status = "running",
+            Data = JsonSerializer.SerializeToElement(new
+            {
+                operationId = id, parentOperationId = parent, startedAt,
+                scanType = DetectionScanType.Full, showNotification = false
+            })
+        });
+        typeof(GameCacheDetectionService).GetMethod("RestoreInterruptedOperations", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(ctx.Service, null);
+        if (child)
+        {
+            Assert.Null(ctx.Tracker.Get(id));
+            var complete = Assert.IsType<SignalRNotifications.GameDetectionComplete>(Assert.Single(ctx.Notifications.Events).Value);
+            Assert.Equal(parent, complete.ParentOperationId);
+            Assert.True(complete.Cancelled);
+            Assert.False(complete.ShowNotification);
+            Assert.Equal("cancelled", ctx.States.GetAllStates().Single(s => s.Key.EndsWith(id.ToString())).Status);
+        }
+        else
+        {
+            var operation = ctx.Tracker.Get(id)!;
+            Assert.Equal(startedAt, operation.StartedAt);
+            var metrics = Assert.IsType<GameDetectionMetrics>(operation.Metadata);
+            Assert.Equal(DetectionScanType.Full, metrics.ScanType);
+            Assert.False(metrics.ShowNotification);
+            Assert.Null(operation.ParentOperationId);
+        }
+    }
+
+    [Fact]
+    public async Task ParentIdentityTravelsThroughStartedRecoveryAndWinningTerminal()
+    {
+        using var ctx = new ServiceContext();
+        var parent = Guid.NewGuid();
+        var id = (await ctx.Service.StartDetectionAsync(incremental: false, showNotification: false,
+            parentOperationId: parent))!.Value;
+        var active = ctx.Service.GetActiveOperation()!;
+        Assert.Equal(parent, active.ParentOperationId);
+        Assert.Equal(DetectionScanType.Full, active.ScanType);
+        Assert.Equal(parent, ctx.Tracker.Get(id)!.ParentOperationId);
+        var started = JsonSerializer.SerializeToElement(ctx.Notifications.Events.Single(e => e.Event == SignalREvents.GameDetectionStarted).Value);
+        Assert.Equal(parent, started.GetProperty("ParentOperationId").GetGuid());
+        var running = ctx.States.GetAllStates().Single(s => s.Key.EndsWith(id.ToString()));
+        Assert.Equal(parent, running.Data!.Value.GetProperty("parentOperationId").GetGuid());
+        Assert.False(running.Data.Value.GetProperty("showNotification").GetBoolean());
+        Assert.Equal(active.StartTime, running.Data.Value.GetProperty("startedAt").GetDateTime());
+        ctx.Tracker.FireTerminal(id, success: false, cancelled: true, error: "Cancelled by user");
+        var complete = Assert.IsType<SignalRNotifications.GameDetectionComplete>(ctx.Notifications.Events.Single(e => e.Event == SignalREvents.GameDetectionComplete).Value);
+        Assert.Equal(parent, complete.ParentOperationId);
+        Assert.True(complete.Cancelled);
+        var persisted = ctx.States.GetAllStates().Single(s => s.Key.EndsWith(id.ToString()));
+        Assert.Equal("cancelled", persisted.Status);
+        Assert.Equal(parent, persisted.Data!.Value.GetProperty("parentOperationId").GetGuid());
+    }
+
+    [Fact]
+    public async Task LosingFinalizerCannotChangeTerminalPersistenceOrClearANewerRun()
+    {
+        using var ctx = new ServiceContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        typeof(GameCacheDetectionService).GetField("_operationTracker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(ctx.Service, tracker);
+        var started = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ctx.Notifications.OnSend = (name, value) =>
+        {
+            if (name != SignalREvents.GameDetectionStarted) return Task.CompletedTask;
+            started.TrySetResult((Guid)value!.GetType().GetProperty("OperationId")!.GetValue(value)!);
+            return release.Task;
+        };
+        var start = ctx.Service.StartDetectionAsync(showNotification: false);
+        var oldId = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var old = tracker.GetOperation(oldId)!;
+        tracker.CompleteOperation(oldId, success: false, error: "Cancelled by user", cancelled: true);
+        var persisted = ctx.States.GetAllStates().Single(s => s.Key.EndsWith(oldId.ToString())).Data!.Value.GetRawText();
+        release.TrySetResult();
+        await start;
+
+        started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var nextStart = ctx.Service.StartDetectionAsync();
+        var nextId = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var finalize = typeof(GameCacheDetectionService).GetMethod("FinalizeDetectionAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await (Task)finalize.Invoke(ctx.Service, [oldId, true, OperationStatus.Completed, "signalr.gameDetect.complete.full", false,
+            new Dictionary<string, object?> { ["newGamesCount"] = 999 }, 999, 999])!;
+        Assert.Equal(OperationStatus.Cancelled, old.Status);
+        Assert.Null(((GameDetectionMetrics)old.Metadata!).CompletionContext);
+        Assert.Equal(persisted, ctx.States.GetAllStates().Single(s => s.Key.EndsWith(oldId.ToString())).Data!.Value.GetRawText());
+        Assert.Equal(nextId, typeof(GameCacheDetectionService).GetField("_currentTrackerOperationId", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(ctx.Service));
+        tracker.CompleteOperation(nextId, success: false, cancelled: true);
+        release.TrySetResult();
+        await nextStart;
+    }
+
     [Fact]
     public async Task SecondStart_DuringActiveRun_DoesNotAlterActiveRunTerminalVisibility()
     {
@@ -106,6 +215,7 @@ public class GameDetectionVisibilityRaceTests
         public FakeTrackerProxy Tracker { get; }
         public RecordingNotificationsProxy Notifications { get; }
         public GameCacheDetectionService Service { get; }
+        public OperationStateService States { get; }
 
         public ServiceContext()
         {
@@ -130,6 +240,7 @@ public class GameDetectionVisibilityRaceTests
 
             var operationStateService = new OperationStateService(
                 NullLogger<OperationStateService>.Instance, configuration, stateService);
+            States = operationStateService;
             var datasourceService = new DatasourceService(
                 configuration, pathResolver, NullLogger<DatasourceService>.Instance);
 
@@ -193,11 +304,14 @@ public class GameDetectionVisibilityRaceTests
             switch (targetMethod?.Name)
             {
                 case nameof(IUnifiedOperationTracker.RegisterOperation):
+                case nameof(IUnifiedOperationTracker.TryRestoreOperation):
                 {
-                    var id = Guid.NewGuid();
-                    var name = args?[1] as string ?? "Game Detection";
-                    var metadata = args?[3];
-                    var emit = args?[5] as Func<OperationTerminalInfo, Task>;
+                    var restoring = targetMethod.Name == nameof(IUnifiedOperationTracker.TryRestoreOperation);
+                    var offset = restoring ? 1 : 0;
+                    var id = restoring ? (Guid)args![0]! : Guid.NewGuid();
+                    var name = args?[1 + offset] as string ?? "Game Detection";
+                    var metadata = args?[3 + offset];
+                    var emit = args?[5 + offset] as Func<OperationTerminalInfo, Task>;
                     lock (_sync)
                     {
                         if (emit != null)
@@ -210,14 +324,15 @@ public class GameDetectionVisibilityRaceTests
                             Id = id,
                             Type = OperationType.GameDetection,
                             Name = name,
-                            StartedAt = DateTime.UtcNow,
+                            StartedAt = (DateTime?)args![8] ?? DateTime.UtcNow,
+                            ParentOperationId = (Guid?)args![7],
                             // Carry the run's metadata so GetActiveOperation can surface the run-stable
                             // visibility flag the recovery endpoint reports.
                             Metadata = metadata
                         });
                     }
 
-                    return id;
+                    return restoring ? true : id;
                 }
                 case nameof(IUnifiedOperationTracker.GetActiveOperations):
                     lock (_sync)
@@ -229,9 +344,22 @@ public class GameDetectionVisibilityRaceTests
                     var id = (Guid)args![0]!;
                     var success = (bool)args[1]!;
                     var error = args[2] as string;
-                    FireTerminal(id, success, cancelled: false, error);
+                    FireTerminal(id, success, cancelled: (bool?)args[3] ?? false, error,
+                        args[5] as Action<OperationInfo>);
                     return null;
                 }
+                case nameof(IUnifiedOperationTracker.UpdateProgress):
+                    lock (_sync)
+                    {
+                        var operation = _active.FirstOrDefault(o => o.Id == (Guid)args![0]!);
+                        if (operation != null)
+                        {
+                            operation.PercentComplete = (double)args![1]!;
+                            operation.Message = args[2] as string ?? string.Empty;
+                            (args[3] as Action<OperationInfo>)?.Invoke(operation);
+                        }
+                    }
+                    return null;
                 case nameof(IUnifiedOperationTracker.GetOperation):
                     return null;
                 default:
@@ -251,13 +379,19 @@ public class GameDetectionVisibilityRaceTests
             }
         }
 
-        internal void FireTerminal(Guid id, bool success, bool cancelled, string? error)
+        internal OperationInfo? Get(Guid id) { lock (_sync) return _active.FirstOrDefault(o => o.Id == id); }
+
+        internal void FireTerminal(Guid id, bool success, bool cancelled, string? error, Action<OperationInfo>? onCompleting = null)
         {
             Func<OperationTerminalInfo, Task>? emit;
             lock (_sync)
             {
-                _active.RemoveAll(o => o.Id == id);
-                _emits.TryGetValue(id, out emit);
+                var operation = _active.FirstOrDefault(o => o.Id == id);
+                if (operation == null) return;
+                onCompleting?.Invoke(operation);
+                operation.Status = cancelled ? OperationStatus.Cancelled : success ? OperationStatus.Completed : OperationStatus.Failed;
+                _active.Remove(operation);
+                _emits.Remove(id, out emit);
             }
 
             emit?.Invoke(new OperationTerminalInfo(success, cancelled, error));
@@ -273,6 +407,8 @@ public class GameDetectionVisibilityRaceTests
     {
         private readonly object _sync = new();
         private readonly Dictionary<Guid, bool> _completeVisibility = new();
+        internal readonly List<(string Event, object? Value)> Events = [];
+        internal Func<string, object?, Task>? OnSend { get; set; }
 
         internal bool TryGetCompleteVisibility(Guid id, out bool showNotification)
         {
@@ -285,6 +421,11 @@ public class GameDetectionVisibilityRaceTests
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             var name = targetMethod?.Name;
+            if (args is [string eventName, var value, ..])
+            {
+                lock (_sync) Events.Add((eventName, value));
+                if (OnSend != null) return OnSend(eventName, value);
+            }
             if ((name == nameof(ISignalRNotificationService.NotifyAllAsync)
                     || name == nameof(ISignalRNotificationService.NotifyOperationFailedAsync))
                 && args is { Length: >= 2 }

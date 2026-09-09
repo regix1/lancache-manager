@@ -245,7 +245,9 @@ public sealed partial class CacheFileCountContractTests
     /// A service wired only far enough to exercise the count-state map. Every dependency the count
     /// state does not touch is left null, in the shape SteamGameRemovalCacheSweepTests already uses.
     /// </summary>
-    private static CacheManagementService NewServiceForCountState()
+    private static CacheManagementService NewServiceForCountState(
+        IUnifiedOperationTracker? tracker = null,
+        ISignalRNotificationService? notifications = null)
     {
         var configuration = new ConfigurationBuilder().Build();
         var pathResolver = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
@@ -264,12 +266,42 @@ public sealed partial class CacheFileCountContractTests
             DispatchProxy.Create<IStateService, NullReturningProxy>(),
             dbContextFactory: null!,
             gameCacheDetectionService: null!,
-            DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>(),
-            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+            tracker ?? DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>(),
+            notifications ?? DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
             DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
             DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
             new DatasourceCapabilityService(datasourceService),
             CacheScanGateHarness.Idle());
+    }
+
+    [Fact]
+    public async Task CacheSizeProgressCannotReplaceSuccessorRecoveryContext()
+    {
+        using var processes = new ProcessManager(NullLogger<ProcessManager>.Instance);
+        var tracker = new UnifiedOperationTracker(processes, NullLogger<UnifiedOperationTracker>.Instance);
+        var notifications = new ScheduledRunReporterTests.CapturingNotificationService();
+        var service = NewServiceForCountState(tracker, notifications);
+        var owner = typeof(CacheManagementService).GetField("_cacheSizeScanId", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var report = typeof(CacheManagementService).GetMethod("ReportProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var progressType = typeof(CacheManagementService).GetNestedType("CacheSizeScanProgressData", BindingFlags.NonPublic)!;
+        var first = tracker.RegisterOperation(OperationType.CacheSizeScan, "first", new CancellationTokenSource());
+        owner.SetValue(service, first);
+        await (Task)report.Invoke(service, [first, JsonSerializer.Deserialize(
+            """{"stageKey":"signalr.cacheSizeScan.scanning","percentComplete":20,"totalFiles":2}""", progressType), true])!;
+        Assert.Equal(2L, service.CurrentCacheSizeScanProgressContext!["totalFiles"]);
+        tracker.CompleteOperation(first, false, cancelled: true);
+        var next = tracker.RegisterOperation(OperationType.CacheSizeScan, "next", new CancellationTokenSource());
+        owner.SetValue(service, next);
+        await (Task)report.Invoke(service, [next, JsonSerializer.Deserialize(
+            """{"stageKey":"signalr.cacheSizeScan.starting","percentComplete":10,"totalFiles":7}""", progressType), false])!;
+        var current = service.CurrentCacheSizeScanProgressContext;
+        var count = notifications.Events.Count;
+        await (Task)report.Invoke(service, [first, JsonSerializer.Deserialize(
+            """{"stageKey":"signalr.cacheSizeScan.scanning","percentComplete":99,"totalFiles":99}""", progressType), true])!;
+        Assert.Same(current, service.CurrentCacheSizeScanProgressContext);
+        Assert.Equal(7L, current!["totalFiles"]);
+        Assert.Equal(count, notifications.Events.Count);
+        tracker.CompleteOperation(next, true);
     }
 
     /// <summary>

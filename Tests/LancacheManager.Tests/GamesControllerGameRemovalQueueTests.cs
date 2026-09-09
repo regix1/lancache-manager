@@ -5,6 +5,7 @@ using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Models;
+using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -130,6 +131,82 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         Assert.Contains("EpicAppId: isEpic ? epicAppId : null", source, StringComparison.Ordinal);
         Assert.Contains("GameName: displayName", source, StringComparison.Ordinal);
         Assert.Contains("StartedEventName: SignalREvents.GameRemovalStarted", source, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemovalRunner_ExternalTerminalRejectsLateProgressAndWorkerResult(bool cancelled)
+    {
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finalized = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tracked = CreateProxy<IUnifiedOperationTracker>((method, args) =>
+        {
+            var result = method.Invoke(tracker, args);
+            if (method.Name == nameof(IUnifiedOperationTracker.CompleteOperation))
+                finalized.TrySetResult();
+            return result;
+        });
+        var messages = new List<(string Event, object Value)>();
+        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
+        {
+            if (method.Name is nameof(ISignalRNotificationService.NotifyAllAsync)
+                or nameof(ISignalRNotificationService.NotifyOperationFailedAsync))
+            {
+                lock (messages) messages.Add(((string)args![0]!, args[1]!));
+            }
+            return DefaultReturn(method.ReturnType);
+        });
+        var metrics = new RemovalMetrics { EntityKey = "570" };
+        var finalMetricsApplied = 0;
+        var config = new TrackedRemovalOperationRunner.RemovalOperationConfig<int>(
+            OperationType.GameRemoval, "Game Removal", metrics,
+            "started", id => id,
+            "progress", "starting", id => id,
+            (id, progress) => progress,
+            "complete", "finalizing", (id, report) => report,
+            (id, report) => new SignalRNotifications.GameRemovalComplete(true, id, 570, null, "complete", FilesDeleted: report),
+            id => new SignalRNotifications.GameRemovalComplete(false, id, 570, null, "cancelled", Cancelled: true),
+            (id, exception) => exception.Message,
+            (id, exception) => new SignalRNotifications.GameRemovalComplete(false, id, 570, null, "failed", Error: exception.Message),
+            async (_, _, report) =>
+            {
+                await report(new(12, "removing", FilesDeleted: 2));
+                entered.TrySetResult();
+                await release.Task;
+                await report(new(90, "late", FilesDeleted: 90));
+                return 99;
+            },
+            ApplyProgressMetrics: (current, progress) => current.FilesDeleted = progress.FilesDeleted,
+            ApplyFinalMetrics: (current, report) =>
+            {
+                current.FilesDeleted = report;
+                finalMetricsApplied++;
+            });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(tracked, notifications, config);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        tracker.CompleteOperation(operationId, success: false, error: cancelled ? null : "disk failure", cancelled: cancelled);
+        var completedAt = tracker.GetOperation(operationId)!.CompletedAt;
+        release.TrySetResult();
+        await finalized.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(2, metrics.FilesDeleted);
+        Assert.Equal(0, finalMetricsApplied);
+        Assert.Equal(completedAt, tracker.GetOperation(operationId)!.CompletedAt);
+        Assert.Equal(cancelled ? OperationStatus.Cancelled : OperationStatus.Failed, tracker.GetOperation(operationId)!.Status);
+        lock (messages)
+        {
+            var terminal = Assert.IsType<SignalRNotifications.GameRemovalComplete>(Assert.Single(messages, item => item.Event == "complete").Value);
+            Assert.Equal(operationId, terminal.OperationId);
+            Assert.Equal(cancelled, terminal.Cancelled);
+            Assert.Equal(cancelled ? null : "disk failure", terminal.Error);
+            Assert.DoesNotContain(messages, item => item.Value is TrackedRemovalOperationRunner.RemovalProgressUpdate { StageKey: "late" });
+        }
     }
 
     private void AssertQueuedGameRemoval(IActionResult result, ConflictScope expectedScope)

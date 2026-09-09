@@ -34,6 +34,14 @@ import {
 
 type GameDetectionInterpolation = Record<string, string | number | boolean | null>;
 
+export function detectionErrorDetail(event: {
+  context?: Record<string, unknown> | null;
+}): string | undefined {
+  const error = event.context?.detectionError;
+  if (typeof error !== 'string' || !error.trim()) return undefined;
+  return i18n.t('signalr.gameDetect.error.fatal', { errorDetail: error });
+}
+
 /** Merge SignalR/API context with top-level detection counts for i18n interpolation. */
 export function buildGameDetectionInterpolation(
   context?: GameDetectionInterpolation | null,

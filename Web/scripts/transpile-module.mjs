@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import typescript from 'typescript';
 
@@ -68,6 +68,79 @@ export const compileToUrl = async (relativePath, aliasUrls = {}) => {
   return moduleUrl(resolved);
 };
 
+/** Compile a bounded import graph, keeping production modules real and replacing explicit browser boundaries. */
+export const compileTree = async (relativePath, aliasUrls = {}) => {
+  const cache = new Map();
+  const compile = async (url) => {
+    if (cache.has(url.href)) return cache.get(url.href);
+    const pending = (async () => {
+      let source = transpile(await readFile(url, 'utf8')).replaceAll('import.meta.env', '({})');
+      const imports = [...source.matchAll(/\b(?:from|import)\s+['"]([^'"]+)['"]/g)].map(
+        (match) => match[1]
+      );
+      for (const name of new Set(imports)) {
+        let replacement = aliasUrls[name];
+        if (!replacement) {
+          let base;
+          if (name.startsWith('.')) base = new URL(name, url);
+          else if (name.startsWith('@/'))
+            base = new URL(`../src/${name.slice(2)}`, import.meta.url);
+          else if (/^@(utils|contexts|services|components|hooks|types)\//.test(name))
+            base = new URL(`../src/${name.slice(1)}`, import.meta.url);
+          if (base) {
+            const boundary = Object.entries(aliasUrls).find(
+              ([alias]) =>
+                alias.startsWith('@/') &&
+                new URL(`../src/${alias.slice(2)}`, import.meta.url).href ===
+                  base.href
+                    .replace(/\/index(?:\.[cm]?[jt]sx?)?$/, '')
+                    .replace(/\.[cm]?[jt]sx?$/, '')
+            );
+            if (boundary) replacement = boundary[1];
+            else {
+              const candidate = ['', '.ts', '.tsx', '/index.ts', '/index.tsx']
+                .map((suffix) => new URL(base.href + suffix))
+                .find((file) => existsSync(file) && /\.[cm]?[jt]sx?$/.test(file.pathname));
+              assert.ok(candidate, `unresolved production import ${name} from ${url.pathname}`);
+              replacement = await compile(candidate);
+            }
+          } else replacement = import.meta.resolve(name);
+        }
+        source = source
+          .split(`from '${name}'`)
+          .join(`from '${replacement}'`)
+          .split(`from "${name}"`)
+          .join(`from '${replacement}'`)
+          .split(`import '${name}'`)
+          .join(`import '${replacement}'`);
+      }
+      return moduleUrl(source);
+    })();
+    cache.set(url.href, pending);
+    return pending;
+  };
+  return compile(new URL(relativePath, import.meta.url));
+};
+
+export const loadNotificationModules = async (
+  i18nUrl = moduleUrl('export default {t:(key)=>key};')
+) => {
+  const aliases = { '@/i18n': i18nUrl };
+  const modules = await Promise.all(
+    [
+      'handlers',
+      'constants',
+      'notificationStatus',
+      'notificationRegistry',
+      'recovery',
+      'detailMessageFormatters'
+    ].map(
+      async (name) => import(await compileTree(`../src/contexts/notifications/${name}.ts`, aliases))
+    )
+  );
+  return Object.assign({}, ...modules);
+};
+
 /**
  * The `localStorage` the product code reads, with nothing on disk behind it. Assigned to
  * `globalThis.localStorage` by a test whose code under test persists or clears a notification.
@@ -104,6 +177,25 @@ export const parseSource = (relativePath, scriptKind = typescript.ScriptKind.TS)
     true,
     scriptKind
   );
+};
+
+/** A fresh shared event ref with exactly the shape initialized by the mounted component. */
+export const notificationEvents = () => {
+  const source = parseSource(
+    'src/contexts/notifications/NotificationsContext.tsx',
+    typescript.ScriptKind.TSX
+  );
+  const declaration = findSoleNode(
+    source,
+    'events ref',
+    (node) =>
+      typescript.isVariableDeclaration(node) &&
+      node.name.getText(source) === 'events' &&
+      typescript.isCallExpression(node.initializer)
+  );
+  return {
+    current: bindLifted(`() => (${declaration.initializer.arguments[0].getText(source)})`, {})()
+  };
 };
 
 /**

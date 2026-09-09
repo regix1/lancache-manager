@@ -4,7 +4,9 @@ import type {
   UnifiedNotification,
   SetNotifications,
   ScheduleAutoDismiss,
-  SimpleRecoveryConfig
+  SimpleRecoveryConfig,
+  NotificationEvents,
+  CancelAutoDismissTimer
 } from './types';
 import {
   NOTIFICATION_STORAGE_KEYS,
@@ -15,15 +17,41 @@ import {
   GENERIC_FAILURE_I18N_KEY,
   REMOVING_GAME_I18N_KEY
 } from './constants';
-import { findBulkCardOwningOperation, waitingCardMessage, operationCardId } from './handlers';
+import {
+  findBulkCardOwningOperation,
+  waitingCardMessage,
+  operationCardId,
+  applyHandoff,
+  rememberEvent,
+  persistNotification,
+  clearPersistedNotificationIfTargeted
+} from './handlers';
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
-import { storage } from '@utils/storage';
 import i18n from '@/i18n';
 import type { CorruptionDetectionMethod } from '@/types';
+import type { RefObject } from 'react';
+import type { OperationStatusResponse } from './recoveryStatusResponses';
 
 export type FetchWithAuth = (url: string) => Promise<Response>;
+
+interface RecoveryPass {
+  startedAt: Date;
+  revision: number;
+  starting: readonly UnifiedNotification[];
+  events: NotificationEvents;
+  changed: Set<NotificationType>;
+  cancelAutoDismissTimer: CancelAutoDismissTimer;
+}
+
+function canRecover(
+  pass: RecoveryPass | undefined,
+  type: NotificationType,
+  _operationId?: string
+): boolean {
+  return !pass || !pass.changed.has(type);
+}
 
 // ============================================================================
 // Recovered-card reconciliation
@@ -87,17 +115,14 @@ function reconcileRecoveredCard(
   existing: UnifiedNotification | undefined,
   recovered: UnifiedNotification
 ): UnifiedNotification {
-  if (
-    !existing ||
-    isTerminalNotificationStatus(existing.status) ||
-    !isSameOperation(existing, recovered.details?.operationId)
-  ) {
+  if (!existing || !isSameOperation(existing, recovered.details?.operationId)) {
     return recovered;
   }
+  if (isTerminalNotificationStatus(existing.status)) return existing;
 
   const merged: UnifiedNotification = {
     ...existing,
-    controlOnly: existing.controlOnly ?? recovered.controlOnly,
+    controlOnly: recovered.controlOnly,
     status: existing.details?.cancelRequested ? 'cancelling' : recovered.status,
     details: { ...existing.details, ...mergeableDetails(recovered.details) }
   };
@@ -125,6 +150,7 @@ interface WaitingOperationRow {
   name: string;
   /** Display name of the operation this one is parked behind; null when unknown. */
   blockedByName?: string | null;
+  startedAt?: string;
 }
 
 /**
@@ -135,101 +161,181 @@ interface WaitingOperationRow {
  */
 function createWaitingOperationsRecoveryFunction(
   fetchWithAuth: FetchWithAuth,
-  setNotifications: SetNotifications
+  setNotifications: SetNotifications,
+  scheduleAutoDismiss: ScheduleAutoDismiss = () => undefined,
+  pass?: RecoveryPass
 ): () => Promise<void> {
   return async () => {
+    const startedAt = pass?.startedAt ?? new Date();
     try {
       const response = await fetchWithAuth('/api/operations/waiting');
       if (response.status === 401 || response.status === 403) return;
       if (!response.ok)
         throw new Error(`Unable to recover waiting operations (${response.status})`);
-
       const rows = (await response.json()) as WaitingOperationRow[];
-      // Every row of a type, not just the last one: two operations of one type can be parked at
-      // once and they belong to different owners, so keeping only one of them handed a batch
-      // card the blocker of an operation it never started and left its own item unreported.
-      const waitingByType = new Map<NotificationType, WaitingOperationRow[]>();
-      for (const row of rows) {
-        const type = OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[row.operationType];
-        if (!type) continue;
-        const rowsForType = waitingByType.get(type);
-        if (rowsForType) rowsForType.push(row);
-        else waitingByType.set(type, [row]);
-      }
-
-      setNotifications((prev: UnifiedNotification[]) => {
-        // Drop stale waiting cards (op promoted or cancelled while we weren't listening).
-        // A bulk_removal card is exempt: it is client-owned, never appears in the queue rows, and
-        // goes purple on its own while its current item is parked. Filtering on the rows alone
-        // would delete a running batch's card the moment it started waiting.
-        const next = prev.filter(
-          (n) =>
+      const probes = new Map<
+        string,
+        { status: OperationStatusResponse; target?: OperationStatusResponse }
+      >();
+      const missing = new Set(
+        (pass?.starting ?? [])
+          .filter((n) => n.status === 'waiting' || n.status === 'cancelling')
+          .map((n) => n.details?.currentOperationId ?? n.details?.operationId)
+          .filter(
+            (id): id is string =>
+              !!id && !rows.some((row) => row.operationId === id) && !pass?.events.handoffs.has(id)
+          )
+      );
+      await Promise.all(
+        [...missing].map(async (id) => {
+          const result = await fetchWithAuth(`/api/operations/${encodeURIComponent(id)}`);
+          if (result.status === 401 || result.status === 403) return;
+          if (!result.ok) throw new Error(`Unable to recover waiting operation (${result.status})`);
+          const status = (await result.json()) as OperationStatusResponse;
+          let target: OperationStatusResponse | undefined;
+          if (
+            status.nextOperationId &&
+            status.nextOperationId !== id &&
+            (!status.nextStatus ||
+              ['completed', 'failed', 'cancelled', 'skipped'].includes(status.nextStatus))
+          ) {
+            const successor = await fetchWithAuth(
+              `/api/operations/${encodeURIComponent(status.nextOperationId)}`
+            );
+            if (successor.status !== 401 && successor.status !== 403) {
+              if (!successor.ok)
+                throw new Error(`Unable to recover promoted operation (${successor.status})`);
+              target = (await successor.json()) as OperationStatusResponse;
+            }
+          }
+          probes.set(id, { status, target });
+        })
+      );
+      setNotifications((prev) => {
+        let next = prev.filter((n) => n.id !== 'recovery_waiting');
+        for (const n of prev) {
+          const operationId = n.details?.currentOperationId ?? n.details?.operationId;
+          if (!operationId || !canRecover(pass, n.type, operationId)) continue;
+          const entry = NOTIFICATION_REGISTRY.find((candidate) => candidate.type === n.type);
+          if (!entry || !pass) continue;
+          const probe = probes.get(operationId);
+          let handoff = pass.events.handoffs.get(operationId);
+          if (
+            !handoff &&
+            probe?.status.nextOperationId &&
+            probe.status.nextOperationId !== operationId
+          ) {
+            handoff = {
+              operationId,
+              operationType:
+                Object.entries(OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE).find(
+                  ([, type]) => type === n.type
+                )?.[0] ?? '',
+              promoted: true,
+              cancelled: false,
+              nextOperationId: probe.status.nextOperationId,
+              nextStatus: probe.target?.status ?? probe.status.nextStatus ?? undefined,
+              error: probe.target?.error ?? undefined
+            };
+            rememberEvent(pass.events, n.type, 'handoff', 'OperationWaitingComplete', handoff);
+            if (probe.target?.status && isTerminalNotificationStatus(probe.target.status)) {
+              const id = handoff.nextOperationId!;
+              if (!pass.events.terminals.has(id))
+                pass.events.terminals.set(id, {
+                  operationId: id,
+                  status: probe.target.status as 'completed' | 'failed' | 'cancelled' | 'skipped',
+                  error: probe.target.error ?? undefined
+                });
+            }
+          }
+          if (handoff)
+            next = applyHandoff(
+              next,
+              handoff,
+              pass.events,
+              entry,
+              scheduleAutoDismiss,
+              pass.cancelAutoDismissTimer
+            );
+        }
+        next = next.filter((n) => {
+          if (
             n.type === 'bulk_removal' ||
             n.status !== 'waiting' ||
+            !canRecover(pass, n.type, n.details?.operationId) ||
             rows.some((row) => row.operationId === n.details?.operationId)
-        );
-
-        // Create cards for queued ops that have none (and whose slot isn't already a
-        // running card - a promoted op's card must not be downgraded back to waiting).
-        for (const entry of NOTIFICATION_REGISTRY) {
-          for (const row of waitingByType.get(entry.type) ?? []) {
-            // One card slot per type, so a second unowned waiter of the same type stays
-            // unreported until the first one leaves the queue. Skipping an occupied slot is
-            // also what stops a promoted operation's running card being pushed back to waiting,
-            // and it is checked before anything else is done with the row so a reconnect cannot
-            // reach past a live card the same row would have been skipped for.
-            if (
-              next.some((n) => n.type !== 'generic' && n.details?.operationId === row.operationId)
-            )
-              continue;
-            if (entry.type === 'scheduled_prefill') continue;
-            if (row.showNotification !== false && next.some((n) => n.id === entry.id)) continue;
-            // The batch that started this very item owns the display. Recreating a separate card
-            // here would put the same sentence on screen twice, which is what happens on a
-            // reconnect or a refresh mid-batch. Hand the queue's wording to that card instead,
-            // and record which operation it now speaks for: a batch whose item request is still
-            // on the wire may claim one row on the strength of that, never both.
-            const owningBulk = findBulkCardOwningOperation(entry.type, row.operationId, next);
-            if (owningBulk) {
-              const index = next.findIndex((n) => n.id === owningBulk.id);
-              next[index] = {
-                ...owningBulk,
-                status: 'waiting',
-                message: waitingCardMessage(row),
-                details: { ...owningBulk.details, currentOperationId: row.operationId }
-              };
-              continue;
-            }
-            next.push({
-              id: row.showNotification === false ? operationCardId(row.operationId) : entry.id,
-              type: entry.type,
-              status: row.status === 'cancelling' ? 'cancelling' : 'waiting',
-              controlOnly: row.showNotification === false,
-              message: waitingCardMessage(row),
-              startedAt: new Date(),
-              details: { operationId: row.operationId }
-            });
+          )
+            return true;
+          const operationId = n.details?.operationId;
+          if (operationId && probes.get(operationId)?.status.active) return true;
+          const entry = NOTIFICATION_REGISTRY.find((candidate) => candidate.type === n.type);
+          if (entry)
+            clearPersistedNotificationIfTargeted(
+              entry.storageKey,
+              { operationId },
+              n.id,
+              entry.getId !== undefined
+            );
+          return false;
+        });
+        for (const row of rows) {
+          const type = OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[row.operationType];
+          if (
+            !type ||
+            !canRecover(pass, type, row.operationId) ||
+            pass?.events.terminals.has(row.operationId)
+          )
+            continue;
+          const entry = NOTIFICATION_REGISTRY.find((candidate) => candidate.type === type);
+          if (!entry || type === 'scheduled_prefill') continue;
+          if (next.some((n) => n.type !== 'generic' && n.details?.operationId === row.operationId))
+            continue;
+          const owningBulk = findBulkCardOwningOperation(type, row.operationId, next);
+          if (owningBulk) {
+            next = next.map((n) =>
+              n === owningBulk
+                ? {
+                    ...n,
+                    status: 'waiting',
+                    message: waitingCardMessage(row),
+                    details: { ...n.details, currentOperationId: row.operationId }
+                  }
+                : n
+            );
+            continue;
           }
+          if (row.showNotification !== false && next.some((n) => n.id === entry.id)) continue;
+          const date = new Date(row.startedAt ?? startedAt);
+          next.push({
+            id: row.showNotification === false ? operationCardId(row.operationId) : entry.id,
+            type,
+            status: row.status === 'cancelling' ? 'cancelling' : 'waiting',
+            controlOnly: row.showNotification === false,
+            message: waitingCardMessage(row),
+            startedAt: Number.isFinite(date.getTime()) ? date : startedAt,
+            details: { operationId: row.operationId }
+          });
+          pass?.events.waiting.add(row.operationId);
         }
-
         return next;
       });
-    } catch (error) {
-      setNotifications((prev) =>
-        prev.some((n) => n.id === 'recovery_waiting')
-          ? prev
-          : [
-              ...prev,
-              {
-                id: 'recovery_waiting',
-                type: 'generic',
-                status: 'failed',
-                message: error instanceof Error ? error.message : i18n.t(GENERIC_FAILURE_I18N_KEY),
-                startedAt: new Date(),
-                details: { notificationType: 'error' }
-              }
-            ]
-      );
+    } catch (error: unknown) {
+      setNotifications((prev) => {
+        if (pass && pass.events.revision !== pass.revision) return prev;
+        if (prev.some((n) => n.id === 'recovery_waiting')) return prev;
+        scheduleAutoDismiss('recovery_waiting');
+        return [
+          ...prev,
+          {
+            id: 'recovery_waiting',
+            type: 'generic',
+            status: 'failed',
+            message: error instanceof Error ? error.message : i18n.t(GENERIC_FAILURE_I18N_KEY),
+            startedAt,
+            details: { notificationType: 'error' }
+          }
+        ];
+      });
     }
   };
 }
@@ -253,180 +359,219 @@ function createSimpleRecoveryFunction<TData>(
   storageKey: string,
   fetchWithAuth: FetchWithAuth,
   setNotifications: SetNotifications,
-  scheduleAutoDismiss: ScheduleAutoDismiss
+  scheduleAutoDismiss: ScheduleAutoDismiss,
+  pass?: RecoveryPass
 ): () => Promise<void> {
   return async () => {
+    const startedAt = pass?.startedAt ?? new Date();
+    const errorId = `recovery_${notificationId}`;
     try {
       const response = await fetchWithAuth(config.apiEndpoint);
       if (response.status === 401 || response.status === 403) return;
       if (!response.ok) throw new Error(`Unable to recover operation (${response.status})`);
-
       const data = (await response.json()) as TData;
-      const outcome = data as {
-        status?: string;
+      const outcome = ((data as { operation?: unknown }).operation ?? data) as {
+        status?: NotificationStatus;
         error?: string;
         message?: string;
         operationId?: string;
+        parentOperationId?: string | null;
+        startedAt?: string;
+        startTime?: string;
       };
-      if (outcome.status === 'failed') {
-        const id = outcome.operationId ? operationCardId(outcome.operationId) : notificationId;
-        const message = outcome.error ?? outcome.message ?? i18n.t(GENERIC_FAILURE_I18N_KEY);
+      const operationId = outcome.operationId;
+      if (
+        type === 'game_detection' &&
+        operationId &&
+        (outcome.parentOperationId || pass?.events.children.has(operationId))
+      ) {
         setNotifications((prev) => {
-          const existing = prev.find(
-            (n) => n.type === type && n.details?.operationId === outcome.operationId
+          if (!canRecover(pass, type, operationId)) return prev;
+          if (outcome.parentOperationId)
+            pass?.events.children.set(operationId, outcome.parentOperationId);
+          clearPersistedNotificationIfTargeted(storageKey, { operationId }, notificationId);
+          return prev.filter(
+            (n) => n.id !== errorId && !(n.type === type && n.details?.operationId === operationId)
           );
-          const target = existing?.id ?? id;
-          scheduleAutoDismiss(target);
-          return [
-            ...prev.filter((n) => n.id !== target),
-            {
-              ...existing,
-              id: target,
-              type,
-              status: 'failed',
-              controlOnly: undefined,
-              message,
-              error: message,
-              startedAt: existing?.startedAt ?? new Date(),
-              details: { ...existing?.details, operationId: outcome.operationId }
-            }
-          ];
         });
         return;
       }
-
-      // Check if we should skip (e.g., silent mode)
-      if (config.shouldSkip?.(data)) {
-        storage.removeItem(storageKey);
-        setNotifications((prev: UnifiedNotification[]) =>
-          prev.filter((n) => n.id !== notificationId || isTerminalNotificationStatus(n.status))
-        );
-        return;
-      }
-
-      if (config.isProcessing(data)) {
-        // A type that owns one card per entity rebuilds every entity still running; the
-        // response names them, so the ids come from the data and not from a fixed lambda.
-        if (config.recoverCards) {
-          const cards = config.recoverCards(data).map((card) => ({
-            ...card,
-            id:
-              card.controlOnly && card.details?.operationId
-                ? operationCardId(card.details.operationId)
-                : card.id
-          }));
-          const rebuilt = new Set(cards.map((card) => card.id));
-          setNotifications((prev: UnifiedNotification[]) => {
-            const recovered = cards.map((card) =>
-              reconcileRecoveredCard(
-                prev.find(
-                  (n) =>
-                    n.id === card.id ||
-                    (n.type === type && n.details?.operationId === card.details?.operationId)
-                ),
-                { type, status: 'running', startedAt: new Date(), ...card }
-              )
-            );
-            // A card this response does not name can still be a finished sibling waiting out its
-            // dismiss timer: the service that skipped instantly, or the one the user just stopped.
-            // Only running cards are the response's to replace, so a terminal one it does not
-            // name stays until its own timer removes it.
-            const kept = prev.filter(
-              (n) =>
-                !rebuilt.has(n.id) &&
-                !cards.some(
-                  (card) =>
-                    card.details?.operationId && card.details.operationId === n.details?.operationId
-                )
-            );
-            return [...kept, ...recovered];
-          });
-          return;
-        }
-
-        const notificationData = config.createNotification(data);
-        setNotifications((prev: UnifiedNotification[]) => {
-          const operationId = notificationData.details?.operationId;
-          const existing = prev.find(
+      if (outcome.status && isTerminalNotificationStatus(outcome.status) && operationId) {
+        setNotifications((prev) => {
+          if (!canRecover(pass, type, operationId)) return prev;
+          const next = prev.filter((n) => n.id !== errorId);
+          const existing = next.find(
             (n) => n.type === type && n.details?.operationId === operationId
           );
-          const recovered: UnifiedNotification = {
-            id:
-              existing?.id ??
-              (notificationData.controlOnly && operationId
-                ? operationCardId(operationId)
-                : notificationId),
+          if (existing && isTerminalNotificationStatus(existing.status)) return next;
+          if (
+            !existing &&
+            (outcome.status !== 'failed' ||
+              pass?.events.terminals.get(operationId)?.presented ||
+              next.some((n) => n.id === notificationId))
+          )
+            return next;
+          const known = pass?.events.terminals.get(operationId);
+          const status = known?.status ?? outcome.status!;
+          const entry = NOTIFICATION_REGISTRY.find((n) => n.type === type);
+          const message =
+            known?.error ??
+            outcome.error ??
+            outcome.message ??
+            i18n.t(status === 'failed' ? GENERIC_FAILURE_I18N_KEY : config.staleMessageKey);
+          const card: UnifiedNotification = {
+            ...existing,
+            id: existing?.id ?? notificationId,
             type,
-            status: 'running',
-            startedAt: new Date(),
-            ...notificationData
+            status,
+            message,
+            controlOnly: undefined,
+            error: status === 'failed' ? message : undefined,
+            progress: status === 'skipped' ? undefined : FULL_PROGRESS_PERCENT,
+            startedAt: existing?.startedAt ?? startedAt,
+            details: { ...existing?.details, operationId },
+            detailMessage: entry?.complete?.getDetailMessage?.(data) ?? existing?.detailMessage
           };
-          if (prev.some((n) => n.id === recovered.id && n !== existing)) return prev;
-          const filtered = prev.filter((n) => n.id !== recovered.id);
-          return [...filtered, reconcileRecoveredCard(existing, recovered)];
-        });
-      } else {
-        // Clear stale localStorage entry if present
-        const saved = storage.getItem(storageKey);
-        if (saved) {
-          storage.removeItem(storageKey);
-        }
-
-        // Always transition any running notification of this type to completed.
-        // This handles both:
-        // 1. Notifications restored from localStorage (stale from previous session)
-        // 2. Notifications created by a previous recovery poll (when isProcessing was true)
-        //    - these don't use localStorage, so the old `if (saved)` guard missed them
-        setNotifications((prev: UnifiedNotification[]) => {
-          prev = prev.filter((n) => !(n.type === type && n.controlOnly && n.status !== 'waiting'));
-          const existing = prev.find((n) => n.type === type && n.status === 'running');
-          if (!existing) return prev;
-
-          // A type that owns one card per entity keeps each card's own id: moving them all onto
-          // the entry's fixed id would collapse several stale cards into one.
-          const keepsOwnIds = config.recoverCards !== undefined;
-          if (keepsOwnIds) {
-            for (const n of prev) {
-              if (n.type === type && n.status === 'running') {
-                scheduleAutoDismiss(n.id);
-              }
-            }
+          if (!known && pass) {
+            pass.events.terminals.set(operationId, {
+              operationId,
+              status: status as 'completed' | 'failed' | 'cancelled' | 'skipped',
+              error: outcome.error
+            });
+            pass.events.acknowledgedIds.add(`terminal_${operationId}`);
           }
-
-          return prev.map((n) => {
-            if (n.type === type && n.status === 'running') {
-              return {
-                ...n,
-                ...(keepsOwnIds ? {} : { id: notificationId }),
-                status: 'completed',
-                message: i18n.t(config.staleMessageKey),
-                progress: FULL_PROGRESS_PERCENT
-              };
-            }
-            return n;
+          clearPersistedNotificationIfTargeted(
+            storageKey,
+            { operationId },
+            card.id,
+            !!config.recoverCards
+          );
+          scheduleAutoDismiss(card.id);
+          return existing ? next.map((n) => (n === existing ? card : n)) : [...next, card];
+        });
+        return;
+      }
+      if (config.shouldSkip?.(data)) {
+        setNotifications((prev) => {
+          if (!canRecover(pass, type, operationId)) return prev;
+          return prev.filter((n) => {
+            if (n.id === errorId) return false;
+            if (
+              n.type !== type ||
+              isTerminalNotificationStatus(n.status) ||
+              (operationId && n.details?.operationId !== operationId)
+            )
+              return true;
+            clearPersistedNotificationIfTargeted(
+              storageKey,
+              { operationId: n.details?.operationId },
+              n.id,
+              !!config.recoverCards
+            );
+            return false;
           });
         });
-
-        scheduleAutoDismiss(notificationId);
+        return;
       }
-    } catch (error) {
-      const id = `recovery_${notificationId}`;
-      setNotifications((prev) =>
-        prev.some((n) => n.id === id)
-          ? prev
-          : [
-              ...prev,
-              {
-                id,
-                type: 'generic',
-                status: 'failed',
-                message: error instanceof Error ? error.message : i18n.t(GENERIC_FAILURE_I18N_KEY),
-                startedAt: new Date(),
-                details: { notificationType: 'error' }
+      if (config.isProcessing(data)) {
+        const cards = config.recoverCards
+          ? config.recoverCards(data)
+          : [{ id: notificationId, ...config.createNotification(data) }];
+        setNotifications((prev) => {
+          if (!canRecover(pass, type, operationId)) return prev;
+          let next = prev.filter((n) => n.id !== errorId);
+          for (const snapshot of cards) {
+            const id = snapshot.details?.operationId;
+            if (!canRecover(pass, type, id) || (id && pass?.events.terminals.has(id))) continue;
+            if (type === 'game_detection' && snapshot.details?.parentOperationId) {
+              if (id) {
+                pass?.events.children.set(id, snapshot.details.parentOperationId);
+                clearPersistedNotificationIfTargeted(
+                  storageKey,
+                  { operationId: id },
+                  snapshot.id,
+                  !!config.recoverCards
+                );
+                next = next.filter((n) => n.type !== type || n.details?.operationId !== id);
               }
-            ]
-      );
-      scheduleAutoDismiss(id);
+              continue;
+            }
+            if (id && findBulkCardOwningOperation(type, id, next)) continue;
+            const exact = id
+              ? next.find((n) => n.type === type && n.details?.operationId === id)
+              : undefined;
+            const cardId =
+              exact?.id ?? (snapshot.controlOnly && id ? operationCardId(id) : snapshot.id);
+            const slot = next.find((n) => n.id === cardId);
+            const existing = exact ?? slot;
+            if (existing && existing.status === 'waiting' && existing.details?.operationId !== id)
+              continue;
+            const date = new Date(outcome.startedAt ?? outcome.startTime ?? startedAt);
+            const recovered: UnifiedNotification = {
+              type,
+              status: 'running',
+              startedAt: Number.isFinite(date.getTime()) ? date : startedAt,
+              ...snapshot,
+              id: cardId
+            };
+            const card = reconcileRecoveredCard(existing, recovered);
+            if (existing && card !== existing && existing.details?.operationId !== id)
+              clearPersistedNotificationIfTargeted(
+                storageKey,
+                { operationId: existing.details?.operationId },
+                existing.id,
+                !!config.recoverCards
+              );
+            persistNotification(storageKey, card, !!config.recoverCards);
+            next = existing ? next.map((n) => (n === existing ? card : n)) : [...next, card];
+          }
+          return next;
+        });
+      } else {
+        setNotifications((prev) => {
+          if (!canRecover(pass, type, operationId)) return prev;
+          return prev
+            .filter((n) => n.id !== errorId)
+            .flatMap((n) => {
+              if (n.type !== type || (n.status !== 'running' && n.status !== 'cancelling'))
+                return [n];
+              if (operationId && n.details?.operationId && n.details.operationId !== operationId)
+                return [n];
+              clearPersistedNotificationIfTargeted(
+                storageKey,
+                { operationId: n.details?.operationId },
+                n.id,
+                !!config.recoverCards
+              );
+              if (n.controlOnly) return [];
+              scheduleAutoDismiss(n.id);
+              return [
+                {
+                  ...n,
+                  status: 'completed' as const,
+                  message: i18n.t(config.staleMessageKey),
+                  progress: FULL_PROGRESS_PERCENT
+                }
+              ];
+            });
+        });
+      }
+    } catch (error: unknown) {
+      setNotifications((prev) => {
+        if (!canRecover(pass, type) || prev.some((n) => n.id === errorId)) return prev;
+        scheduleAutoDismiss(errorId);
+        return [
+          ...prev,
+          {
+            id: errorId,
+            type: 'generic',
+            status: 'failed',
+            message: error instanceof Error ? error.message : i18n.t(GENERIC_FAILURE_I18N_KEY),
+            startedAt,
+            details: { notificationType: 'error' }
+          }
+        ];
+      });
     }
   };
 }
@@ -478,7 +623,8 @@ interface CacheRemovalsData {
 function createCacheRemovalsRecoveryFunction(
   fetchWithAuth: FetchWithAuth,
   setNotifications: SetNotifications,
-  scheduleAutoDismiss: ScheduleAutoDismiss
+  scheduleAutoDismiss: ScheduleAutoDismiss,
+  pass?: RecoveryPass
 ): () => Promise<void> {
   return async () => {
     try {
@@ -538,10 +684,10 @@ function createCacheRemovalsRecoveryFunction(
             details
           };
         },
-        () => NOTIFICATION_IDS.GAME_REMOVAL,
         i18n.t('signalr.gameRemove.stale'),
         setNotifications,
-        scheduleAutoDismiss
+        scheduleAutoDismiss,
+        pass
       );
 
       // Recover service removals
@@ -561,10 +707,10 @@ function createCacheRemovalsRecoveryFunction(
             bytesFreed: op.bytesFreed
           }
         }),
-        () => NOTIFICATION_IDS.SERVICE_REMOVAL,
         i18n.t('signalr.serviceRemove.stale'),
         setNotifications,
-        scheduleAutoDismiss
+        scheduleAutoDismiss,
+        pass
       );
 
       // Recover corruption removals
@@ -586,10 +732,10 @@ function createCacheRemovalsRecoveryFunction(
             detectionMethod: op.detectionMethod
           }
         }),
-        () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
         i18n.t('signalr.corruptionRemove.stale'),
         setNotifications,
-        scheduleAutoDismiss
+        scheduleAutoDismiss,
+        pass
       );
 
       // Recover eviction removals.
@@ -600,9 +746,13 @@ function createCacheRemovalsRecoveryFunction(
       //   null    → bulk removal, no identifier fields needed beyond operationId
       // REST payload uses camelCase (global JsonNamingPolicy.CamelCase on AllActiveRemovalsResponse).
       // SignalR events use camelCase too - but the field semantics differ slightly (see registry comment).
-      recoverEvictionRemovals(data.evictionRemovals, setNotifications, scheduleAutoDismiss);
-    } catch {
-      // Silently fail
+      recoverEvictionRemovals(data.evictionRemovals, setNotifications, scheduleAutoDismiss, pass);
+    } catch (error: unknown) {
+      // Active-removal recovery is best effort; its operation cards own visible failures.
+      console.warn('Unable to recover active removals', {
+        endpoint: '/api/cache/removals/active',
+        error
+      });
     }
   };
 }
@@ -614,89 +764,78 @@ function createCacheRemovalsRecoveryFunction(
 function recoverEvictionRemovals(
   operations: EvictionRemovalOperation[] | undefined,
   setNotifications: SetNotifications,
-  scheduleAutoDismiss: ScheduleAutoDismiss
+  scheduleAutoDismiss: ScheduleAutoDismiss,
+  pass?: RecoveryPass
 ): void {
-  if (operations && operations.length > 0) {
-    for (const op of operations) {
-      const scope = op.scope?.toLowerCase();
-      const key = op.key;
-
-      // Build scope-specific identifier fields to match the notification's details shape
-      // produced by notificationRegistry.ts EvictionRemovalStarted.getDetails.
-      const scopeDetails: UnifiedNotification['details'] = {
-        operationId: op.operationId,
-        cancelling: false,
-        ...(op.gameName !== undefined && { gameName: op.gameName }),
-        ...(scope === 'steam' &&
-          key !== undefined && {
-            gameAppId: Number(key),
-            steamAppId: key
-          }),
-        ...(scope === 'epic' &&
-          key !== undefined && {
-            epicAppId: key
-          }),
-        ...(scope === 'service' &&
-          key !== undefined && {
-            service: key
-          })
-      };
-
-      const message =
-        op.gameName !== undefined
-          ? i18n.t(REMOVING_GAME_I18N_KEY, { name: op.gameName })
-          : scope !== undefined && key !== undefined
-            ? i18n.t('signalr.evictionRemove.starting.entity', { scope, key })
-            : i18n.t('signalr.evictionRemove.starting.bulk', {});
-
-      const notificationId = NOTIFICATION_IDS.EVICTION_REMOVAL;
-
-      setNotifications((prev: UnifiedNotification[]) => {
-        // A live card for this same operation may already exist (SignalR stayed connected, or
-        // localStorage restored it with its last progress). reconcileRecoveredCard keeps it -
-        // replacing it here would throw away the current progress/stage and regress the card to
-        // the progress-less "Removing evicted records..." starting state mid-run.
-        const existing = prev.find((n) => n.id === notificationId);
-        const recovered: UnifiedNotification = {
-          id: notificationId,
-          type: 'eviction_removal' as const,
+  const startedAt = pass?.startedAt ?? new Date();
+  const storageKey = NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL;
+  setNotifications((prev) => {
+    if (!canRecover(pass, 'eviction_removal')) return prev;
+    let next = prev;
+    if (operations?.length) {
+      for (const op of operations) {
+        if (op.operationId && pass?.events.terminals.has(op.operationId)) continue;
+        if (op.operationId && findBulkCardOwningOperation('eviction_removal', op.operationId, next))
+          continue;
+        const scope = op.scope?.toLowerCase();
+        const key = op.key;
+        const exact = op.operationId
+          ? next.find(
+              (n) => n.type === 'eviction_removal' && n.details?.operationId === op.operationId
+            )
+          : undefined;
+        const existing = exact ?? next.find((n) => n.id === NOTIFICATION_IDS.EVICTION_REMOVAL);
+        if (existing?.status === 'waiting' && existing.details?.operationId !== op.operationId)
+          continue;
+        const date = new Date(op.startedAt ?? startedAt);
+        const card = reconcileRecoveredCard(existing, {
+          id: exact?.id ?? NOTIFICATION_IDS.EVICTION_REMOVAL,
+          type: 'eviction_removal',
           status: 'running',
-          message,
-          startedAt: op.startedAt ? new Date(op.startedAt) : new Date(),
-          details: scopeDetails
-        };
-        const filtered = prev.filter((n) => n.id !== notificationId);
-        return [...filtered, reconcileRecoveredCard(existing, recovered)];
-      });
+          startedAt: Number.isFinite(date.getTime()) ? date : startedAt,
+          message:
+            op.gameName !== undefined
+              ? i18n.t(REMOVING_GAME_I18N_KEY, { name: op.gameName })
+              : scope !== undefined && key !== undefined
+                ? i18n.t('signalr.evictionRemove.starting.entity', { scope, key })
+                : i18n.t('signalr.evictionRemove.starting.bulk', {}),
+          details: {
+            operationId: op.operationId,
+            ...(op.gameName !== undefined && { gameName: op.gameName }),
+            ...(scope === 'steam' &&
+              key !== undefined && { gameAppId: Number(key), steamAppId: key }),
+            ...(scope === 'epic' && key !== undefined && { epicAppId: key }),
+            ...(scope === 'service' && key !== undefined && { service: key })
+          }
+        });
+        if (existing && existing.details?.operationId !== op.operationId)
+          clearPersistedNotificationIfTargeted(
+            storageKey,
+            { operationId: existing.details?.operationId },
+            existing.id
+          );
+        persistNotification(storageKey, card);
+        next = existing ? next.map((n) => (n === existing ? card : n)) : [...next, card];
+      }
+      return next;
     }
-  } else {
-    // Clear stale state - always clean up any running eviction_removal notification with no
-    // matching active op on the server. The operation completed before the page loaded.
-    const saved = storage.getItem(NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL);
-    if (saved) {
-      storage.removeItem(NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL);
-    }
-
-    setNotifications((prev: UnifiedNotification[]) => {
-      const existing = prev.find((n) => n.type === 'eviction_removal' && n.status === 'running');
-      if (!existing) return prev;
-
-      const updated = prev.map((n) => {
-        if (n.type === 'eviction_removal' && n.status === 'running') {
-          return {
-            ...n,
-            status: 'completed' as NotificationStatus,
-            message: i18n.t('signalr.evictionRemove.complete', {}),
-            progress: FULL_PROGRESS_PERCENT
-          };
-        }
+    return next.map((n) => {
+      if (n.type !== 'eviction_removal' || (n.status !== 'running' && n.status !== 'cancelling'))
         return n;
-      });
-
-      scheduleAutoDismiss(existing.id);
-      return updated;
+      clearPersistedNotificationIfTargeted(
+        storageKey,
+        { operationId: n.details?.operationId },
+        n.id
+      );
+      scheduleAutoDismiss(n.id);
+      return {
+        ...n,
+        status: 'completed',
+        message: i18n.t('signalr.evictionRemove.complete', {}),
+        progress: FULL_PROGRESS_PERCENT
+      };
     });
-  }
+  });
 }
 
 function recoverOperations(
@@ -708,77 +847,55 @@ function recoverOperations(
     message: string;
     details: UnifiedNotification['details'];
   },
-  getIdFromSaved: (saved: UnifiedNotification) => string,
   staleMessage: string,
   setNotifications: SetNotifications,
-  scheduleAutoDismiss: ScheduleAutoDismiss
+  scheduleAutoDismiss: ScheduleAutoDismiss,
+  pass?: RecoveryPass
 ): void {
-  if (operations && operations.length > 0) {
-    for (const op of operations) {
-      const notificationId = getId(op);
-      const data = createData(op);
-
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((n) => n.id === notificationId);
-        // /api/cache/removals/active reports identity only - no progress - so for a live card of
-        // the same operation this keeps the current bar and stage text instead of regressing it to
-        // the progress-less "starting" state.
-        const recovered: UnifiedNotification = {
-          id: notificationId,
+  const startedAt = pass?.startedAt ?? new Date();
+  setNotifications((prev) => {
+    if (!canRecover(pass, type)) return prev;
+    let next = prev;
+    if (operations?.length) {
+      for (const op of operations) {
+        if (op.operationId && pass?.events.terminals.has(op.operationId)) continue;
+        if (op.operationId && findBulkCardOwningOperation(type, op.operationId, next)) continue;
+        const exact = op.operationId
+          ? next.find((n) => n.type === type && n.details?.operationId === op.operationId)
+          : undefined;
+        const existing = exact ?? next.find((n) => n.id === getId(op));
+        if (existing?.status === 'waiting' && existing.details?.operationId !== op.operationId)
+          continue;
+        const date = new Date(op.startedAt ?? startedAt);
+        const card = reconcileRecoveredCard(existing, {
+          ...createData(op),
+          id: exact?.id ?? getId(op),
           type,
           status: 'running',
-          message: data.message,
-          startedAt: op.startedAt ? new Date(op.startedAt) : new Date(),
-          details: data.details
-        };
-        const filtered = prev.filter((n) => n.id !== notificationId);
-        return [...filtered, reconcileRecoveredCard(existing, recovered)];
-      });
-    }
-  } else {
-    // Clear stale state - always clean up any running notification of this type,
-    // regardless of whether localStorage still has the key. This prevents a stuck
-    // "running" notification when the completion event cleared localStorage before
-    // the app restarted (e.g. SignalR fired completion → removeItem, then page
-    // reloaded from an in-memory running state added by a prior recovery call).
-    const saved = storage.getItem(storageKey);
-    if (saved) {
-      storage.removeItem(storageKey);
-    }
-
-    setNotifications((prev: UnifiedNotification[]) => {
-      const existing = prev.find((n) => n.type === type && n.status === 'running');
-      if (!existing) return prev;
-
-      let recoveryId: string;
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved) as UnifiedNotification;
-          recoveryId = getIdFromSaved(parsed);
-        } catch {
-          recoveryId = existing.id;
-        }
-      } else {
-        recoveryId = existing.id;
+          startedAt: Number.isFinite(date.getTime()) ? date : startedAt
+        });
+        if (existing && existing.details?.operationId !== op.operationId)
+          clearPersistedNotificationIfTargeted(
+            storageKey,
+            { operationId: existing.details?.operationId },
+            existing.id
+          );
+        persistNotification(storageKey, card);
+        next = existing ? next.map((n) => (n === existing ? card : n)) : [...next, card];
       }
-
-      const updated = prev.map((n) => {
-        if (n.type === type && n.status === 'running') {
-          return {
-            ...n,
-            id: recoveryId,
-            status: 'completed' as NotificationStatus,
-            message: staleMessage,
-            progress: FULL_PROGRESS_PERCENT
-          };
-        }
-        return n;
-      });
-
-      scheduleAutoDismiss(recoveryId);
-      return updated;
+      return next;
+    }
+    return next.map((n) => {
+      if (n.type !== type || (n.status !== 'running' && n.status !== 'cancelling')) return n;
+      clearPersistedNotificationIfTargeted(
+        storageKey,
+        { operationId: n.details?.operationId },
+        n.id
+      );
+      scheduleAutoDismiss(n.id);
+      return { ...n, status: 'completed', message: staleMessage, progress: FULL_PROGRESS_PERCENT };
     });
-  }
+  });
 }
 
 // ============================================================================
@@ -804,60 +921,114 @@ function recoverOperations(
 export function createRecoveryRunner(
   fetchWithAuth: FetchWithAuth,
   setNotifications: SetNotifications,
-  scheduleAutoDismiss: ScheduleAutoDismiss
+  scheduleAutoDismiss: ScheduleAutoDismiss,
+  events: RefObject<NotificationEvents>,
+  getNotifications: () => readonly UnifiedNotification[],
+  cancelAutoDismissTimer: CancelAutoDismissTimer = () => undefined
 ): () => Promise<void> {
-  const recoveryFns: (() => Promise<void>)[] = [];
-  let needsCacheRemovalsBatch = false;
-
-  for (const entry of NOTIFICATION_REGISTRY) {
-    switch (entry.recovery.kind) {
-      case 'simple':
-        recoveryFns.push(
-          createSimpleRecoveryFunction(
-            entry.recovery,
-            entry.type,
-            entry.id,
-            entry.storageKey,
-            fetchWithAuth,
-            setNotifications,
-            scheduleAutoDismiss
-          )
-        );
-        break;
-      case 'cacheRemovalsBatch':
-        // All cacheRemovalsBatch entries share ONE /api/cache/removals/active
-        // fetch; collapse them into a single recovery run below.
-        needsCacheRemovalsBatch = true;
-        break;
-      case 'none':
-        break;
+  let inFlight: Promise<void> | null = null;
+  let trailing = false;
+  const recover = async (): Promise<void> => {
+    const pass: RecoveryPass = {
+      startedAt: new Date(),
+      revision: events.current.revision,
+      starting: [...getNotifications()],
+      events: events.current,
+      changed: new Set(),
+      cancelAutoDismissTimer
+    };
+    const groups: { updates: Parameters<SetNotifications>[0][]; run: () => Promise<void> }[] = [];
+    const waiting: Parameters<SetNotifications>[0][] = [];
+    groups.push({
+      updates: waiting,
+      run: createWaitingOperationsRecoveryFunction(
+        fetchWithAuth,
+        (update) => {
+          waiting.push(update);
+        },
+        scheduleAutoDismiss,
+        pass
+      )
+    });
+    let needsCacheRemovalsBatch = false;
+    for (const entry of NOTIFICATION_REGISTRY) {
+      if (entry.recovery.kind === 'cacheRemovalsBatch') needsCacheRemovalsBatch = true;
+      if (entry.recovery.kind !== 'simple') continue;
+      const updates: Parameters<SetNotifications>[0][] = [];
+      groups.push({
+        updates,
+        run: createSimpleRecoveryFunction(
+          entry.recovery,
+          entry.type,
+          entry.id,
+          entry.storageKey,
+          fetchWithAuth,
+          (update) => {
+            updates.push(update);
+          },
+          scheduleAutoDismiss,
+          pass
+        )
+      });
     }
-  }
-
-  if (needsCacheRemovalsBatch) {
-    recoveryFns.push(
-      createCacheRemovalsRecoveryFunction(fetchWithAuth, setNotifications, scheduleAutoDismiss)
-    );
-  }
-
-  // Operation wait-queue: recreate purple waiting cards from /api/operations/waiting on
-  // page load / reconnect / tab-revisible, and drop stale waiting cards whose op vanished
-  // (promoted ops are re-created as running cards by the per-type engines above; cancelled
-  // ones are simply gone). Queued ops do NOT survive an app restart - after a restart the
-  // endpoint returns [] and no cards are created, by design.
-  recoveryFns.push(createWaitingOperationsRecoveryFunction(fetchWithAuth, setNotifications));
-
-  return async (): Promise<void> => {
-    try {
-      // Promise.allSettled never rejects - every per-type recovery function above already
-      // catches its own failure (best-effort per the comments on each). This is a defensive net
-      // for a truly unexpected synchronous throw, not a realistic per-recovery failure path. A
-      // toast wouldn't be actionable here either (recovery isn't a user-initiated action) - this
-      // is also a non-component module (createRecoveryRunner runs outside React), so the
-      // useErrorHandler hook isn't reachable from it anyway. Deliberately silent.
-      await Promise.allSettled(recoveryFns.map((fn) => fn()));
-    } catch (err) {
-      console.error('[NotificationsContext] Failed to recover operations:', err);
+    if (needsCacheRemovalsBatch) {
+      const updates: Parameters<SetNotifications>[0][] = [];
+      groups.push({
+        updates,
+        run: createCacheRemovalsRecoveryFunction(
+          fetchWithAuth,
+          (update) => {
+            updates.push(update);
+          },
+          scheduleAutoDismiss,
+          pass
+        )
+      });
     }
+    await Promise.all(groups.map((group) => group.run()));
+    await new Promise<void>((resolve) => {
+      let committedPrev: UnifiedNotification[] | undefined;
+      let committedNext: UnifiedNotification[] | undefined;
+      setNotifications((prev) => {
+        if (prev === committedPrev && committedNext) return committedNext;
+        for (const [type, revision] of events.current.typeRevisions) {
+          if (revision > pass.revision) pass.changed.add(type);
+        }
+        for (const card of prev) {
+          if (!pass.starting.includes(card)) pass.changed.add(card.type);
+        }
+        for (const card of pass.starting) {
+          if (!prev.includes(card)) pass.changed.add(card.type);
+        }
+        let next = prev;
+        for (const group of groups) {
+          for (const update of group.updates)
+            next = typeof update === 'function' ? update(next) : update;
+        }
+        committedPrev = prev;
+        committedNext = next;
+        queueMicrotask(resolve);
+        return next;
+      });
+    });
+  };
+  return (): Promise<void> => {
+    if (inFlight) {
+      trailing = true;
+      return inFlight;
+    }
+    inFlight = (async () => {
+      try {
+        await recover();
+        if (trailing) {
+          trailing = false;
+          await recover();
+        }
+      } finally {
+        trailing = false;
+        inFlight = null;
+      }
+    })();
+    return inFlight;
   };
 }

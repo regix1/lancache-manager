@@ -1217,8 +1217,16 @@ public class DatabaseService
             tablesCleared,
             totalTables,
             filesDeleted);
-        Volatile.Write(ref _currentResetProgress, progress);
-        _operationTracker.UpdateProgress(operationId, snapshot.PercentComplete, snapshot.StageKey);
+        var accepted = false;
+        _operationTracker.UpdateProgress(operationId, snapshot.PercentComplete, snapshot.StageKey, _ =>
+        {
+            Volatile.Write(ref _currentResetProgress, progress);
+            accepted = true;
+        });
+        if (!accepted)
+        {
+            return;
+        }
 
         if (isProcessing && !_resetProgressEmitGate.ShouldEmit(snapshot.StageKey, snapshot.Revision))
         {

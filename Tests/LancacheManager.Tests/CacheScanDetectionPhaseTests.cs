@@ -104,7 +104,7 @@ public sealed class CacheScanDetectionPhaseTests
     public async Task ThePhaseStartsAHiddenFullDetectionForwardsItsPercentAndWaitsForItsTerminal()
     {
         using var ctx = new PhaseContext();
-        var scanId = Guid.NewGuid();
+        var scanId = ctx.RegisterScan();
 
         var phase = ctx.RunPhaseAsync(scanId, CancellationToken.None);
 
@@ -112,6 +112,9 @@ public sealed class CacheScanDetectionPhaseTests
         var metrics = Assert.IsType<GameDetectionMetrics>(detection.Metadata);
         Assert.False(metrics.ShowNotification);
         Assert.Equal(DetectionScanType.Full, metrics.ScanType);
+        Assert.Equal(scanId, detection.ParentOperationId);
+        Assert.Equal(scanId, metrics.ParentOperationId);
+        Assert.NotEqual(scanId, detection.Id);
 
         ctx.Tracker.SetPercent(detection.Id, 42);
         var forwarded = await ctx.Notifications.WaitForAsync(
@@ -132,7 +135,8 @@ public sealed class CacheScanDetectionPhaseTests
         using var ctx = new PhaseContext();
         using var cts = new CancellationTokenSource();
 
-        var phase = ctx.RunPhaseAsync(Guid.NewGuid(), cts.Token);
+        var scanId = ctx.RegisterScan();
+        var phase = ctx.RunPhaseAsync(scanId, cts.Token);
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
 
         cts.Cancel();
@@ -140,6 +144,52 @@ public sealed class CacheScanDetectionPhaseTests
         await phase.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Contains(detection.Id, ctx.Tracker.Cancelled);
         Assert.Empty(ctx.Notifications.Waiting);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DetectionFailureRemainsOnTheRunningParentThroughLaterProgress(bool silent)
+    {
+        using var ctx = new PhaseContext();
+        var scanId = ctx.RegisterScan(silent);
+        var phase = ctx.RunPhaseAsync(scanId, CancellationToken.None, !silent);
+        var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        ctx.Tracker.Fail(detection.Id, "Cache index could not be read");
+        await phase.WaitAsync(TimeSpan.FromSeconds(5));
+        await ctx.ReportProgressAsync(scanId);
+        var progress = Assert.IsType<EvictionScanProgress>(await ctx.Notifications.WaitForAsync(
+            SignalREvents.EvictionScanProgress, value => value is EvictionScanProgress { StageKey: "signalr.evictionScan.scanning" }));
+        Assert.True(progress.ShowNotification);
+        Assert.Equal("Cache index could not be read", progress.Context!["detectionError"]);
+        Assert.Equal("Cache index could not be read", ctx.Scan.CurrentScanProgressContext!["detectionError"]);
+        Assert.Equal(OperationStatus.Running, ctx.Tracker.Get(scanId)!.Status);
+    }
+
+    [Fact]
+    public async Task SilentParentTerminalKeepsDetectionDetailAndRejectsLaterProgress()
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var id = ctx.RegisterScan(silent: true);
+        var holders = typeof(CacheReconciliationService).GetField("_evictionScanTerminalStates", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(ctx.Scan)!;
+        var holder = holders.GetType().GetProperty("Item")!.GetValue(holders, [id])!;
+        tracker.UpdateMetadata(id, values => holder.GetType().GetField("DetectionError")!.SetValue(holder, "Cache index could not be read"));
+        await ctx.ReportProgressAsync(id);
+        tracker.CompleteOperation(id, success: true);
+        var terminal = Assert.IsType<EvictionScanComplete>(await ctx.Notifications.WaitForAsync(
+            SignalREvents.EvictionScanComplete, value => value is EvictionScanComplete { OperationId: var operationId } && operationId == id));
+        Assert.True(terminal.ShowNotification);
+        Assert.True(terminal.Success);
+        Assert.Null(terminal.Error);
+        Assert.Equal("Cache index could not be read", terminal.Context!["detectionError"]);
+        var percent = tracker.GetOperation(id)!.PercentComplete;
+        await ctx.ReportProgressAsync(id);
+        Assert.Equal(percent, tracker.GetOperation(id)!.PercentComplete);
+        Assert.Null(ctx.Scan.CurrentScanProgressContext);
     }
 
     /// <summary>
@@ -215,18 +265,29 @@ public sealed class CacheScanDetectionPhaseTests
             SetField(_scan, "_notifications", (ISignalRNotificationService)(object)Notifications);
             SetField(_scan, "_gameCacheDetectionService", detection);
             SetField(_scan, "_capabilityService", capabilityService);
-            foreach (var name in new[] { "_silentRemovalOperationIds", "_evictionRemovalTerminalStates" })
+            foreach (var name in new[] { "_silentRemovalOperationIds", "_evictionRemovalTerminalStates", "_evictionScanTerminalStates" })
             {
                 var field = typeof(CacheReconciliationService).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!;
                 field.SetValue(_scan, Activator.CreateInstance(field.FieldType));
             }
         }
 
-        public Task RunPhaseAsync(Guid scanOperationId, CancellationToken token)
+        public Guid RegisterScan(bool silent = false)
+        {
+            return (Guid)typeof(CacheReconciliationService).GetMethod("RegisterEvictionScanOperation",
+                BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(_scan,
+                ["Eviction Scan", new CancellationTokenSource(), silent, null])!;
+        }
+
+        public Task ReportProgressAsync(Guid id) => (Task)typeof(CacheReconciliationService)
+            .GetMethod("ReportScanProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(_scan, [id, 0d, "signalr.evictionScan.scanning", new EvictionScanResult(), false])!;
+
+        public Task RunPhaseAsync(Guid scanOperationId, CancellationToken token, bool showNotification = true)
         {
             var phase = typeof(CacheReconciliationService).GetMethod(
                 "RunFullDetectionPhaseAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            return (Task)phase.Invoke(_scan, [scanOperationId, true, token])!;
+            return (Task)phase.Invoke(_scan, [scanOperationId, showNotification, token])!;
         }
 
         public void Dispose()
@@ -275,6 +336,7 @@ public sealed class CacheScanDetectionPhaseTests
         private readonly object _sync = new();
         private readonly List<OperationInfo> _operations = [];
         private readonly List<Action<OperationInfo>> _terminalHandlers = [];
+        private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal List<Guid> Cancelled { get; } = [];
 
@@ -290,11 +352,15 @@ public sealed class CacheScanDetectionPhaseTests
                         Type = (OperationType)args![0]!,
                         Name = (string)args[1]!,
                         Status = OperationStatus.Running,
-                        Metadata = args[3]
+                        Metadata = args[3],
+                        ParentOperationId = (Guid?)args[7],
+                        StartedAt = (DateTime?)args[8] ?? DateTime.UtcNow
                     };
                     lock (_sync)
                     {
                         _operations.Add(operation);
+                        _changed.TrySetResult();
+                        _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     }
 
                     return operation.Id;
@@ -307,10 +373,28 @@ public sealed class CacheScanDetectionPhaseTests
                 case nameof(IUnifiedOperationTracker.GetActiveOperations):
                     lock (_sync)
                     {
-                        return _operations.Where(o => o.Status == OperationStatus.Running).ToList();
+                        return _operations.Where(o => o.Status == OperationStatus.Running &&
+                            (args![0] == null || o.Type == (OperationType)args[0]!)).ToList();
                     }
                 case nameof(IUnifiedOperationTracker.UpdateProgress):
-                    SetPercent((Guid)args![0]!, (double)args[1]!);
+                    lock (_sync)
+                    {
+                        var operation = _operations.FirstOrDefault(o => o.Id == (Guid)args![0]!);
+                        if (operation != null && !operation.Status.IsTerminal())
+                        {
+                            operation.PercentComplete = (double)args![1]!;
+                            operation.Message = args[2] as string ?? string.Empty;
+                            (args[3] as Action<OperationInfo>)?.Invoke(operation);
+                        }
+                    }
+                    return null;
+                case nameof(IUnifiedOperationTracker.UpdateMetadata):
+                    lock (_sync)
+                    {
+                        var operation = _operations.FirstOrDefault(o => o.Id == (Guid)args![0]!);
+                        if (operation?.Metadata != null && !operation.Status.IsTerminal())
+                            ((Action<object>)args![1]!).Invoke(operation.Metadata);
+                    }
                     return null;
                 case nameof(IUnifiedOperationTracker.CancelOperation):
                 {
@@ -344,8 +428,9 @@ public sealed class CacheScanDetectionPhaseTests
 
         internal async Task<OperationInfo> WaitForOperationAsync(OperationType type)
         {
-            for (var i = 0; i < 100; i++)
+            while (true)
             {
+                Task changed;
                 lock (_sync)
                 {
                     var found = _operations.FirstOrDefault(o => o.Type == type);
@@ -353,12 +438,11 @@ public sealed class CacheScanDetectionPhaseTests
                     {
                         return found;
                     }
+                    changed = _changed.Task;
                 }
 
-                await Task.Delay(50);
+                await changed.WaitAsync(TimeSpan.FromSeconds(5));
             }
-
-            throw new TimeoutException($"No {type} operation was registered");
         }
 
         internal void SetPercent(Guid id, double percent)
@@ -374,6 +458,13 @@ public sealed class CacheScanDetectionPhaseTests
         }
 
         internal void Complete(Guid id) => End(id, OperationStatus.Completed);
+        internal OperationInfo? Get(Guid id) { lock (_sync) return _operations.FirstOrDefault(o => o.Id == id); }
+        internal void Fail(Guid id, string error)
+        {
+            var operation = Get(id)!;
+            ((GameDetectionMetrics)operation.Metadata!).Error = error;
+            End(id, OperationStatus.Failed);
+        }
 
         private void End(Guid id, OperationStatus status)
         {
@@ -406,6 +497,7 @@ public sealed class CacheScanDetectionPhaseTests
         internal Action<string, object?>? OnSent { get; set; }
         private readonly object _sync = new();
         private readonly List<(string Event, object? Payload)> _sent = [];
+        private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal IReadOnlyList<OperationWaitingNotification> Waiting
         {
             get { lock (_sync) return _sent.Select(item => item.Payload).OfType<OperationWaitingNotification>().ToList(); }
@@ -419,6 +511,8 @@ public sealed class CacheScanDetectionPhaseTests
                 lock (_sync)
                 {
                     _sent.Add((eventName, args.Length > 1 ? args[1] : null));
+                    _changed.TrySetResult();
+                    _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 }
             }
 
@@ -427,8 +521,9 @@ public sealed class CacheScanDetectionPhaseTests
 
         internal async Task<object?> WaitForAsync(string eventName, Func<object?, bool> matches)
         {
-            for (var i = 0; i < 100; i++)
+            while (true)
             {
+                Task changed;
                 lock (_sync)
                 {
                     var hit = _sent.FirstOrDefault(s => s.Event == eventName && matches(s.Payload));
@@ -436,12 +531,11 @@ public sealed class CacheScanDetectionPhaseTests
                     {
                         return hit.Payload;
                     }
+                    changed = _changed.Task;
                 }
 
-                await Task.Delay(50);
+                await changed.WaitAsync(TimeSpan.FromSeconds(5));
             }
-
-            throw new TimeoutException($"No {eventName} matching the predicate was broadcast");
         }
     }
 }

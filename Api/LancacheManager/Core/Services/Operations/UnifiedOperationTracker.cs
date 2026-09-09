@@ -17,8 +17,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     /// <summary>
     /// old operation id -> the operation that took over its work (see <see cref="RecordHandoff"/>).
-    /// Entries are removed by the same reaper that removes the operation itself, so a handoff stays
-    /// resolvable for exactly as long as a client could still be holding the old id.
+    /// Entries outlive reaped waiting rows until their resolved terminal target is reaped.
     /// </summary>
     private readonly ConcurrentDictionary<Guid, Guid> _handoffs = new();
 
@@ -44,17 +43,19 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     public Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts,
                                   object? metadata = null, Action? onTerminalCleanup = null,
                                   Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
-                                  OperationStatus initialStatus = OperationStatus.Running)
+                                  OperationStatus initialStatus = OperationStatus.Running,
+                                  Guid? parentOperationId = null, DateTime? startedAt = null)
     {
         var operationId = Guid.NewGuid();
         var operation = new OperationInfo
         {
             Id = operationId,
+            ParentOperationId = parentOperationId,
             Type = type,
             Name = name,
             Status = initialStatus,
             Message = $"Starting {name}...",
-            StartedAt = DateTime.UtcNow,
+            StartedAt = startedAt ?? DateTime.UtcNow,
             CancellationTokenSource = cts,
             Metadata = metadata,
             OnTerminalCleanup = onTerminalCleanup,
@@ -79,16 +80,18 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     public bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts,
                                     object? metadata = null, Action? onTerminalCleanup = null,
-                                    Func<OperationTerminalInfo, Task>? onTerminalEmit = null)
+                                    Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
+                                    Guid? parentOperationId = null, DateTime? startedAt = null)
     {
         var operation = new OperationInfo
         {
             Id = operationId,
+            ParentOperationId = parentOperationId,
             Type = type,
             Name = name,
             Status = OperationStatus.Running,
             Message = $"Starting {name}...",
-            StartedAt = DateTime.UtcNow,
+            StartedAt = startedAt ?? DateTime.UtcNow,
             CancellationTokenSource = cts,
             Metadata = metadata,
             OnTerminalCleanup = onTerminalCleanup,
@@ -121,7 +124,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return;
         }
 
-        _handoffs[fromOperationId] = toOperationId;
+        _handoffs.TryAdd(fromOperationId, toOperationId);
         _logger.LogDebug(
             "Operation {FromId} handed its work to {ToId}; cancels aimed at the old id now follow it",
             fromOperationId, toOperationId);
@@ -168,46 +171,33 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return OperationCancelResult.NotFound;
         }
 
-        if (operation.Status.IsTerminal())
+        CancellationTokenSource? cts;
+        Process? process;
+        lock (operation)
         {
-            _logger.LogDebug("Operation {Id} already terminal ({Status}) — cancel is a no-op", operationId, operation.Status);
-            return OperationCancelResult.AlreadyFinished;
-        }
-
-        // P2-C: snapshot the CTS into a local ONCE so a concurrent CompleteOperation cannot null/dispose
-        // it out from under us between the null-check and the .Cancel() call.
-        var cts = operation.CancellationTokenSource;
-
-        if (cts == null)
-        {
-            _logger.LogDebug("Operation {Id} has no CancellationTokenSource — attempting process kill only", operationId);
-            TryKillAssociatedProcess(operation, operationId);
-            return OperationCancelResult.Requested;
+            if (operation.CompletedFlag != 0 || operation.Status.IsTerminal())
+            {
+                return OperationCancelResult.AlreadyFinished;
+            }
+            cts = operation.CancellationTokenSource;
+            process = operation.AssociatedProcess;
+            operation.Status = OperationStatus.Cancelling;
+            operation.Cancelled = true;
+            operation.Message = "Cancellation requested...";
         }
 
         try
         {
-            if (cts.IsCancellationRequested)
-            {
-                _logger.LogDebug("Cancellation already in progress for operation {Id} — re-attempting process kill", operationId);
-                TryKillAssociatedProcess(operation, operationId);
-                return OperationCancelResult.Requested;
-            }
-
             _logger.LogInformation(
                 "Requesting aggressive cancellation for operation {Id} ({Type}: {Name})",
                 operationId, operation.Type, operation.Name);
-
-            operation.Status = OperationStatus.Cancelling;
-            operation.Cancelled = true;
-            operation.Message = "Cancellation requested...";
 
             // Cancel before killing so the token is already signaled by the time the child dies.
             // Killing first leaves a window where the run sees a non-zero exit with a live token and
             // reports a process failure. Cancel() itself kills through the token-cancel registration
             // every tracked run installs, and the explicit kill below covers a run without one.
-            cts.Cancel();
-            TryKillAssociatedProcess(operation, operationId);
+            cts?.Cancel();
+            TryKillAssociatedProcess(operation, operationId, process);
         }
         catch (ObjectDisposedException)
         {
@@ -219,6 +209,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return OperationCancelResult.AlreadyFinished;
         }
 
+        // The token callback can complete the operation before Cancel returns. That completion
+        // does not undo the cancellation accepted by this call.
         return OperationCancelResult.Requested;
     }
 
@@ -226,7 +218,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     {
         if (_operations.TryGetValue(operationId, out var operation))
         {
-            operation.AssociatedProcess = process;
+            lock (operation)
+            {
+                if (operation.CompletedFlag != 0 || operation.Status.IsTerminal()) return;
+                operation.AssociatedProcess = process;
+            }
             _logger.LogDebug(
                 "Associated process {ProcessName} (PID: {Pid}) with operation {Id}",
                 process.ProcessName, process.Id, operationId);
@@ -235,10 +231,16 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     public void DisassociateProcess(Guid operationId, Process process)
     {
-        if (_operations.TryGetValue(operationId, out var operation)
-            && ReferenceEquals(operation.AssociatedProcess, process))
+        if (_operations.TryGetValue(operationId, out var operation))
         {
-            operation.AssociatedProcess = null;
+            lock (operation)
+            {
+                if (operation.CompletedFlag == 0 && !operation.Status.IsTerminal()
+                    && ReferenceEquals(operation.AssociatedProcess, process))
+                {
+                    operation.AssociatedProcess = null;
+                }
+            }
         }
     }
 
@@ -252,28 +254,26 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return false;
         }
 
-        if (operation.Status.IsTerminal())
+        CancellationTokenSource? cts;
+        Process? process;
+        lock (operation)
         {
-            _logger.LogDebug("Operation {Id} already terminal ({Status}) — force kill is a no-op", operationId, operation.Status);
-            return true;
+            if (operation.CompletedFlag != 0 || operation.Status.IsTerminal()) return true;
+            cts = operation.CancellationTokenSource;
+            process = operation.AssociatedProcess;
+            operation.Status = OperationStatus.Cancelling;
+            operation.Cancelled = true;
+            operation.Message = "Force killed by user";
         }
 
         _logger.LogWarning(
             "Force killing operation {Id} ({Type}: {Name})",
             operationId, operation.Type, operation.Name);
 
-        operation.Status = OperationStatus.Cancelling;
-        operation.Cancelled = true;
-        operation.Message = "Force killed by user";
-
-        TryKillAssociatedProcess(operation, operationId);
-
-        // P2-C: snapshot the CTS into a local ONCE and guard against a concurrent CompleteOperation
-        // having already disposed it.
-        var cts = operation.CancellationTokenSource;
         try
         {
             cts?.Cancel();
+            TryKillAssociatedProcess(operation, operationId, process);
         }
         catch (ObjectDisposedException)
         {
@@ -283,9 +283,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return true;
     }
 
-    private bool TryKillAssociatedProcess(OperationInfo operation, Guid operationId)
+    private bool TryKillAssociatedProcess(OperationInfo operation, Guid operationId, Process? process)
     {
-        var process = operation.AssociatedProcess;
         if (process == null)
         {
             return false;
@@ -300,14 +299,15 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             $"operation {operationId} ({operation.Type}: {operation.Name})");
         if (!killed)
         {
-            operation.AssociatedProcess = null;
+            DisassociateProcess(operationId, process);
         }
 
         return killed;
     }
 
-    public OperationInfo? GetOperation(Guid operationId)
+    public OperationInfo? GetOperation(Guid operationId, bool followHandoff = false)
     {
+        if (followHandoff) operationId = ResolveHandoff(operationId);
         return _operations.TryGetValue(operationId, out var operation) ? operation : null;
     }
 
@@ -342,7 +342,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         bool success,
         string? error = null,
         bool cancelled = false,
-        bool skipped = false)
+        bool skipped = false,
+        Action<OperationInfo>? onCompleting = null)
     {
         if (!_operations.TryGetValue(operationId, out var operation))
         {
@@ -350,70 +351,62 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return;
         }
 
-        // who-completes-wins: only the first caller proceeds. Second caller is a benign no-op.
-        // This makes the terminal transition + SignalR-completion-trigger + cleanup callback fire
-        // at most once even when the worker finally and the universal force-kill race.
-        if (Interlocked.CompareExchange(ref operation.CompletedFlag, 1, 0) != 0)
+        CancellationTokenSource? cts;
+        Func<OperationTerminalInfo, Task>? emit;
+        Action? cleanup;
+        OperationTerminalInfo terminal;
+        Action<OperationInfo>? terminalSubscribers;
+        Exception? publicationError = null;
+        lock (operation)
         {
-            _logger.LogDebug("Operation {Id} already completed — ignoring duplicate complete", operationId);
-            return;
+            if (Interlocked.CompareExchange(ref operation.CompletedFlag, 1, 0) != 0) return;
+
+            try { onCompleting?.Invoke(operation); }
+            catch (Exception ex) { publicationError = ex; }
+
+            if (cancelled) operation.Cancelled = true;
+
+            // Skipped is successful but did no work. Cancellation keeps its own terminal outcome.
+            operation.Status = success
+                ? (skipped ? OperationStatus.Skipped : OperationStatus.Completed)
+                : (operation.Cancelled ? OperationStatus.Cancelled : OperationStatus.Failed);
+            operation.Message = success
+                ? (skipped ? (error ?? "Operation skipped - nothing to do") : "Operation completed successfully")
+                : (error ?? (operation.Cancelled ? "Operation cancelled" : "Operation failed"));
+            operation.Success = success;
+            operation.CompletedAt = DateTime.UtcNow;
+
+            // Detach resources and callbacks atomically; disposal and outward effects happen below.
+            cts = operation.CancellationTokenSource;
+            operation.CancellationTokenSource = null;
+            operation.AssociatedProcess = null;
+            emit = operation.OnTerminalEmit;
+            operation.OnTerminalEmit = null;
+            cleanup = operation.OnTerminalCleanup;
+            operation.OnTerminalCleanup = null;
+            terminal = new OperationTerminalInfo(success, operation.Cancelled, error, skipped);
+            terminalSubscribers = OperationTerminal;
         }
 
-        if (cancelled)
+        if (publicationError != null)
         {
-            operation.Cancelled = true;
+            _logger.LogWarning(publicationError, "Terminal publication threw for operation {Id}", operationId);
         }
-
-        // Skipped rides the success branch on purpose: the run did not fail, so it must not reach
-        // the failure funnel, but it did no work, so it must not read as an ordinary completion.
-        operation.Status = success
-            ? (skipped ? OperationStatus.Skipped : OperationStatus.Completed)
-            : (operation.Cancelled ? OperationStatus.Cancelled : OperationStatus.Failed); // C.1: Cancelled is terminal
-        // A cancelled operation with no error gets its own default. Without this the fallback called
-        // every cancel a failure, which is why callers used to pass a message purely to avoid it -
-        // and the message they reached for named a person the code cannot identify, because a run's
-        // token is linked to the host's and a shutdown arrives here exactly like a click.
-        // A skipped run keeps whatever reason the caller supplied: a run stopped by a condition
-        // outside itself has something to say, and the generic sentence below would replace it with
-        // nothing the reader can act on. No reason falls back to that sentence unchanged.
-        operation.Message = success
-            ? (skipped ? (error ?? "Operation skipped - nothing to do") : "Operation completed successfully")
-            : (error ?? (operation.Cancelled ? "Operation cancelled" : "Operation failed"));
-        operation.Success = success;
-        operation.CompletedAt = DateTime.UtcNow;
-
-        // Tracker is the single disposer of the CTS it adopted (core-3 / core-7 ownership).
-        operation.CancellationTokenSource?.Dispose();
-        operation.CancellationTokenSource = null;
-
-        // Clear the process reference
-        operation.AssociatedProcess = null;
-
-        // Fire the owning service's terminal SignalR emit EXACTLY ONCE (gated by CompletedFlag above),
-        // fire-and-forget — CompleteOperation stays synchronous and never awaits the emit. This is the
-        // SINGLE place a migrated op's terminal event is produced (worker success, OCE-catch, and
-        // universal force-kill all funnel here), eliminating ordering/double-emit divergence.
-        // Capture+null first so it can never re-run, and run it BEFORE OnTerminalCleanup (cleanup may
-        // null service state the closure captured by value, so emit-first is safe).
-        var emit = operation.OnTerminalEmit;
-        operation.OnTerminalEmit = null;
+        cts?.Dispose();
         if (emit != null)
         {
-            _ = SafeEmitTerminalAsync(operationId, emit,
-                new OperationTerminalInfo(success, operation.Cancelled, error, skipped));
+            _ = SafeEmitTerminalAsync(operationId, emit, terminal);
         }
 
         // Invoke the owning service's local-state reset BEFORE we log/remove. Best-effort: never throw.
-        try { operation.OnTerminalCleanup?.Invoke(); }
+        try { cleanup?.Invoke(); }
         catch (Exception ex) { _logger.LogWarning(ex, "OnTerminalCleanup threw for operation {Id}", operationId); }
-        finally { operation.OnTerminalCleanup = null; } // drop the delegate so it cannot re-run
 
         _logger.LogInformation("Completed operation {Id} ({Type}: {Name}), Status: {Status}",
             operationId, operation.Type, operation.Name, operation.Status);
 
         // Notify queue/listeners that an operation reached terminal state (exactly once via the
         // CompletedFlag gate above). Fire-and-forget off this stack; handler faults are contained.
-        var terminalSubscribers = OperationTerminal;
         if (terminalSubscribers != null)
         {
             _ = Task.Run(() =>
@@ -455,29 +448,42 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         {
             try
             {
-                _operations.TryRemove(operationId, out _);
-                foreach (var key in _entityKeyIndex.Where(kvp => kvp.Value == operationId).Select(kvp => kvp.Key).ToList())
-                {
-                    _entityKeyIndex.TryRemove(key, out _);
-                }
-
-                // Drop this operation's handoff in both directions once nobody can still be holding
-                // its id: the entry it owns, and any entry pointing at it.
-                _handoffs.TryRemove(operationId, out _);
-                foreach (var stale in _handoffs.Where(kvp => kvp.Value == operationId).Select(kvp => kvp.Key).ToList())
-                {
-                    _handoffs.TryRemove(stale, out _);
-                }
+                ReapOperation(operationId);
             }
             catch (Exception ex) { _logger.LogDebug(ex, "Reaper cleanup failed for {Id}", operationId); }
         }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
 
-    public void UpdateProgress(Guid operationId, double percent, string message)
+    private void ReapOperation(Guid operationId)
+    {
+        if (!_operations.TryGetValue(operationId, out var operation)) return;
+        var links = _handoffs.ToArray();
+        var stale = links.Where(link => ResolveHandoff(link.Key) == operationId).ToArray();
+        lock (operation)
+        {
+            if (operation.CompletedFlag == 0 || !operation.Status.IsTerminal()) return;
+            ((ICollection<KeyValuePair<Guid, OperationInfo>>)_operations).Remove(new(operationId, operation));
+        }
+        foreach (var entry in _entityKeyIndex.Where(entry => entry.Value == operationId).ToArray())
+        {
+            ((ICollection<KeyValuePair<(OperationType Type, string EntityKey), Guid>>)_entityKeyIndex).Remove(entry);
+        }
+        foreach (var link in stale)
+        {
+            ((ICollection<KeyValuePair<Guid, Guid>>)_handoffs).Remove(link);
+        }
+    }
+
+    public void UpdateProgress(Guid operationId, double percent, string message, Action<OperationInfo>? onProgress = null)
     {
         if (_operations.TryGetValue(operationId, out var operation))
         {
-            operation.PercentComplete = Math.Clamp(percent, 0, 100);
-            operation.Message = message;
+            lock (operation)
+            {
+                if (operation.CompletedFlag != 0 || operation.Status.IsTerminal()) return;
+                operation.PercentComplete = Math.Clamp(percent, 0, 100);
+                operation.Message = message;
+                onProgress?.Invoke(operation);
+            }
         }
         else
         {
@@ -496,9 +502,15 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     public void UpdateMetadata(Guid operationId, Action<object> updater)
     {
-        if (_operations.TryGetValue(operationId, out var operation) && operation.Metadata != null)
+        if (_operations.TryGetValue(operationId, out var operation))
         {
-            updater(operation.Metadata);
+            lock (operation)
+            {
+                if (operation.CompletedFlag == 0 && !operation.Status.IsTerminal() && operation.Metadata != null)
+                {
+                    updater(operation.Metadata);
+                }
+            }
         }
     }
 

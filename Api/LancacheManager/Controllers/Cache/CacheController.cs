@@ -1061,6 +1061,8 @@ public class CacheController : ControllerBase
                         }
                     }
 
+                    cancelled |= bulkState.Cancelled;
+                    var lastOperationId = bulkState.LastOperationId;
                     var processedCount = bulkState.SucceededServices + bulkState.FailedServices;
                     if (cancelled)
                     {
@@ -1069,7 +1071,7 @@ public class CacheController : ControllerBase
                                 StageKey: cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural
                                     ? "signalr.corruptionRemove.allCancelledStructural"
                                     : "signalr.corruptionRemove.allCancelled",
-                                OperationId: bulkState.LastOperationId,
+                                OperationId: lastOperationId,
                                 DetectionMethod: cachedDetection.DetectionMethod.ToWireString(),
                                 Context: new Dictionary<string, object?>
                                 {
@@ -1088,7 +1090,7 @@ public class CacheController : ControllerBase
                                 StageKey: cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural
                                     ? "signalr.corruptionRemove.allCompleteWithFailuresStructural"
                                     : "signalr.corruptionRemove.allCompleteWithFailures",
-                                OperationId: bulkState.LastOperationId,
+                                OperationId: lastOperationId,
                                 Context: context,
                                 DetectionMethod: cachedDetection.DetectionMethod.ToWireString()));
                     }
@@ -1101,7 +1103,7 @@ public class CacheController : ControllerBase
                                 StageKey: cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural
                                     ? "signalr.corruptionRemove.allCompleteStructural"
                                     : "signalr.corruptionRemove.allComplete",
-                                OperationId: bulkState.LastOperationId,
+                                OperationId: lastOperationId,
                                 Context: context,
                                 DetectionMethod: cachedDetection.DetectionMethod.ToWireString()));
                     }
@@ -1350,6 +1352,7 @@ public class CacheController : ControllerBase
         public int ServiceIndex; // 1-based position of the service currently running
         public int SucceededServices;
         public int FailedServices;
+        public bool Cancelled;
         public Guid LastOperationId;
         public CorruptionRemovalTotals Totals { get; } = new();
     }
@@ -1515,9 +1518,15 @@ public class CacheController : ControllerBase
         var service = selection.Service;
         // Create CancellationTokenSource and register with unified operation tracker for cancel support
         var cts = new CancellationTokenSource();
+        var cancellationToken = cts.Token;
         var metadata = CreateCorruptionRemovalMetadata(selection);
         var serviceName = service;
         var totals = new CorruptionRemovalTotals();
+        var terminalTotals = new CorruptionRemovalTotals();
+        var terminalCompletion = new TaskCompletionSource<OperationTerminalInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var serviceIndex = bulk?.ServiceIndex;
+        var serviceCount = bulk?.ServiceCount;
+        var detectionMethod = selection.DetectionMethod;
         Guid operationId = Guid.Empty;
         operationId = await RevalidateAndRegisterCorruptionRemovalAsync(
             _corruptionSnapshotMutationGate,
@@ -1537,8 +1546,18 @@ public class CacheController : ControllerBase
                 // what made completions race each other on the singleton notification card.
                 if (bulk != null)
                 {
+                    if (info.Cancelled)
+                        bulk.Cancelled = true;
+                    else if (info.Success)
+                        bulk.SucceededServices++;
+                    else
+                        bulk.FailedServices++;
+                    bulk.Totals.Add(terminalTotals);
+                    terminalCompletion.TrySetResult(info);
                     return Task.CompletedTask;
                 }
+
+                terminalCompletion.TrySetResult(info);
 
                 if (info.Cancelled)
                 {
@@ -1546,7 +1565,7 @@ public class CacheController : ControllerBase
                             new CorruptionRemovalComplete(false, serviceName,
                                 StageKey: "signalr.corruptionRemove.cancelled",
                                 OperationId: operationId,
-                                DetectionMethod: selection.DetectionMethod.ToWireString(),
+                                DetectionMethod: detectionMethod.ToWireString(),
                                 Cancelled: true));
                 }
 
@@ -1557,26 +1576,26 @@ public class CacheController : ControllerBase
                             StageKey: "signalr.corruptionRemove.failed.generic",
                             OperationId: operationId,
                             Error: info.Error,
-                            DetectionMethod: selection.DetectionMethod.ToWireString()));
+                            DetectionMethod: detectionMethod.ToWireString()));
                 }
 
                 // Success carries the Rust binary's real numbers (harvested from its final
                 // progress checkpoint) instead of a generic "successfully removed" line.
-                return totals.AnythingRemoved
+                return terminalTotals.AnythingRemoved
                     ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                         new CorruptionRemovalComplete(true, serviceName,
                             StageKey: selection.DetectionMethod == CorruptionDetectionMethod.Structural
                                 ? "signalr.corruptionRemove.completeStructural"
                                 : "signalr.corruptionRemove.complete",
                             OperationId: operationId,
-                            Context: totals.ToContext(serviceName),
-                            DetectionMethod: selection.DetectionMethod.ToWireString()))
+                            Context: terminalTotals.ToContext(serviceName),
+                            DetectionMethod: detectionMethod.ToWireString()))
                     : _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                         new CorruptionRemovalComplete(true, serviceName,
                             StageKey: "signalr.corruptionRemove.noChunksFoundService",
                             OperationId: operationId,
                             Context: new Dictionary<string, object?> { ["service"] = serviceName },
-                            DetectionMethod: selection.DetectionMethod.ToWireString()));
+                            DetectionMethod: detectionMethod.ToWireString()));
                 }));
 
         onRegistered?.Invoke(operationId);
@@ -1585,7 +1604,7 @@ public class CacheController : ControllerBase
         var startContext = new Dictionary<string, object?>
         {
             ["service"] = service,
-            ["detectionMethod"] = selection.DetectionMethod.ToWireString()
+            ["detectionMethod"] = detectionMethod.ToWireString()
         };
         var startStageKey = selection.DetectionMethod == CorruptionDetectionMethod.Structural
             ? "signalr.corruptionRemove.startingStructural"
@@ -1593,8 +1612,8 @@ public class CacheController : ControllerBase
         if (bulk != null)
         {
             bulk.LastOperationId = operationId;
-            startContext["serviceIndex"] = bulk.ServiceIndex;
-            startContext["serviceCount"] = bulk.ServiceCount;
+            startContext["serviceIndex"] = serviceIndex;
+            startContext["serviceCount"] = serviceCount;
             startStageKey = selection.DetectionMethod == CorruptionDetectionMethod.Structural
                 ? "signalr.corruptionRemove.startingStructuralService"
                 : "signalr.corruptionRemove.startingService";
@@ -1607,7 +1626,7 @@ public class CacheController : ControllerBase
                 startStageKey,
                 DateTime.UtcNow,
                 startContext,
-                selection.DetectionMethod.ToWireString()));
+                detectionMethod.ToWireString()));
 
         try
         {
@@ -1618,7 +1637,7 @@ public class CacheController : ControllerBase
                 selection.ScanId,
                 service,
                 selection.CandidateIds,
-                cts.Token);
+                cancellationToken);
 
             // Update tracking
             _operationTracker.UpdateProgress(operationId, 0, "signalr.corruptionRemove.starting");
@@ -1631,7 +1650,7 @@ public class CacheController : ControllerBase
             var datasourceCount = datasources.Count;
             for (var datasourceIndex = 0; datasourceIndex < datasourceCount; datasourceIndex++)
             {
-                cts.Token.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested();
 
                 // Copy for the async progress closure: the for variable is shared across
                 // iterations and a late callback must not see the next iteration's index.
@@ -1675,7 +1694,7 @@ public class CacheController : ControllerBase
                     await System.IO.File.WriteAllTextAsync(
                         evidenceFilePath,
                         JsonSerializer.Serialize(evidence),
-                        cts.Token);
+                        cancellationToken);
 
                     // Hybrid transport (mirrors CacheClearingService): the stdout progress event
                     // from corruption_manager is a zero-latency wake-up that triggers exactly one
@@ -1697,7 +1716,7 @@ public class CacheController : ControllerBase
                         progressFile: progressFilePath,
                         stemPositionsFile: stemPositionsPath,
                         keyScheme: _capabilityService.GetKeySchemeWireValue(datasource),
-                        cancellationToken: cts.Token,
+                        cancellationToken: cancellationToken,
                         operationId: operationId,
                         onProgressEvent: async _ =>
                         {
@@ -1723,24 +1742,28 @@ public class CacheController : ControllerBase
                             // snapping back to zero when the next datasource starts.
                             var overallPercent = (dsIndex * 100.0 + progress.PercentComplete) / datasourceCount;
 
-                            _operationTracker.UpdateProgress(operationId, overallPercent, progress.StageKey ?? "");
-                            _operationTracker.UpdateMetadata(operationId, (object meta) =>
-                            {
-                                var m = (RemovalMetrics)meta;
-                                m.FilesProcessed = progress.FilesProcessed;
-                                m.TotalFiles = progress.TotalFiles;
-                            });
-
                             // Every progress context names the service (the Rust stage contexts
                             // don't), plus the run position during an all-services removal.
-                            var context = progress.Context ?? new Dictionary<string, object?>();
+                            var context = progress.Context == null ? new Dictionary<string, object?>() : new Dictionary<string, object?>(progress.Context);
                             context["service"] = service;
-                            context["detectionMethod"] = selection.DetectionMethod.ToWireString();
+                            context["detectionMethod"] = detectionMethod.ToWireString();
                             if (bulk != null)
                             {
-                                context["serviceIndex"] = bulk.ServiceIndex;
-                                context["serviceCount"] = bulk.ServiceCount;
+                                context["serviceIndex"] = serviceIndex;
+                                context["serviceCount"] = serviceCount;
                             }
+
+                            var accepted = false;
+                            var filesProcessed = progress.FilesProcessed;
+                            var totalFiles = progress.TotalFiles;
+                            _operationTracker.UpdateProgress(operationId, overallPercent, progress.StageKey ?? "",
+                                onProgress: _ =>
+                                {
+                                    metadata.FilesProcessed = filesProcessed;
+                                    metadata.TotalFiles = totalFiles;
+                                    accepted = true;
+                                });
+                            if (!accepted) return;
 
                             // Send progress notification via SignalR
                             await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
@@ -1754,7 +1777,7 @@ public class CacheController : ControllerBase
                                     progress.TotalFiles,
                                     overallPercent,
                                     context,
-                                    selection.DetectionMethod.ToWireString()));
+                                    detectionMethod.ToWireString()));
                         });
 
                     // Harvest this datasource's outcome numbers from the final checkpoint
@@ -1795,6 +1818,15 @@ public class CacheController : ControllerBase
                                 ReadContextStemCounts(finalProgress.Context, "logLinesBeforePositionBySource"),
                                 ReadContextStemCounts(finalProgress.Context, "logLinesBySource"));
                         }
+                    }
+
+                    var currentTotals = new CorruptionRemovalTotals();
+                    currentTotals.Add(totals);
+                    var currentOperation = _operationTracker.GetOperation(operationId);
+                    if (currentOperation != null)
+                    {
+                        _operationTracker.UpdateProgress(operationId, currentOperation.PercentComplete, currentOperation.Message,
+                            onProgress: _ => terminalTotals = currentTotals);
                     }
 
                     if (result.Success)
@@ -1850,49 +1882,46 @@ public class CacheController : ControllerBase
                 await _corruptionDetectionService.ApplyRemovalSuccessAsync(
                     selection.ScanId,
                     selection.CandidateIds,
-                    cts.Token);
+                    cancellationToken);
 
                 // Terminal SignalR emit is centralized in the onTerminalEmit closure
                 // registered with RegisterOperation (fires exactly once from CompleteOperation).
-                _operationTracker.CompleteOperation(operationId, success: true);
-
-                if (bulk != null)
-                {
-                    bulk.SucceededServices++;
-                    bulk.Totals.Add(totals);
-                }
-
-                return true;
+                var completedTotals = new CorruptionRemovalTotals();
+                completedTotals.Add(totals);
+                _operationTracker.CompleteOperation(operationId, success: true,
+                    onCompleting: _ => terminalTotals = completedTotals);
             }
 
-            _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
-            _operationTracker.CompleteOperation(operationId, success: false, error: lastError);
-            if (bulk != null)
+            else
             {
-                bulk.FailedServices++;
+                _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
+                var failedTotals = new CorruptionRemovalTotals();
+                failedTotals.Add(totals);
+                _operationTracker.CompleteOperation(operationId, success: false, error: lastError,
+                    onCompleting: _ => terminalTotals = failedTotals);
             }
-
-            return false;
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
-            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
-            // Rethrow so the all-services loop can stop processing further services;
-            // the single-service caller swallows this (its operation is already completed).
-            throw;
+            var cancelledTotals = new CorruptionRemovalTotals();
+            cancelledTotals.Add(totals);
+            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true,
+                onCompleting: _ => terminalTotals = cancelledTotals);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
-            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-            if (bulk != null)
-            {
-                bulk.FailedServices++;
-            }
-
-            return false;
+            var failedTotals = new CorruptionRemovalTotals();
+            failedTotals.Add(totals);
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message,
+                onCompleting: _ => terminalTotals = failedTotals);
         }
+        var terminal = await terminalCompletion.Task;
+        if (terminal.Cancelled)
+            throw new OperationCanceledException(cancellationToken);
+        return terminal.Success;
+
     }
 
     /// <summary>

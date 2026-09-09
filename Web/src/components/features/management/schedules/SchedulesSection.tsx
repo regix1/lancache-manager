@@ -1759,49 +1759,8 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const handleRunAll = useCallback(async () => {
     setRunningAll(true);
     try {
-      const { triggeredCount, alreadyRunningCount, skippedCount, skippedReason } =
-        await ApiService.runAllSchedules();
+      await ApiService.runAllSchedules();
       await fetchSchedules();
-
-      // Services that were mid-run are not left out: each had a follow-up run armed and runs
-      // again when its current one ends. Report that second number instead of only the started
-      // count, which on its own reads as if the rest were ignored.
-      const queuedNext = alreadyRunningCount ?? 0;
-      const refused = skippedCount ?? 0;
-
-      if (refused > 0) {
-        // A fan-out that refused a service did not fully succeed, whatever the started count
-        // says, so it reports as a refusal rather than through the green path. The two counts
-        // are independent and both matter: the plain skipped line has no room for the services
-        // that were already running, and dropping it loses the fact that they run again.
-        addNotification({
-          type: 'generic',
-          status: 'skipped',
-          message:
-            queuedNext > 0
-              ? t('management.schedules.runAllTriggeredWithSkippedAndQueued', {
-                  count: triggeredCount,
-                  queued: queuedNext,
-                  skipped: refused,
-                  reason: skippedReason ? t(skippedReason) : ''
-                })
-              : t('management.schedules.runAllTriggeredWithSkipped', {
-                  count: triggeredCount,
-                  skipped: refused,
-                  reason: skippedReason ? t(skippedReason) : ''
-                }),
-          details: { notificationType: 'warning' }
-        });
-      } else {
-        notifySuccess(
-          queuedNext > 0
-            ? t('management.schedules.runAllTriggeredWithQueued', {
-                count: triggeredCount,
-                queued: queuedNext
-              })
-            : t('management.schedules.runAllTriggered', { count: triggeredCount })
-        );
-      }
 
       flashAll();
     } catch (err: unknown) {
@@ -1815,7 +1774,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       setRunningAll(false);
       setRunAllConfirmOpen(false);
     }
-  }, [fetchSchedules, flashAll, notifySuccess, addNotification, t]);
+  }, [fetchSchedules, flashAll, addNotification, t]);
 
   const handleRunNow = useCallback(
     async (key: string) => {

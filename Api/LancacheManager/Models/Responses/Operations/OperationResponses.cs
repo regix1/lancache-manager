@@ -40,6 +40,12 @@ public class OperationStatusResponse
 
     /// <summary>Progress message for the operation. Null when the operation is not tracked.</summary>
     public string? Message { get; set; }
+    public OperationStatus? Status { get; set; }
+    public DateTime? StartedAt { get; set; }
+    public Guid? ParentOperationId { get; set; }
+    public Guid? NextOperationId { get; set; }
+    public OperationStatus? NextStatus { get; set; }
+    public string? Error { get; set; }
 }
 
 /// <summary>

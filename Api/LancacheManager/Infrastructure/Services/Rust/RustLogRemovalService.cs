@@ -29,13 +29,6 @@ public class RustLogRemovalService
     private TaskCompletionSource<Guid>? _operationRegisteredTcs;
     private LogRemovalCurrentProgress? _currentProgress;
     private long _progressRevision;
-    private readonly ProgressEmitGate _progressEmitGate = new();
-
-    // Completion payload captured BY VALUE just before each CompleteOperation call so the
-    // onTerminalEmit closure (fired exactly once inside CompleteOperation) can build the typed
-    // LogRemovalComplete record. Only one removal runs at a time (IsProcessing/_startLock guard),
-    // so a single shared holder is safe.
-    private LogRemovalCompletionMetrics _completionMetrics;
 
     private readonly DatasourceService _datasourceService;
 
@@ -166,16 +159,24 @@ public class RustLogRemovalService
         string? Datasource);
 
     /// <summary>
-    /// Builds the onTerminalEmit closure that emits the terminal LogRemovalComplete event EXACTLY
-    /// ONCE from inside CompleteOperation (CompletedFlag-gated). Reads the completion payload from
-    /// _completionMetrics (captured by value just before each CompleteOperation call, including the
-    /// operation id). Branches on info.Cancelled / info.Success / else(error).
+    /// Builds this run's terminal event from its winning metrics and accepted progress.
     /// </summary>
-    private Func<OperationTerminalInfo, Task> BuildTerminalEmit()
+    private Func<OperationTerminalInfo, Task> BuildTerminalEmit(Func<Guid?> getOperationId,
+        Func<LogRemovalCompletionMetrics> getMetrics,
+        Func<LogRemovalCurrentProgress?> getProgress)
     {
         return info =>
         {
-            var metrics = _completionMetrics;
+            var metrics = getMetrics();
+            var progress = getProgress();
+            if (progress != null)
+                metrics = metrics with
+                {
+                    FilesProcessed = progress.FilesProcessed,
+                    LinesProcessed = progress.LinesProcessed,
+                    LinesRemoved = progress.LinesRemoved,
+                    StageKey = progress.Snapshot.StageKey
+                };
             var status = info.Cancelled
                 ? OperationStatus.Cancelled
                 : info.Success
@@ -190,7 +191,7 @@ public class RustLogRemovalService
             return _notifications.NotifyAllAsync(
                 SignalREvents.LogRemovalComplete,
                 new SignalRNotifications.LogRemovalComplete(
-                    OperationId: metrics.OperationId,
+                    OperationId: getOperationId() ?? metrics.OperationId,
                     Success: info.Success,
                     Status: status,
                     Message: message,
@@ -233,9 +234,21 @@ public class RustLogRemovalService
             _startLock.Release();
         }
 
+        Guid? operationId = null;
+        var progressEmitGate = new ProgressEmitGate();
+        var cancellationTokenSource = new CancellationTokenSource();
+        var cancellationToken = cancellationTokenSource.Token;
+        var completionMetrics = new LogRemovalCompletionMetrics(
+            Guid.Empty, service, $"Removed {service} entries",
+            $"Log removal for {service} failed",
+            $"Service removal for {service} was cancelled");
+        var publishedMetrics = completionMetrics;
+        LogRemovalCurrentProgress? currentProgress = null;
+        Action<LogRemovalCurrentProgress> publishProgress = value => currentProgress = value;
+
         try
         {
-            _cancellationTokenSource = new CancellationTokenSource();
+            _cancellationTokenSource = cancellationTokenSource;
 
             // Register with unified operation tracker for centralized cancellation.
             // Service-scoped metadata so OperationConflictChecker.DeriveScope yields
@@ -244,7 +257,7 @@ public class RustLogRemovalService
             // onTerminalEmit emits the terminal LogRemovalComplete event EXACTLY ONCE from inside
             // CompleteOperation (CompletedFlag-gated), so no terminal NotifyAll/SendOperationComplete
             // is issued directly from the success / cancel / error paths below.
-            _currentTrackerOperationId = _operationTracker.RegisterOperation(
+            operationId = _operationTracker.RegisterOperation(
                 OperationType.LogRemoval,
                 "Log Removal",
                 _cancellationTokenSource,
@@ -256,17 +269,18 @@ public class RustLogRemovalService
                 },
                 onTerminalCleanup: () =>
                 {
+                    if (_currentTrackerOperationId != operationId) return;
+                    IsProcessing = false;
                     Volatile.Write(ref _currentProgress, null);
                     CurrentService = null;
                     CurrentDatasource = null;
                     _currentTrackerOperationId = null;
-                    _cancellationTokenSource?.Dispose();
                     _cancellationTokenSource = null;
                 },
-                onTerminalEmit: BuildTerminalEmit()
+                onTerminalEmit: BuildTerminalEmit(() => operationId, () => publishedMetrics, () => currentProgress)
             );
+            _currentTrackerOperationId = operationId;
             NotifyOperationRegistered();
-            _progressEmitGate.Reset();
             var initialProgress = CaptureLogRemovalProgress(
                 "signalr.logRemoval.starting.default",
                 0,
@@ -276,14 +290,19 @@ public class RustLogRemovalService
                 0,
                 datasource: null);
             _operationTracker.UpdateProgress(
-                _currentTrackerOperationId.Value,
+                operationId.Value,
                 initialProgress.Snapshot.PercentComplete,
-                initialProgress.Snapshot.StageKey);
+                initialProgress.Snapshot.StageKey, onProgress: _ =>
+                {
+                    publishProgress(initialProgress);
+                    if (_currentTrackerOperationId == operationId)
+                        Volatile.Write(ref _currentProgress, initialProgress);
+                });
 
             // Seed the completion payload (incl. operation id) so the onTerminalEmit closure always
             // has the service name and sensible default messages even on early/leaked terminal paths.
-            _completionMetrics = new LogRemovalCompletionMetrics(
-                OperationId: _currentTrackerOperationId.Value,
+            completionMetrics = new LogRemovalCompletionMetrics(
+                OperationId: operationId.Value,
                 Service: service,
                 SuccessMessage: $"Removed {service} entries",
                 FailureMessage: $"Log removal for {service} failed",
@@ -296,14 +315,15 @@ public class RustLogRemovalService
                 _logger.LogWarning("No datasources configured for log removal");
 
                 // Terminal LogRemovalComplete is emitted via onTerminalEmit inside CompleteOperation.
-                _completionMetrics = _completionMetrics with
+                completionMetrics = completionMetrics with
                 {
                     FailureMessage = "No datasources configured for log removal"
                 };
 
-                if (_currentTrackerOperationId.HasValue)
+                if (operationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: "No datasources configured for log removal");
+                    _operationTracker.CompleteOperation(operationId.Value, success: false, error: "No datasources configured for log removal",
+                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
                 }
 
                 return false;
@@ -326,12 +346,12 @@ public class RustLogRemovalService
             // Send started event
             await _notifications.NotifyAllAsync(SignalREvents.LogRemovalStarted, new
             {
-                OperationId = _currentTrackerOperationId,
+                OperationId = operationId,
                 StageKey = "signalr.logRemoval.starting.default",
                 Context = new Dictionary<string, object?> { ["service"] = service }
             });
 
-            await ReportProgressAsync(
+            await ReportProgressAsync(operationId!.Value, publishProgress, progressEmitGate,
                 "signalr.logRemoval.starting.multi",
                 0,
                 new Dictionary<string, object?> { ["service"] = service, ["datasourceCount"] = datasources.Count },
@@ -353,7 +373,7 @@ public class RustLogRemovalService
             foreach (ResolvedDatasource datasource in datasources)
             {
                 // Check for cancellation between datasources
-                _cancellationTokenSource.Token.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested();
 
                 var logDir = datasource.LogPath;
 
@@ -377,7 +397,7 @@ public class RustLogRemovalService
 
                 _logger.LogInformation("Processing datasource '{DatasourceName}': Log directory={LogDir}",
                     datasource.Name, logDir);
-                CurrentDatasource = datasource.Name;
+                if (_currentTrackerOperationId == operationId) CurrentDatasource = datasource.Name;
 
                 // Use a datasource-specific progress file so concurrent monitoring doesn't clash
                 var dsProgressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasource.Name}.json");
@@ -405,7 +425,7 @@ public class RustLogRemovalService
                         arguments,
                         Path.GetDirectoryName(rustExecutablePath));
 
-                    await ReportProgressAsync(
+                    await ReportProgressAsync(operationId!.Value, publishProgress, progressEmitGate,
                         "signalr.logRemoval.processingDatasource",
                         (double)datasourcesProcessed / datasources.Count * MultiDatasourceFileCeiling,
                         new Dictionary<string, object?>
@@ -424,8 +444,8 @@ public class RustLogRemovalService
                     // the callback still re-reads it for the real data on every tick.
                     var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                         startInfo,
-                        _currentTrackerOperationId,
-                        _cancellationTokenSource.Token,
+                        operationId,
+                        cancellationToken,
                         async _ =>
                         {
                             var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogRemovalProgress>(dsProgressPath);
@@ -437,7 +457,7 @@ public class RustLogRemovalService
                             // Scale this datasource's inner 0-100% into its band so the outer card moves
                             // smoothly across datasources instead of jumping at each boundary. The bands
                             // fill [0, MultiDatasourceFileCeiling]; DB cleanup owns the remaining top slice.
-                            await SendProgressAsync(
+                            await SendProgressAsync(operationId!.Value, publishProgress, progressEmitGate,
                                 progressData,
                                 service,
                                 datasource.Name,
@@ -454,7 +474,7 @@ public class RustLogRemovalService
                     _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource '{DatasourceName}'",
                         exitCode, datasource.Name);
 
-                    if (WasCancelled())
+                    if (WasCancelled(operationId, cancellationToken))
                     {
                         return false;
                     }
@@ -508,14 +528,14 @@ public class RustLogRemovalService
                     _logger.LogInformation("Log removal completed for datasource '{DatasourceName}': Removed {LinesRemoved} lines",
                         datasource.Name, dsProgress?.LinesRemoved ?? 0);
                     return true;
-                }, _cancellationTokenSource.Token);
+                }, cancellationToken);
 
                 if (!dsSuccess)
                 {
                     allSuccess = false;
-                    if (WasCancelled())
+                    if (WasCancelled(operationId, cancellationToken))
                     {
-                        await CompleteCancelledAsync(service);
+                        await CompleteCancelledAsync(operationId);
                         return false;
                     }
 
@@ -534,9 +554,9 @@ public class RustLogRemovalService
                 datasourcesProcessed++;
             }
 
-            if (WasCancelled())
+            if (WasCancelled(operationId, cancellationToken))
             {
-                await CompleteCancelledAsync(service);
+                await CompleteCancelledAsync(operationId);
                 return false;
             }
 
@@ -553,7 +573,7 @@ public class RustLogRemovalService
                 await _nginxLogRotationService.ReopenNginxLogsAsync();
 
                 // Clean up database records for this service
-                var dbCleanupResult = await CleanupDbRecordsAsync(
+                var dbCleanupResult = await CleanupDbRecordsAsync(operationId!.Value, publishProgress, progressEmitGate,
                     service,
                     totalFilesProcessed,
                     totalLinesProcessed,
@@ -565,7 +585,7 @@ public class RustLogRemovalService
                     ? $"{logMessage}. Database: {dbCleanupResult.Message}"
                     : $"{logMessage}. Database cleanup: {dbCleanupResult.Message}";
 
-                _completionMetrics = _completionMetrics with
+                completionMetrics = completionMetrics with
                 {
                     SuccessMessage = message,
                     FilesProcessed = totalFilesProcessed,
@@ -580,9 +600,10 @@ public class RustLogRemovalService
                     service, datasourcesProcessed, totalLinesRemoved, totalLinesProcessed, dbCleanupResult.TotalDeleted);
 
                 // Terminal LogRemovalComplete is emitted via onTerminalEmit inside CompleteOperation.
-                if (_currentTrackerOperationId.HasValue)
+                if (operationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: true);
+                    _operationTracker.CompleteOperation(operationId.Value, success: true,
+                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
                 }
 
                 return true;
@@ -594,11 +615,12 @@ public class RustLogRemovalService
                 _logger.LogWarning(skipMessage);
 
                 // Terminal LogRemovalComplete is emitted via onTerminalEmit inside CompleteOperation.
-                _completionMetrics = _completionMetrics with { FailureMessage = skipMessage };
+                completionMetrics = completionMetrics with { FailureMessage = skipMessage };
 
-                if (_currentTrackerOperationId.HasValue)
+                if (operationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: skipMessage);
+                    _operationTracker.CompleteOperation(operationId.Value, success: false, error: skipMessage,
+                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
                 }
 
                 return false;
@@ -609,7 +631,7 @@ public class RustLogRemovalService
                 var failMessage = $"Log removal for {service} completed with errors across datasources";
 
                 // Terminal LogRemovalComplete is emitted via onTerminalEmit inside CompleteOperation.
-                _completionMetrics = _completionMetrics with
+                completionMetrics = completionMetrics with
                 {
                     FailureMessage = failMessage,
                     FilesProcessed = totalFilesProcessed,
@@ -619,9 +641,10 @@ public class RustLogRemovalService
 
                 _logger.LogError("Log removal failed for {Service}: some datasources had errors", service);
 
-                if (_currentTrackerOperationId.HasValue)
+                if (operationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: failMessage);
+                    _operationTracker.CompleteOperation(operationId.Value, success: false, error: failMessage,
+                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
                 }
 
                 return false;
@@ -635,12 +658,13 @@ public class RustLogRemovalService
             // If a universal force-kill already completed this op, suppress the duplicate
             // CompleteOperation so only ONE terminal event is emitted. The terminal
             // LogRemovalComplete (cancelled) is emitted via onTerminalEmit inside CompleteOperation.
-            if (!IsOperationAlreadyTerminal())
+            if (!IsOperationAlreadyTerminal(operationId))
             {
                 // Mark operation as cancelled in unified tracker
-                if (_currentTrackerOperationId.HasValue)
+                if (operationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, cancelled: true);
+                    _operationTracker.CompleteOperation(operationId.Value, success: false, cancelled: true,
+                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
                 }
             }
 
@@ -651,15 +675,16 @@ public class RustLogRemovalService
             _logger.LogError(ex, "Error during log removal for {Service}", service);
 
             // Terminal LogRemovalComplete (error) is emitted via onTerminalEmit inside CompleteOperation.
-            _completionMetrics = _completionMetrics with
+            completionMetrics = completionMetrics with
             {
                 FailureMessage = $"Error during log removal: {ex.Message}"
             };
 
             // Mark operation as failed in unified tracker
-            if (_currentTrackerOperationId.HasValue)
+            if (operationId.HasValue)
             {
-                _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: ex.Message);
+                _operationTracker.CompleteOperation(operationId.Value, success: false, error: ex.Message,
+                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
             }
 
             return false;
@@ -672,8 +697,8 @@ public class RustLogRemovalService
             // LogRemoval. CompleteOperation is idempotent via the Interlocked CompletedFlag, so this is
             // a no-op when a happy/cancel/error path already completed it (in which case
             // onTerminalCleanup has already nulled _currentTrackerOperationId and this guard is skipped).
-            var leakedOperationId = _currentTrackerOperationId;
-            if (leakedOperationId.HasValue && !IsOperationAlreadyTerminal())
+            var leakedOperationId = operationId;
+            if (leakedOperationId.HasValue && !IsOperationAlreadyTerminal(operationId))
             {
                 _operationTracker.CompleteOperation(
                     leakedOperationId.Value,
@@ -681,12 +706,15 @@ public class RustLogRemovalService
                     error: "Log removal ended without reaching a terminal state");
             }
 
+            if (_currentTrackerOperationId == operationId)
+            {
             IsProcessing = false;
             Volatile.Write(ref _currentProgress, null);
             CurrentService = null;
             CurrentDatasource = null;
             _currentTrackerOperationId = null;
-            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
+            }
         }
     }
 
@@ -733,9 +761,21 @@ public class RustLogRemovalService
             _startLock.Release();
         }
 
+        Guid? operationId = null;
+        var progressEmitGate = new ProgressEmitGate();
+        var cancellationTokenSource = new CancellationTokenSource();
+        var cancellationToken = cancellationTokenSource.Token;
+        var completionMetrics = new LogRemovalCompletionMetrics(
+            Guid.Empty, service, $"Removed {service} entries",
+            $"Log removal for {service} failed",
+            $"Service removal for {service} was cancelled", Datasource: datasourceName);
+        var publishedMetrics = completionMetrics;
+        LogRemovalCurrentProgress? currentProgress = null;
+        Action<LogRemovalCurrentProgress> publishProgress = value => currentProgress = value;
+
         try
         {
-            _cancellationTokenSource = new CancellationTokenSource();
+            _cancellationTokenSource = cancellationTokenSource;
 
             // Register with unified operation tracker for centralized cancellation.
             // Service-scoped metadata so OperationConflictChecker.DeriveScope yields
@@ -744,7 +784,7 @@ public class RustLogRemovalService
             // onTerminalEmit emits the terminal LogRemovalComplete event EXACTLY ONCE from inside
             // CompleteOperation (CompletedFlag-gated), so no terminal NotifyAll/SendOperationComplete
             // is issued directly from the success / cancel / error paths below.
-            _currentTrackerOperationId = _operationTracker.RegisterOperation(
+            operationId = _operationTracker.RegisterOperation(
                 OperationType.LogRemoval,
                 "Log Removal",
                 _cancellationTokenSource,
@@ -756,17 +796,18 @@ public class RustLogRemovalService
                 },
                 onTerminalCleanup: () =>
                 {
+                    if (_currentTrackerOperationId != operationId) return;
+                    IsProcessing = false;
                     Volatile.Write(ref _currentProgress, null);
                     CurrentService = null;
                     CurrentDatasource = null;
                     _currentTrackerOperationId = null;
-                    _cancellationTokenSource?.Dispose();
                     _cancellationTokenSource = null;
                 },
-                onTerminalEmit: BuildTerminalEmit()
+                onTerminalEmit: BuildTerminalEmit(() => operationId, () => publishedMetrics, () => currentProgress)
             );
+            _currentTrackerOperationId = operationId;
             NotifyOperationRegistered();
-            _progressEmitGate.Reset();
             var initialProgress = CaptureLogRemovalProgress(
                 "signalr.logRemoval.starting.single",
                 0,
@@ -780,14 +821,19 @@ public class RustLogRemovalService
                 0,
                 datasourceName);
             _operationTracker.UpdateProgress(
-                _currentTrackerOperationId.Value,
+                operationId.Value,
                 initialProgress.Snapshot.PercentComplete,
-                initialProgress.Snapshot.StageKey);
+                initialProgress.Snapshot.StageKey, onProgress: _ =>
+                {
+                    publishProgress(initialProgress);
+                    if (_currentTrackerOperationId == operationId)
+                        Volatile.Write(ref _currentProgress, initialProgress);
+                });
 
             // Seed the completion payload (incl. operation id + datasource) so the onTerminalEmit
             // closure always has the service name and sensible default messages.
-            _completionMetrics = new LogRemovalCompletionMetrics(
-                OperationId: _currentTrackerOperationId.Value,
+            completionMetrics = new LogRemovalCompletionMetrics(
+                OperationId: operationId.Value,
                 Service: service,
                 SuccessMessage: $"Successfully removed {service} entries from {datasourceName}",
                 FailureMessage: $"Failed to remove {service} entries from {datasourceName}",
@@ -824,12 +870,12 @@ public class RustLogRemovalService
 
                 await _notifications.NotifyAllAsync(SignalREvents.LogRemovalStarted, new
                 {
-                    OperationId = _currentTrackerOperationId,
+                    OperationId = operationId,
                     StageKey = "signalr.logRemoval.starting.single",
                     Context = new Dictionary<string, object?> { ["service"] = service, ["datasourceName"] = datasourceName }
                 });
 
-                await ReportProgressAsync(
+                await ReportProgressAsync(operationId!.Value, publishProgress, progressEmitGate,
                     "signalr.logRemoval.starting.single",
                     0,
                     new Dictionary<string, object?>
@@ -848,8 +894,8 @@ public class RustLogRemovalService
                 // re-reads it for the real data on every tick.
                 var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                     startInfo,
-                    _currentTrackerOperationId,
-                    _cancellationTokenSource.Token,
+                    operationId,
+                    cancellationToken,
                     async _ =>
                     {
                         var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogRemovalProgress>(progressPath);
@@ -858,7 +904,7 @@ public class RustLogRemovalService
                             return;
                         }
 
-                        await SendProgressAsync(
+                        await SendProgressAsync(operationId!.Value, publishProgress, progressEmitGate,
                             progressData,
                             service,
                             datasourceName,
@@ -871,9 +917,9 @@ public class RustLogRemovalService
                 var exitCode = result.ExitCode;
                 _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource {Datasource}", exitCode, datasourceName);
 
-                if (WasCancelled())
+                if (WasCancelled(operationId, cancellationToken))
                 {
-                    await CompleteCancelledAsync(service, datasourceName);
+                    await CompleteCancelledAsync(operationId);
                     return false;
                 }
 
@@ -922,7 +968,7 @@ public class RustLogRemovalService
 
                     // Capture final metrics for the onTerminalEmit closure; terminal
                     // LogRemovalComplete is emitted inside CompleteOperation.
-                    _completionMetrics = _completionMetrics with
+                    completionMetrics = completionMetrics with
                     {
                         FilesProcessed = finalProgress?.FilesProcessed ?? 0,
                         LinesProcessed = finalProgress?.LinesProcessed ?? 0,
@@ -934,16 +980,17 @@ public class RustLogRemovalService
                         service, datasourceName, finalProgress?.LinesRemoved ?? 0);
 
                     // Mark operation as complete in unified tracker
-                    if (_currentTrackerOperationId.HasValue)
+                    if (operationId.HasValue)
                     {
-                        _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: true);
+                        _operationTracker.CompleteOperation(operationId.Value, success: true,
+                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
                     }
                     return true;
                 }
                 else
                 {
                     // Terminal LogRemovalComplete (error) is emitted via onTerminalEmit inside CompleteOperation.
-                    _completionMetrics = _completionMetrics with
+                    completionMetrics = completionMetrics with
                     {
                         FailureMessage = $"Failed to remove {service} entries from {datasourceName}"
                     };
@@ -952,13 +999,14 @@ public class RustLogRemovalService
                         service, datasourceName, exitCode);
 
                     // Mark operation as failed in unified tracker
-                    if (_currentTrackerOperationId.HasValue)
+                    if (operationId.HasValue)
                     {
-                        _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: $"Exit code {exitCode}");
+                        _operationTracker.CompleteOperation(operationId.Value, success: false, error: $"Exit code {exitCode}",
+                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
                     }
                     return false;
                 }
-            }, _cancellationTokenSource.Token);
+            }, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -966,9 +1014,9 @@ public class RustLogRemovalService
 
             // If a universal force-kill already completed this op, suppress the duplicate
             // SignalR completion + CompleteOperation so only ONE terminal event is emitted.
-            if (!IsOperationAlreadyTerminal())
+            if (!IsOperationAlreadyTerminal(operationId))
             {
-                await CompleteCancelledAsync(service, datasourceName);
+                await CompleteCancelledAsync(operationId);
             }
 
             return false;
@@ -978,15 +1026,16 @@ public class RustLogRemovalService
             _logger.LogError(ex, "Error during log removal for {Service} in {Datasource}", service, datasourceName);
 
             // Terminal LogRemovalComplete (error) is emitted via onTerminalEmit inside CompleteOperation.
-            _completionMetrics = _completionMetrics with
+            completionMetrics = completionMetrics with
             {
                 FailureMessage = $"Error during log removal: {ex.Message}"
             };
 
             // Mark operation as failed in unified tracker
-            if (_currentTrackerOperationId.HasValue)
+            if (operationId.HasValue)
             {
-                _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: ex.Message);
+                _operationTracker.CompleteOperation(operationId.Value, success: false, error: ex.Message,
+                        onCompleting: _ => { publishedMetrics = completionMetrics; currentProgress = null; });
             }
 
             return false;
@@ -999,8 +1048,8 @@ public class RustLogRemovalService
             // LogRemoval. CompleteOperation is idempotent via the Interlocked CompletedFlag, so this is
             // a no-op when a happy/cancel/error path already completed it (in which case
             // onTerminalCleanup has already nulled _currentTrackerOperationId and this guard is skipped).
-            var leakedOperationId = _currentTrackerOperationId;
-            if (leakedOperationId.HasValue && !IsOperationAlreadyTerminal())
+            var leakedOperationId = operationId;
+            if (leakedOperationId.HasValue && !IsOperationAlreadyTerminal(operationId))
             {
                 _operationTracker.CompleteOperation(
                     leakedOperationId.Value,
@@ -1008,12 +1057,15 @@ public class RustLogRemovalService
                     error: "Log removal ended without reaching a terminal state");
             }
 
+            if (_currentTrackerOperationId == operationId)
+            {
             IsProcessing = false;
             Volatile.Write(ref _currentProgress, null);
             CurrentService = null;
             CurrentDatasource = null;
             _currentTrackerOperationId = null;
-            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
+            }
         }
     }
 
@@ -1038,6 +1090,9 @@ public class RustLogRemovalService
     /// through unchanged.
     /// </summary>
     private Task SendProgressAsync(
+        Guid operationId,
+        Action<LogRemovalCurrentProgress> publishProgress,
+        ProgressEmitGate progressEmitGate,
         LogRemovalProgress progress,
         string service,
         string datasourceName,
@@ -1077,7 +1132,7 @@ public class RustLogRemovalService
             progress.FilesProcessed,
             progress.LinesProcessed,
             progress.LinesRemoved);
-        return ReportProgressAsync(
+        return ReportProgressAsync(operationId, publishProgress, progressEmitGate,
             string.IsNullOrWhiteSpace(progress.StageKey)
                 ? "signalr.logRemoval.removing"
                 : progress.StageKey,
@@ -1128,11 +1183,13 @@ public class RustLogRemovalService
             linesProcessed,
             linesRemoved,
             datasource);
-        Volatile.Write(ref _currentProgress, current);
         return current;
     }
 
     private async Task ReportProgressAsync(
+        Guid operationId,
+        Action<LogRemovalCurrentProgress> publishProgress,
+        ProgressEmitGate progressEmitGate,
         string stageKey,
         double percentComplete,
         IReadOnlyDictionary<string, object?> context,
@@ -1151,46 +1208,32 @@ public class RustLogRemovalService
             enrichedContext["datasourceName"] = datasource;
         }
 
-        var current = Volatile.Read(ref _currentProgress);
+        var previous = _currentTrackerOperationId == operationId ? Volatile.Read(ref _currentProgress) : null;
         var candidateContext = new Dictionary<string, object?>(enrichedContext)
         {
             ["filesProcessed"] = filesProcessed,
             ["linesProcessed"] = linesProcessed,
             ["linesRemoved"] = linesRemoved
         };
-        var isNew = current == null
-            || current.FilesProcessed != filesProcessed
-            || current.LinesProcessed != linesProcessed
-            || current.LinesRemoved != linesRemoved
-            || !current.Snapshot.HasSameProgress(stageKey, percentComplete, candidateContext);
-        if (isNew)
-        {
-            current = CaptureLogRemovalProgress(
-                stageKey,
-                percentComplete,
-                enrichedContext,
-                filesProcessed,
-                linesProcessed,
-                linesRemoved,
-                datasource);
-            if (_currentTrackerOperationId.HasValue)
+        var current = previous != null && previous.Snapshot.HasSameProgress(stageKey, percentComplete, candidateContext)
+            ? previous
+            : CaptureLogRemovalProgress(stageKey, percentComplete, enrichedContext,
+                filesProcessed, linesProcessed, linesRemoved, datasource);
+        var accepted = false;
+        _operationTracker.UpdateProgress(operationId, current.Snapshot.PercentComplete, current.Snapshot.StageKey,
+            onProgress: _ =>
             {
-                _operationTracker.UpdateProgress(
-                    _currentTrackerOperationId.Value,
-                    current.Snapshot.PercentComplete,
-                    current.Snapshot.StageKey);
-            }
-        }
-
-        if (current == null
-            || !_progressEmitGate.ShouldEmit(current.Snapshot.StageKey, current.Snapshot.Revision))
-        {
+                publishProgress(current);
+                if (_currentTrackerOperationId == operationId)
+                    Volatile.Write(ref _currentProgress, current);
+                accepted = true;
+            });
+        if (!accepted || !progressEmitGate.ShouldEmit(current.Snapshot.StageKey, current.Snapshot.Revision))
             return;
-        }
 
         await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
         {
-            OperationId = _currentTrackerOperationId,
+            OperationId = operationId,
             current.Snapshot.PercentComplete,
             Status = OperationStatus.Running,
             current.Snapshot.StageKey,
@@ -1232,9 +1275,8 @@ public class RustLogRemovalService
     /// A null id means the terminal cleanup callback already ran (which nulls the id),
     /// so it is also treated as already-terminal.
     /// </summary>
-    private bool IsOperationAlreadyTerminal()
+    private bool IsOperationAlreadyTerminal(Guid? opId)
     {
-        var opId = _currentTrackerOperationId;
         if (!opId.HasValue)
         {
             return true;
@@ -1243,43 +1285,17 @@ public class RustLogRemovalService
         return _operationTracker.GetOperation(opId.Value)?.Status.IsTerminal() == true;
     }
 
-    private bool WasCancelled()
+    private bool WasCancelled(Guid? operationId, CancellationToken cancellationToken)
     {
-        if (_cancellationTokenSource?.IsCancellationRequested == true)
-        {
-            return true;
-        }
-
-        if (_currentTrackerOperationId.HasValue)
-        {
-            var op = _operationTracker.GetOperation(_currentTrackerOperationId.Value);
-            if (op?.Cancelled == true || op?.Status == OperationStatus.Cancelling)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        if (cancellationToken.IsCancellationRequested) return true;
+        var operation = operationId.HasValue ? _operationTracker.GetOperation(operationId.Value) : null;
+        return operation?.Cancelled == true || operation?.Status == OperationStatus.Cancelling;
     }
 
-    /// <summary>
-    /// Drives the operation to a cancelled terminal state. The terminal LogRemovalComplete
-    /// (cancelled) event is emitted via onTerminalEmit inside CompleteOperation; this only
-    /// captures the cancel message and calls CompleteOperation.
-    /// </summary>
-    private Task CompleteCancelledAsync(string service, string? datasourceName = null)
+    private Task CompleteCancelledAsync(Guid? operationId)
     {
-        var message = datasourceName != null
-            ? $"Service removal for {service} in {datasourceName} was cancelled"
-            : $"Service removal for {service} was cancelled";
-
-        _completionMetrics = _completionMetrics with { CancelMessage = message };
-
-        if (_currentTrackerOperationId.HasValue)
-        {
-            _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, cancelled: true);
-        }
-
+        if (operationId.HasValue)
+            _operationTracker.CompleteOperation(operationId.Value, success: false, cancelled: true);
         return Task.CompletedTask;
     }
 
@@ -1318,6 +1334,9 @@ public class RustLogRemovalService
     /// Deletes LogEntries and Downloads for the specified service.
     /// </summary>
     private async Task<DatabaseCleanupResult> CleanupDbRecordsAsync(
+        Guid operationId,
+        Action<LogRemovalCurrentProgress> publishProgress,
+        ProgressEmitGate progressEmitGate,
         string service,
         int filesProcessed,
         long linesProcessed,
@@ -1329,7 +1348,7 @@ public class RustLogRemovalService
         {
             _logger.LogInformation("Starting database cleanup for service: {Service}", service);
 
-            await ReportProgressAsync(
+            await ReportProgressAsync(operationId, publishProgress, progressEmitGate,
                 "signalr.logRemoval.cleaningDatabase",
                 95.0,
                 new Dictionary<string, object?> { ["service"] = service },

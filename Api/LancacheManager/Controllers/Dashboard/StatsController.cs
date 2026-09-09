@@ -563,7 +563,9 @@ public class StatsController : ControllerBase
     public ActionResult<EvictionScanStatusResponse> EvictionScanStatus()
     {
         var activeScan = _operationTracker.GetActiveOperations(OperationType.EvictionScan).FirstOrDefault();
-        var silentMode = activeScan != null ? _reconciliationService.CurrentScanIsSilent : false;
+        var silentMode = activeScan?.Metadata is Dictionary<string, object?> visibility &&
+            visibility.GetValueOrDefault("showNotification") is bool showNotification
+            ? !showNotification : activeScan != null && _reconciliationService.CurrentScanIsSilent;
         if (activeScan == null)
         {
             return Ok(new EvictionScanStatusResponse
@@ -591,18 +593,20 @@ public class StatsController : ControllerBase
         // the reconciliation service exposes the latest progress context (totalProcessed/
         // totalEstimate) for placeholder-bearing keys like signalr.evictionScan.progress.
         var stageKey = string.IsNullOrWhiteSpace(activeScan.Message) ? null : activeScan.Message;
+        var context = activeScan.Metadata is Dictionary<string, object?> values &&
+            values.GetValueOrDefault("context") is IReadOnlyDictionary<string, object?> currentContext
+            ? currentContext : _reconciliationService.CurrentScanProgressContext;
 
         return Ok(new EvictionScanStatusResponse
         {
             IsProcessing = true,
             SilentMode = silentMode,
-            // Display flag mirror of silentMode so a refresh cannot resurrect a silent run's card.
-            ShowNotification = !silentMode,
+            ShowNotification = !silentMode || context?.ContainsKey("detectionError") == true,
             Status = activeScan.Status,
             PercentComplete = activeScan.PercentComplete,
             Message = stageKey ?? "Scanning for evictable cache entries...",
             StageKey = stageKey,
-            Context = _reconciliationService.CurrentScanProgressContext,
+            Context = context,
             OperationId = activeScan.Id
         });
     }

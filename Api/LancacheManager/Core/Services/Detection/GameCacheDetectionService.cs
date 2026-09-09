@@ -31,12 +31,6 @@ public partial class GameCacheDetectionService : IDisposable
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
 
-    // Terminal-emit payload: completion metrics are only known when FinalizeDetectionAsync runs,
-    // so it stores them here (by value) immediately before CompleteOperation fires the onTerminalEmit
-    // closure registered in StartDetectionAsync/RestoreInterruptedOperations. The closure reads this
-    // to build the typed GameDetectionComplete record (success/failed paths know which via info).
-    private GameDetectionTerminalPayload _terminalPayload;
-
     // In-memory cache for detection response - avoids 10+ DB queries on every dashboard load.
     // Invalidated when detection scans, eviction scans, or game removals change the data.
     private DetectionOperationResponse? _cachedDetectionResponse;
@@ -45,25 +39,13 @@ public partial class GameCacheDetectionService : IDisposable
     private bool _disposed;
 
     /// <summary>
-    /// Strongly-typed carrier for the data the onTerminalEmit closure needs to build a
-    /// GameDetectionComplete record. Populated by FinalizeDetectionAsync just before CompleteOperation.
-    /// Success/cancel/error is supplied by OperationTerminalInfo, so only the metrics live here.
-    /// </summary>
-    private readonly record struct GameDetectionTerminalPayload(
-        string StageKey,
-        Dictionary<string, object?>? Context,
-        int? GamesDetected,
-        int? ServicesDetected,
-        int? NewGamesCount,
-        OperationStatus Status);
-
-    /// <summary>
     /// Response DTO that preserves the JSON shape expected by the frontend.
     /// Built from OperationInfo + GameDetectionMetrics metadata.
     /// </summary>
     public class DetectionOperationResponse
     {
         public Guid OperationId { get; set; }
+        public Guid? ParentOperationId { get; set; }
         public DateTime StartTime { get; set; }
         public OperationStatus Status { get; set; } = OperationStatus.Running;
         public string? Message { get; set; }
@@ -139,7 +121,7 @@ public partial class GameCacheDetectionService : IDisposable
         RestoreInterruptedOperations();
     }
 
-    public async Task<Guid?> StartDetectionAsync(bool incremental = true, bool showNotification = true, RunNotice? notice = null)
+    public async Task<Guid?> StartDetectionAsync(bool incremental = true, bool showNotification = true, RunNotice? notice = null, Guid? parentOperationId = null)
     {
         showNotification = notice?.ShowNotification ?? showNotification;
         // Game detection derives logical objects from cache keys, so ambiguous datasource
@@ -187,6 +169,7 @@ public partial class GameCacheDetectionService : IDisposable
             // Create a new cancellation token source
             // Note: Don't cancel/dispose old one here - it may have been disposed by CompleteOperation
             _cancellationTokenSource = new CancellationTokenSource();
+            var cancellationToken = _cancellationTokenSource.Token;
 
             var scanType = incremental ? DetectionScanType.Incremental : DetectionScanType.Full;
             var stageKeyStarting = incremental
@@ -194,24 +177,35 @@ public partial class GameCacheDetectionService : IDisposable
                 : "signalr.gameDetect.starting.full";
 
             // Register with unified operation tracker for centralized cancellation
-            var metadata = new GameDetectionMetrics { ScanType = scanType, ShowNotification = showNotification, Notice = notice };
+            var metadata = new GameDetectionMetrics
+            {
+                ScanType = scanType,
+                ShowNotification = showNotification,
+                Notice = notice,
+                ParentOperationId = parentOperationId,
+                StartTime = DateTime.UtcNow
+            };
             var registeredId = default(Guid);
-            _currentTrackerOperationId = _operationTracker.RegisterOperation(
-                OperationType.GameDetection,
-                "Game Detection",
-                _cancellationTokenSource,
-                metadata,
-                // Universal-force-kill safety net: the tracker invokes this on terminal regardless of
-                // which path completed the op, so a force-kill that bypasses FinalizeDetectionAsync still
-                // clears the service-local "detection running" marker (mirrors the reset at line ~777).
-                onTerminalCleanup: () => { _currentTrackerOperationId = null; },
-                // Capture this run's visibility in the closure so the terminal always carries the flag
-                // the run started with, even if a concurrent StartDetectionAsync arrives mid-flight.
-                onTerminalEmit: info => EmitTerminalAsync(registeredId, info, showNotification)
-            );
-            var operationId = _currentTrackerOperationId.Value;
-            registeredId = operationId;
-            var cancellationToken = _cancellationTokenSource.Token;
+            lock (_startLock)
+            {
+                registeredId = _operationTracker.RegisterOperation(
+                    OperationType.GameDetection,
+                    "Game Detection",
+                    _cancellationTokenSource,
+                    metadata,
+                    onTerminalCleanup: () =>
+                    {
+                        lock (_startLock)
+                        {
+                            if (_currentTrackerOperationId == registeredId) _currentTrackerOperationId = null;
+                        }
+                    },
+                    onTerminalEmit: info => EmitTerminalAsync(registeredId, info, metadata),
+                    parentOperationId: parentOperationId,
+                    startedAt: metadata.StartTime);
+                _currentTrackerOperationId = registeredId;
+            }
+            var operationId = registeredId;
             cancellationToken.Register(() => notice?.Cancel(_operationTracker, operationId));
             notice?.Attach(_operationTracker, operationId);
 
@@ -219,14 +213,20 @@ public partial class GameCacheDetectionService : IDisposable
             _operationTracker.UpdateProgress(operationId, 0, stageKeyStarting);
 
             // Save to OperationStateService for persistence
-            _operationStateService.SaveState($"{OperationType.GameDetection.ToWireString()}_{operationId}", new OperationState
+            lock (metadata)
             {
-                Key = $"{OperationType.GameDetection.ToWireString()}_{operationId}",
-                Type = OperationType.GameDetection.ToWireString(),
-                Status = OperationStatus.Running.ToWireString(),
-                Message = stageKeyStarting,
-                Data = JsonSerializer.SerializeToElement(new { operationId })
-            });
+                if (_operationTracker.GetOperation(operationId)?.Status.IsTerminal() != true)
+                {
+                    _operationStateService.SaveState($"{OperationType.GameDetection.ToWireString()}_{operationId}", new OperationState
+                    {
+                        Key = $"{OperationType.GameDetection.ToWireString()}_{operationId}",
+                        Type = OperationType.GameDetection.ToWireString(),
+                        Status = OperationStatus.Running.ToWireString(),
+                        Message = stageKeyStarting,
+                        Data = JsonSerializer.SerializeToElement(new { operationId, parentOperationId, showNotification, scanType, startedAt = metadata.StartTime })
+                    });
+                }
+            }
 
             // Send SignalR notification that detection started. Awaited (not fire-and-forget) so the
             // Started event is on the wire before any progress tick can be emitted by the background
@@ -234,6 +234,7 @@ public partial class GameCacheDetectionService : IDisposable
             await _notifications.NotifyAllAsync(SignalREvents.GameDetectionStarted, new
             {
                 OperationId = operationId,
+                ParentOperationId = parentOperationId,
                 StageKey = stageKeyStarting,
                 scanType,
                 timestamp = DateTime.UtcNow,
@@ -340,10 +341,11 @@ public partial class GameCacheDetectionService : IDisposable
     private async Task RunDetectionAsync(Guid operationId, bool incremental, bool showNotification, CancellationToken cancellationToken = default)
     {
         var trackerOp = _operationTracker.GetOperation(operationId);
-        if (trackerOp == null)
+        if (trackerOp == null || trackerOp.Status.IsTerminal())
         {
             return;
         }
+        var parentOperationId = trackerOp.ParentOperationId;
 
         string? excludedIdsPath = null;
         List<GameCacheInfo>? existingGames = null;
@@ -369,17 +371,19 @@ public partial class GameCacheDetectionService : IDisposable
         async Task SendProgressAsync(string status, string stageKey, int gamesDetected = 0, int servicesDetected = 0, double progressPercent = 0, Dictionary<string, object?>? context = null)
         {
             progressPercent = ClampMonotonic(progressPercent);
-            _operationTracker.UpdateProgress(operationId, progressPercent, stageKey);
-            // The tracker stores only the stage KEY; persist the interpolation context on the
-            // metrics so the /api/games/detect/active recovery endpoint can translate it.
-            _operationTracker.UpdateMetadata(operationId, (object meta) =>
+            var accepted = false;
+            context = context == null ? null : new Dictionary<string, object?>(context);
+            _operationTracker.UpdateProgress(operationId, progressPercent, stageKey, onProgress: operation =>
             {
-                var metrics = (GameDetectionMetrics)meta;
+                var metrics = (GameDetectionMetrics)operation.Metadata!;
                 metrics.CurrentContext = context;
+                accepted = true;
             });
+            if (!accepted) return;
             await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
             {
                 OperationId = operationId,
+                ParentOperationId = parentOperationId,
                 PercentComplete = progressPercent,
                 Status = OperationStatus.Running,
                 StageKey = stageKey,
@@ -569,15 +573,15 @@ public partial class GameCacheDetectionService : IDisposable
                         // across datasources (a fresh Rust process restarts its own count at 0).
                         var scaledPercent = ClampMonotonic(
                             MapDatasourceScanPercent(progress.PercentComplete, datasourceIndex, datasources.Count));
-                        _operationTracker.UpdateProgress(operationId, scaledPercent, progress.StageKey ?? string.Empty);
-                        // The tracker stores only the stage KEY; persist the Rust progress
-                        // context (e.g. processed/total for services.progress) on the metrics
-                        // so the /api/games/detect/active recovery endpoint can translate it.
-                        _operationTracker.UpdateMetadata(operationId, (object meta) =>
+                        var accepted = false;
+                        var progressContext = progress.Context == null ? null : new Dictionary<string, object?>(progress.Context);
+                        _operationTracker.UpdateProgress(operationId, scaledPercent, progress.StageKey ?? string.Empty, onProgress: operation =>
                         {
-                            var metrics = (GameDetectionMetrics)meta;
-                            metrics.CurrentContext = progress.Context;
+                            var metrics = (GameDetectionMetrics)operation.Metadata!;
+                            metrics.CurrentContext = progressContext;
+                            accepted = true;
                         });
+                        if (!accepted) return;
 
                         // Gate the broadcast (the tracker updates above stay per-tick for recovery
                         // accuracy): rust can tick many times per second and every emit re-renders
@@ -606,10 +610,11 @@ public partial class GameCacheDetectionService : IDisposable
                         await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
                         {
                             OperationId = operationId,
+                            ParentOperationId = parentOperationId,
                             PercentComplete = scaledPercent,
                             Status = OperationStatus.Running,
                             StageKey = progress.StageKey,
-                            Context = progress.Context,
+                            Context = progressContext,
                             gamesDetected = aggregatedGames.Count,
                             servicesDetected = skipServiceScan && existingServices != null ? existingServices.Count : aggregatedServices.Count,
                             gamesProcessed = progress.GamesProcessed,
@@ -837,11 +842,10 @@ public partial class GameCacheDetectionService : IDisposable
             _operationTracker.UpdateMetadata(operationId, m =>
             {
                 var metrics = (GameDetectionMetrics)m;
-                metrics.Games = finalGames;
-                metrics.Services = finalServices;
+                metrics.Games = finalGames.ToList();
+                metrics.Services = finalServices.ToList();
                 metrics.TotalGamesDetected = totalGamesDetected;
                 metrics.TotalServicesDetected = finalServices.Count;
-                metrics.CompletionContext = completionContext;
             });
 
             // Send progress for saving to database
@@ -988,12 +992,6 @@ public partial class GameCacheDetectionService : IDisposable
             {
                 _logger.LogError(oce, "[GameDetection] Operation {OperationId} failed due to timeout or internal cancellation", operationId);
 
-                _operationTracker.UpdateMetadata(operationId, m =>
-                {
-                    var metrics = (GameDetectionMetrics)m;
-                    metrics.Error = oce.Message;
-                });
-
                 await ClearUnmappedTotalsAsync(incremental, aggregatedGames.Count, aggregatedServices.Count);
 
                 await FinalizeDetectionAsync(operationId, success: false,
@@ -1004,13 +1002,6 @@ public partial class GameCacheDetectionService : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "[GameDetection] Operation {OperationId} failed", operationId);
-
-            // Update metadata with error before completing
-            _operationTracker.UpdateMetadata(operationId, m =>
-            {
-                var metrics = (GameDetectionMetrics)m;
-                metrics.Error = ex.Message;
-            });
 
             await ClearUnmappedTotalsAsync(incremental, aggregatedGames.Count, aggregatedServices.Count);
 
@@ -1072,50 +1063,20 @@ public partial class GameCacheDetectionService : IDisposable
         Guid operationId, bool success, OperationStatus status, string stageKey, bool cancelled,
         Dictionary<string, object?>? context = null, int? gamesDetected = null, int? servicesDetected = null)
     {
-        // Invalidate in-memory detection cache so next dashboard load picks up new data
-        InvalidateDetectionCache();
-
-        // Determine error string for tracker (cancelled carries none, failed = stageKey, success = null)
-        var trackerError = success || cancelled ? null : stageKey;
-
-        // Extract newGamesCount from context for the terminal emit payload
-        int? newGamesCount = null;
-        if (context != null && context.TryGetValue("newGamesCount", out var newGamesRaw) && newGamesRaw != null)
-        {
-            newGamesCount = Convert.ToInt32(newGamesRaw);
-        }
-
-        // Stash the completion metrics by value BEFORE CompleteOperation so the onTerminalEmit closure
-        // (registered in StartDetectionAsync/RestoreInterruptedOperations) can read them when it fires.
-        _terminalPayload = new GameDetectionTerminalPayload(
-            StageKey: stageKey,
-            Context: context,
-            GamesDetected: gamesDetected,
-            ServicesDetected: servicesDetected,
-            NewGamesCount: newGamesCount,
-            Status: status);
-
-        // Mark operation as complete in unified tracker. This fires onTerminalEmit (exactly once,
-        // CompletedFlag-gated) which sends the typed GameDetectionComplete record — no direct emit here.
-        _operationTracker.CompleteOperation(operationId, success: success, error: trackerError);
-        _currentTrackerOperationId = null;
-
-        // Build persisted state data
-        var stateData = cancelled
-            ? JsonSerializer.SerializeToElement(new { operationId, cancelled = true })
-            : success
-                ? JsonSerializer.SerializeToElement(new { operationId, totalGamesDetected = gamesDetected ?? 0 })
-                : JsonSerializer.SerializeToElement(new { operationId, error = stageKey });
-
-        // Update persisted state
-        _operationStateService.SaveState($"{OperationType.GameDetection.ToWireString()}_{operationId}", new OperationState
-        {
-            Key = $"{OperationType.GameDetection.ToWireString()}_{operationId}",
-            Type = OperationType.GameDetection.ToWireString(),
-            Status = status.ToWireString(),
-            Message = stageKey,
-            Data = stateData
-        });
+        var completionContext = context == null ? null : new Dictionary<string, object?>(context);
+        var trackerError = success || cancelled ? null
+            : completionContext?.GetValueOrDefault("errorDetail")?.ToString() ?? stageKey;
+        _operationTracker.CompleteOperation(operationId, success: success, error: trackerError,
+            cancelled: cancelled, onCompleting: operation =>
+            {
+                var metrics = (GameDetectionMetrics)operation.Metadata!;
+                metrics.CompletionStageKey = stageKey;
+                metrics.CompletionContext = completionContext;
+                metrics.TotalGamesDetected = gamesDetected ?? metrics.TotalGamesDetected;
+                metrics.TotalServicesDetected = servicesDetected ?? metrics.TotalServicesDetected;
+                metrics.Error = trackerError;
+                if (success) operation.PercentComplete = 100;
+            });
 
         return Task.CompletedTask;
     }
@@ -1123,13 +1084,10 @@ public partial class GameCacheDetectionService : IDisposable
     /// <summary>
     /// Sends the typed <see cref="SignalRNotifications.GameDetectionComplete"/> terminal event.
     /// Invoked EXACTLY ONCE by the unified tracker inside CompleteOperation (CompletedFlag-gated),
-    /// for success, error, AND universal force-kill — replacing the old direct emit and the legacy
-    /// force-kill switch. Reads the metrics FinalizeDetectionAsync stashed in <see cref="_terminalPayload"/>;
-    /// on a force-kill that bypasses Finalize, the payload defaults to a cancelled-shaped record.
+    /// for success, error, and force-kill. Reads only this operation's accepted metrics.
     /// </summary>
-    private Task EmitTerminalAsync(Guid operationId, OperationTerminalInfo info, bool showNotification)
+    private Task EmitTerminalAsync(Guid operationId, OperationTerminalInfo info, GameDetectionMetrics metrics)
     {
-        var payload = _terminalPayload;
         var status = info.Cancelled
             ? OperationStatus.Cancelled
             : info.Success
@@ -1137,8 +1095,8 @@ public partial class GameCacheDetectionService : IDisposable
                 : OperationStatus.Failed;
 
         // Fall back to a sensible stageKey when a force-kill bypassed FinalizeDetectionAsync.
-        var stageKey = !string.IsNullOrEmpty(payload.StageKey)
-            ? payload.StageKey
+        var stageKey = !string.IsNullOrEmpty(metrics.CompletionStageKey)
+            ? metrics.CompletionStageKey
             : info.Cancelled
                 ? "signalr.gameDetect.cancelled"
                 : "signalr.generic.failed";
@@ -1149,13 +1107,37 @@ public partial class GameCacheDetectionService : IDisposable
             StageKey: stageKey,
             Status: status,
             Cancelled: info.Cancelled,
-            TotalGamesDetected: payload.GamesDetected,
-            TotalServicesDetected: payload.ServicesDetected,
-            NewGamesCount: payload.NewGamesCount,
+            TotalGamesDetected: metrics.TotalGamesDetected,
+            TotalServicesDetected: metrics.TotalServicesDetected,
+            NewGamesCount: metrics.CompletionContext?.GetValueOrDefault("newGamesCount") is { } newGamesCount ? Convert.ToInt32(newGamesCount) : null,
             Timestamp: DateTime.UtcNow,
-            Context: payload.Context,
+            Context: metrics.CompletionContext,
             Error: info.Error,
-            ShowNotification: showNotification);
+            ShowNotification: metrics.ShowNotification,
+            ParentOperationId: metrics.ParentOperationId);
+
+        InvalidateDetectionCache();
+        lock (metrics)
+        {
+            _operationStateService.SaveState($"{OperationType.GameDetection.ToWireString()}_{operationId}", new OperationState
+            {
+                Key = $"{OperationType.GameDetection.ToWireString()}_{operationId}",
+                Type = OperationType.GameDetection.ToWireString(),
+                Status = status.ToWireString(),
+                Message = stageKey,
+                Data = JsonSerializer.SerializeToElement(new
+                {
+                    operationId,
+                    parentOperationId = metrics.ParentOperationId,
+                    showNotification = metrics.ShowNotification,
+                    scanType = metrics.ScanType,
+                    startedAt = metrics.StartTime,
+                    cancelled = info.Cancelled,
+                    totalGamesDetected = metrics.TotalGamesDetected,
+                    error = info.Error
+                })
+            });
+        }
 
         // A genuine failure (not cancellation) routes through the uniform failure broadcast so the
         // reason is logged centrally and guaranteed on IOperationComplete.Error; success and cancel
@@ -1369,8 +1351,7 @@ public partial class GameCacheDetectionService : IDisposable
             var recentCutoff = DateTime.UtcNow.AddMinutes(-5);
             var gameDetectionStates = allStates.Where(s =>
                 s.Type == OperationType.GameDetection.ToWireString() &&
-                s.Status == OperationStatus.Running.ToWireString() &&
-                s.CreatedAt > recentCutoff);
+                s.Status == OperationStatus.Running.ToWireString());
 
             foreach (var state in gameDetectionStates)
             {
@@ -1391,36 +1372,67 @@ public partial class GameCacheDetectionService : IDisposable
                     continue;
                 }
 
-                _cancellationTokenSource = new CancellationTokenSource();
-                var metadata = new GameDetectionMetrics { ScanType = DetectionScanType.Incremental };
+                var saved = state.Data.Value;
+                Guid? parentOperationId = saved.TryGetProperty("parentOperationId", out var parent) &&
+                    parent.ValueKind == JsonValueKind.String && parent.TryGetGuid(out var parentId) ? parentId : null;
+                if (parentOperationId == null && state.CreatedAt <= recentCutoff) continue;
+                var showNotification = !saved.TryGetProperty("showNotification", out var visibility) || visibility.GetBoolean();
+                var scanType = saved.TryGetProperty("scanType", out var scan)
+                    ? scan.ValueKind == JsonValueKind.String
+                        ? Enum.Parse<DetectionScanType>(scan.GetString()!, ignoreCase: true)
+                        : (DetectionScanType)scan.GetInt32()
+                    : DetectionScanType.Incremental;
+                var startedAt = saved.TryGetProperty("startedAt", out var start) && start.TryGetDateTime(out var originalStart)
+                    ? originalStart : DateTime.UtcNow;
+                var cancellationSource = new CancellationTokenSource();
+                var metadata = new GameDetectionMetrics
+                {
+                    ScanType = scanType,
+                    StartTime = startedAt,
+                    ShowNotification = parentOperationId == null && showNotification,
+                    ParentOperationId = parentOperationId
+                };
 
                 if (!_operationTracker.TryRestoreOperation(
                         persistedGuid,
                         OperationType.GameDetection,
                         "Game Detection",
-                        _cancellationTokenSource,
+                        cancellationSource,
                         metadata,
-                        onTerminalCleanup: () => { _currentTrackerOperationId = null; },
-                        // Original trigger's visibility is not persisted, so a restored run defaults to
-                        // visible rather than inheriting some later attempt's flag.
-                        onTerminalEmit: info => EmitTerminalAsync(persistedGuid, info, showNotification: true)))
+                        onTerminalCleanup: () =>
+                        {
+                            lock (_startLock)
+                            {
+                                if (_currentTrackerOperationId == persistedGuid) _currentTrackerOperationId = null;
+                            }
+                        },
+                        onTerminalEmit: info => EmitTerminalAsync(persistedGuid, info, metadata),
+                        parentOperationId: parentOperationId,
+                        startedAt: startedAt))
                 {
                     // core-7: the tracker did NOT adopt this CTS (ID already in use), so we still own it.
                     // Dispose the just-created CTS before continuing so it is not leaked.
-                    _cancellationTokenSource.Dispose();
-                    _cancellationTokenSource = null;
+                    cancellationSource.Dispose();
                     _logger.LogWarning("[GameDetection] Persisted operation {Id} already registered - skipping", persistedGuid);
                     continue;
                 }
 
-                _currentTrackerOperationId = persistedGuid;
+                if (parentOperationId != null)
+                {
+                    _operationTracker.CompleteOperation(persistedGuid, success: false,
+                        cancelled: true);
+                    continue;
+                }
+
+                _cancellationTokenSource = cancellationSource;
+                lock (_startLock) _currentTrackerOperationId = persistedGuid;
                 _operationTracker.UpdateProgress(persistedGuid, 0, state.Message ?? "signalr.gameDetect.resuming");
 
                 _logger.LogInformation("[GameDetection] Restored interrupted operation {OperationId}", persistedGuid);
 
-                // Restart the detection task with incremental scanning (default)
-                var cancellationToken = _cancellationTokenSource.Token;
-                _ = Task.Run(async () => await RunDetectionAsync(persistedGuid, incremental: true, showNotification: true, cancellationToken));
+                var cancellationToken = cancellationSource.Token;
+                _ = Task.Run(async () => await RunDetectionAsync(persistedGuid,
+                    incremental: scanType == DetectionScanType.Incremental, showNotification, cancellationToken));
             }
         }
         catch (Exception ex)
@@ -1439,6 +1451,7 @@ public partial class GameCacheDetectionService : IDisposable
         return new DetectionOperationResponse
         {
             OperationId = opInfo.Id,
+            ParentOperationId = opInfo.ParentOperationId,
             StartTime = opInfo.StartedAt,
             Status = opInfo.Status,
             Message = opInfo.Message,

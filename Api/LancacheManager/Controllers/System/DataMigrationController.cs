@@ -307,25 +307,20 @@ public class DataMigrationController : ControllerBase
                 ? $"Import completed: {recordsImported:N0} imported, {recordsSkipped:N0} skipped, {recordsErrors:N0} errors"
                 : $"Import completed: {recordsImported:N0} imported, {recordsSkipped:N0} skipped";
 
-            // Send completion notification
-            _operationTracker.UpdateProgress(operationId, 100, completionMessage);
-            // Fill the per-op holder so the onTerminalEmit closure reproduces the wire shape.
-            result.Message = importedNothing
+            var finalMessage = importedNothing
                 ? $"Import failed: every one of {recordsErrors:N0} record(s) errored"
                 : completionMessage;
-            result.RecordsImported = recordsImported;
-            result.RecordsSkipped = recordsSkipped;
-            result.RecordsErrors = recordsErrors;
-            result.TotalRecords = totalRecords;
-
-            if (importedNothing)
-            {
-                _operationTracker.CompleteOperation(operationId, success: false, error: result.Message);
-            }
-            else
-            {
-                _operationTracker.CompleteOperation(operationId, true);
-            }
+            _operationTracker.CompleteOperation(operationId, success: !importedNothing,
+                error: importedNothing ? finalMessage : null, onCompleting: operation =>
+                {
+                    operation.PercentComplete = 100;
+                    operation.Message = completionMessage;
+                    result.Message = finalMessage;
+                    result.RecordsImported = recordsImported;
+                    result.RecordsSkipped = recordsSkipped;
+                    result.RecordsErrors = recordsErrors;
+                    result.TotalRecords = totalRecords;
+                });
 
             return Ok(new MigrationImportResponse
             {
@@ -340,13 +335,14 @@ public class DataMigrationController : ControllerBase
         catch (OperationCanceledException)
         {
             _logger.LogInformation("LancacheManager import was cancelled");
-            // Fill the per-op holder so the cancel-branch terminal event keeps the old wire message + counts.
-            result.Message = "Import was cancelled";
-            result.RecordsImported = recordsImported;
-            result.RecordsSkipped = recordsSkipped;
-            result.RecordsErrors = recordsErrors;
-            result.TotalRecords = totalRecords;
-            _operationTracker.CompleteOperation(operationId, false, cancelled: true);
+            _operationTracker.CompleteOperation(operationId, false, cancelled: true, onCompleting: _ =>
+            {
+                result.Message = "Import was cancelled";
+                result.RecordsImported = recordsImported;
+                result.RecordsSkipped = recordsSkipped;
+                result.RecordsErrors = recordsErrors;
+                result.TotalRecords = totalRecords;
+            });
 
             return Ok(new MigrationImportResponse
             {
@@ -361,13 +357,14 @@ public class DataMigrationController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during LancacheManager import");
-            // Fill the per-op holder so the fail-branch terminal event keeps "Import failed: ..." + counts.
-            result.Message = $"Import failed: {ex.Message}";
-            result.RecordsImported = recordsImported;
-            result.RecordsSkipped = recordsSkipped;
-            result.RecordsErrors = recordsErrors;
-            result.TotalRecords = totalRecords;
-            _operationTracker.CompleteOperation(operationId, false, ex.Message);
+            _operationTracker.CompleteOperation(operationId, false, ex.Message, onCompleting: _ =>
+            {
+                result.Message = $"Import failed: {ex.Message}";
+                result.RecordsImported = recordsImported;
+                result.RecordsSkipped = recordsSkipped;
+                result.RecordsErrors = recordsErrors;
+                result.TotalRecords = totalRecords;
+            });
             throw;
         }
     }
@@ -488,7 +485,7 @@ public class DataMigrationController : ControllerBase
 
             var cts = new CancellationTokenSource();
             var result = new DataImportMetrics();
-            result.CaptureProgress(
+            var startingSnapshot = result.CaptureProgress(
                 "signalr.dataImport.starting",
                 0,
                 new Dictionary<string, object?>());
@@ -535,8 +532,8 @@ public class DataMigrationController : ControllerBase
             registeredId = operationId;
             _operationTracker.UpdateProgress(
                 operationId,
-                result.CurrentProgress!.PercentComplete,
-                result.CurrentProgress.StageKey);
+                startingSnapshot.PercentComplete,
+                startingSnapshot.StageKey);
             return (operationId, cts, result, null);
         }
         finally
@@ -555,15 +552,24 @@ public class DataMigrationController : ControllerBase
         string message)
     {
         var percentComplete = total > 0 ? (double)processed / total * 100.0 : 0.0;
-        var snapshot = metrics.CaptureProgress(
+        var snapshot = OperationProgressSnapshot.Create(
             "signalr.dataImport.progress",
             percentComplete,
             new Dictionary<string, object?>
             {
                 ["processed"] = processed,
                 ["total"] = total
-            });
-        _operationTracker.UpdateProgress(operationId, snapshot.PercentComplete, snapshot.StageKey);
+            }, revision: 0);
+        var accepted = false;
+        _operationTracker.UpdateProgress(operationId, snapshot.PercentComplete, snapshot.StageKey, _ =>
+        {
+            snapshot = metrics.CaptureProgress(snapshot.StageKey, snapshot.PercentComplete, snapshot.Context);
+            accepted = true;
+        });
+        if (!accepted)
+        {
+            return;
+        }
         await _notifications.NotifyAllAsync(SignalREvents.DataImportProgress, new
         {
             OperationId = operationId,

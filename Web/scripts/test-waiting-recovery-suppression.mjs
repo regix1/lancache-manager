@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { MemoryStorage, compileToUrl } from './transpile-module.mjs';
+import { MemoryStorage, compileToUrl, notificationEvents } from './transpile-module.mjs';
 
 /**
  * Recovery rebuilds purple waiting cards from `GET /api/operations/waiting`, and it runs far more
@@ -118,7 +118,13 @@ const runRecovery = async (startingCards, fetchWaiting) => {
   const setNotifications = (update) => {
     state = typeof update === 'function' ? update(state) : update;
   };
-  await createRecoveryRunner(fetchWaiting, setNotifications, () => undefined)();
+  await createRecoveryRunner(
+    fetchWaiting,
+    setNotifications,
+    () => undefined,
+    notificationEvents(),
+    () => state
+  )();
   return state;
 };
 

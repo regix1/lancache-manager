@@ -23,6 +23,173 @@ namespace LancacheManager.Tests;
 public sealed class OperationWaitingBlockerTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ForceKillAwaitCannotOverwriteAWinningSuccessor(bool reapWaiter)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var tracker = CreateTracker();
+        var controller = CreateController(tracker);
+        var waiter = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        var successor = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        var unrelated = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        var pipeName = Guid.NewGuid().ToString("N");
+        using var pipe = new System.IO.Pipes.NamedPipeServerStream(pipeName, System.IO.Pipes.PipeDirection.Out, 1,
+            System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous);
+        using var process = new System.Diagnostics.Process
+        {
+            StartInfo = new System.Diagnostics.ProcessStartInfo("powershell.exe")
+            {
+                UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
+                RedirectStandardOutput = true, RedirectStandardError = true
+            }
+        };
+        process.StartInfo.ArgumentList.Add("-NoProfile");
+        process.StartInfo.ArgumentList.Add("-NonInteractive");
+        process.StartInfo.ArgumentList.Add("-Command");
+        process.StartInfo.ArgumentList.Add($"$p = [System.IO.Pipes.NamedPipeClientStream]::new('.', '{pipeName}', [System.IO.Pipes.PipeDirection]::In); $p.Connect(); [Console]::WriteLine('ready'); $line = [Console]::ReadLine(); [Console]::WriteLine($line); $null = $p.ReadByte(); $p.Dispose()");
+        Assert.True(process.Start());
+        try
+        {
+            await pipe.WaitForConnectionAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal("ready", await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+            tracker.AssociateProcess(successor, process);
+            tracker.RecordHandoff(waiter, successor);
+            tracker.CompleteOperation(waiter, true);
+            if (reapWaiter) Reap(tracker, waiter);
+            var forceKill = controller.ForceKillAsync(waiter);
+            Assert.Equal("CANCEL", await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.False(forceKill.IsCompleted);
+            tracker.CompleteOperation(successor, false, "Original failure", onCompleting: operation => operation.PercentComplete = 63);
+            var terminal = tracker.GetOperation(successor)!;
+            var completedAt = terminal.CompletedAt;
+            await pipe.WriteAsync(new byte[] { 1 });
+            await pipe.FlushAsync();
+            var response = Assert.IsType<OperationForceKillResponse>(Assert.IsType<OkObjectResult>((await forceKill).Result).Value);
+            Assert.Equal(waiter, response.OperationId);
+            Assert.Equal(OperationStatus.Failed, terminal.Status);
+            Assert.Equal("Original failure", terminal.Message);
+            Assert.False(terminal.Cancelled);
+            Assert.Equal(63, terminal.PercentComplete);
+            Assert.Equal(completedAt, terminal.CompletedAt);
+            Assert.Null(terminal.AssociatedProcess);
+            Assert.Equal(OperationStatus.Running, tracker.GetOperation(unrelated)!.Status);
+            Assert.False(tracker.GetOperation(unrelated)!.Cancelled);
+        }
+        finally
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            tracker.CompleteOperation(successor, false, cancelled: true);
+            tracker.CompleteOperation(unrelated, true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task CancellationEndpointsFollowRetainedHandoffs(bool reapWaiter, bool forceKill)
+    {
+        var tracker = CreateTracker();
+        var controller = CreateController(tracker);
+        var waiter = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource(), initialStatus: OperationStatus.Waiting);
+        var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        var successor = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", cts);
+        var unrelated = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        tracker.RecordHandoff(waiter, successor);
+        tracker.RecordHandoff(waiter, unrelated);
+        tracker.RecordHandoff(waiter, waiter);
+        tracker.CompleteOperation(waiter, true);
+        if (reapWaiter) Reap(tracker, waiter);
+        Assert.Equal(successor, tracker.GetOperation(waiter, followHandoff: true)!.Id);
+        var status = Assert.IsType<OperationStatusResponse>(Assert.IsType<OkObjectResult>(controller.GetOperationStatus(waiter).Result).Value);
+        Assert.Equal(waiter, status.Id);
+        Assert.False(status.Active);
+        Assert.Equal(100, status.PercentComplete);
+        Assert.Null(status.Message);
+        Assert.Equal(successor, status.NextOperationId);
+        Assert.Equal(OperationStatus.Running, status.NextStatus);
+        Assert.Equal(reapWaiter ? null : OperationStatus.Completed, status.Status);
+        if (forceKill)
+        {
+            var response = Assert.IsType<OperationForceKillResponse>(Assert.IsType<OkObjectResult>((await controller.ForceKillAsync(waiter)).Result).Value);
+            Assert.Equal(waiter, response.OperationId);
+            Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(successor)!.Status);
+        }
+        else
+        {
+            var response = Assert.IsType<OperationCancelResponse>(Assert.IsType<OkObjectResult>(controller.CancelOperation(waiter).Result).Value);
+            Assert.Equal(waiter, response.OperationId);
+            Assert.Equal(OperationStatus.Cancelling, response.Status);
+            Assert.False(response.AlreadyFinished);
+            tracker.CompleteOperation(successor, false, cancelled: true);
+        }
+        Assert.True(token.IsCancellationRequested);
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(unrelated)!.Status);
+        Assert.False(tracker.GetOperation(unrelated)!.Cancelled);
+        var terminal = tracker.GetOperation(successor)!;
+        var finished = Assert.IsType<OperationCancelResponse>(Assert.IsType<OkObjectResult>(controller.CancelOperation(waiter).Result).Value);
+        Assert.Equal(waiter, finished.OperationId);
+        Assert.Equal(OperationStatus.Cancelled, finished.Status);
+        Assert.True(finished.AlreadyFinished);
+        var completedAt = terminal.CompletedAt;
+        await controller.ForceKillAsync(waiter);
+        Assert.Equal(completedAt, terminal.CompletedAt);
+        Reap(tracker, waiter);
+        Reap(tracker, successor);
+        Assert.Null(tracker.GetOperation(waiter, followHandoff: true));
+        var missing = Assert.IsType<OperationStatusResponse>(Assert.IsType<OkObjectResult>(controller.GetOperationStatus(waiter).Result).Value);
+        Assert.Null(missing.NextOperationId);
+        Assert.IsType<NotFoundObjectResult>(controller.CancelOperation(waiter).Result);
+        Assert.IsType<NotFoundObjectResult>((await controller.ForceKillAsync(waiter)).Result);
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(unrelated)!.Status);
+        tracker.CompleteOperation(unrelated, true);
+    }
+
+    [Fact]
+    public void ReapingIntermediateRowsRetainsTheChainUntilTheFinalTargetIsReaped()
+    {
+        var tracker = CreateTracker();
+        var first = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        var second = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        var last = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        tracker.RecordHandoff(first, second);
+        tracker.RecordHandoff(second, last);
+        tracker.CompleteOperation(first, true);
+        tracker.CompleteOperation(second, true);
+        Reap(tracker, first);
+        Reap(tracker, second);
+        Reap(tracker, last);
+        Assert.Equal(last, tracker.GetOperation(first, true)!.Id);
+        tracker.CompleteOperation(last, false, "Disk read failed");
+        var controller = CreateController(tracker);
+        var response = Assert.IsType<OperationStatusResponse>(Assert.IsType<OkObjectResult>(controller.GetOperationStatus(last).Result).Value);
+        Assert.Equal(OperationStatus.Failed, response.Status);
+        Assert.Equal("Disk read failed", response.Error);
+        Assert.Null(response.Message);
+        Assert.False(response.Active);
+        Reap(tracker, last);
+        Assert.Null(tracker.GetOperation(first, true));
+        var links = Assert.IsType<System.Collections.Concurrent.ConcurrentDictionary<Guid, Guid>>(
+            typeof(UnifiedOperationTracker).GetField("_handoffs", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker));
+        Assert.Empty(links);
+    }
+
+    private static void Reap(UnifiedOperationTracker tracker, Guid id)
+    {
+        typeof(UnifiedOperationTracker).GetMethod("ReapOperation", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(tracker, [id]);
+    }
+
+    private static OperationsController CreateController(UnifiedOperationTracker tracker) => new(
+        tracker,
+        new OperationCancellationService(tracker, new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<OperationCancellationService>.Instance),
+        CreateProxy<IOperationQueue>((method, _) => DefaultReturn(method.ReturnType)),
+        CreateProxy<IServiceScheduleRegistry>((method, _) => DefaultReturn(method.ReturnType)));
+
+    [Theory]
     [InlineData(OperationType.GameDetection, true)]
     [InlineData(OperationType.GameDetection, false)]
     [InlineData(OperationType.EvictionRemoval, true)]

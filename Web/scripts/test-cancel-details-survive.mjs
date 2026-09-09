@@ -43,7 +43,7 @@ const ApiService = {
 export default ApiService;`);
 
   const errorUrl = moduleUrl(`// ${nonce}
-export const getErrorMessage = (err) => (err instanceof Error ? err.message : String(err));`);
+export const isAbortError = (err) => err instanceof Error && err.name === 'AbortError';`);
 
   const i18nUrl = moduleUrl(`// ${nonce}
 export default { t: (key) => key };`);
@@ -60,8 +60,15 @@ export const NOTIFICATION_REGISTRY = [
   const constantsUrl = moduleUrl(`// ${nonce}
 export const APP_EVENTS = { SHOW_TOAST: 'show-toast' };`);
 
+  const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
+    '@utils/constants': constantsUrl
+  });
   const cancelUrl = await compileToUrl('../src/components/common/notificationCancel.ts', {
     '@services/api.service': apiUrl,
+    '@services/apiError': apiErrorUrl,
+    '@contexts/notifications/notificationStatus': await compileToUrl(
+      '../src/contexts/notifications/notificationStatus.ts'
+    ),
     '@utils/error': errorUrl,
     '../../i18n': i18nUrl,
     '@utils/statusVariant': statusVariantUrl,
@@ -76,7 +83,12 @@ export const APP_EVENTS = { SHOW_TOAST: 'show-toast' };`);
     }
   };
 
-  return { cancel: await import(cancelUrl), api: await import(apiUrl), toasts };
+  return {
+    cancel: await import(cancelUrl),
+    api: await import(apiUrl),
+    ApiError: (await import(apiErrorUrl)).ApiError,
+    toasts
+  };
 };
 
 /** A running game detection card holding the operation the click will cancel. */
@@ -129,11 +141,15 @@ test('a cancel failure keeps the canceled flag the terminal event already wrote'
   );
   assert.equal(after.status, 'cancelled');
   assert.equal(after.message, 'Game detection cancelled');
-  assert.equal(after.details.cancelRequested, false, 'the reset the failure branch exists for');
+  assert.equal(
+    after.details.cancelRequested,
+    true,
+    'a late response leaves the terminal flags unchanged'
+  );
   assert.deepEqual(
     toasts.map((t) => t.detail.message),
-    ['common.notifications.cancelOperationFailed'],
-    'a genuine cancel failure still has to reach the user'
+    [],
+    'the authoritative cancelled outcome makes the late transport failure irrelevant'
   );
 });
 
@@ -189,10 +205,14 @@ test('a canceled card draws gray and only a failure draws red', async () => {
 });
 
 test('a cancel for an operation that is already gone drops the card', async () => {
-  const { cancel, api, toasts } = await loadCancel('gone');
+  const { cancel, api, ApiError, toasts } = await loadCancel('gone');
   const notifications = [runningCard()];
 
-  api.setCancel(() => Promise.reject(new Error('Operation not found')));
+  api.setCancel(() =>
+    Promise.reject(
+      new ApiError({ status: 404, kind: 'http', body: null, message: 'Operation not found' })
+    )
+  );
   const removed = await driveCancel(cancel, notifications, notifications[0]);
 
   assert.deepEqual(removed, ['n1']);

@@ -87,11 +87,151 @@ public sealed class LogProcessingOperationOwnershipTests
         Assert.Empty(stillRunning);
     }
 
+    [Fact]
+    public async Task RegistrationFailure_DisposesTheUnadoptedCancellationSourceAsync()
+    {
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RegistrationFailureTracker>();
+        var failedTracker = (RegistrationFailureTracker)(object)tracker;
+        using var fixture = new ProcessorFixture(tracker);
+
+        var started = await fixture.Processor.StartProcessingAsync(
+            fixture.LogFilePath,
+            silentMode: true);
+
+        Assert.False(started);
+        var source = Assert.IsType<CancellationTokenSource>(failedTracker.Source);
+        Assert.Throws<ObjectDisposedException>(() => _ = source.Token);
+    }
+
+    [Fact]
+    public void BatchTerminalCleanup_LeavesCancellationSourceDisposalToTheTracker()
+    {
+        using var fixture = new ProcessorFixture();
+        var begin = typeof(RustLogProcessorService).GetMethod("BeginOperation", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var sourceField = typeof(RustLogProcessorService).GetField("_cancellationTokenSource", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var operationId = (Guid)begin.Invoke(fixture.Processor, null)!;
+        var registeredSource = fixture.Tracker.GetOperation(operationId)!.CancellationTokenSource!;
+        using var cleanupSource = new DisposeTrackingCancellationTokenSource();
+        sourceField.SetValue(fixture.Processor, cleanupSource);
+
+        fixture.Tracker.CompleteOperation(operationId, false, cancelled: true);
+
+        Assert.Throws<ObjectDisposedException>(() => _ = registeredSource.Token);
+        Assert.Equal(0, cleanupSource.DisposeCalls);
+        Assert.Null(sourceField.GetValue(fixture.Processor));
+    }
+
+    [Fact]
+    public void EarlierTerminal_UsesItsOwnMetricsAndLeavesTheNextRunRegistered()
+    {
+        using var fixture = new ProcessorFixture();
+        var begin = typeof(RustLogProcessorService).GetMethod("BeginOperation", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var first = (Guid)begin.Invoke(fixture.Processor, null)!;
+        var next = (Guid)begin.Invoke(fixture.Processor, null)!;
+        var metricType = typeof(RustLogProcessorService).GetNestedType("LogProcessingTerminalMetrics", BindingFlags.NonPublic)!;
+        var metrics = Activator.CreateInstance(metricType, [7L, 11L, 1.5, "first completed", "complete"])!;
+
+        fixture.Tracker.CompleteOperation(first, true, onCompleting: operation => operation.Metadata = metrics);
+        var losingPublication = false;
+        fixture.Tracker.CompleteOperation(first, false, error: "late failure", onCompleting: _ => losingPublication = true);
+
+        var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(Assert.Single(fixture.Messages.Completions));
+        Assert.Equal(first, complete.OperationId);
+        Assert.Equal(7, complete.EntriesProcessed);
+        Assert.Equal(11, complete.LinesProcessed);
+        Assert.False(losingPublication);
+        Assert.Equal(next, fixture.Processor.CurrentOperationId);
+        Assert.True(fixture.Processor.IsProcessing);
+        Assert.False(fixture.Tracker.GetOperation(next)!.Status.IsTerminal());
+        fixture.Tracker.CompleteOperation(next, false, cancelled: true);
+    }
+
+    [Fact]
+    public async Task ExternalCompletionBeforeWorkerFailure_PreservesTheNextRun()
+    {
+        using var fixture = new ProcessorFixture();
+        fixture.Messages.Started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Messages.Resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var task = fixture.Processor.StartProcessingAsync(fixture.LogFilePath);
+        await fixture.Messages.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var original = fixture.Processor.CurrentOperationId!.Value;
+        var registeredSource = fixture.Tracker.GetOperation(original)!.CancellationTokenSource!;
+        var sourceField = typeof(RustLogProcessorService).GetField("_cancellationTokenSource", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        using var cleanupSource = new DisposeTrackingCancellationTokenSource();
+        sourceField.SetValue(fixture.Processor, cleanupSource);
+        fixture.Tracker.CompleteOperation(original, false, error: "external failure");
+        Assert.Throws<ObjectDisposedException>(() => _ = registeredSource.Token);
+        Assert.Equal(0, cleanupSource.DisposeCalls);
+        var begin = typeof(RustLogProcessorService).GetMethod("BeginOperation", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var next = (Guid)begin.Invoke(fixture.Processor, null)!;
+        fixture.Messages.Resume.TrySetResult();
+        Assert.False(await task.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(next, fixture.Processor.CurrentOperationId);
+        var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(Assert.Single(fixture.Messages.Completions));
+        Assert.Equal(original, complete.OperationId);
+        Assert.Equal("external failure", complete.Message);
+        fixture.Tracker.CompleteOperation(next, false, cancelled: true);
+    }
+
+    public class CompletionMessages : DispatchProxy
+    {
+        public List<object> Completions { get; } = [];
+        public TaskCompletionSource? Started { get; set; }
+        public TaskCompletionSource? Resume { get; set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod!.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
+            {
+                if (args![1] is SignalRNotifications.LogProcessingComplete completion)
+                    Completions.Add(completion);
+                if (args[0] is string eventName && eventName == "LogProcessingStarted" && Started != null)
+                {
+                    Started.TrySetResult();
+                    return Resume!.Task;
+                }
+                return Task.CompletedTask;
+            }
+            return targetMethod.ReturnType == typeof(Task) ? Task.CompletedTask : null;
+        }
+    }
+
+    public class RegistrationFailureTracker : DispatchProxy
+    {
+        public CancellationTokenSource? Source { get; private set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod!.Name == nameof(IUnifiedOperationTracker.RegisterOperation))
+            {
+                Source = (CancellationTokenSource)args![2]!;
+                throw new InvalidOperationException("Registration failed");
+            }
+
+            throw new NotSupportedException(targetMethod.Name);
+        }
+    }
+
+    private sealed class DisposeTrackingCancellationTokenSource : CancellationTokenSource
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisposeCalls++;
+            }
+
+            base.Dispose(disposing);
+        }
+    }
+
     private sealed class ProcessorFixture : IDisposable
     {
         private readonly string _root;
 
-        public ProcessorFixture()
+        public ProcessorFixture(IUnifiedOperationTracker? tracker = null)
         {
             _root = Path.Combine(Path.GetTempPath(), $"log-processing-ownership-{Guid.NewGuid():N}");
             var logPath = Path.Combine(_root, "logs");
@@ -118,9 +258,10 @@ public sealed class LogProcessingOperationOwnershipTests
             var pathResolver = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
             ((PathResolverProxy)(object)pathResolver).Root = _root;
 
-            var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();
+            var notifications = DispatchProxy.Create<ISignalRNotificationService, CompletionMessages>();
+            Messages = (CompletionMessages)(object)notifications;
 
-            Tracker = new UnifiedOperationTracker(
+            Tracker = tracker ?? new UnifiedOperationTracker(
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
                 NullLogger<UnifiedOperationTracker>.Instance);
 
@@ -143,8 +284,9 @@ public sealed class LogProcessingOperationOwnershipTests
         }
 
         public string LogFilePath { get; }
-        public UnifiedOperationTracker Tracker { get; }
+        public IUnifiedOperationTracker Tracker { get; }
         public RustLogProcessorService Processor { get; }
+        public CompletionMessages Messages { get; }
 
         public void Dispose()
         {

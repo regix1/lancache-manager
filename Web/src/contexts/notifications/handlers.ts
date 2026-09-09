@@ -25,9 +25,13 @@ import type {
   UnifiedNotification,
   SetNotifications,
   ScheduleAutoDismiss,
-  CancelAutoDismissTimer
+  CancelAutoDismissTimer,
+  NotificationEvents,
+  NotificationEvent,
+  NotificationRegistryEntry
 } from './types';
 import { isTerminalNotificationStatus } from './notificationStatus';
+import type { OperationWaitingCompleteEvent } from '../SignalRContext/types';
 import { storage } from '@utils/storage';
 import i18n from '@/i18n';
 import {
@@ -36,9 +40,151 @@ import {
   GENERIC_CANCELLED_I18N_KEY,
   GENERIC_COMPLETION_I18N_KEY,
   GENERIC_FAILURE_I18N_KEY,
+  GENERIC_SKIPPED_I18N_KEY,
   LIVE_ONLY_CANCEL_DETAIL_KEYS,
   OPERATION_WAITING_I18N_KEYS
 } from './constants';
+
+interface NotificationEventOptions {
+  events?: NotificationEvents;
+  eventName?: string;
+  replay?: boolean;
+}
+
+/** Record transport values before any card update. A claimed terminal never changes. */
+export function rememberEvent(
+  events: NotificationEvents,
+  type: NotificationType,
+  phase: NotificationEvent['phase'] | 'waiting' | 'handoff',
+  eventName: string,
+  value: unknown
+): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const body = value as Record<string, unknown>;
+  const operationId = eventOperationId(value);
+  if (!operationId) return true;
+
+  if (phase === 'handoff') {
+    const nextOperationId = body.nextOperationId;
+    if (
+      body.promoted === true &&
+      (typeof nextOperationId !== 'string' ||
+        !nextOperationId.trim() ||
+        nextOperationId === operationId)
+    )
+      return false;
+    if (events.handoffs.has(operationId) || events.terminals.has(operationId)) return false;
+    const handoff = value as OperationWaitingCompleteEvent;
+    events.handoffs.set(operationId, { ...handoff });
+    events.waiting.delete(operationId);
+    events.terminals.set(operationId, {
+      operationId,
+      status: handoff.promoted
+        ? 'completed'
+        : handoff.cancelled
+          ? 'cancelled'
+          : handoff.skipped
+            ? 'skipped'
+            : 'failed',
+      error: handoff.error,
+      eventName
+    });
+    events.acknowledgedIds.add(`terminal_${operationId}`);
+  } else {
+    if (events.terminals.has(operationId)) return false;
+    if (
+      type === 'game_detection' &&
+      typeof body.parentOperationId === 'string' &&
+      body.parentOperationId.trim()
+    ) {
+      events.children.set(operationId, body.parentOperationId);
+    }
+    if (phase === 'waiting') {
+      events.waiting.add(operationId);
+    } else {
+      const terminalStatus =
+        typeof body.status === 'string' &&
+        ['completed', 'failed', 'cancelled', 'skipped'].includes(body.status)
+          ? body.status
+          : undefined;
+      if (phase === 'complete' || terminalStatus) {
+        const error = typeof body.error === 'string' && body.error.trim() ? body.error : undefined;
+        const status =
+          body.cancelled === true || terminalStatus === 'cancelled'
+            ? 'cancelled'
+            : body.skipped === true || terminalStatus === 'skipped'
+              ? 'skipped'
+              : terminalStatus === 'failed' || body.success === false || error
+                ? 'failed'
+                : 'completed';
+        events.terminals.set(operationId, { operationId, status, error, eventName });
+        events.acknowledgedIds.add(`terminal_${operationId}`);
+        events.waiting.delete(operationId);
+      }
+    }
+  }
+
+  const revision = ++events.revision;
+  events.revisions.set(operationId, revision);
+  events.typeRevisions.set(type, revision);
+  if (phase !== 'waiting' && phase !== 'handoff') {
+    const retained = events.records.get(operationId) ?? {};
+    events.records.delete(operationId);
+    events.records.set(operationId, {
+      ...retained,
+      [phase]: { type, phase, eventName, body: { ...body }, revision }
+    });
+  }
+  if (events.records.size > 128) {
+    for (const id of events.records.keys()) {
+      if (events.records.size <= 128) break;
+      if (events.waiting.has(id) || events.held.has(id)) continue;
+      if (
+        [...events.handoffs.values()].some(
+          (link) => link.nextOperationId === id && !events.terminals.has(id)
+        )
+      )
+        continue;
+      events.records.delete(id);
+    }
+  }
+  return true;
+}
+
+function excludeChild(
+  config: NotificationEventOptions & {
+    type: NotificationType;
+    storageKey: string;
+    storesCardsById?: boolean;
+  },
+  event: unknown,
+  setNotifications: SetNotifications
+): boolean {
+  const operationId = eventOperationId(event);
+  const parentOperationId = (event as { parentOperationId?: unknown } | null)?.parentOperationId;
+  if (
+    config.type !== 'game_detection' ||
+    !operationId ||
+    (!(typeof parentOperationId === 'string' && parentOperationId.trim()) &&
+      !config.events?.children.has(operationId))
+  )
+    return false;
+  setNotifications((prev) => {
+    for (const saved of readPersistedCards(config.storageKey)) {
+      if (saved.details?.operationId === operationId)
+        clearPersistedNotificationIfTargeted(
+          config.storageKey,
+          event,
+          saved.id,
+          config.storesCardsById
+        );
+    }
+    return prev.filter(
+      (card) => card.type !== 'game_detection' || card.details?.operationId !== operationId
+    );
+  });
+  return true;
+}
 
 /**
  * Statuses a live event promotes back to 'running'.
@@ -198,11 +344,18 @@ function readPersistedCardsById(storageKey: string): Record<string, UnifiedNotif
   return cards;
 }
 
-function persistNotification(
+export function persistNotification(
   storageKey: string,
   notification: UnifiedNotification,
   storesCardsById?: boolean
 ): void {
+  if (
+    !storageKey ||
+    notification.status !== 'running' ||
+    notification.controlOnly ||
+    notification.details?.parentOperationId
+  )
+    return;
   if (!storesCardsById) {
     storage.setItem(storageKey, JSON.stringify(notification));
     return;
@@ -213,7 +366,7 @@ function persistNotification(
   storage.setItem(storageKey, JSON.stringify(cards));
 }
 
-function clearPersistedNotificationIfTargeted(
+export function clearPersistedNotificationIfTargeted(
   storageKey: string,
   event: unknown,
   notificationId: string,
@@ -307,7 +460,7 @@ function mergeEventDetails(
  * Configuration for creating a started event handler.
  * @template T - The type of the SignalR event
  */
-interface StartedHandlerConfig<T> {
+interface StartedHandlerConfig<T> extends NotificationEventOptions {
   canControl?: (event: T) => boolean;
   /** Optional gate that suppresses and removes the notification for this event */
   shouldDisplay?: (event: T) => boolean;
@@ -363,110 +516,68 @@ export function operationCardId(operationId: string): string {
   return `operation_${operationId}`;
 }
 
+/** @public */
 export function createStartedHandler<T>(
   config: StartedHandlerConfig<T>,
   setNotifications: SetNotifications,
   cancelAutoDismissTimer?: CancelAutoDismissTimer
 ): (event: T) => void {
   return (event: T): void => {
+    const accepted =
+      config.replay ||
+      !config.events ||
+      rememberEvent(config.events, config.type, 'started', config.eventName ?? '', event);
+    if (excludeChild(config, event, setNotifications) || !accepted) return;
+    const operationId = eventOperationId(event);
+    if (operationId && config.events?.terminals.has(operationId)) return;
     const notificationId = config.getId(event);
 
-    if (config.shouldDisplay?.(event) === false && config.canControl?.(event)) {
-      const operationId = eventOperationId(event);
-      if (!operationId) return;
-      setNotifications((prev) => {
-        if (findBulkCardOwningOperation(config.type, operationId, prev)) return prev;
-        const existing = prev.find(
-          (n) => n.type === config.type && n.details?.operationId === operationId
+    setNotifications((prev) => {
+      const exact = operationId
+        ? prev.find((n) => n.type === config.type && n.details?.operationId === operationId)
+        : undefined;
+      const slot = prev.find((n) => n.id === notificationId);
+      const existing = exact ?? (slot && eventTargetsCard(slot, event) ? slot : undefined);
+      if (existing && isTerminalNotificationStatus(existing.status)) return prev;
+      const hidden = config.shouldDisplay?.(event) === false;
+      if (!existing && slot && !hidden && !isTerminalNotificationStatus(slot.status)) return prev;
+      if (hidden && !config.canControl?.(event)) {
+        if (!existing) return prev;
+        clearPersistedNotificationIfTargeted(
+          config.storageKey,
+          event,
+          existing.id,
+          config.storesCardsById
         );
-        if (existing && isTerminalNotificationStatus(existing.status)) return prev;
-        const id = existing?.id ?? operationCardId(operationId);
-        cancelAutoDismissTimer?.(id);
-        const next: UnifiedNotification = {
-          ...existing,
-          id,
-          type: config.type,
-          status: existing?.details?.cancelRequested ? 'cancelling' : 'running',
-          controlOnly: true,
-          message: config.getMessage?.(event) ?? config.defaultMessage,
-          startedAt: existing?.startedAt ?? new Date(),
-          details: mergeEventDetails(existing?.details, {
-            ...config.getDetails?.(event),
-            operationId
-          })
-        };
-        return [...prev.filter((n) => n.id !== id), next];
-      });
-      return;
-    }
-
-    if (config.shouldDisplay?.(event) === false) {
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((notification) => notification.id === notificationId);
-        if (
-          (existing && !eventTargetsCard(existing, event)) ||
-          !clearPersistedNotificationIfTargeted(
-            config.storageKey,
-            event,
-            notificationId,
-            config.storesCardsById
-          )
-        ) {
-          return prev;
-        }
-
-        cancelAutoDismissTimer?.(notificationId);
-        return prev.filter((notification) => notification.id !== notificationId);
-      });
-      return;
-    }
-
-    // Cancel any existing auto-dismiss timer for this notification
-    cancelAutoDismissTimer?.(notificationId);
-
-    setNotifications((prev: UnifiedNotification[]) => {
-      // Check if already exists in running state (skip if running and not replacing)
-      if (!config.replaceExisting) {
-        const existing = prev.find((n) => n.id === notificationId);
-        if (existing && !eventTargetsCard(existing, event)) return prev;
-        if (existing && existing.status === 'running') {
-          const eventDetails = config.getDetails?.(event);
-          if (eventDetails && Object.keys(eventDetails).length > 0) {
-            const merged: UnifiedNotification = {
-              ...existing,
-              message: config.getMessage?.(event) ?? existing.message,
-              // A Started event reaching this branch always means a NEW operation (the
-              // singleton card is already 'running'); strip stale cancel flags unconditionally.
-              details: mergeEventDetails(existing.details, eventDetails)
-            };
-            persistNotification(config.storageKey, merged, config.storesCardsById);
-            return prev.map((n) => (n.id === notificationId ? merged : n));
-          }
-          return prev;
-        }
+        cancelAutoDismissTimer?.(existing.id);
+        return prev.filter((n) => n !== existing);
       }
-
-      if (suppressNewItemCardDuringBulk(config.type, prev)) {
-        return prev;
-      }
-
-      const newNotification: UnifiedNotification = {
-        id: notificationId,
+      if (hidden && !operationId) return prev;
+      if (operationId && findBulkCardOwningOperation(config.type, operationId, prev)) return prev;
+      if (!existing && suppressNewItemCardDuringBulk(config.type, prev)) return prev;
+      const id =
+        existing?.id ?? (hidden && operationId ? operationCardId(operationId) : notificationId);
+      cancelAutoDismissTimer?.(id);
+      const card: UnifiedNotification = {
+        ...existing,
+        id,
         type: config.type,
-        status: 'running',
-        message: config.getMessage?.(event) ?? config.defaultMessage,
-        startedAt: new Date(),
-        progress: 0,
-        progressMode: config.progressMode,
-        details: config.getDetails?.(event)
+        status: existing?.details?.cancelRequested ? 'cancelling' : 'running',
+        controlOnly: hidden || undefined,
+        message: existing?.message ?? config.getMessage?.(event) ?? config.defaultMessage,
+        startedAt: existing?.startedAt ?? new Date(),
+        instanceVersion: existing?.instanceVersion ?? (slot?.instanceVersion ?? 0) + 1,
+        progress: existing?.progress ?? (hidden ? undefined : 0),
+        progressMode: existing?.progressMode ?? config.progressMode,
+        details: mergeEventDetails(existing?.details, {
+          ...config.getDetails?.(event),
+          ...(operationId ? { operationId } : {})
+        })
       };
-
-      // Persist to localStorage for recovery on page refresh
-      persistNotification(config.storageKey, newNotification, config.storesCardsById);
-
-      // Drop the old card on this id, then add the new running slot.
-      const filtered = prev.filter((n) => n.id !== notificationId);
-      return [...filtered, newNotification];
+      persistNotification(config.storageKey, card, config.storesCardsById);
+      return existing
+        ? prev.map((n) => (n === existing ? card : n))
+        : [...prev.filter((n) => n.id !== id), card];
     });
   };
 }
@@ -479,7 +590,7 @@ export function createStartedHandler<T>(
  * Configuration for creating a completion event handler.
  * @template T - The type of the SignalR event (must have success and optional message)
  */
-interface CompletionHandlerConfig<T> {
+interface CompletionHandlerConfig<T> extends NotificationEventOptions {
   /** Optional gate that suppresses and removes the notification for this event */
   shouldDisplay?: (event: T) => boolean;
   /** The notification type this handler completes */
@@ -562,7 +673,6 @@ export function createCompletionHandler<
     context?: Record<string, unknown>;
     message?: string;
     cancelled?: boolean;
-    /** Wire status. Only `'skipped'` is read here; every other outcome is decided by success/cancelled. */
     status?: string;
   }
 >(
@@ -571,373 +681,123 @@ export function createCompletionHandler<
   scheduleAutoDismiss: ScheduleAutoDismiss
 ): (event: T) => void {
   return (event: T): void => {
+    const accepted =
+      config.replay ||
+      !config.events ||
+      rememberEvent(config.events, config.type, 'complete', config.eventName ?? '', event);
+    if (excludeChild(config, event, setNotifications) || !accepted) return;
+    const operationId = eventOperationId(event);
     const notificationId = config.getId(event);
     const isCancelled = event.cancelled === true || event.status === 'cancelled';
-    // A skipped run reports success:true (it did not fail) and status:'skipped', so the outcome
-    // can only be read off the wire status. Checked before the success branches below.
     const isSkipped =
-      (event.status === 'skipped' || (event as { skipped?: boolean }).skipped === true) &&
-      !isCancelled;
-    // An entry that states its own outcome overrides the wire field, which its payload does not
-    // carry: one event for the whole lifecycle means there is no run whose success to report.
-    const error = (event as { error?: unknown }).error;
-    const realError = typeof error === 'string' && error.trim() ? error : undefined;
+      !isCancelled &&
+      (event.status === 'skipped' || (event as { skipped?: boolean }).skipped === true);
+    const realError =
+      typeof event.error === 'string' && event.error.trim() ? event.error : undefined;
     const succeeded =
       config.succeeded ?? (event.status !== 'failed' && event.success !== false && !realError);
+    const status = isCancelled
+      ? 'cancelled'
+      : isSkipped
+        ? 'skipped'
+        : succeeded
+          ? 'completed'
+          : 'failed';
     const dismissDelayMs = isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : config.dismissDelayMs;
 
-    const operationId = eventOperationId(event);
-    const failed = !isCancelled && !isSkipped && !succeeded;
-    if (failed || config.shouldDisplay?.(event) === false) {
-      setNotifications((prev) => {
-        const exact = operationId
-          ? prev.find((n) => n.type === config.type && n.details?.operationId === operationId)
-          : undefined;
-        const slot = prev.find((n) => n.id === notificationId);
-        const existing = exact ?? (slot && eventTargetsCard(slot, event) ? slot : undefined);
-        if (!failed) {
-          if (!existing) return prev;
-          clearPersistedNotificationIfTargeted(
-            config.storageKey,
-            event,
-            existing.id,
-            config.storesCardsById
-          );
-          return prev.filter((n) => n.id !== existing.id);
-        }
-        const id = existing?.id ?? (operationId ? operationCardId(operationId) : notificationId);
-        const message =
-          realError ??
-          config.getFailureMessage?.(event) ??
+    setNotifications((prev) => {
+      const exact = operationId
+        ? prev.find((n) => n.type === config.type && n.details?.operationId === operationId)
+        : undefined;
+      const slot = prev.find((n) => n.id === notificationId);
+      const existing =
+        exact ??
+        (slot && (config.announcement || eventTargetsCard(slot, event)) ? slot : undefined);
+      const aggregate =
+        config.type === 'corruption_removal' && (event as { service?: string }).service === 'all';
+      if (aggregate && !exact) return prev;
+      if (
+        !existing &&
+        slot &&
+        (status !== 'failed' || !operationId || config.shouldDisplay?.(event) !== false)
+      )
+        return prev;
+      if (existing && isTerminalNotificationStatus(existing.status) && !config.announcement)
+        return prev;
+      if (
+        config.replay &&
+        !existing &&
+        operationId &&
+        config.events?.terminals.get(operationId)?.presented
+      )
+        return prev;
+
+      if (status !== 'failed' && config.shouldDisplay?.(event) === false) {
+        if (!existing) return prev;
+        clearPersistedNotificationIfTargeted(
+          config.storageKey,
+          event,
+          existing.id,
+          config.storesCardsById
+        );
+        return prev.filter((n) => n !== existing);
+      }
+      if (!existing && suppressNewItemCardDuringBulk(config.type, prev)) return prev;
+      const id =
+        existing?.id ?? (slot && operationId ? operationCardId(operationId) : notificationId);
+      if (
+        !clearPersistedNotificationIfTargeted(config.storageKey, event, id, config.storesCardsById)
+      )
+        return prev;
+      const message = isCancelled
+        ? (config.getCancelledMessage?.(event, existing) ??
+          event.message ??
           (event.stageKey
             ? i18n.t(event.stageKey, event.context ?? {})
-            : i18n.t(GENERIC_FAILURE_I18N_KEY));
-        const terminal: UnifiedNotification = {
-          ...existing,
-          id,
-          type: config.type,
-          status: 'failed',
-          controlOnly: undefined,
-          message,
-          error: message,
-          detailMessage: config.getDetailMessage?.(event),
-          startedAt: existing?.startedAt ?? new Date(),
-          details: {
-            ...existing?.details,
-            ...config.getSuccessDetails?.(event, existing),
-            operationId
-          }
-        };
-        clearPersistedNotificationIfTargeted(config.storageKey, event, id, config.storesCardsById);
-        scheduleAutoDismiss(id, dismissDelayMs);
-        return [...prev.filter((n) => n.id !== id), terminal];
-      });
-      return;
-    }
-
-    // Silent is a presentation preference for routine lifecycle updates. A real failure is still
-    // an error the user must see, including when no running card was ever created for this run.
-    if (config.shouldDisplay?.(event) === false && (succeeded || isCancelled || isSkipped)) {
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((notification) => notification.id === notificationId);
-        if (
-          (existing && !eventTargetsCard(existing, event)) ||
-          !clearPersistedNotificationIfTargeted(
-            config.storageKey,
-            event,
-            notificationId,
-            config.storesCardsById
-          )
-        ) {
-          return prev;
-        }
-
-        const next = prev.filter((notification) => notification.id !== notificationId);
-        // A suppressed event usually has no card to remove. Handing back the same array leaves the
-        // list identity alone so those do not re-render every card.
-        return next.length === prev.length ? prev : next;
-      });
-      return;
-    }
-
-    /**
-     * A skipped run's own stage key already names the reason it did nothing, so the card reuses
-     * the same resolver a successful run uses. It never falls back to the failure text.
-     */
-    const resolveSkippedMessage = (existing?: UnifiedNotification): string =>
-      config.getSuccessMessage?.(event, existing) ??
-      (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-      existing?.message ??
-      i18n.t(GENERIC_COMPLETION_I18N_KEY);
-
-    const resolveFailureMessage = (existing?: UnifiedNotification): string => {
-      if (isCancelled) {
-        return (
-          config.getCancelledMessage?.(event, existing) ??
-          event.message ??
-          (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-          i18n.t(GENERIC_CANCELLED_I18N_KEY)
-        );
-      }
-
-      return (
-        config.getFailureMessage?.(event) ??
-        (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-        i18n.t(GENERIC_FAILURE_I18N_KEY)
-      );
-    };
-
-    /** Builds a terminal card for fast completion (no prior started event). */
-    const buildFastCompletionNotification = (): UnifiedNotification => {
-      const failureMessage = resolveFailureMessage();
-
-      if (isSkipped) {
-        return {
-          id: notificationId,
-          type: config.type,
-          status: 'skipped' as const,
-          message: resolveSkippedMessage(),
-          detailMessage: config.getDetailMessage?.(event),
-          startedAt: new Date(),
-          // No progress at all: a run that did nothing has nothing to fill a bar with.
-          details: config.getSuccessDetails?.(event)
-        };
-      }
-
-      if (succeeded && !isCancelled) {
-        return {
-          id: notificationId,
-          type: config.type,
-          status: 'completed' as const,
-          message:
-            config.getSuccessMessage?.(event) ??
-            (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-            i18n.t(GENERIC_COMPLETION_I18N_KEY),
-          detailMessage: config.getDetailMessage?.(event),
-          startedAt: new Date(),
-          progress: FULL_PROGRESS_PERCENT,
-          details: config.getSuccessDetails?.(event)
-        };
-      }
-
-      return {
-        id: notificationId,
-        type: config.type,
-        status: isCancelled ? ('cancelled' as const) : ('failed' as const),
-        message: failureMessage,
-        ...(!isCancelled && { error: failureMessage }),
-        detailMessage: config.getDetailMessage?.(event),
-        startedAt: new Date(),
-        progress: FULL_PROGRESS_PERCENT,
-        details: isCancelled
-          ? { ...config.getCancelledDetails?.(event), cancelled: true }
-          : config.getSuccessDetails?.(event)
+            : i18n.t(GENERIC_CANCELLED_I18N_KEY)))
+        : status === 'failed'
+          ? (realError ??
+            config.getFailureMessage?.(event) ??
+            (event.stageKey
+              ? i18n.t(event.stageKey, event.context ?? {})
+              : i18n.t(GENERIC_FAILURE_I18N_KEY)))
+          : (config.getSuccessMessage?.(event, existing) ??
+            (event.stageKey
+              ? i18n.t(event.stageKey, event.context ?? {})
+              : (existing?.message ?? i18n.t(GENERIC_COMPLETION_I18N_KEY))));
+      const detailMessage = config.getDetailMessage
+        ? config.getDetailMessage(event)
+        : existing?.detailMessage;
+      const details = {
+        ...existing?.details,
+        ...(isCancelled
+          ? config.getCancelledDetails?.(event, existing)
+          : config.getSuccessDetails?.(event, existing)),
+        ...(operationId ? { operationId } : {}),
+        ...(isCancelled ? { cancelled: true } : {})
       };
-    };
-
-    if (config.useAnimationDelay) {
-      // Single atomic update that sets BOTH progress=100 AND final status
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((n) => n.id === notificationId);
-
-        // A card in this slot that belongs to a DIFFERENT operation (the wait-queue parks a queued
-        // op's waiting card here while this op runs) must be left alone entirely: neither
-        // transitioned nor replaced by a fast-completion card.
-        if (existing && !eventTargetsCard(existing, event)) {
-          return prev;
-        }
-        if (
-          !clearPersistedNotificationIfTargeted(
-            config.storageKey,
-            event,
-            notificationId,
-            config.storesCardsById
-          )
-        ) {
-          return prev;
-        }
-
-        // Fast completion - no live slot to transition (missing or already terminal);
-        // materialize a terminal card instead of dropping the event
-        if (!existing || isTerminalNotificationStatus(existing.status)) {
-          if (suppressNewItemCardDuringBulk(config.type, prev)) {
-            return prev;
-          }
-          const newNotification = buildFastCompletionNotification();
-          scheduleAutoDismiss(notificationId, dismissDelayMs);
-          return [...prev.filter((n) => n.id !== newNotification.id), newNotification];
-        }
-
-        scheduleAutoDismiss(notificationId, dismissDelayMs);
-        return prev.map((n) => {
-          if (n.id === notificationId) {
-            if (isSkipped) {
-              return {
-                ...n,
-                // Drop the bar the started event seeded at 0 rather than filling it to 100.
-                progress: undefined,
-                status: 'skipped' as const,
-                message: resolveSkippedMessage(n),
-                error: undefined,
-                details: {
-                  ...n.details,
-                  ...config.getSuccessDetails?.(event, n)
-                }
-              };
-            }
-
-            if (succeeded && !isCancelled) {
-              return {
-                ...n,
-                progress: FULL_PROGRESS_PERCENT,
-                status: 'completed' as const,
-                message: config.getSuccessMessage?.(event, n) ?? n.message,
-                details: {
-                  ...n.details,
-                  ...config.getSuccessDetails?.(event, n)
-                }
-              };
-            }
-
-            const failureMessage = resolveFailureMessage(n);
-            return {
-              ...n,
-              progress: FULL_PROGRESS_PERCENT,
-              status: isCancelled ? ('cancelled' as const) : ('failed' as const),
-              message: failureMessage,
-              ...(!isCancelled && { error: failureMessage }),
-              ...(isCancelled && { error: undefined }),
-              ...(isCancelled && {
-                details: {
-                  ...n.details,
-                  ...config.getCancelledDetails?.(event, n),
-                  cancelled: true
-                }
-              })
-            };
-          }
-          return n;
-        });
-      });
-    } else {
-      // Immediate completion
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((n) => n.id === notificationId);
-
-        // Fast completion - no prior started event. An announcement also lands here when its slot
-        // already holds a terminal card, because that card is an older announcement of the same
-        // kind rather than another operation's: the two guards below would otherwise drop every
-        // repeat and the newer announcement would never be shown.
-        if (!existing || (config.announcement && isTerminalNotificationStatus(existing.status))) {
-          if (
-            !clearPersistedNotificationIfTargeted(
-              config.storageKey,
-              event,
-              notificationId,
-              config.storesCardsById
-            )
-          ) {
-            return prev;
-          }
-          if (suppressNewItemCardDuringBulk(config.type, prev)) {
-            return prev;
-          }
-          const newNotification = buildFastCompletionNotification();
-          scheduleAutoDismiss(notificationId, dismissDelayMs);
-          return [...prev.filter((n) => n.id !== notificationId), newNotification];
-        }
-
-        // Never touch a card belonging to a DIFFERENT operation of this type (a queued op's
-        // waiting card parked in the shared slot), and never re-terminate a terminal card.
-        if (!eventTargetsCard(existing, event) || isTerminalNotificationStatus(existing.status)) {
-          return prev;
-        }
-        if (
-          !clearPersistedNotificationIfTargeted(
-            config.storageKey,
-            event,
-            notificationId,
-            config.storesCardsById
-          )
-        ) {
-          return prev;
-        }
-
-        scheduleAutoDismiss(notificationId, dismissDelayMs);
-        return prev.map((n) => {
-          if (n.id === notificationId) {
-            if (isSkipped) {
-              return {
-                ...n,
-                // Drop the bar the started event seeded at 0 rather than filling it to 100.
-                progress: undefined,
-                status: 'skipped' as const,
-                message: resolveSkippedMessage(n),
-                error: undefined,
-                // Same rule as the success branch below: a configured detail message owns the
-                // line, so returning undefined clears it. [33]
-                detailMessage: config.getDetailMessage
-                  ? config.getDetailMessage(event)
-                  : n.detailMessage,
-                details: {
-                  ...n.details,
-                  ...config.getSuccessDetails?.(event, n)
-                }
-              };
-            }
-
-            if (succeeded && !isCancelled) {
-              return {
-                ...n,
-                progress: FULL_PROGRESS_PERCENT,
-                status: 'completed' as const,
-                // Apply the type's success message, exactly like the useAnimationDelay branch
-                // above. Without this an entry that configures getSuccessMessage still finished on
-                // whatever its LAST PROGRESS event said - which is how a completed scheduled
-                // prefill ended up presenting "Riot needs login..." (the last service's progress
-                // line) as the outcome of the run the user had just stopped.
-                message: config.getSuccessMessage?.(event, n) ?? n.message,
-                // Presence decides, not the return value: a card that finished was left showing the
-                // last live byte counter from while it was running, which reads as still in flight.
-                // An entry that configures a detail message for its terminal therefore owns the
-                // line, and clears it by returning undefined. [32]
-                detailMessage: config.getDetailMessage
-                  ? config.getDetailMessage(event)
-                  : n.detailMessage,
-                details: {
-                  ...n.details,
-                  ...config.getSuccessDetails?.(event, n)
-                }
-              };
-            }
-
-            const failureMessage = resolveFailureMessage(n);
-            return {
-              ...n,
-              progress: FULL_PROGRESS_PERCENT,
-              status: isCancelled ? ('cancelled' as const) : ('failed' as const),
-              message: failureMessage,
-              ...(!isCancelled && { error: failureMessage }),
-              ...(isCancelled && { error: undefined }),
-              // Same rule as the success branch above. A failed card kept the live byte counter
-              // beside the failure sentence, so the user could not tell whether anything had
-              // transferred before it went wrong. [33]
-              detailMessage: config.getDetailMessage
-                ? config.getDetailMessage(event)
-                : n.detailMessage,
-              ...(isCancelled && {
-                details: {
-                  ...n.details,
-                  ...config.getCancelledDetails?.(event, n),
-                  cancelled: true
-                }
-              })
-            };
-          }
-          return n;
-        });
-      });
-    }
+      delete details.cancelPending;
+      delete details.cancelling;
+      const terminal: UnifiedNotification = {
+        ...existing,
+        id,
+        type: config.type,
+        status,
+        controlOnly: undefined,
+        message,
+        error: status === 'failed' ? message : undefined,
+        detailMessage:
+          config.type === 'eviction_scan'
+            ? (detailMessage ?? existing?.detailMessage)
+            : detailMessage,
+        startedAt: existing?.startedAt ?? new Date(),
+        instanceVersion: existing?.instanceVersion ?? 1,
+        progress: isSkipped ? undefined : FULL_PROGRESS_PERCENT,
+        details
+      };
+      scheduleAutoDismiss(id, dismissDelayMs);
+      return existing ? prev.map((n) => (n === existing ? terminal : n)) : [...prev, terminal];
+    });
   };
 }
 
@@ -950,7 +810,7 @@ export function createCompletionHandler<
  * This handler automatically detects completion/error states from the event's status field.
  * @template T - The type of the SignalR event (must have optional status field)
  */
-interface StatusAwareProgressConfig<T> {
+interface StatusAwareProgressConfig<T> extends NotificationEventOptions {
   canControl?: (event: T) => boolean;
   /** Optional gate that suppresses and removes the notification for this event */
   shouldDisplay?: (event: T) => boolean;
@@ -1016,6 +876,7 @@ interface StatusAwareProgressConfig<T> {
  * );
  * ```
  */
+/** @public */
 export function createStatusAwareProgressHandler<T>(
   config: StatusAwareProgressConfig<T>,
   setNotifications: SetNotifications,
@@ -1023,286 +884,479 @@ export function createStatusAwareProgressHandler<T>(
   cancelAutoDismissTimer?: CancelAutoDismissTimer
 ): (event: T) => void {
   return (event: T): void => {
-    const notificationId = config.getId(event);
-    const status = config.getStatus(event);
-    const failed = status?.toLowerCase() === 'failed';
-
-    if (status && ['completed', 'cancelled', 'skipped', 'failed'].includes(status.toLowerCase())) {
-      const terminalStatus = status.toLowerCase();
+    const accepted =
+      config.replay ||
+      !config.events ||
+      rememberEvent(config.events, config.type, 'progress', config.eventName ?? '', event);
+    if (excludeChild(config, event, setNotifications) || !accepted) return;
+    const operationId = eventOperationId(event);
+    const status = config.getStatus(event)?.toLowerCase();
+    if (status && ['completed', 'cancelled', 'skipped', 'failed'].includes(status)) {
       createCompletionHandler(
         {
           type: config.type,
-          getId: () => notificationId,
+          events: config.events,
+          replay: true,
+          eventName: config.eventName,
+          getId: () => config.getId(event),
           storageKey: config.storageKey,
           storesCardsById: config.storesCardsById,
           shouldDisplay: () => config.shouldDisplay?.(event) !== false,
           getSuccessMessage: () => config.getCompletedMessage?.(event) ?? config.getMessage(event),
           getFailureMessage: () =>
             config.getErrorMessage?.(event) ?? i18n.t(GENERIC_FAILURE_I18N_KEY),
-          getSuccessDetails: () => config.getDetails?.(event)
+          getSuccessDetails: () => config.getDetails?.(event),
+          getDetailMessage: config.getDetailMessage
+            ? () => config.getDetailMessage?.(event)
+            : undefined
         },
         setNotifications,
         scheduleAutoDismiss
       )({
-        success: terminalStatus === 'completed' || terminalStatus === 'skipped',
-        cancelled: terminalStatus === 'cancelled',
-        status: terminalStatus,
-        operationId: eventOperationId(event),
+        ...(event as object),
+        success: status === 'completed' || status === 'skipped',
+        cancelled: status === 'cancelled',
+        status,
+        operationId,
         error: (event as { error?: string }).error
       });
       return;
     }
+    if (operationId && config.events?.terminals.has(operationId)) return;
+    const notificationId = config.getId(event);
+    setNotifications((prev) => {
+      const exact = operationId
+        ? prev.find((n) => n.type === config.type && n.details?.operationId === operationId)
+        : undefined;
+      const slot = prev.find((n) => n.id === notificationId);
+      const existing = exact ?? (slot && eventTargetsCard(slot, event) ? slot : undefined);
+      if (existing && isTerminalNotificationStatus(existing.status)) return prev;
+      const hidden = config.shouldDisplay?.(event) === false;
+      if (!existing && slot && !hidden) return prev;
+      if (hidden && !config.canControl?.(event)) {
+        if (!existing) return prev;
+        clearPersistedNotificationIfTargeted(
+          config.storageKey,
+          event,
+          existing.id,
+          config.storesCardsById
+        );
+        cancelAutoDismissTimer?.(existing.id);
+        return prev.filter((n) => n !== existing);
+      }
+      if (hidden && !operationId) return prev;
+      if (operationId && findBulkCardOwningOperation(config.type, operationId, prev)) return prev;
+      if (!existing && suppressNewItemCardDuringBulk(config.type, prev)) return prev;
+      const id =
+        existing?.id ?? (hidden && operationId ? operationCardId(operationId) : notificationId);
+      if (!existing) cancelAutoDismissTimer?.(id);
+      const detailMessage = config.getDetailMessage?.(event);
+      const card: UnifiedNotification = {
+        ...existing,
+        id,
+        type: config.type,
+        status: existing?.details?.cancelRequested
+          ? 'cancelling'
+          : promoteStatus(existing?.status ?? 'running'),
+        controlOnly: hidden || undefined,
+        message: config.getMessage(event),
+        progress: config.getProgress(event),
+        ...(config.getDetailMessage && {
+          detailMessage:
+            config.type === 'eviction_scan'
+              ? (detailMessage ?? existing?.detailMessage)
+              : detailMessage
+        }),
+        ...(config.getProgressMode && { progressMode: config.getProgressMode(event) }),
+        ...(config.getProgressAriaValueText && {
+          progressAriaValueText: config.getProgressAriaValueText(event)
+        }),
+        startedAt: existing?.startedAt ?? new Date(),
+        instanceVersion: existing?.instanceVersion ?? 1,
+        details: mergeEventDetails(existing?.details, {
+          ...config.getDetails?.(event),
+          ...(operationId ? { operationId } : {})
+        })
+      };
+      persistNotification(config.storageKey, card, config.storesCardsById);
+      return existing ? prev.map((n) => (n === existing ? card : n)) : [...prev, card];
+    });
+  };
+}
 
-    if (config.shouldDisplay?.(event) === false && config.canControl?.(event)) {
-      createStartedHandler(
-        {
-          type: config.type,
-          getId: config.getId,
-          storageKey: config.storageKey,
-          shouldDisplay: config.shouldDisplay,
-          canControl: config.canControl,
-          defaultMessage: config.getMessage(event),
-          getDetails: config.getDetails
-        },
-        setNotifications,
-        cancelAutoDismissTimer
-      )(event);
-      return;
-    }
-
-    if (config.shouldDisplay?.(event) === false && !failed) {
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((notification) => notification.id === notificationId);
-        if (
-          (existing && !eventTargetsCard(existing, event)) ||
-          !clearPersistedNotificationIfTargeted(
-            config.storageKey,
-            event,
-            notificationId,
-            config.storesCardsById
-          )
-        ) {
-          return prev;
-        }
-
-        cancelAutoDismissTimer?.(notificationId);
-        return prev.filter((notification) => notification.id !== notificationId);
-      });
-      return;
-    }
-
-    if (status?.toLowerCase() === 'completed') {
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((n) => n.id === notificationId);
-
-        if (!existing) {
-          if (
-            !clearPersistedNotificationIfTargeted(
-              config.storageKey,
-              event,
-              notificationId,
-              config.storesCardsById
-            )
-          ) {
-            return prev;
-          }
-          if (suppressNewItemCardDuringBulk(config.type, prev)) {
-            return prev;
-          }
-          // Fast completion - notification doesn't exist yet (operation completed before UI created it)
-          if (config.supportFastCompletion) {
-            const newNotification: UnifiedNotification = {
-              id: notificationId,
-              type: config.type,
-              status: 'completed' as const,
-              message: config.getCompletedMessage?.(event) ?? i18n.t(GENERIC_COMPLETION_I18N_KEY),
-              progress: FULL_PROGRESS_PERCENT,
-              startedAt: new Date(),
-              details: config.getDetails?.(event)
-            };
-
-            scheduleAutoDismiss(notificationId);
-            return [...prev, newNotification];
-          }
-          return prev;
-        }
-
-        // Only complete if the notification has not already reached a terminal state, and only
-        // when this event actually belongs to the card in the slot - a queued op's waiting card
-        // must not be completed (and auto-dismissed) by a DIFFERENT op of the same type finishing.
-        if (isTerminalNotificationStatus(existing.status) || !eventTargetsCard(existing, event)) {
-          return prev;
-        }
-        if (
-          !clearPersistedNotificationIfTargeted(
-            config.storageKey,
-            event,
-            notificationId,
-            config.storesCardsById
-          )
-        ) {
-          return prev;
-        }
-
-        scheduleAutoDismiss(notificationId);
-        return prev.map((n) => {
-          if (n.id === notificationId) {
-            return {
-              ...n,
-              status: 'completed' as const,
-              message: config.getCompletedMessage?.(event) ?? i18n.t(GENERIC_COMPLETION_I18N_KEY),
-              progress: FULL_PROGRESS_PERCENT,
-              details: { ...n.details, ...config.getDetails?.(event) }
-            };
-          }
-          return n;
-        });
-      });
-    } else if (status?.toLowerCase() === 'failed') {
-      const errorMessage = config.getErrorMessage?.(event) ?? i18n.t(GENERIC_FAILURE_I18N_KEY);
-
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((n) => n.id === notificationId);
-
-        // A silent run has no live card to update, but its failure must still be visible.
-        if (!existing) {
-          if (
-            !clearPersistedNotificationIfTargeted(
-              config.storageKey,
-              event,
-              notificationId,
-              config.storesCardsById
-            )
-          ) {
-            return prev;
-          }
-          if (suppressNewItemCardDuringBulk(config.type, prev)) {
-            return prev;
-          }
-
-          const failedNotification: UnifiedNotification = {
-            id: notificationId,
-            type: config.type,
-            status: 'failed',
-            message: errorMessage,
-            error: errorMessage,
-            progress: FULL_PROGRESS_PERCENT,
-            startedAt: new Date(),
-            details: config.getDetails?.(event)
-          };
-          scheduleAutoDismiss(notificationId);
-          return [...prev, failedNotification];
-        }
-
-        // An already-terminal card is left to its existing dismiss timer. A failure from a
-        // DIFFERENT op of this type must not fail a queued op's waiting card either.
-        if (isTerminalNotificationStatus(existing.status) || !eventTargetsCard(existing, event)) {
-          return prev;
-        }
-        if (
-          !clearPersistedNotificationIfTargeted(
-            config.storageKey,
-            event,
-            notificationId,
-            config.storesCardsById
-          )
-        ) {
-          return prev;
-        }
-
-        scheduleAutoDismiss(notificationId);
-        const eventDetails = config.getDetails?.(event);
-        return prev.map((n) => {
-          if (n.id === notificationId) {
-            return {
-              ...n,
-              status: 'failed' as const,
-              message: errorMessage,
-              error: errorMessage,
-              // Merge event details (e.g., operationId) to match completed/progress branches
-              ...(eventDetails ? { details: { ...n.details, ...eventDetails } } : {})
-            };
-          }
-          return n;
-        });
-      });
-    } else {
-      // Handle progress - update existing or create new
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((n) => n.id === notificationId);
-
-        // Ignore late progress events on a terminal card (prevents duplicates after completion),
-        // and progress from a DIFFERENT operation of this type: while one op runs, the wait-queue
-        // can park a SECOND op's waiting card in this same slot, and promoting it here would
-        // overwrite its operationId so the X button would cancel the wrong operation.
-        if (
-          existing &&
-          (isTerminalNotificationStatus(existing.status) || !eventTargetsCard(existing, event))
-        ) {
-          return prev;
-        }
-
-        if (existing) {
-          const eventDetails = config.getDetails?.(event);
-          return prev.map((n) => {
-            if (n.id === notificationId) {
-              const updatedNotification: UnifiedNotification = {
-                ...n,
-                status: promoteStatus(n.status),
-                message: config.getMessage(event),
-                progress: config.getProgress(event),
-                ...(config.getDetailMessage && {
-                  detailMessage: config.getDetailMessage(event)
-                }),
-                ...(config.getProgressMode && {
-                  progressMode: config.getProgressMode(event)
-                }),
-                ...(config.getProgressAriaValueText && {
-                  progressAriaValueText: config.getProgressAriaValueText(event)
-                }),
-                // Merge event details (e.g., operationId) into existing details; stale
-                // cancel flags are dropped when the operationId changed (see mergeEventDetails).
-                ...(eventDetails ? { details: mergeEventDetails(n.details, eventDetails) } : {})
-              };
-              persistNotification(config.storageKey, updatedNotification, config.storesCardsById);
-              return updatedNotification;
+function buildStartedHandler(
+  entry: NotificationRegistryEntry,
+  started: NonNullable<NotificationRegistryEntry['started']>,
+  setNotifications: SetNotifications,
+  cancelAutoDismissTimer: CancelAutoDismissTimer,
+  events?: NotificationEvents,
+  replay = false
+): (event: unknown) => void {
+  return createStartedHandler(
+    {
+      type: entry.type,
+      events,
+      replay,
+      getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
+      storageKey: entry.storageKey,
+      storesCardsById: entry.getId !== undefined,
+      shouldDisplay: started.shouldDisplay,
+      canControl: (event: unknown) => {
+        const fields = event as { operationId?: unknown; serviceId?: unknown };
+        return (
+          entry.cancelKind !== 'none' &&
+          entry.cancelKind !== 'clientQueue' &&
+          typeof fields.operationId === 'string' &&
+          (entry.type !== 'scheduled_prefill' || typeof fields.serviceId === 'string')
+        );
+      },
+      eventName: entry.events?.started,
+      defaultMessage: started.defaultMessage,
+      getMessage: started.getMessage,
+      getDetails: (event: unknown) => ({
+        ...started.getDetails?.(event),
+        ...(entry.type === 'scheduled_prefill'
+          ? {
+              service: (event as { serviceId?: string }).serviceId,
+              operationId: (event as { operationId?: string }).operationId
             }
-            return n;
-          });
-        } else {
-          if (suppressNewItemCardDuringBulk(config.type, prev)) {
-            return prev;
-          }
-          // Cancel any existing auto-dismiss timer
-          cancelAutoDismissTimer?.(notificationId);
+          : {})
+      }),
+      replaceExisting: started.replaceExisting,
+      progressMode: started.progressMode
+    },
+    setNotifications,
+    cancelAutoDismissTimer
+  );
+}
 
-          // Create new notification (only if no existing notification with this ID)
-          const newNotification: UnifiedNotification = {
-            id: notificationId,
-            type: config.type,
-            status: 'running',
-            message: config.getMessage(event),
-            progress: config.getProgress(event),
-            ...(config.getDetailMessage && {
-              detailMessage: config.getDetailMessage(event)
-            }),
-            ...(config.getProgressMode && {
-              progressMode: config.getProgressMode(event)
-            }),
-            ...(config.getProgressAriaValueText && {
-              progressAriaValueText: config.getProgressAriaValueText(event)
-            }),
-            startedAt: new Date(),
-            details: config.getDetails?.(event)
-          };
+/**
+ * Creates a status-aware progress handler for a registry entry.
+ */
+function buildProgressHandler(
+  entry: NotificationRegistryEntry,
+  progress: NonNullable<NotificationRegistryEntry['progress']>,
+  setNotifications: SetNotifications,
+  scheduleAutoDismiss: ScheduleAutoDismiss,
+  cancelAutoDismissTimer: CancelAutoDismissTimer,
+  events?: NotificationEvents,
+  replay = false
+): (event: unknown) => void {
+  return createStatusAwareProgressHandler(
+    {
+      type: entry.type,
+      events,
+      replay,
+      getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
+      storageKey: entry.storageKey,
+      storesCardsById: entry.getId !== undefined,
+      shouldDisplay: progress.shouldDisplay,
+      canControl: (event: unknown) => {
+        const fields = event as { operationId?: unknown; serviceId?: unknown };
+        return (
+          entry.cancelKind !== 'none' &&
+          entry.cancelKind !== 'clientQueue' &&
+          typeof fields.operationId === 'string' &&
+          (entry.type !== 'scheduled_prefill' || typeof fields.serviceId === 'string')
+        );
+      },
+      eventName: entry.events?.progress,
+      getMessage: progress.getMessage,
+      getProgress: progress.getProgress,
+      getDetailMessage: progress.getDetailMessage,
+      getProgressMode: progress.getProgressMode,
+      getProgressAriaValueText: progress.getProgressAriaValueText,
+      getStatus: progress.getStatus,
+      getCompletedMessage: progress.getCompletedMessage,
+      getErrorMessage: progress.getErrorMessage,
+      supportFastCompletion: progress.supportFastCompletion,
+      getDetails: (event: unknown) => ({
+        ...progress.getDetails?.(event),
+        ...(entry.type === 'scheduled_prefill'
+          ? {
+              service: (event as { serviceId?: string }).serviceId,
+              operationId: (event as { operationId?: string }).operationId
+            }
+          : {})
+      })
+    },
+    setNotifications,
+    scheduleAutoDismiss,
+    cancelAutoDismissTimer
+  );
+}
 
-          // Persist to localStorage for recovery
-          persistNotification(config.storageKey, newNotification, config.storesCardsById);
+/**
+ * Creates a completion handler using the entry's existing lifecycle contract.
+ */
+function buildCompleteHandler(
+  entry: NotificationRegistryEntry,
+  setNotifications: SetNotifications,
+  scheduleAutoDismiss: ScheduleAutoDismiss,
+  events?: NotificationEvents,
+  replay = false
+): ((event: unknown) => void) | null {
+  if (!entry.complete) return null;
 
-          const filtered = prev.filter((n) => n.id !== notificationId);
-          return [...filtered, newNotification];
+  const baseHandler = createCompletionHandler(
+    {
+      type: entry.type,
+      events,
+      replay,
+      getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
+      storageKey: entry.storageKey,
+      storesCardsById: entry.getId !== undefined,
+      eventName: entry.events?.complete,
+      shouldDisplay: entry.complete.shouldDisplay,
+      getSuccessMessage: entry.complete.getSuccessMessage,
+      getSuccessDetails: entry.complete.getSuccessDetails,
+      getDetailMessage: entry.complete.getDetailMessage,
+      getFailureMessage: entry.complete.getFailureMessage,
+      getCancelledMessage: entry.complete.getCancelledMessage,
+      getCancelledDetails: entry.complete.getCancelledDetails,
+      succeeded: entry.complete.succeeded,
+      announcement: !entry.started && !entry.progress,
+      dismissDelayMs: entry.complete.dismissDelayMs,
+      useAnimationDelay: entry.complete.useAnimationDelay
+    },
+    setNotifications,
+    scheduleAutoDismiss
+  );
+
+  return (event: unknown) => baseHandler(event as Parameters<typeof baseHandler>[0]);
+}
+
+export { buildStartedHandler, buildProgressHandler, buildCompleteHandler };
+
+/** Apply only the recorded waiter relationship, preserving its logical card slot. */
+export function applyHandoff(
+  prev: UnifiedNotification[],
+  event: OperationWaitingCompleteEvent,
+  events: NotificationEvents,
+  entry: NotificationRegistryEntry,
+  scheduleAutoDismiss: ScheduleAutoDismiss,
+  cancelAutoDismissTimer: CancelAutoDismissTimer = () => undefined
+): UnifiedNotification[] {
+  const confirmed = events.handoffs.get(event.operationId);
+  if (
+    !confirmed ||
+    confirmed.promoted !== event.promoted ||
+    confirmed.nextOperationId !== event.nextOperationId
+  )
+    return prev;
+  const waiting = prev.find(
+    (n) => n.type === entry.type && n.details?.operationId === event.operationId
+  );
+  if (!event.promoted) {
+    prev = prev.map((n) =>
+      n.status === 'waiting' && n.details?.currentOperationId === event.operationId
+        ? { ...n, status: 'running' }
+        : n
+    );
+    const status = event.cancelled ? 'cancelled' : event.skipped ? 'skipped' : 'failed';
+    if (!waiting) {
+      if (status !== 'failed' || events.terminals.get(event.operationId)?.presented) return prev;
+      const id = operationCardId(event.operationId);
+      const message = event.error ?? i18n.t(GENERIC_FAILURE_I18N_KEY);
+      scheduleAutoDismiss(id);
+      return [
+        ...prev,
+        {
+          id,
+          type: entry.type,
+          status,
+          message,
+          error: message,
+          startedAt: new Date(),
+          details: { operationId: event.operationId }
         }
-      });
+      ];
+    }
+    if (isTerminalNotificationStatus(waiting.status)) return prev;
+    clearPersistedNotificationIfTargeted(
+      entry.storageKey,
+      event,
+      waiting.id,
+      entry.getId !== undefined
+    );
+    if (waiting.controlOnly && status !== 'failed') return prev.filter((n) => n !== waiting);
+    const message = event.cancelled
+      ? i18n.t('common.notifications.operationWaitingCancelled')
+      : (event.error ??
+        i18n.t(status === 'skipped' ? GENERIC_SKIPPED_I18N_KEY : GENERIC_FAILURE_I18N_KEY));
+    scheduleAutoDismiss(waiting.id);
+    return prev.map((n) =>
+      n === waiting
+        ? {
+            ...n,
+            status,
+            message,
+            controlOnly: undefined,
+            error: status === 'failed' ? message : undefined,
+            details: { ...n.details, cancelled: event.cancelled, cancelPending: false }
+          }
+        : n
+    );
+  }
+  const nextOperationId = event.nextOperationId;
+  if (!nextOperationId || nextOperationId === event.operationId) return prev;
+  const target = prev.find(
+    (n) => n.type === entry.type && n.details?.operationId === nextOperationId
+  );
+  let next = prev.map((n) =>
+    n.details?.currentOperationId === event.operationId
+      ? {
+          ...n,
+          status: n.status === 'waiting' ? ('running' as const) : n.status,
+          details: { ...n.details, currentOperationId: nextOperationId }
+        }
+      : n
+  );
+  if (!waiting && !target) return next;
+  const terminal = events.terminals.get(nextOperationId);
+  if (terminal?.presented && !target) {
+    if (waiting) {
+      clearPersistedNotificationIfTargeted(
+        entry.storageKey,
+        event,
+        waiting.id,
+        entry.getId !== undefined
+      );
+      cancelAutoDismissTimer(waiting.id);
+    }
+    return next.filter((n) => n !== waiting);
+  }
+  const older = !waiting
+    ? target!
+    : !target
+      ? waiting
+      : waiting.startedAt.getTime() < target.startedAt.getTime() ||
+          (waiting.startedAt.getTime() === target.startedAt.getTime() && waiting.id < target.id)
+        ? waiting
+        : target;
+  const sampledStatus = event.nextStatus;
+  const status: NotificationStatus =
+    target?.status ??
+    (sampledStatus === 'running' || sampledStatus === 'waiting' || sampledStatus === 'cancelling'
+      ? sampledStatus
+      : 'pending');
+  const card: UnifiedNotification = {
+    ...waiting,
+    ...target,
+    id: older.id,
+    type: entry.type,
+    startedAt: older.startedAt,
+    instanceVersion: older.instanceVersion,
+    status,
+    message: target?.message ?? waiting?.message ?? '',
+    details: {
+      ...waiting?.details,
+      ...target?.details,
+      operationId: nextOperationId,
+      cancelRequested: waiting?.details?.cancelRequested || target?.details?.cancelRequested,
+      cancelSent: waiting?.details?.cancelSent || target?.details?.cancelSent,
+      cancelPending: false
     }
   };
+  if (card.details?.cancelRequested && !isTerminalNotificationStatus(card.status))
+    card.status = 'cancelling';
+  if (waiting)
+    clearPersistedNotificationIfTargeted(
+      entry.storageKey,
+      event,
+      waiting.id,
+      entry.getId !== undefined
+    );
+  for (const old of [waiting, target]) {
+    if (old && old.id !== card.id) cancelAutoDismissTimer(old.id);
+  }
+  next = next.filter((n) => n !== waiting && n !== target);
+  next.push(card);
+  const retained = events.records.get(nextOperationId);
+  const setNotifications: SetNotifications = (update) => {
+    next = typeof update === 'function' ? update(next) : update;
+  };
+  if (!target || !isTerminalNotificationStatus(target.status)) {
+    if (retained?.started && entry.started)
+      buildStartedHandler(
+        entry,
+        entry.started,
+        setNotifications,
+        cancelAutoDismissTimer,
+        events,
+        true
+      )(retained.started.body);
+    if (retained?.progress && entry.progress)
+      buildProgressHandler(
+        entry,
+        entry.progress,
+        setNotifications,
+        scheduleAutoDismiss,
+        cancelAutoDismissTimer,
+        events,
+        true
+      )(retained.progress.body);
+    if (retained?.complete)
+      buildCompleteHandler(
+        entry,
+        setNotifications,
+        scheduleAutoDismiss,
+        events,
+        true
+      )?.(retained.complete.body);
+  }
+  const knownStatus =
+    terminal?.status ??
+    (sampledStatus === 'completed' ||
+    sampledStatus === 'failed' ||
+    sampledStatus === 'cancelled' ||
+    sampledStatus === 'skipped'
+      ? sampledStatus
+      : undefined);
+  if (knownStatus) {
+    next = next.map((n) => {
+      if (n.id !== card.id || isTerminalNotificationStatus(n.status)) return n;
+      const message =
+        terminal?.error ??
+        event.error ??
+        i18n.t(
+          knownStatus === 'failed'
+            ? GENERIC_FAILURE_I18N_KEY
+            : knownStatus === 'cancelled'
+              ? GENERIC_CANCELLED_I18N_KEY
+              : knownStatus === 'skipped'
+                ? GENERIC_SKIPPED_I18N_KEY
+                : GENERIC_COMPLETION_I18N_KEY
+        );
+      scheduleAutoDismiss(n.id);
+      return {
+        ...n,
+        status: knownStatus,
+        message,
+        controlOnly: knownStatus === 'failed' ? undefined : n.controlOnly,
+        error: knownStatus === 'failed' ? message : undefined,
+        progress: knownStatus === 'skipped' ? undefined : FULL_PROGRESS_PERCENT
+      };
+    });
+    if (!terminal)
+      events.terminals.set(nextOperationId, {
+        operationId: nextOperationId,
+        status: knownStatus,
+        error: event.error
+      });
+  }
+  const applied = next.find((n) => n.id === card.id);
+  if (applied) {
+    if (isTerminalNotificationStatus(applied.status)) {
+      clearPersistedNotificationIfTargeted(
+        entry.storageKey,
+        { operationId: nextOperationId },
+        applied.id,
+        entry.getId !== undefined
+      );
+      if (target && isTerminalNotificationStatus(target.status) && target.id !== applied.id)
+        scheduleAutoDismiss(applied.id);
+    } else persistNotification(entry.storageKey, applied, entry.getId !== undefined);
+  }
+  return next;
 }

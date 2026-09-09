@@ -4,6 +4,7 @@ import test from 'node:test';
 import ts from 'typescript';
 import {
   MemoryStorage,
+  notificationEvents,
   bindLifted,
   compileToUrl,
   findSoleNode,
@@ -148,7 +149,7 @@ const loadConstants = async () =>
  * the test lifts the shipped function rather than repeating how a registry entry is wired up.
  */
 const liftHandlerBuilder = (name, bindings) => {
-  const sourceFile = parseSource(HANDLERS_PATH);
+  const sourceFile = parseSource('src/contexts/notifications/handlers.ts');
   const declaration = findSoleNode(
     sourceFile,
     `${name} declaration`,
@@ -180,7 +181,7 @@ const newCardList = () => {
   };
   cards.scheduleAutoDismiss = (id, delayMs) => cards.dismissals.push([id, delayMs]);
   cards.cancelAutoDismissTimer = () => undefined;
-  cards.removeNotification = () => undefined;
+  cards.events = notificationEvents();
   return cards;
 };
 
@@ -292,7 +293,8 @@ test('the loop subscribes exactly the events its entries declare', async () => {
     setNotifications: cards.setNotifications,
     scheduleAutoDismiss: cards.scheduleAutoDismiss,
     cancelAutoDismissTimer: cards.cancelAutoDismissTimer,
-    removeNotification: cards.removeNotification,
+    events: cards.events,
+    recover: undefined,
     buildStartedHandler: liftHandlerBuilder('buildStartedHandler', { createStartedHandler }),
     buildProgressHandler: liftHandlerBuilder('buildProgressHandler', {
       createStatusAwareProgressHandler
@@ -332,7 +334,7 @@ test('a Steam session error raises a typed card, not a generic toast', async () 
     await liftSteamSessionErrorEntry(),
     cards.setNotifications,
     cards.scheduleAutoDismiss,
-    cards.removeNotification
+    cards.events.current
   );
 
   handleError({
@@ -373,7 +375,7 @@ test('a Steam error with no title key of its own still gets a title', async () =
     await liftSteamSessionErrorEntry(),
     cards.setNotifications,
     cards.scheduleAutoDismiss,
-    cards.removeNotification
+    cards.events.current
   );
 
   handleError({ errorType: 'AnErrorTypeNobodyHasAddedYet' });
@@ -392,7 +394,7 @@ test('an Xbox catalog update carrying no counts raises no card', async () => {
     await liftXboxCatalogEntry(),
     cards.setNotifications,
     cards.scheduleAutoDismiss,
-    cards.removeNotification
+    cards.events.current
   );
 
   // The gate reads the two counts and nothing else, so this is what a download resolution looks
@@ -420,7 +422,7 @@ test('an Epic catalog merge that changed nothing raises no card', async () => {
     await liftEpicCatalogEntry(),
     cards.setNotifications,
     cards.scheduleAutoDismiss,
-    cards.removeNotification
+    cards.events.current
   );
 
   handleUpdate({ totalGames: 900, newGames: 0, updatedGames: 0 });
@@ -468,7 +470,7 @@ test('database reset reports progress and its terminal event never completes the
     entry,
     cards.setNotifications,
     cards.scheduleAutoDismiss,
-    cards.removeNotification
+    cards.events.current
   );
 
   handleStarted({ operationId: 'reset-1' });

@@ -1,16 +1,35 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import ts from 'typescript';
-import { bindLifted, compileToUrl, findSoleNode, parseSource } from './transpile-module.mjs';
+import {
+  bindLifted,
+  compileToUrl,
+  compileTree,
+  moduleUrl,
+  MemoryStorage,
+  notificationEvents,
+  findSoleNode,
+  parseSource
+} from './transpile-module.mjs';
 
 /**
  * Regression tests for bulk cache game removal under the operation wait-queue.
  * Uses the real gameRemovalEntity matchers compiled from product source.
  */
 
+globalThis.localStorage = new MemoryStorage();
+globalThis.sessionStorage = new MemoryStorage();
+const { rememberEvent } = await import(
+  await compileTree('../src/contexts/notifications/handlers.ts', {
+    '@/i18n': moduleUrl('export default {t:(key)=>key};')
+  })
+);
+
 const createFakeSignalR = () => {
+  const events = notificationEvents();
   const handlers = new Map();
   return {
+    events,
     on(event, handler) {
       if (!handlers.has(event)) {
         handlers.set(event, new Set());
@@ -21,6 +40,21 @@ const createFakeSignalR = () => {
       handlers.get(event)?.delete(handler);
     },
     emit(event, payload) {
+      rememberEvent(
+        events.current,
+        event.startsWith('Service') || payload.operationType === 'serviceRemoval'
+          ? 'service_removal'
+          : 'game_removal',
+        event === 'OperationWaitingComplete'
+          ? 'handoff'
+          : event.endsWith('Started')
+            ? 'started'
+            : event.endsWith('Progress')
+              ? 'progress'
+              : 'complete',
+        event,
+        payload
+      );
       for (const handler of handlers.get(event) ?? []) {
         handler(payload);
       }
@@ -290,6 +324,7 @@ const createBatchHarness = async () => {
   const removal = async () => nextResponse;
   const processItem = bindLifted(liftCacheProcessItem(), {
     waitForSignalRCompletion,
+    events: signalR.events,
     settleBatchItem,
     on: signalR.on,
     off: signalR.off,
@@ -404,7 +439,11 @@ test('the id of a removal this batch did not start stays out of reach of the X',
   harness.triggerCancel();
   assert.deepEqual(harness.cancelledOperations, [], 'the X must not reach across and end it');
 
-  harness.signalR.emit('ServiceRemovalComplete', { serviceName: 'steam' });
+  harness.signalR.emit('ServiceRemovalComplete', {
+    serviceName: 'steam',
+    operationId: 'other-op',
+    success: true
+  });
   await settled;
 });
 
@@ -418,7 +457,19 @@ test('a fresh park and an immediate start both still keep the id', async () => {
   });
   await flush();
   assert.deepEqual(parked.capturedOperationIds, ['wait-fresh']);
-  parked.signalR.emit('ServiceRemovalComplete', { serviceName: 'steam' });
+  parked.signalR.emit('OperationWaitingComplete', {
+    operationId: 'wait-fresh',
+    operationType: 'serviceRemoval',
+    promoted: true,
+    nextOperationId: 'run-fresh',
+    nextStatus: 'running',
+    cancelled: false
+  });
+  parked.signalR.emit('ServiceRemovalComplete', {
+    serviceName: 'steam',
+    operationId: 'run-fresh',
+    success: true
+  });
   await parkedSettled;
 
   const started = await createBatchHarness();
@@ -430,7 +481,11 @@ test('a fresh park and an immediate start both still keep the id', async () => {
   });
   await flush();
   assert.deepEqual(started.capturedOperationIds, ['run-now']);
-  started.signalR.emit('ServiceRemovalComplete', { serviceName: 'steam' });
+  started.signalR.emit('ServiceRemovalComplete', {
+    serviceName: 'steam',
+    operationId: 'run-now',
+    success: true
+  });
   await startedSettled;
 });
 
@@ -487,13 +542,22 @@ const runGameItem = async (fixture, response, runningId) => {
   const settled = harness.start({ kind: 'game', game: fixture.game }, response);
   await flush();
 
+  if (response.status === 'waiting')
+    harness.signalR.emit('OperationWaitingComplete', {
+      operationId: response.operationId,
+      operationType: 'gameRemoval',
+      promoted: true,
+      nextOperationId: runningId,
+      nextStatus: 'running',
+      cancelled: false
+    });
   harness.signalR.emit('GameRemovalStarted', fixture.startedPayload(fixture.game, runningId));
   harness.signalR.emit('GameRemovalComplete', fixture.completePayload(fixture.game, runningId));
   await settled;
   return harness;
 };
 
-test('identity-first correlation resolves queued promotion for all platforms', async () => {
+test('confirmed handoffs resolve queued promotion for all platforms', async () => {
   for (const fixture of GAME_FIXTURES) {
     const harness = await runGameItem(
       fixture,
@@ -523,7 +587,7 @@ test('bulk cache correlation still works for immediate start (no queue)', async 
 
   assert.deepEqual(
     harness.capturedOperationIds,
-    ['run-immediate', 'run-immediate'],
+    ['run-immediate'],
     'an immediate start uses the same id in the response and on the wire'
   );
 });

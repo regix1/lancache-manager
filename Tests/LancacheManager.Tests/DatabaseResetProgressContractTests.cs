@@ -58,6 +58,12 @@ public class DatabaseResetProgressContractTests
         Assert.False(service.IsResetOperationRunning);
         Assert.Null(DatabaseService.CurrentResetOperationId);
         Assert.Null(DatabaseService.CurrentResetProgress);
+
+        var report = typeof(DatabaseService).GetMethod("ReportProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await (Task)report.Invoke(service,
+            [operationId, true, 99d, OperationStatus.Running, "signalr.dbReset.clearedTable",
+                new Dictionary<string, object?> { ["tableName"] = "late" }, "late", null, null, null])!;
+        Assert.Null(DatabaseService.CurrentResetProgress);
     }
 
     /// <summary>
@@ -161,6 +167,7 @@ public class DatabaseResetProgressContractTests
     private class RecordingTrackerProxy : DispatchProxy
     {
         private Action? _terminalCleanup;
+        private OperationInfo? _operation;
 
         internal TaskCompletionSource<(Guid OperationId, bool Success, string Error)> Terminal { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -171,11 +178,29 @@ public class DatabaseResetProgressContractTests
             {
                 case nameof(IUnifiedOperationTracker.RegisterOperation):
                     _terminalCleanup = args?[4] as Action;
-                    return Guid.NewGuid();
+                    _operation = new OperationInfo
+                    {
+                        Id = Guid.NewGuid(),
+                        Type = (OperationType)args![0]!,
+                        Name = (string)args[1]!,
+                        Metadata = args[3]
+                    };
+                    return _operation.Id;
+                case nameof(IUnifiedOperationTracker.UpdateProgress):
+                    if (_operation is { CompletedFlag: 0 })
+                    {
+                        (args![3] as Action<OperationInfo>)?.Invoke(_operation);
+                    }
+                    return null;
                 case nameof(IUnifiedOperationTracker.CompleteOperation):
+                    if (_operation is null || Interlocked.Exchange(ref _operation.CompletedFlag, 1) != 0)
+                    {
+                        return null;
+                    }
                     var operationId = (Guid)args![0]!;
                     var success = (bool)args[1]!;
                     var error = args[2] as string ?? string.Empty;
+                    (args[5] as Action<OperationInfo>)?.Invoke(_operation);
                     _terminalCleanup?.Invoke();
                     Terminal.TrySetResult((operationId, success, error));
                     return null;

@@ -30,6 +30,68 @@ public class ScheduleRunGateTests
     private const string DownloadReason = "A client download is writing to the cache right now.";
     private const string EvictionKey = "cacheReconciliation";
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAllHeavyRequestsKeepTheInternalDetectionWithItsParentInEitherOrder(bool evictionFirst)
+    {
+        using var detection = new RunGateProbeService("gameDetection");
+        using var eviction = new RunGateProbeService(EvictionKey);
+        using var files = new RunGateProbeService("cacheSizeScan");
+        RunGateProbeService[] services = evictionFirst ? [eviction, detection, files] : [detection, eviction, files];
+        var tracker = CreateRealTracker();
+        var notifications = CreateDefaultProxy<ISignalRNotificationService>();
+        var registry = CreateRegistry(services, CacheScanGateHarness.Idle(), tracker, notifications);
+        var queue = new OperationQueueService(tracker,
+            new OperationConflictChecker(tracker, NullLogger<OperationConflictChecker>.Instance),
+            notifications, NullLogger<OperationQueueService>.Instance);
+        var starts = new Dictionary<string, TaskCompletionSource<Guid>>
+        {
+            [detection.ServiceKey] = new(TaskCreationOptions.RunContinuationsAsynchronously),
+            [eviction.ServiceKey] = new(TaskCreationOptions.RunContinuationsAsynchronously),
+            [files.ServiceKey] = new(TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        Guid? child = null;
+        var result = await registry.TriggerAllAsync();
+        Assert.Equal(3, result.Item1);
+        foreach (var service in services)
+        {
+            Assert.True(service.TakePendingManualRun(out var notice));
+            var type = service == detection ? OperationType.GameDetection
+                : service == eviction ? OperationType.EvictionScan : OperationType.CacheSizeScan;
+            await service.InvokeRunScheduledWorkAsync(RunTrigger.Manual, CancellationToken.None, notice,
+                async token =>
+                {
+                    await queue.EnqueueAsync(type, ConflictScope.Bulk(), service.ServiceKey, () =>
+                    {
+                        Assert.DoesNotContain(tracker.GetActiveOperations(), o =>
+                            o.Type is OperationType.GameDetection or OperationType.EvictionScan or OperationType.CacheSizeScan);
+                        var id = tracker.RegisterOperation(type, service.ServiceKey, new CancellationTokenSource());
+                        if (type == OperationType.EvictionScan)
+                        {
+                            child = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection",
+                                new CancellationTokenSource(), new GameDetectionMetrics { ParentOperationId = id }, parentOperationId: id);
+                        }
+                        starts[service.ServiceKey].TrySetResult(id);
+                        return Task.FromResult<Guid?>(id);
+                    }, CancellationToken.None, notice: notice);
+                });
+        }
+        foreach (var service in services)
+        {
+            var id = await starts[service.ServiceKey].Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(OperationStatus.Running, tracker.GetOperation(id)!.Status);
+            if (service == eviction)
+            {
+                Assert.NotNull(child);
+                Assert.Equal(id, tracker.GetOperation(child.Value)!.ParentOperationId);
+                tracker.CompleteOperation(child.Value, success: true);
+                Assert.Equal(OperationStatus.Running, tracker.GetOperation(id)!.Status);
+            }
+            tracker.CompleteOperation(id, success: true);
+        }
+    }
+
     [Fact]
     public async Task MappingReporterCancellationReachesTheAdmittedRun()
     {
@@ -410,7 +472,7 @@ public class ScheduleRunGateTests
                 cacheScanGate: CacheScanGateHarness.Downloading());
             Assert.NotNull(ScheduledServiceBase.ScheduleRunGate!(EvictionKey, trigger));
             if (expected > 0) await WaitForCountAsync(announcements, expected);
-            Assert.Single(announcements);
+            lock (announcements) Assert.Single(announcements);
             service.SetNotificationMode(NotificationMode.All);
             RaiseDownloadsEnded();
             Assert.Equal(trigger == RunTrigger.Manual, service.HasPendingRun);
@@ -431,7 +493,7 @@ public class ScheduleRunGateTests
                     notifications, NullLogger<OperationQueueService>.Instance);
                 await queue.EnqueueAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), "size",
                     () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
-                Assert.Single(announcements, waiting => waiting.Acknowledge == true);
+                lock (announcements) Assert.Single(announcements, waiting => waiting.Acknowledge == true);
             }
         }
         finally

@@ -5,7 +5,7 @@ import { useAuth } from '../useAuth';
 import themeService from '@services/theme.service';
 import type { ShowToastEvent } from '../SignalRContext/types';
 
-import type { UnifiedNotification } from './types';
+import type { UnifiedNotification, NotificationEvents } from './types';
 import {
   AUTO_DISMISS_DELAY_MS,
   NOTIFICATION_ANIMATION_DURATION_MS,
@@ -17,7 +17,11 @@ import {
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { createRecoveryRunner, type FetchWithAuth } from './recovery';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
-import { readPersistedCards } from './handlers';
+import {
+  readPersistedCards,
+  clearPersistedNotificationIfTargeted,
+  persistNotification
+} from './handlers';
 import { useNotificationHandlers } from './useNotificationHandlers';
 
 import { NotificationsContext } from './NotificationsContext.types';
@@ -41,12 +45,6 @@ const shouldAutoDismiss = (): boolean => {
   return !themeService.getPicsAlwaysVisibleSync();
 };
 
-// How recently a terminal (completed/failed) card must have landed for a fresh 'running'
-// seed on the same singleton id to be skipped instead of downgrading it back to running.
-// Covers the sub-second-op race where the Complete event is processed before the
-// post-202 REST seed; older terminal cards (a genuine re-run) are still replaced.
-const TERMINAL_SEED_GUARD_MS = 5000;
-
 // Removal/clearing operation types that share the backend _cacheLock.
 // NOTE (wait-queue model): isAnyRemovalRunning must NOT gate buttons whose actions now
 // ENQUEUE on conflict - clicking during another op is a supported action whose feedback
@@ -62,9 +60,22 @@ const REMOVAL_TYPES = [
 ] as const;
 
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {
+  const events = useRef<NotificationEvents>({
+    revision: 0,
+    records: new Map(),
+    handoffs: new Map(),
+    terminals: new Map(),
+    acknowledgedIds: new Set(),
+    revisions: new Map(),
+    typeRevisions: new Map(),
+    children: new Map(),
+    waiting: new Set(),
+    held: new Map()
+  });
   const [notifications, setNotifications] = useState<UnifiedNotification[]>(() => {
     // Restore notifications from localStorage on mount
     const restoredNotifications: UnifiedNotification[] = [];
+    const mountedAt = new Date();
     const persistentKeys = Object.values(NOTIFICATION_STORAGE_KEYS);
 
     for (const key of persistentKeys) {
@@ -72,6 +83,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         // One key can hold several cards: a type that owns one card per entity persists them
         // together, and every running one is restored.
         for (const parsed of readPersistedCards(key)) {
+          if (parsed.type === 'game_detection' && parsed.details?.parentOperationId) {
+            if (parsed.details.operationId)
+              events.current.children.set(
+                parsed.details.operationId,
+                parsed.details.parentOperationId
+              );
+            clearPersistedNotificationIfTargeted(
+              key,
+              { operationId: parsed.details.operationId },
+              parsed.id
+            );
+            continue;
+          }
           if (parsed.status === 'running') {
             // Strip cancel-intent flags: they are live-session UI state. A persisted
             // cancelRequested (X clicked before the operationId arrived) would re-arm the
@@ -87,7 +111,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             restoredNotifications.push({
               ...parsed,
               details,
-              startedAt: new Date(parsed.startedAt)
+              startedAt: Number.isFinite(new Date(parsed.startedAt).getTime())
+                ? new Date(parsed.startedAt)
+                : mountedAt
             });
           }
         }
@@ -99,6 +125,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     return restoredNotifications;
   });
 
+  const notificationsRef = useRef(notifications);
+  notificationsRef.current = notifications;
+  const recoveryRef = useRef<(() => Promise<void>) | null>(null);
+  const requestRecovery = useCallback(() => {
+    void recoveryRef.current?.();
+  }, []);
   const signalR = useSignalR();
   const { authMode, isLoading: authLoading } = useAuth();
   const isAdmin = authMode === 'authenticated';
@@ -170,40 +202,76 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         startedAt: new Date()
       };
 
-      // Before inserting a fresh 'running' slot on a singleton id, kill any auto-dismiss
-      // timer left over from a PRIOR terminal op on that same id. Without this, the REST
-      // seed path (which inserts a running slot but does NOT cancel timers, unlike the
-      // SignalR createStartedHandler) can let an orphaned CANCELLED/completed timer from
-      // the previous op fire mid-flight and remove this new running slot - which would then
-      // cause the next Complete event to be dropped (existing absent / non-running guard).
-      if (notification.status === 'running') {
-        cancelAutoDismissTimer(id);
-      }
-
-      setNotifications((prev: UnifiedNotification[]) => {
-        // Never downgrade a terminal card that JUST landed back to 'running': for a
-        // sub-second op the Complete event can be processed before the post-202 seed
-        // runs, and a reinserted running slot would never be completed by anything.
-        // Older terminal cards (a genuine re-run) are still replaced as before.
-        const existing = prev.find((n) => n.id === id);
+      const operationId = notification.details?.operationId;
+      const exact = operationId
+        ? notificationsRef.current.find(
+            (n) => n.type === notification.type && n.details?.operationId === operationId
+          )
+        : undefined;
+      if (exact) id = exact.id;
+      if (notification.type === 'game_detection' && notification.details?.parentOperationId)
+        return id;
+      if (
+        operationId &&
+        events.current.terminals.has(operationId) &&
+        !isTerminalNotificationStatus(notification.status)
+      )
+        return id;
+      setNotifications((prev) => {
+        const existing =
+          (operationId
+            ? prev.find(
+                (n) => n.type === notification.type && n.details?.operationId === operationId
+              )
+            : undefined) ?? prev.find((n) => n.id === id);
+        const sameRun = !!operationId && existing?.details?.operationId === operationId;
+        if (sameRun && existing && isTerminalNotificationStatus(existing.status)) return prev;
         if (
-          notification.status === 'running' &&
           existing &&
-          isTerminalNotificationStatus(existing.status) &&
-          Date.now() - new Date(existing.startedAt).getTime() < TERMINAL_SEED_GUARD_MS
-        ) {
+          !sameRun &&
+          operationId &&
+          existing.details?.operationId &&
+          !isTerminalNotificationStatus(existing.status)
+        )
           return prev;
-        }
-
-        const filtered = prev.filter((n) => n.id !== id);
-        return [...filtered, newNotification];
+        if (
+          operationId &&
+          events.current.terminals.has(operationId) &&
+          !isTerminalNotificationStatus(notification.status)
+        )
+          return prev;
+        const card: UnifiedNotification =
+          sameRun && existing
+            ? {
+                ...existing,
+                ...notification,
+                id: existing.id,
+                startedAt: existing.startedAt,
+                instanceVersion: existing.instanceVersion,
+                progress: existing.progress ?? notification.progress,
+                progressMode: existing.progressMode ?? notification.progressMode,
+                detailMessage: existing.detailMessage ?? notification.detailMessage,
+                progressAriaValueText:
+                  existing.progressAriaValueText ?? notification.progressAriaValueText,
+                message: existing.message,
+                details: {
+                  ...existing.details,
+                  ...Object.fromEntries(
+                    Object.entries(notification.details ?? {}).filter(
+                      ([, value]) => value !== undefined
+                    )
+                  )
+                }
+              }
+            : { ...newNotification, id, instanceVersion: getNextInstanceId(id) };
+        if (card.details?.cancelRequested && !isTerminalNotificationStatus(card.status))
+          card.status = 'cancelling';
+        if (!sameRun) cancelAutoDismissTimer(card.id);
+        const entry = NOTIFICATION_REGISTRY.find((candidate) => candidate.type === card.type);
+        if (entry) persistNotification(entry.storageKey, card, entry.getId !== undefined);
+        if (isTerminalNotificationStatus(card.status)) scheduleAutoDismiss(card.id);
+        return existing ? prev.map((n) => (n === existing ? card : n)) : [...prev, card];
       });
-
-      // For terminal inserts this arms the normal dismiss. For running seeds it re-arms
-      // the dismiss of a recent terminal card the updater may have kept (its timer was
-      // cancelled above); the timer callback only removes terminal cards, so when the
-      // running seed did insert this is a no-op.
-      scheduleAutoDismiss(id);
 
       return id;
     },
@@ -220,24 +288,61 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     ) => {
       setNotifications((prev: UnifiedNotification[]) =>
         prev.map((n) =>
-          n.id === id ? { ...n, ...(typeof updates === 'function' ? updates(n) : updates) } : n
+          n.id === id
+            ? (() => {
+                const patch = typeof updates === 'function' ? updates(n) : updates;
+                if (
+                  isTerminalNotificationStatus(n.status) &&
+                  patch.status &&
+                  !isTerminalNotificationStatus(patch.status)
+                )
+                  return n;
+                return {
+                  ...n,
+                  ...patch,
+                  id: n.id,
+                  startedAt: n.startedAt,
+                  instanceVersion: n.instanceVersion
+                };
+              })()
+            : n
         )
       );
     },
     []
   );
 
-  const removeNotificationAnimated = useCallback((id: string) => {
-    window.dispatchEvent(
-      new CustomEvent(APP_EVENTS.NOTIFICATION_REMOVING, {
-        detail: { notificationId: id }
-      })
-    );
-
-    setTimeout(() => {
-      setNotifications((prev: UnifiedNotification[]) => prev.filter((n) => n.id !== id));
-    }, NOTIFICATION_ANIMATION_DURATION_MS);
-  }, []);
+  const removeNotificationAnimated = useCallback(
+    (id: string, expected: UnifiedNotification, instanceId: number) => {
+      if (autoDismissTimersRef.current.get(id)?.instanceId !== instanceId) return;
+      window.dispatchEvent(
+        new CustomEvent(APP_EVENTS.NOTIFICATION_REMOVING, { detail: { notificationId: id } })
+      );
+      const timerId = setTimeout(() => {
+        if (autoDismissTimersRef.current.get(id)?.instanceId !== instanceId) return;
+        autoDismissTimersRef.current.delete(id);
+        setNotifications((prev) =>
+          prev.filter((n) => {
+            if (
+              n.id !== id ||
+              n.instanceVersion !== expected.instanceVersion ||
+              n.details?.operationId !== expected.details?.operationId ||
+              n.startedAt.getTime() !== expected.startedAt.getTime() ||
+              !isTerminalNotificationStatus(n.status)
+            )
+              return true;
+            const terminal = n.details?.operationId
+              ? events.current.terminals.get(n.details.operationId)
+              : undefined;
+            if (terminal) terminal.presented = true;
+            return false;
+          })
+        );
+      }, NOTIFICATION_ANIMATION_DURATION_MS);
+      autoDismissTimersRef.current.set(id, { timerId, instanceId });
+    },
+    []
+  );
 
   /**
    * Schedule auto-dismiss for a notification.
@@ -264,9 +369,10 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             const notification = prev.find((n) => n.id === notificationId);
             // Only dismiss if notification exists and is in a terminal state
             if (notification && isTerminalNotificationStatus(notification.status)) {
-              autoDismissTimersRef.current.delete(notificationId);
               // Defer to avoid setState-during-render (CustomEvent triggers UniversalNotificationBar setState)
-              queueMicrotask(() => removeNotificationAnimated(notificationId));
+              queueMicrotask(() =>
+                removeNotificationAnimated(notificationId, notification, instanceId)
+              );
             }
             return prev;
           });
@@ -281,7 +387,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   const removeNotification = useCallback(
     (id: string) => {
       cancelAutoDismissTimer(id);
-      setNotifications((prev: UnifiedNotification[]) => prev.filter((n) => n.id !== id));
+      setNotifications((prev: UnifiedNotification[]) =>
+        prev.filter((n) => {
+          if (n.id !== id) return true;
+          const terminal = n.details?.operationId
+            ? events.current.terminals.get(n.details.operationId)
+            : undefined;
+          if (terminal) terminal.presented = true;
+          return false;
+        })
+      );
     },
     [cancelAutoDismissTimer]
   );
@@ -289,7 +404,13 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   const clearCompletedNotifications = useCallback(() => {
     setNotifications((prev: UnifiedNotification[]) => {
       const terminal = prev.filter((n) => isTerminalNotificationStatus(n.status));
-      terminal.forEach((n) => cancelAutoDismissTimer(n.id));
+      terminal.forEach((n) => {
+        cancelAutoDismissTimer(n.id);
+        const outcome = n.details?.operationId
+          ? events.current.terminals.get(n.details.operationId)
+          : undefined;
+        if (outcome) outcome.presented = true;
+      });
       return prev.filter((n) => !isTerminalNotificationStatus(n.status));
     });
   }, [cancelAutoDismissTimer]);
@@ -300,7 +421,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     setNotifications,
     scheduleAutoDismiss,
     cancelAutoDismissTimer,
-    removeNotification
+    events,
+    requestRecovery
   );
 
   // Toast notifications
@@ -318,16 +440,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         }
       });
 
-      if (shouldAutoDismiss()) {
-        setTimeout(() => {
-          removeNotificationAnimated(notificationId);
-        }, duration || TOAST_DEFAULT_DURATION_MS);
-      }
+      scheduleAutoDismiss(notificationId, duration ?? TOAST_DEFAULT_DURATION_MS);
     };
 
     window.addEventListener(APP_EVENTS.SHOW_TOAST, handleShowToast);
     return () => window.removeEventListener(APP_EVENTS.SHOW_TOAST, handleShowToast);
-  }, [addNotification, removeNotificationAnimated]);
+  }, [addNotification, scheduleAutoDismiss]);
 
   // Listen for "Keep Notifications Visible" preference changes
   // When turned off, schedule auto-dismiss for ALL completed/failed notifications
@@ -377,18 +495,50 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     });
   }, []);
 
+  const recoverAllOperations = useMemo(
+    () =>
+      createRecoveryRunner(
+        fetchWithAuth,
+        setNotifications,
+        scheduleAutoDismiss,
+        events,
+        () => notificationsRef.current,
+        cancelAutoDismissTimer
+      ),
+    [fetchWithAuth, scheduleAutoDismiss, cancelAutoDismissTimer]
+  );
+  recoveryRef.current = recoverAllOperations;
+
+  React.useEffect(() => {
+    for (const notification of notifications) {
+      if (isTerminalNotificationStatus(notification.status) && notification.details?.operationId) {
+        const terminal = events.current.terminals.get(notification.details.operationId);
+        if (terminal) terminal.presented = true;
+        else
+          events.current.terminals.set(notification.details.operationId, {
+            operationId: notification.details.operationId,
+            status: notification.status as 'completed' | 'failed' | 'cancelled' | 'skipped',
+            error: notification.error,
+            presented: true
+          });
+      }
+    }
+  }, [notifications]);
+
+  React.useEffect(
+    () => () => {
+      for (const { timerId } of autoDismissTimersRef.current.values()) clearTimeout(timerId);
+      autoDismissTimersRef.current.clear();
+    },
+    []
+  );
+
   // Recovery on page load (admin-only - all recovery endpoints require admin access)
   React.useEffect(() => {
     if (authLoading || !isAdmin) return;
 
-    const recoverAllOperations = createRecoveryRunner(
-      fetchWithAuth,
-      setNotifications,
-      scheduleAutoDismiss
-    );
-
     recoverAllOperations();
-  }, [authLoading, isAdmin, fetchWithAuth, scheduleAutoDismiss]);
+  }, [authLoading, isAdmin, recoverAllOperations]);
 
   // Re-run recovery on every connect, including the first one: the page-load recovery above can
   // seed a running card before the hub subscription is live, so a completion emitted in that gap
@@ -396,12 +546,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   useReconnectRefetch(signalR.isConnected, () => {
     // Skip if not admin - all recovery endpoints require admin access
     if (authLoading || !isAdmin) return;
-
-    const recoverAllOperations = createRecoveryRunner(
-      fetchWithAuth,
-      setNotifications,
-      scheduleAutoDismiss
-    );
 
     recoverAllOperations();
   });
@@ -427,18 +571,13 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       tabHiddenAtRef.current = null;
 
       if (hiddenAt !== null && Date.now() - hiddenAt >= MIN_HIDDEN_MS) {
-        const recoverAllOperations = createRecoveryRunner(
-          fetchWithAuth,
-          setNotifications,
-          scheduleAutoDismiss
-        );
         recoverAllOperations();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [isAdmin, authLoading, fetchWithAuth, scheduleAutoDismiss]);
+  }, [isAdmin, authLoading, recoverAllOperations]);
 
   // Compute if any removal operation is running (these all share a backend lock)
   const isAnyRemovalRunning = useMemo(
@@ -460,6 +599,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   );
 
   const value = {
+    events,
     notifications,
     addNotification,
     updateNotification,

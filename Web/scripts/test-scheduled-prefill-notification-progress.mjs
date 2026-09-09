@@ -11,7 +11,7 @@ import {
 } from './transpile-module.mjs';
 
 const REGISTRY_PATH = 'src/contexts/notifications/notificationRegistry.ts';
-const HANDLERS_PATH = 'src/contexts/notifications/useNotificationHandlers.ts';
+const HANDLERS_PATH = 'src/contexts/notifications/handlers.ts';
 const registryFile = parseSource(REGISTRY_PATH);
 
 const i18n = {

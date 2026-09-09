@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   useNotifications,
   type UnifiedNotification,
-  type NotificationStatus,
   NOTIFICATION_ANIMATION_DURATION_MS
 } from '@contexts/notifications';
 import themeService from '@services/theme.service';
@@ -174,12 +173,25 @@ const UniversalNotificationBar: React.FC = () => {
 
   // Animated dismiss handler
   const handleDismiss = (notificationId: string) => {
+    const notification = notificationsRef.current.find((item) => item.id === notificationId);
+    if (!notification) return;
+
+    const instanceVersion = notification.instanceVersion ?? 0;
+    const operationId = notification.details?.operationId;
+
     // Add to dismissing set to trigger animation
     setDismissingIds((prev) => new Set(prev).add(notificationId));
 
     // Wait for animation to complete, then remove
     setTimeout(() => {
-      removeNotification(notificationId);
+      const current = notificationsRef.current.find((item) => item.id === notificationId);
+      if (
+        current &&
+        (current.instanceVersion ?? 0) === instanceVersion &&
+        current.details?.operationId === operationId
+      ) {
+        removeNotification(notificationId);
+      }
       setDismissingIds((prev) => {
         const newSet = new Set(prev);
         newSet.delete(notificationId);
@@ -205,21 +217,13 @@ const UniversalNotificationBar: React.FC = () => {
     return null;
   }
 
-  const statusOrder: Partial<Record<NotificationStatus, number>> = {
-    completed: 0,
-    // Terminal and benign, so it sorts with the finished runs rather than dropping to the end.
-    skipped: 0,
-    failed: 1,
-    cancelled: 1,
-    running: 2,
-    cancelling: 2,
-    waiting: 3,
-    pending: 4
-  };
-  // Completed/failed first, then running (comparator unchanged from the original single-list render).
-  const sorted = [...notifications].sort(
-    (a, b) => (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4)
-  );
+  const sorted = [...notifications].sort((a, b) => {
+    const startedAtComparison = a.startedAt.getTime() - b.startedAt.getTime();
+    if (startedAtComparison < 0) return -1;
+    if (startedAtComparison > 0) return 1;
+    if (a.id === b.id) return 0;
+    return a.id < b.id ? -1 : 1;
+  });
 
   // Classify each notification (in the sorted order) as condensed or full. A notification
   // condenses when its service is set to condensed, OR on mobile once the full-card cap is

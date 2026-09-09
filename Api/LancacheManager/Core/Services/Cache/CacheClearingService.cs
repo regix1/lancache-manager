@@ -26,17 +26,6 @@ public class CacheClearingService : ScheduledBackgroundService
     private CacheDeleteMode _deleteMode;
     private Guid? _currentTrackerOperationId;
 
-    // Captured-by-value completion payload for the onTerminalEmit closure. Only one cache-clear
-    // operation runs at a time (enforced in StartCacheClearAsync), so a single set is safe. These
-    // are written immediately before the corresponding CompleteOperation call so the closure (which
-    // fires exactly once inside CompleteOperation) reads the final metrics.
-    private string _completionMessage = string.Empty;
-    private int _completionDirectoriesProcessed;
-    private long _completionFilesDeleted;
-    private long _completionBytesDeleted;
-    private int _completionDatasourcesCleared;
-    private double? _completionDuration;
-
     protected override string ServiceName => "CacheClearingService";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(5);
     public override bool DefaultRunOnStartup => true;
@@ -138,15 +127,20 @@ public class CacheClearingService : ScheduledBackgroundService
             // operationId is filled in right after RegisterOperation returns; the closure fires later
             // (at completion) so it reads the assigned value by reference-capture of this local.
             var capturedOperationId = Guid.Empty;
+            CacheClearComplete? completion = null;
             _currentTrackerOperationId = _operationTracker.RegisterOperation(
                 OperationType.CacheClearing,
                 "Cache Clearing",
                 cts,
                 metadata,
-                onTerminalCleanup: () => { _currentTrackerOperationId = null; },
+                onTerminalCleanup: () =>
+                {
+                    if (_currentTrackerOperationId == capturedOperationId)
+                        _currentTrackerOperationId = null;
+                },
                 onTerminalEmit: info => _notifications.NotifyAllAsync(
                     SignalREvents.CacheClearingComplete,
-                    BuildClearCompleteEvent(capturedOperationId, info))
+                    BuildClearCompleteEvent(capturedOperationId, info, completion))
             );
             var operationId = _currentTrackerOperationId.Value;
             capturedOperationId = operationId;
@@ -163,7 +157,8 @@ public class CacheClearingService : ScheduledBackgroundService
                 (datasourceName != null ? $" for datasource: {datasourceName}" : " for all datasources"));
 
             // Start the clear operation on a background thread
-            _ = Task.Run(async () => await RunCacheClearAsync(trackerKey, operationId, datasourceName), cts.Token);
+            _ = Task.Run(async () => await RunCacheClearAsync(trackerKey, operationId, datasourceName,
+                value => completion = value), cts.Token);
 
             return operationId;
         }
@@ -173,7 +168,8 @@ public class CacheClearingService : ScheduledBackgroundService
         }
     }
 
-    private async Task RunCacheClearAsync(string trackerKey, Guid operationId, string? datasourceName)
+    private async Task RunCacheClearAsync(string trackerKey, Guid operationId, string? datasourceName,
+        Action<CacheClearComplete> publish)
     {
         try
         {
@@ -210,7 +206,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 // Mark operation as complete (failed) in unified tracker.
                 // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure.
                 _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
-                _currentTrackerOperationId = null;
+                if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
                 await ReportProgressAsync(operationId);
 
@@ -242,7 +238,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
                     // Mark operation as complete (failed) in unified tracker
                     _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
-                    _currentTrackerOperationId = null;
+                    if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
                     await ReportProgressAsync(operationId);
                     SaveOperationToState(trackerKey, operationId);
@@ -313,7 +309,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 // Mark operation as complete (failed) in unified tracker.
                 // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure.
                 _operationTracker.CompleteOperation(operationId, success: false, error: error);
-                _currentTrackerOperationId = null;
+                if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
                 await ReportProgressAsync(operationId);
 
@@ -345,7 +341,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 // Mark operation as complete (failed) in unified tracker.
                 // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure.
                 _operationTracker.CompleteOperation(operationId, success: false, error: error);
-                _currentTrackerOperationId = null;
+                if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
                 await ReportProgressAsync(operationId);
 
@@ -396,7 +392,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 {
                     // Mark operation as complete (cancelled) in unified tracker
                     _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
-                    _currentTrackerOperationId = null;
+                    if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
                     await ReportProgressAsync(operationId);
                     SaveOperationToState(trackerKey, operationId);
@@ -445,17 +441,20 @@ public class CacheClearingService : ScheduledBackgroundService
                         var currentFilesDeleted = totalFilesDeleted + (long)progressData.FilesDeleted;
                         var percentComplete = (double)currentDirsProcessed / totalDirectoriesAllDatasources * 100;
 
-                        _operationTracker.UpdateMetadata(operationId, (object meta) =>
+                        var stageKey = progressData.StageKey;
+                        var context = progressData.Context == null ? null : new Dictionary<string, object?>(progressData.Context);
+                        var accepted = false;
+                        _operationTracker.UpdateProgress(operationId, percentComplete, stageKey ?? string.Empty, onProgress: current =>
                         {
-                            var metricsToUpdate = (CacheClearingMetrics)meta;
+                            var metricsToUpdate = (CacheClearingMetrics)current.Metadata!;
                             metricsToUpdate.DirectoriesProcessed = currentDirsProcessed;
                             metricsToUpdate.BytesDeleted = currentBytesDeleted;
                             metricsToUpdate.FilesDeleted = currentFilesDeleted;
-                            metricsToUpdate.CurrentStageKey = progressData.StageKey;
-                            metricsToUpdate.CurrentContext = progressData.Context;
+                            metricsToUpdate.CurrentStageKey = stageKey;
+                            metricsToUpdate.CurrentContext = context;
+                            accepted = true;
                         });
-
-                        _operationTracker.UpdateProgress(operationId, percentComplete, progressData.StageKey ?? string.Empty);
+                        if (!accepted) return;
 
                         // Gate the per-tick broadcast (tracker/metadata updates above stay
                         // per-tick for recovery accuracy): rust can tick many times per second
@@ -532,12 +531,12 @@ public class CacheClearingService : ScheduledBackgroundService
                 ? (DateTime.UtcNow - operation.StartedAt).TotalSeconds
                 : 0;
 
-            _completionMessage = successMessage;
-            _completionDirectoriesProcessed = totalDirsProcessed;
-            _completionFilesDeleted = totalFilesDeleted;
-            _completionBytesDeleted = totalBytesDeleted;
-            _completionDatasourcesCleared = validCachePaths.Count;
-            _completionDuration = duration;
+            var completion = new CacheClearComplete(
+                OperationId: operationId, Success: true, Status: OperationStatus.Completed,
+                Message: successMessage, Cancelled: false,
+                FilesDeleted: (int)totalFilesDeleted, DirectoriesProcessed: totalDirsProcessed,
+                BytesDeleted: totalBytesDeleted, DatasourcesCleared: validCachePaths.Count,
+                Duration: duration);
 
             // The next size scan estimates this mode from this run instead of from the scanner's
             // synthetic benchmark. An already-empty cache, or a run whose tracker entry is gone,
@@ -635,8 +634,8 @@ public class CacheClearingService : ScheduledBackgroundService
             }
 
             // Mark operation as complete in unified tracker (emits CacheClearingComplete via onTerminalEmit)
-            _operationTracker.CompleteOperation(operationId, success: true);
-            _currentTrackerOperationId = null;
+            _operationTracker.CompleteOperation(operationId, success: true,
+                onCompleting: _ => publish(completion));
 
             _logger.LogInformation($"Cache clear completed in {duration:F1} seconds - Cleared {totalDirsProcessed} directories across {validCachePaths.Count} datasource(s)");
 
@@ -684,7 +683,7 @@ public class CacheClearingService : ScheduledBackgroundService
             // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure,
             // which reads this error string from OperationTerminalInfo.Error.
             _operationTracker.CompleteOperation(operationId, success: false, error: $"Cache clear failed: {ex.Message}");
-            _currentTrackerOperationId = null;
+            if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
             await ReportProgressAsync(operationId);
 
@@ -878,11 +877,10 @@ public class CacheClearingService : ScheduledBackgroundService
     /// <summary>
     /// Builds the strongly-typed terminal payload for the cache-clear operation. Fires EXACTLY ONCE
     /// from inside CompleteOperation (CompletedFlag-gated) for success, cancel, and error alike.
-    /// Completion metrics are captured by value into the _completion* fields immediately before the
-    /// corresponding CompleteOperation call; this reads them so the wire payload matches the prior
-    /// SendOperationCompleteAsync emits.
+    /// The winning claim publishes the optional completion record for this run.
     /// </summary>
-    private CacheClearComplete BuildClearCompleteEvent(Guid operationId, OperationTerminalInfo info)
+    private static CacheClearComplete BuildClearCompleteEvent(Guid operationId, OperationTerminalInfo info,
+        CacheClearComplete? completion)
     {
         if (info.Cancelled)
         {
@@ -896,17 +894,12 @@ public class CacheClearingService : ScheduledBackgroundService
 
         if (info.Success)
         {
-            return new CacheClearComplete(
+            return completion ?? new CacheClearComplete(
                 OperationId: operationId,
                 Success: true,
                 Status: OperationStatus.Completed,
-                Message: _completionMessage,
-                Cancelled: false,
-                FilesDeleted: (int)_completionFilesDeleted,
-                DirectoriesProcessed: _completionDirectoriesProcessed,
-                BytesDeleted: _completionBytesDeleted,
-                DatasourcesCleared: _completionDatasourcesCleared,
-                Duration: _completionDuration);
+                Message: "Cache clear completed",
+                Cancelled: false);
         }
 
         var error = info.Error ?? "Cache clear failed";
@@ -990,22 +983,26 @@ public class CacheClearingService : ScheduledBackgroundService
             var operation = _operationTracker.GetOperation(operationId);
             if (operation == null) return;
 
-            // Get metrics from tracker metadata
-            var metrics = operation.Metadata as CacheClearingMetrics;
-
-            await _notifications.NotifyAllAsync(SignalREvents.CacheClearingProgress, new
-            {
-                OperationId = operation.Id,
-                PercentComplete = operation.PercentComplete,
-                Status = operation.Status,
-                StageKey = metrics?.CurrentStageKey,
-                Context = metrics?.CurrentContext,
-                DirectoriesProcessed = metrics?.DirectoriesProcessed ?? 0,
-                TotalDirectories = metrics?.TotalDirectories ?? 0,
-                BytesDeleted = metrics?.BytesDeleted ?? 0L,
-                FilesDeleted = metrics?.FilesDeleted ?? 0L,
-                Error = operation.Status == OperationStatus.Failed ? operation.Message : null
-            });
+            object? progress = null;
+            _operationTracker.UpdateProgress(operationId, operation.PercentComplete, operation.Message,
+                onProgress: current =>
+                {
+                    var metrics = current.Metadata as CacheClearingMetrics;
+                    progress = new
+                    {
+                        OperationId = current.Id,
+                        PercentComplete = current.PercentComplete,
+                        Status = current.Status,
+                        StageKey = metrics?.CurrentStageKey,
+                        Context = metrics?.CurrentContext == null ? null : new Dictionary<string, object?>(metrics.CurrentContext),
+                        DirectoriesProcessed = metrics?.DirectoriesProcessed ?? 0,
+                        TotalDirectories = metrics?.TotalDirectories ?? 0,
+                        BytesDeleted = metrics?.BytesDeleted ?? 0L,
+                        FilesDeleted = metrics?.FilesDeleted ?? 0L
+                    };
+                });
+            if (progress != null)
+                await _notifications.NotifyAllAsync(SignalREvents.CacheClearingProgress, progress);
         }
         catch (Exception ex)
         {

@@ -46,13 +46,37 @@ public class OperationsController : ControllerBase
     [ProducesResponseType(typeof(OperationStatusResponse), StatusCodes.Status200OK)]
     public ActionResult<OperationStatusResponse> GetOperationStatus(Guid id)
     {
-        var op = _operationTracker.GetActiveOperations().FirstOrDefault(o => o.Id == id);
-        if (op == null)
+        var active = _operationTracker.GetActiveOperations().Any(o => o.Id == id);
+        var op = _operationTracker.GetOperation(id);
+        var next = _operationTracker.GetOperation(id, followHandoff: true);
+        var response = new OperationStatusResponse
         {
-            return Ok(new OperationStatusResponse { Id = id, Active = false, PercentComplete = 100.0, Message = null });
+            Id = id,
+            Active = active,
+            PercentComplete = 100.0
+        };
+        if (op != null)
+        {
+            lock (op)
+            {
+                response.Active = active && !op.Status.IsTerminal();
+                response.PercentComplete = response.Active ? op.PercentComplete : 100.0;
+                response.Message = response.Active ? op.Message : null;
+                response.Status = op.Status;
+                response.StartedAt = op.StartedAt;
+                response.ParentOperationId = op.ParentOperationId;
+                response.Error = op.Status == OperationStatus.Failed ? op.Message : null;
+            }
         }
-
-        return Ok(new OperationStatusResponse { Id = id, Active = true, PercentComplete = op.PercentComplete, Message = op.Message });
+        if (next != null && next.Id != id)
+        {
+            lock (next)
+            {
+                response.NextOperationId = next.Id;
+                response.NextStatus = next.Status;
+            }
+        }
+        return Ok(response);
     }
 
     /// <summary>
@@ -101,7 +125,7 @@ public class OperationsController : ControllerBase
     [ProducesResponseType(typeof(OperationCancelResponse), StatusCodes.Status200OK)]
     public ActionResult<OperationCancelResponse> CancelOperation(Guid id)
     {
-        var operation = _operationTracker.GetOperation(id);
+        var operation = _operationTracker.GetOperation(id, followHandoff: true);
         if (operation == null)
         {
             return NotFound(ApiResponse.NotFound("Operation", id));
@@ -109,7 +133,7 @@ public class OperationsController : ControllerBase
 
         try
         {
-            switch (_cancellationService.Cancel(id))
+            switch (_cancellationService.Cancel(operation.Id))
             {
                 case OperationCancelResult.Requested:
                     return Ok(new OperationCancelResponse
@@ -117,7 +141,7 @@ public class OperationsController : ControllerBase
                         Message = "Cancellation requested (process kill + token cancel)",
                         OperationId = id,
                         Status = operation.Status,
-                        AlreadyFinished = false
+                        AlreadyFinished = operation.Status.IsTerminal()
                     });
 
                 case OperationCancelResult.AlreadyFinished:
@@ -146,7 +170,7 @@ public class OperationsController : ControllerBase
             {
                 Message = "Operation already completed",
                 OperationId = id,
-                Status = OperationStatus.Completed,
+                Status = operation.Status,
                 AlreadyFinished = true
             });
         }

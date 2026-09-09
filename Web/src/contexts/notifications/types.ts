@@ -5,6 +5,7 @@
 
 import type { OperationStatus, NotificationVariant } from '../../types/operations';
 import type { CorruptionDetectionMethod, CorruptionScanCoverage } from '../../types';
+import type { OperationWaitingCompleteEvent } from '../SignalRContext/types';
 import type {
   StructuralBaselineStatus,
   StructuralEffectiveScanMode,
@@ -55,6 +56,36 @@ export type NotificationType =
  */
 export type NotificationStatus = OperationStatus;
 
+export interface NotificationEvent {
+  type: NotificationType;
+  phase: 'started' | 'progress' | 'complete';
+  eventName: string;
+  body: Record<string, unknown>;
+  revision: number;
+}
+
+export interface NotificationTerminal {
+  operationId: string;
+  status: 'completed' | 'failed' | 'cancelled' | 'skipped';
+  error?: string;
+  eventName?: string;
+  presented?: boolean;
+}
+
+/** Values retained for this mounted notification session, independent of card dismissal. */
+export interface NotificationEvents {
+  revision: number;
+  records: Map<string, Partial<Record<NotificationEvent['phase'], NotificationEvent>>>;
+  handoffs: Map<string, OperationWaitingCompleteEvent>;
+  terminals: Map<string, NotificationTerminal>;
+  acknowledgedIds: Set<string>;
+  revisions: Map<string, number>;
+  typeRevisions: Map<NotificationType, number>;
+  children: Map<string, string>;
+  waiting: Set<string>;
+  held: Map<string, number>;
+}
+
 /** Whether a running notification has a known progress denominator. */
 export type NotificationProgressMode = 'determinate' | 'indeterminate';
 
@@ -104,6 +135,7 @@ export interface UnifiedNotification {
     directoriesProcessed?: number;
     bytesDeleted?: number;
     operationId?: string;
+    parentOperationId?: string | null;
     /** First cancel click sent; second click force-kills. */
     cancelRequested?: boolean;
     cancelPending?: boolean;
@@ -209,6 +241,7 @@ export interface UnifiedNotification {
  * Provides access to notifications state and mutation functions.
  */
 export interface NotificationsContextType {
+  events: React.RefObject<NotificationEvents>;
   /** Array of all current notifications */
   notifications: UnifiedNotification[];
   /**
@@ -278,12 +311,6 @@ export type ScheduleAutoDismiss = (notificationId: string, delayMs?: number) => 
  * @param notificationId - The notification ID whose timer should be cancelled
  */
 export type CancelAutoDismissTimer = (notificationId: string) => void;
-
-/**
- * Function to remove a notification by ID.
- * @param notificationId - The notification ID to remove
- */
-export type RemoveNotification = (notificationId: string) => void;
 
 // ============================================================================
 // Notification Registry Types
@@ -533,6 +560,4 @@ export type NotificationRegistryEntry = CancelWiring & {
   progress?: RegistryProgressConfig;
   /** Configuration for the completion handler (optional for types without a separate complete event) */
   complete?: RegistryCompleteConfig;
-  /** Optional callback invoked after the completion handler runs (e.g., to remove related notifications) */
-  onComplete?: (removeNotification: RemoveNotification) => void;
 };

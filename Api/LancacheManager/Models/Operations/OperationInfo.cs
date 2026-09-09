@@ -5,6 +5,7 @@ namespace LancacheManager.Models;
 public class OperationInfo
 {
     public required Guid Id { get; set; }
+    public Guid? ParentOperationId { get; set; }
     public required OperationType Type { get; set; }
     public required string Name { get; set; }
     public OperationStatus Status { get; set; } = OperationStatus.Pending;

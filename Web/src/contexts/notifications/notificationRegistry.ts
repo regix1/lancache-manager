@@ -53,6 +53,7 @@ import {
   formatGameDetectionProgressMessage,
   formatGameDetectionCompleteMessage,
   formatGameDetectionFailureMessage,
+  detectionErrorDetail,
   buildGameDetectionInterpolation,
   formatCorruptionDetectionStartedMessage,
   formatCorruptionDetectionProgressMessage,
@@ -87,7 +88,6 @@ import {
   translateStageKeyMessage
 } from '@utils/stageKeyMessage';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
-import { storage } from '@utils/storage';
 import { classifyRemovalKind, removalStageKey } from './removalKind';
 import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from '@components/features/management/schedules/scheduled-prefill/constants';
 
@@ -633,10 +633,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         detectionMethod: event.detectionMethod
       }),
       useAnimationDelay: true
-    },
-    onComplete: (removeNotification) => {
-      removeNotification(NOTIFICATION_IDS.CORRUPTION_DETECTION);
-      storage.removeItem(NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION);
     }
   }),
 
@@ -675,6 +671,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           progress: op.percentComplete,
           details: {
             operationId: op.operationId,
+            parentOperationId: op.parentOperationId,
             scanType: op.scanType
           }
         };
@@ -686,6 +683,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getMessage: (event: GameDetectionStartedEvent) => formatGameDetectionStartedMessage(event),
       getDetails: (event: GameDetectionStartedEvent) => ({
         operationId: event.operationId,
+        parentOperationId: event.parentOperationId,
         scanType: event.scanType
       })
     },
@@ -712,6 +710,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           ? existing?.details
           : {
               ...existing?.details,
+              operationId: event.operationId,
+              parentOperationId: event.parentOperationId,
               totalGamesDetected: event.totalGamesDetected,
               totalServicesDetected: event.totalServicesDetected
             },
@@ -980,13 +980,14 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       apiEndpoint: '/api/stats/eviction/scan/status',
       isProcessing: (data: EvictionScanStatusResponse) => data.isProcessing,
       createNotification: (data: EvictionScanStatusResponse) => ({
-        controlOnly: data.silentMode,
+        controlOnly: !(data.showNotification ?? !data.silentMode),
         message: translateRecoveryStage(
           data.stageKey,
           data.context,
           'signalr.evictionScan.scanning'
         ),
         progress: data.percentComplete,
+        detailMessage: detectionErrorDetail(data),
         details: {
           operationId: data.operationId ?? undefined
         }
@@ -999,6 +1000,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     progress: {
       getMessage: stageKeyMessage('signalr.evictionScan.progress'),
+      getDetailMessage: detectionErrorDetail,
       getProgress: cappedProgress,
       getCompletedMessage: stageKeyMessage('signalr.evictionScan.complete'),
       getErrorMessage: stageKeyMessage(GENERIC_FAILURE_I18N_KEY)
@@ -1007,6 +1009,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getSuccessMessage: skippedOrStageKeyMessage<EvictionScanCompleteEvent>(
         'signalr.evictionScan.complete'
       ),
+      getDetailMessage: detectionErrorDetail,
       getFailureMessage: errorOrStageKeyMessage(GENERIC_FAILURE_I18N_KEY),
       getCancelledMessage: stageKeyMessage('signalr.evictionScan.cancelled')
     }
@@ -1289,10 +1292,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     complete: {
       getSuccessMessage: stageKeyMessage('signalr.evictionRemove.complete'),
       getFailureMessage: errorOrStageKeyMessage('signalr.evictionRemove.failed')
-    },
-    onComplete: (removeNotification) => {
-      removeNotification(NOTIFICATION_IDS.EVICTION_SCAN);
-      storage.removeItem(NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN);
     }
   }),
 

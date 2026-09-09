@@ -192,27 +192,23 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 return;
             }
 
-            var bounded = Math.Clamp(percent, 0, 100);
-            if (bounded > _highestPercent)
+            var clamped = Math.Max(_highestPercent, Math.Clamp(percent, 0, 100));
+            context = context is null ? null : new Dictionary<string, object?>(context);
+            var accepted = false;
+            _tracker.UpdateProgress(_operationId, clamped, stageKey, operation =>
             {
-                _highestPercent = bounded;
-            }
-
-            var clamped = _highestPercent;
-            _lastContext = context;
-
-            // Mirror the latest interpolation context onto the tracked operation under the same gate
-            // the sends use, so the run-status recovery endpoint reports the values the live card is
-            // rendering. Overwrites the seeded "context" slot (an atomic reference write).
-            _tracker.UpdateMetadata(_operationId, metadata =>
-            {
-                if (metadata is Dictionary<string, object?> bag)
+                _highestPercent = clamped;
+                _lastContext = context;
+                if (operation.Metadata is Dictionary<string, object?> bag)
                 {
                     bag["context"] = context;
                 }
+                accepted = true;
             });
-
-            _tracker.UpdateProgress(_operationId, clamped, stageKey);
+            if (!accepted)
+            {
+                return;
+            }
             var progress = new ScheduledRunProgressEvent(
                 _serviceKey,
                 _operationId,
@@ -253,23 +249,20 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         {
             if (Interlocked.CompareExchange(ref _completed, 1, 0) == 0)
             {
-                // Publish the terminal context under the same gate the progress sends use, so the terminal
-                // payload cannot race a final in-flight ReportAsync.
-                _terminalStageKey = stageKey ?? _completeStageKey;
-                _terminalStagePublished = true;
-                if (context is not null)
+                var finalContext = context is null ? null : new Dictionary<string, object?>(context);
+                _tracker.CompleteOperation(_operationId, success, error, cancelled, skipped, operation =>
                 {
-                    _lastContext = context;
-                    _tracker.UpdateMetadata(_operationId, metadata =>
+                    _terminalStageKey = stageKey ?? _completeStageKey;
+                    _terminalStagePublished = true;
+                    if (finalContext is not null)
                     {
-                        if (metadata is Dictionary<string, object?> bag)
+                        _lastContext = finalContext;
+                        if (operation.Metadata is Dictionary<string, object?> bag)
                         {
-                            bag["context"] = context;
+                            bag["context"] = finalContext;
                         }
-                    });
-                }
-
-                _tracker.CompleteOperation(_operationId, success, error, cancelled, skipped);
+                    }
+                });
             }
         }
         finally

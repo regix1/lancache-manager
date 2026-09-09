@@ -31,7 +31,8 @@ public interface IUnifiedOperationTracker
     Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts,
                            object? metadata = null, Action? onTerminalCleanup = null,
                            Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
-                           OperationStatus initialStatus = OperationStatus.Running);
+                           OperationStatus initialStatus = OperationStatus.Running,
+                           Guid? parentOperationId = null, DateTime? startedAt = null);
 
     /// <summary>
     /// Re-registers a previously-persisted operation by its original ID (recovery after restart).
@@ -46,7 +47,8 @@ public interface IUnifiedOperationTracker
     /// <param name="onTerminalEmit">See <see cref="RegisterOperation"/>.</param>
     bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts,
                              object? metadata = null, Action? onTerminalCleanup = null,
-                             Func<OperationTerminalInfo, Task>? onTerminalEmit = null);
+                             Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
+                             Guid? parentOperationId = null, DateTime? startedAt = null);
 
     /// <summary>
     /// Aggressively cancels an operation: terminates any associated process tree immediately,
@@ -92,7 +94,7 @@ public interface IUnifiedOperationTracker
     /// Gets information about a specific operation.
     /// Returns null if the operation is not found.
     /// </summary>
-    OperationInfo? GetOperation(Guid operationId);
+    OperationInfo? GetOperation(Guid operationId, bool followHandoff = false);
 
     /// <summary>
     /// Gets all active operations, optionally filtered by type.
@@ -119,6 +121,9 @@ public interface IUnifiedOperationTracker
     /// <summary>
     /// Marks an operation as complete and cleans up resources.
     /// </summary>
+    /// <param name="onCompleting">Publishes prepared terminal metrics only for the first completion,
+    /// under the operation's synchronization. Must not change identity, status or timestamps, perform
+    /// I/O, cancel/dispose resources, or reenter completion. Emission and cleanup run outside the lock.</param>
     /// <param name="skipped">True when the run started, found nothing to do, and stopped. The
     /// operation becomes <see cref="OperationStatus.Skipped"/>, which is terminal: it raises
     /// <see cref="OperationTerminal"/> and promotes the wait-queue exactly like a completion.
@@ -129,12 +134,15 @@ public interface IUnifiedOperationTracker
         bool success,
         string? error = null,
         bool cancelled = false,
-        bool skipped = false);
+        bool skipped = false,
+        Action<OperationInfo>? onCompleting = null);
 
     /// <summary>
     /// Updates the progress of an operation.
     /// </summary>
-    void UpdateProgress(Guid operationId, double percent, string message);
+    /// <param name="onProgress">Publishes prepared progress state under the operation's synchronization
+    /// only while live. Must not perform I/O or reenter completion. Rejected updates invoke nothing.</param>
+    void UpdateProgress(Guid operationId, double percent, string message, Action<OperationInfo>? onProgress = null);
 
     /// <summary>
     /// Look up an operation by its canonical <see cref="ConflictScope"/>. Uses an unambiguous

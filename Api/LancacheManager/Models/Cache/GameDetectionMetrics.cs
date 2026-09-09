@@ -8,6 +8,8 @@ namespace LancacheManager.Models;
 /// </summary>
 public class GameDetectionMetrics
 {
+    public Guid? ParentOperationId { get; set; }
+    public string? CompletionStageKey { get; set; }
     [JsonIgnore]
     public RunNotice? Notice { get; set; }
     /// <summary>

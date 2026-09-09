@@ -36,7 +36,6 @@ import type {
   RegistryCompleteConfig,
   RegistryProgressConfig,
   RegistryStartedConfig,
-  RemoveNotification,
   SimpleRecoveryConfig,
   StageContext,
   UnifiedNotification
@@ -61,6 +60,7 @@ import type {
 /** Carries the server operation id that the card's cancel wiring needs. */
 interface OperationIdEvent {
   operationId?: string;
+  parentOperationId?: string | null;
 }
 
 /**
@@ -70,6 +70,7 @@ interface OperationIdEvent {
  */
 interface SilentRunEvent {
   showNotification?: boolean;
+  context?: Record<string, unknown>;
 }
 
 /** Carries an i18n stage key and its interpolation context. */
@@ -116,7 +117,10 @@ function standardGetStatus(event: OperationStatusEvent): string | undefined {
 
 /** Display gate for services whose runs can be configured silent. */
 export function visibleWhenNotSilent(event: SilentRunEvent): boolean {
-  return event.showNotification !== false;
+  return (
+    event.showNotification !== false ||
+    (typeof event.context?.detectionError === 'string' && !!event.context.detectionError.trim())
+  );
 }
 
 /**
@@ -125,7 +129,10 @@ export function visibleWhenNotSilent(event: SilentRunEvent): boolean {
  * it renders a cancel affordance that cannot cancel anything.
  */
 export function operationIdDetails(event: OperationIdEvent): UnifiedNotification['details'] {
-  return { operationId: event.operationId };
+  return {
+    operationId: event.operationId,
+    ...(event.parentOperationId !== undefined && { parentOperationId: event.parentOperationId })
+  };
 }
 
 /** Translates the event's stage key, falling back to a fixed key when it is absent. */
@@ -202,7 +209,6 @@ interface StandardOperationEntryOptions<TStarted, TProgress, TComplete> {
   progress: Omit<RegistryProgressConfig<TProgress>, 'getStatus'> &
     Partial<Pick<RegistryProgressConfig<TProgress>, 'getStatus'>>;
   complete?: RegistryCompleteConfig<TComplete>;
-  onComplete?: (removeNotification: RemoveNotification) => void;
 }
 
 /**
@@ -226,8 +232,7 @@ export function buildStandardOperationEntry<TStarted, TProgress, TComplete>(
     silentRunGate,
     started,
     progress,
-    complete,
-    onComplete
+    complete
   } = options;
 
   // The locals drop the concrete event type, exactly as `NotificationRegistryEntry`
@@ -270,8 +275,7 @@ export function buildStandardOperationEntry<TStarted, TProgress, TComplete>(
     },
     started: startedConfig,
     progress: progressConfig,
-    ...(completeConfig ? { complete: completeConfig } : {}),
-    ...(onComplete ? { onComplete } : {})
+    ...(completeConfig ? { complete: completeConfig } : {})
   };
 }
 

@@ -4,32 +4,31 @@
  * for all standard lifecycle notification types using the existing factory functions.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, type RefObject } from 'react';
 import type {
   SetNotifications,
   ScheduleAutoDismiss,
   CancelAutoDismissTimer,
-  RemoveNotification,
+  NotificationEvents,
   NotificationRegistryEntry,
   UnifiedNotification
 } from './types';
 import {
-  createStartedHandler,
-  createStatusAwareProgressHandler,
+  buildStartedHandler,
+  buildProgressHandler,
+  buildCompleteHandler,
   createCompletionHandler,
   operationCardId,
   eventTargetsCard,
   findBulkCardOwningOperation,
-  waitingCardMessage
+  waitingCardMessage,
+  rememberEvent,
+  applyHandoff
 } from './handlers';
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import type { OperationWaitingEvent, OperationWaitingCompleteEvent } from '../SignalRContext/types';
-import {
-  GENERIC_FAILURE_I18N_KEY,
-  GENERIC_SKIPPED_I18N_KEY,
-  OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE
-} from './constants';
+import { OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE } from './constants';
 import i18n from '@/i18n';
 
 /**
@@ -46,150 +45,6 @@ function findEntryForWireType(
 }
 
 /**
- * Creates a started handler for a registry entry and returns the bound handler function.
- */
-function buildStartedHandler(
-  entry: NotificationRegistryEntry,
-  started: NonNullable<NotificationRegistryEntry['started']>,
-  setNotifications: SetNotifications,
-  cancelAutoDismissTimer: CancelAutoDismissTimer
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): (event: any) => void {
-  return createStartedHandler(
-    {
-      type: entry.type,
-      getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
-      storageKey: entry.storageKey,
-      storesCardsById: entry.getId !== undefined,
-      shouldDisplay: started.shouldDisplay,
-      canControl: (event: unknown) => {
-        const fields = event as { operationId?: unknown; serviceId?: unknown };
-        return (
-          entry.cancelKind !== 'none' &&
-          entry.cancelKind !== 'clientQueue' &&
-          typeof fields.operationId === 'string' &&
-          (entry.type !== 'scheduled_prefill' || typeof fields.serviceId === 'string')
-        );
-      },
-      defaultMessage: started.defaultMessage,
-      getMessage: started.getMessage,
-      getDetails: (event: unknown) => ({
-        ...started.getDetails?.(event),
-        ...(entry.type === 'scheduled_prefill'
-          ? {
-              service: (event as { serviceId?: string }).serviceId,
-              operationId: (event as { operationId?: string }).operationId
-            }
-          : {})
-      }),
-      replaceExisting: started.replaceExisting,
-      progressMode: started.progressMode
-    },
-    setNotifications,
-    cancelAutoDismissTimer
-  );
-}
-
-/**
- * Creates a status-aware progress handler for a registry entry.
- */
-function buildProgressHandler(
-  entry: NotificationRegistryEntry,
-  progress: NonNullable<NotificationRegistryEntry['progress']>,
-  setNotifications: SetNotifications,
-  scheduleAutoDismiss: ScheduleAutoDismiss,
-  cancelAutoDismissTimer: CancelAutoDismissTimer
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): (event: any) => void {
-  return createStatusAwareProgressHandler(
-    {
-      type: entry.type,
-      getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
-      storageKey: entry.storageKey,
-      storesCardsById: entry.getId !== undefined,
-      shouldDisplay: progress.shouldDisplay,
-      canControl: (event: unknown) => {
-        const fields = event as { operationId?: unknown; serviceId?: unknown };
-        return (
-          entry.cancelKind !== 'none' &&
-          entry.cancelKind !== 'clientQueue' &&
-          typeof fields.operationId === 'string' &&
-          (entry.type !== 'scheduled_prefill' || typeof fields.serviceId === 'string')
-        );
-      },
-      getMessage: progress.getMessage,
-      getProgress: progress.getProgress,
-      getDetailMessage: progress.getDetailMessage,
-      getProgressMode: progress.getProgressMode,
-      getProgressAriaValueText: progress.getProgressAriaValueText,
-      getStatus: progress.getStatus,
-      getCompletedMessage: progress.getCompletedMessage,
-      getErrorMessage: progress.getErrorMessage,
-      supportFastCompletion: progress.supportFastCompletion,
-      getDetails: (event: unknown) => ({
-        ...progress.getDetails?.(event),
-        ...(entry.type === 'scheduled_prefill'
-          ? {
-              service: (event as { serviceId?: string }).serviceId,
-              operationId: (event as { operationId?: string }).operationId
-            }
-          : {})
-      })
-    },
-    setNotifications,
-    scheduleAutoDismiss,
-    cancelAutoDismissTimer
-  );
-}
-
-/**
- * Creates a completion handler for a registry entry, optionally wrapping it
- * with an onComplete callback.
- */
-function buildCompleteHandler(
-  entry: NotificationRegistryEntry,
-  setNotifications: SetNotifications,
-  scheduleAutoDismiss: ScheduleAutoDismiss,
-  removeNotification: RemoveNotification
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): ((event: any) => void) | null {
-  if (!entry.complete) return null;
-
-  const baseHandler = createCompletionHandler(
-    {
-      type: entry.type,
-      getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
-      storageKey: entry.storageKey,
-      storesCardsById: entry.getId !== undefined,
-      shouldDisplay: entry.complete.shouldDisplay,
-      getSuccessMessage: entry.complete.getSuccessMessage,
-      getSuccessDetails: entry.complete.getSuccessDetails,
-      getDetailMessage: entry.complete.getDetailMessage,
-      getFailureMessage: entry.complete.getFailureMessage,
-      getCancelledMessage: entry.complete.getCancelledMessage,
-      getCancelledDetails: entry.complete.getCancelledDetails,
-      succeeded: entry.complete.succeeded,
-      announcement: !entry.started && !entry.progress,
-      dismissDelayMs: entry.complete.dismissDelayMs,
-      useAnimationDelay: entry.complete.useAnimationDelay
-    },
-    setNotifications,
-    scheduleAutoDismiss
-  );
-
-  if (entry.onComplete) {
-    const onCompleteCb = entry.onComplete;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (event: any): void => {
-      baseHandler(event);
-      onCompleteCb(removeNotification);
-    };
-  }
-
-  return baseHandler;
-}
-
-/**
  * Hook that registers SignalR event handlers for all standard notification types
  * defined in the notification registry. Handles subscription and cleanup lifecycle.
  *
@@ -200,17 +55,18 @@ function buildCompleteHandler(
  * @param setNotifications - React setState function for notifications
  * @param scheduleAutoDismiss - Function to schedule auto-dismissal of notifications
  * @param cancelAutoDismissTimer - Function to cancel pending auto-dismiss timers
- * @param removeNotification - Function to remove a notification by ID
+ * @param events - Values retained throughout the mounted notification session
  */
 export function useNotificationHandlers(
   registry: NotificationRegistryEntry[],
   setNotifications: SetNotifications,
   scheduleAutoDismiss: ScheduleAutoDismiss,
   cancelAutoDismissTimer: CancelAutoDismissTimer,
-  removeNotification: RemoveNotification
+  events: RefObject<NotificationEvents>,
+  recover?: () => void
 ): void {
   const signalR = useSignalR();
-  const acknowledgedIds = useRef(new Set<string>());
+  const acknowledgedIds = events.current.acknowledgedIds;
 
   useEffect(() => {
     // Track all subscriptions for cleanup
@@ -236,9 +92,22 @@ export function useNotificationHandlers(
           entry,
           entry.started,
           setNotifications,
-          cancelAutoDismissTimer
+          cancelAutoDismissTimer,
+          events.current
         );
-        subscribe(entry.events.started, startedHandler);
+        subscribe(entry.events.started, (event: unknown) => {
+          startedHandler(event);
+          const operationId = (event as { operationId?: string } | null)?.operationId;
+          if (!operationId || !recover || events.current.terminals.has(operationId)) return;
+          setNotifications((prev) => {
+            if (
+              prev.some((n) => n.type === entry.type && !isTerminalNotificationStatus(n.status)) &&
+              !prev.some((n) => n.type === entry.type && n.details?.operationId === operationId)
+            )
+              queueMicrotask(recover);
+            return prev;
+          });
+        });
       }
 
       if (entry.events.progress && entry.progress) {
@@ -247,7 +116,8 @@ export function useNotificationHandlers(
           entry.progress,
           setNotifications,
           scheduleAutoDismiss,
-          cancelAutoDismissTimer
+          cancelAutoDismissTimer,
+          events.current
         );
         subscribe(entry.events.progress, progressHandler);
       }
@@ -257,7 +127,7 @@ export function useNotificationHandlers(
         entry,
         setNotifications,
         scheduleAutoDismiss,
-        removeNotification
+        events.current
       );
       if (completeHandler) {
         subscribe(entry.events.complete, completeHandler);
@@ -273,7 +143,7 @@ export function useNotificationHandlers(
     const waitingHandler = (event: OperationWaitingEvent): void => {
       const entry = findEntryForWireType(registry, event.operationType);
       if (!entry) return;
-      if (acknowledgedIds.current.has(`terminal_${event.operationId}`)) return;
+      if (!rememberEvent(events.current, entry.type, 'waiting', 'OperationWaiting', event)) return;
       if (event.silent) {
         if (entry.type !== 'scheduled_prefill')
           setNotifications((prev) => {
@@ -302,8 +172,8 @@ export function useNotificationHandlers(
             ];
           });
         const id = `queued_${event.operationId}`;
-        if (event.acknowledge === false || acknowledgedIds.current.has(id)) return;
-        acknowledgedIds.current.add(id);
+        if (event.acknowledge === false || acknowledgedIds.has(id)) return;
+        acknowledgedIds.add(id);
         createCompletionHandler<OperationWaitingEvent & { success: boolean; status: string }>(
           {
             type: 'generic',
@@ -387,81 +257,24 @@ export function useNotificationHandlers(
     const waitingCompleteHandler = (event: OperationWaitingCompleteEvent): void => {
       const entry = findEntryForWireType(registry, event.operationType);
       if (!entry) return;
-      acknowledgedIds.current.add(`terminal_${event.operationId}`);
-      setNotifications((prev) => {
-        const existing = prev.find(
-          (n) => n.type !== 'generic' && n.details?.operationId === event.operationId
-        );
-        const restored = prev.map((n) =>
-          n.status === 'waiting' && n.details?.currentOperationId === event.operationId
-            ? { ...n, status: 'running' as const }
-            : n
-        );
-        if (event.promoted) {
-          const without = restored.filter((n) => n !== existing);
-          if (
-            !existing?.controlOnly ||
-            !event.nextOperationId ||
-            without.some((n) => n.details?.operationId === event.nextOperationId)
-          )
-            return without;
-          return [
-            ...without,
-            {
-              ...existing,
-              id: operationCardId(event.nextOperationId),
-              status:
-                event.nextStatus === 'waiting'
-                  ? ('waiting' as const)
-                  : event.nextStatus === 'cancelling'
-                    ? ('cancelling' as const)
-                    : ('running' as const),
-              details: {
-                ...existing.details,
-                operationId: event.nextOperationId,
-                cancelPending: false,
-                cancelRequested: event.nextStatus === 'cancelling',
-                cancelSent: false
-              }
-            }
-          ];
-        }
-        if (event.cancelled || event.skipped) {
-          if (!existing) return restored;
-          if (existing.controlOnly) return restored.filter((n) => n.id !== existing.id);
-          scheduleAutoDismiss(existing.id);
-          return restored.map((n) =>
-            n.id === existing.id
-              ? {
-                  ...n,
-                  status: event.cancelled ? ('cancelled' as const) : ('skipped' as const),
-                  message: event.cancelled
-                    ? i18n.t('common.notifications.operationWaitingCancelled')
-                    : (event.error ?? i18n.t(GENERIC_SKIPPED_I18N_KEY)),
-                  error: undefined,
-                  details: { ...n.details, cancelled: event.cancelled }
-                }
-              : n
-          );
-        }
-        const id = existing?.id ?? operationCardId(event.operationId);
-        const message = event.error ?? i18n.t(GENERIC_FAILURE_I18N_KEY);
-        scheduleAutoDismiss(id);
-        return [
-          ...restored.filter((n) => n.id !== id),
-          {
-            ...existing,
-            id,
-            type: entry.type,
-            status: 'failed' as const,
-            controlOnly: undefined,
-            message,
-            error: message,
-            startedAt: existing?.startedAt ?? new Date(),
-            details: { ...existing?.details, operationId: event.operationId }
-          }
-        ];
-      });
+      if (!rememberEvent(events.current, entry.type, 'handoff', 'OperationWaitingComplete', event))
+        return;
+      setNotifications((prev) =>
+        applyHandoff(
+          prev,
+          event,
+          events.current,
+          entry,
+          scheduleAutoDismiss,
+          cancelAutoDismissTimer
+        )
+      );
+      if (
+        event.promoted &&
+        recover &&
+        (!event.nextStatus || !events.current.records.has(event.nextOperationId ?? ''))
+      )
+        queueMicrotask(recover);
     };
 
     subscribe('OperationWaiting', waitingHandler as (...args: unknown[]) => void);
@@ -478,6 +291,8 @@ export function useNotificationHandlers(
     setNotifications,
     scheduleAutoDismiss,
     cancelAutoDismissTimer,
-    removeNotification
+    events,
+    acknowledgedIds,
+    recover
   ]);
 }

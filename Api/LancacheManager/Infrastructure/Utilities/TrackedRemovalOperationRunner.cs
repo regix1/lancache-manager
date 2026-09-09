@@ -43,12 +43,9 @@ internal static class TrackedRemovalOperationRunner
         RemovalOperationConfig<TReport> config)
     {
         var cancellationTokenSource = new CancellationTokenSource();
+        var cancellationToken = cancellationTokenSource.Token;
 
-        // pr2-B: the terminal Complete event is emitted EXACTLY ONCE from inside CompleteOperation
-        // (CompletedFlag-gated) via this onTerminalEmit closure — never directly from the worker body.
-        // The success/error payload factories need data only known at completion (TReport / Exception),
-        // so the worker captures them into these locals BY VALUE just before calling CompleteOperation,
-        // and the closure reads them. operationId is captured below once RegisterOperation returns.
+        // Only the winning terminal claim publishes the report used by this run's emitter.
         Guid operationId = Guid.Empty;
         TReport? capturedReport = default;
         Exception? capturedException = null;
@@ -80,13 +77,17 @@ internal static class TrackedRemovalOperationRunner
         {
             try
             {
-                var cancellationToken = cancellationTokenSource.Token;
                 cancellationToken.ThrowIfCancellationRequested();
 
-                await notifications.NotifyAllAsync(
-                    config.ProgressEventName,
-                    config.BuildInitialProgressPayload(operationId));
-                operationTracker.UpdateProgress(operationId, 0, config.InitialStageKey);
+                var initialAccepted = false;
+                operationTracker.UpdateProgress(operationId, 0, config.InitialStageKey,
+                    onProgress: _ => initialAccepted = true);
+                if (initialAccepted)
+                {
+                    await notifications.NotifyAllAsync(
+                        config.ProgressEventName,
+                        config.BuildInitialProgressPayload(operationId));
+                }
 
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -95,33 +96,35 @@ internal static class TrackedRemovalOperationRunner
                     cancellationToken,
                     async update =>
                     {
-                        await notifications.NotifyAllAsync(
-                            config.ProgressEventName,
-                            config.BuildProgressPayload(operationId, update));
-                        operationTracker.UpdateProgress(operationId, update.PercentComplete, update.StageKey);
-
-                        if (config.ApplyProgressMetrics != null)
+                        var captured = update with
                         {
-                            operationTracker.UpdateMetadata(operationId, metadata =>
+                            Context = update.Context == null ? null : new(update.Context)
+                        };
+                        var accepted = false;
+                        operationTracker.UpdateProgress(operationId, captured.PercentComplete, captured.StageKey,
+                            onProgress: _ =>
                             {
-                                config.ApplyProgressMetrics((RemovalMetrics)metadata, update);
+                                config.ApplyProgressMetrics?.Invoke(config.Metadata, captured);
+                                accepted = true;
                             });
+                        if (accepted)
+                        {
+                            await notifications.NotifyAllAsync(
+                                config.ProgressEventName,
+                                config.BuildProgressPayload(operationId, captured));
                         }
                     });
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                await notifications.NotifyAllAsync(
-                    config.ProgressEventName,
-                    config.BuildFinalizingProgressPayload(operationId, report));
-                operationTracker.UpdateProgress(operationId, 100.0, config.FinalizingStageKey);
-
-                if (config.ApplyFinalMetrics != null)
+                var finalizingAccepted = false;
+                operationTracker.UpdateProgress(operationId, 100.0, config.FinalizingStageKey,
+                    onProgress: _ => finalizingAccepted = true);
+                if (finalizingAccepted)
                 {
-                    operationTracker.UpdateMetadata(operationId, metadata =>
-                    {
-                        config.ApplyFinalMetrics((RemovalMetrics)metadata, report);
-                    });
+                    await notifications.NotifyAllAsync(
+                        config.ProgressEventName,
+                        config.BuildFinalizingProgressPayload(operationId, report));
                 }
 
                 if (config.OnSuccessAsync != null)
@@ -134,8 +137,11 @@ internal static class TrackedRemovalOperationRunner
                 // Capture the report BY VALUE before completing so the onTerminalEmit closure
                 // (fired inside CompleteOperation) can build the success payload. The runner no
                 // longer emits the Complete event directly — that happens exactly once in the tracker.
-                capturedReport = report;
-                operationTracker.CompleteOperation(operationId, success: true);
+                operationTracker.CompleteOperation(operationId, success: true, onCompleting: _ =>
+                {
+                    capturedReport = report;
+                    config.ApplyFinalMetrics?.Invoke(config.Metadata, report);
+                });
             }
             catch (OperationCanceledException)
             {
@@ -147,19 +153,23 @@ internal static class TrackedRemovalOperationRunner
             {
                 config.LogFailure?.Invoke(operationId, ex);
 
-                // Progress (error) emit is NOT terminal — keep it.
-                await notifications.NotifyAllAsync(
-                    config.ProgressEventName,
-                    config.BuildErrorProgressPayload(operationId, ex));
+                var errorAccepted = false;
+                operationTracker.UpdateProgress(operationId,
+                    operationTracker.GetOperation(operationId)?.PercentComplete ?? 0, ex.Message,
+                    onProgress: _ => errorAccepted = true);
+                if (errorAccepted)
+                {
+                    await notifications.NotifyAllAsync(
+                        config.ProgressEventName,
+                        config.BuildErrorProgressPayload(operationId, ex));
+                }
 
                 // Capture the exception so the onTerminalEmit closure can build the error Complete payload.
-                capturedException = ex;
-                operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+                operationTracker.CompleteOperation(operationId, success: false, error: ex.Message,
+                    onCompleting: _ => capturedException = ex);
             }
-            // core-3: no finally-dispose of the CTS here — the tracker owns its lifetime and disposes
-            // it inside CompleteOperation. Disposing it from the worker would race the tracker's
-            // cancel/force-kill path and double-dispose.
-        }, cancellationTokenSource.Token);
+            // The tracker owns cancellation-source disposal.
+        }, cancellationToken);
 
         return operationId;
     }

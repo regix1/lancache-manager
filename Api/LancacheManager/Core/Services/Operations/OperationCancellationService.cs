@@ -44,19 +44,24 @@ public class OperationCancellationService
     /// </summary>
     public async Task<bool> ForceKillAsync(Guid operationId)
     {
-        var operation = _operationTracker.GetOperation(operationId);
+        var operation = _operationTracker.GetOperation(operationId, followHandoff: true);
         if (operation == null)
         {
             _logger.LogWarning("Force kill requested for unknown operation {Id}", operationId);
             return false;
         }
 
+        operationId = operation.Id;
+        System.Diagnostics.Process? process;
+        lock (operation)
+        {
+            if (operation.CompletedFlag != 0 || operation.Status.IsTerminal()) return true;
+            process = operation.AssociatedProcess;
+        }
+
         _logger.LogWarning(
             "Force killing operation {Id} ({Type}: {Name})",
             operationId, operation.Type, operation.Name);
-
-        // Capture the process BEFORE ForceKillOperation nulls AssociatedProcess.
-        var process = operation.AssociatedProcess;
 
         try
         {
@@ -77,8 +82,6 @@ public class OperationCancellationService
             _logger.LogDebug(ex, "Process for operation {Id} was disposed concurrently during force kill — treating as already exited", operationId);
         }
 
-        _operationTracker.ForceKillOperation(operationId); // cancels token, best-effort kill (KillProcessTree absorbs a second kill)
-
         var current = _operationTracker.GetOperation(operationId);
         if (current == null || current.Status.IsTerminal())
         {
@@ -87,10 +90,12 @@ public class OperationCancellationService
             return true;
         }
 
+        _operationTracker.ForceKillOperation(operationId);
+
         // Every OperationType now registers an OnTerminalEmit, so CompleteOperation fires the terminal
         // SignalR event EXACTLY ONCE (CompletedFlag-gated) for the force-kill case too. No separate
         // force-kill notification path is needed.
-        _operationTracker.CompleteOperation(operationId, success: false, error: "Force killed by user");
+        _operationTracker.CompleteOperation(operationId, success: false, error: "Force killed by user", cancelled: true);
         return true;
     }
 }

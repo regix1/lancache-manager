@@ -1,11 +1,13 @@
 import ApiService from '@services/api.service';
-import { getErrorMessage } from '@utils/error';
+import { isAbortError } from '@utils/error';
+import { ApiError } from '@services/apiError';
 import i18n from '../../i18n';
 import type { UnifiedNotification } from '@contexts/notifications';
 import { VARIANT_BY_STATUS } from '@utils/statusVariant';
 import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
 import type { CancelKind, NotificationsContextType } from '@contexts/notifications/types';
 import { APP_EVENTS } from '@utils/constants';
+import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 
 // ============================================================================
 // Cancellable Operation Types (derived from the registry — single source)
@@ -73,19 +75,28 @@ export const handleCancel = async (
   getLiveNotification: (id: string) => UnifiedNotification | undefined,
   deferred = false
 ): Promise<boolean> => {
+  if (isTerminalNotificationStatus(notification.status)) return false;
   const cancelKind = CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind ?? 'none';
   if (cancelKind === 'none') return false;
   if (cancelKind === 'clientQueue') {
-    updateNotification(notification.id, (current) => ({
-      details: { ...current.details, cancelRequested: true, cancelling: true }
-    }));
+    updateNotification(notification.id, (current) =>
+      isTerminalNotificationStatus(current.status)
+        ? {}
+        : {
+            details: { ...current.details, cancelRequested: true, cancelling: true }
+          }
+    );
     return true;
   }
   const operationId = notification.details?.operationId;
   if (!operationId) {
-    updateNotification(notification.id, (current) => ({
-      details: { ...current.details, cancelRequested: true }
-    }));
+    updateNotification(notification.id, (current) =>
+      isTerminalNotificationStatus(current.status)
+        ? {}
+        : {
+            details: { ...current.details, cancelRequested: true }
+          }
+    );
     return true;
   }
   if (
@@ -96,7 +107,9 @@ export const handleCancel = async (
   const force = !deferred && notification.details?.cancelRequested === true;
   pendingCancels.add(operationId);
   updateNotification(notification.id, (current) =>
-    current.details?.operationId === operationId
+    current.details?.operationId === operationId &&
+    current.instanceVersion === notification.instanceVersion &&
+    !isTerminalNotificationStatus(current.status)
       ? {
           details: {
             ...current.details,
@@ -111,12 +124,21 @@ export const handleCancel = async (
     const result = force
       ? await ApiService.forceKillOperation(operationId)
       : await ApiService.cancelOperation(operationId);
-    if (getLiveNotification(notification.id)?.details?.operationId !== operationId) return true;
+    const live = getLiveNotification(notification.id);
+    if (
+      !live ||
+      live.details?.operationId !== operationId ||
+      live.instanceVersion !== notification.instanceVersion ||
+      isTerminalNotificationStatus(live.status)
+    )
+      return true;
     if (result && 'alreadyFinished' in result && result.alreadyFinished === true) {
       removeNotification(notification.id);
     } else {
       updateNotification(notification.id, (current) =>
-        current.details?.operationId === operationId
+        current.details?.operationId === operationId &&
+        current.instanceVersion === notification.instanceVersion &&
+        !isTerminalNotificationStatus(current.status)
           ? {
               status: 'cancelling',
               details: { ...current.details, cancelPending: false, cancelling: true }
@@ -125,12 +147,28 @@ export const handleCancel = async (
       );
     }
     return true;
-  } catch (err) {
-    console.error('Cancellation failed:', getErrorMessage(err));
-    const errorMessage = err instanceof Error ? err.message : '';
-    if (errorMessage.toLowerCase().includes('not found')) {
-      if (getLiveNotification(notification.id)?.details?.operationId === operationId)
-        removeNotification(notification.id);
+  } catch (err: unknown) {
+    if (isAbortError(err)) {
+      updateNotification(notification.id, (current) =>
+        current.details?.operationId === operationId &&
+        current.instanceVersion === notification.instanceVersion &&
+        !isTerminalNotificationStatus(current.status)
+          ? { details: { ...current.details, cancelPending: false } }
+          : {}
+      );
+      return false;
+    }
+    const live = getLiveNotification(notification.id);
+    if (
+      !live ||
+      live.details?.operationId !== operationId ||
+      live.instanceVersion !== notification.instanceVersion ||
+      isTerminalNotificationStatus(live.status)
+    )
+      return true;
+    console.error('Cancellation failed:', { operationId, force, error: err });
+    if (err instanceof ApiError && err.status === 404) {
+      removeNotification(notification.id);
       return true;
     }
     notifyToastError(
@@ -139,7 +177,9 @@ export const handleCancel = async (
         : 'common.notifications.cancelOperationFailed'
     );
     updateNotification(notification.id, (current) =>
-      current.details?.operationId === operationId
+      current.details?.operationId === operationId &&
+      current.instanceVersion === notification.instanceVersion &&
+      !isTerminalNotificationStatus(current.status)
         ? {
             details: {
               ...current.details,

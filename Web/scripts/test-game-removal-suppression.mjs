@@ -4,11 +4,13 @@ import test from 'node:test';
 import ts from 'typescript';
 import {
   MemoryStorage,
+  notificationEvents,
   bindLifted,
   collectNodes,
   compileToUrl,
   liftConstArrow,
   liftHookCallback,
+  loadNotificationModules,
   parseSource,
   moduleUrl
 } from './transpile-module.mjs';
@@ -89,7 +91,10 @@ test('cancel requests serialize clicks and protect replacement operations', asyn
       CANCEL_CONFIG_BY_TYPE: { game_detection: { cancelKind: 'serverOp' } },
       pendingCancels: new Set(),
       notifyToastError: (key) => errors.push(key),
-      getErrorMessage: String,
+      isTerminalNotificationStatus: (status) =>
+        ['completed', 'failed', 'cancelled', 'skipped'].includes(status),
+      isAbortError: (error) => error?.name === 'AbortError',
+      ApiError: class extends Error {},
       ApiService: {
         cancelOperation: () => {
           calls++;
@@ -146,7 +151,7 @@ test('platform starts create only per-platform hidden controls', async () => {
   globalThis.localStorage = new MemoryStorage();
   globalThis.sessionStorage = new MemoryStorage();
   const handlers = await loadHandlerFactories();
-  const source = parseSource('src/contexts/notifications/useNotificationHandlers.ts');
+  const source = parseSource('src/contexts/notifications/handlers.ts');
   const declaration = collectNodes(
     source,
     (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'buildStartedHandler'
@@ -180,6 +185,7 @@ test('hidden waiting handoff preserves the exact replacement in either event ord
     status: 'waiting',
     controlOnly: true,
     message: 'Detection',
+    startedAt: new Date('2026-09-01T00:00:00Z'),
     details: { operationId: 'old' }
   };
   for (const arrived of [false, true]) {
@@ -388,6 +394,9 @@ test('eviction waiting wire routes once through warning rendering and actual dis
       APP_EVENTS: { NOTIFICATION_REMOVING: 'removing' },
       setTimeout,
       setNotifications,
+      autoDismissTimersRef,
+      events: notificationEvents(),
+      isTerminalNotificationStatus,
       NOTIFICATION_ANIMATION_DURATION_MS: constants.NOTIFICATION_ANIMATION_DURATION_MS
     }
   );
@@ -415,7 +424,8 @@ test('eviction waiting wire routes once through warning rendering and actual dis
     {
       registry,
       findEntryForWireType,
-      acknowledgedIds: { current: new Set() },
+      acknowledgedIds: new Set(),
+      events: notificationEvents(),
       ...handlers,
       cancelAutoDismissTimer: () => undefined,
       scheduleAutoDismiss,
@@ -644,6 +654,37 @@ test('schedule responses retain visible success and genuine skipped or failed me
   }
 });
 
+test('all maintenance waits resolve through the shipped map and registry cancel contract', async () => {
+  globalThis.localStorage = new MemoryStorage();
+  globalThis.sessionStorage = new MemoryStorage();
+  const modules = await loadNotificationModules(I18N_STUB);
+  const source = parseSource('src/contexts/notifications/useNotificationHandlers.ts');
+  const lookup = collectNodes(
+    source,
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'findEntryForWireType'
+  )[0];
+  const findEntryForWireType = bindLifted(
+    `(registry, wireType) => { ${lookup.getText(source)} return findEntryForWireType(registry, wireType); }`,
+    modules
+  );
+  const expected = {
+    logRotation: ['log_rotation', 'none'],
+    gameImageFetch: ['game_image_fetch', 'serverOp'],
+    cacheSnapshot: ['cache_snapshot', 'serverOp'],
+    operationHistoryCleanup: ['operation_history_cleanup', 'serverOp'],
+    dashboardCacheWarmer: ['dashboard_cache_warmer', 'serverOp']
+  };
+
+  for (const [wireType, [notificationType, cancelKind]] of Object.entries(expected)) {
+    assert.equal(modules.OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[wireType], notificationType);
+    const entry = findEntryForWireType(modules.NOTIFICATION_REGISTRY, wireType);
+    assert.equal(entry?.type, notificationType);
+    assert.equal(entry?.cancelKind, cancelKind);
+  }
+
+  assert.equal(findEntryForWireType(modules.NOTIFICATION_REGISTRY, 'cacheFileCount'), undefined);
+});
+
 const CASES = [
   ['game_removal', 'cache batch, game items'],
   ['service_removal', 'cache batch, service items'],
@@ -715,7 +756,8 @@ const runWaitingHandler = async (
     createCompletionHandler,
     findBulkCardOwningOperation,
     eventTargetsCard,
-    operationCardId
+    operationCardId,
+    rememberEvent
   } = await loadHandlerFactories();
   const { isTerminalNotificationStatus } = await import(
     await compileToUrl('../src/contexts/notifications/notificationStatus.ts')
@@ -733,9 +775,11 @@ const runWaitingHandler = async (
 
   const waitingHandler = bindLifted(arrowSource, {
     registry: [],
-    acknowledgedIds: { current: new Set() },
+    acknowledgedIds: new Set(),
+    events: notificationEvents(),
     createCompletionHandler,
     operationCardId,
+    rememberEvent,
     findEntryForWireType: () => ({ type, id: `${type}_card` }),
     cancelAutoDismissTimer: () => undefined,
     scheduleAutoDismiss: (id) => dismissed.push(id),
@@ -1041,8 +1085,11 @@ const runWaitingCompleteHandler = async (type, startingCards, event) => {
 
   const waitingCompleteHandler = bindLifted(arrowSource, {
     registry: [],
-    acknowledgedIds: { current: new Set() },
-    operationCardId: (await loadHandlerFactories()).operationCardId,
+    acknowledgedIds: new Set(),
+    events: notificationEvents(),
+    ...(await loadHandlerFactories()),
+    recover: undefined,
+    cancelAutoDismissTimer: () => undefined,
     findEntryForWireType: () => ({ type, id: `${type}_card` }),
     setNotifications,
     scheduleAutoDismiss: (id) => dismissed.push(id),

@@ -30,7 +30,12 @@ export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, Notificati
   evictionScan: 'eviction_scan',
   evictionRemoval: 'eviction_removal',
   cacheSizeScan: 'cache_size_scan',
-  scheduledPrefill: 'scheduled_prefill'
+  scheduledPrefill: 'scheduled_prefill',
+  logRotation: 'log_rotation',
+  gameImageFetch: 'game_image_fetch',
+  cacheSnapshot: 'cache_snapshot',
+  operationHistoryCleanup: 'operation_history_cleanup',
+  dashboardCacheWarmer: 'dashboard_cache_warmer'
 };
 
 /**
@@ -88,6 +93,7 @@ export const MOBILE_FULL_CARD_CAP = 3;
  */
 export const LIVE_ONLY_CANCEL_DETAIL_KEYS = [
   'cancelRequested',
+  'cancelPending',
   'cancelSent',
   'cancelling'
 ] as const;
