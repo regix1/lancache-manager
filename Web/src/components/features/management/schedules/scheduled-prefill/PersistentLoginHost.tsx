@@ -15,7 +15,7 @@ interface PersistentLoginHostProps {
   serviceKey: ScheduledPrefillServiceKey;
   isRunning: boolean;
   isAuthenticated: boolean;
-  onAuthenticated: () => void;
+  onAuthenticated: (sessionId: string | null) => void;
   onDismiss: () => void;
 }
 
@@ -83,7 +83,7 @@ export function PersistentLoginHost({
   }, [isAuthenticated, onDismiss]);
 
   const handleAuthenticated = () => {
-    onAuthenticated();
+    onAuthenticated(loginState.sessionId);
     onDismiss();
   };
 

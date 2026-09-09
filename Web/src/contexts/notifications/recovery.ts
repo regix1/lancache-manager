@@ -22,6 +22,7 @@ import {
   waitingCardMessage,
   operationCardId,
   applyHandoff,
+  applyPredecessor,
   rememberEvent,
   persistNotification,
   clearPersistedNotificationIfTargeted
@@ -482,6 +483,16 @@ function createSimpleRecoveryFunction<TData>(
           let next = prev.filter((n) => n.id !== errorId);
           for (const snapshot of cards) {
             const id = snapshot.details?.operationId;
+            const entry = NOTIFICATION_REGISTRY.find((candidate) => candidate.type === type);
+            if (pass && entry)
+              next = applyPredecessor(
+                next,
+                snapshot.details,
+                pass.events,
+                entry,
+                scheduleAutoDismiss,
+                pass.cancelAutoDismissTimer
+              );
             if (!canRecover(pass, type, id) || (id && pass?.events.terminals.has(id))) continue;
             if (type === 'game_detection' && snapshot.details?.parentOperationId) {
               if (id) {

@@ -135,6 +135,7 @@ export interface UnifiedNotification {
     directoriesProcessed?: number;
     bytesDeleted?: number;
     operationId?: string;
+    previousOperationId?: string | null;
     parentOperationId?: string | null;
     /** First cancel click sent; second click force-kills. */
     cancelRequested?: boolean;

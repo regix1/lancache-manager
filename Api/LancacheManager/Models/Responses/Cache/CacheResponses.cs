@@ -285,6 +285,7 @@ public class CacheSizeScanStatusResponse
 
     /// <summary>The active scan's operation id. Null when <see cref="IsProcessing"/> is false.</summary>
     public Guid? OperationId { get; set; }
+    public Guid? PreviousOperationId { get; set; }
 }
 
 /// <summary>Response for DELETE /api/cache/evicted: the bulk eviction removal that was started.</summary>

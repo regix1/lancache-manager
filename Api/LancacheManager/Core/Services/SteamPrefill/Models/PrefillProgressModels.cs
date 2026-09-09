@@ -8,6 +8,13 @@ namespace LancacheManager.Core.Services.SteamPrefill;
 /// </summary>
 public class PrefillProgress
 {
+    /// <summary>Prefill command identifier. Null for progress from an older daemon.</summary>
+    public string? OperationId { get; set; }
+    /// <summary>Failure classification. Null when no classified failure was reported.</summary>
+    public string? ErrorCode { get; set; }
+    /// <summary>Whether authentication was lost. Null when the daemon did not report it.</summary>
+    public bool? RequiresLogin { get; set; }
+
     public string State { get; set; } = PrefillProgressState.Idle.ToWireString();
     public string? Message { get; set; }
     public string? CurrentAppId { get; set; }

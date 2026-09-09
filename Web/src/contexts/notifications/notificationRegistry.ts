@@ -1060,7 +1060,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         ),
         progress: data.percentComplete,
         details: {
-          operationId: data.operationId ?? undefined
+          operationId: data.operationId ?? undefined,
+          previousOperationId: data.previousOperationId
         }
       }),
       staleMessageKey: 'signalr.cacheSizeScan.stale'

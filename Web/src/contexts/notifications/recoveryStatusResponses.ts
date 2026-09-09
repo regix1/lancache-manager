@@ -187,6 +187,7 @@ export interface OperationStatusResponse {
 }
 
 export interface CacheSizeScanStatusResponse {
+  previousOperationId?: string | null;
   isProcessing: boolean;
   /**
    * Run-stable display flag for the active scan. A silent automatic run reports false so

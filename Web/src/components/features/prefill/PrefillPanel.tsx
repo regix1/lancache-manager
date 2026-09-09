@@ -16,7 +16,7 @@ import { ActivityLog } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import { NetworkStatusSection } from './NetworkStatusSection';
 import ApiService from '@services/api.service';
-import { assertOk } from '@services/apiError';
+import { ApiError, assertOk } from '@services/apiError';
 import { usePrefillContext } from '@contexts/usePrefillContext';
 import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -113,6 +113,9 @@ function ServicePrefillPanel({
   const reloadGamesRef = useRef<Promise<void> | null>(null);
   const reloadGamesAgainRef = useRef(false);
   const gamesRequestRef = useRef<AbortController | null>(null);
+  const gamesEpochRef = useRef(0);
+  const gamesKeyRef = useRef('');
+  const gameAuthRef = useRef<{ key: string; authenticated: boolean } | null>(null);
 
   // Use context for log entries (persists across tab switches)
   const {
@@ -151,6 +154,8 @@ function ServicePrefillPanel({
   const [showGameSelection, setShowGameSelection] = useState(false);
   const [isLoadingGames, setIsLoadingGames] = useState(false);
   const [cachedAppIds, setCachedAppIds] = useState<string[]>([]);
+  const [unknownAppIds, setUnknownAppIds] = useState<string[]>([]);
+  const [gameLoadError, setGameLoadError] = useState<string | null>(null);
   const [isUsingGamesCache, setIsUsingGamesCache] = useState(false);
   const [removingAppId, setRemovingAppId] = useState<string | null>(null);
   const [isClearingAllCache, setIsClearingAllCache] = useState(false);
@@ -462,19 +467,41 @@ function ServicePrefillPanel({
 
   useEffect(() => {
     gamesRequestRef.current?.abort();
+    gamesKeyRef.current = `${serviceId}:${signalR.session?.id ?? ''}`;
+    gamesEpochRef.current += 1;
+    reloadGamesRef.current = null;
+    reloadGamesAgainRef.current = false;
     gamesCacheRef.current = null;
     setCachedAppIds([]);
+    setUnknownAppIds([]);
+    setGameLoadError(null);
+    setOwnedGames([]);
+    setShowGameSelection(false);
     setIsLoadingGames(false);
-    return () => gamesRequestRef.current?.abort();
+    return () => {
+      gamesRequestRef.current?.abort();
+      gamesEpochRef.current += 1;
+      gamesKeyRef.current = '';
+      reloadGamesRef.current = null;
+      reloadGamesAgainRef.current = false;
+    };
   }, [serviceId, signalR.session?.id]);
+
+  gamesKeyRef.current = `${serviceId}:${signalR.session?.id ?? ''}`;
 
   const loadGames = useCallback(
     async (force = false) => {
       if (!signalR.session) return;
+      const key = `${serviceId}:${signalR.session.id}`;
+      if (gamesKeyRef.current !== key) return;
       gamesRequestRef.current?.abort();
       const controller = new AbortController();
       gamesRequestRef.current = controller;
       const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]);
+      const isCurrent = () =>
+        gamesRequestRef.current === controller &&
+        !controller.signal.aborted &&
+        gamesKeyRef.current === key;
       setIsLoadingGames(true);
       try {
         const gamesCache = gamesCacheRef.current;
@@ -488,26 +515,26 @@ function ServicePrefillPanel({
         if (isCacheFresh) {
           setOwnedGames(gamesCache.ownedGames);
           setCachedAppIds(gamesCache.cachedAppIds);
+          setUnknownAppIds([]);
           setIsUsingGamesCache(true);
           return;
         }
 
         setIsUsingGamesCache(false);
+        setUnknownAppIds(ownedGames.map((game) => game.appId));
 
         // Fetch owned games via direct API call
         const gamesResponse = await fetch(
           `${API_BASE}/${serviceBasePath}/sessions/${signalR.session.id}/games`,
           { credentials: 'include', signal }
         );
-        if (!gamesResponse.ok) {
-          throw new Error(`Failed to get games: HTTP ${gamesResponse.status}`);
-        }
+        await assertOk(gamesResponse);
         const games: OwnedGame[] = await gamesResponse.json();
         const normalizedGames = (games || []).map((game: OwnedGame) => ({
           ...game,
           appId: String(game.appId)
         }));
-        if (controller.signal.aborted) return;
+        if (!isCurrent()) return;
         setOwnedGames(normalizedGames);
         if (serviceId !== 'battlenet' && serviceId !== 'riot') {
           // Battle.net/Riot have a fixed public catalog - "owned games" framing is inaccurate
@@ -538,7 +565,16 @@ function ServicePrefillPanel({
             cachedIds = cacheStatus.upToDateAppIds.filter((id) => eligible.includes(id));
             unknownIds = cacheStatus.unknownAppIds.filter((id) => eligible.includes(id));
             cacheStatusResolved = unknownIds.length === 0;
-          } catch {
+          } catch (error: unknown) {
+            if (!isCurrent()) return;
+            const stageKey = error instanceof ApiError ? error.body?.stageKey : null;
+            setGameLoadError(
+              stageKey === 'errors.steam.signInLost'
+                ? t('errors.steam.signInLost')
+                : stageKey === 'errors.steam.gameDetailsUnavailable'
+                  ? t('errors.steam.gameDetailsUnavailable')
+                  : t('errors.prefill.requestFailed')
+            );
             cachedIds = [];
             cacheStatusResolved = false;
           }
@@ -546,8 +582,10 @@ function ServicePrefillPanel({
 
         // Same reason the snapshot is withheld: a failed check is not proof nothing is cached, so
         // the badges already on screen stay put rather than blanking mid-run.
-        if (controller.signal.aborted) return;
+        if (!isCurrent()) return;
         setCachedAppIds((previous) => resolveCachedAppIds(previous, cachedIds, unknownIds));
+        setUnknownAppIds(unknownIds);
+        if (cacheStatusResolved) setGameLoadError(null);
         // Only persist an authoritative snapshot: the cached-status check resolved AND the
         // library actually came back. An empty/failed transient is left uncached (hasData:false)
         // so a later load retries instead of reusing a wrong-empty library until cache expiry.
@@ -561,14 +599,27 @@ function ServicePrefillPanel({
         if (cachedIds.length > 0) {
           addLog('info', t('prefill.log.gamesCached', { count: cachedIds.length }));
         }
-      } catch {
-        if (!controller.signal.aborted) addLog('error', t('prefill.log.failedLoadLibrary'));
+      } catch (error: unknown) {
+        if (!isCurrent()) return;
+        gamesCacheRef.current = null;
+        setUnknownAppIds(ownedGames.map((game) => game.appId));
+        const stageKey = error instanceof ApiError ? error.body?.stageKey : null;
+        setGameLoadError(
+          stageKey === 'errors.steam.signInLost'
+            ? t('errors.steam.signInLost')
+            : stageKey === 'errors.steam.gameDetailsUnavailable'
+              ? t('errors.steam.gameDetailsUnavailable')
+              : t('errors.prefill.requestFailed')
+        );
+        addLog('error', t('prefill.log.failedLoadLibrary'));
       } finally {
-        if (gamesRequestRef.current === controller) setIsLoadingGames(false);
+        if (isCurrent()) setIsLoadingGames(false);
       }
     },
-    [signalR.session, addLog, t, serviceBasePath, gamesCacheWindowMs, serviceId]
+    [signalR.session, addLog, t, serviceBasePath, gamesCacheWindowMs, serviceId, ownedGames]
   );
+  const loadGamesRef = useRef(loadGames);
+  loadGamesRef.current = loadGames;
 
   // Every source of a library reload goes through here: the PrefillCacheChanged broadcast, the
   // reconnect catch-up, and the clear/remove handlers that re-read on their own so the badges are
@@ -582,19 +633,57 @@ function ServicePrefillPanel({
       reloadGamesAgainRef.current = true;
       return reloadGamesRef.current;
     }
+    const epoch = gamesEpochRef.current;
+    const key = gamesKeyRef.current;
     const pass = (async () => {
       try {
         do {
           reloadGamesAgainRef.current = false;
-          await loadGames(true);
-        } while (reloadGamesAgainRef.current);
+          await loadGamesRef.current(true);
+        } while (
+          reloadGamesAgainRef.current &&
+          gamesEpochRef.current === epoch &&
+          gamesKeyRef.current === key
+        );
       } finally {
-        reloadGamesRef.current = null;
+        if (gamesEpochRef.current === epoch && gamesKeyRef.current === key)
+          reloadGamesRef.current = null;
       }
     })();
     reloadGamesRef.current = pass;
     return pass;
-  }, [loadGames]);
+  }, []);
+
+  useEffect(() => {
+    const key = `${serviceId}:${signalR.session?.id ?? ''}`;
+    const previous = gameAuthRef.current;
+    gameAuthRef.current = { key, authenticated: signalR.isLoggedIn };
+    if (previous?.key !== key || previous.authenticated === signalR.isLoggedIn) return;
+    gamesCacheRef.current = null;
+    if (!signalR.isLoggedIn) {
+      gamesRequestRef.current?.abort();
+      setIsLoadingGames(false);
+      setUnknownAppIds(ownedGames.map((game) => game.appId));
+    } else if (showGameSelection) {
+      void reloadGamesOnce();
+    }
+  }, [
+    serviceId,
+    signalR.session?.id,
+    signalR.isLoggedIn,
+    showGameSelection,
+    ownedGames,
+    reloadGamesOnce
+  ]);
+
+  useEffect(() => {
+    if (showGameSelection) return;
+    gamesRequestRef.current?.abort();
+    gamesEpochRef.current += 1;
+    reloadGamesRef.current = null;
+    reloadGamesAgainRef.current = false;
+    setIsLoadingGames(false);
+  }, [showGameSelection]);
 
   // The cached-depot table is shared by every container and every browser, so a game finishing
   // anywhere - or a cached entry removed anywhere - must reach this library without a Rescan.
@@ -615,9 +704,12 @@ function ServicePrefillPanel({
   useReconnectRefetch(isMainHubConnected, () => void reloadGamesOnce());
 
   const handleClearAllFromCache = useCallback(async () => {
+    const epoch = gamesEpochRef.current;
+    const key = gamesKeyRef.current;
     setIsClearingAllCache(true);
     try {
       await ApiService.clearAllPrefillCache(serviceId);
+      if (gamesEpochRef.current !== epoch || gamesKeyRef.current !== key) return;
       gamesRequestRef.current?.abort();
       gamesCacheRef.current = null;
       setCachedAppIds([]);
@@ -628,20 +720,25 @@ function ServicePrefillPanel({
       // pre-clear snapshot, and the next unforced loadGames restores every badge from it.
       await reloadGamesOnce();
     } catch (err) {
+      if (gamesEpochRef.current !== epoch || gamesKeyRef.current !== key) return;
       notifyError(t('prefill.errors.clearAllFromCacheFailed'), err, {
         logLabel: 'Failed to clear the prefill cache'
       });
     } finally {
-      setIsClearingAllCache(false);
+      if (gamesEpochRef.current === epoch && gamesKeyRef.current === key)
+        setIsClearingAllCache(false);
     }
   }, [reloadGamesOnce, notifyError, t, addLog, serviceId]);
 
   const handleRemoveFromCache = useCallback(
     async (appId: string) => {
+      const epoch = gamesEpochRef.current;
+      const key = gamesKeyRef.current;
       setRemovingAppId(appId);
       const gameName = ownedGames.find((g) => g.appId === appId)?.name ?? `#${appId}`;
       try {
         await ApiService.deletePrefillCachedApp(appId, serviceId);
+        if (gamesEpochRef.current !== epoch || gamesKeyRef.current !== key) return;
         gamesRequestRef.current?.abort();
         gamesCacheRef.current = null;
         setCachedAppIds((previous) => previous.filter((id) => id !== appId));
@@ -650,12 +747,13 @@ function ServicePrefillPanel({
         // socket down, the row the user just acted on would otherwise keep its Cached badge.
         await reloadGamesOnce();
       } catch (err) {
+        if (gamesEpochRef.current !== epoch || gamesKeyRef.current !== key) return;
         addLog('error', t('prefill.log.removeFromCacheFailed', { game: gameName }));
         notifyError(t('prefill.errors.removeFromCacheFailed'), err, {
           logLabel: 'Failed to remove app from prefill cache'
         });
       } finally {
-        setRemovingAppId(null);
+        if (gamesEpochRef.current === epoch && gamesKeyRef.current === key) setRemovingAppId(null);
       }
     },
     [reloadGamesOnce, notifyError, t, ownedGames, addLog, serviceId]
@@ -841,6 +939,8 @@ function ServicePrefillPanel({
   const handleSaveGameSelection = useCallback(
     async (appIds: string[]) => {
       if (!signalR.session) return;
+      const epoch = gamesEpochRef.current;
+      const key = gamesKeyRef.current;
       const normalizedAppIds = appIds.map((id) => String(id));
 
       try {
@@ -849,11 +949,13 @@ function ServicePrefillPanel({
           ApiService.getJsonFetchOptions({ appIds: normalizedAppIds }, { method: 'POST' })
         );
         await assertOk(response);
+        if (gamesEpochRef.current !== epoch || gamesKeyRef.current !== key) return;
         setSelectedAppIds(normalizedAppIds);
         setShowGameSelection(false);
         addLog('success', t('prefill.log.selectedGames', { count: normalizedAppIds.length }));
       } catch (err) {
-        addLog('error', getErrorMessage(err) || t('prefill.log.failedSaveSelection'));
+        if (gamesEpochRef.current !== epoch || gamesKeyRef.current !== key) return;
+        addLog('error', t('prefill.log.failedSaveSelection'));
         throw err;
       }
     },
@@ -1261,6 +1363,8 @@ function ServicePrefillPanel({
         onSave={handleSaveGameSelection}
         isLoading={isLoadingGames}
         cachedAppIds={cachedAppIds}
+        unknownAppIds={unknownAppIds}
+        error={gameLoadError}
         isUsingCache={isUsingGamesCache}
         onRescan={reloadGamesOnce}
         onRemoveFromCache={

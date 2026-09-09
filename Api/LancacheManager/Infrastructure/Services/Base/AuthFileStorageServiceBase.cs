@@ -22,7 +22,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     private readonly string _authFilePath;
     private readonly object _lock = new object();
     private TAuthData? _cachedData;
-    private readonly Dictionary<Guid, TAuthData> _savedLogins = [];
+    private readonly Dictionary<Guid, TPersistedAuthData> _savedLogins = [];
 
     protected AuthFileStorageServiceBase(
         ILogger logger,
@@ -255,8 +255,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
 
             if (GetOwnerAccountId(data) is { } accountId && HasCredentials(data))
             {
-                SaveFile(GetSavedLoginPath(accountId), data);
-                _savedLogins[accountId] = data;
+                _savedLogins[accountId] = SaveFile(GetSavedLoginPath(accountId), data);
             }
 
             SaveFile(_authFilePath, data);
@@ -269,19 +268,27 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     {
         lock (_lock)
         {
-            if (_savedLogins.TryGetValue(accountId, out var cached))
-            {
-                return cached;
-            }
-
             var path = GetSavedLoginPath(accountId);
-            if (!File.Exists(path))
-            {
-                return new TAuthData();
-            }
-
             try
             {
+                if (_savedLogins.TryGetValue(accountId, out var cached))
+                {
+                    var cachedLogin = DecryptPersisted(cached);
+                    if (cachedLogin is not null && GetOwnerAccountId(cachedLogin) == accountId)
+                    {
+                        return cachedLogin;
+                    }
+
+                    DeleteSavedLoginFile(path);
+                    _savedLogins.Remove(accountId);
+                    return new TAuthData();
+                }
+
+                if (!File.Exists(path))
+                {
+                    return new TAuthData();
+                }
+
                 var json = File.ReadAllText(path);
                 var persisted = JsonSerializer.Deserialize<TPersistedAuthData>(json) ?? new TPersistedAuthData();
                 if (GetOwnerAccountId(persisted) != accountId)
@@ -305,12 +312,12 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
                     return new TAuthData();
                 }
 
-                _savedLogins[accountId] = decrypted;
                 if (NeedsReEncryption(persisted, decrypted))
                 {
-                    SaveFile(path, decrypted);
+                    persisted = SaveFile(path, decrypted);
                 }
 
+                _savedLogins[accountId] = persisted;
                 return decrypted;
             }
             catch (Exception ex)
@@ -326,8 +333,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
         lock (_lock)
         {
             SetOwnerAccountId(data, accountId);
-            SaveFile(GetSavedLoginPath(accountId), data);
-            _savedLogins[accountId] = data;
+            _savedLogins[accountId] = SaveFile(GetSavedLoginPath(accountId), data);
         }
     }
 
@@ -358,7 +364,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     private string GetSavedLoginPath(Guid accountId)
         => Path.Combine(_authDirectory, "saved", $"{accountId:N}.json");
 
-    private void SaveFile(string path, TAuthData data)
+    private TPersistedAuthData SaveFile(string path, TAuthData data)
     {
         var directory = Path.GetDirectoryName(path)
             ?? throw new InvalidOperationException("Authentication file has no parent directory");
@@ -386,6 +392,8 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
                 _logger.LogWarning(ex, "Failed to set Unix file permissions on {AuthDataLabel} auth file", AuthDataLabel);
             }
         }
+
+        return persisted;
     }
 
     private void DeleteSavedLoginFile(string path)

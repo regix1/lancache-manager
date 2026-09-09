@@ -37,6 +37,17 @@ public class SteamSessionErrorTitleKeyTests
         Assert.False(string.IsNullOrWhiteSpace(Resolve(chinese.RootElement, key)), $"zh.json lacks {key}");
     }
 
+    [Fact]
+    public void SavedSignInPreservedResolvesInBothLocales()
+    {
+        var root = FindRepositoryRoot();
+        foreach (var locale in new[] { "en", "zh" })
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "Web", "src", "i18n", "locales", locale + ".json")));
+            Assert.False(string.IsNullOrWhiteSpace(Resolve(document.RootElement, "signalr.steamSession.savedSignInPreserved")));
+        }
+    }
+
     private static string? Resolve(JsonElement root, string key)
     {
         var current = root;

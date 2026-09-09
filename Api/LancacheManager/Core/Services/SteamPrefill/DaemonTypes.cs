@@ -52,6 +52,10 @@ public class CommandRequest
 
 public class CommandResponse
 {
+    /// <summary>Failure classification. Null on success or when an older daemon omits it.</summary>
+    [JsonPropertyName("errorCode")]
+    public string? ErrorCode { get; set; }
+
     [JsonPropertyName("id")]
     public string Id { get; set; } = string.Empty;
 
@@ -368,6 +372,14 @@ public class EncryptedCredentialResponse
 
 public class PrefillResult
 {
+    /// <summary>Failure classification. Null on success or when the failure is unclassified.</summary>
+    [JsonPropertyName("errorCode")]
+    public string? ErrorCode { get; set; }
+
+    /// <summary>Localized failure reason key. Null on success or when a legacy result omits it.</summary>
+    [JsonPropertyName("stageKey")]
+    public string? StageKey { get; set; }
+
     [JsonPropertyName("requiresLogin")]
     public bool RequiresLogin { get; set; }
 

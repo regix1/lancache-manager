@@ -116,27 +116,50 @@ public partial class SteamKit2Service
             await _sessionGate.WaitAsync(reporter.Token);
             try
             {
-                // Longer logon timeout for the interactive auth flow (Steam servers can be slow)
-                await LogonLockedAsync(new SteamUser.LogOnDetails
+                var anonymous = IsSteamDaemonActive() != false;
+                if (_isLoggedOn && (!anonymous || !HasSessionMode(anonymous: true)))
                 {
-                    Username = pollResult.AccountName!,
-                    AccessToken = pollResult.RefreshToken!,
-                    ShouldRememberPassword = true,
-                    LoginID = _steamLoginId
-                }, reporter.Token, logonTimeout: TimeSpan.FromMinutes(2));
+                    await ResetConnectionLockedAsync(reporter.Token);
+                }
+                if (!anonymous || !_isLoggedOn || _steamClient?.IsConnected != true)
+                {
+                    await LogonLockedAsync(anonymous ? null : new SteamUser.LogOnDetails
+                    {
+                        Username = pollResult.AccountName!,
+                        AccessToken = pollResult.RefreshToken!,
+                        ShouldRememberPassword = true,
+                        LoginID = _steamLoginId
+                    }, reporter.Token, logonTimeout: TimeSpan.FromMinutes(2), anonymous: anonymous);
+                }
+
+                reporter.Token.ThrowIfCancellationRequested();
+                lock (_loginOwnerLock)
+                {
+                    reporter.Token.ThrowIfCancellationRequested();
+                    if (!_hasPendingLoginOwner || _pendingLoginOwnerAccountId != loginOwnerAccountId)
+                    {
+                        throw new OperationCanceledException("Steam sign-in was cancelled.");
+                    }
+                    if (!_isLoggedOn)
+                    {
+                        throw new SteamConnectionLostException("Steam ended the connection before sign-in completed. Please try again.");
+                    }
+                    var auth = _steamAuthRepository.GetAuthData();
+                    auth.Mode = SteamAuthMode.Authenticated.ToWireString();
+                    auth.Username = pollResult.AccountName;
+                    auth.RefreshToken = pollResult.RefreshToken;
+                    auth.LastAuthenticated = DateTime.UtcNow;
+                    auth.OwnerAccountId = loginOwnerAccountId;
+                    _steamAuthRepository.SaveAuthData(auth);
+                    _sessionReplaced = false;
+                    _sessionCredential = anonymous ? null : (loginOwnerAccountId, pollResult.RefreshToken!);
+                }
             }
             finally
             {
                 _sessionGate.Release();
             }
 
-            var auth = _steamAuthRepository.GetAuthData();
-            auth.Mode = SteamAuthMode.Authenticated.ToWireString();
-            auth.Username = pollResult.AccountName;
-            auth.RefreshToken = pollResult.RefreshToken;
-            auth.LastAuthenticated = DateTime.UtcNow;
-            auth.OwnerAccountId = loginOwnerAccountId;
-            _steamAuthRepository.SaveAuthData(auth);
             _logger.LogInformation("Successfully authenticated and saved refresh token");
 
             // Terminal here rather than at the caller, so this operation is finished before the
@@ -203,7 +226,7 @@ public partial class SteamKit2Service
                 new AuthenticationResult
                 {
                     Success = false,
-                    Message = ex.Message
+                    Message = "Steam sign-in could not be completed. Please try again."
                 });
         }
         finally
@@ -343,6 +366,7 @@ public partial class SteamKit2Service
     {
         try
         {
+            CancelLogin();
             // Cancel any active PICS rebuild
             if (IsRebuildRunning && _currentRebuildCts != null)
             {
@@ -377,7 +401,7 @@ public partial class SteamKit2Service
                 if (daemonService != null)
                 {
                     await daemonService.TerminateAllSessionsAsync(
-                        "Steam PICS authentication logged out");
+                        "Steam PICS authentication logged out", includePersistent: false);
                 }
             }
             catch (Exception ex)
@@ -385,14 +409,23 @@ public partial class SteamKit2Service
                 _logger.LogWarning(ex, "Error terminating Steam daemon sessions during logout");
             }
 
-            // Clear stored credentials and reset to anonymous mode
-            ClearSteamCredentials();
-
-            // Disconnect from Steam
-            _intentionalDisconnect = true;
-            await DisconnectAsync();
+            await _sessionGate.WaitAsync(_cancellationTokenSource.Token);
+            try
+            {
+                ClearSteamCredentials(invalidateSavedLogin: false);
+                _intentionalDisconnect = true;
+                await DisconnectAsync();
+            }
+            finally
+            {
+                _sessionGate.Release();
+            }
 
             _logger.LogInformation("Logged out from Steam and cleared credentials");
+        }
+        catch (OperationCanceledException) when (_cancellationTokenSource.IsCancellationRequested)
+        {
+            _logger.LogInformation("Steam logout cancelled during shutdown");
         }
         catch (Exception ex)
         {
@@ -419,7 +452,7 @@ public partial class SteamKit2Service
         // Connect if not already connected
         if (_steamClient?.IsConnected != true)
         {
-            _connectedTcs = new TaskCompletionSource();
+            _connectedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             _steamClient!.Connect();
             await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), ct);
         }

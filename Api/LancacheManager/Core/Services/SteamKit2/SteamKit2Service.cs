@@ -42,6 +42,8 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     // Volatile: written on the SteamKit2 callback thread, read as load-bearing fast-fail
     // checks on the crawl thread (WaitForCallbackAsync/WaitForProductInfoAsync).
     private volatile bool _isLoggedOn = false;
+    private volatile bool _sessionReplaced;
+    private (Guid? Owner, string Token)? _sessionCredential;
     private volatile bool _intentionalDisconnect = false;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private Task? _currentBuildTask;
@@ -368,13 +370,42 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
 
     /// <summary>
     /// Clears stored Steam credentials and resets to anonymous mode.
-    /// Used during logout, session replacement, and credential invalidation.
+    /// Explicit logout preserves private saved sign-ins; rejection removes only the used credential.
     /// </summary>
-    private void ClearSteamCredentials()
+    private bool ClearSteamCredentials(bool invalidateSavedLogin = false)
     {
-        _stateService.SetSteamRefreshToken(null);
-        _stateService.SetSteamUsername(null);
-        _stateService.SetSteamAuthMode(SteamAuthMode.Anonymous);
+        lock (_loginOwnerLock)
+        {
+            var credential = _sessionCredential;
+            var current = _steamAuthRepository.GetAuthData();
+            if (invalidateSavedLogin && (credential == null
+                || current.OwnerAccountId != credential.Value.Owner
+                || current.RefreshToken != credential.Value.Token))
+            {
+                return false;
+            }
+            var cleared = false;
+            _steamAuthRepository.UpdateAuthData(auth =>
+            {
+                if (invalidateSavedLogin && (credential == null
+                    || auth.OwnerAccountId != credential.Value.Owner
+                    || auth.RefreshToken != credential.Value.Token))
+                {
+                    return;
+                }
+
+                if (invalidateSavedLogin && credential!.Value.Owner is Guid owner
+                    && _steamAuthRepository.GetSavedLogin(owner)?.RefreshToken == credential.Value.Token)
+                {
+                    _steamAuthRepository.ClearSavedLogin(owner);
+                }
+                auth.RefreshToken = null;
+                auth.Username = null;
+                auth.Mode = SteamAuthMode.Anonymous.ToWireString();
+                cleared = true;
+            });
+            return cleared;
+        }
     }
 
     /// <summary>
@@ -393,7 +424,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
 
     /// <summary>
     /// Sends a SteamAutoLogout notification to the frontend.
-    /// Used when credentials are invalidated or session is replaced.
+    /// Used when credentials are invalidated.
     /// </summary>
     private void NotifyAutoLogout(string message, string reason)
     {
@@ -462,9 +493,9 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             catch (Exception ex) when (attempt < MaxBatchConnectionRetries &&
                                        ex is SteamConnectionLostException or AsyncJobFailedException)
             {
-                _logger.LogWarning(
-                    "Steam connection lost during {Operation} - re-establishing session and retrying (attempt {Attempt}/{MaxAttempts}): {Message}",
-                    operationName, attempt, MaxBatchConnectionRetries, ex.Message);
+                _logger.LogWarning(ex,
+                    "Steam connection lost during {Operation} - re-establishing session and retrying (attempt {Attempt}/{MaxAttempts})",
+                    operationName, attempt, MaxBatchConnectionRetries);
 
                 if (IsRebuildRunning)
                 {
@@ -542,7 +573,27 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private Task HandleDaemonAuthenticated()
     {
         _logger.LogInformation("Steam daemon authenticated - daemon is now active");
-        return Task.CompletedTask;
+        if (_steamClient == null)
+        {
+            return Task.CompletedTask;
+        }
+        return TransitionAsync();
+
+        async Task TransitionAsync()
+        {
+            try
+            {
+                await EnsureSessionAsync(_cancellationTokenSource.Token);
+            }
+            catch (OperationCanceledException) when (_cancellationTokenSource.IsCancellationRequested)
+            {
+                _logger.LogInformation("Steam session transition cancelled during shutdown");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not change Steam session mode after daemon authentication");
+            }
+        }
     }
 
     /// <summary>

@@ -5,8 +5,10 @@ import i18next from 'i18next';
 import ts from 'typescript';
 import {
   bindLifted,
+  collectNodes,
   compileToUrl,
   findSoleNode,
+  liftHookCallback,
   moduleUrl,
   parseSource
 } from './transpile-module.mjs';
@@ -26,6 +28,61 @@ const localeFile = (name) =>
 const en = localeFile('en');
 const zh = localeFile('zh');
 
+const recoveryMessages = {
+  'errors.steam.signInLost': 'Steam is no longer signed in. Sign in again, then retry the prefill.',
+  'errors.steam.gameDetailsUnavailable': 'Steam did not return game details. Try again.',
+  'errors.prefill.requestFailed': 'The prefill daemon could not complete the request. Try again.',
+  'signalr.steamSession.savedSignInPreserved':
+    'Steam ended the current connection. Your saved sign-in is still available. Retry the operation.',
+  'prefill.gameSelection.cacheStatusUnknown':
+    'Some cache statuses could not be checked. Marked badges show the last known result.',
+  'prefill.gameSelection.lastKnownCached': 'Previously cached'
+};
+
+test('recovery keys exist in both locales and production translations do not hide missing keys', () => {
+  for (const [key, expected] of Object.entries(recoveryMessages)) {
+    const english = key.split('.').reduce((value, part) => value?.[part], en);
+    const chinese = key.split('.').reduce((value, part) => value?.[part], zh);
+    assert.equal(english, expected, key);
+    assert.equal(typeof chinese, 'string', key);
+    assert.ok(chinese.trim(), key);
+    assert.notEqual(chinese, english, key);
+  }
+  let affectedCalls = 0;
+  for (const path of [
+    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
+    'src/components/features/management/schedules/scheduled-prefill/PersistentLoginHost.tsx',
+    'src/components/features/prefill/PrefillPanel.tsx',
+    'src/components/features/prefill/GameSelectionModal.tsx',
+    'src/services/api.service.ts'
+  ]) {
+    const source = parseSource(path, ts.ScriptKind.TSX);
+    const calls = collectNodes(
+      source,
+      (node) =>
+        ts.isCallExpression(node) &&
+        (node.expression.getText(source) === 't' || node.expression.getText(source) === 'i18n.t')
+    );
+    for (const call of calls) {
+      const [key, options] = call.arguments;
+      assert.ok(!options || !ts.isStringLiteralLike(options), `${path}: string fallback`);
+      if (options && ts.isObjectLiteralExpression(options)) {
+        assert.ok(
+          !options.properties.some(
+            (property) => property.name?.getText(source).replace(/['"]/g, '') === 'defaultValue'
+          ),
+          `${path}: defaultValue`
+        );
+      }
+      if (key && ts.isStringLiteralLike(key) && Object.hasOwn(recoveryMessages, key.text)) {
+        affectedCalls += 1;
+        assert.equal(call.arguments.length, 1, `${path}: ${key.text}`);
+      }
+    }
+  }
+  assert.equal(affectedCalls, 11);
+});
+
 const translator = i18next.createInstance();
 await translator.init({
   resources: { en: { translation: en }, zh: { translation: zh } },
@@ -42,7 +99,7 @@ const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
   '@utils/constants': moduleUrl('export const APP_EVENTS = {};')
 });
 
-const { buildApiError } = await import(apiErrorUrl);
+const { ApiError, buildApiError } = await import(apiErrorUrl);
 
 const { getErrorMessage } = await import(
   await compileToUrl('../src/utils/error.ts', {
@@ -72,6 +129,128 @@ const shownFor = async (body, language) => {
     })
   );
 };
+
+test('external API error messages resolve in both languages and retain the server sentence for an unknown key', async () => {
+  for (const [stageKey, english] of Object.entries(recoveryMessages)) {
+    assert.equal(await shownFor({ stageKey, error: english }, 'en'), english);
+    const translated = await shownFor({ stageKey, error: english }, 'zh');
+    assert.notEqual(translated, english);
+    assert.notEqual(translated, stageKey);
+    assert.doesNotMatch(translated, /SteamKit2|AsyncJobFailedException| at .*\(/);
+    assert.equal(
+      await shownFor({ stageKey: `missing.${stageKey}`, error: english }, 'zh'),
+      english
+    );
+  }
+});
+
+test('both picker load failures translate typed reasons and expose missing required keys', async () => {
+  const empty = i18next.createInstance();
+  await empty.init({ lng: 'en', fallbackLng: false, resources: {} });
+  const scheduledSource = liftHookCallback(
+    'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillConfigModal.tsx',
+    'useCallback',
+    'const key = `${serviceKey}:${sessionId}`'
+  );
+  const ordinarySource = liftHookCallback(
+    'src/components/features/prefill/PrefillPanel.tsx',
+    'useCallback',
+    'const gamesCache ='
+  );
+  for (const language of ['en', 'zh', 'missing']) {
+    await translator.changeLanguage(language === 'missing' ? 'en' : language);
+    const t = (language === 'missing' ? empty : translator).t.bind(
+      language === 'missing' ? empty : translator
+    );
+    for (const stageKey of [
+      'errors.steam.signInLost',
+      'errors.steam.gameDetailsUnavailable',
+      'errors.prefill.requestFailed',
+      undefined
+    ]) {
+      const failure = await buildApiError({
+        status: 503,
+        statusText: 'Unavailable',
+        text: async () => JSON.stringify({ stageKey, error: 'SteamKit2.AsyncJobFailedException' })
+      });
+      const key = stageKey ?? 'errors.prefill.requestFailed';
+      const expected = language === 'missing' ? key : translator.t(key);
+      let scheduledMessage;
+      const selection = { serviceKey: 'steam', sessionId: 's1', cachedAppIds: [], games: [] };
+      await bindLifted(scheduledSource, {
+        ApiError,
+        t,
+        gameSelectionRef: { current: selection },
+        gameRequestRef: { current: null },
+        setLoadingGameSelectionService: () => undefined,
+        setGameSelection: (update) => update(selection),
+        setGameLoadError: (message) => {
+          scheduledMessage = message;
+        },
+        getPersistentServiceId: (service) => service,
+        ApiService: {
+          getPersistentPrefillGames: async () => {
+            throw failure;
+          }
+        }
+      })('steam', 's1');
+      assert.equal(scheduledMessage, expected);
+      let ordinaryMessage;
+      await bindLifted(ordinarySource, {
+        ApiError,
+        t,
+        signalR: { session: { id: 's1' } },
+        serviceId: 'steam',
+        serviceBasePath: 'steam-prefill',
+        API_BASE: '/api',
+        gamesKeyRef: { current: 'steam:s1' },
+        gamesRequestRef: { current: null },
+        gamesCacheRef: { current: null },
+        gamesCacheWindowMs: 300000,
+        ownedGames: [],
+        setIsLoadingGames: () => undefined,
+        setIsUsingGamesCache: () => undefined,
+        setUnknownAppIds: () => undefined,
+        setGameLoadError: (message) => {
+          ordinaryMessage = message;
+        },
+        addLog: () => undefined,
+        fetch: async () => ({}),
+        assertOk: async () => {
+          throw failure;
+        }
+      })();
+      assert.equal(ordinaryMessage, expected);
+      assert.doesNotMatch(ordinaryMessage, /SteamKit2|AsyncJobFailedException/);
+    }
+  }
+});
+
+test('nonterminal app failure does not display or map its unconsumed error fields', () => {
+  const source = parseSource('src/components/features/prefill/hooks/usePrefillEventHandlers.ts');
+  const callback = findSoleNode(
+    source,
+    'live prefill progress callback',
+    (node) => ts.isArrowFunction(node) && node.getText(source).includes('const isFinalState =')
+  );
+  const display = [];
+  bindLifted(callback.getText(source), {
+    isCancelling: { current: false },
+    expectedAppCountRef: { current: 1 },
+    setPrefillProgress: (value) => display.push(value),
+    addLog: (...args) => display.push(args)
+  })({
+    sessionId: 's1',
+    progress: {
+      state: 'app_failed',
+      totalApps: 1,
+      errorCode: 'game-details-unavailable',
+      requiresLogin: false,
+      errorMessage: recoveryMessages['errors.steam.gameDetailsUnavailable']
+    }
+  });
+  assert.deepEqual(display, []);
+});
 
 // ---------------------------------------------------------------------------
 // The card's own wording, lifted out of the registry so the test drives the arrow that ships

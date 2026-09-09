@@ -27,6 +27,40 @@ namespace LancacheManager.Tests;
 public sealed class CacheScanGateTests
 {
     [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task CacheFileScanPublishesItsRegisteredPredecessor(bool queued, bool visible)
+    {
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var notice = new RunNotice(visible ? NotificationMode.All : NotificationMode.Silent, RunTrigger.Manual);
+        Guid? previous = queued ? tracker.RegisterOperation(OperationType.CacheSizeScan,
+            "Cache File Scan", new CancellationTokenSource(), initialStatus: OperationStatus.Waiting) : null;
+        if (previous.HasValue) notice.Attach(tracker, previous.Value);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();
+        var recorder = (RecordingNotifications)(object)notifications;
+        var service = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(typeof(CacheManagementService));
+        SetField(service, "_logger", NullLogger<CacheManagementService>.Instance);
+        using var scanLock = new SemaphoreSlim(1, 1);
+        SetField(service, "_scanCacheLock", scanLock);
+        SetField(service, "_operationTracker", tracker);
+        SetField(service, "_notifications", notifications);
+        SetField(service, "_conflictChecker", new OperationConflictChecker(tracker,
+            NullLogger<OperationConflictChecker>.Instance));
+        var run = typeof(CacheManagementService).GetMethod("RunFullScanAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        await (Task)run.Invoke(service, [new List<string>(), CancellationToken.None, null, visible, notice])!;
+        var started = Assert.IsType<CacheSizeScanStarted>(await recorder.FirstPayload.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(previous, started.PreviousOperationId);
+        Assert.Equal(visible, started.ShowNotification);
+        Assert.Equal(started.OperationId, notice.OperationId);
+        var operation = tracker.GetOperation(started.OperationId)!;
+        var values = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(operation.Metadata);
+        Assert.Equal(previous, values["previousOperationId"]);
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task DirectSilentScanCarriesItsAdmittedNotice(bool blocked)

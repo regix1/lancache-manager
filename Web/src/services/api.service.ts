@@ -3486,11 +3486,12 @@ class ApiService {
    */
   static async getPersistentPrefillGames(
     service: PersistentPrefillServiceId,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    expectedSessionId?: string
   ): Promise<PersistentPrefillGamesDto> {
     try {
       const res = await fetch(
-        `${API_BASE}/system/prefill/persistent/games?service=${encodeURIComponent(service)}`,
+        `${API_BASE}/system/prefill/persistent/games?service=${encodeURIComponent(service)}${expectedSessionId ? `&expectedSessionId=${encodeURIComponent(expectedSessionId)}` : ''}`,
         this.getFetchOptions({
           signal: signal
             ? AbortSignal.any([signal, AbortSignal.timeout(45000)])

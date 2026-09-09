@@ -11,21 +11,20 @@ public partial class SteamKit2Service
     /// Used to determine whether to use anonymous mode to avoid session conflicts.
     /// </summary>
     /// <returns>
-    /// False both when no daemon is authenticated and when the check itself could not run. Both
-    /// send us down the anonymous path, which is the safe answer when we cannot tell.
+    /// Null when availability cannot be determined; unknown availability requires anonymous mode.
     /// </returns>
-    private bool IsSteamDaemonActive()
+    private bool? IsSteamDaemonActive()
     {
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var daemonService = scope.ServiceProvider.GetService<SteamDaemonService>();
-            return daemonService?.IsAnyDaemonAuthenticated() == true;
+            return daemonService?.IsAnyDaemonAuthenticated();
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Could not check Steam daemon status");
-            return false;
+            return null;
         }
     }
 
@@ -42,12 +41,13 @@ public partial class SteamKit2Service
         await _sessionGate.WaitAsync(ct);
         try
         {
-            if (!forceReconnect && _isLoggedOn && _steamClient?.IsConnected == true)
+            var correctMode = HasSessionMode(UseAnonymousSession(IsSteamDaemonActive()));
+            if (!forceReconnect && correctMode && _isLoggedOn && _steamClient?.IsConnected == true)
             {
                 return;
             }
 
-            if (forceReconnect)
+            if (forceReconnect || (_isLoggedOn && !correctMode))
             {
                 // The caller saw the CM drop its job while the socket stayed up. The session
                 // looks healthy but the server is bad - rotate instead of reusing it.
@@ -58,6 +58,7 @@ public partial class SteamKit2Service
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _logger.LogWarning(ex, "Steam session transition failed");
             _lastErrorMessage = ex.Message;
             NotifySessionError(ex);
             throw;
@@ -76,21 +77,33 @@ public partial class SteamKit2Service
     /// A disconnect that lands mid-handshake faults the pending wait with
     /// SteamConnectionLostException, which is just another transient failure here.
     /// </summary>
-    private async Task LogonLockedAsync(SteamUser.LogOnDetails? details, CancellationToken ct, TimeSpan? logonTimeout = null)
+    private async Task LogonLockedAsync(SteamUser.LogOnDetails? details, CancellationToken ct, TimeSpan? logonTimeout = null, bool anonymous = false)
     {
         await RetryOnBusyCmLockedAsync(async () =>
         {
             if (_steamClient?.IsConnected != true)
             {
-                _connectedTcs = new TaskCompletionSource();
+                _connectedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 _logger.LogInformation("Connecting to Steam...");
                 _steamClient!.Connect();
                 await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
             }
 
-            _loggedOnTcs = new TaskCompletionSource();
-            if (details != null)
+            _loggedOnTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (anonymous)
             {
+                lock (_loginOwnerLock)
+                {
+                    _sessionCredential = null;
+                }
+                _steamUser!.LogOnAnonymous();
+            }
+            else if (details != null)
+            {
+                lock (_loginOwnerLock)
+                {
+                    _sessionCredential = null;
+                }
                 _steamUser!.LogOn(details);
                 _logger.LogInformation(
                     "SteamKit2 auth-flow login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}",
@@ -121,9 +134,9 @@ public partial class SteamKit2Service
             }
             catch (Exception ex) when (attempt < MaxLogonAttempts && IsTransientSessionFailure(ex))
             {
-                _logger.LogWarning(
-                    "{Step} hit a busy Steam server (attempt {Attempt}/{MaxAttempts}) - rotating to a different CM server: {Message}",
-                    stepName, attempt, MaxLogonAttempts, ex.Message);
+                _logger.LogWarning(ex,
+                    "{Step} hit a busy Steam server (attempt {Attempt}/{MaxAttempts}) - rotating to a different CM server",
+                    stepName, attempt, MaxLogonAttempts);
                 await ResetConnectionLockedAsync(ct);
             }
         }
@@ -226,7 +239,11 @@ public partial class SteamKit2Service
     /// </summary>
     private void Login()
     {
-        if (IsSteamDaemonActive())
+        lock (_loginOwnerLock)
+        {
+            _sessionCredential = null;
+        }
+        if (UseAnonymousSession(IsSteamDaemonActive()))
         {
             _logger.LogInformation("Steam daemon is active - using anonymous mode for depot mapping to avoid session conflicts");
             _steamUser!.LogOnAnonymous();
@@ -239,6 +256,10 @@ public partial class SteamKit2Service
         if (!string.IsNullOrEmpty(refreshToken) && authMode == SteamAuthMode.Authenticated)
         {
             var username = _stateService.GetSteamUsername();
+            lock (_loginOwnerLock)
+            {
+                _sessionCredential = (_steamAuthRepository.GetAuthData().OwnerAccountId, refreshToken);
+            }
             _logger.LogInformation("Logging in with saved refresh token for user: {Username}", username);
             _steamUser!.LogOn(new SteamUser.LogOnDetails
             {
@@ -255,6 +276,12 @@ public partial class SteamKit2Service
         _steamUser!.LogOnAnonymous();
         _logger.LogInformation("SteamKit2 anonymous login (no LoginID)");
     }
+
+    private bool UseAnonymousSession(bool? daemonActive) =>
+        daemonActive != false || _sessionReplaced || !IsSteamAuthenticated;
+
+    private bool HasSessionMode(bool anonymous) =>
+        _steamClient?.SteamID?.AccountType == (anonymous ? EAccountType.AnonUser : EAccountType.Individual);
 
     private async Task WaitWithTimeoutAsync(Task task, TimeSpan timeout, CancellationToken ct, string operationName = "Steam operation")
     {
@@ -304,7 +331,10 @@ public partial class SteamKit2Service
         {
             _logger.LogWarning("Disconnected from Steam");
         }
-        _isLoggedOn = false;
+        lock (_loginOwnerLock)
+        {
+            _isLoggedOn = false;
+        }
         ReportSteamIntegrationAuthenticated();
 
         // Fault any pending session waits so their owner reacts: LogonLockedAsync treats this as
@@ -316,183 +346,206 @@ public partial class SteamKit2Service
 
     private void OnLoggedOn(SteamUser.LoggedOnCallback callback)
     {
-        if (callback.Result == EResult.OK)
+        lock (_loginOwnerLock)
         {
-            _isLoggedOn = true;
-            ReportSteamIntegrationAuthenticated();
-            _loggedOnTcs?.TrySetResult();
-            _logger.LogInformation("Successfully logged onto Steam!");
-            _logger.LogInformation("Steam login succeeded. Active LoginID: {LoginID} (0x{LoginIDHex:X8}), IsAuthenticated: {IsAuth}", _steamLoginId, _steamLoginId, IsSteamAuthenticated);
-        }
-        else
-        {
-            // Create user-friendly error messages for common login failures
-            var (errorType, errorMessage) = callback.Result switch
+            if (callback.Result is EResult.LogonSessionReplaced or EResult.LoggedInElsewhere)
             {
-                // Steam answers InvalidPassword both to a mistyped password on a first sign-in and to
-                // a stored session that has run out, and the person on the other end cannot tell which.
-                // Naming only the stored session ("expired", "re-authenticate") was wrong for the far
-                // more common first case, so this says what Steam did and what to check, which is the
-                // right instruction either way.
-                EResult.InvalidPassword => (
-                    "InvalidCredentials",
-                    "Steam did not accept that sign-in. Check your account name and password."
-                ),
-                EResult.AccountLogonDenied => (
-                    "AuthenticationRequired",
-                    "Steam Guard authentication is required. Please re-authenticate with your Steam account."
-                ),
-                EResult.TryAnotherCM => (
-                    "ServerUnavailable",
-                    "Steam's servers are busy right now. This is temporary, please wait a moment and try again."
-                ),
-                EResult.ServiceUnavailable => (
-                    "ServiceUnavailable",
-                    "Steam service is temporarily unavailable. Please try again later."
-                ),
-                EResult.RateLimitExceeded => (
-                    "RateLimited",
-                    "Too many login attempts. Please wait a few minutes before trying again."
-                ),
-                EResult.Expired => (
-                    "SessionExpired",
-                    "Your Steam session has expired. Please re-authenticate with your Steam account."
-                ),
-                _ => (
-                    "LoginFailed",
-                    $"Unable to log into Steam: {callback.Result}. Please try again or re-authenticate."
-                )
-            };
+                HandleSessionLoss(callback.Result);
+                return;
+            }
+            if (callback.Result == EResult.OK)
+            {
+                _isLoggedOn = true;
+                ReportSteamIntegrationAuthenticated();
+                _loggedOnTcs?.TrySetResult();
+                _logger.LogInformation("Successfully logged onto Steam!");
+                _logger.LogInformation("Steam login succeeded. Active LoginID: {LoginID} (0x{LoginIDHex:X8}), IsAuthenticated: {IsAuth}", _steamLoginId, _steamLoginId, IsSteamAuthenticated);
+            }
+            else
+            {
+                _isLoggedOn = false;
+                if (callback.Result is EResult.InvalidPassword or EResult.AccountLogonDenied or EResult.Expired)
+                {
+                    if (ClearSteamCredentials(invalidateSavedLogin: true))
+                    {
+                        NotifyAutoLogout("Steam did not accept the saved sign-in. Please sign in again.", "InvalidCredentials");
+                    }
+                }
+                // Create user-friendly error messages for common login failures
+                var (errorType, errorMessage) = callback.Result switch
+                {
+                    // Steam answers InvalidPassword both to a mistyped password on a first sign-in and to
+                    // a stored session that has run out, and the person on the other end cannot tell which.
+                    // Naming only the stored session ("expired", "re-authenticate") was wrong for the far
+                    // more common first case, so this says what Steam did and what to check, which is the
+                    // right instruction either way.
+                    EResult.InvalidPassword => (
+                        "InvalidCredentials",
+                        "Steam did not accept that sign-in. Check your account name and password."
+                    ),
+                    EResult.AccountLogonDenied => (
+                        "AuthenticationRequired",
+                        "Steam Guard authentication is required. Please re-authenticate with your Steam account."
+                    ),
+                    EResult.TryAnotherCM => (
+                        "ServerUnavailable",
+                        "Steam's servers are busy right now. This is temporary, please wait a moment and try again."
+                    ),
+                    EResult.ServiceUnavailable => (
+                        "ServiceUnavailable",
+                        "Steam service is temporarily unavailable. Please try again later."
+                    ),
+                    EResult.RateLimitExceeded => (
+                        "RateLimited",
+                        "Too many login attempts. Please wait a few minutes before trying again."
+                    ),
+                    EResult.Expired => (
+                        "SessionExpired",
+                        "Your Steam session has expired. Please re-authenticate with your Steam account."
+                    ),
+                    _ => (
+                        "LoginFailed",
+                        $"Unable to log into Steam: {callback.Result}. Please try again or re-authenticate."
+                    )
+                };
 
-            // TryAnotherCM/ServiceUnavailable mean this particular CM server can't serve us right
-            // now - a reconnect (which rotates to a different server) is the documented remedy.
-            // TryAnotherCM keeps the friendly serverBusy stageKey instead of echoing the raw enum.
-            var isTransientServerFailure = callback.Result is EResult.TryAnotherCM or EResult.ServiceUnavailable;
-            var stageKey = callback.Result == EResult.TryAnotherCM
-                ? "signalr.steamSession.serverBusy"
-                : "signalr.steamSession.loginFailed";
+                // TryAnotherCM/ServiceUnavailable mean this particular CM server can't serve us right
+                // now - a reconnect (which rotates to a different server) is the documented remedy.
+                // TryAnotherCM keeps the friendly serverBusy stageKey instead of echoing the raw enum.
+                var isTransientServerFailure = callback.Result is EResult.TryAnotherCM or EResult.ServiceUnavailable;
+                var stageKey = callback.Result == EResult.TryAnotherCM
+                    ? "signalr.steamSession.serverBusy"
+                    : "signalr.steamSession.loginFailed";
 
-            _lastErrorMessage = errorMessage;
-            _logger.LogError("Unable to logon to Steam: {Result} / {ExtendedResult}", callback.Result, callback.ExtendedResult);
+                _lastErrorMessage = errorMessage;
+                _logger.LogError("Unable to logon to Steam: {Result} / {ExtendedResult}", callback.Result, callback.ExtendedResult);
 
-            // Fault the pending logon wait with the friendly per-result message (not the raw
-            // enum). The owning flow retries transient failures on a different CM server, emits
-            // the SteamSessionError toast if it gives up, and its operation lifecycle (rebuild
-            // terminal emit / login modal response) reports the failure - nothing else happens
-            // in this callback.
-            _loggedOnTcs?.TrySetException(new SteamLogonException(
-                errorMessage,
-                errorType,
-                stageKey,
-                callback.Result.ToString(),
-                callback.ExtendedResult.ToString(),
-                isTransientServerFailure));
+                // Fault the pending logon wait with the friendly per-result message (not the raw
+                // enum). The owning flow retries transient failures on a different CM server, emits
+                // the SteamSessionError toast if it gives up, and its operation lifecycle (rebuild
+                // terminal emit / login modal response) reports the failure - nothing else happens
+                // in this callback.
+                _loggedOnTcs?.TrySetException(new SteamLogonException(
+                    errorMessage,
+                    errorType,
+                    stageKey,
+                    callback.Result.ToString(),
+                    callback.ExtendedResult.ToString(),
+                    isTransientServerFailure));
+            }
         }
     }
 
-    private void OnLoggedOff(SteamUser.LoggedOffCallback callback)
+    private void OnLoggedOff(SteamUser.LoggedOffCallback callback) => HandleSessionLoss(callback.Result);
+
+    private void HandleSessionLoss(EResult result)
     {
-        _logger.LogWarning("Logged off of Steam: {Result}", callback.Result);
-        _isLoggedOn = false;
-        ReportSteamIntegrationAuthenticated();
-
-        // Handle specific logoff reasons with user-friendly messages
-        var (errorType, errorMessage, shouldCancelRebuild, isSessionReplaced) = callback.Result switch
+        lock (_loginOwnerLock)
         {
-            EResult.LogonSessionReplaced => (
-                "SessionReplaced",
-                "Steam session was replaced by another application. Your authentication has been switched to anonymous mode. Please try again.",
-                true,
-                true
-            ),
-            EResult.LoggedInElsewhere => (
-                "LoggedInElsewhere",
-                "Steam session was replaced by another application. Your authentication has been switched to anonymous mode. Please try again.",
-                true,
-                true
-            ),
-            EResult.AccountLogonDenied => (
-                "AuthenticationRequired",
-                "Steam authentication is required. Please re-authenticate with your Steam account.",
-                true,
-                false
-            ),
-            EResult.InvalidPassword => (
-                "InvalidCredentials",
-                "Your Steam credentials are no longer valid. Please re-authenticate with your Steam account.",
-                true,
-                false
-            ),
-            EResult.Expired => (
-                "SessionExpired",
-                "Your Steam session has expired. Please re-authenticate with your Steam account.",
-                true,
-                false
-            ),
-            _ => (
-                "Disconnected",
-                $"Disconnected from Steam: {callback.Result}",
-                false,
-                false
-            )
-        };
+            _logger.LogWarning("Logged off of Steam: {Result}", result);
+            _isLoggedOn = false;
+            ReportSteamIntegrationAuthenticated();
 
-        if (isSessionReplaced)
-        {
-            _logger.LogWarning("Steam session was replaced by another login. Our LoginID: {LoginID} (0x{LoginIDHex:X8}). Switching to anonymous mode and failing the operation.", _steamLoginId, _steamLoginId);
-
-            // Switch user to anonymous mode and clear stored credentials
-            ClearSteamCredentials();
-
-            // Notify frontend to update auth state (so the UI reflects anonymous mode)
-            NotifyAutoLogout(errorMessage, errorType);
-        }
-
-        // For credential-invalidating errors, clear stored credentials and notify frontend
-        if (errorType is "InvalidCredentials" or "AuthenticationRequired" or "SessionExpired")
-        {
-            _logger.LogWarning("Steam credentials are no longer valid ({ErrorType}). Clearing stored credentials.", errorType);
-            ClearSteamCredentials();
-
-            // Notify frontend to update auth state
-            NotifyAutoLogout(errorMessage, errorType);
-        }
-
-        // Send SignalR notification for significant errors
-        // Skip if rebuild is running - DepotMappingComplete will convey the error to avoid duplicate notifications
-        if (shouldCancelRebuild)
-        {
-            _lastErrorMessage = errorMessage;
-
-            if (!IsRebuildRunning)
+            // Handle specific logoff reasons with user-friendly messages
+            var (errorType, errorMessage, shouldCancelRebuild, isSessionReplaced) = result switch
             {
-                _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
-                {
-                    errorType,
-                    titleStageKey = SessionErrorTitleKey(errorType),
-                    stageKey = "signalr.steamSession.disconnected",
-                    context = new Dictionary<string, object?> { ["result"] = callback.Result.ToString() },
-                    result = callback.Result.ToString(),
-                    timestamp = DateTime.UtcNow,
-                    wasRebuildActive = false
-                });
+                EResult.LogonSessionReplaced => (
+                    "SessionReplaced",
+                    "Steam ended the current connection. Your saved sign-in is still available. Retry the operation.",
+                    true,
+                    true
+                ),
+                EResult.LoggedInElsewhere => (
+                    "LoggedInElsewhere",
+                    "Steam ended the current connection. Your saved sign-in is still available. Retry the operation.",
+                    true,
+                    true
+                ),
+                EResult.AccountLogonDenied => (
+                    "AuthenticationRequired",
+                    "Steam authentication is required. Please re-authenticate with your Steam account.",
+                    true,
+                    false
+                ),
+                EResult.InvalidPassword => (
+                    "InvalidCredentials",
+                    "Your Steam credentials are no longer valid. Please re-authenticate with your Steam account.",
+                    true,
+                    false
+                ),
+                EResult.Expired => (
+                    "SessionExpired",
+                    "Your Steam session has expired. Please re-authenticate with your Steam account.",
+                    true,
+                    false
+                ),
+                _ => (
+                    "Disconnected",
+                    $"Disconnected from Steam: {result}",
+                    false,
+                    false
+                )
+            };
+
+            if (isSessionReplaced)
+            {
+                _logger.LogWarning("Steam session was replaced by another login. Our LoginID: {LoginID} (0x{LoginIDHex:X8}). Switching to anonymous mode and failing the operation.", _steamLoginId, _steamLoginId);
+
+                _sessionReplaced = true;
             }
 
-            // Cancel the rebuild if one is active
-            if (IsRebuildRunning)
+            // For credential-invalidating errors, clear stored credentials and notify frontend
+            if (errorType is "InvalidCredentials" or "AuthenticationRequired" or "SessionExpired")
             {
-                _logger.LogError("Steam session error during active rebuild: {ErrorType} - {Message}", errorType, errorMessage);
-                var operationId = _currentPicsOperationId;
-                if (!operationId.HasValue && _currentMappingReporter is { IsStarted: true } reporter)
+                _logger.LogWarning("Steam credentials are no longer valid ({ErrorType}). Clearing stored credentials.", errorType);
+                if (ClearSteamCredentials(invalidateSavedLogin: true))
                 {
-                    operationId = reporter.OperationId;
+                    NotifyAutoLogout(errorMessage, errorType);
+                }
+            }
+
+            var stageKey = isSessionReplaced
+                ? "signalr.steamSession.savedSignInPreserved"
+                : "signalr.steamSession.disconnected";
+            FailConnectionTasks(new SteamLogonException(errorMessage, errorType, stageKey,
+                result.ToString(), result.ToString(), false));
+
+            // Send SignalR notification for significant errors
+            // Skip if rebuild is running - DepotMappingComplete will convey the error to avoid duplicate notifications
+            if (shouldCancelRebuild)
+            {
+                _lastErrorMessage = errorMessage;
+
+                if (!IsRebuildRunning)
+                {
+                    _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
+                    {
+                        errorType,
+                        titleStageKey = SessionErrorTitleKey(errorType),
+                        stageKey,
+                        context = new Dictionary<string, object?> { ["result"] = result.ToString() },
+                        result = result.ToString(),
+                        timestamp = DateTime.UtcNow,
+                        wasRebuildActive = false
+                    });
                 }
 
-                if (operationId.HasValue && operationId.Value != Guid.Empty)
+                // Cancel the rebuild if one is active
+                if (IsRebuildRunning)
                 {
-                    _depotRunFailures[operationId.Value] = errorMessage;
+                    _logger.LogError("Steam session error during active rebuild: {ErrorType} - {Message}", errorType, errorMessage);
+                    var operationId = _currentPicsOperationId;
+                    if (!operationId.HasValue && _currentMappingReporter is { IsStarted: true } reporter)
+                    {
+                        operationId = reporter.OperationId;
+                    }
+
+                    if (operationId.HasValue && operationId.Value != Guid.Empty)
+                    {
+                        _depotRunFailures[operationId.Value] = errorMessage;
+                    }
+                    _currentRebuildCts?.Cancel();
                 }
-                _currentRebuildCts?.Cancel();
             }
         }
     }

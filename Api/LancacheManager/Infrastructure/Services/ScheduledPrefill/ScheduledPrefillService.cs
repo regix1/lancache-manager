@@ -6,6 +6,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -579,10 +580,6 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         var serviceConfig = serviceRun.ServiceConfig;
         var result = ScheduledPrefillServiceRunResult.Skipped;
 
-        // Set only when the service failed by THROWING. The gated failures below (max runtime,
-        // stalled, failed to start) report themselves through a progress event first, so their text
-        // is already the recorded line and this stays null for them. [42]
-        string? failureMessage = null;
         try
         {
             // This service's own card is created here rather than by the run, so a platform that
@@ -616,8 +613,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         catch (Exception ex)
         {
             result = ScheduledPrefillServiceRunResult.Failed;
-            failureMessage = ex.Message;
             _logger.LogError(ex, "[ScheduledPrefill] Service {Service} failed; continuing", serviceConfig.ServiceId);
+            var failure = ex as ApiException ?? new DaemonCommandException();
+            await ReportProgressAsync(notifications, serviceRun, "failed", failure.Message,
+                runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                stageKey: failure.StageKey);
         }
         finally
         {
@@ -651,7 +651,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 }
             }
 
-            await CompleteServiceRunAsync(serviceRun, tracker, notifications, result, runShowNotification, failureMessage);
+            await CompleteServiceRunAsync(serviceRun, tracker, notifications, result, runShowNotification, null);
         }
 
         return result;
@@ -949,7 +949,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
                     // The daemon's own text has no key to translate it by, so only the generic sentence
                     // this method wrote itself carries one.
-                    stageKey: daemonFailure ? null : "signalr.scheduledPrefill.failedToStart");
+                    stageKey: result.StageKey ?? (daemonFailure ? null : "signalr.scheduledPrefill.failedToStart"));
                 return ScheduledPrefillServiceRunResult.Failed;
             }
 
@@ -1094,7 +1094,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                         percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
                         // The daemon's own text has no key to translate it by, so only the generic
                         // sentence this method wrote itself carries one.
-                        stageKey: daemonFailure ? null : "signalr.scheduledPrefill.failed");
+                        stageKey: session.ErrorStageKey ?? (daemonFailure ? null : "signalr.scheduledPrefill.failed"));
                     return ScheduledPrefillServiceRunResult.Failed;
                 }
 

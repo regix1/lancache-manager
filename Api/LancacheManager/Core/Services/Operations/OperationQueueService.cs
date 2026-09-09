@@ -230,7 +230,11 @@ public sealed class OperationQueueService : IOperationQueue
                 // A declined run rides the success flag too, so it is excluded from Promoted and
                 // reported on its own: nothing started and nothing replaced the card, and saying
                 // otherwise removes the card without ever showing the reason.
-                onTerminalEmit: info => _notifications.NotifyAllAsync(
+                onTerminalEmit: info =>
+                {
+                    var successor = _tracker.GetOperation(waitingId, followHandoff: true);
+                    if (successor?.Id == waitingId) successor = null;
+                    return _notifications.NotifyAllAsync(
                         SignalREvents.OperationWaitingComplete,
                         new OperationWaitingCompleteNotification(
                             waitingId,
@@ -243,8 +247,9 @@ public sealed class OperationQueueService : IOperationQueue
                             info.Skipped ? null : info.Error,
                             Promoted: info.Success && !info.Skipped,
                             Skipped: info.Skipped,
-                            NextOperationId: notice?.OperationId != waitingId ? notice?.OperationId : null,
-                            NextStatus: notice?.OperationId is { } nextId && nextId != waitingId ? _tracker.GetOperation(nextId)?.Status.ToWireString() : null)),
+                            NextOperationId: successor?.Id,
+                            NextStatus: successor?.Status.ToWireString()));
+                },
                 initialStatus: OperationStatus.Waiting,
                 metadata: new Dictionary<string, object?> { ["runNotice"] = notice, ["waiting"] = true });
 

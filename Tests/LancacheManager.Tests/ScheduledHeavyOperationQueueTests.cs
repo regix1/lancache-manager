@@ -183,12 +183,13 @@ public sealed class ScheduledHeavyOperationQueueTests
             OperationType.LogProcessing,
             "Log Processing",
             new CancellationTokenSource());
-        var startedId = Guid.NewGuid();
+        Guid startedId = default;
         var queued = await queue.EnqueueAsync(
             OperationType.CacheSizeScan,
             ConflictScope.Bulk(),
             "Cache File Scan",
-            () => Task.FromResult<Guid?>(startedId),
+            () => Task.FromResult<Guid?>(startedId = tracker.RegisterOperation(
+                OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource())),
             CancellationToken.None);
 
         Assert.True(queued.Queued);
@@ -200,6 +201,11 @@ public sealed class ScheduledHeavyOperationQueueTests
         Assert.True(handoff.Promoted);
         Assert.False(handoff.Cancelled);
         Assert.Null(handoff.Error);
+        Assert.Equal(startedId, handoff.NextOperationId);
+        Assert.Equal("running", handoff.NextStatus);
+        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(queued.OperationId));
+        Assert.True(tracker.GetOperation(startedId)!.Cancelled);
+        tracker.CompleteOperation(startedId, success: false, cancelled: true);
     }
 
     /// <summary>

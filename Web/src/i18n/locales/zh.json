@@ -5118,6 +5118,8 @@
       "loginBeforePrefill": "请在开始预填充前登录 {{service}}"
     },
     "gameSelection": {
+      "cacheStatusUnknown": "部分缓存状态无法检查。带标记的徽章显示上次已知的结果。",
+      "lastKnownCached": "上次已缓存",
       "title": "选择要预填充的游戏",
       "importAppIds": "导入应用 ID",
       "showCached": "显示已缓存",
@@ -7667,6 +7669,7 @@
       "stale": "服务移除完成"
     },
     "steamSession": {
+      "savedSignInPreserved": "Steam 已结束当前连接。您保存的登录信息仍然可用。请重试此操作。",
       "errorTitle": {
         "sessionReplaced": "Steam 会话已替换",
         "autoLogout": "Steam 自动登出",
@@ -7835,6 +7838,7 @@
       "sessionReplaced": "此持久会话已被新的会话替换。请重新启动。",
       "logoutBeforeSavedLogin": "请先退出当前账户，再使用您保存的登录信息。",
       "statusUnavailable": "无法检查容器登录状态。请重试。",
+      "requestFailed": "预填充守护进程无法完成此请求。请重试。",
       "startUnavailable": "容器无法启动预填充。请重试。"
     },
     "rateLimit": {
@@ -7855,6 +7859,8 @@
     "steam": {
       "apiKeyInvalid": "提供的 API 密钥无效，或 Steam Web API V1 不可用。请在 https://steamcommunity.com/dev/apikey 核对您的密钥",
       "signInInProgress": "Steam 登录已在进行中。",
+      "signInLost": "Steam 已退出登录。请重新登录，然后重试预填充。",
+      "gameDetailsUnavailable": "Steam 未返回游戏详情。请重试。",
       "signInCancelled": "登录已取消。",
       "signInOwnerChanged": "此 Steam 登录由其他账户发起。请使用您的账户重新开始登录。",
       "serversBusy": "Steam 服务器当前繁忙。这是暂时的，请稍候片刻再试。",

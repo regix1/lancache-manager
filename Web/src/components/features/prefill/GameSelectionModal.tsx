@@ -5,6 +5,7 @@ import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { Tooltip } from '../../ui/Tooltip';
 import Badge from '../../ui/Badge';
+import { Alert } from '../../ui/Alert';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import { SearchInput } from '../../ui/SearchInput';
@@ -31,6 +32,8 @@ interface GameSelectionModalProps {
   onSave: (selectedIds: string[]) => Promise<void>;
   isLoading?: boolean;
   cachedAppIds?: string[];
+  unknownAppIds?: string[];
+  error?: string | null;
   isUsingCache?: boolean;
   onRescan?: () => Promise<void>;
   onRemoveFromCache?: (appId: string) => Promise<void>;
@@ -49,6 +52,8 @@ export function GameSelectionModal({
   onSave,
   isLoading = false,
   cachedAppIds = [],
+  unknownAppIds = [],
+  error = null,
   isUsingCache = false,
   onRescan,
   onRemoveFromCache,
@@ -66,6 +71,8 @@ export function GameSelectionModal({
   const gameListRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pendingFocusAppId = useRef<string | null>(null);
+  const openedRef = useRef(false);
+  const openEpochRef = useRef(0);
 
   // Create a Set for O(1) lookup
   const cachedAppIdsSet = useMemo(() => new Set(cachedAppIds), [cachedAppIds]);
@@ -84,7 +91,8 @@ export function GameSelectionModal({
 
   // Reset local selection when modal opens - start fresh each time
   useEffect(() => {
-    if (opened) {
+    if (opened !== openedRef.current) openEpochRef.current += 1;
+    if (opened && !openedRef.current) {
       // Start with current selection from parent, not cached
       setLocalSelected(new Set(selectedAppIds));
       setSearch('');
@@ -93,8 +101,18 @@ export function GameSelectionModal({
       // Escape closes both dialogs at once, which leaves this flag set with nothing on screen.
       // Without the reset the next open would greet the user with the wipe confirmation.
       setClearCacheConfirmOpen(false);
+      setIsSaving(false);
     }
+    openedRef.current = opened;
   }, [opened, selectedAppIds]);
+
+  useEffect(
+    () => () => {
+      openEpochRef.current += 1;
+      openedRef.current = false;
+    },
+    []
+  );
 
   useEffect(() => {
     const appId = pendingFocusAppId.current;
@@ -307,18 +325,21 @@ export function GameSelectionModal({
   }, []);
 
   const handleSave = useCallback(async () => {
+    const epoch = openEpochRef.current;
     setIsSaving(true);
     try {
       // An empty library means the games route answered with nothing, not that every pick is an
       // orphan. Filtering against it would post an empty list and erase the whole selection.
       await onSave(games.length > 0 ? selectedInLibrary : Array.from(localSelected));
+      if (!openedRef.current || openEpochRef.current !== epoch) return;
       onClose();
     } catch (err) {
+      if (!openedRef.current || openEpochRef.current !== epoch) return;
       notifyError(t('prefill.errors.saveSelectionFailed'), err, {
         logLabel: 'Failed to save selection'
       });
     } finally {
-      setIsSaving(false);
+      if (openedRef.current && openEpochRef.current === epoch) setIsSaving(false);
     }
   }, [games.length, selectedInLibrary, localSelected, onSave, onClose, notifyError, t]);
 
@@ -362,7 +383,11 @@ export function GameSelectionModal({
                 {t('prefill.gameSelection.appId', { id: game.appId })}
               </span>
               {isCached && (
-                <Badge variant="success">{t('prefill.gameSelection.cachedBadge')}</Badge>
+                <Badge variant={unknownAppIds.includes(game.appId) ? 'warning' : 'success'}>
+                  {unknownAppIds.includes(game.appId)
+                    ? t('prefill.gameSelection.lastKnownCached')
+                    : t('prefill.gameSelection.cachedBadge')}
+                </Badge>
               )}
             </div>
           </div>
@@ -396,6 +421,10 @@ export function GameSelectionModal({
     >
       <div className="flex h-[calc(100dvh-8rem)] min-h-[34rem] max-h-[calc(100dvh-8rem)] sm:max-h-[40rem] flex-col">
         {/* Search and actions */}
+        {error && <Alert color="red">{error}</Alert>}
+        {unknownAppIds.length > 0 && (
+          <Alert color="yellow">{t('prefill.gameSelection.cacheStatusUnknown')}</Alert>
+        )}
         <div className="game-selection-modal__search">
           <SearchInput
             ref={searchInputRef}

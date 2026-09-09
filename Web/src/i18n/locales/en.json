@@ -5118,6 +5118,8 @@
       "loginBeforePrefill": "Please log in to {{service}} before starting prefill"
     },
     "gameSelection": {
+      "cacheStatusUnknown": "Some cache statuses could not be checked. Marked badges show the last known result.",
+      "lastKnownCached": "Previously cached",
       "title": "Select Games to Prefill",
       "importAppIds": "Import App IDs",
       "showCached": "Show Cached",
@@ -7701,6 +7703,7 @@
       "stale": "Service removal completed"
     },
     "steamSession": {
+      "savedSignInPreserved": "Steam ended the current connection. Your saved sign-in is still available. Retry the operation.",
       "errorTitle": {
         "sessionReplaced": "Steam Session Replaced",
         "autoLogout": "Steam Auto-Logout",
@@ -7869,6 +7872,7 @@
       "sessionReplaced": "This persistent session was replaced by a newer one. Please start it again.",
       "logoutBeforeSavedLogin": "Log out the current account before using your saved login.",
       "statusUnavailable": "The container login status could not be checked. Try again.",
+      "requestFailed": "The prefill daemon could not complete the request. Try again.",
       "startUnavailable": "The container could not start the prefill. Try again."
     },
     "rateLimit": {
@@ -7889,6 +7893,8 @@
     "steam": {
       "apiKeyInvalid": "The provided API key is invalid or Steam Web API V1 is unavailable. Please verify your key at https://steamcommunity.com/dev/apikey",
       "signInInProgress": "A Steam sign-in is already in progress.",
+      "signInLost": "Steam is no longer signed in. Sign in again, then retry the prefill.",
+      "gameDetailsUnavailable": "Steam did not return game details. Try again.",
       "signInCancelled": "Sign-in was cancelled.",
       "signInOwnerChanged": "This Steam sign-in was started by another account. Start a new sign-in from your account.",
       "serversBusy": "Steam's servers are busy right now. This is temporary, please wait a moment and try again.",

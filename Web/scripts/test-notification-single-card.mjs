@@ -192,7 +192,13 @@ const translate = (key, values = {}) => {
     String(values[name] ?? `{{${name}}}`)
   );
 };
-globalThis.notificationLifecycleI18n = { t: translate, language: 'en' };
+globalThis.notificationLifecycleI18n = {
+  t: translate,
+  language: 'en',
+  exists: (key) =>
+    typeof key.split('.').reduce((value, part) => value?.[part], dictionaries[language]) ===
+    'string'
+};
 let lifecycleModules;
 const loadLifecycle = async () => {
   globalThis.localStorage = new MemoryStorage();
@@ -226,9 +232,18 @@ const lookupDeclaration = findSoleNode(
 const lifecycle = async () => {
   const modules = await loadLifecycle();
   const events = notificationEvents();
-  const fixture = { state: [], events, dismissals: [], cancelled: [], recoveries: 0, modules };
+  const fixture = {
+    state: [],
+    updates: [],
+    events,
+    dismissals: [],
+    cancelled: [],
+    recoveries: 0,
+    modules
+  };
   const setNotifications = (update) => {
     fixture.state = typeof update === 'function' ? update(fixture.state) : update;
+    fixture.updates.push(fixture.state);
     bindLifted(markPresented, {
       notifications: fixture.state,
       events,
@@ -265,7 +280,9 @@ const lifecycle = async () => {
             entry.started,
             setNotifications,
             cancelAutoDismissTimer,
-            events.current
+            events.current,
+            false,
+            scheduleAutoDismiss
           )
         : phase === 'progress'
           ? modules.buildProgressHandler(
@@ -324,6 +341,109 @@ const scan = (operationId = 'N', extra = {}) => ({
   stageKey: 'signalr.evictionScan.scanning',
   context: {},
   ...extra
+});
+
+for (const silent of [true, false]) {
+  for (const order of ['SH', 'HS']) {
+    test(`cache scan predecessor keeps one card through ${order}, silent=${silent}`, async () => {
+      const f = await lifecycle();
+      f.waiting({ ...queued(), operationType: 'cacheSizeScan', silent, acknowledge: false });
+      const original = f.state[0];
+      for (const phase of order) {
+        if (phase === 'S')
+          f.event('cache_size_scan', 'started', {
+            operationId: 'N',
+            previousOperationId: 'W',
+            showNotification: !silent,
+            stageKey: 'signalr.cacheSizeScan.starting'
+          });
+        else f.handoff(handoff({ operationType: 'cacheSizeScan' }));
+        assert.equal(f.state.length, 1, JSON.stringify(f.state));
+        assert.equal(f.state[0].id, original.id);
+        assert.equal(f.state[0].startedAt, original.startedAt);
+        assert.equal(f.state[0].details.operationId, 'N');
+      }
+      assert.ok(f.updates.every((state) => state.length === 1));
+      assert.equal(f.state[0].message, 'Starting cache file scan...');
+      f.event('cache_size_scan', 'started', {
+        operationId: 'N',
+        previousOperationId: 'W',
+        showNotification: !silent
+      });
+      assert.equal(f.state.length, 1);
+    });
+  }
+}
+
+test('cache scan recovery merges its registered predecessor before committing', async () => {
+  const f = await lifecycle();
+  f.waiting({ ...queued(), operationType: 'cacheSizeScan', silent: true, acknowledge: false });
+  const original = f.state[0];
+  const run = f.modules.createRecoveryRunner(
+    async (url) => {
+      const body =
+        url === '/api/operations/waiting'
+          ? [{ ...queued(), operationType: 'cacheSizeScan', showNotification: false }]
+          : url === '/api/cache/size/scan/status'
+            ? {
+                isProcessing: true,
+                operationId: 'N',
+                previousOperationId: 'W',
+                showNotification: false,
+                status: 'running',
+                percentComplete: 12,
+                stageKey: 'signalr.cacheSizeScan.scanning'
+              }
+            : undefined;
+      return new Response(body === undefined ? null : JSON.stringify(body), {
+        status: body === undefined ? 401 : 200
+      });
+    },
+    f.setNotifications,
+    f.scheduleAutoDismiss,
+    f.events,
+    () => f.state,
+    f.cancelAutoDismissTimer
+  );
+  await run();
+  assert.equal(f.state.length, 1, JSON.stringify(f.state));
+  assert.equal(f.state[0].id, original.id);
+  assert.equal(f.state[0].startedAt, original.startedAt);
+  assert.equal(f.state[0].details.operationId, 'N');
+  assert.equal(f.state[0].progress, 12);
+  assert.ok(f.updates.every((state) => state.length === 1));
+  f.waiting({ ...queued(), operationType: 'cacheSizeScan', silent: true, acknowledge: false });
+  assert.equal(f.state.length, 1);
+  assert.equal(f.state[0].details.operationId, 'N');
+});
+
+test('cache scan predecessor preserves terminal outcome and unrelated scan', async () => {
+  const f = await lifecycle();
+  f.event('cache_size_scan', 'started', { operationId: 'U', showNotification: false });
+  const unrelated = f.state[0];
+  f.waiting({ ...queued(), operationType: 'cacheSizeScan', silent: true, acknowledge: false });
+  f.event('cache_size_scan', 'complete', {
+    operationId: 'N',
+    success: false,
+    status: 'failed',
+    error: 'Disk unavailable'
+  });
+  f.event('cache_size_scan', 'started', {
+    operationId: 'N',
+    previousOperationId: 'W',
+    showNotification: false
+  });
+  assert.equal(f.state.length, 2);
+  assert.equal(f.state[0], unrelated);
+  assert.equal(f.state[1].details.operationId, 'N');
+  assert.equal(f.state[1].status, 'failed');
+  f.remove(f.state[1].id);
+  f.event('cache_size_scan', 'started', {
+    operationId: 'N',
+    previousOperationId: 'W',
+    showNotification: false
+  });
+  assert.deepEqual(f.state, [unrelated]);
 });
 
 test('recovery commits an exact missing-wait successor once when the updater is replayed', async () => {

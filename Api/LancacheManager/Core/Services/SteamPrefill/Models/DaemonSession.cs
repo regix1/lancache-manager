@@ -143,12 +143,15 @@ public class DaemonSession
     public long LastProgressBytes { get; set; }
 
     /// <summary>
-    /// Per-run idempotency guard for the terminal funnel. 0 = not yet terminal, 1 = terminal
-    /// already fired. Reset to 0 at the start of each prefill run; flipped once via
-    /// <see cref="System.Threading.Interlocked.CompareExchange(ref int, int, int)"/> so a
-    /// socket-death + late daemon terminal event can never double-fire the terminal transition.
+    /// Per-run terminal ownership: 0 = running, 1 = publishing/cleaning up, 2 = settled.
+    /// Only an admitted new run resets this flag.
     /// </summary>
     public int TerminalCompletedFlag;
+
+    public object PrefillLock { get; } = new();
+    public SemaphoreSlim PrefillWork { get; } = new(1, 1);
+    /// <summary>Localized reason for the last failed run. Null when no keyed failure exists.</summary>
+    public string? ErrorStageKey { get; set; }
 
     /// <summary>
     /// Monotonic tick counter, stamped via <see cref="System.Threading.Interlocked.Increment(ref long)"/>

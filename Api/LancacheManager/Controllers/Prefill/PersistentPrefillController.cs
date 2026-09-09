@@ -295,27 +295,13 @@ public class PersistentPrefillController : ControllerBase
     [ProducesResponseType(typeof(PersistentPrefillGamesDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<PersistentPrefillGamesDto>> GetGamesAsync(
         [FromQuery] PrefillPlatform service,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromQuery] string? expectedSessionId = null)
     {
-        var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, service);
-        if (daemon is null)
-        {
-            return BadRequest(ApiResponse.Error($"No daemon registered for service '{service}'"));
-        }
+        var (daemon, session, error) = ResolveRunningPersistentSession(service, expectedSessionId);
+        if (error is not null) return error;
 
-        var session = daemon.GetActivePersistentSession();
-        if (session is null)
-        {
-            return NotFound(ApiResponse.Error($"No running persistent session for service '{service}'"));
-        }
-
-        // Defense-in-depth: never operate on a non-persistent session here.
-        if (!session.IsPersistent)
-        {
-            return Forbid();
-        }
-
-        var games = await daemon.GetOwnedGamesAsync(session.Id, cancellationToken);
+        var games = await daemon!.GetOwnedGamesAsync(session!.Id, cancellationToken);
 
         var ownedAppIds = games
             .Select(g => g.AppId.ToString())
@@ -325,6 +311,11 @@ public class PersistentPrefillController : ControllerBase
 
         var (cachedAppIds, unknownAppIds) = await ResolveCachedAppIdsForGamePickerAsync(
             service, daemon, session.Id, ownedAppIds, cancellationToken);
+
+        var (_, current, currentError) = ResolveRunningPersistentSession(service, session.Id);
+        if (currentError is not null) return currentError;
+        if (!ReferenceEquals(current, session))
+            throw new ConflictException(PersistentLoginConflictReasons.SessionReplaced);
 
         return Ok(new PersistentPrefillGamesDto
         {
@@ -1340,6 +1331,10 @@ public class PersistentPrefillController : ControllerBase
             var status = await daemon.GetCacheStatusAsync(sessionId, eligible, timeout.Token);
             var (verified, _, unknown) = status.ResolveAppIds(eligible);
             return (verified, unknown);
+        }
+        catch (DaemonCommandException ex) when (ex.RequiresLogin)
+        {
+            throw;
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {

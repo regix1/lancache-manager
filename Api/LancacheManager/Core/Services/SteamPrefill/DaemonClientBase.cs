@@ -593,11 +593,12 @@ public abstract class DaemonClientBase : IDaemonClient
         Dictionary<string, string>? parameters,
         TimeSpan? timeout,
         CancellationToken cancellationToken,
-        Action? onCommandDispatched = null)
+        Action? onCommandDispatched = null,
+        string? commandId = null)
     {
         var command = new CommandRequest
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = commandId ?? Guid.NewGuid().ToString(),
             Type = type,
             Parameters = parameters,
             CreatedAt = DateTime.UtcNow
@@ -1165,19 +1166,8 @@ public abstract class DaemonClientBase : IDaemonClient
         // 10 minutes, same as get-cdn-info below: a session whose metadata cache is missing or predates
         // artwork support refetches the whole library one HTTPS call at a time, which on a few hundred
         // owned titles runs well past the 5 minute default.
-        var response = await SendCommandAsync("get-owned-games",
-            timeout: TimeSpan.FromMinutes(10),
-            cancellationToken: cancellationToken);
-
-        if (!response.Success)
-            throw new InvalidOperationException(response.Error ?? "Failed to get owned games");
-
-        if (response.Data is JsonElement element)
-        {
-            return JsonSerializer.Deserialize<List<OwnedGame>>(element.GetRawText(), _jsonOptions) ?? new List<OwnedGame>();
-        }
-
-        return new List<OwnedGame>();
+        return await ReadResultAsync<List<OwnedGame>>("get-owned-games", null,
+            TimeSpan.FromMinutes(10), cancellationToken);
     }
 
     /// <summary>
@@ -1227,7 +1217,9 @@ public abstract class DaemonClientBase : IDaemonClient
         List<string>? operatingSystems = null,
         int? maxConcurrency = null,
         List<CachedDepotInput>? cachedDepots = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Guid? runId = null,
+        Action? onCommandDispatched = null)
     {
         var parameters = new Dictionary<string, string>();
         if (all) parameters["all"] = "true";
@@ -1247,20 +1239,52 @@ public abstract class DaemonClientBase : IDaemonClient
             _logger?.LogInformation("Sending {Count} cached depot manifests to daemon", cachedDepots.Count);
         }
 
-        var response = await SendCommandAsync("prefill", parameters,
+        await EnsureConnectedAsync(cancellationToken);
+        var response = await SendCoreAsync("prefill", parameters,
             timeout: TimeSpan.FromHours(24),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken, onCommandDispatched: onCommandDispatched,
+            commandId: runId?.ToString());
 
-        if (response.RequiresLogin == true)
-            return new PrefillResult { Success = false, RequiresLogin = true, ErrorMessage = response.Error ?? "Log in before starting prefill." };
+        if (response.RequiresLogin == true || response.ErrorCode == "auth-lost")
+        {
+            var failure = new DaemonCommandException(response.ErrorCode, true);
+            return new PrefillResult { Success = false, RequiresLogin = true, ErrorMessage = failure.Message, ErrorCode = failure.ErrorCode, StageKey = failure.StageKey };
+        }
 
         if (!response.Success)
-            throw new InvalidOperationException(response.Error ?? "Prefill failed");
+        {
+            _logger?.LogWarning("Daemon prefill {RunId} failed with {ErrorCode}: {Error}",
+                runId, response.ErrorCode, response.Error);
+            if (response.Error?.Contains("already in progress", StringComparison.OrdinalIgnoreCase) == true)
+                throw new PrefillAlreadyRunningException("A prefill is already in progress.");
+            throw new DaemonCommandException(response.ErrorCode);
+        }
 
         if (response.Data is JsonElement element)
         {
-            return JsonSerializer.Deserialize<PrefillResult>(element.GetRawText(), _jsonOptions)
-                   ?? new PrefillResult { Success = false, ErrorMessage = "Failed to parse result" };
+            PrefillResult result;
+            try
+            {
+                result = JsonSerializer.Deserialize<PrefillResult>(element.GetRawText(), _jsonOptions)
+                    ?? throw new JsonException("Required prefill result is null.");
+            }
+            catch (JsonException ex)
+            {
+                _logger?.LogWarning(ex, "Daemon prefill {RunId} returned an invalid result", runId);
+                throw new DaemonCommandException();
+            }
+            if (!result.Success || result.RequiresLogin)
+            {
+                _logger?.LogWarning("Daemon prefill {RunId} failed with {ErrorCode}: {Error}",
+                    runId, result.ErrorCode, result.ErrorMessage);
+                var failure = new DaemonCommandException(result.ErrorCode, result.RequiresLogin);
+                result.Success = false;
+                result.ErrorMessage = failure.Message;
+                result.StageKey = failure.StageKey;
+                result.ErrorCode = failure.ErrorCode;
+                result.RequiresLogin = failure.RequiresLogin;
+            }
+            return result;
         }
 
         return new PrefillResult { Success = true };
@@ -1315,20 +1339,8 @@ public abstract class DaemonClientBase : IDaemonClient
             ["os"] = FormatOperatingSystems(operatingSystems)
         };
 
-        var response = await SendCommandAsync("get-selected-apps-status", parameters,
-            timeout: TimeSpan.FromMinutes(5),
-            cancellationToken: cancellationToken);
-
-        if (!response.Success)
-            throw new InvalidOperationException(response.Error ?? "Failed to get selected apps status");
-
-        if (response.Data is JsonElement element)
-        {
-            return JsonSerializer.Deserialize<SelectedAppsStatus>(element.GetRawText(), _jsonOptions)
-                   ?? new SelectedAppsStatus { Message = "Failed to parse result" };
-        }
-
-        return new SelectedAppsStatus { Message = response.Message };
+        return await ReadResultAsync<SelectedAppsStatus>("get-selected-apps-status", parameters,
+            TimeSpan.FromMinutes(5), cancellationToken);
     }
 
     /// <summary>
@@ -1348,20 +1360,48 @@ public abstract class DaemonClientBase : IDaemonClient
             ["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions)
         };
 
-        var response = await SendCommandAsync("check-cache-status", parameters,
-            timeout: TimeSpan.FromMinutes(10),
-            cancellationToken: cancellationToken);
+        return await ReadResultAsync<CacheStatusResult>("check-cache-status", parameters,
+            TimeSpan.FromMinutes(10), cancellationToken);
+    }
 
-        if (!response.Success)
-            throw new InvalidOperationException(response.Error ?? "Failed to check cache status");
-
-        if (response.Data is JsonElement element)
+    private async Task<T> ReadResultAsync<T>(string command, Dictionary<string, string>? parameters,
+        TimeSpan timeout, CancellationToken cancellationToken) where T : class
+    {
+        try
         {
-            return JsonSerializer.Deserialize<CacheStatusResult>(element.GetRawText(), _jsonOptions)
-                   ?? new CacheStatusResult { Message = "Failed to parse result" };
-        }
+            var response = await SendCommandAsync(command, parameters, timeout, cancellationToken);
+            if (!response.Success || response.RequiresLogin == true)
+            {
+                _logger?.LogWarning("Daemon query {Command} failed with {ErrorCode}: {Error}",
+                    command, response.ErrorCode, response.Error);
+                throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true);
+            }
 
-        return new CacheStatusResult { Message = response.Message };
+            if (response.Data is not JsonElement element
+                || (element.ValueKind != JsonValueKind.Array
+                    && !(element.ValueKind == JsonValueKind.Object
+                        && DaemonStatus.TryGetPropertyCaseInsensitive(element, out var apps, "apps")
+                        && apps.ValueKind == JsonValueKind.Array)))
+            {
+                throw new JsonException("Required daemon query result is absent or malformed.");
+            }
+
+            return JsonSerializer.Deserialize<T>(element.GetRawText(), _jsonOptions)
+                ?? throw new JsonException("Required daemon query result is null.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (DaemonCommandException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Daemon query {Command} could not complete", command);
+            throw new DaemonCommandException();
+        }
     }
 
     /// <summary>

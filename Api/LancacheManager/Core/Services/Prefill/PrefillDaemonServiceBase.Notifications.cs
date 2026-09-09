@@ -185,9 +185,8 @@ public abstract partial class PrefillDaemonServiceBase
                 }
             }
 
-            // Re-check liveness after the durable write before broadcasting: teardown may have won during
-            // that await.
-            if (!IsSessionLive(session))
+            // The current auth state can change while the account-name write is pending.
+            if (!IsSessionLive(session) || session.AuthState != newAuthState)
             {
                 return;
             }
@@ -195,6 +194,9 @@ public abstract partial class PrefillDaemonServiceBase
             if (session.AuthState != previousAuthState)
             {
                 await NotifyAuthStateChangeAsync(session);
+
+                if (!IsSessionLive(session) || session.AuthState != newAuthState)
+                    return;
 
                 // Notify derived class when a daemon becomes authenticated
                 if (newAuthState == DaemonAuthState.Authenticated)
@@ -217,7 +219,8 @@ public abstract partial class PrefillDaemonServiceBase
                 return;
             }
 
-            await NotifyStatusChangeAsync(session, status);
+            if (session.AuthState == newAuthState)
+                await NotifyStatusChangeAsync(session, status);
         }
         catch (Exception ex)
         {
@@ -241,6 +244,16 @@ public abstract partial class PrefillDaemonServiceBase
     {
         try
         {
+            Guid? runId;
+            lock (session.PrefillLock)
+            {
+                runId = session.PrefillRunId;
+                if (socketProgress.OperationId is not null
+                    && (!Guid.TryParse(socketProgress.OperationId, out var operationId) || operationId != runId))
+                    return;
+                if (runId is null || !session.IsPrefilling || session.TerminalCompletedFlag != 0)
+                    return;
+            }
             // Post-detach/replace/terminate guard (see OnStatusChangeAsync): a fire-and-forget progress
             // event can arrive after this session was torn down; ignore it before any history/cache write
             // or broadcast if it is no longer the live registered instance. NotifyPrefillProgressAsync
@@ -254,6 +267,9 @@ public abstract partial class PrefillDaemonServiceBase
             // Property names match daemon's PrefillProgressUpdate class
             var progress = new PrefillProgress
             {
+                OperationId = runId.ToString(),
+                ErrorCode = socketProgress.ErrorCode,
+                RequiresLogin = socketProgress.RequiresLogin,
                 State = socketProgress.State ?? "downloading",
                 // The daemon sends currentAppId as a number and uses 0 for "no app in flight",
                 // which the flexible string converter turns into "0" rather than null. Every
@@ -269,9 +285,14 @@ public abstract partial class PrefillDaemonServiceBase
                 ElapsedSeconds = socketProgress.ElapsedSeconds,
                 TotalApps = socketProgress.TotalApps,
                 UpdatedApps = socketProgress.UpdatedApps,
+                AlreadyUpToDate = socketProgress.AlreadyUpToDate,
+                FailedApps = socketProgress.FailedApps,
+                TotalBytesTransferred = socketProgress.TotalBytesTransferred,
+                TotalTimeSeconds = socketProgress.TotalTimeSeconds,
                 UpdatedAt = socketProgress.UpdatedAt,
                 Result = socketProgress.Result,
-                ErrorMessage = socketProgress.ErrorMessage,
+                ErrorMessage = string.IsNullOrEmpty(socketProgress.ErrorMessage) ? null
+                    : new DaemonCommandException(socketProgress.ErrorCode, socketProgress.RequiresLogin == true).Message,
                 // Map depot info for cache tracking
                 Depots = socketProgress.Depots?.Select(d => new DepotManifestProgressInfo
                 {
@@ -321,6 +342,7 @@ public abstract partial class PrefillDaemonServiceBase
 
     protected async Task NotifyAuthStateChangeAsync(DaemonSession session)
     {
+        var authState = session.AuthState;
         // Every ending of a login comes through here - the daemon's own success broadcast, a fail-fast,
         // the user cancelling, a logout, a login command that never reached the daemon, and the headless
         // abandon - so this is the single place a login's card gets closed. LoggingIn is the one state
@@ -346,12 +368,15 @@ public abstract partial class PrefillDaemonServiceBase
         // an anonymous daemon, its connected state), so refresh the session's activity presence here.
         await ReportSessionActivityAsync(session, present: true);
 
-        var payload = new { sessionId = session.Id, authState = session.AuthState.ToString() };
+        if (!IsSessionLive(session) || session.AuthState != authState)
+            return;
+
+        var payload = new { sessionId = session.Id, authState = authState.ToString() };
         await BroadcastToSubscribersAsync(session, EventAuthStateChanged, payload);
 
         // Liveness fence: the subscriber fan-out above can outlast a teardown that won the bounded drain;
         // stop before mirroring later auth/session updates to the hubs for a session no longer live.
-        if (!IsSessionLive(session))
+        if (!IsSessionLive(session) || session.AuthState != authState)
         {
             return;
         }
@@ -361,7 +386,7 @@ public abstract partial class PrefillDaemonServiceBase
         await NotifyHubAsync(EventAuthStateChanged, payload);
 
         // Re-check after the hub push before the session-update broadcast: teardown may have won during it.
-        if (!IsSessionLive(session))
+        if (!IsSessionLive(session) || session.AuthState != authState)
         {
             return;
         }
@@ -419,33 +444,12 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     private async Task NotifyPrefillStartedAsync(DaemonSession session)
     {
-        // Track when prefill started for duration calculation
-        session.PrefillStartedAt = DateTime.UtcNow;
-        // Arm the terminal funnel for this run (allows exactly one terminal transition)
-        Interlocked.Exchange(ref session.TerminalCompletedFlag, 0);
-        session.PrefillState = PrefillState.Started;
-        // Clear any previous completion info
-        session.LastPrefillCompletedAt = null;
-        session.LastPrefillDurationSeconds = null;
-        session.LastPrefillStatus = null;
-        // The reason belongs to the run that produced it; a stale one would be reported as this
-        // run's failure reason by the scheduler. [6]
-        session.ErrorMessage = null;
-        // Seed stall-watchdog state so a prefill that never moves is detectable from the start.
-        // Written via Volatile so the cleanup-timer thread observes a torn-free tick value.
-        Volatile.Write(ref session.LastProgressTicksUtc, DateTime.UtcNow.Ticks);
-        session.LastProgressBytes = 0;
-
         var state = PrefillProgressState.Started.ToWireString();
-        var startedPayload = new { sessionId = session.Id, state, durationSeconds = (int?)null };
-        await BroadcastToSubscribersAsync(session, EventPrefillStateChanged, startedPayload);
-
-        // Mirror to DownloadHub so management UIs (persistent container list, prefill sessions)
-        // observe the prefill state change via SignalR instead of polling (matches
-        // NotifyAuthStateChangeAsync's AuthStateChanged mirror).
-        await NotifyHubAsync(EventPrefillStateChanged, startedPayload);
-
-        // The run just started (IsPrefilling is now true), so light this session's downloading activity dot.
+        var started = new { sessionId = session.Id, state, durationSeconds = (int?)null };
+        await BroadcastToSubscribersAsync(session, EventPrefillStateChanged, started);
+        if (!IsSessionLive(session)) return;
+        await NotifyHubAsync(EventPrefillStateChanged, started);
+        if (!IsSessionLive(session)) return;
         await ReportSessionActivityAsync(session, present: true);
     }
 
@@ -458,77 +462,165 @@ public abstract partial class PrefillDaemonServiceBase
     /// clears the <c>LastProgress</c> snapshot, and emits exactly one <c>PrefillStateChanged</c>.
     /// ALL terminal paths (completed / failed / cancelled / cancel / socket-disconnect) route here.
     /// </summary>
-    private async Task<bool> TransitionToTerminalAsync(DaemonSession session, PrefillState terminalState, string? reason = null)
+    private async Task<bool> TransitionToTerminalAsync(
+        DaemonSession session, PrefillState terminalState, Guid? runId,
+        string? reason = null, string? stageKey = null, PrefillProgress? progress = null,
+        Func<bool>? canClaim = null, bool cancelDaemon = false, bool cancelBeforeClaim = false,
+        CancellationToken cancellationToken = default)
     {
-        // Idempotency: only the first caller for this run wins.
-        if (Interlocked.CompareExchange(ref session.TerminalCompletedFlag, 1, 0) != 0)
-        {
-            return false;
-        }
-
-        if (reason is not null)
-        {
-            session.ErrorMessage = reason;
-        }
-
-        var state = terminalState switch
-        {
-            PrefillState.Completed => PrefillProgressState.Completed.ToWireString(),
-            PrefillState.Failed => PrefillProgressState.Failed.ToWireString(),
-            PrefillState.Cancelled => PrefillProgressState.Cancelled.ToWireString(),
-            // Defensive: a non-terminal value should never reach here; treat as Failed.
-            _ => PrefillProgressState.Failed.ToWireString()
-        };
-
-        int? durationSeconds = null;
-        if (session.PrefillStartedAt.HasValue)
-        {
-            durationSeconds = (int)(DateTime.UtcNow - session.PrefillStartedAt.Value).TotalSeconds;
-        }
-
-        // The terminal funnel is the SOLE setter of IsPrefilling=false (started/download keep it true).
-        // The state is stamped FIRST because IsPrefilling is what the scheduler's run loop waits on:
-        // clearing the flag first leaves a window where the loop exits and reads the PREVIOUS state,
-        // so a failed run would look like a finished one and be reported as completed. [28]
-        session.PrefillState = terminalState;
-        session.LastProgress = null;
-        Volatile.Write(ref session.LastProgressTicksUtc, 0L);
-        session.CurrentAppId = null;
-        session.CurrentAppName = null;
-        session.PreviousAppId = null;
-        session.PreviousAppName = null;
-
-        // Store the last prefill result for clients that were disconnected during prefill
-        session.LastPrefillCompletedAt = DateTime.UtcNow;
-        session.LastPrefillDurationSeconds = durationSeconds;
-        session.LastPrefillStatus = state;
-        session.IsPrefilling = false;
-
-        _logger.LogInformation("Prefill {State} for session {SessionId}, duration: {Duration}s",
-            state, session.Id, durationSeconds ?? 0);
-
-        var terminalPayload = new { sessionId = session.Id, state, durationSeconds };
-        await BroadcastToSubscribersAsync(session, EventPrefillStateChanged, terminalPayload);
-
-        // Mirror to DownloadHub so management UIs update via SignalR instead of polling when a
-        // prefill reaches a terminal state (matches NotifyAuthStateChangeAsync's AuthStateChanged mirror).
-        await NotifyHubAsync(EventPrefillStateChanged, terminalPayload);
-
-        // Keep admin pages in sync (IsPrefilling flipped false, current app cleared).
+        await session.PrefillWork.WaitAsync(cancellationToken);
         try
         {
-            var dto = DaemonSessionDto.FromSession(session);
-            await NotifyHubAsync(EventSessionUpdated, dto);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to broadcast session update after terminal transition for session {SessionId}", session.Id);
-        }
+            IDaemonClient client;
+            lock (session.PrefillLock)
+            {
+                if (runId is null || !IsSessionLive(session) || session.PrefillRunId != runId
+                    || !session.IsPrefilling || session.TerminalCompletedFlag != 0
+                    || session.CancellationTokenSource.IsCancellationRequested
+                    || canClaim?.Invoke() == false)
+                    return false;
+                client = session.Client;
+            }
 
-        // The run is over (IsPrefilling flipped false above); the session stays present but its downloading
-        // dot clears.
-        await ReportSessionActivityAsync(session, present: true);
-        return true;
+            if (cancelDaemon && cancelBeforeClaim)
+                await client.CancelPrefillAsync(cancellationToken);
+
+            string? appId;
+            long bytesDownloaded;
+            long totalBytes;
+            int? durationSeconds;
+            string state;
+            lock (session.PrefillLock)
+            {
+                if (!IsSessionLive(session) || session.PrefillRunId != runId
+                    || !ReferenceEquals(client, session.Client) || !session.IsPrefilling
+                    || session.TerminalCompletedFlag != 0 || session.CancellationTokenSource.IsCancellationRequested
+                    || canClaim?.Invoke() == false)
+                    return false;
+
+                session.TerminalCompletedFlag = 1;
+                appId = session.CurrentAppId;
+                bytesDownloaded = session.CurrentBytesDownloaded;
+                totalBytes = session.CurrentTotalBytes;
+                durationSeconds = session.PrefillStartedAt.HasValue
+                    ? (int)(DateTime.UtcNow - session.PrefillStartedAt.Value).TotalSeconds : null;
+                state = terminalState switch
+                {
+                    PrefillState.Completed => PrefillProgressState.Completed.ToWireString(),
+                    PrefillState.Cancelled => PrefillProgressState.Cancelled.ToWireString(),
+                    _ => PrefillProgressState.Failed.ToWireString()
+                };
+                if (progress is not null)
+                    UpdateTransferredBytes(session, progress.TotalBytesTransferred);
+                session.ErrorMessage = reason;
+                session.ErrorStageKey = stageKey;
+                session.PrefillState = terminalState;
+                session.LastProgress = null;
+                Volatile.Write(ref session.LastProgressTicksUtc, 0L);
+                session.CurrentAppId = null;
+                session.CurrentAppName = null;
+                session.PreviousAppId = null;
+                session.PreviousAppName = null;
+                session.CurrentBytesDownloaded = 0;
+                session.CurrentTotalBytes = 0;
+                session.LastPrefillCompletedAt = DateTime.UtcNow;
+                session.LastPrefillDurationSeconds = durationSeconds;
+                session.LastPrefillStatus = state;
+                session.IsPrefilling = false;
+            }
+
+            try
+            {
+                try
+                {
+                    if (terminalState == PrefillState.Cancelled)
+                    {
+                        await _sessionService.CancelEntriesAsync(session.Id);
+                        if (appId is not null && IsSessionLive(session))
+                            await BroadcastHistoryUpdatedAsync(session.Id, appId, "Cancelled");
+                    }
+                    else if (appId is not null)
+                    {
+                        var status = terminalState == PrefillState.Failed ? "Failed"
+                            : bytesDownloaded == 0 ? "Cached" : "Completed";
+                        await _sessionService.CompleteEntryAsync(
+                            session.Id, appId, status, bytesDownloaded, totalBytes, reason);
+                        if (IsSessionLive(session))
+                            await BroadcastHistoryUpdatedAsync(session.Id, appId, status);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to close prefill history for session {SessionId}, run {RunId}", session.Id, runId);
+                }
+
+                if (cancelDaemon && !cancelBeforeClaim)
+                {
+                    try
+                    {
+                        using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                        await client.CancelPrefillAsync(cleanup.Token);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not confirm prefill cancellation for session {SessionId}, run {RunId}", session.Id, runId);
+                        lock (session.PrefillLock)
+                        {
+                            if (IsSessionLive(session) && session.PrefillRunId == runId
+                                && ReferenceEquals(session.Client, client))
+                                session.Status = DaemonSessionStatus.Error;
+                        }
+                    }
+                }
+
+                if (!IsSessionLive(session)) return true;
+                _logger.LogInformation("Prefill {State} for session {SessionId}, run {RunId}, duration: {Duration}s",
+                    state, session.Id, runId, durationSeconds ?? 0);
+                var terminal = new { sessionId = session.Id, state, durationSeconds };
+                try
+                {
+                    await BroadcastToSubscribersAsync(session, EventPrefillStateChanged, terminal);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to publish prefill terminal for session {SessionId}", session.Id);
+                }
+                if (!IsSessionLive(session)) return true;
+                try
+                {
+                    await NotifyHubAsync(EventPrefillStateChanged, terminal);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to publish prefill terminal to the hub for session {SessionId}", session.Id);
+                }
+                if (!IsSessionLive(session)) return true;
+                try
+                {
+                    var snapshot = DaemonSessionDto.FromSession(session);
+                    await NotifyHubAsync(EventSessionUpdated, snapshot);
+                    if (IsSessionLive(session))
+                        await ReportSessionActivityAsync(session, present: true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to publish the finished prefill session {SessionId}", session.Id);
+                }
+                return true;
+            }
+            finally
+            {
+                lock (session.PrefillLock)
+                {
+                    if (session.PrefillRunId == runId && session.TerminalCompletedFlag == 1)
+                        session.TerminalCompletedFlag = 2;
+                }
+            }
+        }
+        finally
+        {
+            session.PrefillWork.Release();
+        }
     }
 
     /// <summary>
@@ -539,431 +631,213 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     protected async Task NotifyPrefillProgressAsync(DaemonSession session, PrefillProgress progress)
     {
-        // Stamp the tick's order BEFORE the first await. Socket events are dispatched
-        // fire-and-forget, so this handler can be re-entered while an earlier app-transition tick is
-        // still awaiting its history write - the sequence lets an in-process consumer discard a tick
-        // that has been overtaken instead of rendering progress backwards.
-        var sequence = Interlocked.Increment(ref session.ProgressSequence);
-
-        // Update session's current app info for admin visibility
-        var appInfoChanged = session.CurrentAppId != progress.CurrentAppId ||
-                             session.CurrentAppName != progress.CurrentAppName;
-
-        // Track history: detect game transitions
-        var newAppId = string.IsNullOrEmpty(progress.CurrentAppId) ? null : progress.CurrentAppId;
-        var startingNewApp = appInfoChanged && newAppId is not null;
-        if (startingNewApp)
+        Guid? runId;
+        lock (session.PrefillLock)
         {
-            // If there was an app being prefilled, complete its history entry
-            // Use the STORED bytes (from before the transition), not progress bytes (which are for the new app)
-            var previousAppId = session.CurrentAppId;
-            var carriedAppName = session.CurrentAppName;
-            var carriedBytesDownloaded = session.CurrentBytesDownloaded;
-            var carriedTotalBytes = session.CurrentTotalBytes;
-
-            // Claim the new app before the first database await, for the same reason the
-            // app-completed path below claims the finished one: this handler is re-entrant, and
-            // two ticks carrying the same app both used to pass the check above while the first
-            // was still awaiting its write, so both opened a history entry. That left one row
-            // stranded as InProgress until session teardown recorded it as cancelled, which is
-            // how a game that downloaded fine also showed up as a cancelled run beside itself.
-            session.PreviousAppId = previousAppId;
-            session.PreviousAppName = carriedAppName;
-            session.CurrentAppId = progress.CurrentAppId;
-            session.CurrentAppName = progress.CurrentAppName;
-            session.CompletedBytesTransferred = Math.Max(
-                session.CompletedBytesTransferred,
-                session.TotalBytesTransferred);
-
-            if (!string.IsNullOrEmpty(previousAppId))
-            {
-                var previousAppName = carriedAppName;
-                var previousBytesDownloaded = carriedBytesDownloaded;
-                var previousTotalBytes = carriedTotalBytes;
-
-                try
-                {
-                    // If no bytes were downloaded, mark as Cached
-                    var status = previousBytesDownloaded == 0 ? "Cached" : "Completed";
-
-                    await _sessionService.CompleteEntryAsync(
-                        session.Id,
-                        previousAppId,
-                        status,
-                        previousBytesDownloaded,
-                        previousTotalBytes);
-
-                    _logger.LogInformation("App {Status} in session {SessionId}: {AppId} ({AppName}) - {Bytes}/{Total} bytes",
-                        status, session.Id, previousAppId, previousAppName,
-                        previousBytesDownloaded, previousTotalBytes);
-
-                    // Broadcast history update
-                    await BroadcastHistoryUpdatedAsync(session.Id, previousAppId, status);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", previousAppId);
-                }
-            }
-
-            // Start a new history entry for the current app
-            try
-            {
-                var entry = await _sessionService.StartEntryAsync(session.Id, newAppId!, progress.CurrentAppName);
-
-                // Only broadcast if an entry was actually created (won't create if recently completed)
-                if (entry != null)
-                {
-                    _logger.LogDebug("Started prefill history for app {AppId} ({AppName}) in session {SessionId}",
-                        progress.CurrentAppId, progress.CurrentAppName, session.Id);
-
-                    // Broadcast history update
-                    await BroadcastHistoryUpdatedAsync(session.Id, newAppId!, "InProgress");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to start prefill history entry for app {AppId}", progress.CurrentAppId);
-            }
-
-            // Reset bytes tracking for the new app, then update from current progress
-            session.CurrentBytesDownloaded = 0;
-            session.CurrentTotalBytes = 0;
+            runId = session.PrefillRunId;
+            if (progress.OperationId is not null
+                && (!Guid.TryParse(progress.OperationId, out var operationId) || operationId != runId))
+                return;
+            if (runId is null || !IsSessionLive(session) || !session.IsPrefilling
+                || session.TerminalCompletedFlag != 0)
+                return;
         }
 
-        // Update bytes from progress BEFORE handling completion events
-        // This ensures even instant completions (cached games) have the correct bytes
-        if (!string.IsNullOrEmpty(progress.CurrentAppId))
-        {
-            if (progress.BytesDownloaded > 0)
-            {
-                session.CurrentBytesDownloaded = progress.BytesDownloaded;
-            }
-            if (progress.TotalBytes > 0)
-            {
-                session.CurrentTotalBytes = progress.TotalBytes;
-            }
-        }
-
-        // Handle individual app completion (daemon sends "app_completed" for each app)
-        // IMPORTANT: Use progress.CurrentAppId here, NOT session.CurrentAppId
-        // For cached games, daemon sends app_completed without a prior "downloading" event,
-        // so session.CurrentAppId may still point to the previous app
-        if (PrefillProgressStateExtensions.ParseOrUnknown(progress.State) == PrefillProgressState.AppCompleted
-            && !string.IsNullOrEmpty(progress.CurrentAppId))
-        {
-            // Claim the completed app before the first database await. A following terminal event can
-            // otherwise observe it as current and try to complete the same history entry again.
-            var bytesDownloaded = progress.BytesDownloaded > 0 ? progress.BytesDownloaded : session.CurrentBytesDownloaded;
-            var totalBytes = progress.TotalBytes > 0 ? progress.TotalBytes : session.CurrentTotalBytes;
-            session.PreviousAppId = progress.CurrentAppId;
-            session.PreviousAppName = progress.CurrentAppName;
-            session.CurrentAppId = null;
-            session.CurrentAppName = null;
-            session.CurrentBytesDownloaded = 0;
-            session.CurrentTotalBytes = 0;
-            UpdateTransferredBytes(
-                session,
-                Math.Max(
-                    session.TotalBytesTransferred,
-                    session.CompletedBytesTransferred + bytesDownloaded));
-
-            try
-            {
-                // Check the Result field from daemon to determine if game was actually downloaded
-                // "Success" = downloaded, "AlreadyUpToDate"/"Skipped"/"NoDepotsToDownload" = cached/skipped
-                var isCached = progress.Result is "AlreadyUpToDate" or "Skipped" or "NoDepotsToDownload";
-
-                // Determine the status based on the result
-                string status;
-                if (isCached)
-                {
-                    status = "Cached";
-                }
-                else if (progress.Result == "Failed")
-                {
-                    status = "Failed";
-                }
-                else
-                {
-                    status = "Completed";
-                }
-
-                var entry = await _sessionService.CompleteEntryAsync(
-                    session.Id,
-                    progress.CurrentAppId,
-                    status,
-                    bytesDownloaded,
-                    totalBytes);
-
-                _logger.LogInformation("App {Status} ({Result}): {AppId} ({AppName}) - {Bytes}/{Total} bytes",
-                    status, progress.Result, progress.CurrentAppId, progress.CurrentAppName,
-                    bytesDownloaded, totalBytes);
-
-                // Liveness fence (see IsSessionLive): a progress callback that escaped the bounded teardown
-                // drain must not broadcast or write cache records after teardown completed. Re-checked after
-                // each await below before the next durable cache action / broadcast.
-                if (!IsSessionLive(session))
-                {
-                    return;
-                }
-
-                // Broadcast history update
-                await BroadcastHistoryUpdatedAsync(session.Id, progress.CurrentAppId, status);
-
-                if (!IsSessionLive(session))
-                {
-                    return;
-                }
-
-                // Record cached depots for successful downloads (including AlreadyUpToDate)
-                // This allows us to skip re-downloading games that are already cached
-                if (entry != null && progress.Result != "Failed" && !session.CancellationTokenSource.IsCancellationRequested)
-                {
-                    try
-                    {
-                        var recorded = await _cacheService.RecordCachedAppAsync(
-                            Platform, progress.CurrentAppId, progress.CurrentAppName, totalBytes, session.AccountUsername);
-                        if (IsSessionLive(session) && !session.CancellationTokenSource.IsCancellationRequested
-                            && Platform == PrefillPlatform.Steam
-                            && progress.Result is "Success" or "AlreadyUpToDate"
-                            && progress.Depots != null && progress.Depots.Count > 0
-                            && uint.TryParse(progress.CurrentAppId, out var numericAppId))
-                        {
-                            recorded |= await _cacheService.RecordCachedDepotsAsync(
-                                numericAppId,
-                                progress.CurrentAppName,
-                                progress.Depots.Select(d => (d.DepotId, d.ManifestId, d.TotalBytes)),
-                                session.AccountUsername);
-
-                        }
-                        if (recorded && IsSessionLive(session) && !session.CancellationTokenSource.IsCancellationRequested)
-                        {
-                            await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
-                        }
-                    }
-                    catch (Exception cacheEx)
-                    {
-                        _logger.LogWarning(cacheEx, "Failed to record cached depots for app {AppId}", progress.CurrentAppId);
-                    }
-                }
-
-                // Send the app completion event to frontend with appropriate state
-                // For cached games, use "already_cached" so frontend can show animation
-                // For downloaded games, use "app_completed"
-                var frontendProgress = new PrefillProgress
-                {
-                    State = (isCached ? PrefillProgressState.AlreadyCached : PrefillProgressState.AppCompleted).ToWireString(),
-                    CurrentAppId = progress.CurrentAppId,
-                    CurrentAppName = progress.CurrentAppName,
-                    TotalBytes = totalBytes,
-                    BytesDownloaded = bytesDownloaded,
-                    PercentComplete = 100,
-                    BytesPerSecond = 0,
-                    Result = progress.Result,
-                    TotalApps = progress.TotalApps,
-                    UpdatedApps = progress.UpdatedApps,
-                    // Carry the cached/failed app counts so the frontend's
-                    // processedApps = updatedApps + alreadyUpToDate + failedApps doesn't
-                    // undercount across cached games (which never bump UpdatedApps) and
-                    // "Game X of N" can't jump backward. (V4-A)
-                    AlreadyUpToDate = progress.AlreadyUpToDate,
-                    FailedApps = progress.FailedApps,
-                    // Carry the running session total so a reconnect mid-cached-run
-                    // re-hydrates the correct aggregate, not a stale value. (V4-B)
-                    TotalBytesTransferred = session.TotalBytesTransferred
-                };
-
-                // Retain this app_completed snapshot as the live snapshot BEFORE broadcasting,
-                // so a client that reconnects during a run of consecutive cached games (which
-                // only emit app_completed ticks, no "downloading" ticks) re-hydrates the current
-                // snapshot via GetCurrentPrefillProgress / subscribe-replay instead of a stale
-                // "downloading" one. Bump Started -> Downloading like the normal path. (V4-B)
-                session.LastProgress = frontendProgress;
-                if (session.PrefillState == PrefillState.Started)
-                {
-                    session.PrefillState = PrefillState.Downloading;
-                }
-
-                if (!IsSessionLive(session))
-                {
-                    return;
-                }
-
-                var completedAppBroadcast = BroadcastToSubscribersAsync(session, EventPrefillProgress,
-                    new { sessionId = session.Id, progress = frontendProgress });
-
-                if (!IsSessionLive(session))
-                {
-                    return;
-                }
-
-                // Same push, in-process. Carries frontendProgress (NOT the raw tick) because only the
-                // normalized object has the three completion counters a consumer needs to keep its
-                // "game X of N" monotonic across cached games. Start browser delivery first, then let
-                // the scheduler consume the same sequence without waiting for a slow subscriber.
-                await RaisePrefillProgressAsync(session, frontendProgress, sequence);
-                await completedAppBroadcast;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to complete/skip prefill history entry for app {AppId}", progress.CurrentAppId);
-            }
-            return; // Early return - don't process further for app_completed
-        }
-
-        // Handle overall prefill completion/failure/cancelled states
         var progressState = PrefillProgressStateExtensions.ParseOrUnknown(progress.State);
-        if (progressState == PrefillProgressState.Completed
-            || progressState == PrefillProgressState.Failed
-            || progressState == PrefillProgressState.Error
-            || progressState == PrefillProgressState.Cancelled)
+        if (progressState is PrefillProgressState.Completed or PrefillProgressState.Failed
+            or PrefillProgressState.Error or PrefillProgressState.Cancelled)
         {
-            if (!string.IsNullOrEmpty(session.CurrentAppId))
-            {
-                try
-                {
-                    // Determine status: Cached if no bytes on success, Failed if error, Completed otherwise
-                    string status;
-                    if (progressState == PrefillProgressState.Completed && session.CurrentBytesDownloaded == 0)
-                    {
-                        status = "Cached";
-                    }
-                    else if (progressState == PrefillProgressState.Failed || progressState == PrefillProgressState.Error)
-                    {
-                        status = "Failed";
-                    }
-                    else
-                    {
-                        status = "Completed";
-                    }
-
-                    await _sessionService.CompleteEntryAsync(
-                        session.Id,
-                        session.CurrentAppId,
-                        status,
-                        session.CurrentBytesDownloaded,
-                        session.CurrentTotalBytes,
-                        progress.ErrorMessage);
-
-                    _logger.LogDebug("App {Status} for {AppId} ({AppName})",
-                        status, session.CurrentAppId, session.CurrentAppName);
-
-                    // Liveness fence: a progress callback that escaped the bounded teardown drain must not
-                    // broadcast a history update after teardown completed (the terminal transition below has
-                    // its own fence before it).
-                    if (!IsSessionLive(session))
-                    {
-                        return;
-                    }
-
-                    // Broadcast history update
-                    await BroadcastHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", session.CurrentAppId);
-                }
-            }
-
-            // Route through the single idempotent terminal funnel.
-            // Normalise daemon "error" → "failed" first.
-            var normalised = progressState.NormaliseErrorToFailed();
-            var terminalState = normalised switch
+            var terminalState = progressState switch
             {
                 PrefillProgressState.Completed => PrefillState.Completed,
                 PrefillProgressState.Cancelled => PrefillState.Cancelled,
                 _ => PrefillState.Failed
             };
-
-            // Guard: a daemon "error"/"failed"/"cancelled" progress push must only fail or cancel a
-            // session that is actually mid-prefill. The daemon reuses this same progress channel to
-            // report LOGIN-phase failures (e.g. a Steam Guard/email code-getter throwing for a
-            // mobile-push account calls _progress.OnError(...), broadcast as Progress{State="error"}).
-            // A guest session still in its login/device-confirmation phase has never started prefilling
-            // (IsPrefilling==false, PrefillStartedAt==null), so failing it here would kill the whole
-            // login attempt with a spurious "Prefill failed ..., duration: 0s" and drop the user out of
-            // the confirmation step. IsPrefilling is the authoritative mid-prefill flag (set true at
-            // prefill start; the terminal funnel is its sole false-setter), so gate the failure/cancel
-            // transition on it. A genuine prefill failure (IsPrefilling==true) still transitions exactly
-            // as before; a "completed" push is left unguarded so a real completion is never suppressed.
-            // Login failures stay independently surfaced via the daemon "awaiting-login" status path
-            // (OnStatusChangeAsync), so nothing is lost by ignoring a non-prefill error-progress here.
-            if ((terminalState == PrefillState.Failed || terminalState == PrefillState.Cancelled)
-                && !session.IsPrefilling)
-            {
-                _logger.LogInformation(
-                    "Ignoring daemon '{ProgressState}' progress for session {SessionId}: no prefill in " +
-                    "progress (likely a login-phase error), not transitioning to a terminal state.",
-                    progressState.ToWireString(), session.Id);
-                return;
-            }
-
-            // Liveness fence: a progress callback that escaped the bounded teardown drain must not flip a
-            // terminated session's prefill state or broadcast a terminal event after teardown.
-            if (!IsSessionLive(session))
-            {
-                return;
-            }
-
-            var reason = terminalState == PrefillState.Failed && !string.IsNullOrWhiteSpace(progress.ErrorMessage)
-                ? progress.ErrorMessage
-                : null;
-            await TransitionToTerminalAsync(session, terminalState, reason);
-            return; // Don't process further for terminal states
-        }
-
-        // Update previous app tracking before changing current. A tick that opened a history entry
-        // above already claimed the app there, and re-running this would move the app it just
-        // recorded as current into the previous slot.
-        if (!startingNewApp)
-        {
-            session.PreviousAppId = session.CurrentAppId;
-            session.PreviousAppName = session.CurrentAppName;
-            session.CurrentAppId = progress.CurrentAppId;
-            session.CurrentAppName = progress.CurrentAppName;
-        }
-
-        // Some daemons only include their run total on terminal ticks. Build a monotonic total from
-        // completed games plus the current game while live ticks omit it.
-        var totalBytesTransferred = progress.TotalBytesTransferred > 0
-            ? progress.TotalBytesTransferred
-            : session.CompletedBytesTransferred + progress.BytesDownloaded;
-        UpdateTransferredBytes(session, totalBytesTransferred);
-
-        // Fill in the running session-level totals so the retained snapshot is self-contained
-        // for re-hydration (a reconnecting client reads these straight off LastProgress).
-        progress.TotalBytesTransferred = session.TotalBytesTransferred;
-
-        // Retain the latest live snapshot on the session BEFORE broadcasting, so a client that
-        // connects/refreshes/reconnects mid-prefill can immediately re-hydrate the bar
-        // (GetCurrentPrefillProgress / subscribe replay) without waiting for the next tick.
-        session.LastProgress = progress;
-        if (session.PrefillState == PrefillState.Started)
-        {
-            session.PrefillState = PrefillState.Downloading;
-        }
-
-        // Liveness fence: don't broadcast a session update for a session torn down while this progress
-        // callback was mid-flight (escaped the bounded drain).
-        if (!IsSessionLive(session))
-        {
+            var failure = terminalState == PrefillState.Failed
+                ? new DaemonCommandException(progress.ErrorCode, progress.RequiresLogin == true) : null;
+            await TransitionToTerminalAsync(session, terminalState, runId,
+                failure?.Message, failure?.StageKey, progress);
             return;
         }
 
-        // Broadcast session update to all clients on every progress (for admin pages - both hubs)
-        // This ensures totalBytesTransferred updates in real-time
-        var progressDto = DaemonSessionDto.FromSession(session);
-        var sessionBroadcast = NotifyHubAsync(EventSessionUpdated, progressDto);
+        await session.PrefillWork.WaitAsync();
+        try
+        {
+            long sequence;
+            string? previousAppId;
+            string? previousAppName;
+            long previousBytes;
+            long previousTotal;
+            bool startingNewApp;
+            long bytesDownloaded;
+            long totalBytes;
+            string? account;
+            var appId = string.IsNullOrEmpty(progress.CurrentAppId) ? null : progress.CurrentAppId;
+            var appName = progress.CurrentAppName;
+            var appCompleted = progressState == PrefillProgressState.AppCompleted && appId is not null;
+            lock (session.PrefillLock)
+            {
+                if (!IsSessionLive(session) || session.PrefillRunId != runId
+                    || !session.IsPrefilling || session.TerminalCompletedFlag != 0)
+                    return;
+                if (appCompleted && session.CurrentAppId is null && session.PreviousAppId == appId
+                    && session.LastProgress?.State is "app_completed" or "already_cached")
+                    return;
 
-        // Send detailed progress to subscribed connections (the user doing the prefill)
-        var subscriberBroadcast = BroadcastToSubscribersAsync(session, EventPrefillProgress,
-            new { sessionId = session.Id, progress });
+                sequence = ++session.ProgressSequence;
+                previousAppId = session.CurrentAppId;
+                previousAppName = session.CurrentAppName;
+                previousBytes = session.CurrentBytesDownloaded;
+                previousTotal = session.CurrentTotalBytes;
+                account = session.AccountUsername;
+                startingNewApp = appId is not null
+                    && (previousAppId != appId || previousAppName != appName);
+                if (startingNewApp)
+                {
+                    session.PreviousAppId = previousAppId;
+                    session.PreviousAppName = previousAppName;
+                    session.CompletedBytesTransferred = Math.Max(session.CompletedBytesTransferred, session.TotalBytesTransferred);
+                    session.CurrentBytesDownloaded = 0;
+                    session.CurrentTotalBytes = 0;
+                }
+                session.CurrentAppId = appId;
+                session.CurrentAppName = appName;
+                if (appId is not null)
+                {
+                    if (progress.BytesDownloaded > 0) session.CurrentBytesDownloaded = progress.BytesDownloaded;
+                    if (progress.TotalBytes > 0) session.CurrentTotalBytes = progress.TotalBytes;
+                }
+                bytesDownloaded = session.CurrentBytesDownloaded;
+                totalBytes = session.CurrentTotalBytes;
+                if (appCompleted)
+                {
+                    session.PreviousAppId = appId;
+                    session.PreviousAppName = appName;
+                    session.CurrentAppId = null;
+                    session.CurrentAppName = null;
+                    session.CurrentBytesDownloaded = 0;
+                    session.CurrentTotalBytes = 0;
+                    UpdateTransferredBytes(session, Math.Max(session.TotalBytesTransferred,
+                        session.CompletedBytesTransferred + bytesDownloaded));
+                }
+                else
+                {
+                    UpdateTransferredBytes(session, progress.TotalBytesTransferred > 0
+                        ? progress.TotalBytesTransferred : session.CompletedBytesTransferred + progress.BytesDownloaded);
+                }
+                progress.OperationId = runId.ToString();
+                progress.TotalBytesTransferred = session.TotalBytesTransferred;
+            }
 
-        // Same push, in-process. This is what drives the scheduled-prefill universal notification,
-        // and it must not wait for browser delivery to complete.
-        await RaisePrefillProgressAsync(session, progress, sequence);
-        await Task.WhenAll(sessionBroadcast, subscriberBroadcast);
+            if (startingNewApp)
+            {
+                if (previousAppId is not null)
+                {
+                    try
+                    {
+                        var status = previousBytes == 0 ? "Cached" : "Completed";
+                        await _sessionService.CompleteEntryAsync(session.Id, previousAppId, status, previousBytes, previousTotal);
+                        if (!IsSessionLive(session)) return;
+                        await BroadcastHistoryUpdatedAsync(session.Id, previousAppId, status);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to complete prefill history for app {AppId}", previousAppId);
+                    }
+                }
+                if (!IsSessionLive(session)) return;
+                try
+                {
+                    var entry = await _sessionService.StartEntryAsync(session.Id, appId!, appName);
+                    if (!IsSessionLive(session)) return;
+                    if (entry is not null)
+                        await BroadcastHistoryUpdatedAsync(session.Id, appId!, "InProgress");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to start prefill history for app {AppId}", appId);
+                }
+            }
+            if (!IsSessionLive(session)) return;
+
+            if (appCompleted)
+            {
+                var isCached = progress.Result is "AlreadyUpToDate" or "Skipped" or "NoDepotsToDownload";
+                var status = isCached ? "Cached" : progress.Result == "Failed" ? "Failed" : "Completed";
+                try
+                {
+                    var failure = progress.Result == "Failed"
+                        ? new DaemonCommandException(progress.ErrorCode, progress.RequiresLogin == true) : null;
+                    var entry = await _sessionService.CompleteEntryAsync(
+                        session.Id, appId!, status, bytesDownloaded, totalBytes, failure?.Message);
+                    if (!IsSessionLive(session)) return;
+                    await BroadcastHistoryUpdatedAsync(session.Id, appId!, status);
+                    if (!IsSessionLive(session)) return;
+                    if (entry is not null && progress.Result != "Failed" && !session.CancellationTokenSource.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            var recorded = await _cacheService.RecordCachedAppAsync(
+                                Platform, appId!, appName, totalBytes, account);
+                            if (!IsSessionLive(session)) return;
+                            if (!session.CancellationTokenSource.IsCancellationRequested
+                                && Platform == PrefillPlatform.Steam
+                                && progress.Result is "Success" or "AlreadyUpToDate"
+                                && progress.Depots is { Count: > 0 }
+                                && uint.TryParse(appId, out var numericAppId))
+                            {
+                                recorded |= await _cacheService.RecordCachedDepotsAsync(numericAppId, appName,
+                                    progress.Depots.Select(d => (d.DepotId, d.ManifestId, d.TotalBytes)), account);
+                            }
+                            if (!IsSessionLive(session)) return;
+                            if (recorded && !session.CancellationTokenSource.IsCancellationRequested)
+                                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to record cached app {AppId}", appId);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to complete prefill history for app {AppId}", appId);
+                }
+
+                progress.State = (isCached ? PrefillProgressState.AlreadyCached : PrefillProgressState.AppCompleted).ToWireString();
+                progress.TotalBytes = totalBytes;
+                progress.BytesDownloaded = bytesDownloaded;
+                progress.PercentComplete = 100;
+                progress.BytesPerSecond = 0;
+            }
+
+            lock (session.PrefillLock)
+            {
+                if (!IsSessionLive(session) || session.PrefillRunId != runId
+                    || !session.IsPrefilling || session.TerminalCompletedFlag != 0)
+                    return;
+                session.LastProgress = progress;
+                if (session.PrefillState == PrefillState.Started)
+                    session.PrefillState = PrefillState.Downloading;
+            }
+
+            var sessionBroadcast = appCompleted ? Task.CompletedTask
+                : NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session));
+            var subscriberBroadcast = BroadcastToSubscribersAsync(session, EventPrefillProgress,
+                new { sessionId = session.Id, progress });
+            try
+            {
+                await RaisePrefillProgressAsync(session, progress, sequence);
+            }
+            finally
+            {
+                await Task.WhenAll(sessionBroadcast, subscriberBroadcast);
+            }
+        }
+        finally
+        {
+            session.PrefillWork.Release();
+        }
     }
 
     internal static void UpdateTransferredBytes(DaemonSession session, long totalBytesTransferred)

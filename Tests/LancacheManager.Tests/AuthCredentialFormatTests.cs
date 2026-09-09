@@ -193,6 +193,71 @@ public sealed class AuthCredentialFormatTests : IDisposable
     }
 
     [Fact]
+    public void SameInstanceSteamCredentialClear_PreservesOwnerSavedLogin()
+    {
+        var accountId = Guid.NewGuid();
+        var storage = NewSteamStorage();
+        var active = new SteamAuthData
+        {
+            OwnerAccountId = accountId,
+            Mode = "authenticated",
+            Username = "steam-user",
+            RefreshToken = "steam-token",
+            SteamApiKey = "steam-api-key"
+        };
+        storage.SaveAuthData(active);
+
+        Assert.Same(active, storage.GetAuthData());
+        active.OwnerAccountId = null;
+        active.Mode = "anonymous";
+        active.Username = null;
+        active.RefreshToken = null;
+
+        var saved = storage.GetSavedLogin(accountId);
+        Assert.Null(active.RefreshToken);
+        Assert.Equal("steam-api-key", active.SteamApiKey);
+        Assert.Equal("steam-token", saved.RefreshToken);
+        Assert.Equal("steam-user", saved.Username);
+
+        storage.SaveAuthData(active);
+        var restarted = NewSteamStorage();
+        Assert.Null(restarted.GetAuthData().RefreshToken);
+        Assert.Equal("steam-api-key", restarted.GetAuthData().SteamApiKey);
+        Assert.Equal("steam-token", restarted.GetSavedLogin(accountId).RefreshToken);
+    }
+
+    [Fact]
+    public void SavedEpicLogin_IsolatedFromInputAndReturnedMutation()
+    {
+        var accountId = Guid.NewGuid();
+        var storage = NewEpicStorage();
+        var input = new EpicAuthData
+        {
+            RefreshToken = "epic-token",
+            DisplayName = "Epic Account"
+        };
+
+        storage.SaveSavedLogin(accountId, input);
+        input.RefreshToken = "changed-input";
+        input.DisplayName = "Changed Input";
+
+        var first = storage.GetSavedLogin(accountId);
+        Assert.Equal("epic-token", first.RefreshToken);
+        Assert.Equal("Epic Account", first.DisplayName);
+
+        first.RefreshToken = "changed-return";
+        first.DisplayName = "Changed Return";
+
+        var second = storage.GetSavedLogin(accountId);
+        Assert.Equal("epic-token", second.RefreshToken);
+        Assert.Equal("Epic Account", second.DisplayName);
+
+        var restarted = NewEpicStorage().GetSavedLogin(accountId);
+        Assert.Equal("epic-token", restarted.RefreshToken);
+        Assert.Equal("Epic Account", restarted.DisplayName);
+    }
+
+    [Fact]
     public void SavedLogins_UseOwnerOnlyUnixPermissions()
     {
         if (!OperatingSystem.IsLinux())

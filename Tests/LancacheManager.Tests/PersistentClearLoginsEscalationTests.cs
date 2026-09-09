@@ -316,7 +316,9 @@ public class PersistentClearLoginsEscalationTests
         public Task<PrefillResult> PrefillAsync(
             bool all = false, bool recent = false, bool recentlyPurchased = false, int? top = null,
             bool force = false, List<string>? operatingSystems = null, int? maxConcurrency = null,
-            List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default)
+            List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default,
+            Guid? runId = null,
+            Action? onCommandDispatched = null)
             => throw new NotSupportedException();
 
         public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)

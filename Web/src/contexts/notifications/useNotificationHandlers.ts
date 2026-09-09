@@ -93,7 +93,9 @@ export function useNotificationHandlers(
           entry.started,
           setNotifications,
           cancelAutoDismissTimer,
-          events.current
+          events.current,
+          false,
+          scheduleAutoDismiss
         );
         subscribe(entry.events.started, (event: unknown) => {
           startedHandler(event);

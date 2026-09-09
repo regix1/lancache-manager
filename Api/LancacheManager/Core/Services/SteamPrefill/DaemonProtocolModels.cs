@@ -18,6 +18,18 @@ public sealed record DaemonTransportLabels(string Connection, string Endpoint);
 /// </summary>
 public class SocketPrefillProgress
 {
+    /// <summary>Prefill command identifier. Null when an older daemon omits run correlation.</summary>
+    [JsonPropertyName("operationId")]
+    public string? OperationId { get; set; }
+
+    /// <summary>Failure classification. Null on success or when an older daemon omits it.</summary>
+    [JsonPropertyName("errorCode")]
+    public string? ErrorCode { get; set; }
+
+    /// <summary>Whether authentication was lost. Null when the daemon does not report this fact.</summary>
+    [JsonPropertyName("requiresLogin")]
+    public bool? RequiresLogin { get; set; }
+
     [JsonPropertyName("state")]
     public string? State { get; set; }
 

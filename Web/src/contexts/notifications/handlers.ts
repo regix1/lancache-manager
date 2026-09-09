@@ -564,7 +564,7 @@ export function createStartedHandler<T>(
         type: config.type,
         status: existing?.details?.cancelRequested ? 'cancelling' : 'running',
         controlOnly: hidden || undefined,
-        message: existing?.message ?? config.getMessage?.(event) ?? config.defaultMessage,
+        message: existing?.message || config.getMessage?.(event) || config.defaultMessage,
         startedAt: existing?.startedAt ?? new Date(),
         instanceVersion: existing?.instanceVersion ?? (slot?.instanceVersion ?? 0) + 1,
         progress: existing?.progress ?? (hidden ? undefined : 0),
@@ -990,44 +990,92 @@ function buildStartedHandler(
   setNotifications: SetNotifications,
   cancelAutoDismissTimer: CancelAutoDismissTimer,
   events?: NotificationEvents,
-  replay = false
+  replay = false,
+  scheduleAutoDismiss: ScheduleAutoDismiss = () => undefined
 ): (event: unknown) => void {
-  return createStartedHandler(
-    {
-      type: entry.type,
-      events,
-      replay,
-      getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
-      storageKey: entry.storageKey,
-      storesCardsById: entry.getId !== undefined,
-      shouldDisplay: started.shouldDisplay,
-      canControl: (event: unknown) => {
-        const fields = event as { operationId?: unknown; serviceId?: unknown };
-        return (
-          entry.cancelKind !== 'none' &&
-          entry.cancelKind !== 'clientQueue' &&
-          typeof fields.operationId === 'string' &&
-          (entry.type !== 'scheduled_prefill' || typeof fields.serviceId === 'string')
-        );
+  const create = (set: SetNotifications) =>
+    createStartedHandler(
+      {
+        type: entry.type,
+        events,
+        replay,
+        getId: (event: unknown) => entry.getId?.(event) ?? entry.id,
+        storageKey: entry.storageKey,
+        storesCardsById: entry.getId !== undefined,
+        shouldDisplay: started.shouldDisplay,
+        canControl: (event: unknown) => {
+          const fields = event as { operationId?: unknown; serviceId?: unknown };
+          return (
+            entry.cancelKind !== 'none' &&
+            entry.cancelKind !== 'clientQueue' &&
+            typeof fields.operationId === 'string' &&
+            (entry.type !== 'scheduled_prefill' || typeof fields.serviceId === 'string')
+          );
+        },
+        eventName: entry.events?.started,
+        defaultMessage: started.defaultMessage,
+        getMessage: started.getMessage,
+        getDetails: (event: unknown) => ({
+          ...started.getDetails?.(event),
+          ...(entry.type === 'scheduled_prefill'
+            ? {
+                service: (event as { serviceId?: string }).serviceId,
+                operationId: (event as { operationId?: string }).operationId
+              }
+            : {})
+        }),
+        replaceExisting: started.replaceExisting,
+        progressMode: started.progressMode
       },
-      eventName: entry.events?.started,
-      defaultMessage: started.defaultMessage,
-      getMessage: started.getMessage,
-      getDetails: (event: unknown) => ({
-        ...started.getDetails?.(event),
-        ...(entry.type === 'scheduled_prefill'
-          ? {
-              service: (event as { serviceId?: string }).serviceId,
-              operationId: (event as { operationId?: string }).operationId
-            }
-          : {})
-      }),
-      replaceExisting: started.replaceExisting,
-      progressMode: started.progressMode
-    },
-    setNotifications,
-    cancelAutoDismissTimer
-  );
+      set,
+      cancelAutoDismissTimer
+    );
+  if (replay || !events) return create(setNotifications);
+  return (event) => {
+    setNotifications((prev) => {
+      let next = prev;
+      create((update) => {
+        next = typeof update === 'function' ? update(next) : update;
+      })(event);
+      return applyPredecessor(
+        next,
+        event,
+        events,
+        entry,
+        scheduleAutoDismiss,
+        cancelAutoDismissTimer
+      );
+    });
+  };
+}
+
+export function applyPredecessor(
+  prev: UnifiedNotification[],
+  event: unknown,
+  events: NotificationEvents,
+  entry: NotificationRegistryEntry,
+  scheduleAutoDismiss: ScheduleAutoDismiss,
+  cancelAutoDismissTimer: CancelAutoDismissTimer = () => undefined
+): UnifiedNotification[] {
+  const previousOperationId = (event as { previousOperationId?: unknown } | null)
+    ?.previousOperationId;
+  const operationId = eventOperationId(event);
+  if (
+    typeof previousOperationId !== 'string' ||
+    !previousOperationId.trim() ||
+    !operationId ||
+    previousOperationId === operationId
+  )
+    return prev;
+  const handoff: OperationWaitingCompleteEvent = {
+    operationId: previousOperationId,
+    operationType: entry.type,
+    nextOperationId: operationId,
+    promoted: true,
+    cancelled: false
+  };
+  rememberEvent(events, entry.type, 'handoff', 'OperationWaitingComplete', handoff);
+  return applyHandoff(prev, handoff, events, entry, scheduleAutoDismiss, cancelAutoDismissTimer);
 }
 
 /**
@@ -1248,7 +1296,7 @@ export function applyHandoff(
     startedAt: older.startedAt,
     instanceVersion: older.instanceVersion,
     status,
-    message: target?.message ?? waiting?.message ?? '',
+    message: target?.message ?? '',
     details: {
       ...waiting?.details,
       ...target?.details,
@@ -1270,8 +1318,7 @@ export function applyHandoff(
   for (const old of [waiting, target]) {
     if (old && old.id !== card.id) cancelAutoDismissTimer(old.id);
   }
-  next = next.filter((n) => n !== waiting && n !== target);
-  next.push(card);
+  next = next.flatMap((n) => (n === older ? [card] : n === waiting || n === target ? [] : [n]));
   const retained = events.records.get(nextOperationId);
   const setNotifications: SetNotifications = (update) => {
     next = typeof update === 'function' ? update(next) : update;

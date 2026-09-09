@@ -247,7 +247,9 @@ public class CacheController : ControllerBase
             message = stageKey ?? "Scanning cache files...",
             stageKey,
             context = _cacheService.CurrentCacheSizeScanProgressContext,
-            operationId = activeScan.Id
+            operationId = activeScan.Id,
+            previousOperationId = activeScan.Metadata is Dictionary<string, object?> scan && scan.TryGetValue("previousOperationId", out var previous) && previous is Guid previousId
+                ? (Guid?)previousId : null
         });
     }
 

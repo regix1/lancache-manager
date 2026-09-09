@@ -719,6 +719,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
             new RecordingContainerGateway());
         var session = InjectedPersistentSession(daemon, client);
         session.IsPrefilling = true;
+        session.PrefillRunId = Guid.NewGuid();
         session.PrefillState = PrefillState.Downloading;
         session.PrefillStartedAt = DateTime.UtcNow.AddSeconds(-5);
         session.CurrentAppId = "730";
@@ -776,6 +777,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
             new RecordingContainerGateway());
         var session = InjectedPersistentSession(daemon, client);
         session.IsPrefilling = true;
+        session.PrefillRunId = Guid.NewGuid();
         session.PrefillState = PrefillState.Downloading;
         session.PrefillStartedAt = DateTime.UtcNow.AddSeconds(-5);
         session.CurrentAppId = "730";
@@ -805,7 +807,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         Assert.Equal(1, client.CancelPrefillCount);
         Assert.False(session.IsPrefilling);
         Assert.Equal(PrefillState.Cancelled, session.PrefillState);
-        Assert.Equal(1, session.TerminalCompletedFlag);
+        Assert.Equal(2, session.TerminalCompletedFlag);
         Assert.Equal(PrefillProgressState.Cancelled.ToWireString(), session.LastPrefillStatus);
         Assert.NotNull(session.LastPrefillCompletedAt);
 
@@ -987,6 +989,137 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
                 await sessionService.MarkOrphansAsync(PrefillPlatform.Steam);
                 break;
         }
+    }
+
+    [Fact]
+    public async Task DisconnectAvailabilityBlocksStartAfterTerminalSettlement()
+    {
+        var (_, dbFactory) = NewDatabase();
+        var history = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
+        var sessionId = await SeedActivePersistentRowAsync(history, DateTime.UtcNow.AddDays(1));
+        var gateway = new RecordingContainerGateway();
+        gateway.AddContainer(RunningPersistentContainer(sessionId));
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, EventRecordingNotificationsProxy>();
+        var recorder = (EventRecordingNotificationsProxy)(object)notifications;
+        var client = new FakeReconnectDaemonClient
+        {
+            StatusHandler = _ => Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = "logged-in" }),
+            PrefillHandler = _ => Task.FromResult(new PrefillResult { Success = true })
+        };
+        using var daemon = new TestSteamDaemon(MakeDeps(dbFactory, history,
+            Config(PersistenceMode.KeepAcrossRestart, true), notifications: notifications), gateway, () => client);
+        await daemon.StartAsync(CancellationToken.None);
+        var session = daemon.GetSession(sessionId)!;
+        await daemon.PrefillAsync(sessionId, force: true);
+        var publishing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        recorder.SendHandler = _ =>
+        {
+            if (session.TerminalCompletedFlag == 2)
+            {
+                publishing.TrySetResult();
+                return release.Task;
+            }
+            return Task.CompletedTask;
+        };
+        await session.PrefillWork.WaitAsync();
+        var disconnect = client.DisconnectAsync();
+        try
+        {
+            Assert.Equal(DaemonSessionStatus.Error, session.Status);
+            Assert.Equal(0, session.TerminalCompletedFlag);
+            Assert.True(session.IsPrefilling);
+            Assert.Null(session.ErrorMessage);
+        }
+        finally { session.PrefillWork.Release(); }
+        await publishing.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            Assert.Equal(2, session.TerminalCompletedFlag);
+            await Assert.ThrowsAsync<DaemonCommandException>(() => daemon.PrefillAsync(sessionId, force: true));
+            Assert.Equal(1, client.PrefillCount);
+        }
+        finally { release.SetResult(); }
+        await disconnect.WaitAsync(TimeSpan.FromSeconds(5));
+        recorder.SendHandler = null;
+        var reason = session.ErrorMessage;
+        var completed = session.LastPrefillCompletedAt;
+        var sends = recorder.EventNames.Count;
+        await client.DisconnectAsync();
+        Assert.Equal(sends, recorder.EventNames.Count);
+        Assert.Equal(reason, session.ErrorMessage);
+        Assert.Equal(completed, session.LastPrefillCompletedAt);
+        var replacement = new DaemonSession { Id = sessionId, Status = DaemonSessionStatus.Active, Client = new FakeReconnectDaemonClient() };
+        daemon.InjectSession(replacement);
+        await client.DisconnectAsync();
+        Assert.Equal(DaemonSessionStatus.Active, replacement.Status);
+        Assert.Null(replacement.ErrorMessage);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PendingPublicationKeepsRunReserved(bool starting)
+    {
+        var (_, contexts) = NewDatabase();
+        var history = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, EventRecordingNotificationsProxy>();
+        var recorder = (EventRecordingNotificationsProxy)(object)notifications;
+        var client = new FakeReconnectDaemonClient
+        {
+            PrefillHandler = _ => Task.FromResult(new PrefillResult { Success = true }),
+            CancelPrefillHandler = _ => Task.CompletedTask
+        };
+        using var daemon = new TestSteamDaemon(MakeDeps(contexts, history,
+            Config(PersistenceMode.FullPersistence, true), notifications: notifications), new RecordingContainerGateway());
+        var session = InjectedPersistentSession(daemon, client);
+        if (!starting) await daemon.PrefillAsync(session.Id, force: true);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        recorder.SendHandler = eventName =>
+        {
+            if (eventName == SignalREvents.PrefillStateChanged && session.TerminalCompletedFlag == (starting ? 0 : 1))
+            {
+                entered.TrySetResult();
+                return release.Task;
+            }
+            return Task.CompletedTask;
+        };
+        Task pending = starting ? daemon.PrefillAsync(session.Id, force: true)
+            : daemon.FailStalledSessionAsync(session, session.PrefillRunId,
+                DateTime.UtcNow.AddSeconds(181), TimeSpan.FromSeconds(180), "Prefill stalled (no progress)");
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var firstRun = session.PrefillRunId;
+        Task terminal = Task.CompletedTask;
+        try
+        {
+            if (starting)
+            {
+                Assert.Equal(0, client.PrefillCount);
+                terminal = DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "NotifyPrefillProgressAsync", session,
+                    new PrefillProgress { OperationId = firstRun.ToString(), State = "error" });
+                Assert.False(terminal.IsCompleted);
+                Assert.Equal(0, session.TerminalCompletedFlag);
+            }
+            else
+            {
+                Assert.Equal(1, session.TerminalCompletedFlag);
+                Assert.Equal(1, client.CancelPrefillCount);
+                Assert.False(daemon.PersistentEditSessionGate.TryEnterMutation(out _));
+            }
+            await Assert.ThrowsAsync<PrefillAlreadyRunningException>(() => daemon.PrefillAsync(session.Id, force: true));
+        }
+        finally { release.SetResult(); }
+        await Task.WhenAll(pending, terminal).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, session.TerminalCompletedFlag);
+        recorder.SendHandler = null;
+        var second = await daemon.PrefillAsync(session.Id, force: true);
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "NotifyPrefillProgressAsync", session,
+            new PrefillProgress { OperationId = firstRun.ToString(), State = "completed", CurrentAppId = "10" });
+        Assert.Equal(second.RunId, session.PrefillRunId);
+        Assert.True(session.IsPrefilling);
+        Assert.Null(session.ErrorMessage);
+        Assert.Equal(2, client.PrefillCount);
     }
 
     private static FakeContainer RunningPersistentContainer(string sessionId, string containerName = SteamPersistentContainerName, PrefillPlatform platform = PrefillPlatform.Steam)
@@ -1326,8 +1459,9 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
     private class EventRecordingNotificationsProxy : DispatchProxy
     {
         private readonly List<string> _eventNames = new();
+        public Func<string, Task>? SendHandler { get; set; }
 
-        public IReadOnlyList<string> EventNames
+        public List<string> EventNames
         {
             get
             {
@@ -1346,6 +1480,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
                 {
                     _eventNames.Add(eventName);
                 }
+                if (SendHandler is not null) return SendHandler(eventName);
             }
 
             return OrchestrationStateService.DefaultReturn(targetMethod?.ReturnType);

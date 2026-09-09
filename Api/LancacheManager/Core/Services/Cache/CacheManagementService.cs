@@ -1929,11 +1929,12 @@ public partial class CacheManagementService
         // CTS ownership: handed to the tracker, which disposes it in CompleteOperation.
         var cts = new CancellationTokenSource();
         Guid operationId = default;
+        var previousOperationId = notice?.OperationId;
         operationId = _operationTracker.RegisterOperation(
             OperationType.CacheSizeScan,
             "Cache File Scan",
             cts,
-            metadata: new Dictionary<string, object?> { ["runNotice"] = notice, ["showNotification"] = showNotification },
+            metadata: new Dictionary<string, object?> { ["runNotice"] = notice, ["showNotification"] = showNotification, ["previousOperationId"] = previousOperationId },
             onTerminalCleanup: () =>
             {
                 lock (_scanCacheLock)
@@ -2008,7 +2009,8 @@ public partial class CacheManagementService
             await _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanStarted, new CacheSizeScanStarted(
                 StageKey: "signalr.cacheSizeScan.starting",
                 OperationId: operationId,
-                ShowNotification: showNotification));
+                ShowNotification: showNotification,
+                PreviousOperationId: previousOperationId));
             // Info-level on purpose: NotifyAllAsync logs success only at Debug, so without this
             // line production logs cannot distinguish "Started was emitted but the browser runs a
             // stale bundle" from "Started was never emitted".

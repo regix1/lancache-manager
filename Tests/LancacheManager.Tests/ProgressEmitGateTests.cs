@@ -64,8 +64,11 @@ public class ProgressEmitGateTests
         Assert.Equal(1, emitted);
     }
 
-    [Fact]
-    public async Task ScheduledProgressCallbackDoesNotWaitForBlockedBrowserDelivery()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task ScheduledProgressCallbackDoesNotWaitForBlockedBrowserDelivery(bool replay, bool fails)
     {
         var notifications = DispatchProxy.Create<ISignalRNotificationService, BlockedSend>();
         var blocked = (BlockedSend)(object)notifications;
@@ -89,6 +92,7 @@ public class ProgressEmitGateTests
             Status = DaemonSessionStatus.Active,
             AuthState = DaemonAuthState.Authenticated,
             IsPrefilling = true,
+            PrefillRunId = Guid.NewGuid(),
             PrefillState = PrefillState.Downloading,
             CurrentAppId = "app-1",
             CurrentAppName = "Game",
@@ -104,7 +108,7 @@ public class ProgressEmitGateTests
             return Task.CompletedTask;
         };
 
-        var publish = daemon.PublishProgressAsync(session, new PrefillProgress
+        var progress = new PrefillProgress
         {
             State = "downloading",
             CurrentAppId = session.CurrentAppId,
@@ -112,14 +116,26 @@ public class ProgressEmitGateTests
             BytesDownloaded = 1,
             TotalBytes = 10,
             TotalApps = 1
-        });
+        };
+        session.LastProgress = progress;
+        var publish = replay ? daemon.ReplayProgressAsync(session.Id, "blocked-client")
+            : daemon.PublishProgressAsync(session, progress);
 
         await blocked.SendStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await callbackSeen.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        if (!replay) await callbackSeen.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.False(publish.IsCompleted);
+        var terminal = daemon.PublishProgressAsync(session, new PrefillProgress
+        {
+            OperationId = session.PrefillRunId.ToString(), State = "error", ErrorCode = "auth-lost"
+        });
+        Assert.False(terminal.IsCompleted);
+        Assert.Equal(0, session.TerminalCompletedFlag);
 
-        blocked.ReleaseSend.TrySetResult();
-        await publish;
+        if (fails) blocked.ReleaseSend.TrySetException(new IOException("Send failed"));
+        else blocked.ReleaseSend.TrySetResult();
+        await Task.WhenAll(publish, terminal).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, session.TerminalCompletedFlag);
+        Assert.Null(session.LastProgress);
     }
 
     private sealed class TestDaemon : SteamDaemonService

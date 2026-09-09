@@ -240,7 +240,9 @@ public interface IDaemonClient : IDisposable
         List<string>? operatingSystems = null,
         int? maxConcurrency = null,
         List<CachedDepotInput>? cachedDepots = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        Guid? runId = null,
+        Action? onCommandDispatched = null);
 
     /// <summary>
     /// Clear the temporary cache.

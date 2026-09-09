@@ -189,6 +189,37 @@ public class ScheduledPrefillAnonymousRunPathTests
         Assert.False(daemon.GetActivePersistentSession()!.IsPrefilling);
     }
 
+    [Theory]
+    [InlineData("auth-lost", "errors.steam.signInLost")]
+    [InlineData("game-details-unavailable", "errors.steam.gameDetailsUnavailable")]
+    [InlineData(null, "errors.prefill.requestFailed")]
+    public async Task RunAndStampServiceAsync_ThrownFailurePreservesSafeStage(string? code, string stageKey)
+    {
+        var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
+        client.PrefillHandler = _ => Task.FromException<PrefillResult>(
+            code is null ? new IOException("Remote.JobFailure: stack details") : new DaemonCommandException(code));
+        using var daemonProvider = BuildProviderWithDaemon(PrefillPlatform.Steam, daemon);
+        using var schedulerProvider = new ServiceCollection().BuildServiceProvider();
+        var state = DispatchProxy.Create<IStateService, RecordingNotificationsProxy>();
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RecordingNotificationsProxy>();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+        using var scheduler = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
+            schedulerProvider.GetRequiredService<IServiceScopeFactory>(), state);
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var serviceConfig = config.GetSchedulesInRunOrder().First(s => s.ServiceId == PrefillPlatform.Steam);
+        var method = typeof(ScheduledPrefillService).GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var result = await (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
+            new object[] { MakeServiceRun(serviceConfig), tracker, daemonProvider, notifications, config, false, CancellationToken.None })!;
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
+        var completed = Assert.Single(((RecordingNotificationsProxy)(object)notifications).Calls,
+            c => c.Args.Length > 1 && c.Args[0] as string == SignalREvents.ScheduledPrefillCompleted);
+        var terminal = completed.Args[1]!;
+        Assert.Equal(stageKey, terminal.GetType().GetProperty("stageKey")!.GetValue(terminal));
+        Assert.DoesNotContain("Remote.JobFailure", (string)terminal.GetType().GetProperty("error")!.GetValue(terminal)!, StringComparison.Ordinal);
+        Assert.False((bool)terminal.GetType().GetProperty("success")!.GetValue(terminal)!);
+    }
+
     /// <summary>
     /// INVERTED on purpose. This used to assert that a live guest/manual session deferred the run,
     /// and that is the behavior being removed: a temporary or guest container is a separate entity
@@ -344,6 +375,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         var testableDaemon = Assert.IsType<TestableBattleNetDaemonService>(daemon);
         var session = Assert.IsType<DaemonSession>(daemon.GetActivePersistentSession());
         session.IsPrefilling = true;
+        session.PrefillRunId = Guid.NewGuid();
         session.PrefillState = PrefillState.Downloading;
 
         await testableDaemon.PublishProgressAsync(session, new PrefillProgress
@@ -963,9 +995,12 @@ public class ScheduledPrefillAnonymousRunPathTests
             List<string>? operatingSystems = null,
             int? maxConcurrency = null,
             List<CachedDepotInput>? cachedDepots = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            Guid? runId = null,
+            Action? onCommandDispatched = null)
         {
             PrefillCalled = true;
+            onCommandDispatched?.Invoke();
             Assert.NotNull(_session.PrefillScheduleId);
             if (PrefillHandler is not null)
             {

@@ -1191,6 +1191,7 @@ export interface EvictionScanCompleteEvent extends OperationEvent {
 }
 
 export interface CacheSizeScanStartedEvent extends OperationEvent {
+  previousOperationId?: string | null;
   showNotification?: boolean;
 }
 

@@ -272,6 +272,8 @@ public sealed class PrefillCacheChangeTests
             Id = Guid.NewGuid().ToString("N")[..16],
             UserId = Guid.NewGuid(),
             Status = DaemonSessionStatus.Active,
+            IsPrefilling = true,
+            PrefillRunId = Guid.NewGuid(),
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddHours(1)
         };

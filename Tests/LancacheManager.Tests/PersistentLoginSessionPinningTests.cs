@@ -33,6 +33,77 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class PersistentLoginSessionPinningTests
 {
+    [Fact]
+    public async Task GetGames_PinnedToReplacedSession_RejectsBeforeQuery()
+    {
+        var (controller, _, client) = CreateControllerWithActiveSession("session-B");
+        var result = await controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A");
+        var conflict = Assert.IsType<ConflictObjectResult>(result.Result);
+        Assert.Equal(PersistentLoginConflictReasons.SessionReplaced,
+            Assert.IsType<PersistentLoginConflictResponse>(conflict.Value).Error);
+        Assert.DoesNotContain(nameof(IDaemonClient.GetOwnedGamesAsync), client.InvokedMethods);
+    }
+
+    [Fact]
+    public async Task GetGames_SessionReplacedDuringQuery_DiscardsResult()
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-A");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<List<OwnedGame>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.Games = () =>
+        {
+            entered.TrySetResult();
+            return release.Task;
+        };
+        var pending = controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A");
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        daemon.GetSession("session-A")!.Status = DaemonSessionStatus.Terminated;
+        daemon.InjectSession(CreatePersistentSession("session-B"));
+        release.SetResult([]);
+        var result = await pending;
+        Assert.IsType<ConflictObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task GetGames_LoginLossPropagatesSafeFailure()
+    {
+        var (controller, _, client) = CreateControllerWithActiveSession("session-A");
+        client.Games = () => Task.FromException<List<OwnedGame>>(new DaemonCommandException("auth-lost"));
+        var failure = await Assert.ThrowsAsync<DaemonCommandException>(() =>
+            controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A"));
+        Assert.True(failure.RequiresLogin);
+        Assert.Equal("errors.steam.signInLost", failure.StageKey);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task GetGames_CacheCheckSeparatesLoginLossFromUnknownStatus(bool requiresLogin)
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-A");
+        client.Games = () => Task.FromResult(new List<OwnedGame> { new() { AppId = "10", Name = "Game" } });
+        daemon.CacheStatus = () => Task.FromException<CacheStatusResult>(
+            new DaemonCommandException(requiresLogin ? "auth-lost" : "game-details-unavailable"));
+        var cache = (PrefillCacheService)typeof(PersistentPrefillController)
+            .GetField("_cacheService", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(controller)!;
+        await cache.RecordCachedAppAsync(PrefillPlatform.Steam, "10", "Game", 100, null);
+
+        if (requiresLogin)
+        {
+            var failure = await Assert.ThrowsAsync<DaemonCommandException>(() =>
+                controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A"));
+            Assert.True(failure.RequiresLogin);
+        }
+        else
+        {
+            var result = await controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A");
+            var body = Assert.IsType<PersistentPrefillGamesDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
+            Assert.Empty(body.CachedAppIds);
+            Assert.Equal(["10"], body.UnknownAppIds);
+            Assert.Single(body.Games);
+        }
+    }
+
     // ---- RC3: controller pinning ---------------------------------------------------------------
 
     [Fact]
@@ -382,7 +453,7 @@ public class PersistentLoginSessionPinningTests
         Assert.Equal(1, client.SelectionCount);
         Assert.Equal(1, client.PrefillCount);
         Assert.False(session.IsPrefilling);
-        Assert.Equal("Rejected", session.ErrorMessage);
+        Assert.Equal(new DaemonCommandException(requiresLogin: requiresLogin).Message, session.ErrorMessage);
     }
 
     [Fact]
@@ -753,6 +824,12 @@ public class PersistentLoginSessionPinningTests
 
         public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
 
+        public Func<Task<CacheStatusResult>>? CacheStatus { get; set; }
+
+        public override Task<CacheStatusResult> GetCacheStatusAsync(string sessionId, List<string> appIds,
+            CancellationToken cancellationToken = default)
+            => CacheStatus is null ? base.GetCacheStatusAsync(sessionId, appIds, cancellationToken) : CacheStatus();
+
         public Guid? AvailabilityAccountId { get; private set; }
         public Guid? ReuseAccountId { get; private set; }
         private Dictionary<Guid, string> SavedAccounts { get; } = [];
@@ -817,6 +894,7 @@ public class PersistentLoginSessionPinningTests
         public bool RejectCredential { get; set; }
         public bool FailLoginDispatch { get; set; }
         public string LiveStatus { get; set; } = "awaiting-login";
+        public Func<Task<List<OwnedGame>>>? Games { get; set; }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
@@ -846,6 +924,9 @@ public class PersistentLoginSessionPinningTests
             {
                 return Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = LiveStatus });
             }
+
+            if (targetMethod?.Name == nameof(IDaemonClient.GetOwnedGamesAsync) && Games is not null)
+                return Games();
 
             return DefaultReturnValue(targetMethod);
         }

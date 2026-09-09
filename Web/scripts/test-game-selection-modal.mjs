@@ -208,6 +208,8 @@ test('an app id the library no longer lists is not counted and is not saved', as
     liftHookCallback(modalPath, 'useCallback', 'onSave(games.length > 0'),
     {
       setIsSaving: () => undefined,
+      openedRef: { current: true },
+      openEpochRef: { current: 1 },
       onSave: (appIds) => {
         saved = appIds;
         return Promise.resolve();
@@ -236,6 +238,8 @@ test('a library that came back empty does not turn the whole selection into orph
     liftHookCallback(modalPath, 'useCallback', 'onSave(games.length > 0'),
     {
       setIsSaving: () => undefined,
+      openedRef: { current: true },
+      openEpochRef: { current: 1 },
       onSave: (appIds) => {
         saved = appIds;
         return Promise.resolve();
@@ -362,6 +366,9 @@ test('clear, reopen, and cache removal keep their existing ownership paths', () 
     liftHookCallback(modalPath, 'useEffect', 'setLocalSelected(new Set(selectedAppIds))'),
     {
       opened: true,
+      openedRef: { current: false },
+      openEpochRef: { current: 0 },
+      setIsSaving: () => undefined,
       selectedAppIds: ['2', '3'],
       setLocalSelected: (next) => {
         selection = next;
@@ -429,7 +436,7 @@ test('the clear-all button asks before wiping the cached tags', () => {
  */
 test('every library reload in the prefill panel goes through the shared pass', () => {
   const panel = parseSource('src/components/features/prefill/PrefillPanel.tsx', ts.ScriptKind.TSX);
-  const forcedReloads = panel.text.match(/loadGames\(true\)/g) ?? [];
+  const forcedReloads = panel.text.match(/loadGamesRef\.current\(true\)/g) ?? [];
   assert.equal(
     forcedReloads.length,
     1,
@@ -443,4 +450,59 @@ test('every library reload in the prefill panel goes through the shared pass', (
     );
   }
   assert.equal(panel.text.includes('void reloadGamesOnce();'), true);
+});
+
+test('populated refresh keeps local selection and active filters when parent arrays change', () => {
+  let selection = new Set(['1']);
+  let search = 'Alpha';
+  const openedRef = { current: true };
+  const reset = bindLifted(
+    liftHookCallback(modalPath, 'useEffect', 'setLocalSelected(new Set(selectedAppIds))'),
+    {
+      opened: true,
+      openedRef,
+      openEpochRef: { current: 1 },
+      selectedAppIds: ['2'],
+      setLocalSelected: (value) => {
+        selection = value;
+      },
+      setSearch: (value) => {
+        search = value;
+      },
+      setImportText: assert.fail,
+      setImportResult: assert.fail,
+      setClearCacheConfirmOpen: assert.fail
+    }
+  );
+  reset();
+  assert.deepEqual([...selection], ['1']);
+  assert.equal(search, 'Alpha');
+});
+
+test('a save completing after close and reopen cannot close the replacement picker', async () => {
+  let release;
+  const openEpochRef = { current: 1 };
+  let closed = false;
+  const save = bindLifted(liftHookCallback(modalPath, 'useCallback', 'await onSave'), {
+    openEpochRef,
+    openedRef: { current: true },
+    setIsSaving: () => undefined,
+    games: library,
+    selectedInLibrary: ['1'],
+    localSelected: new Set(['1']),
+    onSave: () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    onClose: () => {
+      closed = true;
+    },
+    notifyError: assert.fail,
+    t: (key) => key
+  });
+  const pending = save();
+  openEpochRef.current += 2;
+  release();
+  await pending;
+  assert.equal(closed, false);
 });

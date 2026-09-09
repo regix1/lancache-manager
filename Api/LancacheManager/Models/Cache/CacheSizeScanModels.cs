@@ -7,7 +7,7 @@ namespace LancacheManager.Models;
 /// mode + run trigger): the lifecycle event is always emitted so recovery/state stays accurate, and
 /// the frontend gates whether the card is shown.
 /// </summary>
-public record CacheSizeScanStarted(string StageKey, Guid OperationId, Dictionary<string, object?>? Context = null, bool ShowNotification = true);
+public record CacheSizeScanStarted(string StageKey, Guid OperationId, Dictionary<string, object?>? Context = null, bool ShowNotification = true, Guid? PreviousOperationId = null);
 
 /// <summary>
 /// SignalR event payload emitted while the cache file scan walks the cache directories

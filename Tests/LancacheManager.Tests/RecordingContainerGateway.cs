@@ -305,7 +305,10 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
     public event Func<DaemonStatus, Task>? OnStatusUpdate { add { } remove { } }
     public event Func<SocketPrefillProgress, Task>? OnProgressUpdate { add { } remove { } }
     public event Func<string, Task>? OnError { add { } remove { } }
-    public event Func<Task>? OnDisconnected { add { } remove { } }
+    private Func<Task>? _disconnected;
+    public event Func<Task>? OnDisconnected { add => _disconnected += value; remove => _disconnected -= value; }
+
+    public Task DisconnectAsync() => _disconnected?.Invoke() ?? Task.CompletedTask;
 
     public bool Connected { get; private set; }
     public bool Disposed { get; private set; }
@@ -315,6 +318,7 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
     public Func<CancellationToken, Task<List<OwnedGame>>>? OwnedGamesHandler { get; set; }
     public Func<CancellationToken, Task<DaemonStatus?>>? StatusHandler { get; set; }
     public Func<CancellationToken, Task<PrefillResult>>? PrefillHandler { get; set; }
+    public Func<Action?, CancellationToken, Task<PrefillResult>>? DispatchHandler { get; set; }
     public Func<List<string>, CancellationToken, Task>? SelectionHandler { get; set; }
     public int PrefillCount { get; private set; }
     public int SelectionCount { get; private set; }
@@ -374,9 +378,11 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
         SelectionCount++;
         return SelectionHandler is null ? throw new NotSupportedException() : SelectionHandler(appIds, cancellationToken);
     }
-    public Task<PrefillResult> PrefillAsync(bool all = false, bool recent = false, bool recentlyPurchased = false, int? top = null, bool force = false, List<string>? operatingSystems = null, int? maxConcurrency = null, List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default)
+    public Task<PrefillResult> PrefillAsync(bool all = false, bool recent = false, bool recentlyPurchased = false, int? top = null, bool force = false, List<string>? operatingSystems = null, int? maxConcurrency = null, List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default, Guid? runId = null, Action? onCommandDispatched = null)
     {
         PrefillCount++;
+        if (DispatchHandler is not null) return DispatchHandler(onCommandDispatched, cancellationToken);
+        onCommandDispatched?.Invoke();
         return PrefillHandler is null ? throw new NotSupportedException() : PrefillHandler(cancellationToken);
     }
     public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)
@@ -656,7 +662,7 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
         => throw new NotSupportedException();
     public Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
-    public Task<PrefillResult> PrefillAsync(bool all = false, bool recent = false, bool recentlyPurchased = false, int? top = null, bool force = false, List<string>? operatingSystems = null, int? maxConcurrency = null, List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default)
+    public Task<PrefillResult> PrefillAsync(bool all = false, bool recent = false, bool recentlyPurchased = false, int? top = null, bool force = false, List<string>? operatingSystems = null, int? maxConcurrency = null, List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default, Guid? runId = null, Action? onCommandDispatched = null)
         => throw new NotSupportedException();
     public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
@@ -759,7 +765,9 @@ internal abstract class TestDaemonClientBase : IDaemonClient
         List<string>? operatingSystems = null,
         int? maxConcurrency = null,
         List<CachedDepotInput>? cachedDepots = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Guid? runId = null,
+        Action? onCommandDispatched = null)
         => throw new NotSupportedException();
 
     public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)

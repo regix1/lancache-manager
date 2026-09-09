@@ -24,6 +24,28 @@ public class RecoveryStatusNotificationFlagTests
     private static readonly JsonSerializerOptions WireOptions = new(JsonSerializerDefaults.Web);
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CacheSizeScanStatusCarriesRegisteredPredecessor(bool hasPrevious)
+    {
+        Guid? previous = hasPrevious ? Guid.NewGuid() : null;
+        var activeScan = new OperationInfo
+        {
+            Id = Guid.NewGuid(), Type = OperationType.CacheSizeScan, Name = "Cache File Scan",
+            Status = OperationStatus.Running,
+            Metadata = new Dictionary<string, object?> { ["previousOperationId"] = previous }
+        };
+        var body = InvokeCacheSizeScanStatus(BuildCacheController(false, [activeScan]));
+        var wire = JsonSerializer.SerializeToElement(body, WireOptions);
+        Assert.Equal(activeScan.Id, wire.GetProperty("operationId").GetGuid());
+        Assert.Equal(previous, wire.GetProperty("previousOperationId").ValueKind == JsonValueKind.Null
+            ? null : wire.GetProperty("previousOperationId").GetGuid());
+        var started = new CacheSizeScanStarted("signalr.cacheSizeScan.starting", activeScan.Id,
+            ShowNotification: false, PreviousOperationId: previous);
+        Assert.Equal(previous, started.PreviousOperationId);
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]

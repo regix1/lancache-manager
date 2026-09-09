@@ -9,6 +9,7 @@ import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { useScrollAreaHeight } from '@hooks/useScrollAreaHeight';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import ApiService from '@services/api.service';
+import { ApiError } from '@services/apiError';
 import { GameSelectionModal } from '@components/features/prefill/GameSelectionModal';
 import { resolveCachedAppIds } from '@components/features/prefill/cachedApps';
 import { NumberInput } from '@components/ui/NumberInput';
@@ -107,6 +108,7 @@ interface ScheduledPrefillGameSelectionState {
   sessionId: string;
   games: ScheduledPrefillOwnedGame[];
   cachedAppIds: string[];
+  unknownAppIds: string[];
 }
 
 interface NumericBounds {
@@ -315,6 +317,11 @@ export function ScheduledPrefillConfigModal({
   const [loadingGameSelectionService, setLoadingGameSelectionService] =
     useState<ScheduledPrefillServiceKey | null>(null);
   const [gameSelectionError, setGameSelectionError] = useState<string | null>(null);
+  const [gameLoadError, setGameLoadError] = useState<string | null>(null);
+  const gameSelectionRef = useRef(gameSelection);
+  const gameEpochRef = useRef(0);
+  gameSelectionRef.current = opened ? gameSelection : null;
+  const gameAuthRef = useRef<{ key: string; authenticated: boolean } | null>(null);
   const gameRequestRef = useRef<{
     key: string;
     controller: AbortController;
@@ -1612,6 +1619,8 @@ export function ScheduledPrefillConfigModal({
   const loadGameSelection = useCallback(
     async (serviceKey: ScheduledPrefillServiceKey, sessionId: string) => {
       const key = `${serviceKey}:${sessionId}`;
+      if (`${gameSelectionRef.current?.serviceKey}:${gameSelectionRef.current?.sessionId}` !== key)
+        return;
       if (gameRequestRef.current?.key === key) {
         gameRequestRef.current.again = true;
         return gameRequestRef.current.promise;
@@ -1621,43 +1630,69 @@ export function ScheduledPrefillConfigModal({
       const request = { key, controller, again: false, promise: Promise.resolve() };
       gameRequestRef.current = request;
       setLoadingGameSelectionService(serviceKey);
-      setGameSelectionError(null);
+      setGameSelection((current) =>
+        current?.serviceKey === serviceKey && current.sessionId === sessionId
+          ? { ...current, unknownAppIds: current.cachedAppIds }
+          : current
+      );
+      const isCurrent = () =>
+        gameRequestRef.current === request &&
+        !controller.signal.aborted &&
+        `${gameSelectionRef.current?.serviceKey}:${gameSelectionRef.current?.sessionId}` === key;
       request.promise = (async () => {
         try {
           do {
             request.again = false;
-            // Persistent sessions are system-owned, so the user-scoped games route 403s. Use the
-            // AdminOnly endpoint that resolves the running persistent session and bypasses ownership.
-            const { games, cachedAppIds, unknownAppIds } =
-              await ApiService.getPersistentPrefillGames(
-                getPersistentServiceId(serviceKey),
-                controller.signal
+            try {
+              // Persistent sessions are system-owned, so the user-scoped games route 403s. Use the
+              // AdminOnly endpoint that resolves the running persistent session and bypasses ownership.
+              const { games, cachedAppIds, unknownAppIds } =
+                await ApiService.getPersistentPrefillGames(
+                  getPersistentServiceId(serviceKey),
+                  controller.signal,
+                  sessionId
+                );
+              if (!isCurrent()) return;
+
+              const normalizedGames: ScheduledPrefillOwnedGame[] = games.map((game) => ({
+                name: game.name,
+                appId: String(game.appId)
+              }));
+
+              setGameSelection((current) =>
+                current?.serviceKey === serviceKey && current.sessionId === sessionId
+                  ? {
+                      ...current,
+                      games: normalizedGames,
+                      unknownAppIds,
+                      cachedAppIds: resolveCachedAppIds(
+                        current.cachedAppIds,
+                        cachedAppIds,
+                        unknownAppIds
+                      )
+                    }
+                  : current
               );
-            if (controller.signal.aborted) return;
-
-            const normalizedGames: ScheduledPrefillOwnedGame[] = games.map((game) => ({
-              name: game.name,
-              appId: String(game.appId)
-            }));
-
-            setGameSelection((current) =>
-              current?.serviceKey === serviceKey && current.sessionId === sessionId
-                ? {
-                    ...current,
-                    games: normalizedGames,
-                    cachedAppIds: resolveCachedAppIds(
-                      current.cachedAppIds,
-                      cachedAppIds,
-                      unknownAppIds
-                    )
-                  }
-                : current
-            );
-          } while (request.again && !controller.signal.aborted);
-        } catch (error: unknown) {
-          if (!controller.signal.aborted) setGameSelectionError(getErrorMessage(error));
+              if (unknownAppIds.length === 0) setGameLoadError(null);
+            } catch (error: unknown) {
+              if (!isCurrent()) return;
+              const stageKey = error instanceof ApiError ? error.body?.stageKey : null;
+              setGameLoadError(
+                stageKey === 'errors.steam.signInLost'
+                  ? t('errors.steam.signInLost')
+                  : stageKey === 'errors.steam.gameDetailsUnavailable'
+                    ? t('errors.steam.gameDetailsUnavailable')
+                    : t('errors.prefill.requestFailed')
+              );
+              setGameSelection((current) =>
+                current?.serviceKey === serviceKey && current.sessionId === sessionId
+                  ? { ...current, unknownAppIds: current.cachedAppIds }
+                  : current
+              );
+            }
+          } while (request.again && isCurrent());
         } finally {
-          if (gameRequestRef.current === request) {
+          if (isCurrent()) {
             gameRequestRef.current = null;
             setLoadingGameSelectionService(null);
           }
@@ -1665,7 +1700,7 @@ export function ScheduledPrefillConfigModal({
       })();
       return request.promise;
     },
-    []
+    [t]
   );
 
   useEffect(() => {
@@ -1675,6 +1710,10 @@ export function ScheduledPrefillConfigModal({
       gameRequestRef.current?.controller.abort();
       gameRequestRef.current = null;
       setLoadingGameSelectionService(null);
+      setGameLoadError(null);
+      setGameSelectionError(null);
+      setRemovingCachedAppId(null);
+      setIsClearingCachedGames(false);
     }
   }, [gameSelection?.serviceKey, gameSelection?.sessionId, opened]);
 
@@ -1682,6 +1721,7 @@ export function ScheduledPrefillConfigModal({
     () => () => {
       gameRequestRef.current?.controller.abort();
       gameRequestRef.current = null;
+      gameSelectionRef.current = null;
     },
     []
   );
@@ -1692,12 +1732,15 @@ export function ScheduledPrefillConfigModal({
   const handleRemoveGameFromCache = useCallback(
     async (appId: string) => {
       if (!gameSelection) return;
+      const epoch = gameEpochRef.current;
       setRemovingCachedAppId(appId);
+      setGameSelectionError(null);
       try {
         await ApiService.deletePrefillCachedApp(
           appId,
           getPersistentServiceId(gameSelection.serviceKey)
         );
+        if (!gameSelectionRef.current || gameEpochRef.current !== epoch) return;
         gameRequestRef.current?.controller.abort();
         gameRequestRef.current = null;
         setGameSelection((current) =>
@@ -1706,30 +1749,69 @@ export function ScheduledPrefillConfigModal({
             : current
         );
         await loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
-      } catch (error: unknown) {
-        setGameSelectionError(getErrorMessage(error));
+      } catch {
+        if (!gameSelectionRef.current || gameEpochRef.current !== epoch) return;
+        setGameSelectionError(t('prefill.errors.removeFromCacheFailed'));
       } finally {
-        setRemovingCachedAppId(null);
+        if (gameSelectionRef.current && gameEpochRef.current === epoch)
+          setRemovingCachedAppId(null);
       }
     },
-    [gameSelection, loadGameSelection]
+    [gameSelection, loadGameSelection, t]
   );
 
   const handleClearAllCachedGames = useCallback(async () => {
     if (!gameSelection) return;
+    const epoch = gameEpochRef.current;
     setIsClearingCachedGames(true);
+    setGameSelectionError(null);
     try {
       await ApiService.clearAllPrefillCache(getPersistentServiceId(gameSelection.serviceKey));
+      if (!gameSelectionRef.current || gameEpochRef.current !== epoch) return;
       gameRequestRef.current?.controller.abort();
       gameRequestRef.current = null;
       setGameSelection((current) => (current ? { ...current, cachedAppIds: [] } : current));
       await loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
-    } catch (error: unknown) {
-      setGameSelectionError(getErrorMessage(error));
+    } catch {
+      if (!gameSelectionRef.current || gameEpochRef.current !== epoch) return;
+      setGameSelectionError(t('prefill.errors.clearAllFromCacheFailed'));
     } finally {
-      setIsClearingCachedGames(false);
+      if (gameSelectionRef.current && gameEpochRef.current === epoch)
+        setIsClearingCachedGames(false);
     }
-  }, [gameSelection, loadGameSelection]);
+  }, [gameSelection, loadGameSelection, t]);
+
+  useEffect(() => {
+    if (!opened || !gameSelection) {
+      gameAuthRef.current = null;
+      return;
+    }
+    const key = `${gameSelection.serviceKey}:${gameSelection.sessionId}`;
+    const container = persistentContainerByService.get(
+      getPersistentServiceId(gameSelection.serviceKey)
+    );
+    if (!container || container.sessionId !== gameSelection.sessionId) {
+      gameRequestRef.current?.controller.abort();
+      gameRequestRef.current = null;
+      gameSelectionRef.current = null;
+      setGameSelection(null);
+      return;
+    }
+    const previous = gameAuthRef.current;
+    gameAuthRef.current = { key, authenticated: container.isAuthenticated };
+    if (previous?.key !== key) return;
+    if (previous.authenticated && !container.isAuthenticated) {
+      gameRequestRef.current?.controller.abort();
+      gameRequestRef.current = null;
+      setLoadingGameSelectionService(null);
+      setGameSelection((current) =>
+        current ? { ...current, unknownAppIds: current.cachedAppIds } : current
+      );
+    }
+    if (!previous.authenticated && container.isAuthenticated) {
+      void loadGameSelection(gameSelection.serviceKey, gameSelection.sessionId);
+    }
+  }, [opened, gameSelection, persistentContainerByService, loadGameSelection]);
 
   // The cached-depot table is shared by every container and every browser, so a game finishing in
   // any of them has to reach this picker while it is open. Nothing to re-read when it is closed:
@@ -1781,13 +1863,20 @@ export function ScheduledPrefillConfigModal({
     }
 
     setGameSelectionError(null);
-    setGameSelection({
+    setGameLoadError(null);
+    const selection: ScheduledPrefillGameSelectionState = {
       serviceKey,
       scheduleId,
       sessionId: container.sessionId,
       games: [],
-      cachedAppIds: []
-    });
+      cachedAppIds: [],
+      unknownAppIds: []
+    };
+    gameSelectionRef.current = selection;
+    gameEpochRef.current += 1;
+    gameRequestRef.current?.controller.abort();
+    gameRequestRef.current = null;
+    setGameSelection(selection);
     void loadGameSelection(serviceKey, container.sessionId);
   };
 
@@ -1796,6 +1885,7 @@ export function ScheduledPrefillConfigModal({
     scheduleId: string,
     selectedAppIds: string[]
   ) => {
+    const epoch = gameEpochRef.current;
     setConfig((current) =>
       current
         ? {
@@ -1830,8 +1920,9 @@ export function ScheduledPrefillConfigModal({
           editSession.editSessionId,
           editActionId
         );
-      } catch (error: unknown) {
-        setGameSelectionError(getErrorMessage(error));
+      } catch {
+        if (editSessionRetiredRef.current || gameEpochRef.current !== epoch) return;
+        setGameSelectionError(t('prefill.errors.saveSelectionFailed'));
       }
     }
   };
@@ -2397,8 +2488,17 @@ export function ScheduledPrefillConfigModal({
             persistentContainerByService.get(getPersistentServiceId(persistentLoginTarget))
               ?.isAuthenticated ?? false
           }
-          onAuthenticated={() => {
+          onAuthenticated={(sessionId) => {
             void loadPersistentContainers();
+            const selection = gameSelectionRef.current;
+            if (
+              opened &&
+              selection?.serviceKey === persistentLoginTarget &&
+              sessionId &&
+              selection.sessionId === sessionId
+            ) {
+              void loadGameSelection(selection.serviceKey, sessionId);
+            }
           }}
           onDismiss={() => {
             setPersistentLoginTarget(null);
@@ -2407,7 +2507,11 @@ export function ScheduledPrefillConfigModal({
       )}
       <GameSelectionModal
         opened={gameSelection !== null}
-        onClose={() => setGameSelection(null)}
+        onClose={() => {
+          gameSelectionRef.current = null;
+          gameRequestRef.current?.controller.abort();
+          setGameSelection(null);
+        }}
         serviceId={gameSelection?.serviceKey ?? ''}
         games={gameSelection?.games ?? []}
         selectedAppIds={
@@ -2420,6 +2524,8 @@ export function ScheduledPrefillConfigModal({
         onSave={handleSaveGameSelection}
         isLoading={loadingGameSelectionService !== null}
         cachedAppIds={gameSelection?.cachedAppIds ?? []}
+        unknownAppIds={gameSelection?.unknownAppIds ?? []}
+        error={gameSelectionError ?? gameLoadError}
         onRemoveFromCache={handleRemoveGameFromCache}
         removingAppId={removingCachedAppId}
         onClearAllCache={handleClearAllCachedGames}

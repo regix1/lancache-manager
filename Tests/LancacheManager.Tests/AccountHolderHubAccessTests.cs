@@ -244,6 +244,7 @@ public sealed class AccountHolderHubAccessTests
             UserId = Guid.NewGuid(),
             IsPersistent = true,
             IsPrefilling = true,
+            PrefillRunId = Guid.NewGuid(),
             LastProgress = progress,
             Status = DaemonSessionStatus.Active,
             AuthState = DaemonAuthState.Authenticated,
