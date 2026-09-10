@@ -18,6 +18,7 @@ public class PicsDataService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IPathResolver _pathResolver;
     private readonly TimeProvider _timeProvider;
+    private readonly Action<string, string, bool> _moveFile;
     private readonly string _picsJsonFile;
     private readonly object _fileLock = new object();
 
@@ -26,12 +27,13 @@ public class PicsDataService
     {
     }
 
-    internal PicsDataService(ILogger<PicsDataService> logger, IServiceScopeFactory scopeFactory, IPathResolver pathResolver, StateService stateService, TimeProvider timeProvider)
+    internal PicsDataService(ILogger<PicsDataService> logger, IServiceScopeFactory scopeFactory, IPathResolver pathResolver, StateService stateService, TimeProvider timeProvider, Action<string, string, bool>? moveFile = null)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _pathResolver = pathResolver;
         _timeProvider = timeProvider;
+        _moveFile = moveFile ?? File.Move;
         _picsJsonFile = Path.Combine(_pathResolver.GetPicsDirectory(), "pics_depot_mappings.json");
     }
 
@@ -665,7 +667,7 @@ public class PicsDataService
                     write(fileStream);
                     fileStream.Flush(flushToDisk: true);
                 }
-                File.Move(stagedPath, _picsJsonFile, overwrite: true);
+                _moveFile(stagedPath, _picsJsonFile, true);
                 ClearCache();
             }
             finally

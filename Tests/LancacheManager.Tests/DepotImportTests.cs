@@ -362,13 +362,12 @@ public sealed class DepotImportTests
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
         fixture.Source = Snapshot(200);
-        using (var locked = new FileStream(fixture.MappingFile, FileMode.Open, FileAccess.Read, FileShare.Read))
-        {
-            Assert.False(await fixture.Service.ImportFromGitHubAsync());
-            Assert.Equal(100u, fixture.State.GetState().LastPicsChangeNumber);
-            Assert.Equal(fixture.PreviousCrawl, fixture.State.GetLastPicsCrawl());
-            Assert.NotNull(fixture.Service.PendingFullScan);
-        }
+        fixture.FailPublication = true;
+        Assert.False(await fixture.Service.ImportFromGitHubAsync());
+        Assert.Equal(100u, fixture.State.GetState().LastPicsChangeNumber);
+        Assert.Equal(fixture.PreviousCrawl, fixture.State.GetLastPicsCrawl());
+        Assert.NotNull(fixture.Service.PendingFullScan);
+        fixture.FailPublication = false;
         Assert.True(await fixture.Service.ImportFromGitHubAsync());
     }
 
@@ -608,6 +607,7 @@ public sealed class DepotImportTests
         public Func<CancellationToken, Task<string>>? Download { get; set; }
         public Func<uint, CancellationToken, Task<(uint CurrentChangeNumber, bool RequiresFullScan)>> CheckChanges { get; set; }
             = (cursor, _) => Task.FromResult((cursor + 10, false));
+        public bool FailPublication { get; set; }
         public bool FailReload { get; set; }
         public string MappingFile => Pics.GetPicsJsonFilePath();
         public string StateFile { get; }
@@ -627,7 +627,17 @@ public sealed class DepotImportTests
             registrations.AddSingleton<GameImageFetchService>(_ => _images);
             _services = registrations.BuildServiceProvider();
             var scopes = _services.GetRequiredService<IServiceScopeFactory>();
-            Pics = new PicsDataService(NullLogger<PicsDataService>.Instance, scopes, paths, State);
+            Pics = new PicsDataService(
+                NullLogger<PicsDataService>.Instance,
+                scopes,
+                paths,
+                State,
+                TimeProvider.System,
+                (source, destination, overwrite) =>
+                {
+                    if (FailPublication) throw new IOException("Publication unavailable");
+                    File.Move(source, destination, overwrite);
+                });
             var clients = new Clients(this);
             _steam = new SteamService(new HttpClient(new StoreHandler()), NullLogger<SteamService>.Instance);
             var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();

@@ -80,7 +80,7 @@ public sealed class PicsDataServiceCacheTests : IDisposable
             .GetValue(service));
     }
 
-    private PicsDataService CreateService(TimeProvider timeProvider)
+    private PicsDataService CreateService(TimeProvider timeProvider, Action<string, string, bool>? moveFile = null)
     {
         File.WriteAllText(
             _mappingFile,
@@ -119,7 +119,8 @@ public sealed class PicsDataServiceCacheTests : IDisposable
             DispatchProxy.Create<IServiceScopeFactory, NullReturningProxy>(),
             _pathResolver,
             StateTestMethods.CreateStateService(_root),
-            timeProvider);
+            timeProvider,
+            moveFile);
     }
 
     [Fact]
@@ -153,13 +154,11 @@ public sealed class PicsDataServiceCacheTests : IDisposable
     [Fact]
     public async Task FailedPublicationRetainsTheExistingFileAndCache()
     {
-        var service = CreateService(TimeProvider.System);
+        var service = CreateService(
+            TimeProvider.System,
+            static (_, _, _) => throw new IOException("Publication unavailable"));
         var before = await service.LoadFromJsonAsync();
-        using (var locked = new FileStream(_mappingFile, FileMode.Open, FileAccess.Read, FileShare.Read))
-        {
-            var failure = Record.Exception(() => service.WritePicsJsonFile("replacement"));
-            Assert.True(failure is IOException or UnauthorizedAccessException, failure?.ToString());
-        }
+        Assert.Throws<IOException>(() => service.WritePicsJsonFile("replacement"));
         Assert.Same(before, await service.LoadFromJsonAsync());
         Assert.Contains("\"lastChangeNumber\": 42", File.ReadAllText(_mappingFile));
     }
