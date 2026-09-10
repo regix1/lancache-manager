@@ -5,17 +5,6 @@ using Microsoft.EntityFrameworkCore;
 namespace LancacheManager.Core.Services;
 
 /// <summary>
-/// One client IP's traffic totals, as produced by the SQL <c>GROUP BY ClientIp</c> over Downloads.
-/// </summary>
-public readonly record struct ClientIpAggregate(
-    string ClientIp,
-    long TotalCacheHitBytes,
-    long TotalCacheMissBytes,
-    int TotalDownloads,
-    double TotalDurationSeconds,
-    DateTime LastActivityUtc);
-
-/// <summary>
 /// Folds per-IP download totals into the <see cref="ClientStatsWithGroup"/> wire shape shared by
 /// <c>GET /api/stats/clients</c> and the dashboard batch's <c>clients</c> section, so both
 /// surfaces rank and label clients identically.

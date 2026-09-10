@@ -463,26 +463,3 @@ public partial class EpicMappingService
             newCount, updatedCount, newCount + updatedCount + (existingPatterns.Count - updatedCount));
     }
 }
-
-/// <summary>
-/// Result of a merge operation.
-/// </summary>
-public class MergeResult
-{
-    public int NewGames { get; set; }
-    public int UpdatedGames { get; set; }
-    public int UnchangedGames { get; set; }
-    public int TotalGames { get; set; }
-}
-
-/// <summary>
-/// Statistics about the Epic game mapping database.
-/// </summary>
-public class EpicMappingStats
-{
-    public int TotalGames { get; set; }
-    public DateTime? LastUpdatedUtc { get; set; }
-    public DateTime? OldestGameUtc { get; set; }
-    public int DistinctSources { get; set; }
-    public int CdnPatterns { get; set; }
-}

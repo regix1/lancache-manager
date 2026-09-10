@@ -2,8 +2,6 @@ using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services.StatusCheck;
 
-internal sealed record ProtocolConsensus(string Status, string? Reason, int ConsensusEdges);
-
 /// <summary>Pure exact-path consensus; it never promotes a result to a service-wide verdict.</summary>
 internal static class ContentPathConsensus
 {

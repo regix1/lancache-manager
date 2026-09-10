@@ -287,9 +287,3 @@ public class PathMigrationService
         }
     }
 }
-
-public class PathMigrationResult
-{
-    public int FilesMoved { get; set; }
-    public int DirectoriesMoved { get; set; }
-}

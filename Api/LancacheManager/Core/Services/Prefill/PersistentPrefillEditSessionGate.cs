@@ -18,11 +18,6 @@ internal sealed class PersistentPrefillEditStartRollbackException : Exception
     public string ContainerId { get; }
 }
 
-internal sealed record PersistentPrefillEditSessionStartRecord(
-    string EditActionId,
-    string SessionId,
-    bool CreatedByEditSession);
-
 internal sealed class PersistentPrefillEditSessionStartLease
 {
     private static readonly Task<PersistentPrefillEditSessionStartRecord> _rejectedCompletion =
@@ -61,58 +56,6 @@ internal sealed class PersistentPrefillEditSessionCleanupLease
     public Task Completion { get; }
     public IReadOnlyList<Task<PersistentPrefillEditSessionStartRecord>> PendingStarts { get; }
     public IReadOnlyList<Task<PersistentPrefillEditActionRecord>> PendingEditActions { get; }
-}
-
-internal enum PersistentPrefillEditActionKind
-{
-    Selection,
-    Prefill,
-    Login,
-    Credential
-}
-
-internal enum PersistentPrefillEditResourceKind
-{
-    Selection,
-    Login,
-    Prefill
-}
-
-internal enum PersistentPrefillEditActionOutcome
-{
-    Succeeded,
-    NoChange,
-    Conflict,
-    Cancelled,
-    Failed
-}
-
-internal sealed record PersistentPrefillEditActionRecord(
-    string? EditSessionId,
-    string? EditActionId,
-    PersistentPrefillEditActionKind Kind,
-    string SessionId,
-    PersistentPrefillEditActionOutcome Outcome,
-    IReadOnlyList<PersistentPrefillEditResourceKind> ConfirmedEffects,
-    long Sequence);
-
-internal sealed record PersistentPrefillEditResourceOwnership(
-    PersistentPrefillEditResourceKind Kind,
-    string SessionId,
-    string? EditSessionId,
-    string? EditActionId,
-    long Revision);
-
-internal sealed class PersistentPrefillEditActionState
-{
-    public required string? EditSessionId { get; init; }
-    public required string? EditActionId { get; init; }
-    public required PersistentPrefillEditActionKind Kind { get; init; }
-    public required string SessionId { get; init; }
-    public required long Sequence { get; init; }
-    public required TaskCompletionSource<PersistentPrefillEditActionRecord> Completion { get; init; }
-    public HashSet<PersistentPrefillEditResourceKind> ConfirmedEffects { get; } = [];
-    public bool Completed { get; set; }
 }
 
 internal sealed class PersistentPrefillEditActionLease

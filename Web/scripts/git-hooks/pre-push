@@ -30,6 +30,21 @@ if ! command -v dotnet >/dev/null 2>&1; then
   exit 1
 fi
 
+# Keep passive top-level declarations in model files so implementation files retain one concern.
+MODEL_SCRIPT="$ROOT/scripts/csharp-model-placement.ps1"
+echo "pre-push: checking C# model placement..."
+if command -v pwsh >/dev/null 2>&1; then
+  pwsh -NoProfile -File "$MODEL_SCRIPT"
+elif command -v pwsh.exe >/dev/null 2>&1; then
+  if command -v wslpath >/dev/null 2>&1; then
+    MODEL_SCRIPT="$(wslpath -w "$MODEL_SCRIPT")"
+  fi
+  pwsh.exe -NoProfile -File "$MODEL_SCRIPT"
+else
+  echo "pre-push: PowerShell 7 not found - cannot check C# model placement." >&2
+  exit 1
+fi
+
 echo "pre-push: building backend with analyzer warnings as errors..."
 dotnet build lancache-manager.sln \
   --no-incremental \

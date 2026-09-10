@@ -4,12 +4,6 @@ using System.Text.Json;
 
 namespace LancacheManager.Core.Services.StatusCheck;
 
-internal sealed record DohResolutionResult(
-    IReadOnlyList<IPAddress> Addresses,
-    int TotalAddresses,
-    bool TooManyAddresses,
-    string? FailureReason);
-
 /// <summary>Conservative global-address gate applied before any publisher connection.</summary>
 internal static class PublicAddressSafety
 {

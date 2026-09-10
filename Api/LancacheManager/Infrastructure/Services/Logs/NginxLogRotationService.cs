@@ -7,18 +7,6 @@ using LancacheManager.Infrastructure.Utilities;
 
 namespace LancacheManager.Infrastructure.Services;
 
-/// <summary>
-/// Action that can make nginx log reopen available to the manager.
-/// </summary>
-[JsonConverter(typeof(NginxReopenHintJsonConverter))]
-public enum NginxReopenHint
-{
-    None,
-    GrantSignalPrivilege,
-    EnablePidHost,
-    MountDockerSocket
-}
-
 internal sealed class NginxReopenHintJsonConverter : JsonStringEnumConverter<NginxReopenHint>
 {
     public NginxReopenHintJsonConverter()
@@ -26,11 +14,6 @@ internal sealed class NginxReopenHintJsonConverter : JsonStringEnumConverter<Ngi
     {
     }
 }
-
-/// <summary>
-/// Current nginx reopen availability and the applicable remedy when unavailable.
-/// </summary>
-public sealed record NginxReopenAvailability(bool Available, NginxReopenHint Hint);
 
 /// <summary>
 /// Result of a log rotation operation

@@ -196,10 +196,3 @@ public sealed class ExternalSignInService
         public void Dispose() => _setupLock.Release();
     }
 }
-
-public sealed record ExternalSignInResult(
-    Guid AccountId,
-    Guid SessionId,
-    string RawToken,
-    DateTime ExpiresAtUtc,
-    bool AccountCreated);

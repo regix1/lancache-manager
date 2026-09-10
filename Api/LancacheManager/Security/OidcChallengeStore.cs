@@ -46,10 +46,3 @@ public sealed class OidcChallengeStore
         return challenge.ExpiresAtUtc > _timeProvider.GetUtcNow() ? challenge : null;
     }
 }
-
-public sealed record OidcChallenge(
-    string LoginId,
-    long Revision,
-    bool Setup,
-    bool Owner,
-    DateTimeOffset ExpiresAtUtc);

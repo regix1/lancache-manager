@@ -142,11 +142,3 @@ public sealed class GeoIpService
         [JsonPropertyName("query")] public string? Query { get; set; }
     }
 }
-
-public sealed record GeoIpLookup(
-    string? CountryCode,
-    string? CountryName,
-    string? RegionName,
-    string? City,
-    string? Timezone,
-    string? IspName);

@@ -86,8 +86,3 @@ internal sealed class CorruptionProgressRelay
         }
     }
 }
-
-internal sealed record CorruptionRelayDecision(
-    OperationProgressSnapshot Snapshot,
-    bool IsNew,
-    bool ShouldEmit);

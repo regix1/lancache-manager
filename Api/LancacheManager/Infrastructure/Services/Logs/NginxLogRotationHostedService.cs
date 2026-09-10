@@ -158,13 +158,3 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
         }
     }
 }
-
-/// <summary>
-/// Schema for the legacy log-rotation-settings.json file. Used only for one-time
-/// migration into state.json - after migration this file is deleted and never
-/// re-created. Do not reference outside the migration code path.
-/// </summary>
-internal class LegacyLogRotationSettings
-{
-    public int ScheduleHours { get; set; } = 24;
-}

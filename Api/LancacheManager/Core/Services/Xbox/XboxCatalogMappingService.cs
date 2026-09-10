@@ -256,12 +256,3 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
         base.Dispose();
     }
 }
-
-/// <summary>
-/// Result of a single Xbox catalog refresh pass: CDN patterns newly persisted + downloads re-tagged.
-/// </summary>
-public class XboxCatalogRefreshResult
-{
-    public int NewPatterns { get; set; }
-    public int Resolved { get; set; }
-}
