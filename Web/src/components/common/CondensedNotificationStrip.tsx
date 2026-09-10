@@ -305,6 +305,8 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
     [...exiting.values()]
       .sort((a, b) => a.prevIndex - b.prevIndex)
       .forEach((ghost) => {
+        // A returning segment owns its key immediately, before the layout effect clears its ghost.
+        if (displaySegments.some((segment) => segment.key === ghost.segment.key)) return;
         renderSegments.splice(Math.min(ghost.prevIndex, renderSegments.length), 0, {
           segment: ghost.segment,
           leaving: true

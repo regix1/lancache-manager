@@ -640,6 +640,9 @@ test('full, condensed, background and mobile subsets retain chronological order'
   const displayModes = {
     'detail-1': 'condensed',
     'detail-2': 'condensed',
+    'control-full-1': 'full',
+    'control-full-2': 'full',
+    'control-full-3': 'full',
     'control-compact-1': 'condensed',
     'control-compact-2': 'condensed'
   };

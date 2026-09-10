@@ -43,8 +43,8 @@ const UniversalNotificationBar: React.FC = () => {
   // under them even when no full card renders below the strip.
   const [stripOpen, setStripOpen] = useState(false);
 
-  // Per-service display preference (full | condensed), live from the Schedules page. Empty until
-  // seeded; an absent key resolves to full, so this drives display only and never the transport.
+  // Per-service display preference (full | condensed), live from the Schedules page. This drives
+  // display only and never the transport; unconfigured singleton controls use the compact strip.
   const displayModes = useScheduleDisplayModes();
   // 768px anchors the established table/tile split; below it the bar caps full cards.
   const isMobile = useMediaQuery('(max-width: 767px)');
@@ -262,7 +262,15 @@ const UniversalNotificationBar: React.FC = () => {
         : platform !== undefined
           ? displayModes[platformDisplayModeKey(serviceKey, platform)]
           : displayModes[serviceKey];
-    const condensedByService = !refusedManualRun && resolvedDisplayMode === 'condensed';
+    // Automatic mapping runs can be silent without having a configurable schedule. Keep their
+    // controls in the strip so short refreshes do not insert a full-width row between cards.
+    // Per-entity cards retain their own full-view default, including prefill's platform settings.
+    const condensedByService =
+      !refusedManualRun &&
+      (resolvedDisplayMode === 'condensed' ||
+        (control === true &&
+          !TYPES_WITH_A_CARD_PER_ENTITY.has(notification.type) &&
+          resolvedDisplayMode === undefined));
     const orderAmongFull = condensedByService || control ? -1 : fullOrder++;
     const condensedByCap = !control && isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;
     return {

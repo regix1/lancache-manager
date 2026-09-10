@@ -4,7 +4,14 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import ts from 'typescript';
-import { bindLifted, findSoleNode, parseSource } from './transpile-module.mjs';
+import {
+  bindLifted,
+  findSoleNode,
+  loadNotificationModules,
+  MemoryStorage,
+  notificationEvents,
+  parseSource
+} from './transpile-module.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(__dirname, '..');
@@ -179,11 +186,20 @@ const mount = (source, name, extra = {}) => {
   };
   host.querySelector = () => trigger;
   const React = {
-    createElement: (type, attributes, ...children) => ({
-      type,
-      key: attributes?.key ?? null,
-      props: { ...attributes, children: children.flat(Infinity) }
-    })
+    createElement: (type, attributes, ...children) => {
+      children = children.flat(Infinity);
+      const keys = children.filter((child) => child?.key != null).map((child) => child.key);
+      assert.equal(
+        new Set(keys).size,
+        keys.length,
+        'sibling keys stay unique before layout effects'
+      );
+      return {
+        type,
+        key: attributes?.key ?? null,
+        props: { ...attributes, children }
+      };
+    }
   };
   const bindings = {
     React,
@@ -298,7 +314,12 @@ const segment = (key = 'one') => ({
   notification: notice(key),
   color: 'var(--theme-success)'
 });
-const makeBar = (initial = []) => {
+const makeBar = (
+  initial = [],
+  displayModes = {},
+  typeToServiceKey = {},
+  entityTypes = new Set()
+) => {
   const context = {
     notifications: initial,
     removeNotification: () => assert.fail('rendering must not remove notifications'),
@@ -307,7 +328,7 @@ const makeBar = (initial = []) => {
   const runner = mount(barSource, 'UniversalNotificationBar', {
     useNotifications: () => context,
     themeService: { getDisableStickyNotificationsSync: () => false },
-    useScheduleDisplayModes: () => ({}),
+    useScheduleDisplayModes: () => displayModes,
     useMediaQuery: () => false,
     APP_EVENTS: { STICKY_NOTIFICATIONS_CHANGE: 'sticky', NOTIFICATION_REMOVING: 'removing' },
     NOTIFICATION_ANIMATION_DURATION_MS: bindLifted(
@@ -315,14 +336,15 @@ const makeBar = (initial = []) => {
       {}
     )(),
     CANCEL_CONFIG_BY_TYPE: {},
-    SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: {},
+    SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: typeToServiceKey,
     MOBILE_FULL_CARD_CAP: bindLifted(
       `() => (${initializer(constantsSource, 'MOBILE_FULL_CARD_CAP')})`,
       {}
     )(),
     NOTIFICATION_IDS: {},
-    TYPES_WITH_A_CARD_PER_ENTITY: new Set(),
-    isTerminalNotificationStatus: (status) => status === 'completed',
+    TYPES_WITH_A_CARD_PER_ENTITY: entityTypes,
+    isTerminalNotificationStatus: (status) =>
+      ['completed', 'failed', 'cancelled', 'skipped'].includes(status),
     platformDisplayModeKey: (service, platform) => `${service}:${platform}`,
     getNotificationColor: () => 'var(--theme-success)',
     handleCancel: () => {
@@ -341,6 +363,153 @@ const makeBar = (initial = []) => {
     }
   });
 };
+
+test('silent mapping refreshes stay inside the compact strip through every event', async () => {
+  globalThis.localStorage = new MemoryStorage();
+  globalThis.sessionStorage = new MemoryStorage();
+  const modules = await loadNotificationModules();
+  const full = { ...notice('prefill'), type: 'scheduled_prefill' };
+  const compact = notice('detection');
+  let notifications = [full, compact];
+  const bar = makeBar(
+    notifications,
+    { gameDetection: 'condensed' },
+    modules.SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY
+  );
+  const events = notificationEvents().current;
+  let commits = 0;
+  const setNotifications = (update) => {
+    notifications = typeof update === 'function' ? update(notifications) : update;
+    const tree = bar.setNotifications(notifications);
+    const strip = elements(tree).find((node) => node.type === 'CondensedNotificationStrip');
+    const controls = elements(tree).filter((node) => node.type === 'BackgroundTaskControls');
+    assert.deepEqual(
+      controls,
+      elements(strip).filter((node) => node.type === 'BackgroundTaskControls'),
+      'a refresh must not insert a separate background row above the full cards'
+    );
+    assert.equal(
+      notifications.find((card) => card.id === full.id),
+      full
+    );
+    assert.equal(
+      notifications.find((card) => card.id === compact.id),
+      compact
+    );
+    commits += 1;
+  };
+
+  for (const type of ['riot_game_mapping', 'battle_net_game_mapping']) {
+    const entry = modules.NOTIFICATION_REGISTRY.find((item) => item.type === type);
+    const fields = {
+      operationId: `${type}-refresh`,
+      showNotification: false,
+      context: { processed: 1, total: 1, mapped: 0 }
+    };
+    modules.buildStartedHandler(
+      entry,
+      entry.started,
+      setNotifications,
+      () => undefined,
+      events
+    )(fields);
+    modules.buildProgressHandler(
+      entry,
+      entry.progress,
+      setNotifications,
+      () => undefined,
+      () => undefined,
+      events
+    )({ ...fields, status: 'running', percentComplete: 90 });
+    assert.equal(notifications.find((card) => card.type === type)?.controlOnly, true);
+    modules.buildCompleteHandler(
+      entry,
+      setNotifications,
+      () => undefined,
+      events
+    )({
+      ...fields,
+      success: true,
+      status: type === 'battle_net_game_mapping' ? 'skipped' : 'completed'
+    });
+    assert.equal(
+      notifications.some((card) => card.type === type),
+      false
+    );
+  }
+  assert.equal(commits, 6);
+  bar.dispose();
+});
+
+test('background controls default to compact while explicit full settings remain full', () => {
+  for (const status of ['waiting', 'running', 'cancelling']) {
+    for (const mode of [undefined, 'condensed', 'full']) {
+      const card = { ...notice(), controlOnly: true, status };
+      const bar = makeBar([card], mode ? { gameDetection: mode } : {}, {
+        game_detection: 'gameDetection'
+      });
+      const tree = bar.render();
+      const strip = elements(tree).find((node) => node.type === 'CondensedNotificationStrip');
+      assert.equal(
+        elements(strip).some((node) => node.type === 'BackgroundTaskControls'),
+        mode !== 'full',
+        `${status} controls with ${mode ?? 'no'} display preference`
+      );
+      assert.equal(
+        elements(tree).filter((node) => node.type === 'BackgroundTaskControls').length,
+        1
+      );
+      bar.dispose();
+    }
+  }
+});
+
+test('normal notifications and terminal failures retain the full-view default', () => {
+  for (const card of [notice(), { ...notice(), controlOnly: true, status: 'failed' }]) {
+    const bar = makeBar([card]);
+    const tree = bar.render();
+    const strip = elements(tree).find((node) => node.type === 'CondensedNotificationStrip');
+    assert.equal(
+      elements(strip).some((node) => node.type === 'UnifiedNotificationItem'),
+      false
+    );
+    assert.equal(
+      elements(tree).some((node) => node.type === 'UnifiedNotificationItem'),
+      true
+    );
+    bar.dispose();
+  }
+});
+
+test('per-platform background tasks retain their full-view default', async () => {
+  const modules = await loadNotificationModules();
+  const entityTypes = new Set(
+    modules.NOTIFICATION_REGISTRY.filter((entry) => entry.getId).map((entry) => entry.type)
+  );
+  const card = {
+    ...notice('operation-prefill'),
+    type: 'scheduled_prefill',
+    controlOnly: true,
+    details: { service: 'Steam', operationId: 'prefill' }
+  };
+  const bar = makeBar(
+    [card],
+    { 'scheduledPrefill:Steam': 'full' },
+    modules.SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY,
+    entityTypes
+  );
+  const tree = bar.render();
+  const strip = elements(tree).find((node) => node.type === 'CondensedNotificationStrip');
+  assert.equal(
+    elements(strip).some((node) => node.type === 'BackgroundTaskControls'),
+    false
+  );
+  assert.equal(
+    elements(tree).some((node) => node.type === 'BackgroundTaskControls'),
+    true
+  );
+  bar.dispose();
+});
 const makeStrip = (canHover = false) => {
   const preference = { reduced: false };
   const published = [];
@@ -622,6 +791,35 @@ test('progress retains disclosure and departing segment ghosts settle before pai
   }
   assert.equal(runner.timers.size, 0);
   assert.ok([...runner.document.listeners.values()].every((listeners) => listeners.size === 0));
+});
+
+test('rapid background task turnover reclaims its strip segment without duplicate keys', () => {
+  const runner = makeStrip();
+  try {
+    runner.start();
+    for (let iteration = 0; iteration < 8; iteration += 1) {
+      runner.segments([segment('one'), segment('background-controls')]);
+      const segments = elements(runner.tree).filter((node) => node.type === 'StripSegment');
+      assert.deepEqual(
+        segments.map((node) => [node.key, node.props.leaving]),
+        [
+          ['one', false],
+          ['background-controls', false]
+        ]
+      );
+      runner.segments([segment('one')]);
+      runner.advance(40);
+    }
+    runner.advance(450);
+    assert.deepEqual(
+      elements(runner.tree)
+        .filter((node) => node.type === 'StripSegment')
+        .map((node) => node.key),
+      ['one']
+    );
+  } finally {
+    runner.dispose();
+  }
 });
 
 test('full and revealed cards reuse the background base radius while the line stays square', () => {
