@@ -497,6 +497,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
             Revision = 17
         },
         LastPicsCrawl = new DateTime(2031, 3, 4, 5, 6, 7, DateTimeKind.Utc),
+        LastPicsChangeNumber = 7654321,
         LastFullPicsCrawl = new DateTime(2032, 4, 5, 6, 7, 8, DateTimeKind.Utc),
         // The detection pair mirrors the crawl pair above: the chosen mode, and the timestamp hybrid
         // counts its week from. Both must differ from their defaults (Full and null) or a reload that

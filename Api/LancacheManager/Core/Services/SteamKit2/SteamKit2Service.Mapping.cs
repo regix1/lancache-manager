@@ -44,6 +44,7 @@ public partial class SteamKit2Service
         }
 
         _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
+        lock (_baselineLock) _baselineCommitted = false;
         _activeDepotScanMode = DepotScanMode.Incremental;
         var runCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
         _currentRebuildCts = runCts;
@@ -100,17 +101,14 @@ public partial class SteamKit2Service
 
     private async Task ManuallyApplyDepotMappingsCoreAsync(
         MappingOperationReporter reporter,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool replace = false)
     {
         _logger.LogInformation("Manually applying depot mappings to downloads");
 
-        // Wait a moment to ensure database operations have completed
-        _logger.LogInformation("Waiting 2 seconds to ensure database is fully synced...");
-        await Task.Delay(2000, cancellationToken);
-
         // Reload depot mappings from database to ensure we have latest data
         _logger.LogInformation("Reloading depot mappings from database...");
-        await LoadDepotMappingsAsync();
+        await LoadDepotMappingsAsync(replace, cancellationToken);
 
         await reporter.ReportAsync(
             90,
@@ -118,7 +116,8 @@ public partial class SteamKit2Service
             CreateDepotContext(
                 status: "Applying mappings to downloads",
                 message: "Applying mappings to downloads"));
-        await ApplyDepotMappingsAsync(reporter, cancellationToken, progressStart: 90, progressEnd: 99);
+        var (updated, _) = await ApplyDepotMappingsAsync(reporter, cancellationToken, progressStart: 90, progressEnd: 99, replace: replace);
+        _emitDownloadsUpdated = updated;
 
         using var scopedDb = _scopeFactory.CreateScopedDbContext();
         var unmappedCount = await scopedDb.DbContext.Downloads
@@ -315,14 +314,14 @@ public partial class SteamKit2Service
     /// Update downloads that have depot IDs but no game information
     /// </summary>
     /// <returns>
-    /// (0, 0) both when there was nothing to update and when the update failed part-way. Rows
-    /// already written stay written; the next crawl picks up whatever this pass did not reach.
+    /// Counts the downloads updated and depots without a known app.
     /// </returns>
     private async Task<(int updated, int notFound)> ApplyDepotMappingsAsync(
         MappingOperationReporter? reporter,
         CancellationToken cancellationToken,
         double progressStart,
-        double progressEnd)
+        double progressEnd,
+        bool replace = false)
     {
         try
         {
@@ -333,7 +332,7 @@ public partial class SteamKit2Service
             // when the Steam API later returns the real name
             var downloadsNeedingGameInfo = await scopedDb.DbContext.Downloads
                 .Where(d => d.DepotId.HasValue && (
-                    d.GameAppId == null ||
+                    replace || d.GameAppId == null ||
                     string.IsNullOrEmpty(d.GameImageUrl) ||
                     d.GameName == null ||
                     EF.Functions.Like(d.GameName, "Steam App %")))
@@ -343,7 +342,7 @@ public partial class SteamKit2Service
 
             // Batch load all depot mappings upfront to avoid N+1 query pattern
             var depotIds = downloadsNeedingGameInfo
-                .Where(d => d.DepotId.HasValue && !d.GameAppId.HasValue)
+                .Where(d => d.DepotId.HasValue && (replace || !d.GameAppId.HasValue))
                 .Select(d => d.DepotId!.Value)
                 .Distinct()
                 .ToList();
@@ -370,6 +369,12 @@ public partial class SteamKit2Service
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
+                    if (replace)
+                    {
+                        download.GameAppId = null;
+                        download.GameName = null;
+                        download.GameImageUrl = null;
+                    }
                     uint? appId = download.GameAppId.HasValue ? (uint)download.GameAppId.Value : null; // Use existing appId if available
 
                     // If no AppId yet, use owner ID from PICS data
@@ -390,7 +395,7 @@ public partial class SteamKit2Service
                                 appId = (uint)dbMapping.AppId;
                                 _logger.LogTrace($"Using database owner app {appId} for depot {download.DepotId}");
                             }
-                            else
+                            else if (!replace)
                             {
                                 // Last resort fallback: Try common depot->app ID patterns
                                 var potentialAppId = depotIdUint;
@@ -459,10 +464,11 @@ public partial class SteamKit2Service
                         notFound++;
                     }
                 }
+                catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, $"Failed to get game info for depot {download.DepotId}");
-                    notFound++;
+                    throw;
                 }
 
                 // Send progress updates using 5%-bucket throttling (max ~20 messages total)
@@ -493,7 +499,7 @@ public partial class SteamKit2Service
                 }
             }
 
-            if (updated > 0)
+            if (updated > 0 || (replace && totalDownloads > 0))
             {
                 await scopedDb.DbContext.SaveChangesAsync(cancellationToken);
                 scopedDb.DbContext.ChangeTracker.Clear();
@@ -535,7 +541,7 @@ public partial class SteamKit2Service
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating downloads with depot mappings");
-            return (0, 0);
+            throw;
         }
     }
 }

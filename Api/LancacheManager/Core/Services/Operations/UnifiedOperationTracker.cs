@@ -343,7 +343,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         string? error = null,
         bool cancelled = false,
         bool skipped = false,
-        Action<OperationInfo>? onCompleting = null)
+        Action<OperationInfo>? onCompleting = null,
+        Action? commit = null)
     {
         if (!_operations.TryGetValue(operationId, out var operation))
         {
@@ -359,6 +360,15 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         Exception? publicationError = null;
         lock (operation)
         {
+            if (commit != null)
+            {
+                if (operation.CompletedFlag != 0 || operation.Status.IsTerminal()) return;
+                if (!success || cancelled || skipped)
+                    throw new InvalidOperationException("A checkpoint requires successful completed work");
+                if (operation.Cancelled || operation.CancellationTokenSource?.IsCancellationRequested == true)
+                    throw new OperationCanceledException("Operation cancelled before its checkpoint");
+                commit();
+            }
             if (Interlocked.CompareExchange(ref operation.CompletedFlag, 1, 0) != 0) return;
 
             try { onCompleting?.Invoke(operation); }
@@ -525,18 +535,18 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         switch (metadata)
         {
             case RemovalMetrics m when !string.IsNullOrEmpty(m.EntityKey):
-            {
-                var kind = string.IsNullOrEmpty(m.EntityKind)
-                    ? type switch
-                    {
-                        OperationType.ServiceRemoval => "service",
-                        OperationType.CorruptionRemoval => "service",
-                        OperationType.GameRemoval => "steam",
-                        _ => "bulk"
-                    }
-                    : m.EntityKind!;
-                return $"{kind}:{m.EntityKey}";
-            }
+                {
+                    var kind = string.IsNullOrEmpty(m.EntityKind)
+                        ? type switch
+                        {
+                            OperationType.ServiceRemoval => "service",
+                            OperationType.CorruptionRemoval => "service",
+                            OperationType.GameRemoval => "steam",
+                            _ => "bulk"
+                        }
+                        : m.EntityKind!;
+                    return $"{kind}:{m.EntityKey}";
+                }
 
             case EvictionRemovalMetadata e
                 when !string.IsNullOrEmpty(e.Scope) && !string.IsNullOrEmpty(e.Key):

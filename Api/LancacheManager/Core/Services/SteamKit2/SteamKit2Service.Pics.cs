@@ -33,7 +33,7 @@ public partial class SteamKit2Service
 
         _logger.LogInformation("Starting Steam PICS depot crawl");
         _lastScanWasForced = false; // Reset flag at start of new scan
-        _automaticScanSkipped = false; // Reset flag at start of new scan
+        lock (_baselineLock) _baselineCommitted = false;
         _activeDepotScanMode = incrementalOnly ? DepotScanMode.Incremental : DepotScanMode.Full;
 
         // The scanned set only exists to stop one crawl re-fetching an app that its own owner-app
@@ -75,14 +75,6 @@ public partial class SteamKit2Service
 
                 await ConnectAndBuildIndexAsync(reporter.Token, incrementalOnly).ConfigureAwait(false);
                 _logger.LogInformation("PICS crawl completed successfully");
-                await reporter.CompleteAsync(
-                    success: true,
-                    stageKey: "signalr.depotMapping.finalized",
-                    context: CreateDepotContext(
-                        message: $"Depot mapping completed - {_emitTotalMappings} mappings, {_emitDownloadsUpdated} downloads updated",
-                        depotMappingsFound: _emitTotalMappings,
-                        totalMappings: _emitTotalMappings,
-                        mappingsApplied: _emitDownloadsUpdated));
             }
             catch (OperationCanceledException)
             {
@@ -148,6 +140,10 @@ public partial class SteamKit2Service
     /// </returns>
     public async Task<bool> CancelRebuildAsync()
     {
+        lock (_baselineLock)
+        {
+            if (_baselineCommitted) return false;
+        }
         if (!IsRebuildRunning || _currentRebuildCts == null)
         {
             return false;
@@ -169,9 +165,6 @@ public partial class SteamKit2Service
             _currentMappingReporter?.RequestCancellation();
             _currentRebuildCts.Cancel();
 
-            // Reset the schedule timer so next run is at full interval
-            UpdateLastCrawlTime();
-            _logger.LogInformation("Reset depot mapping schedule timer - next run in {Interval}", ConfiguredInterval);
 
             // The DepotMappingComplete SignalR notification is sent by RunAsync when it catches
             // the OperationCanceledException, so we don't send it here to avoid duplicates.
@@ -405,6 +398,10 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task<(List<uint> appIds, bool isIncremental)> PrepareForScanAsync(CancellationToken ct, bool incrementalOnly)
     {
+        await PinBaselineAsync();
+        var baseline = await GetDepotBaselineAsync();
+        if (incrementalOnly && !baseline.HasUsableBaseline)
+            throw new InvalidOperationException("A full scan or a committed depot snapshot is required before incremental updates");
         _currentStatus = DepotScanPhase.Connecting;
         _lastErrorMessage = null; // Clear previous errors when starting new scan
         _logger.LogInformation("Starting to build depot index via Steam PICS (incremental={Incremental}, Current mappings in memory: {Count})...",
@@ -469,7 +466,7 @@ public partial class SteamKit2Service
             // Load change number from JSON if available
             if (hasExistingJsonData && existingData?.Metadata != null)
             {
-                _lastChangeNumberSeen = existingData.Metadata.LastChangeNumber;
+                _lastChangeNumberSeen = baseline.LastChangeNumber;
                 _logger.LogInformation("Loaded change number {ChangeNumber} from JSON metadata", _lastChangeNumberSeen);
 
                 // Merge existing depot mappings from JSON (only if not already loaded from database)
@@ -674,7 +671,6 @@ public partial class SteamKit2Service
             {
                 _logger.LogInformation("Resolved {Count} orphan depots - saving updated mappings", orphanDepotIds.Count);
                 // JSON save picks up orphan-resolved mappings before the single DB import below
-                await SaveAllMappingsToJsonAsync(incrementalOnly);
             }
         }
         catch (OperationCanceledException) { throw; }
@@ -682,6 +678,7 @@ public partial class SteamKit2Service
         {
             _logger.LogWarning(ex, "Orphan depot resolution failed (non-fatal)");
         }
+        if (orphanDepotIds.Count > 0) await SaveAllMappingsToJsonAsync(incrementalOnly);
 
         _currentStatus = DepotScanPhase.Importing;
         await SendPostProcessingProgressAsync(
@@ -693,7 +690,7 @@ public partial class SteamKit2Service
         // Single DB import - includes both main scan results and any orphan-resolved mappings
         try
         {
-            await ImportJsonToDatabaseAsync();
+            await ImportJsonToDatabaseAsync(ct);
             _logger.LogInformation("Database import completed successfully");
 
             // Tag orphan-resolved mappings with distinct source so GitHub import preserves them
@@ -707,9 +704,11 @@ public partial class SteamKit2Service
                 _logger.LogInformation("Tagged {Count} orphan depot mapping(s) with source 'orphan-resolved'", orphanDepotIds.Count);
             }
         }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Database import failed");
+            throw;
         }
 
         // Auto-apply depot mappings to downloads after PICS data is ready
@@ -727,21 +726,29 @@ public partial class SteamKit2Service
             progressStart: 95,
             progressEnd: 99);
 
-        _currentStatus = DepotScanPhase.Completed;
-        _lastCrawlTime = DateTime.UtcNow;
-        SaveLastCrawlTime();
-
-        // Clear cached viability check since we just completed a scan
-        // Next check will get fresh data from Steam
-        ClearViabilityCache();
-        _logger.LogInformation("Cleared cached viability check - next check will query Steam for fresh data");
-
         // Capture the success metrics BY VALUE so the onTerminalEmit closure (which fires exactly
         // once inside CompleteOperation, after RunAsync sets success=true) builds the typed
         // DepotMappingComplete record with the same wire shape the old inline anon emitted here.
         var totalMappings = _depotToAppMappings.Count;
         _emitTotalMappings = totalMappings;
         _emitDownloadsUpdated = downloadsUpdated;
+        var changeNumber = _lastChangeNumberSeen;
+        var reporter = _currentMappingReporter
+            ?? throw new InvalidOperationException("Depot mapping operation is not active");
+        await reporter.CompleteAsync(
+            success: true,
+            stageKey: "signalr.depotMapping.finalized",
+            context: CreateDepotContext(
+                message: $"Depot mapping completed - {_emitTotalMappings} mappings, {_emitDownloadsUpdated} downloads updated",
+                depotMappingsFound: _emitTotalMappings,
+                totalMappings: _emitTotalMappings,
+                mappingsApplied: _emitDownloadsUpdated),
+            commit: () =>
+            {
+                ct.ThrowIfCancellationRequested();
+                UpdateLastCrawlTime(changeNumber, fullScan: !incrementalOnly);
+                _currentStatus = DepotScanPhase.Completed;
+            });
     }
 
     private List<uint> ProcessAppDepots(SteamApps.PICSProductInfoCallback.PICSProductInfo app)
@@ -847,11 +854,9 @@ public partial class SteamKit2Service
         var allApps = new HashSet<uint>();
 
         // Check if we have existing data
-        bool hasExistingMappings = _depotToAppMappings.Count > 0;
-
-        if (incrementalOnly && hasExistingMappings && _lastChangeNumberSeen == 0)
+        if (incrementalOnly && _lastChangeNumberSeen == 0)
         {
-            _logger.LogInformation("Incremental mode with existing data but no change number - will use PICS to check for updates");
+            throw new InvalidOperationException("A full scan or a committed depot snapshot is required before incremental updates");
         }
 
         // For full scans, use Web API to enumerate all apps first, then PICS for depot info
@@ -900,29 +905,12 @@ public partial class SteamKit2Service
         }
 
         // For incremental updates, use PICS changes
-        uint since = 0;
+        uint since = _lastChangeNumberSeen;
 
         // Get current change number
         var currentChangeNumber = await GetPicsChangeNumberAsync(ct);
 
-        // Use saved change number for incremental, or start from recent point if we have existing data
-        if (incrementalOnly && _lastChangeNumberSeen > 0)
-        {
-            since = _lastChangeNumberSeen;
-            _logger.LogInformation("Incremental update from saved change #{FromChange} to #{CurrentChange}", since, currentChangeNumber);
-        }
-        else if (incrementalOnly && hasExistingMappings && _lastChangeNumberSeen == 0)
-        {
-            // Have data but no change number - be more aggressive and scan more changes
-            since = Math.Max(0, currentChangeNumber - 50000); // Last ~50k changes (about 2-3 months) - more aggressive
-            _logger.LogInformation("Incremental update with existing data but no change number - starting from recent change #{FromChange} to #{CurrentChange} (aggressive scan)", since, currentChangeNumber);
-        }
-        else
-        {
-            // Full mode or no existing data - start from recent point for partial updates
-            since = Math.Max(0, currentChangeNumber - 50000);
-            _logger.LogInformation("Enumerating from change #{FromChange} to #{CurrentChange}", since, currentChangeNumber);
-        }
+        _logger.LogInformation("Incremental update from saved change #{FromChange} to #{CurrentChange}", since, currentChangeNumber);
 
         // Update change number NOW so it gets saved during batch processing
         if (currentChangeNumber > _lastChangeNumberSeen)

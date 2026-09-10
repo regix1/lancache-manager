@@ -129,7 +129,6 @@ public class DepotsController : ControllerBase
             else
             {
                 _logger.LogInformation("Incremental scan is viable - proceeding with scan");
-                _steamKit2Service.ClearScanSkippedFlag();
             }
         }
 
@@ -252,7 +251,6 @@ public class DepotsController : ControllerBase
 
             if (success)
             {
-                _steamKit2Service.ClearScanSkippedFlag();
                 _steamKit2Service.EnablePeriodicCrawls();
 
                 _logger.LogInformation("Pre-created depot data downloaded and imported successfully from GitHub");

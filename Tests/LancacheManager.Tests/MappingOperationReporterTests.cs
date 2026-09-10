@@ -10,6 +10,23 @@ namespace LancacheManager.Tests;
 
 public class MappingOperationReporterTests
 {
+    [Fact]
+    public async Task SteamCheckpointRunsBeforeItsSuccessfulTerminal()
+    {
+        var notifications = new CapturingNotificationService();
+        var tracker = CreateTracker();
+        await using var reporter = CreateReporter(notifications, tracker, MappingOperations.Steam);
+        await reporter.StartAsync();
+        var committed = false;
+        await reporter.CompleteAsync(true, commit: () => committed = true);
+        Assert.True(committed);
+        var terminal = Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(SignalREvents.DepotMappingComplete));
+        Assert.True(terminal.Success);
+        Assert.False(terminal.Cancelled);
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        Assert.Equal($"{MappingOperations.Steam.StageKeyPrefix}.completed", terminal.StageKey);
+    }
+
     public static TheoryData<MappingOperationDefinition> Definitions =>
         new()
         {

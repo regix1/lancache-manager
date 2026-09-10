@@ -86,6 +86,9 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private object _crawlIncrementalMode = "github"; // true (incremental) / false (full) / "github"
     private readonly PicsDataService _picsDataService;
     private uint _lastChangeNumberSeen;
+    private readonly object _baselineLock = new();
+    private long _baselineVersion;
+    private bool _baselineCommitted;
     private bool _lastScanWasForced = false; // Track if the last scan was forced to be full due to Steam requirements
     private bool _automaticScanSkipped = false; // Track if an automatic scan was skipped due to requiring full scan
     // The figures the viability check reported when it abandoned that scan. Only meaningful while
@@ -414,12 +417,17 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     /// </summary>
     private void ClearViabilityCache()
     {
-        var state = _stateService.GetState();
-        state.RequiresFullScan = false;
-        state.LastViabilityCheck = null;
-        state.LastViabilityCheckChangeNumber = 0;
-        state.ViabilityChangeGap = 0;
-        _stateService.SaveState(state);
+        lock (_baselineLock)
+        {
+            _stateService.UpdateState(state =>
+            {
+                state.RequiresFullScan = false;
+                state.LastViabilityCheck = null;
+                state.LastViabilityCheckChangeNumber = 0;
+                state.ViabilityChangeGap = 0;
+            });
+            _baselineVersion++;
+        }
     }
 
     /// <summary>

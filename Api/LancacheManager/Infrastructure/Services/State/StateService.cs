@@ -279,7 +279,7 @@ public class StateService : IStateService
     {
         lock (_lock)
         {
-            var state = GetState();
+            var state = GetState().ShallowClone();
             updater(state);
             SaveState(state);
         }

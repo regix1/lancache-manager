@@ -13,6 +13,12 @@ public partial class SteamKit2Service
     {
         try
         {
+            long version;
+            lock (_baselineLock) version = _baselineVersion;
+            var baseline = await GetDepotBaselineAsync();
+            bool superseded;
+            lock (_baselineLock) superseded = version != _baselineVersion;
+            if (superseded) return await CheckViabilityAsync(ct);
             // Check for a cached viability result in state (prevents repeated Steam API calls).
             var state = _stateService.GetState();
             var cachedAge = state.LastViabilityCheck.HasValue
@@ -20,8 +26,6 @@ public partial class SteamKit2Service
                 : TimeSpan.MaxValue;
             var cacheIsFresh = state.LastViabilityCheck.HasValue && cachedAge < TimeSpan.FromHours(1);
 
-            // The cached result has the same shape whether it is reused before or after the baseline
-            // load below.
             IncrementalViabilityCheck ReuseCachedResult()
             {
                 _logger.LogInformation("Using cached viability check result (age: {Minutes} minutes, requires full scan: {RequiresFullScan})",
@@ -40,26 +44,20 @@ public partial class SteamKit2Service
                 };
             }
 
-            // A cached "requires full scan" answer routes to the graceful skip regardless of whether a
-            // baseline exists now, so reuse it without loading the depot baseline (which reads the
-            // depot-mappings JSON). Only a cached "viable" answer depends on the baseline still existing.
-            if (cacheIsFresh && state.RequiresFullScan)
-            {
-                return ReuseCachedResult();
-            }
-
-            // From here the baseline is needed: to trust a cached "viable" answer, to detect a fresh
-            // install, and to supply the change number the scan will diff against. The scan always
-            // reloads the change number from JSON, so the viability check reads the same value.
-            var baseline = await GetDepotBaselineAsync();
+            // Both cached outcomes belong to the cursor and catalog that produced them.
             uint changeNumberToCheck = baseline.LastChangeNumber;
 
             // Never reuse a cached "viable" answer once the baseline is gone (e.g. depot data was
             // reset): it was computed from mappings and a change number that no longer exist, and
             // reusing it would green-light a crawl with nothing to diff against.
-            if (cacheIsFresh && ShouldReuseCachedViability(state.RequiresFullScan, baseline.HasUsableBaseline))
+            if (cacheIsFresh && ShouldReuseCachedViability(state.RequiresFullScan, baseline.HasUsableBaseline)
+                && state.LastViabilityCheckChangeNumber == baseline.LastChangeNumber)
             {
-                return ReuseCachedResult();
+                lock (_baselineLock)
+                {
+                    if (version == _baselineVersion) return ReuseCachedResult();
+                }
+                return await CheckViabilityAsync(ct);
             }
 
             // A fresh install (or a reset that wiped depot data) has no baseline to run an
@@ -73,8 +71,6 @@ public partial class SteamKit2Service
                     "Incremental depot scan is not viable yet - no depot baseline found (database mappings: {DbCount}, JSON mappings: {JsonCount}, saved change number: {ChangeNumber}). Initial depot data must be downloaded or a full scan run before incremental updates can start.",
                     baseline.DatabaseMappingCount, baseline.JsonMappingCount, baseline.LastChangeNumber);
 
-                CacheViabilityResult(requiresFullScan: true, lastChangeNumber: 0, changeGap: 0);
-
                 return BuildNeedsInitialDataResult();
             }
 
@@ -86,71 +82,31 @@ public partial class SteamKit2Service
                 _logger.LogInformation("Viability check will use change number {ChangeNumber} from JSON file", changeNumberToCheck);
             }
 
-            // Need to be connected to check current change number
-            bool wasConnected = _isLoggedOn && _steamClient?.IsConnected == true;
+            var (currentChangeNumber, willRequireFullScan) = await CheckChangesAsync(changeNumberToCheck, ct);
+            var currentBaseline = await GetDepotBaselineAsync();
+            if (baseline != currentBaseline) return await CheckViabilityAsync(ct);
+            uint changeGap = currentChangeNumber - Math.Min(changeNumberToCheck, currentChangeNumber);
+            if (!CacheViabilityResult(willRequireFullScan, changeNumberToCheck, changeGap, version))
+                return await CheckViabilityAsync(ct);
 
-            if (!wasConnected)
+            return new IncrementalViabilityCheck
             {
-                await EnsureSessionAsync(ct);
-            }
-
-            try
-            {
-                // Get current change number from Steam
-                var currentChangeNumber = await GetPicsChangeNumberAsync(ct);
-
-                // The subtraction is unsigned, so a stored change number ahead of Steam's current
-                // one - after a restore from a newer snapshot, or a Steam-side rollback - wraps to
-                // roughly 4.29 billion and reads as that many updates behind. Clamping the stored
-                // number to Steam's makes that zero, which is what not being behind means, and it
-                // holds for every reader of the figure: the cached result above, the app estimate
-                // below, and both places the number is shown.
-                uint changeGap = changeNumberToCheck > 0
-                    ? currentChangeNumber - Math.Min(changeNumberToCheck, currentChangeNumber)
-                    : currentChangeNumber;
-
-                // Actually check with Steam if it will accept incremental update
-                bool willRequireFullScan = false;
-                if (changeNumberToCheck > 0)
-                {
-                    _logger.LogInformation("Checking with Steam if incremental update is viable (last: {Last}, current: {Current}, gap: {Gap})",
-                        changeNumberToCheck, currentChangeNumber, changeGap);
-
-                    var incrementalChanges = await RunPicsWithRecoveryAsync(async () =>
-                    {
-                        var incrementalJob = _steamApps!.PICSGetChangesSince(changeNumberToCheck, true, true);
-                        return await WaitForCallbackAsync(incrementalJob, ct);
-                    }, "PICS viability check", ct);
-
-                    // Steam will tell us if it requires a full update
-                    willRequireFullScan = incrementalChanges.RequiresFullUpdate || incrementalChanges.RequiresFullAppUpdate;
-
-                    _logger.LogInformation("Steam RequiresFullUpdate: {Full}, RequiresFullAppUpdate: {App}",
-                        incrementalChanges.RequiresFullUpdate, incrementalChanges.RequiresFullAppUpdate);
-                }
-
-                // Cache the viability check result in state to avoid repeated Steam API calls
-                CacheViabilityResult(willRequireFullScan, changeNumberToCheck, changeGap);
-
-                return new IncrementalViabilityCheck
-                {
-                    IsViable = !willRequireFullScan,
-                    LastChangeNumber = changeNumberToCheck,
-                    CurrentChangeNumber = currentChangeNumber,
-                    ChangeGap = changeGap,
-                    IsLargeGap = willRequireFullScan,
-                    WillTriggerFullScan = willRequireFullScan,
-                    EstimatedAppsToScan = willRequireFullScan ? 270000 : (int)Math.Min(changeGap * 2, 50000) // Rough estimate
-                };
-            }
-            finally
-            {
-                // Connection will be reused if a crawl starts immediately after viability check
-            }
+                IsViable = !willRequireFullScan,
+                LastChangeNumber = changeNumberToCheck,
+                CurrentChangeNumber = currentChangeNumber,
+                ChangeGap = changeGap,
+                IsLargeGap = willRequireFullScan,
+                WillTriggerFullScan = willRequireFullScan,
+                EstimatedAppsToScan = willRequireFullScan ? 270000 : (int)Math.Min((long)changeGap * 2, 50000)
+            };
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (TimeoutException tex)
         {
-            _logger.LogWarning("Steam connection timed out while checking incremental viability: {Message}", tex.Message);
+            _logger.LogWarning(tex, "Steam connection timed out while checking incremental viability");
 
             // Clean up connection state on timeout to prevent stale connections
             if (_steamClient?.IsConnected == true)
@@ -221,24 +177,48 @@ public partial class SteamKit2Service
         var picsData = await _picsDataService.LoadFromJsonAsync();
         if (picsData is not null)
         {
-            jsonMappingCount = Math.Max(picsData.Metadata?.TotalMappings ?? 0, picsData.DepotMappings?.Count ?? 0);
+            jsonMappingCount = picsData.DepotMappings?.Count ?? 0;
             if (picsData.Metadata?.LastChangeNumber > 0)
             {
                 lastChangeNumber = picsData.Metadata.LastChangeNumber;
             }
         }
 
-        return new DepotBaseline(databaseMappingCount, jsonMappingCount, lastChangeNumber);
+        var committed = _stateService.GetState().LastPicsChangeNumber;
+        return new DepotBaseline(databaseMappingCount, jsonMappingCount, committed ?? lastChangeNumber,
+            committed == null || committed == lastChangeNumber, committed.HasValue);
+    }
+
+    internal virtual async Task<(uint CurrentChangeNumber, bool RequiresFullScan)> CheckChangesAsync(uint changeNumberToCheck, CancellationToken ct)
+    {
+        bool wasConnected = _isLoggedOn && _steamClient?.IsConnected == true;
+        if (!wasConnected) await EnsureSessionAsync(ct);
+        var currentChangeNumber = await GetPicsChangeNumberAsync(ct);
+        var incrementalChanges = await RunPicsWithRecoveryAsync(async () =>
+        {
+            var incrementalJob = _steamApps!.PICSGetChangesSince(changeNumberToCheck, true, true);
+            return await WaitForCallbackAsync(incrementalJob, ct);
+        }, "PICS viability check", ct);
+        _logger.LogInformation("Steam RequiresFullUpdate: {Full}, RequiresFullAppUpdate: {App}",
+            incrementalChanges.RequiresFullUpdate, incrementalChanges.RequiresFullAppUpdate);
+        return (currentChangeNumber, incrementalChanges.RequiresFullUpdate || incrementalChanges.RequiresFullAppUpdate);
+    }
+
+    private async Task PinBaselineAsync()
+    {
+        if (_stateService.GetState().LastPicsChangeNumber.HasValue) return;
+        var baseline = await GetDepotBaselineAsync();
+        lock (_baselineLock)
+        {
+            _stateService.UpdateState(state => state.LastPicsChangeNumber ??= baseline.HasUsableBaseline ? baseline.LastChangeNumber : 0);
+        }
     }
 
     /// <summary>
-    /// A cached viability result may be reused when it already requires a full scan (that answer
-    /// stays safe and routes to the graceful skip) or when a usable baseline still exists. A cached
-    /// "viable" answer must not be reused once the baseline is gone, since it was computed from
-    /// mappings and a change number that no longer exist.
+    /// Either cached outcome requires a usable baseline; the caller also checks cursor identity.
     /// </summary>
     internal static bool ShouldReuseCachedViability(bool cachedRequiresFullScan, bool hasUsableBaseline)
-        => cachedRequiresFullScan || hasUsableBaseline;
+        => hasUsableBaseline;
 
     /// <summary>
     /// Builds the outcome for a fresh install with no depot baseline: not viable and flagged as a
@@ -261,17 +241,23 @@ public partial class SteamKit2Service
     /// Persists the viability outcome to state so repeated checks within the cache window reuse it
     /// instead of contacting Steam again.
     /// </summary>
-    private void CacheViabilityResult(bool requiresFullScan, uint lastChangeNumber, uint changeGap)
+    private bool CacheViabilityResult(bool requiresFullScan, uint lastChangeNumber, uint changeGap, long version)
     {
-        var updatedState = _stateService.GetState();
-        updatedState.RequiresFullScan = requiresFullScan;
-        updatedState.LastViabilityCheck = DateTime.UtcNow;
-        updatedState.LastViabilityCheckChangeNumber = lastChangeNumber;
-        updatedState.ViabilityChangeGap = changeGap;
-        _stateService.SaveState(updatedState);
+        lock (_baselineLock)
+        {
+            if (version != _baselineVersion) return false;
+            _stateService.UpdateState(state =>
+            {
+                state.RequiresFullScan = requiresFullScan;
+                state.LastViabilityCheck = DateTime.UtcNow;
+                state.LastViabilityCheckChangeNumber = lastChangeNumber;
+                state.ViabilityChangeGap = changeGap;
+            });
+        }
 
         _logger.LogInformation("Cached viability check result in state.json (requires full scan: {RequiresFullScan}, change gap: {ChangeGap})",
             requiresFullScan, changeGap);
+        return true;
     }
 
     /// <summary>
@@ -279,14 +265,15 @@ public partial class SteamKit2Service
     /// database or JSON snapshot and no saved change number there is nothing to diff against, so a
     /// full scan is required before incremental updates can start.
     /// </summary>
-    internal readonly record struct DepotBaseline(int DatabaseMappingCount, int JsonMappingCount, uint LastChangeNumber)
+    internal readonly record struct DepotBaseline(int DatabaseMappingCount, int JsonMappingCount, uint LastChangeNumber, bool CursorMatches = true, bool Committed = false)
     {
-        public bool HasUsableBaseline => DatabaseMappingCount > 0 || JsonMappingCount > 0 || LastChangeNumber > 0;
+        public bool HasUsableBaseline => LastChangeNumber > 0 && CursorMatches
+            && (Committed ? DatabaseMappingCount > 0 && JsonMappingCount > 0 : DatabaseMappingCount > 0 || JsonMappingCount > 0);
     }
 
     /// <summary>
-    /// Reads the last known PICS change number from the cached JSON file.
-    /// Returns null if the file is unavailable or contains no valid change number.
+    /// Reads the committed PICS cursor, falling back to JSON only for legacy state.
+    /// Returns null when no positive cursor is available.
     /// Used in error paths to populate LastChangeNumber for informational reporting.
     /// </summary>
     private async Task<uint?> TryGetLastChangeNumberAsync()
@@ -294,11 +281,12 @@ public partial class SteamKit2Service
         try
         {
             var picsData = await _picsDataService.LoadFromJsonAsync();
-            var changeNumber = picsData?.Metadata?.LastChangeNumber;
+            var changeNumber = _stateService.GetState().LastPicsChangeNumber ?? picsData?.Metadata?.LastChangeNumber;
             return changeNumber > 0 ? changeNumber : null;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Could not read the committed PICS change number");
             return null;
         }
     }

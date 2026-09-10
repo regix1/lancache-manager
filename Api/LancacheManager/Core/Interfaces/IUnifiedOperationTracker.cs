@@ -129,13 +129,18 @@ public interface IUnifiedOperationTracker
     /// <see cref="OperationTerminal"/> and promotes the wait-queue exactly like a completion.
     /// Pass it together with <paramref name="success"/> <c>true</c>, because a skipped run did
     /// not fail and must stay out of the failure funnel.</param>
+    /// <param name="commit">Optional final synchronous checkpoint for successful work. Runs before
+    /// terminal ownership is claimed, serialized with cancellation. May save final state, but must
+    /// not await, emit, cancel, reenter operation APIs, or perform catalog/database/download work.
+    /// Exceptions propagate and leave completion available for the failure path.</param>
     void CompleteOperation(
         Guid operationId,
         bool success,
         string? error = null,
         bool cancelled = false,
         bool skipped = false,
-        Action<OperationInfo>? onCompleting = null);
+        Action<OperationInfo>? onCompleting = null,
+        Action? commit = null);
 
     /// <summary>
     /// Updates the progress of an operation.

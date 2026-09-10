@@ -122,11 +122,58 @@ public sealed class PicsDataServiceCacheTests : IDisposable
             timeProvider);
     }
 
+    [Fact]
+    public async Task PublicationCannotBeFollowedByAnOlderCacheInstallation()
+    {
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var service = CreateService(clock);
+        var replacement = File.ReadAllText(_mappingFile).Replace("\"lastChangeNumber\": 42", "\"lastChangeNumber\": 84", StringComparison.Ordinal);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        clock.BeforeRead = () =>
+        {
+            entered.TrySetResult();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(10)));
+        };
+        var loading = Task.Run(service.LoadFromJsonAsync);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var publishing = Task.Run(() =>
+        {
+            attempted.TrySetResult();
+            service.WritePicsJsonFile(replacement);
+        });
+        await attempted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        release.Set();
+        await Task.WhenAll(loading, publishing);
+        clock.BeforeRead = null;
+        Assert.Equal(84u, (await service.LoadFromJsonAsync())!.Metadata!.LastChangeNumber);
+    }
+
+    [Fact]
+    public async Task FailedPublicationRetainsTheExistingFileAndCache()
+    {
+        var service = CreateService(TimeProvider.System);
+        var before = await service.LoadFromJsonAsync();
+        using (var locked = new FileStream(_mappingFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            var failure = Record.Exception(() => service.WritePicsJsonFile("replacement"));
+            Assert.True(failure is IOException or UnauthorizedAccessException, failure?.ToString());
+        }
+        Assert.Same(before, await service.LoadFromJsonAsync());
+        Assert.Contains("\"lastChangeNumber\": 42", File.ReadAllText(_mappingFile));
+    }
+
     private sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider
     {
         private DateTimeOffset _now = now;
+        public Action? BeforeRead { get; set; }
 
-        public override DateTimeOffset GetUtcNow() => _now;
+        public override DateTimeOffset GetUtcNow()
+        {
+            BeforeRead?.Invoke();
+            return _now;
+        }
 
         public void Advance(TimeSpan amount) => _now += amount;
     }

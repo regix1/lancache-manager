@@ -1,6 +1,7 @@
 using System.Text.Json;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
+using LancacheManager.Middleware;
 
 namespace LancacheManager.Core.Services.SteamKit2;
 
@@ -17,9 +18,13 @@ public partial class SteamKit2Service
     {
         if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
         {
-            _logger.LogInformation("[GitHub Mode] Download already in progress, skipping duplicate request");
-            return true;
+            throw new ConflictException("A depot mapping operation is already running.")
+            {
+                StageKey = "errors.depot.mappingInProgress"
+            };
         }
+
+        lock (_baselineLock) _baselineCommitted = false;
 
         _depotRunShowNotification = notice?.ShowNotification ?? EffectiveNotificationMode.AllowsTrigger(trigger);
         _activeDepotScanMode = DepotScanMode.Github;
@@ -40,6 +45,8 @@ public partial class SteamKit2Service
 
         _currentRebuildCts = runCts;
         await using var reporter = CreateTrackedRebuildReporter(runCts, notice);
+        var committed = false;
+        var runToken = reporter.Token;
 
         async Task<bool> FailAsync(string message)
         {
@@ -111,16 +118,12 @@ public partial class SteamKit2Service
                 return await FailAsync("Downloaded file did not contain depot mappings");
             }
 
-            await NotifyGitHubProgressAsync(reporter, "Saving to local file...", 15);
-            var localPath = _picsDataService.GetPicsJsonFilePath();
-            await File.WriteAllTextAsync(localPath, jsonContent, reporter.Token);
-            _picsDataService.ClearCache();
-
-            await NotifyGitHubProgressAsync(reporter, "Clearing existing depot mappings...", 18);
-            await _picsDataService.ClearDepotMappingsAsync(
-                reporter.Token,
-                preserveOrphanResolved: true);
-            await NotifyGitHubProgressAsync(reporter, "Depot mappings cleared", 22);
+            PicsDataService.ValidateSnapshot(downloadedData, reporter.Token);
+            var baseline = await GetDepotBaselineAsync();
+            if (downloadedData.Metadata!.LastChangeNumber < baseline.LastChangeNumber)
+                return await FailAsync("Downloaded snapshot is older than the committed depot mappings");
+            reporter.Token.ThrowIfCancellationRequested();
+            await PinBaselineAsync();
 
             async Task ImportProgressCallback(string message, int importPercent)
             {
@@ -128,12 +131,12 @@ public partial class SteamKit2Service
                 await NotifyGitHubProgressAsync(reporter, message, overallPercent);
             }
 
-            await _picsDataService.ImportToDatabaseAsync(reporter.Token, ImportProgressCallback);
+            await _picsDataService.ImportToDatabaseAsync(downloadedData, true, reporter.Token, ImportProgressCallback);
             await NotifyGitHubProgressAsync(reporter, "Applying mappings to downloads...", 90);
-            await ManuallyApplyDepotMappingsCoreAsync(reporter, reporter.Token);
+            await ManuallyApplyDepotMappingsCoreAsync(reporter, reporter.Token, replace: true);
             await NotifyGitHubProgressAsync(reporter, "Finalizing import...", 98);
 
-            ClearViabilityCache();
+            _picsDataService.WritePicsJsonFile(jsonContent);
             _emitTotalMappings = _depotToAppMappings.Count;
             await reporter.CompleteAsync(
                 success: true,
@@ -142,7 +145,13 @@ public partial class SteamKit2Service
                     message: $"Depot mapping completed - {_emitTotalMappings} mappings",
                     depotMappingsFound: _emitTotalMappings,
                     totalMappings: _emitTotalMappings,
-                    mappingsApplied: _emitDownloadsUpdated));
+                    mappingsApplied: _emitDownloadsUpdated),
+                commit: () =>
+                {
+                    runToken.ThrowIfCancellationRequested();
+                    UpdateLastCrawlTime(downloadedData.Metadata.LastChangeNumber);
+                    committed = true;
+                });
             return true;
         }
         catch (TaskCanceledException ex)
@@ -164,11 +173,15 @@ public partial class SteamKit2Service
                 cancelled: true,
                 stageKey: "signalr.depotMapping.cancelled",
                 context: CreateDepotContext(message: "Depot mapping download cancelled"));
-            UpdateLastCrawlTime();
             throw;
         }
         catch (Exception ex)
         {
+            if (committed)
+            {
+                _logger.LogWarning(ex, "Depot mappings committed but completion notification failed");
+                return true;
+            }
             _logger.LogError(ex, "[GitHub Mode] Error downloading depot mappings");
             return await FailAsync($"Error downloading depot mappings: {ex.Message}");
         }

@@ -15,6 +15,86 @@ namespace LancacheManager.Tests;
 public class CompleteOperationTerminalEmitTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CancellationPreventsCheckpointBeforeTerminalClaim(bool signalToken)
+    {
+        var tracker = CreateTracker();
+        var source = new CancellationTokenSource();
+        var id = tracker.RegisterOperation(OperationType.DepotMapping, "Depots", source);
+        var operation = tracker.GetOperation(id)!;
+        if (signalToken) tracker.CancelOperation(id);
+        else operation.Cancelled = true;
+        Assert.Equal(signalToken, source.IsCancellationRequested);
+        var committed = false;
+        Assert.Throws<OperationCanceledException>(() => tracker.CompleteOperation(id, true, commit: () => committed = true));
+        Assert.False(committed);
+        Assert.Equal(0, operation.CompletedFlag);
+        Assert.Null(operation.CompletedAt);
+        tracker.CompleteOperation(id, false, cancelled: true);
+        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+    }
+
+    [Fact]
+    public async Task CheckpointHoldsTerminalOwnershipAgainstCancellationAndForceKill()
+    {
+        var tracker = CreateTracker();
+        var emitted = new TaskCompletionSource<OperationTerminalInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var id = tracker.RegisterOperation(OperationType.DepotMapping, "Depots", new CancellationTokenSource(),
+            onTerminalEmit: terminal =>
+            {
+                emitted.TrySetResult(terminal);
+                return Task.CompletedTask;
+            });
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var operation = tracker.GetOperation(id)!;
+        using var release = new ManualResetEventSlim();
+        var commits = 0;
+        var completing = Task.Run(() => tracker.CompleteOperation(id, true, commit: () =>
+        {
+            Assert.True(Monitor.IsEntered(operation));
+            Interlocked.Increment(ref commits);
+            entered.TrySetResult();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(10)));
+        }));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var cancelling = Task.Run(() =>
+        {
+            cancelEntered.TrySetResult();
+            return tracker.CancelOperation(id);
+        });
+        var killing = Task.Run(() => tracker.ForceKillOperation(id));
+        await cancelEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        release.Set();
+        await completing;
+        Assert.Equal(OperationCancelResult.AlreadyFinished, await cancelling);
+        await killing;
+        var terminal = await emitted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(terminal.Success);
+        Assert.False(terminal.Cancelled);
+        Assert.Equal(1, commits);
+        Assert.Equal(OperationStatus.Completed, tracker.GetOperation(id)!.Status);
+    }
+
+    [Fact]
+    public void FailedCheckpointDoesNotClaimTerminalOrPublishMetrics()
+    {
+        var tracker = CreateTracker();
+        var id = tracker.RegisterOperation(OperationType.DepotMapping, "Depots", new CancellationTokenSource());
+        var published = false;
+        var failure = new IOException("Checkpoint unavailable");
+        Assert.Same(failure, Assert.Throws<IOException>(() => tracker.CompleteOperation(id, true,
+            onCompleting: _ => published = true, commit: () => throw failure)));
+        var operation = tracker.GetOperation(id)!;
+        Assert.Equal(0, operation.CompletedFlag);
+        Assert.Null(operation.CompletedAt);
+        Assert.False(published);
+        tracker.CompleteOperation(id, false, "Checkpoint unavailable");
+        Assert.Equal(OperationStatus.Failed, operation.Status);
+    }
+
+    [Theory]
     [InlineData(true, false, false, OperationStatus.Completed)]
     [InlineData(true, false, true, OperationStatus.Skipped)]
     [InlineData(false, true, false, OperationStatus.Cancelled)]

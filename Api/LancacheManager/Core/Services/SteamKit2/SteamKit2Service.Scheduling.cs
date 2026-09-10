@@ -110,8 +110,6 @@ public partial class SteamKit2Service
 
                 if (success)
                 {
-                    _lastCrawlTime = DateTime.UtcNow;
-                    SaveLastCrawlTime(); // Persist to state.json
                     _logger.LogInformation("[GitHub Mode] Depot data updated successfully and last crawl time persisted");
                 }
                 else
@@ -134,7 +132,13 @@ public partial class SteamKit2Service
                 try
                 {
                     _logger.LogInformation("Checking incremental scan viability before starting scheduled scan");
+                    long version;
+                    lock (_baselineLock) version = _baselineVersion;
                     var viability = await CheckViabilityAsync(stoppingToken);
+                    lock (_baselineLock)
+                    {
+                        if (version != _baselineVersion || IsRebuildRunning) return;
+                    }
 
                     // Check if there was a connection/network error during viability check
                     if (!string.IsNullOrEmpty(viability.Error))
@@ -149,11 +153,15 @@ public partial class SteamKit2Service
                     if (viability.WillTriggerFullScan)
                     {
                         _logger.LogWarning("Scheduled incremental scan skipped - Steam requires full scan (change gap: {ChangeGap}). User must manually trigger a full scan.", viability.ChangeGap);
-                        _automaticScanSkipped = true;
-                        // Keep the same two figures the event below carries, so the schedules list can
-                        // reopen the prompt with them after a reload has thrown the event away.
-                        _skippedScanChangeGap = viability.ChangeGap;
-                        _skippedScanEstimatedApps = viability.EstimatedAppsToScan;
+                        lock (_baselineLock)
+                        {
+                            if (version != _baselineVersion || IsRebuildRunning) return;
+                            _automaticScanSkipped = true;
+                            // Keep the same two figures the event below carries, so the schedules list can
+                            // reopen the prompt with them after a reload has thrown the event away.
+                            _skippedScanChangeGap = viability.ChangeGap;
+                            _skippedScanEstimatedApps = viability.EstimatedAppsToScan;
+                        }
 
                         // Carry the measured gap and app estimate so the client can report what was
                         // actually found instead of standing in a fixed number of its own.
@@ -176,7 +184,6 @@ public partial class SteamKit2Service
                     }
 
                     // Viability check passed - reset the flag since incremental is now viable
-                    _automaticScanSkipped = false;
                     _logger.LogInformation("Incremental scan is viable, proceeding with scheduled scan");
                 }
                 catch (Exception ex)
@@ -197,15 +204,6 @@ public partial class SteamKit2Service
                     await _currentBuildTask;
                 }
 
-                _lastCrawlTime = DateTime.UtcNow;
-                SaveLastCrawlTime(); // Persist to state.json
-
-                if (!incremental)
-                {
-                    // Stamped after the crawl finishes, not before it starts, so a run that died
-                    // partway through does not push the next hybrid full crawl out by a week.
-                    SaveLastFullCrawlTime();
-                }
             }
         }
     }
@@ -232,11 +230,29 @@ public partial class SteamKit2Service
     /// <summary>
     /// Update the last crawl time to now (used after manual data imports like GitHub downloads)
     /// </summary>
-    public void UpdateLastCrawlTime()
+    public void UpdateLastCrawlTime(uint changeNumber, bool fullScan = false)
     {
-        _lastCrawlTime = DateTime.UtcNow;
-        SaveLastCrawlTime(); // Persist to state.json
-        _logger.LogInformation("Updated last crawl time to {Time} and persisted to state (prevents automatic scan from triggering)", _lastCrawlTime);
+        if (changeNumber == 0) throw new InvalidOperationException("A successful depot checkpoint requires a positive change number");
+        lock (_baselineLock)
+        {
+            var completedAt = DateTime.UtcNow;
+            _stateService.UpdateState(state =>
+            {
+                state.LastPicsChangeNumber = changeNumber;
+                state.LastPicsCrawl = completedAt;
+                state.HasDataLoaded = true;
+                if (fullScan) state.LastFullPicsCrawl = completedAt;
+                state.RequiresFullScan = false;
+                state.LastViabilityCheck = null;
+                state.LastViabilityCheckChangeNumber = 0;
+                state.ViabilityChangeGap = 0;
+            });
+            _lastChangeNumberSeen = changeNumber;
+            _lastCrawlTime = completedAt;
+            _baselineVersion++;
+            _baselineCommitted = true;
+            ClearScanSkippedFlag();
+        }
     }
 
     /// <summary>
@@ -244,10 +260,11 @@ public partial class SteamKit2Service
     /// </summary>
     public void ClearScanSkippedFlag()
     {
-        if (_automaticScanSkipped)
+        lock (_baselineLock)
         {
             _automaticScanSkipped = false;
-            _logger.LogInformation("Cleared automatic scan skipped flag");
+            _skippedScanChangeGap = 0;
+            _skippedScanEstimatedApps = 0;
         }
     }
 }

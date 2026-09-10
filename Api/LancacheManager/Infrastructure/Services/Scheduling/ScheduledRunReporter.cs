@@ -39,7 +39,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     private readonly Action? _onTerminalCleanup;
     private readonly ILogger? _logger;
     private readonly Func<OperationTerminalInfo, string>? _externalTerminalStageKey;
-    private readonly TaskCompletionSource _terminalEmitted =
+    private readonly TaskCompletionSource<OperationTerminalInfo> _terminalEmitted =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private Guid _operationId;
@@ -237,17 +237,20 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         bool cancelled = false,
         string? stageKey = null,
         Dictionary<string, object?>? context = null,
-        bool skipped = false)
+        bool skipped = false,
+        Action? commit = null)
     {
         if (!_started)
         {
+            if (commit != null) throw new InvalidOperationException("Cannot commit an operation that has not started");
             return;
         }
 
+        var committed = false;
         await _sendGate.WaitAsync(CancellationToken.None);
         try
         {
-            if (Interlocked.CompareExchange(ref _completed, 1, 0) == 0)
+            if (Volatile.Read(ref _completed) == 0)
             {
                 var finalContext = context is null ? null : new Dictionary<string, object?>(context);
                 _tracker.CompleteOperation(_operationId, success, error, cancelled, skipped, operation =>
@@ -262,7 +265,12 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                             bag["context"] = finalContext;
                         }
                     }
+                }, commit: commit == null ? null : () =>
+                {
+                    commit();
+                    committed = true;
                 });
+                Interlocked.Exchange(ref _completed, 1);
             }
         }
         finally
@@ -270,7 +278,12 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             _sendGate.Release();
         }
 
-        await _terminalEmitted.Task;
+        var terminal = await _terminalEmitted.Task;
+        if (commit != null && !committed)
+        {
+            if (terminal.Cancelled) throw new OperationCanceledException("Operation cancelled before its checkpoint");
+            throw new InvalidOperationException("The checkpoint could not be committed because the operation ended");
+        }
     }
 
     /// <summary>
@@ -352,7 +365,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         {
             _sendGate.Release();
             RunTerminalCleanup();
-            _terminalEmitted.TrySetResult();
+            _terminalEmitted.TrySetResult(info);
         }
     }
 

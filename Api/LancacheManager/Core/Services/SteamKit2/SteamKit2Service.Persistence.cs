@@ -33,22 +33,28 @@ public partial class SteamKit2Service
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save depot mappings to JSON file");
+            throw;
         }
     }
 
     /// <summary>
     /// Import JSON data to database after PICS crawl
     /// </summary>
-    private async Task ImportJsonToDatabaseAsync()
+    private async Task ImportJsonToDatabaseAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            await _picsDataService.ImportToDatabaseAsync();
+            await _picsDataService.ImportToDatabaseAsync(cancellationToken);
             _logger.LogInformation("Successfully imported PICS JSON data to database");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to import PICS JSON data to database");
+            throw;
         }
     }
 
@@ -107,9 +113,11 @@ public partial class SteamKit2Service
         }
 
         var changeNumberUpdated = false;
-        if (jsonData.Metadata?.LastChangeNumber > 0 && jsonData.Metadata.LastChangeNumber > _lastChangeNumberSeen)
+        var committed = _stateService.GetState().LastPicsChangeNumber;
+        var changeNumber = committed ?? jsonData.Metadata?.LastChangeNumber ?? 0;
+        if (changeNumber != _lastChangeNumberSeen)
         {
-            _lastChangeNumberSeen = jsonData.Metadata.LastChangeNumber;
+            _lastChangeNumberSeen = changeNumber;
             changeNumberUpdated = true;
         }
 
@@ -119,45 +127,69 @@ public partial class SteamKit2Service
     /// <summary>
     /// Load existing depot mappings from database on startup
     /// </summary>
-    private async Task LoadDepotMappingsAsync()
+    private async Task LoadDepotMappingsAsync(bool replace = false, CancellationToken cancellationToken = default)
     {
         try
         {
             using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
-            var existingMappings = await scopedDb.DbContext.SteamDepotMappings.AsNoTracking().ToListAsync();
+            var existingMappings = await scopedDb.DbContext.SteamDepotMappings.AsNoTracking().ToListAsync(cancellationToken);
+            var mappings = new Dictionary<uint, HashSet<uint>>();
+            var owners = new Dictionary<uint, uint>();
+            var names = new Dictionary<uint, string>();
+            var depotNames = new Dictionary<uint, string>();
 
             foreach (var mapping in existingMappings)
             {
                 var depotIdUint = (uint)mapping.DepotId;
                 var appIdUint = (uint)mapping.AppId;
 
-                var set = _depotToAppMappings.GetOrAdd(depotIdUint, _ => new HashSet<uint>());
+                if (!mappings.TryGetValue(depotIdUint, out var set))
+                    mappings[depotIdUint] = set = new HashSet<uint>();
                 set.Add(appIdUint);
 
                 // Track owner apps from database
                 if (mapping.IsOwner)
                 {
-                    _depotOwners.TryAdd(depotIdUint, appIdUint);
+                    owners.TryAdd(depotIdUint, appIdUint);
                 }
 
                 if (!string.IsNullOrEmpty(mapping.AppName) && mapping.AppName != $"App {mapping.AppId}")
                 {
-                    _appNames[appIdUint] = mapping.AppName;
+                    names[appIdUint] = mapping.AppName;
                 }
 
                 // Load depot names from database
                 if (!string.IsNullOrEmpty(mapping.DepotName))
                 {
-                    _depotNames.TryAdd(depotIdUint, mapping.DepotName);
+                    depotNames.TryAdd(depotIdUint, mapping.DepotName);
                 }
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+            if (replace)
+            {
+                _depotToAppMappings.Clear();
+                _depotOwners.Clear();
+                _appNames.Clear();
+                _depotNames.Clear();
+            }
+            foreach (var (depotId, apps) in mappings)
+                _depotToAppMappings.GetOrAdd(depotId, _ => new HashSet<uint>()).UnionWith(apps);
+            foreach (var (depotId, appId) in owners) _depotOwners.TryAdd(depotId, appId);
+            foreach (var (appId, name) in names) _appNames[appId] = name;
+            foreach (var (depotId, name) in depotNames) _depotNames.TryAdd(depotId, name);
+
             _logger.LogInformation($"Loaded {existingMappings.Count} existing depot mappings from database. Total unique depots: {_depotToAppMappings.Count}");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading existing depot mappings from database");
+            if (replace) throw;
         }
     }
 
@@ -180,13 +212,14 @@ public partial class SteamKit2Service
 
             // Load change number from JSON file (still needed for PICS scans)
             var picsData = await _picsDataService.LoadFromJsonAsync();
+            var committed = _stateService.GetState().LastPicsChangeNumber;
+            _lastChangeNumberSeen = committed ?? picsData?.Metadata?.LastChangeNumber ?? 0;
             if (picsData?.Metadata != null)
             {
-                _lastChangeNumberSeen = picsData.Metadata.LastChangeNumber;
                 _logger.LogInformation("Loaded change number from JSON: {ChangeNumber}", _lastChangeNumberSeen);
 
                 // Only use JSON timestamp if state.json doesn't have one (first-time setup)
-                if (!lastCrawl.HasValue)
+                if (!lastCrawl.HasValue && committed == null)
                 {
                     _lastCrawlTime = picsData.Metadata.LastUpdated;
                     _logger.LogInformation("No state crawl time found, using JSON metadata timestamp: {LastCrawl}",
@@ -204,35 +237,4 @@ public partial class SteamKit2Service
         }
     }
 
-    /// <summary>
-    /// Save the last PICS crawl time to state
-    /// </summary>
-    private void SaveLastCrawlTime()
-    {
-        try
-        {
-            _stateService.SetLastPicsCrawl(_lastCrawlTime);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to save last PICS crawl time to state");
-        }
-    }
-
-    /// <summary>
-    /// Save the time a full PICS crawl finished, which is what hybrid mode counts its week from.
-    /// Stamped by every full scheduled crawl and not just hybrid ones, so switching to hybrid the day
-    /// after a full run waits a week rather than starting a second full crawl straight away.
-    /// </summary>
-    private void SaveLastFullCrawlTime()
-    {
-        try
-        {
-            _stateService.SetLastFullPicsCrawl(DateTime.UtcNow);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to save last full PICS crawl time to state");
-        }
-    }
 }

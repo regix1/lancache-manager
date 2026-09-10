@@ -17,7 +17,6 @@ public class PicsDataService
     private readonly ILogger<PicsDataService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IPathResolver _pathResolver;
-    private readonly StateService _stateService;
     private readonly TimeProvider _timeProvider;
     private readonly string _picsJsonFile;
     private readonly object _fileLock = new object();
@@ -32,7 +31,6 @@ public class PicsDataService
         _logger = logger;
         _scopeFactory = scopeFactory;
         _pathResolver = pathResolver;
-        _stateService = stateService;
         _timeProvider = timeProvider;
         _picsJsonFile = Path.Combine(_pathResolver.GetPicsDirectory(), "pics_depot_mappings.json");
     }
@@ -115,9 +113,6 @@ public class PicsDataService
             ClearCache();
 
             _logger.LogInformation($"Saved {picsData.Metadata.TotalMappings} PICS depot mappings to JSON file: {_picsJsonFile}");
-
-            // Update state to indicate data is loaded
-            _stateService.SetDataLoaded(true, picsData.Metadata.TotalMappings);
 
             return Task.CompletedTask;
         }
@@ -267,8 +262,6 @@ public class PicsDataService
             removedCount,
             existingData.Metadata.TotalMappings);
 
-        // Update state to indicate data is loaded with new count
-        _stateService.SetDataLoaded(true, existingData.Metadata.TotalMappings);
     }
 
     /// <summary>
@@ -288,120 +281,118 @@ public class PicsDataService
     /// </summary>
     public Task<PicsJsonData?> LoadFromJsonAsync()
     {
-        try
+        lock (_fileLock)
         {
-            if (!File.Exists(_picsJsonFile))
+            try
             {
-                return Task.FromResult<PicsJsonData?>(null);
-            }
-
-            // Return cached data if still valid. Once it has expired, drop the reference before
-            // the reload so the old ~180MB depot graph is collectable while the replacement is
-            // parsed, instead of both being resident at once.
-            if (_cachedPicsData != null)
-            {
-                if (_timeProvider.GetUtcNow() - _cacheLastLoaded < _cacheExpiration)
+                if (!File.Exists(_picsJsonFile))
                 {
-                    return Task.FromResult<PicsJsonData?>(_cachedPicsData);
-                }
-
-                _cachedPicsData = null;
-            }
-
-            var jsonOptions = new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            };
-
-            // Deserialize straight off the stream while holding the same lock the writers use.
-            // The ~100 MB depot map would otherwise land in memory as a >200 MB UTF-16 string
-            // before parsing even starts.
-            PicsJsonData? picsData;
-            lock (_fileLock)
-            {
-                using var fileStream = File.OpenRead(_picsJsonFile);
-                if (fileStream.Length == 0)
-                {
-                    _logger.LogWarning("PICS JSON file is empty");
                     return Task.FromResult<PicsJsonData?>(null);
                 }
 
-                picsData = JsonSerializer.Deserialize<PicsJsonData>(fileStream, jsonOptions);
-            }
-
-            // Dedup repeated strings across the ~250k mappings before caching: every mapping
-            // carries its own copy of the constant Source string, and app/depot names repeat
-            // across all depots of the same app - tens of MB of identical strings on a graph
-            // that stays resident between refreshes.
-            if (picsData?.DepotMappings != null)
-            {
-                var stringPool = new Dictionary<string, string>(StringComparer.Ordinal);
-                string Pooled(string value) =>
-                    stringPool.TryGetValue(value, out var pooled) ? pooled : stringPool[value] = value;
-
-                foreach (var mapping in picsData.DepotMappings.Values)
+                // Return cached data if still valid. Once it has expired, drop the reference before
+                // the reload so the old ~180MB depot graph is collectable while the replacement is
+                // parsed, instead of both being resident at once.
+                if (_cachedPicsData != null)
                 {
-                    if (mapping == null)
+                    if (_timeProvider.GetUtcNow() - _cacheLastLoaded < _cacheExpiration)
                     {
-                        continue;
+                        return Task.FromResult<PicsJsonData?>(_cachedPicsData);
                     }
 
-                    mapping.Source = Pooled(mapping.Source);
-                    if (mapping.DepotName != null)
+                    _cachedPicsData = null;
+                }
+
+                var jsonOptions = new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                };
+
+                // Deserialize straight off the stream while holding the same lock the writers use.
+                // The ~100 MB depot map would otherwise land in memory as a >200 MB UTF-16 string
+                // before parsing even starts.
+                PicsJsonData? picsData;
+                lock (_fileLock)
+                {
+                    using var fileStream = File.OpenRead(_picsJsonFile);
+                    if (fileStream.Length == 0)
                     {
-                        mapping.DepotName = Pooled(mapping.DepotName);
+                        _logger.LogWarning("PICS JSON file is empty");
+                        return Task.FromResult<PicsJsonData?>(null);
                     }
 
-                    if (mapping.AppNames != null)
+                    picsData = JsonSerializer.Deserialize<PicsJsonData>(fileStream, jsonOptions);
+                }
+
+                // Dedup repeated strings across the ~250k mappings before caching: every mapping
+                // carries its own copy of the constant Source string, and app/depot names repeat
+                // across all depots of the same app - tens of MB of identical strings on a graph
+                // that stays resident between refreshes.
+                if (picsData?.DepotMappings != null)
+                {
+                    var stringPool = new Dictionary<string, string>(StringComparer.Ordinal);
+                    string Pooled(string value) =>
+                        stringPool.TryGetValue(value, out var pooled) ? pooled : stringPool[value] = value;
+
+                    foreach (var mapping in picsData.DepotMappings.Values)
                     {
-                        for (var i = 0; i < mapping.AppNames.Count; i++)
+                        if (mapping == null)
                         {
-                            var appName = mapping.AppNames[i];
-                            if (appName != null)
+                            continue;
+                        }
+
+                        mapping.Source = Pooled(mapping.Source ?? "SteamKit2-PICS");
+                        if (mapping.DepotName != null)
+                        {
+                            mapping.DepotName = Pooled(mapping.DepotName);
+                        }
+
+                        if (mapping.AppNames != null)
+                        {
+                            for (var i = 0; i < mapping.AppNames.Count; i++)
                             {
-                                mapping.AppNames[i] = Pooled(appName);
+                                var appName = mapping.AppNames[i];
+                                if (appName != null)
+                                {
+                                    mapping.AppNames[i] = Pooled(appName);
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            // Cache the loaded data
-            if (picsData != null)
-            {
-                _cachedPicsData = picsData;
-                _cacheLastLoaded = _timeProvider.GetUtcNow();
-                _logger.LogInformation("PICS data loaded and cached ({TotalMappings} mappings)", picsData.Metadata?.TotalMappings ?? 0);
-
-                // Update state to indicate data is loaded
-                if (picsData.Metadata?.TotalMappings > 0)
+                // Cache the loaded data
+                if (picsData != null)
                 {
-                    _stateService.SetDataLoaded(true, picsData.Metadata.TotalMappings);
-                }
-            }
+                    _cachedPicsData = picsData;
+                    _cacheLastLoaded = _timeProvider.GetUtcNow();
+                    _logger.LogInformation("PICS data loaded and cached ({TotalMappings} mappings)", picsData.Metadata?.TotalMappings ?? 0);
 
-            return Task.FromResult(picsData);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex, "PICS JSON file is corrupted (truncated or malformed). Deleting so it will be regenerated on next depot mapping scan");
-            try
-            {
-                lock (_fileLock)
-                {
-                    File.Delete(_picsJsonFile);
                 }
+
+                return Task.FromResult(picsData);
             }
-            catch (Exception deleteEx)
+            catch (JsonException ex)
             {
-                _logger.LogError(deleteEx, "Failed to delete corrupted PICS JSON file");
+                _logger.LogWarning(ex, "PICS JSON file is corrupted (truncated or malformed). Deleting so it will be regenerated on next depot mapping scan");
+                try
+                {
+                    lock (_fileLock)
+                    {
+                        File.Delete(_picsJsonFile);
+                    }
+                }
+                catch (Exception deleteEx)
+                {
+                    _logger.LogError(deleteEx, "Failed to delete corrupted PICS JSON file");
+                }
+                return Task.FromResult<PicsJsonData?>(null);
             }
-            return Task.FromResult<PicsJsonData?>(null);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error loading PICS data from JSON file");
-            return Task.FromResult<PicsJsonData?>(null);
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error loading PICS data from JSON file");
+                return Task.FromResult<PicsJsonData?>(null);
+            }
         }
     }
 
@@ -454,17 +445,21 @@ public class PicsDataService
     /// <param name="progressCallback">Optional callback for progress updates (phase, percentComplete within phase)</param>
     public async Task ImportToDatabaseAsync(CancellationToken cancellationToken, Func<string, int, Task>? progressCallback)
     {
+        var picsData = await LoadFromJsonAsync()
+            ?? throw new InvalidOperationException("No PICS JSON available to import");
+        await ImportToDatabaseAsync(picsData, false, cancellationToken, progressCallback);
+    }
+
+    public async Task ImportToDatabaseAsync(PicsJsonData picsData, bool replace, CancellationToken cancellationToken, Func<string, int, Task>? progressCallback = null)
+    {
         try
         {
             // Phase 1: Load PICS data from JSON (0-5%)
             if (progressCallback != null) await progressCallback("Loading depot data...", 0);
 
-            var picsData = await LoadFromJsonAsync();
-            if (picsData?.DepotMappings == null)
-            {
-                _logger.LogWarning("No PICS JSON data to import");
-                return;
-            }
+            if (replace) ValidateSnapshot(picsData, cancellationToken);
+            if (picsData.DepotMappings == null)
+                throw new InvalidOperationException("No depot mappings available to import");
 
             if (progressCallback != null) await progressCallback("Processing depot mappings...", 5);
 
@@ -523,7 +518,7 @@ public class PicsDataService
 
             // Phase 3: UNNEST bulk upsert (20-95%)
             // Check if table is empty for first-run optimization (skip ON CONFLICT overhead)
-            var tableIsEmpty = !await scopedDb.DbContext.SteamDepotMappings.AnyAsync(cancellationToken);
+            var tableIsEmpty = !replace && !await scopedDb.DbContext.SteamDepotMappings.AnyAsync(cancellationToken);
 
             var db = scopedDb.DbContext;
             db.ChangeTracker.AutoDetectChangesEnabled = false;
@@ -538,28 +533,31 @@ public class PicsDataService
                 {
                     await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-                    // Reduce WAL write overhead - depot mappings are idempotent so this is safe
-                    await db.Database.ExecuteSqlRawAsync("SET LOCAL synchronous_commit = 'off'", cancellationToken);
+                    if (replace)
+                    {
+                        await db.SteamDepotMappings.Where(m => m.Source != "orphan-resolved")
+                            .ExecuteDeleteAsync(cancellationToken);
+                    }
 
                     foreach (var batch in allMappings.Chunk(batchSize))
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        var depotIds      = batch.Select(m => m.DepotId).ToArray();
-                        var depotNames    = batch.Select(m => m.DepotName).ToArray();
-                        var appIds        = batch.Select(m => m.AppId).ToArray();
-                        var appNames      = batch.Select(m => m.AppName).ToArray();
-                        var isOwners      = batch.Select(m => m.IsOwner).ToArray();
+                        var depotIds = batch.Select(m => m.DepotId).ToArray();
+                        var depotNames = batch.Select(m => m.DepotName).ToArray();
+                        var appIds = batch.Select(m => m.AppId).ToArray();
+                        var appNames = batch.Select(m => m.AppName).ToArray();
+                        var isOwners = batch.Select(m => m.IsOwner).ToArray();
                         var discoveredAts = batch.Select(m => m.DiscoveredAt).ToArray();
-                        var sources       = batch.Select(m => m.Source).ToArray();
+                        var sources = batch.Select(m => m.Source).ToArray();
 
-                        var pDepotIds      = new NpgsqlParameter("p0", NpgsqlDbType.Array | NpgsqlDbType.Bigint)     { Value = depotIds };
-                        var pDepotNames    = new NpgsqlParameter("p1", NpgsqlDbType.Array | NpgsqlDbType.Text)        { Value = depotNames.Select(v => (object?)(v ?? (object)DBNull.Value)).ToArray() };
-                        var pAppIds        = new NpgsqlParameter("p2", NpgsqlDbType.Array | NpgsqlDbType.Bigint)     { Value = appIds };
-                        var pAppNames      = new NpgsqlParameter("p3", NpgsqlDbType.Array | NpgsqlDbType.Text)        { Value = appNames.Select(v => (object?)(v ?? (object)DBNull.Value)).ToArray() };
-                        var pIsOwners      = new NpgsqlParameter("p4", NpgsqlDbType.Array | NpgsqlDbType.Boolean)    { Value = isOwners };
+                        var pDepotIds = new NpgsqlParameter("p0", NpgsqlDbType.Array | NpgsqlDbType.Bigint) { Value = depotIds };
+                        var pDepotNames = new NpgsqlParameter("p1", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = depotNames.Select(v => (object?)(v ?? (object)DBNull.Value)).ToArray() };
+                        var pAppIds = new NpgsqlParameter("p2", NpgsqlDbType.Array | NpgsqlDbType.Bigint) { Value = appIds };
+                        var pAppNames = new NpgsqlParameter("p3", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = appNames.Select(v => (object?)(v ?? (object)DBNull.Value)).ToArray() };
+                        var pIsOwners = new NpgsqlParameter("p4", NpgsqlDbType.Array | NpgsqlDbType.Boolean) { Value = isOwners };
                         var pDiscoveredAts = new NpgsqlParameter("p5", NpgsqlDbType.Array | NpgsqlDbType.TimestampTz) { Value = discoveredAts };
-                        var pSources       = new NpgsqlParameter("p6", NpgsqlDbType.Array | NpgsqlDbType.Text)        { Value = sources };
+                        var pSources = new NpgsqlParameter("p6", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = sources };
 
                         if (tableIsEmpty)
                         {
@@ -567,7 +565,7 @@ public class PicsDataService
                             await db.Database.ExecuteSqlRawAsync(@"
                             INSERT INTO ""SteamDepotMappings"" (""DepotId"", ""DepotName"", ""AppId"", ""AppName"", ""IsOwner"", ""DiscoveredAt"", ""Source"")
                             SELECT * FROM UNNEST(@p0::bigint[], @p1::text[], @p2::bigint[], @p3::text[], @p4::boolean[], @p5::timestamptz[], @p6::text[])",
-                                pDepotIds, pDepotNames, pAppIds, pAppNames, pIsOwners, pDiscoveredAts, pSources);
+                                new object[] { pDepotIds, pDepotNames, pAppIds, pAppNames, pIsOwners, pDiscoveredAts, pSources }, cancellationToken);
                         }
                         else
                         {
@@ -581,7 +579,7 @@ public class PicsDataService
                                 ""IsOwner""      = EXCLUDED.""IsOwner"",
                                 ""DiscoveredAt"" = EXCLUDED.""DiscoveredAt"",
                                 ""Source""       = EXCLUDED.""Source""",
-                                pDepotIds, pDepotNames, pAppIds, pAppNames, pIsOwners, pDiscoveredAts, pSources);
+                                new object[] { pDepotIds, pDepotNames, pAppIds, pAppNames, pIsOwners, pDiscoveredAts, pSources }, cancellationToken);
                         }
 
                         batchIndex++;
@@ -619,17 +617,61 @@ public class PicsDataService
     /// </summary>
     public string GetPicsJsonFilePath() => _picsJsonFile;
 
+    public static void ValidateSnapshot(PicsJsonData snapshot, CancellationToken cancellationToken = default)
+    {
+        if (snapshot.Metadata is not { LastChangeNumber: > 0 } || snapshot.DepotMappings is not { Count: > 0 })
+            throw new InvalidOperationException("Snapshot requires mappings and a positive change number");
+
+        var pairs = new HashSet<(uint, uint)>();
+        foreach (var (key, mapping) in snapshot.DepotMappings)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!uint.TryParse(key, out var depotId) || depotId == 0 || mapping?.AppIds is not { Count: > 0 }
+                || (mapping.AppNames != null && mapping.AppNames.Count != mapping.AppIds.Count)
+                || (mapping.OwnerId.HasValue && !mapping.AppIds.Contains(mapping.OwnerId.Value))
+                || (mapping.DiscoveredAt != default && mapping.DiscoveredAt.Kind != DateTimeKind.Utc))
+                throw new InvalidOperationException($"Invalid snapshot mapping for depot {key}");
+            foreach (var appId in mapping.AppIds)
+            {
+                if (appId == 0 || !pairs.Add((depotId, appId)))
+                    throw new InvalidOperationException($"Invalid or duplicate snapshot pair for depot {key}");
+            }
+        }
+    }
+
     /// <summary>
-    /// Serializes straight to the file under the shared file lock. The depot map's JSON is
-    /// ~100 MB on disk, so building it as an intermediate string would allocate a >200 MB
-    /// UTF-16 copy on every save.
+    /// Streams to a staged file and atomically publishes it under the shared file lock.
     /// </summary>
     private void WritePicsJsonFile(PicsJsonData picsData, JsonSerializerOptions jsonOptions)
+        => WritePicsJsonFile(stream => JsonSerializer.Serialize(stream, picsData, jsonOptions));
+
+    public void WritePicsJsonFile(string jsonContent)
+        => WritePicsJsonFile(stream =>
+        {
+            using var writer = new StreamWriter(stream, leaveOpen: true);
+            writer.Write(jsonContent);
+            writer.Flush();
+        });
+
+    private void WritePicsJsonFile(Action<FileStream> write)
     {
         lock (_fileLock)
         {
-            using var fileStream = File.Create(_picsJsonFile);
-            JsonSerializer.Serialize(fileStream, picsData, jsonOptions);
+            var stagedPath = _picsJsonFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                using (var fileStream = File.Create(stagedPath))
+                {
+                    write(fileStream);
+                    fileStream.Flush(flushToDisk: true);
+                }
+                File.Move(stagedPath, _picsJsonFile, overwrite: true);
+                ClearCache();
+            }
+            finally
+            {
+                if (File.Exists(stagedPath)) File.Delete(stagedPath);
+            }
         }
     }
 
@@ -638,9 +680,12 @@ public class PicsDataService
     /// </summary>
     public void ClearCache()
     {
-        _cachedPicsData = null;
-        _cacheLastLoaded = DateTimeOffset.MinValue;
-        _logger.LogInformation("PICS data cache cleared");
+        lock (_fileLock)
+        {
+            _cachedPicsData = null;
+            _cacheLastLoaded = DateTimeOffset.MinValue;
+            _logger.LogInformation("PICS data cache cleared");
+        }
     }
 }
 

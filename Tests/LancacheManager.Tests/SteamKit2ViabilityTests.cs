@@ -19,15 +19,33 @@ public class SteamKit2ViabilityTests
     }
 
     [Theory]
-    [InlineData(1, 0, 0)]
-    [InlineData(0, 1, 0)]
-    [InlineData(0, 0, 42)]
+    [InlineData(1, 0, 42)]
+    [InlineData(0, 1, 42)]
     [InlineData(5, 5, 100)]
     public void HasUsableBaseline_IsTrue_WhenAnyBaselineSignalPresent(int dbCount, int jsonCount, int changeNumber)
     {
         var baseline = new SteamKit2Service.DepotBaseline(dbCount, jsonCount, (uint)changeNumber);
 
         Assert.True(baseline.HasUsableBaseline);
+    }
+
+    [Theory]
+    [InlineData(1, 0, 0)]
+    [InlineData(0, 1, 0)]
+    [InlineData(0, 0, 42)]
+    public void IncompleteBaselineRequiresFullScan(int dbCount, int jsonCount, int changeNumber)
+    {
+        Assert.False(new SteamKit2Service.DepotBaseline(dbCount, jsonCount, (uint)changeNumber).HasUsableBaseline);
+    }
+
+    [Theory]
+    [InlineData(1, 1, true, true)]
+    [InlineData(1, 0, true, false)]
+    [InlineData(0, 1, true, false)]
+    [InlineData(1, 1, false, false)]
+    public void CommittedBaselineRequiresMatchingCatalogs(int dbCount, int jsonCount, bool cursorMatches, bool expected)
+    {
+        Assert.Equal(expected, new SteamKit2Service.DepotBaseline(dbCount, jsonCount, 42, cursorMatches, true).HasUsableBaseline);
     }
 
     [Fact]
@@ -52,7 +70,7 @@ public class SteamKit2ViabilityTests
     }
 
     [Theory]
-    [InlineData(true, false, true)]   // cached requires full scan: safe to reuse even with no baseline
+    [InlineData(true, false, false)]  // No cached answer is reusable after the baseline disappears.
     [InlineData(true, true, true)]
     [InlineData(false, true, true)]   // cached viable and baseline present: reuse
     [InlineData(false, false, false)] // cached viable but baseline gone: must not reuse

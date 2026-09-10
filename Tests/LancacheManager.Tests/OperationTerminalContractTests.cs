@@ -207,8 +207,10 @@ public sealed partial class OperationTerminalContractTests
             File.WriteAllText(Path.Combine(_operations, "cache-clear-pipe"), _pipeName);
             var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["LanCache:DataSources:0:Name"] = "default", ["LanCache:DataSources:0:CachePath"] = CachePath,
-                ["LanCache:DataSources:0:LogPath"] = logs, ["LanCache:DataSources:0:Enabled"] = "true",
+                ["LanCache:DataSources:0:Name"] = "default",
+                ["LanCache:DataSources:0:CachePath"] = CachePath,
+                ["LanCache:DataSources:0:LogPath"] = logs,
+                ["LanCache:DataSources:0:Enabled"] = "true",
                 ["LanCache:DataSources:0:SchemeOverride"] = DatasourceSchemeOverrideValues.Monolithic,
                 ["NginxLogRotation:Enabled"] = "false"
             }).Build();
@@ -291,9 +293,17 @@ public sealed partial class OperationTerminalContractTests
 
         private static object ClearCheckpoint(string stage, bool final, int files, long bytes) => new
         {
-            isProcessing = !final, percentComplete = final ? 100 : 99, status = final ? "completed" : "running",
-            stageKey = stage, context = new { label = stage }, directoriesProcessed = final ? 4 : 1,
-            totalDirectories = 4, bytesDeleted = bytes, filesDeleted = files, activeDirectories = Array.Empty<string>(), activeCount = 0
+            isProcessing = !final,
+            percentComplete = final ? 100 : 99,
+            status = final ? "completed" : "running",
+            stageKey = stage,
+            context = new { label = stage },
+            directoriesProcessed = final ? 4 : 1,
+            totalDirectories = 4,
+            bytesDeleted = bytes,
+            filesDeleted = files,
+            activeDirectories = Array.Empty<string>(),
+            activeCount = 0
         };
 
         public async Task DetectionProgressAsync(TerminalPipe pipe, CorruptionDetectionMethod method, string stage, bool rejected)
@@ -319,15 +329,27 @@ public sealed partial class OperationTerminalContractTests
 
         private static object DetectionCheckpoint(CorruptionDetectionMethod method, string stage, bool final, bool late) => new
         {
-            status = final ? "completed" : "running", stageKey = stage, percentComplete = final ? 100 : late ? 75 : 25,
-            filesProcessed = final ? 4 : late ? 3 : 1, totalFiles = 4,
+            status = final ? "completed" : "running",
+            stageKey = stage,
+            percentComplete = final ? 100 : late ? 75 : 25,
+            filesProcessed = final ? 4 : late ? 3 : 1,
+            totalFiles = 4,
             context = method == CorruptionDetectionMethod.Structural ? new Dictionary<string, object?>
             {
-                ["scanMode"] = "full", ["effectiveScanMode"] = "full", ["baselineStatus"] = "ready",
-                ["stateCommitted"] = final, ["resumed"] = false, ["filesDiscovered"] = final || late ? 4 : 2,
-                ["filesProcessed"] = final ? 4 : late ? 3 : 1, ["filesReused"] = 0, ["filesInspected"] = final ? 4 : late ? 3 : 1,
-                ["filesRevalidated"] = 0, ["invalidFiles"] = final ? 1 : 0, ["filesPendingRetry"] = 0,
-                ["filesPruned"] = 0, ["stateEntries"] = final ? 4 : 1
+                ["scanMode"] = "full",
+                ["effectiveScanMode"] = "full",
+                ["baselineStatus"] = "ready",
+                ["stateCommitted"] = final,
+                ["resumed"] = false,
+                ["filesDiscovered"] = final || late ? 4 : 2,
+                ["filesProcessed"] = final ? 4 : late ? 3 : 1,
+                ["filesReused"] = 0,
+                ["filesInspected"] = final ? 4 : late ? 3 : 1,
+                ["filesRevalidated"] = 0,
+                ["invalidFiles"] = final ? 1 : 0,
+                ["filesPendingRetry"] = 0,
+                ["filesPruned"] = 0,
+                ["stateEntries"] = final ? 4 : 1
             } : new Dictionary<string, object?> { ["filesProcessed"] = final ? 4 : 1, ["totalFiles"] = 4 }
         };
 
@@ -337,14 +359,20 @@ public sealed partial class OperationTerminalContractTests
             var time = DateTime.Parse(start, null, System.Globalization.DateTimeStyles.AdjustToUniversal);
             var candidate = new CorruptionCandidate
             {
-                CandidateId = "candidate", Service = "steam", ExactPaths = [Path.Combine(CachePath, "aa", "00000000000000000000000000000000")]
+                CandidateId = "candidate",
+                Service = "steam",
+                ExactPaths = [Path.Combine(CachePath, "aa", "00000000000000000000000000000000")]
             };
             if (method == CorruptionDetectionMethod.Structural)
             {
                 candidate.Evidence = new StructuralCorruptionEvidence
                 {
-                    Issues = [StructuralCorruptionIssue.EmptyCacheFile], CacheKeyEncoding = "hex", CacheKey = string.Empty,
-                    CacheKeyMd5 = "d41d8cd98f00b204e9800998ecf8427e", CacheVersion = 5, FileLength = 0,
+                    Issues = [StructuralCorruptionIssue.EmptyCacheFile],
+                    CacheKeyEncoding = "hex",
+                    CacheKey = string.Empty,
+                    CacheKeyMd5 = "d41d8cd98f00b204e9800998ecf8427e",
+                    CacheVersion = 5,
+                    FileLength = 0,
                     Fingerprint = new StructuralFileFingerprint { Device = 1, Inode = 1, Length = 0, ModifiedNanoseconds = 1, ChangedNanoseconds = 1 },
                     DetectedAtUtc = time.AddSeconds(-1).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
                 };
@@ -353,30 +381,48 @@ public sealed partial class OperationTerminalContractTests
             {
                 var observations = Enumerable.Range(0, 3).Select(index => new CandidateObservation
                 {
-                    RawUrl = "/depot/chunk", Timestamp = time.AddSeconds(index - 2).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
-                    ClientIp = $"192.0.2.{index + 1}", Method = "GET", HttpStatus = index % 2 == 0 ? 206 : 200,
-                    CacheStatus = "MISS", RawRange = "bytes=1048576-2097151", BytesServed = 1_048_576
+                    RawUrl = "/depot/chunk",
+                    Timestamp = time.AddSeconds(index - 2).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+                    ClientIp = $"192.0.2.{index + 1}",
+                    Method = "GET",
+                    HttpStatus = index % 2 == 0 ? 206 : 200,
+                    CacheStatus = "MISS",
+                    RawRange = "bytes=1048576-2097151",
+                    BytesServed = 1_048_576
                 }).ToList();
                 candidate.Evidence = new RepeatedMissCorruptionEvidence
                 {
-                    RawUrl = "/depot/chunk", NormalizedUri = "/depot/chunk", EvidenceCount = 3,
+                    RawUrl = "/depot/chunk",
+                    NormalizedUri = "/depot/chunk",
+                    EvidenceCount = 3,
                     ObservedRange = new ObservedByteRange { Kind = "inclusive", Start = 1_048_576, End = 2_097_151 },
                     CacheSlice = new CacheSliceIdentity { Kind = "ranged", Start = 1_048_576, End = 2_097_151 },
-                    FirstSeen = observations[0].Timestamp, LastSeen = observations[^1].Timestamp, Observations = observations
+                    FirstSeen = observations[0].Timestamp,
+                    LastSeen = observations[^1].Timestamp,
+                    Observations = observations
                 };
             }
             return new CorruptionReport
             {
-                ContractVersion = CorruptionReport.SupportedContractVersion, DetectionMethod = method, ScanStartedUtc = start,
+                ContractVersion = CorruptionReport.SupportedContractVersion,
+                DetectionMethod = method,
+                ScanStartedUtc = start,
                 Settings = method == CorruptionDetectionMethod.Structural
                     ? new CorruptionScanSettings { MinimumStableAgeSeconds = 600, MaximumPrefixBytes = 65_535 }
                     : new CorruptionScanSettings { Threshold = 3, LookbackDays = 30 },
-                Candidates = [candidate], ServiceCounts = new Dictionary<string, long> { ["steam"] = 1 },
-                DetectionCounts = new Dictionary<string, long> { [method.ToWireString()] = 1 }, Total = 1,
+                Candidates = [candidate],
+                ServiceCounts = new Dictionary<string, long> { ["steam"] = 1 },
+                DetectionCounts = new Dictionary<string, long> { [method.ToWireString()] = 1 },
+                Total = 1,
                 Coverage = method == CorruptionDetectionMethod.Structural ? new CorruptionScanCoverage
                 {
-                    FilesSeen = 4, FilesChecked = 2, Consistent = 1, BytesRead = 512, SparseFiles = 0,
-                    SkippedByReason = new Dictionary<string, long> { ["recent"] = 2 }, IoErrors = 0
+                    FilesSeen = 4,
+                    FilesChecked = 2,
+                    Consistent = 1,
+                    BytesRead = 512,
+                    SparseFiles = 0,
+                    SkippedByReason = new Dictionary<string, long> { ["recent"] = 2 },
+                    IoErrors = 0
                 } : null
             };
         }
@@ -399,9 +445,17 @@ public sealed partial class OperationTerminalContractTests
         public string Freeze(Guid id)
         {
             var operation = Tracker.GetOperation(id)!;
-            return JsonSerializer.Serialize(new { operation.Status, operation.Success, operation.Cancelled, operation.Message,
-                operation.PercentComplete, operation.StartedAt, operation.CompletedAt,
-                Metrics = JsonSerializer.SerializeToElement(operation.Metadata, operation.Metadata!.GetType()) });
+            return JsonSerializer.Serialize(new
+            {
+                operation.Status,
+                operation.Success,
+                operation.Cancelled,
+                operation.Message,
+                operation.PercentComplete,
+                operation.StartedAt,
+                operation.CompletedAt,
+                Metrics = JsonSerializer.SerializeToElement(operation.Metadata, operation.Metadata!.GetType())
+            });
         }
 
         public void AssertHealthy() => Assert.Empty(_errors);
@@ -646,9 +700,14 @@ public sealed partial class OperationTerminalContractTests
         {
             var method = contract.GetMethod(name)!;
             Assert.Equal(typeof(void), method.ReturnType);
-            Assert.True(method.GetParameters()[^1].IsOptional);
-            Assert.Equal(typeof(Action<OperationInfo>), method.GetParameters()[^1].ParameterType);
+            var publishing = name == nameof(IUnifiedOperationTracker.CompleteOperation) ? 5 : 3;
+            Assert.True(method.GetParameters()[publishing].IsOptional);
+            Assert.Equal(typeof(Action<OperationInfo>), method.GetParameters()[publishing].ParameterType);
         }
+        var completion = contract.GetMethod(nameof(IUnifiedOperationTracker.CompleteOperation))!.GetParameters();
+        Assert.Equal(new[] { "operationId", "success", "error", "cancelled", "skipped", "onCompleting", "commit" }, completion.Select(parameter => parameter.Name));
+        Assert.True(completion[^1].IsOptional);
+        Assert.Equal(typeof(Action), completion[^1].ParameterType);
         Assert.True(contract.GetMethod(nameof(IUnifiedOperationTracker.GetOperation))!.GetParameters()[1].IsOptional);
     }
 
@@ -672,9 +731,16 @@ public sealed partial class OperationTerminalContractTests
         Assert.Equal("Detection", operation.Name);
         var response = new OperationStatusResponse
         {
-            Id = id, Active = false, PercentComplete = 100, Message = null,
-            Status = OperationStatus.Failed, StartedAt = start, ParentOperationId = parent,
-            NextOperationId = Guid.NewGuid(), NextStatus = OperationStatus.Cancelled, Error = "Read failed"
+            Id = id,
+            Active = false,
+            PercentComplete = 100,
+            Message = null,
+            Status = OperationStatus.Failed,
+            StartedAt = start,
+            ParentOperationId = parent,
+            NextOperationId = Guid.NewGuid(),
+            NextStatus = OperationStatus.Cancelled,
+            Error = "Read failed"
         };
         var options = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
         {

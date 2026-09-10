@@ -15,6 +15,84 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class ScheduledRunReporterTests
 {
+    [Fact]
+    public async Task FailedCheckpointCanCompleteThroughTheFailurePath()
+    {
+        var notifications = new CapturingNotificationService();
+        var tracker = CreateTracker();
+        var cleanups = 0;
+        await using var reporter = CreateReporter(notifications, tracker, onTerminalCleanup: () => cleanups++);
+        await reporter.StartAsync("probe.starting");
+        await Assert.ThrowsAsync<IOException>(() => reporter.CompleteAsync(true, commit: () => throw new IOException("Checkpoint unavailable")));
+        Assert.Null(tracker.GetOperation(reporter.OperationId)!.CompletedAt);
+        Assert.Empty(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
+        await reporter.CompleteAsync(false, "Checkpoint unavailable").WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
+        Assert.Equal(1, cleanups);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExternalTerminalRejectsCheckpointWhilePreservingItsContext(bool cancelled)
+    {
+        var notifications = new CapturingNotificationService(blockedEventName: ProgressEventName);
+        var tracker = CreateTracker();
+        await using var reporter = CreateReporter(notifications, tracker);
+        await reporter.StartAsync("probe.starting");
+        var progress = reporter.ReportAsync(35, "probe.running", new() { ["count"] = 3 });
+        await notifications.WhenBlockedSendBeginsAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        tracker.CompleteOperation(reporter.OperationId, false, "External terminal", cancelled: cancelled);
+        var committed = false;
+        var completing = reporter.CompleteAsync(true, context: new() { ["count"] = 99 }, commit: () => committed = true);
+        notifications.ReleaseBlockedSend();
+        await progress;
+        if (cancelled) await Assert.ThrowsAsync<OperationCanceledException>(() => completing);
+        else await Assert.ThrowsAsync<InvalidOperationException>(() => completing);
+        Assert.False(committed);
+        var terminal = Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
+        Assert.Equal(3, terminal.Context!["count"]);
+        Assert.Equal(cancelled, terminal.Cancelled);
+    }
+
+    [Fact]
+    public async Task SuccessfulCheckpointStaysSuccessfulWhileTerminalTransportIsBlocked()
+    {
+        var notifications = new CapturingNotificationService(blockedEventName: CompleteEventName);
+        var tracker = CreateTracker();
+        var committed = false;
+        var active = true;
+        await using var reporter = CreateReporter(notifications, tracker, onTerminalCleanup: () => active = false);
+        await reporter.StartAsync("probe.starting");
+        var completing = reporter.CompleteAsync(true, commit: () => committed = true);
+        await notifications.WhenBlockedSendBeginsAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(committed);
+        Assert.True(active);
+        Assert.Equal(OperationCancelResult.AlreadyFinished, tracker.CancelOperation(reporter.OperationId));
+        notifications.ReleaseBlockedSend();
+        await completing;
+        Assert.False(active);
+        var terminal = Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
+        Assert.True(terminal.Success);
+        Assert.False(terminal.Cancelled);
+    }
+
+    [Fact]
+    public async Task CancelledParentPreventsCheckpointAndAllowsCancellationCompletion()
+    {
+        var notifications = new CapturingNotificationService();
+        var tracker = CreateTracker();
+        using var parent = new CancellationTokenSource();
+        await using var reporter = CreateReporter(notifications, tracker, stoppingToken: parent.Token);
+        await reporter.StartAsync("probe.starting");
+        parent.Cancel();
+        var committed = false;
+        await Assert.ThrowsAsync<OperationCanceledException>(() => reporter.CompleteAsync(true, commit: () => committed = true));
+        Assert.False(committed);
+        await reporter.CompleteAsync(false, cancelled: true);
+        Assert.True(Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName)).Cancelled);
+    }
+
     private const string StartedEventName = "ProbeRunStarted";
     private const string ProgressEventName = "ProbeRunProgress";
     private const string CompleteEventName = "ProbeRunComplete";
