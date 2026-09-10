@@ -5,7 +5,8 @@ Finds passive top-level C# declarations embedded in implementation files.
 .DESCRIPTION
 Without -Fix, reports each declaration and exits with code 1. With -Fix, moves declarations into
 same-namespace companion model files, consolidates partial-file groups, removes unused imports, and
-restores every changed file if formatting fails.
+restores every changed file if formatting fails. -RequireTracked also rejects C# files that exist in
+the working tree but are absent from Git, preventing clean checkouts from losing required types.
 
 .EXAMPLE
 ./scripts/csharp-model-placement.ps1
@@ -20,6 +21,7 @@ restores every changed file if formatting fails.
 param(
     [string]$Path = 'Api/LancacheManager',
     [switch]$Fix,
+    [switch]$RequireTracked,
     [string]$Destination
 )
 
@@ -326,6 +328,34 @@ function New-ModelMove($SourceFiles, [string]$OutputPath)
 Import-Roslyn
 $resolvedPath = Resolve-RepoPath $Path
 $files = @(Get-SourceFiles $resolvedPath)
+
+if ($RequireTracked)
+{
+    $trackedFiles = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($trackedFile in @(& git -C $repoRoot -c core.quotepath=false ls-files))
+    {
+        [void]$trackedFiles.Add($trackedFile.Replace('\', '/'))
+    }
+    if ($LASTEXITCODE -ne 0)
+    {
+        throw 'Unable to read tracked files from Git.'
+    }
+
+    $missingFiles = @($files | Where-Object {
+            $relativePath = [IO.Path]::GetRelativePath($repoRoot, $_.FullName).Replace('\', '/')
+            -not $trackedFiles.Contains($relativePath)
+        })
+    if ($missingFiles.Count -gt 0)
+    {
+        foreach ($missingFile in $missingFiles)
+        {
+            $relativePath = [IO.Path]::GetRelativePath($repoRoot, $missingFile.FullName)
+            Write-Host "C# source is absent from Git: $relativePath"
+        }
+        exit 1
+    }
+}
+
 $embeddedFiles = @()
 
 foreach ($file in $files)

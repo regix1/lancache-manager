@@ -34,12 +34,12 @@ fi
 MODEL_SCRIPT="$ROOT/scripts/csharp-model-placement.ps1"
 echo "pre-push: checking C# model placement..."
 if command -v pwsh >/dev/null 2>&1; then
-  pwsh -NoProfile -File "$MODEL_SCRIPT"
+  pwsh -NoProfile -File "$MODEL_SCRIPT" -RequireTracked
 elif command -v pwsh.exe >/dev/null 2>&1; then
   if command -v wslpath >/dev/null 2>&1; then
     MODEL_SCRIPT="$(wslpath -w "$MODEL_SCRIPT")"
   fi
-  pwsh.exe -NoProfile -File "$MODEL_SCRIPT"
+  pwsh.exe -NoProfile -File "$MODEL_SCRIPT" -RequireTracked
 else
   echo "pre-push: PowerShell 7 not found - cannot check C# model placement." >&2
   exit 1

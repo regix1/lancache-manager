@@ -17,6 +17,10 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
+# This source directory shares its name with runtime log directories.
+!Api/LancacheManager/Infrastructure/Services/Logs/
+!Api/LancacheManager/Infrastructure/Services/Logs/*.cs
+
 # Visual Studio cache/options
 .vs/
 .vscode/
