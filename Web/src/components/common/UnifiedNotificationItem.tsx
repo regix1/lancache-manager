@@ -314,17 +314,17 @@ function useNotificationAnnouncement(notification: UnifiedNotification): string 
 
 // Unified notification component that handles all types
 // Note: CSS transitions handle animation smoothness outside React's render cycle
-export const UnifiedNotificationItem = ({
+export const UnifiedNotificationItem = React.memo(function UnifiedNotificationItem({
   notification,
   onDismiss,
   onCancel,
   isAnimatingOut
 }: {
   notification: UnifiedNotification;
-  onDismiss: () => void;
-  onCancel?: () => void;
+  onDismiss: (notificationId: string) => void;
+  onCancel?: (notification: UnifiedNotification) => void;
   isAnimatingOut?: boolean;
-}) => {
+}) {
   const { t } = useTranslation();
   const { status: webApiStatus } = useSteamWebApiStatus();
 
@@ -382,7 +382,7 @@ export const UnifiedNotificationItem = ({
         {onCancel && (
           <Button
             type="button"
-            onClick={onCancel}
+            onClick={() => onCancel(notification)}
             variant="filled"
             color="stop"
             size="sm"
@@ -486,7 +486,7 @@ export const UnifiedNotificationItem = ({
               position="left"
             >
               <button
-                onClick={onCancel}
+                onClick={() => onCancel(notification)}
                 disabled={notification.details?.cancelPending}
                 className="flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded transition-colors hover:bg-themed-hover motion-reduce:transition-none"
                 aria-label={
@@ -506,7 +506,7 @@ export const UnifiedNotificationItem = ({
           )}
         {isTerminalNotificationStatus(notification.status) && (
           <button
-            onClick={onDismiss}
+            onClick={() => onDismiss(notification.id)}
             className="flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded transition-colors hover:bg-themed-hover motion-reduce:transition-none"
             aria-label={t('common.dismiss')}
           >
@@ -516,4 +516,4 @@ export const UnifiedNotificationItem = ({
       </div>
     </div>
   );
-};
+});

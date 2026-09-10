@@ -750,7 +750,8 @@ const runWaitingHandler = async (
   startingCards,
   event = QUEUED_BEHIND_SCAN,
   dismissed = [],
-  repeats = 1
+  repeats = 1,
+  updates = []
 ) => {
   const {
     createCompletionHandler,
@@ -771,6 +772,7 @@ const runWaitingHandler = async (
   let state = startingCards;
   const setNotifications = (updater) => {
     state = updater(state);
+    updates.push(state);
   };
 
   const waitingHandler = bindLifted(arrowSource, {
@@ -856,6 +858,51 @@ test('a run that is not silent still gets the purple waiting card naming its blo
   assert.equal(card.status, 'waiting');
   assert.equal(card.message, 'waiting for Cache File Scan');
   assert.deepEqual(dismissed, [], 'the purple card stays up until the operation leaves the queue');
+});
+
+test('an unchanged queued event preserves the card and collection identities', async () => {
+  const updates = [];
+  await runWaitingHandler('game_removal', [], QUEUED_BEHIND_SCAN, [], 2, updates);
+  assert.equal(updates.length, 2);
+  assert.equal(updates[1], updates[0]);
+  assert.equal(updates[1][0], updates[0][0]);
+});
+
+test('queued updates preserve pending and acknowledged cancellation state', async () => {
+  for (const status of ['waiting', 'cancelling']) {
+    const [queued] = await runWaitingHandler('game_removal', []);
+    const card = {
+      ...queued,
+      status,
+      startedAt: new Date('2026-01-01T00:00:00Z'),
+      instanceVersion: 7,
+      details: {
+        ...queued.details,
+        cancelRequested: true,
+        cancelSent: true,
+        cancelPending: status === 'waiting',
+        cancelling: status === 'cancelling'
+      }
+    };
+    const initial = [card];
+    const repeated = await runWaitingHandler('game_removal', initial);
+    assert.equal(repeated, initial);
+    const changed = await runWaitingHandler('game_removal', initial, {
+      ...QUEUED_BEHIND_SCAN,
+      blockedByName: 'Eviction Scan'
+    });
+    assert.equal(changed.length, 1);
+    assert.deepEqual(changed[0], { ...card, message: 'waiting for Eviction Scan' });
+    assert.equal(changed[0].details, card.details);
+    assert.equal(changed[0].startedAt, card.startedAt);
+    assert.equal(
+      await runWaitingHandler('game_removal', changed, {
+        ...QUEUED_BEHIND_SCAN,
+        blockedByName: 'Eviction Scan'
+      }),
+      changed
+    );
+  }
 });
 
 test('a queued item opens its waiting card when no owning bulk card is running', async () => {

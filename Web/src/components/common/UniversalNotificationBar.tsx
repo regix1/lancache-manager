@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import {
   useNotifications,
   type UnifiedNotification,
@@ -172,45 +172,45 @@ const UniversalNotificationBar: React.FC = () => {
   }, [notifications.length, shouldRender]);
 
   // Animated dismiss handler
-  const handleDismiss = (notificationId: string) => {
-    const notification = notificationsRef.current.find((item) => item.id === notificationId);
-    if (!notification) return;
+  const handleDismiss = useCallback(
+    (notificationId: string) => {
+      const notification = notificationsRef.current.find((item) => item.id === notificationId);
+      if (!notification) return;
 
-    const instanceVersion = notification.instanceVersion ?? 0;
-    const operationId = notification.details?.operationId;
+      const instanceVersion = notification.instanceVersion ?? 0;
+      const operationId = notification.details?.operationId;
 
-    // Add to dismissing set to trigger animation
-    setDismissingIds((prev) => new Set(prev).add(notificationId));
+      // Add to dismissing set to trigger animation
+      setDismissingIds((prev) => new Set(prev).add(notificationId));
 
-    // Wait for animation to complete, then remove
-    setTimeout(() => {
-      const current = notificationsRef.current.find((item) => item.id === notificationId);
-      if (
-        current &&
-        (current.instanceVersion ?? 0) === instanceVersion &&
-        current.details?.operationId === operationId
-      ) {
-        removeNotification(notificationId);
-      }
-      setDismissingIds((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(notificationId);
-        return newSet;
-      });
-    }, NOTIFICATION_ANIMATION_DURATION_MS);
-  };
+      // Wait for animation to complete, then remove
+      setTimeout(() => {
+        const current = notificationsRef.current.find((item) => item.id === notificationId);
+        if (
+          current &&
+          (current.instanceVersion ?? 0) === instanceVersion &&
+          current.details?.operationId === operationId
+        ) {
+          removeNotification(notificationId);
+        }
+        setDismissingIds((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(notificationId);
+          return newSet;
+        });
+      }, NOTIFICATION_ANIMATION_DURATION_MS);
+    },
+    [removeNotification]
+  );
 
   // Create cancel handler for a notification
-  const getCancelHandler = (notification: UnifiedNotification) => {
-    if (!(notification.type in CANCEL_CONFIG_BY_TYPE)) {
-      return undefined;
-    }
-
-    return () =>
+  const getCancelHandler = useCallback(
+    (notification: UnifiedNotification) =>
       handleCancel(notification, updateNotification, removeNotification, (id: string) =>
         notificationsRef.current.find((n) => n.id === id)
-      );
-  };
+      ),
+    [removeNotification, updateNotification]
+  );
 
   // Don't render if no notifications and not animating
   if (notifications.length === 0 && !shouldRender) {
@@ -326,8 +326,8 @@ const UniversalNotificationBar: React.FC = () => {
             <UnifiedNotificationItem
               key={notification.id}
               notification={notification}
-              onDismiss={() => handleDismiss(notification.id)}
-              onCancel={getCancelHandler(notification)}
+              onDismiss={handleDismiss}
+              onCancel={notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined}
             />
           ))}
         </BackgroundTaskControls>
@@ -336,8 +336,8 @@ const UniversalNotificationBar: React.FC = () => {
         <UnifiedNotificationItem
           key={notification.id}
           notification={notification}
-          onDismiss={() => handleDismiss(notification.id)}
-          onCancel={getCancelHandler(notification)}
+          onDismiss={handleDismiss}
+          onCancel={notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined}
           isAnimatingOut={dismissingIds.has(notification.id)}
         />
       ))}
@@ -394,8 +394,10 @@ const UniversalNotificationBar: React.FC = () => {
                 <UnifiedNotificationItem
                   key={notification.id}
                   notification={notification}
-                  onDismiss={() => handleDismiss(notification.id)}
-                  onCancel={getCancelHandler(notification)}
+                  onDismiss={handleDismiss}
+                  onCancel={
+                    notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined
+                  }
                 />
               ))}
             </BackgroundTaskControls>
@@ -407,8 +409,8 @@ const UniversalNotificationBar: React.FC = () => {
               <UnifiedNotificationItem
                 key={notification.id}
                 notification={notification}
-                onDismiss={() => handleDismiss(notification.id)}
-                onCancel={getCancelHandler(notification)}
+                onDismiss={handleDismiss}
+                onCancel={notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined}
                 isAnimatingOut={dismissingIds.has(notification.id)}
               />
             ))}

@@ -966,9 +966,10 @@ test('bounded event bodies retain provider-lifetime terminal outcomes and active
 });
 
 test('the bar dismissal delay removes only the captured logical operation instance', () => {
-  const source = liftConstArrow(
+  const source = liftHookCallback(
     'src/components/common/UniversalNotificationBar.tsx',
-    'handleDismiss'
+    'useCallback',
+    'const notification = notificationsRef.current.find'
   );
   const run = (replace) => {
     const original = {

@@ -156,6 +156,18 @@ export function useNotificationHandlers(
             if (existing && existing.status !== 'waiting' && existing.status !== 'cancelling')
               return prev;
             const id = existing?.id ?? operationCardId(event.operationId);
+            const status = existing?.details?.cancelRequested
+              ? ('cancelling' as const)
+              : ('waiting' as const);
+            if (
+              existing?.id === id &&
+              existing.type === entry.type &&
+              existing.controlOnly === true &&
+              existing.status === status &&
+              existing.message === event.name &&
+              existing.details?.operationId === event.operationId
+            )
+              return prev;
             cancelAutoDismissTimer(id);
             return [
               ...prev.filter((n) => n.id !== id),
@@ -164,9 +176,7 @@ export function useNotificationHandlers(
                 id,
                 type: entry.type,
                 controlOnly: true,
-                status: existing?.details?.cancelRequested
-                  ? ('cancelling' as const)
-                  : ('waiting' as const),
+                status,
                 message: event.name,
                 startedAt: existing?.startedAt ?? new Date(),
                 details: { ...existing?.details, operationId: event.operationId }
@@ -201,12 +211,19 @@ export function useNotificationHandlers(
         // another operation. The batch restores its own message when the item is promoted.
         const owningBulk = findBulkCardOwningOperation(entry.type, event.operationId, prev);
         if (owningBulk) {
+          const message = waitingCardMessage(event);
+          if (
+            owningBulk.status === 'waiting' &&
+            owningBulk.message === message &&
+            owningBulk.details?.currentOperationId === event.operationId
+          )
+            return prev;
           return prev.map((n) =>
             n.id === owningBulk.id
               ? {
                   ...n,
                   status: 'waiting' as const,
-                  message: waitingCardMessage(event),
+                  message,
                   // Record which operation the card now speaks for. A batch whose item request is
                   // still on the wire has no id to compare against, and it must claim only one
                   // queued operation on the strength of that: the next one of the same type is a
@@ -233,12 +250,18 @@ export function useNotificationHandlers(
         // already sitting there would otherwise lose its auto-dismiss timer and stay on
         // screen forever when the update below is skipped.
         cancelAutoDismissTimer(entry.id);
-        // A re-emit for the SAME queued op announces a new blocker; keep the original
-        // startedAt so the card's age does not reset every time the blocker changes.
+        // A new blocker changes only the message for the same queued operation. Keep its
+        // cancellation state, instance identity, and original start time through re-emits.
         const existing =
-          slotCard?.status === 'waiting' && slotCard.details?.operationId === event.operationId
+          (slotCard?.status === 'waiting' || slotCard?.status === 'cancelling') &&
+          slotCard.details?.operationId === event.operationId
             ? slotCard
             : undefined;
+        const message = waitingCardMessage(event);
+        if (existing) {
+          if (existing.message === message) return prev;
+          return prev.map((n) => (n === existing ? { ...n, message } : n));
+        }
         const filtered = prev.filter((n) => n.id !== entry.id);
         // A run told to keep its cards to itself still says it was queued, or no card at the
         // scheduled time reads as the run having been dropped. It says it once and the card times
@@ -248,8 +271,8 @@ export function useNotificationHandlers(
           id: entry.id,
           type: entry.type,
           status: 'waiting',
-          message: waitingCardMessage(event),
-          startedAt: existing?.startedAt ?? new Date(),
+          message,
+          startedAt: new Date(),
           details: { operationId: event.operationId }
         };
         return [...filtered, waitingNotification];

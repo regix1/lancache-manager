@@ -341,16 +341,6 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
   // off the line before the delay elapses.
   useEffect(() => cancelPendingOpen, [cancelPendingOpen]);
 
-  const handleMouseEnter = (): void => {
-    if (canHover && !open && hasSegments) {
-      cancelPendingOpen();
-      openTimerRef.current = window.setTimeout(() => {
-        openTimerRef.current = null;
-        keyboardOpenRef.current = false;
-        setOpen(true);
-      }, HOVER_OPEN_DELAY_MS);
-    }
-  };
   const handleMouseLeave = useCallback((): void => {
     if (!canHover) return;
     cancelPendingOpen();
@@ -360,19 +350,28 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
     close();
   }, [canHover, cancelPendingOpen, close]);
 
-  // Last known pointer position for the open-state recheck's hit-test. A capture-phase passive
-  // listener storing two numbers costs nothing and cannot be swallowed by anything the strip
-  // renders, so the coordinates are always current when the recheck needs them.
+  // Movement inside the strip starts hover intent, regardless of mouseenter ordering. Layout
+  // changes alone cannot open it. Keep the coordinates for the open-state recheck's hit-test.
   useEffect(() => {
     if (!canHover) {
       return;
     }
     const handlePointerMove = (event: PointerEvent): void => {
+      if (event.pointerType === 'touch') return;
       lastPointerRef.current = { x: event.clientX, y: event.clientY };
+      if (open || !hasSegments || openTimerRef.current !== null) return;
+      const el = wrapperRef.current;
+      const under = document.elementFromPoint(event.clientX, event.clientY);
+      if (!el?.matches(':hover') || !under || !el.contains(under)) return;
+      openTimerRef.current = window.setTimeout(() => {
+        openTimerRef.current = null;
+        keyboardOpenRef.current = false;
+        setOpen(true);
+      }, HOVER_OPEN_DELAY_MS);
     };
     document.addEventListener('pointermove', handlePointerMove, { capture: true, passive: true });
     return () => document.removeEventListener('pointermove', handlePointerMove, { capture: true });
-  }, [canHover]);
+  }, [canHover, open, hasSegments]);
 
   // Outside a focused keyboard session, both signals must still place the pointer on the
   // strip, because each one's stale-true case is the other's reliable case.
@@ -515,7 +514,6 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
     <div
       ref={wrapperRef}
       className={`condensed-strip${hasSegments ? '' : ' is-vanishing'}`}
-      onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onBlur={(event: React.FocusEvent<HTMLDivElement>) => {
         if (

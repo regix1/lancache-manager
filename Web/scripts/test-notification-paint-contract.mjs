@@ -16,6 +16,10 @@ const barComponent = readFileSync(
   resolve(WEB_ROOT, 'src/components/common/UniversalNotificationBar.tsx'),
   'utf8'
 );
+const itemComponent = readFileSync(
+  resolve(WEB_ROOT, 'src/components/common/UnifiedNotificationItem.tsx'),
+  'utf8'
+);
 
 test('pointer hover does not start a glow that opening immediately reverses', () => {
   assert.doesNotMatch(
@@ -33,6 +37,14 @@ test('the notification surface keeps its border slot and limits transitions', ()
   assert.match(barComponent, /\bborder-transparent\b/);
   assert.match(barComponent, /transition-\[transform,opacity\]/);
   assert.doesNotMatch(barComponent, /bg-\[var\(--theme-nav-bg\)\]\s+transition\s+duration-300/);
+});
+
+test('notification cards keep stable render and action boundaries', () => {
+  assert.match(itemComponent, /UnifiedNotificationItem\s*=\s*React\.memo\(/);
+  assert.match(barComponent, /const handleDismiss = useCallback\(/);
+  assert.match(barComponent, /const getCancelHandler = useCallback\(/);
+  assert.doesNotMatch(barComponent, /onDismiss=\{\(\) => handleDismiss/);
+  assert.doesNotMatch(barComponent, /onCancel=\{getCancelHandler\(notification\)\}/);
 });
 
 const barSource = parseSource(
@@ -392,11 +404,12 @@ const makeStrip = (canHover = false) => {
     pointer(target = runner.outside) {
       return runner.event(() => runner.document.dispatch('pointerdown', { target }));
     },
-    enter() {
+    enter(pointerMoved = true) {
       return runner.event(() => {
         runner.host.hovered = true;
         runner.document.hit = runner.trigger;
-        runner.tree.props.onMouseEnter();
+        runner.tree.props.onMouseEnter?.();
+        if (pointerMoved) runner.document.dispatch('pointermove', { clientX: 2, clientY: 3 });
       });
     },
     leave(documentBoundary = false) {
@@ -779,6 +792,52 @@ test('pointer delay, leave cancellation, and both recheck signals remain indepen
     runner.toggle(1);
     runner.leave();
     assert.equal(button(runner.tree).props['aria-expanded'], false);
+  } finally {
+    runner.dispose();
+  }
+});
+
+test('layout entering under a parked pointer cannot open the compact panel', () => {
+  const runner = makeStrip(true);
+  try {
+    runner.start();
+    runner.enter(false);
+    runner.advance(500);
+    assert.equal(panel(runner.tree), undefined);
+    runner.leave();
+    runner.enter();
+    runner.advance(135);
+    assertOpen(runner);
+  } finally {
+    runner.dispose();
+  }
+});
+
+test('movement inside the strip opens after entry without restarting the delay', () => {
+  const runner = makeStrip(true);
+  try {
+    runner.start();
+    runner.enter(false);
+    runner.event(() => runner.document.dispatch('pointermove', { clientX: 2, clientY: 3 }));
+    runner.advance(100);
+    runner.event(() => runner.document.dispatch('pointermove', { clientX: 3, clientY: 3 }));
+    runner.advance(34);
+    assert.equal(panel(runner.tree), undefined);
+    runner.advance(1);
+    assertOpen(runner);
+  } finally {
+    runner.dispose();
+  }
+});
+
+test('recent movement outside the strip cannot authorize a layout-only entry', () => {
+  const runner = makeStrip(true);
+  try {
+    runner.start();
+    runner.event(() => runner.document.dispatch('pointermove', { clientX: 2, clientY: 3 }));
+    runner.enter(false);
+    runner.advance(500);
+    assert.equal(panel(runner.tree), undefined);
   } finally {
     runner.dispose();
   }
