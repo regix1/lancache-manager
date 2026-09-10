@@ -22,13 +22,19 @@ import typescript from 'typescript';
  * @param {string} source TypeScript source text.
  * @param {typescript.ModuleKind} [moduleKind] Module format the caller can consume. ESNext for an
  *   `import()`, CommonJS for source that will be run through `new Function`.
+ * @param {typescript.CompilerOptions} [compilerOptions] Optional compilation overrides.
  * @returns {string} The compiled JavaScript.
  */
-export const transpile = (source, moduleKind = typescript.ModuleKind.ESNext) =>
+export const transpile = (
+  source,
+  moduleKind = typescript.ModuleKind.ESNext,
+  compilerOptions = {}
+) =>
   typescript.transpileModule(source, {
     compilerOptions: {
       module: moduleKind,
-      target: typescript.ScriptTarget.ES2022
+      target: typescript.ScriptTarget.ES2022,
+      ...compilerOptions
     }
   }).outputText;
 
@@ -286,11 +292,16 @@ export const liftHookCallback = (relativePath, hookName, contains) => {
  *
  * @param {string} arrowSource Source text of the arrow, from one of the lift helpers.
  * @param {Record<string, unknown>} bindings Free variable name to the value it should read.
+ * @param {typescript.CompilerOptions} [compilerOptions] Optional compilation overrides.
  * @returns {Function} The arrow, ready to call.
  */
-export const bindLifted = (arrowSource, bindings) => {
+export const bindLifted = (arrowSource, bindings, compilerOptions = {}) => {
   const names = Object.keys(bindings);
-  const compiled = transpile(`const lifted = (${arrowSource});`, typescript.ModuleKind.CommonJS);
+  const compiled = transpile(
+    `const lifted = (${arrowSource});`,
+    typescript.ModuleKind.CommonJS,
+    compilerOptions
+  );
   return new Function(...names, `${compiled}\nreturn lifted;`)(
     ...names.map((name) => bindings[name])
   );

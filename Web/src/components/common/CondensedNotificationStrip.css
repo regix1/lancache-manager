@@ -2,10 +2,9 @@
    segment per compacted service, with an in-flow panel revealing the real cards.
 
    The panel opens in normal flow inside the same bar surface as the full-size cards below it,
-   so compacted and full cards share one stack and never overlap. Closing is an instant unmount
-   with nothing to animate, so an interrupted close can never leave residual height painting the
-   bar's background as a band under the line; the only animation is the panel's entrance
-   keyframe, which transforms within space that is already reserved.
+   so compacted and full cards share one stack and never overlap. Closing retains the panel for
+   its transform and opacity exit within the space already reserved, then releases that height
+   at unmount. Reduced motion and loss of all segments remove the panel immediately.
 
    Every class here is self-contained (no shared progress-track classes): same-specificity rules
    in different bundles resolve by chunk order, which differs between dev and prod. */

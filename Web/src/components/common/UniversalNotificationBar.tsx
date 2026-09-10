@@ -213,7 +213,7 @@ const UniversalNotificationBar: React.FC = () => {
   };
 
   // Don't render if no notifications and not animating
-  if (!shouldRender) {
+  if (notifications.length === 0 && !shouldRender) {
     return null;
   }
 
@@ -353,8 +353,9 @@ const UniversalNotificationBar: React.FC = () => {
             : 'border-transparent shadow-none'
         }`}
         style={{
-          transform: isAnimatingOut ? 'translateY(-100%)' : 'translateY(0)',
-          opacity: isAnimatingOut ? 0 : 1
+          transform:
+            isAnimatingOut && notifications.length === 0 ? 'translateY(-100%)' : 'translateY(0)',
+          opacity: isAnimatingOut && notifications.length === 0 ? 0 : 1
         }}
       >
         {/* One strip spans the bar edge to edge, flush under the navigation: every condensed

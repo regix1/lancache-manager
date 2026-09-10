@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { UnifiedNotification } from '@contexts/notifications';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import { useMediaQuery } from '@hooks/useMediaQuery';
+import { useExitPresence } from '@hooks/useExitPresence';
 import './CondensedNotificationStrip.css';
 
 /**
@@ -38,7 +39,8 @@ const GLOW_COLOR_BY_STATUS_COLOR: Record<string, string> = {
  * in that layout-changed-under-a-parked-pointer case, while hit-testing the last known pointer
  * coordinates goes stale-true only when the pointer left the window in one hardware step (no
  * final pointermove ever landed). Either signal saying "gone" closes the panel. The timer
- * exists only while open.
+ * exists only while open. Explicit keyboard use with focus inside the strip keeps it open
+ * independently of the pointer until focus leaves or the disclosure is dismissed.
  */
 const OPEN_HOVER_RECHECK_MS = 250;
 
@@ -46,7 +48,7 @@ const OPEN_HOVER_RECHECK_MS = 250;
  * How long the pointer has to rest on the line before the panel opens. The strip spans the
  * width of the bar, so a pointer crossing it on the way somewhere else would otherwise flash
  * the panel open and shut in passing. Leaving the line, or the pointer leaving the window,
- * cancels a pending open, so only a deliberate rest reveals the cards. Closing stays instant.
+ * cancels a pending open, so only a deliberate rest reveals the cards.
  */
 const HOVER_OPEN_DELAY_MS = 135;
 
@@ -171,6 +173,21 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
   const { t } = useTranslation();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  const keyboardOpenRef = useRef(false);
+  const openTimerRef = useRef<number | null>(null);
+  const cancelPendingOpen = useCallback((): void => {
+    if (openTimerRef.current !== null) {
+      window.clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  }, []);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const close = useCallback((): void => {
+    cancelPendingOpen();
+    keyboardOpenRef.current = false;
+    lastPointerRef.current = null;
+    setOpen(false);
+  }, [cancelPendingOpen]);
 
   // When the last compacted notification goes away the bar hands this component an empty
   // segments array, but an instant unmount blinks the line off. The last non-empty segments
@@ -192,10 +209,10 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
       setLineGone(true);
       return;
     }
-    setOpen(false);
+    close();
     const timer = window.setTimeout(() => setLineGone(true), LINE_EXIT_MS);
     return () => window.clearTimeout(timer);
-  }, [hasSegments]);
+  }, [hasSegments, close]);
   const displaySegments = hasSegments ? segments : lastSegmentsRef.current;
 
   // Per-segment exits, for when ONE service's notifications go away while others stay: the
@@ -304,22 +321,10 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
   // keeps the instant unmount. When the segments themselves go away the line's own fade-out
   // owns the goodbye, so the panel leaves with it instead of fading twice.
   const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
-  const [panelClosing, setPanelClosing] = useState(false);
+  const { present } = useExitPresence(panelOpen, PANEL_EXIT_MS);
   const panelWasOpenRef = useRef(false);
-  useEffect(() => {
-    if (panelOpen) {
-      panelWasOpenRef.current = true;
-      setPanelClosing(false);
-      return;
-    }
-    if (!panelWasOpenRef.current || prefersReducedMotion || !hasSegments) {
-      return;
-    }
-    panelWasOpenRef.current = false;
-    setPanelClosing(true);
-    const timer = window.setTimeout(() => setPanelClosing(false), PANEL_EXIT_MS);
-    return () => window.clearTimeout(timer);
-  }, [panelOpen, prefersReducedMotion, hasSegments]);
+  const panelClosing =
+    !panelOpen && !prefersReducedMotion && hasSegments && present && panelWasOpenRef.current;
 
   const panelVisible = panelOpen || panelClosing;
   const onOpenChangeRef = useRef(onOpenChange);
@@ -327,41 +332,37 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
     onOpenChangeRef.current = onOpenChange;
   });
   useLayoutEffect(() => {
+    panelWasOpenRef.current = panelVisible;
     onOpenChangeRef.current?.(panelVisible);
   }, [panelVisible]);
   useEffect(() => () => onOpenChangeRef.current?.(false), []);
 
   // A hover-open waiting out HOVER_OPEN_DELAY_MS, cancelled by anything that takes the pointer
   // off the line before the delay elapses.
-  const openTimerRef = useRef<number | null>(null);
-  const cancelPendingOpen = useCallback((): void => {
-    if (openTimerRef.current !== null) {
-      window.clearTimeout(openTimerRef.current);
-      openTimerRef.current = null;
-    }
-  }, []);
   useEffect(() => cancelPendingOpen, [cancelPendingOpen]);
 
   const handleMouseEnter = (): void => {
-    if (canHover) {
+    if (canHover && !open && hasSegments) {
       cancelPendingOpen();
       openTimerRef.current = window.setTimeout(() => {
         openTimerRef.current = null;
+        keyboardOpenRef.current = false;
         setOpen(true);
       }, HOVER_OPEN_DELAY_MS);
     }
   };
-  const handleMouseLeave = (): void => {
-    if (canHover) {
-      cancelPendingOpen();
-      setOpen(false);
-    }
-  };
+  const handleMouseLeave = useCallback((): void => {
+    if (!canHover) return;
+    cancelPendingOpen();
+    lastPointerRef.current = null;
+    const el = wrapperRef.current;
+    if (keyboardOpenRef.current && el?.contains(document.activeElement)) return;
+    close();
+  }, [canHover, cancelPendingOpen, close]);
 
   // Last known pointer position for the open-state recheck's hit-test. A capture-phase passive
   // listener storing two numbers costs nothing and cannot be swallowed by anything the strip
   // renders, so the coordinates are always current when the recheck needs them.
-  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     if (!canHover) {
       return;
@@ -373,8 +374,8 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
     return () => document.removeEventListener('pointermove', handlePointerMove, { capture: true });
   }, [canHover]);
 
-  // The open-state recheck (see OPEN_HOVER_RECHECK_MS): both signals must still place the
-  // pointer on the strip, because each one's stale-true case is the other's reliable case.
+  // Outside a focused keyboard session, both signals must still place the pointer on the
+  // strip, because each one's stale-true case is the other's reliable case.
   useEffect(() => {
     if (!canHover || !open) {
       return;
@@ -384,66 +385,75 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
       if (!el) {
         return;
       }
+      if (keyboardOpenRef.current && el.contains(document.activeElement)) return;
+      keyboardOpenRef.current = false;
       if (!el.matches(':hover')) {
-        setOpen(false);
+        close();
         return;
       }
       const coords = lastPointerRef.current;
       if (coords) {
         const under = document.elementFromPoint(coords.x, coords.y);
         if (!under || !el.contains(under)) {
-          setOpen(false);
+          close();
         }
       }
     }, OPEN_HOVER_RECHECK_MS);
     return () => window.clearInterval(timer);
-  }, [canHover, open]);
+  }, [canHover, open, close]);
 
   // Ways the pointer can be gone without a final event ever landing where the strip could see
   // it: the window loses focus, the tab hides, or the pointer exits the document in one
-  // hardware step. Each closes the panel outright instead of waiting on a recheck tick whose
-  // inputs may be stale. This runs whether or not the panel is open, because the same events
+  // hardware step. Visibility loss always closes; pointer departure preserves contained
+  // keyboard focus. This runs whether or not the panel is open, because the same events
   // can land during a pending hover-open and would otherwise reveal the panel behind a hidden
   // tab, where no later event arrives to close it again.
   useEffect(() => {
     if (!canHover) {
       return;
     }
-    const close = (): void => {
-      cancelPendingOpen();
-      lastPointerRef.current = null;
-      setOpen(false);
-    };
     const handleVisibility = (): void => {
       if (document.visibilityState === 'hidden') {
         close();
       }
     };
-    document.documentElement.addEventListener('mouseleave', close);
+    document.documentElement.addEventListener('mouseleave', handleMouseLeave);
     window.addEventListener('blur', close);
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
-      document.documentElement.removeEventListener('mouseleave', close);
+      document.documentElement.removeEventListener('mouseleave', handleMouseLeave);
       window.removeEventListener('blur', close);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [canHover, cancelPendingOpen]);
+  }, [canHover, close, handleMouseLeave]);
 
-  // Tap-opened panels (no hover to end them) close on a press outside the strip, and any open
-  // panel closes on Escape.
+  // A press outside the strip dismisses the disclosure, and Escape returns contained focus
+  // to its trigger before the closing panel becomes inert.
   useEffect(() => {
     if (!open) {
       return;
     }
     const handleDocumentPointerDown = (event: PointerEvent): void => {
+      keyboardOpenRef.current = false;
       const el = wrapperRef.current;
-      if (!canHover && el && event.target instanceof Node && !el.contains(event.target)) {
-        setOpen(false);
+      if (el && event.target instanceof Node && !el.contains(event.target)) {
+        close();
       }
     };
     const handleKeyDown = (event: KeyboardEvent): void => {
+      const el = wrapperRef.current;
       if (event.key === 'Escape') {
-        setOpen(false);
+        if (el?.contains(document.activeElement)) {
+          el.querySelector<HTMLButtonElement>('.condensed-strip-line')?.focus({
+            preventScroll: true
+          });
+        }
+        close();
+        return;
+      }
+      if (event.key === 'Tab' || (event.target instanceof Node && el?.contains(event.target))) {
+        keyboardOpenRef.current = true;
+        cancelPendingOpen();
       }
     };
     document.addEventListener('pointerdown', handleDocumentPointerDown);
@@ -452,7 +462,7 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
       document.removeEventListener('pointerdown', handleDocumentPointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open, canHover]);
+  }, [open, close, cancelPendingOpen]);
 
   // The accessible name states the action the button will perform in its current state.
   const ariaLabel = open
@@ -507,6 +517,16 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
       className={`condensed-strip${hasSegments ? '' : ' is-vanishing'}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onBlur={(event: React.FocusEvent<HTMLDivElement>) => {
+        if (
+          keyboardOpenRef.current &&
+          !(
+            event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)
+          )
+        ) {
+          close();
+        }
+      }}
     >
       <span
         className="sr-only"
@@ -521,7 +541,16 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
         className="condensed-strip-line"
         aria-expanded={open}
         aria-label={ariaLabel}
-        onClick={() => setOpen((previous) => !previous)}
+        onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+          if (!hasSegments) return;
+          if (open) {
+            close();
+            return;
+          }
+          cancelPendingOpen();
+          keyboardOpenRef.current = event.detail === 0;
+          setOpen(true);
+        }}
       >
         <span className="condensed-strip-segments">
           {renderSegments.map(({ segment, leaving }) => (
@@ -547,7 +576,10 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
           During the line's own fade-out the children the bar passes are already empty, so
           nothing renders there. */}
       {panelVisible && (
-        <div className={`condensed-strip-panel${panelClosing ? ' is-closing' : ''}`}>
+        <div
+          className={`condensed-strip-panel${panelClosing ? ' is-closing' : ''}`}
+          inert={panelClosing}
+        >
           {children}
         </div>
       )}

@@ -407,7 +407,7 @@ export const UnifiedNotificationItem = ({
 
   return (
     <div
-      className="flex items-start sm:items-center gap-3 p-2 rounded-lg bg-[var(--theme-bg-secondary)] transition-opacity duration-300 ease-out motion-reduce:transition-none"
+      className="flex items-start sm:items-center gap-3 p-2 rounded bg-[var(--theme-bg-secondary)] transition-opacity duration-300 ease-out motion-reduce:transition-none"
       style={{
         borderLeft: `3px solid ${color}`,
         opacity: isAnimatingOut ? 0 : 1
