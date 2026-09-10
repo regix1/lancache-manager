@@ -31,6 +31,8 @@ public partial class SteamKit2Service
                 _logger.LogInformation("Using cached viability check result (age: {Minutes} minutes, requires full scan: {RequiresFullScan})",
                     (int)cachedAge.TotalMinutes, state.RequiresFullScan);
 
+                if (!state.RequiresFullScan) ClearScanSkippedFlag();
+
                 return new IncrementalViabilityCheck
                 {
                     IsViable = !state.RequiresFullScan,
@@ -74,8 +76,16 @@ public partial class SteamKit2Service
                 return BuildNeedsInitialDataResult();
             }
 
-            _logger.LogInformation("No valid cached viability result found - checking with Steam (cache age: {Minutes} minutes)",
-                cachedAge == TimeSpan.MaxValue ? -1 : (int)cachedAge.TotalMinutes);
+            if (state.LastViabilityCheck.HasValue)
+            {
+                _logger.LogInformation(
+                    "Cached viability result is expired or belongs to another mapping cursor - checking with Steam (age: {Minutes} minutes, cached cursor: {CachedCursor}, current cursor: {CurrentCursor})",
+                    (int)cachedAge.TotalMinutes, state.LastViabilityCheckChangeNumber, changeNumberToCheck);
+            }
+            else
+            {
+                _logger.LogInformation("No cached viability result is stored - checking with Steam");
+            }
 
             if (changeNumberToCheck > 0)
             {
@@ -253,6 +263,7 @@ public partial class SteamKit2Service
                 state.LastViabilityCheckChangeNumber = lastChangeNumber;
                 state.ViabilityChangeGap = changeGap;
             });
+            if (!requiresFullScan) ClearScanSkippedFlag();
         }
 
         _logger.LogInformation("Cached viability check result in state.json (requires full scan: {RequiresFullScan}, change gap: {ChangeGap})",

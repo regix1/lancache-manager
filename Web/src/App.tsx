@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import type { AutomaticScanSkippedEvent } from '@contexts/SignalRContext/types';
+import type { DepotMappingCompleteEvent } from '@contexts/SignalRContext/types';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useSteamAuth } from '@contexts/useSteamAuth';
 import { useAuth } from '@contexts/useAuth';
@@ -27,7 +27,8 @@ import { ApiError } from '@services/apiError';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 import { ScheduledPrefillEditSessionCleanupRecovery } from '@components/features/management/schedules/scheduled-prefill/ScheduledPrefillEditSessionCleanupRecovery';
-import type { PendingFullScan } from '@components/features/management/schedules/types';
+import type { ServiceScheduleInfo } from '@components/features/management/schedules/types';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 
 const Dashboard = lazy(() => import('@components/features/dashboard/Dashboard'));
 const DownloadsTab = lazy(() => import('@components/features/downloads/DownloadsTab'));
@@ -60,6 +61,7 @@ preloadMap.dashboard();
 
 const AppContent: React.FC = () => {
   const { t } = useTranslation();
+  const { notifyError } = useErrorHandler();
   // Check if we're on a special route like /memory
   const isMemoryRoute = window.location.pathname === '/memory';
 
@@ -107,6 +109,7 @@ const AppContent: React.FC = () => {
   // reporting that a full scan is needed until that work finishes, so without this the
   // periodic state check would put the modal straight back on screen.
   const fullScanActionRunningRef = useRef(false);
+  const fullScanRequestRef = useRef<AbortController | null>(null);
 
   // Shared unauthenticated access is not an individual account identity. Keep account preference
   // hydration tied to sign-in mode and an authenticated session.
@@ -177,44 +180,117 @@ const AppContent: React.FC = () => {
     sessionStore.setItem('fullScanModalDismissed', 'true');
   }, []);
 
-  // The Steam Game Mapping card on the Schedules page asks for the modal back after Cancel hid it
-  // for the rest of the tab. That dismissal is deliberate for the SignalR path, so this is the only
-  // place the flag is ever cleared, and only because the user asked for the modal by name. The
-  // figures ride along on the event because they came from the schedules response, which a reload
-  // refetches - unlike the SignalR event, whose numbers only ever lived in the state above.
-  useEffect(() => {
-    const handleShowFullScanModal = (event: Event) => {
-      const requirement = (event as CustomEvent<PendingFullScan>).detail;
-      sessionStore.removeItem('fullScanModalDismissed');
-      setFullScanModalChangeGap(requirement.changeGap);
-      setFullScanModalEstimatedApps(requirement.estimatedAppsToScan);
-      setShowFullScanRequiredModal(true);
-    };
-
-    window.addEventListener(APP_EVENTS.SHOW_FULL_SCAN_MODAL, handleShowFullScanModal);
-    return () =>
-      window.removeEventListener(APP_EVENTS.SHOW_FULL_SCAN_MODAL, handleShowFullScanModal);
+  const cancelFullScanCheck = useCallback(() => {
+    fullScanRequestRef.current?.abort();
+    fullScanRequestRef.current = null;
   }, []);
 
-  // Listen for automatic scan skipped event via SignalR (for authenticated users)
+  const refreshFullScanPrompt = useCallback(
+    async (manual = false) => {
+      cancelFullScanCheck();
+      if (
+        authMode !== 'authenticated' ||
+        fullScanActionRunningRef.current ||
+        (!manual && wasModalDismissed())
+      ) {
+        return;
+      }
+
+      const controller = new AbortController();
+      fullScanRequestRef.current = controller;
+      try {
+        // A skipped event can arrive after an import has already replaced its mapping baseline.
+        const schedules = await ApiService.getSchedules(controller.signal);
+        if (
+          controller.signal.aborted ||
+          fullScanRequestRef.current !== controller ||
+          fullScanActionRunningRef.current ||
+          (!manual && wasModalDismissed())
+        ) {
+          return;
+        }
+        const schedule = schedules.find((entry) => entry.key === 'depotMapping');
+        const requirement = schedule?.pendingFullScan;
+        if (!requirement || schedule.isRunning) {
+          setShowFullScanRequiredModal(false);
+          return;
+        }
+        setFullScanModalChangeGap(requirement.changeGap);
+        setFullScanModalEstimatedApps(requirement.estimatedAppsToScan);
+        setShowFullScanRequiredModal(true);
+      } catch (error: unknown) {
+        if (!controller.signal.aborted && fullScanRequestRef.current === controller) {
+          notifyError(t('management.schedules.fetchError'), error, { silent: !manual });
+        }
+      } finally {
+        if (fullScanRequestRef.current === controller) fullScanRequestRef.current = null;
+      }
+    },
+    [authMode, cancelFullScanCheck, notifyError, t, wasModalDismissed]
+  );
+
+  useEffect(() => {
+    cancelFullScanCheck();
+    setShowFullScanRequiredModal(false);
+    fullScanActionRunningRef.current = false;
+  }, [authMode, sessionId, cancelFullScanCheck]);
+
   useEffect(() => {
     if (authMode !== 'authenticated') return;
 
-    const handleAutomaticScanSkipped = (event?: AutomaticScanSkippedEvent) => {
-      // Only show if not already showing, not dismissed, and nothing is already running
-      if (!showFullScanRequiredModal && !wasModalDismissed() && !fullScanActionRunningRef.current) {
-        setFullScanModalChangeGap(event?.context?.changeGap);
-        setFullScanModalEstimatedApps(event?.context?.estimatedAppsToScan);
-        setShowFullScanRequiredModal(true);
+    const handleShowFullScanModal = () => {
+      sessionStore.removeItem('fullScanModalDismissed');
+      void refreshFullScanPrompt(true);
+    };
+    const handleAutomaticScanSkipped = () => {
+      void refreshFullScanPrompt();
+    };
+    const handleDepotMappingStarted = () => {
+      cancelFullScanCheck();
+      setShowFullScanRequiredModal(false);
+    };
+    const handleDepotMappingComplete = (event: DepotMappingCompleteEvent) => {
+      if (event.status === 'skipped') return;
+      cancelFullScanCheck();
+      fullScanActionRunningRef.current = false;
+      if (event.success) {
+        setShowFullScanRequiredModal(false);
+      } else {
+        void refreshFullScanPrompt();
+      }
+    };
+    const handleSchedulesUpdated = (schedules: ServiceScheduleInfo[]) => {
+      if (
+        schedules.some((entry) => entry.key === 'depotMapping') &&
+        (showFullScanRequiredModal ||
+          fullScanRequestRef.current ||
+          schedules.some((entry) => entry.key === 'depotMapping' && entry.pendingFullScan))
+      ) {
+        void refreshFullScanPrompt();
       }
     };
 
+    window.addEventListener(APP_EVENTS.SHOW_FULL_SCAN_MODAL, handleShowFullScanModal);
     signalR.on('AutomaticScanSkipped', handleAutomaticScanSkipped);
-
+    signalR.on('DepotMappingStarted', handleDepotMappingStarted);
+    signalR.on('DepotMappingComplete', handleDepotMappingComplete);
+    signalR.on('SchedulesUpdated', handleSchedulesUpdated);
     return () => {
+      cancelFullScanCheck();
+      window.removeEventListener(APP_EVENTS.SHOW_FULL_SCAN_MODAL, handleShowFullScanModal);
       signalR.off('AutomaticScanSkipped', handleAutomaticScanSkipped);
+      signalR.off('DepotMappingStarted', handleDepotMappingStarted);
+      signalR.off('DepotMappingComplete', handleDepotMappingComplete);
+      signalR.off('SchedulesUpdated', handleSchedulesUpdated);
     };
-  }, [signalR, showFullScanRequiredModal, authMode, wasModalDismissed]);
+  }, [
+    signalR,
+    showFullScanRequiredModal,
+    authMode,
+    sessionId,
+    cancelFullScanCheck,
+    refreshFullScanPrompt
+  ]);
 
   const { refreshConfig } = useConfig();
 
@@ -331,11 +407,13 @@ const AppContent: React.FC = () => {
   }, [checkingAuth, authMode, sessionId, hasServerSession]);
 
   const handleFullScanModalDismiss = () => {
+    cancelFullScanCheck();
     setShowFullScanRequiredModal(false);
     markModalDismissed(); // Don't show again this session
   };
 
   const handleRunFullScan = async () => {
+    cancelFullScanCheck();
     // Close the modal and let the scan run in the background. Not marked as dismissed,
     // so a failure can put it back on screen for a retry.
     fullScanActionRunningRef.current = true;
@@ -354,11 +432,12 @@ const AppContent: React.FC = () => {
 
       console.error('Failed to trigger full scan:', error);
       fullScanActionRunningRef.current = false;
-      setShowFullScanRequiredModal(true);
+      await refreshFullScanPrompt(true);
     }
   };
 
   const handleDownloadFromGitHub = async () => {
+    cancelFullScanCheck();
     // Close the modal and let the download run in the background. Not marked as
     // dismissed, so a failure can put it back on screen for a retry.
     fullScanActionRunningRef.current = true;
@@ -379,7 +458,7 @@ const AppContent: React.FC = () => {
       // Don't log abort errors (user cancelled)
       if (!isAbortError(error)) {
         console.error('Failed to download from GitHub:', error);
-        setShowFullScanRequiredModal(true);
+        await refreshFullScanPrompt(true);
       }
     }
   };

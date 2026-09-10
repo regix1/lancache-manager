@@ -226,13 +226,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             var modeStr = CrawlModeLabel(_crawlIncrementalMode);
             _logger.LogInformation("Loaded crawl mode from state: {Mode}", modeStr);
 
-            // A stored "requires full scan" verdict is reused for an hour and short-circuits before
-            // the depot baseline is loaded, so it would be replayed against depot data that changed
-            // while the process was down. Both writers of that data update it several steps before
-            // they clear the cache, so a stop in between leaves a verdict that no longer matches the
-            // files on disk. Start every process with no verdict and let the first check ask Steam.
-            ClearViabilityCache();
-
             // Load PICS metadata (crawl time and change number) from JSON or state
             await LoadPicsMetadataAsync();
 
@@ -408,25 +401,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
                 cleared = true;
             });
             return cleared;
-        }
-    }
-
-    /// <summary>
-    /// Clears cached viability check state so the next check queries Steam for fresh data.
-    /// Called after completing a PICS scan or importing GitHub data.
-    /// </summary>
-    private void ClearViabilityCache()
-    {
-        lock (_baselineLock)
-        {
-            _stateService.UpdateState(state =>
-            {
-                state.RequiresFullScan = false;
-                state.LastViabilityCheck = null;
-                state.LastViabilityCheckChangeNumber = 0;
-                state.ViabilityChangeGap = 0;
-            });
-            _baselineVersion++;
         }
     }
 

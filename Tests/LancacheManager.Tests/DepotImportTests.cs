@@ -318,6 +318,76 @@ public sealed class DepotImportTests
     }
 
     [Fact]
+    public async Task OlderViabilityCompletionPreservesANewerFullScanRequirement()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.State.UpdateState(state => state.LastViabilityCheck = null);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var logger = new CapturingLogger<SteamKit2Service>();
+        logger.OnLogged = entry =>
+        {
+            if (!entry.Message.StartsWith("Cached viability check result in state.json", StringComparison.Ordinal)) return;
+            logger.OnLogged = null;
+            entered.TrySetResult();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(10)));
+        };
+        Set(fixture.Service, "_logger", logger);
+        var olderCheck = Task.Run(() => fixture.Service.CheckViabilityAsync(CancellationToken.None));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        try
+        {
+            Assert.True(await fixture.Service.ImportFromGitHubAsync());
+            fixture.CheckChanges = (cursor, _) => Task.FromResult((cursor + 500000, true));
+            Set(fixture.Service, "_initialized", true);
+            Set(fixture.Service, "_isRunning", true);
+            Set(fixture.Service, "_crawlIncrementalMode", true);
+            await (Task)Invoke(fixture.Service, "ExecuteWorkAsync", CancellationToken.None)!;
+            Assert.NotNull(fixture.Service.PendingFullScan);
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        Assert.True((await olderCheck).IsViable);
+        Assert.Equal(200u, fixture.State.GetState().LastViabilityCheckChangeNumber);
+        Assert.True(fixture.State.GetState().RequiresFullScan);
+        Assert.NotNull(fixture.Service.PendingFullScan);
+    }
+
+    [Fact]
+    public async Task RestartReusesFreshViabilityForTheSameCatalog()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.State.UpdateState(state =>
+        {
+            state.RequiresFullScan = false;
+            state.LastViabilityCheck = DateTime.UtcNow;
+            state.LastViabilityCheckChangeNumber = 100;
+            state.ViabilityChangeGap = 2;
+        });
+        var queries = 0;
+        fixture.CheckChanges = (cursor, _) =>
+        {
+            queries++;
+            return Task.FromResult((cursor + 2, false));
+        };
+
+        using var restarted = fixture.Restart();
+        await (Task)Invoke(restarted, "InitializeAsync", CancellationToken.None)!;
+        var result = await restarted.CheckViabilityAsync(CancellationToken.None);
+
+        Assert.Equal(0, queries);
+        Assert.True(result.IsViable);
+        Assert.False(result.WillTriggerFullScan);
+        Assert.Equal(2u, result.ChangeGap);
+        Assert.Null(restarted.PendingFullScan);
+    }
+
+    [Fact]
     public async Task CancellationAfterDatabaseCommitDoesNotCommitFreshness()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -481,6 +551,7 @@ public sealed class DepotImportTests
         var result = await fixture.Service.CheckViabilityAsync(CancellationToken.None);
         Assert.Equal(cachedCursor == 100 ? 0 : 1, queries);
         Assert.Equal(cachedCursor != 100 || !requiresFullScan, result.IsViable);
+        if (result.IsViable) Assert.Null(fixture.Service.PendingFullScan);
     }
 
     [Theory]

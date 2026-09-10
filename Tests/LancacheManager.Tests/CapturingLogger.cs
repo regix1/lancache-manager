@@ -9,6 +9,7 @@ internal sealed class CapturingLogger<T> : ILogger<T>
 {
     private readonly object _sync = new();
     private readonly List<LogEntry> _entries = new();
+    public Action<LogEntry>? OnLogged { get; set; }
 
     public IReadOnlyList<LogEntry> Entries
     {
@@ -28,10 +29,12 @@ internal sealed class CapturingLogger<T> : ILogger<T>
     {
         ArgumentNullException.ThrowIfNull(formatter);
 
+        var entry = new LogEntry(logLevel, formatter(state, exception), exception);
         lock (_sync)
         {
-            _entries.Add(new LogEntry(logLevel, formatter(state, exception), exception));
+            _entries.Add(entry);
         }
+        OnLogged?.Invoke(entry);
     }
 }
 
