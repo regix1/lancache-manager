@@ -661,6 +661,63 @@ public class PersistentLoginSessionPinningTests
         Assert.Equal(accountId, daemon.ReuseAccountId);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ReuseSavedLogin_WaitsForAuthenticationAfterAdmissionAsync(bool success)
+    {
+        var accountId = Guid.NewGuid();
+        var (controller, daemon, recorder) = CreateControllerWithActiveSession("session-B", accountId);
+        daemon.SaveLogin(accountId, "saved-account");
+        daemon.CompleteLogin = false;
+        var pending = controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            ReuseIntegration = true
+        }, CancellationToken.None);
+
+        Assert.False(pending.IsCompleted);
+        await recorder.EmitStatusAsync(new DaemonStatus
+        {
+            Status = success ? "logged-in" : "awaiting-login",
+            Message = success ? "Authenticated" : "Auto-login failed: Refresh token expired"
+        });
+        var result = await pending.WaitAsync(TimeSpan.FromSeconds(2));
+        if (success)
+        {
+            var ok = Assert.IsType<OkObjectResult>(result.Result);
+            Assert.Equal("logged-in", Assert.IsType<PersistentLoginStatusResponse>(ok.Value).Status);
+        }
+        else
+        {
+            var failure = Assert.IsType<BadRequestObjectResult>(result.Result);
+            Assert.Contains("Refresh token expired", System.Text.Json.JsonSerializer.Serialize(failure.Value), StringComparison.Ordinal);
+        }
+        Assert.Equal(0, recorder.StatusSubscribers);
+    }
+
+    [Fact]
+    public async Task ReuseSavedLogin_CancellationStopsPendingDaemonLoginAsync()
+    {
+        var accountId = Guid.NewGuid();
+        var (controller, daemon, recorder) = CreateControllerWithActiveSession("session-B", accountId);
+        daemon.SaveLogin(accountId, "saved-account");
+        daemon.CompleteLogin = false;
+        using var cancellation = new CancellationTokenSource();
+        var pending = controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            ReuseIntegration = true
+        }, cancellation.Token);
+        Assert.False(pending.IsCompleted);
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await pending);
+        Assert.Contains(nameof(IDaemonClient.CancelLoginAsync), recorder.InvokedMethods);
+        Assert.Equal(0, recorder.StatusSubscribers);
+    }
+
     [Fact]
     public async Task ReuseSavedLogin_WithoutStableAccountReturns403Async()
     {
@@ -832,6 +889,7 @@ public class PersistentLoginSessionPinningTests
 
         public Guid? AvailabilityAccountId { get; private set; }
         public Guid? ReuseAccountId { get; private set; }
+        public bool CompleteLogin { get; set; } = true;
         private Dictionary<Guid, string> SavedAccounts { get; } = [];
 
         public void SaveLogin(Guid accountId, string account) => SavedAccounts[accountId] = account;
@@ -857,7 +915,7 @@ public class PersistentLoginSessionPinningTests
         {
             ReuseAccountId = accountId;
             onCommandDispatched();
-            ((RecordingDaemonClientProxy)(object)session.Client).LiveStatus = "logged-in";
+            if (CompleteLogin) ((RecordingDaemonClientProxy)(object)session.Client).LiveStatus = "logged-in";
             return Task.FromResult(true);
         }
 
@@ -895,9 +953,27 @@ public class PersistentLoginSessionPinningTests
         public bool FailLoginDispatch { get; set; }
         public string LiveStatus { get; set; } = "awaiting-login";
         public Func<Task<List<OwnedGame>>>? Games { get; set; }
+        private Func<DaemonStatus, Task>? StatusChanged { get; set; }
+        public int StatusSubscribers => StatusChanged?.GetInvocationList().Length ?? 0;
+
+        public Task EmitStatusAsync(DaemonStatus status)
+        {
+            LiveStatus = status.Status;
+            return StatusChanged?.Invoke(status) ?? Task.CompletedTask;
+        }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
+            if (targetMethod?.Name == "add_OnStatusUpdate")
+            {
+                StatusChanged += (Func<DaemonStatus, Task>)args![0]!;
+                return null;
+            }
+            if (targetMethod?.Name == "remove_OnStatusUpdate")
+            {
+                StatusChanged -= (Func<DaemonStatus, Task>)args![0]!;
+                return null;
+            }
             if (targetMethod is not null)
             {
                 InvokedMethods.Add(targetMethod.Name);

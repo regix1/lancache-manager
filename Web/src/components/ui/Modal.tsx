@@ -41,6 +41,7 @@ interface ModalProps {
   title?: React.ReactNode;
   children: React.ReactNode;
   size?: ModalSize;
+  className?: string;
   /**
    * Stacking band. 'normal' (default) uses the standard monotonic z-index. 'elevated' opens the
    * modal in a strictly-higher band so it always sits above every 'normal' modal regardless of open
@@ -69,6 +70,7 @@ export const Modal: React.FC<ModalProps> = ({
   title,
   children,
   size = 'md',
+  className = '',
   stackPriority = 'normal',
   bodyFlexLayout = false
 }) => {
@@ -276,7 +278,7 @@ export const Modal: React.FC<ModalProps> = ({
           aria-modal="true"
           aria-labelledby={title ? titleId : undefined}
           tabIndex={-1}
-          className={`themed-card border themed-border-radius ${sizes[size]} w-full max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-2rem)] flex flex-col transform transition duration-[250ms] ease-out ${
+          className={`themed-card border themed-border-radius ${sizes[size]} ${className} w-full max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-2rem)] flex flex-col transform transition duration-[250ms] ease-out ${
             isAnimating
               ? 'opacity-100 scale-100 translate-y-0 delay-[50ms]'
               : 'opacity-0 scale-90 translate-y-8 delay-0'

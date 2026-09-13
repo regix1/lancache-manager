@@ -488,13 +488,40 @@ public abstract partial class PrefillDaemonServiceBase
         session.AuthState = DaemonAuthState.LoggingIn;
         await NotifyAuthStateChangeAsync(session);
 
+        var completion = new TaskCompletionSource<DaemonStatus>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatched = false;
+        var authenticated = false;
+        Task OnLoginStatus(DaemonStatus status)
+        {
+            if (status.Status == "logged-in" || TryGetLoginFailureMessage(status, out _))
+            {
+                completion.TrySetResult(status);
+            }
+            return Task.CompletedTask;
+        }
+        Task OnLoginDisconnected()
+        {
+            completion.TrySetResult(new DaemonStatus
+            {
+                Status = "awaiting-login",
+                Message = "Login failed: The daemon disconnected during saved login."
+            });
+            return Task.CompletedTask;
+        }
+        session.Client.OnStatusUpdate += OnLoginStatus;
+        session.Client.OnDisconnected += OnLoginDisconnected;
+
         try
         {
             EnsureCurrentSession(session);
             var accepted = await ReuseIntegrationLoginAsync(
                 session,
                 accountId,
-                onCommandDispatched,
+                () =>
+                {
+                    dispatched = true;
+                    onCommandDispatched();
+                },
                 cancellationToken);
             if (!accepted)
             {
@@ -504,8 +531,15 @@ public abstract partial class PrefillDaemonServiceBase
 
             EnsureCurrentSession(session);
             var finalStatus = await session.Client.GetStatusAsync(cancellationToken);
+            // Epic and Xbox acknowledge admission before their background authentication finishes.
+            if (finalStatus?.Status != "logged-in")
+            {
+                finalStatus = await completion.Task.WaitAsync(TimeSpan.FromMinutes(2), cancellationToken);
+            }
+            EnsureCurrentSession(session);
             if (finalStatus?.Status == "logged-in")
             {
+                authenticated = true;
                 await OnStatusChangeAsync(session, finalStatus);
                 return null;
             }
@@ -513,7 +547,9 @@ public abstract partial class PrefillDaemonServiceBase
             await FailLoginFastAsync(
                 session,
                 session.Id,
-                "Integration login completed without authenticating the daemon.");
+                finalStatus is not null && TryGetLoginFailureMessage(finalStatus, out var message)
+                    ? message
+                    : "Integration login completed without authenticating the daemon.");
             return null;
         }
         catch (OperationCanceledException)
@@ -524,10 +560,31 @@ public abstract partial class PrefillDaemonServiceBase
             await NotifyAuthStateChangeAsync(session);
             throw;
         }
+        catch (TimeoutException)
+        {
+            await FailLoginFastAsync(session, session.Id, "Saved login timed out before the daemon authenticated.");
+            return null;
+        }
         catch
         {
             await FailLoginFastAsync(session, session.Id, "Integration login failed.");
             throw;
+        }
+        finally
+        {
+            session.Client.OnStatusUpdate -= OnLoginStatus;
+            session.Client.OnDisconnected -= OnLoginDisconnected;
+            if (dispatched && !authenticated)
+            {
+                try
+                {
+                    await session.Client.CancelLoginAsync(CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not cancel unfinished saved login for session {SessionId}", session.Id);
+                }
+            }
         }
     }
 

@@ -4716,6 +4716,13 @@
       "identifier": "Run ID: {{id}}",
       "identifierLabel": "Run ID",
       "history": "Run history",
+      "configuration": "Configuration",
+      "downloads": "Downloads",
+      "downloadsActive": "Downloads ({{count}})",
+      "scope": "All {{service}} schedules on this persistent container.",
+      "active": "Active downloads",
+      "noActive": "No downloads running. Start one from Configuration or let a saved schedule run.",
+      "noHistory": "Completed, cancelled and failed runs will appear here.",
       "capacity_one": "{{count}} of {{limit}} simultaneous download active",
       "capacity_other": "{{count}} of {{limit}} simultaneous downloads active",
       "capacityHelp": "Saved schedules use a slot only while downloading."

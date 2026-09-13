@@ -856,9 +856,16 @@ public abstract class DaemonClientBase : IDaemonClient
     /// Request a non-interactive auto-login (ECDH) challenge from the daemon.
     /// Mirrors <see cref="StartLoginAsync"/> but sends the <c>get-auto-login-challenge</c> command.
     /// </summary>
-    public async Task<CredentialChallenge?> GetAutoLoginChallengeAsync(
+    public Task<CredentialChallenge?> GetAutoLoginChallengeAsync(
         string sessionId,
         CancellationToken cancellationToken = default)
+        => RequestLoginChallengeAsync(sessionId, "get-auto-login-challenge", null, cancellationToken);
+
+    private async Task<CredentialChallenge?> RequestLoginChallengeAsync(
+        string sessionId,
+        string command,
+        Action? onCommandDispatched,
+        CancellationToken cancellationToken)
     {
         ClearPendingChallenges();
 
@@ -866,15 +873,24 @@ public abstract class DaemonClientBase : IDaemonClient
         lock (_challengeLock)
         {
             _challengeWaiter = challengeTcs;
+            _challengeWaiterOwnedByLogin = true;
         }
 
         try
         {
-            var response = await SendCommandAsync(
-                "get-auto-login-challenge",
+            await EnsureConnectedAsync(cancellationToken);
+            var response = await SendCoreAsync(
+                command,
                 new Dictionary<string, string> { ["sessionId"] = sessionId },
                 timeout: TimeSpan.FromSeconds(30),
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken,
+                onCommandDispatched: onCommandDispatched);
+
+            if (!response.Success)
+            {
+                throw new DaemonCredentialRejectedException(
+                    response.Error ?? response.Message ?? "The daemon rejected the saved login.");
+            }
 
             var fromResponse = CredentialChallenge.TryParseFromResponse(response, _jsonOptions);
             if (fromResponse != null)
@@ -889,7 +905,7 @@ public abstract class DaemonClientBase : IDaemonClient
 
             return await challengeTcs.Task;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return null;
         }
@@ -897,7 +913,11 @@ public abstract class DaemonClientBase : IDaemonClient
         {
             lock (_challengeLock)
             {
-                _challengeWaiter = null;
+                if (ReferenceEquals(_challengeWaiter, challengeTcs))
+                {
+                    _challengeWaiter = null;
+                }
+                _challengeWaiterOwnedByLogin = false;
             }
         }
     }
@@ -947,28 +967,24 @@ public abstract class DaemonClientBase : IDaemonClient
         string sessionId,
         string refreshToken,
         CancellationToken cancellationToken = default)
-        => ProvideAutoLoginPayloadAsync(
-            sessionId,
-            new EpicAutoLoginPayload
-            {
-                RefreshToken = refreshToken
-            },
-            onCommandDispatched: null,
-            cancellationToken);
+        => ProvideEpicAutoLoginWithDispatchAsync(sessionId, refreshToken, static () => { }, cancellationToken);
 
-    public Task<bool> ProvideEpicAutoLoginWithDispatchAsync(
+    public async Task<bool> ProvideEpicAutoLoginWithDispatchAsync(
         string sessionId,
         string refreshToken,
         Action onCommandDispatched,
         CancellationToken cancellationToken = default)
-        => ProvideAutoLoginPayloadAsync(
-            sessionId,
-            new EpicAutoLoginPayload
-            {
-                RefreshToken = refreshToken
-            },
-            onCommandDispatched,
-            cancellationToken);
+    {
+        // Epic's headless command starts a refresh-token challenge on the credential channel.
+        var challenge = await RequestLoginChallengeAsync(
+            sessionId, "provide-auto-login", onCommandDispatched, cancellationToken);
+        if (challenge is null)
+        {
+            return false;
+        }
+        await ProvideCredentialAsync(challenge, refreshToken, cancellationToken);
+        return true;
+    }
 
     /// <summary>
     /// Perform a non-interactive Xbox auto-login by encrypting a <c>{refreshToken}</c>
@@ -986,7 +1002,8 @@ public abstract class DaemonClientBase : IDaemonClient
                 RefreshToken = refreshToken
             },
             onCommandDispatched: null,
-            cancellationToken);
+            cancellationToken,
+            challengeCommand: "provide-auto-login");
 
     public Task<bool> ProvideXboxAutoLoginWithDispatchAsync(
         string sessionId,
@@ -1000,7 +1017,8 @@ public abstract class DaemonClientBase : IDaemonClient
                 RefreshToken = refreshToken
             },
             onCommandDispatched,
-            cancellationToken);
+            cancellationToken,
+            challengeCommand: "provide-auto-login");
 
     /// <summary>
     /// Obtains an auto-login challenge for <paramref name="sessionId"/> and sends
@@ -1011,10 +1029,11 @@ public abstract class DaemonClientBase : IDaemonClient
         string sessionId,
         TPayload payload,
         Action? onCommandDispatched,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string challengeCommand = "get-auto-login-challenge")
         where TPayload : class
     {
-        var challenge = await GetAutoLoginChallengeAsync(sessionId, cancellationToken);
+        var challenge = await RequestLoginChallengeAsync(sessionId, challengeCommand, null, cancellationToken);
         if (challenge == null)
         {
             _logger?.LogWarning("Failed to obtain auto-login challenge for session {SessionId}", sessionId);
@@ -1448,7 +1467,8 @@ public abstract class DaemonClientBase : IDaemonClient
             case "all": parameters["all"] = "true"; break;
             case "recent": parameters["recent"] = "true"; break;
             case "recently_purchased": parameters["recently_purchased"] = "true"; break;
-            case "top": parameters["top"] = options.TopCount?.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            case "top":
+                parameters["top"] = options.TopCount?.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 ?? throw new ArgumentException("A top selection requires a count.", nameof(options)); break;
         }
         if (cachedDepots is { Count: > 0 })
@@ -1456,8 +1476,13 @@ public abstract class DaemonClientBase : IDaemonClient
         var response = await SendCoreAsync("prefill", parameters, TimeSpan.FromSeconds(30), cancellationToken,
             commandId: runId.ToString(), expectedGeneration: generation);
         if (!response.Success || response.RequiresLogin == true)
-            return new PrefillResult { Success = false, RunId = runId, ErrorCode = response.ErrorCode,
-                RequiresLogin = response.RequiresLogin == true };
+            return new PrefillResult
+            {
+                Success = false,
+                RunId = runId,
+                ErrorCode = response.ErrorCode,
+                RequiresLogin = response.RequiresLogin == true
+            };
         if (response.Data is not JsonElement element)
             throw new JsonException("Required prefill acknowledgement is absent.");
         var result = JsonSerializer.Deserialize<PrefillResult>(element.GetRawText(), _jsonOptions)

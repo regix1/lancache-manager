@@ -4716,6 +4716,13 @@
       "identifier": "运行标识：{{id}}",
       "identifierLabel": "运行 ID",
       "history": "运行历史",
+      "configuration": "配置",
+      "downloads": "下载",
+      "downloadsActive": "下载（{{count}}）",
+      "scope": "此持久容器上的所有 {{service}} 计划。",
+      "active": "正在下载",
+      "noActive": "当前没有下载任务。请从配置中启动，或等待已保存的计划运行。",
+      "noHistory": "已完成、已取消和失败的运行将显示在此处。",
       "capacity_one": "当前有 {{count}} 个同时下载任务（上限 {{limit}} 个）",
       "capacity_other": "当前有 {{count}} 个同时下载任务（上限 {{limit}} 个）",
       "capacityHelp": "已保存的计划仅在下载时占用名额。"

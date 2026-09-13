@@ -886,7 +886,7 @@ test('container buttons retain the selected platform and schedule when moved out
   }
 });
 
-test('an off schedule keeps its record row live and disables every control below it', () => {
+test('an off schedule keeps its record row live and disables its configuration controls', () => {
   const platformSection = getComponent(platformSectionSource, 'ScheduledPrefillPlatformSection');
   const persistentCard = findSoleNode(
     platformSection,
@@ -926,10 +926,20 @@ test('an off schedule keeps its record row live and disables every control below
   );
   assert.ok(
     platformSectionSource.text.indexOf('<ScheduledPrefillPersistentCard') <
-      platformSectionSource.text.indexOf('<ScheduledPrefillContainerSettings') &&
-      platformSectionSource.text.indexOf('<ScheduledPrefillContainerSettings') <
-        platformSectionSource.text.indexOf('scheduled-prefill-run-history'),
-    'container controls, shared settings, and run history remain separate ordered sections'
+      platformSectionSource.text.indexOf('<ScheduledPrefillContainerSettings'),
+    'container controls precede shared settings'
+  );
+  const downloads = findSoleNode(
+    platformSection,
+    'platform downloads',
+    (node) =>
+      ts.isJsxSelfClosingElement(node) &&
+      node.tagName.getText(platformSectionSource) === 'ScheduledPrefillDownloads'
+  );
+  assert.equal(
+    getAttribute(downloads, platformSectionSource, 'disabled'),
+    'disabled',
+    'cancelling another schedule on the shared container does not depend on the selected schedule'
   );
 
   const panel = getComponent(panelSource, 'ScheduledPrefillPlatformsPanel');
@@ -983,8 +993,8 @@ test('completed prefill runs stay compact and animate their details disclosure',
   );
   assert.match(
     schedulesCss,
-    /\.scheduled-prefill-run-history \.prefill-progress-card\s*\{\s*background: var\(--theme-info-bg\);\s*border-color: var\(--theme-info-muted\);/,
-    'scheduled run cards use a distinct information tint'
+    /\.scheduled-prefill-run-history \.prefill-progress-card\s*\{\s*background: var\(--theme-bg-secondary-emphasis\);\s*border-color: var\(--theme-border-well\);/,
+    'scheduled run cards use the same surface hierarchy as configuration cards'
   );
   assert.match(
     progressCardSource.text,

@@ -906,6 +906,30 @@
    the Modal wrapper - own scrolling: the header/footer below stay fixed and only .scroll-area
    scrolls, instead of the whole modal (title bar and Cancel/Save included) scrolling as one long
    page on a shorter monitor. */
+.scheduled-prefill-dialog {
+  height: min(86dvh, 76rem);
+  max-height: calc(100dvh - 2rem);
+}
+
+@media (orientation: portrait) and (min-width: 768px) {
+  .scheduled-prefill-dialog {
+    height: min(80dvh, 60rem);
+  }
+}
+
+@media (max-width: 767.98px) {
+  .scheduled-prefill-dialog {
+    height: calc(100dvh - 2rem);
+  }
+}
+
+@media (max-width: 639.98px) {
+  .scheduled-prefill-dialog {
+    height: calc(100dvh - 1rem);
+    max-height: calc(100dvh - 1rem);
+  }
+}
+
 .scheduled-prefill-config-modal {
   display: flex;
   flex-direction: column;
@@ -914,16 +938,8 @@
      against (measured: children fell back to content height). A 0 basis makes this item's size
      pure flex-grow, which propagates a definite height down the chain. */
   flex: 1;
-  /* Match the theme editor: content determines height above a modest floor, rather than stretching
-     a short form to fill a portrait monitor. Modal still caps the dialog to the available viewport. */
-  min-height: 20rem;
+  min-height: 0;
   gap: 1.25rem;
-}
-
-@media (min-width: 768px) {
-  .scheduled-prefill-config-modal {
-    min-height: 28rem;
-  }
 }
 
 .scheduled-prefill-config-modal__scroll-area {
@@ -1431,8 +1447,60 @@
 }
 
 .scheduled-prefill-run-history .prefill-progress-card {
-  background: var(--theme-info-bg);
-  border-color: var(--theme-info-muted);
+  background: var(--theme-bg-secondary-emphasis);
+  border-color: var(--theme-border-well);
+}
+
+.scheduled-prefill-platform-section__views {
+  max-width: 28rem;
+  width: 100%;
+}
+
+.scheduled-prefill-downloads {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0;
+}
+
+.scheduled-prefill-downloads__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.scheduled-prefill-downloads__heading p,
+.scheduled-prefill-downloads__empty {
+  color: var(--theme-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.scheduled-prefill-downloads__label {
+  color: var(--theme-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.scheduled-prefill-downloads__empty {
+  padding-block: 0.75rem;
+}
+
+.scheduled-prefill-downloads__history {
+  border-top: 1px solid var(--theme-border-secondary);
+  padding-top: 0.75rem;
+}
+
+.scheduled-prefill-downloads__toggle {
+  width: 100%;
+  justify-content: space-between;
+  min-height: 2.75rem;
+  padding: 0.5rem 0;
+  color: var(--theme-text-secondary);
+}
+
+.scheduled-prefill-downloads__history .scheduled-prefill-run-history__list {
+  padding-top: 0.75rem;
 }
 
 @media (min-width: 768px) {
@@ -1470,12 +1538,12 @@
   cursor: pointer;
 }
 
-.scheduled-prefill-platforms__nav-item:hover {
+.scheduled-prefill-platforms__nav-item:not([aria-current='page']):hover {
   border-color: var(--theme-border-primary);
   background: var(--theme-bg-secondary);
 }
 
-.scheduled-prefill-platforms__nav-item--active {
+.scheduled-prefill-platforms__nav-item[aria-current='page'] {
   border-color: var(--theme-accent);
   background: var(--theme-bg-secondary);
   color: var(--theme-text-primary);
@@ -1947,13 +2015,17 @@
     grid-column: 1 / -1;
   }
 
-  .scheduled-prefill-platform-block:not(.scheduled-prefill-platform-block--schedule)
+  .scheduled-prefill-platform-block:not(.scheduled-prefill-platform-block--schedule):not(
+      .scheduled-prefill-platform-block--container-settings
+    )
     .scheduled-prefill-config-modal__settings-list {
     grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
   }
 
-  .scheduled-prefill-platform-block:not(.scheduled-prefill-platform-block--schedule)
+  .scheduled-prefill-platform-block:not(.scheduled-prefill-platform-block--schedule):not(
+      .scheduled-prefill-platform-block--container-settings
+    )
     .scheduled-prefill-config-modal__setting-copy:not(:first-child) {
     margin-top: 0;
   }

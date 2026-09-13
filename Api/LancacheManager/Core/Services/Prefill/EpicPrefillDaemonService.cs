@@ -70,12 +70,11 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
     {
         var refreshToken = await _mappingService.CreatePrefillRefreshTokenAsync(accountId, cancellationToken);
         EnsureCurrentSession(session);
-        await session.Client.ProvideEpicAutoLoginWithDispatchAsync(
+        return await session.Client.ProvideEpicAutoLoginWithDispatchAsync(
             session.Id,
             refreshToken,
             onCommandDispatched,
             cancellationToken);
-        return true;
     }
 
     // Diagnostics

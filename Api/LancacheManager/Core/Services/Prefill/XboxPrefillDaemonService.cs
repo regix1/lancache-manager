@@ -90,12 +90,11 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
         }
 
         EnsureCurrentSession(session);
-        await session.Client.ProvideXboxAutoLoginWithDispatchAsync(
+        return await session.Client.ProvideXboxAutoLoginWithDispatchAsync(
             session.Id,
             auth.RefreshToken,
             onCommandDispatched,
             cancellationToken);
-        return true;
     }
 
     // Diagnostics

@@ -2232,6 +2232,7 @@ export function ScheduledPrefillConfigModal({
         onClose={handleClose}
         title={t(`${baseKey}.title`)}
         size="full"
+        className="scheduled-prefill-dialog"
         bodyFlexLayout
       >
         <div className="scheduled-prefill-config-modal">

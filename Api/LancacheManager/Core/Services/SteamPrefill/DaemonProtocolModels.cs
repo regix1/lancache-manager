@@ -132,16 +132,6 @@ public class AutoLoginPayload
 }
 
 /// <summary>
-/// Cleartext payload encrypted and sent to the Epic daemon for non-interactive auto-login.
-/// Matches the daemon's expected <c>{refreshToken}</c> shape.
-/// </summary>
-public class EpicAutoLoginPayload
-{
-    [JsonPropertyName("refreshToken")]
-    public string RefreshToken { get; set; } = string.Empty;
-}
-
-/// <summary>
 /// Cleartext payload encrypted and sent to the Xbox daemon for non-interactive auto-login.
 /// The daemon creates and persists its own device key.
 /// </summary>

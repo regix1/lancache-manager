@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using LancacheManager.Core.Services.SteamPrefill;
@@ -9,6 +10,58 @@ namespace LancacheManager.Tests;
 
 public sealed class DaemonClientConnectionLifecycleTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task SavedLogin_UsesPlatformChallengeAndCredentialCommandsAsync(bool useTcp, bool epic)
+    {
+        using var endpoint = LoopbackEndpoint.Create(useTcp);
+        using var client = endpoint.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        using var key = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        var parameters = key.ExportParameters(false);
+        byte[] publicKey = [4, .. parameters.Q.X!, .. parameters.Q.Y!];
+        var challenge = JsonSerializer.SerializeToElement(new
+        {
+            challengeId = "saved-login-challenge",
+            credentialType = "refreshToken",
+            serverPublicKey = Convert.ToBase64String(publicKey)
+        });
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatched = 0;
+        var server = Task.Run(async () =>
+        {
+            using var connection = await endpoint.AcceptAsync(timeout.Token);
+            using var stream = new NetworkStream(connection, ownsSocket: false);
+            var start = await ReadRequestAsync(stream, timeout.Token);
+            Assert.Equal("provide-auto-login", start.Type);
+            if (epic)
+            {
+                await WriteFrameAsync(stream, JsonSerializer.Serialize(new { type = "credential-challenge", data = challenge }), timeout.Token);
+            }
+            await WriteResponseAsync(stream, start.Id, true, null, null, timeout.Token, result: epic ? null : challenge);
+            var credential = await ReadRequestAsync(stream, timeout.Token);
+            Assert.Equal(epic ? "provide-credential" : "provide-auto-login", credential.Type);
+            await WriteResponseAsync(stream, credential.Id, true, null, null, timeout.Token);
+            await release.Task.WaitAsync(timeout.Token);
+        }, timeout.Token);
+        try
+        {
+            var accepted = epic
+                ? await client.ProvideEpicAutoLoginWithDispatchAsync("session", "test-refresh-token", () => dispatched++, timeout.Token)
+                : await client.ProvideXboxAutoLoginWithDispatchAsync("session", "test-refresh-token", () => dispatched++, timeout.Token);
+            Assert.True(accepted);
+            Assert.Equal(1, dispatched);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+        await server;
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

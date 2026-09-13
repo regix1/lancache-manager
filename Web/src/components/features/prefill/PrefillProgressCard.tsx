@@ -16,6 +16,7 @@ interface PrefillProgressCardProps {
   run?: PrefillRun;
   error?: string;
   disabled?: boolean;
+  history?: boolean;
   progress: PrefillProgress;
   onCancel?: () => void;
   /** When true the Cancel button shows a disabled "Cancelling..." state. */
@@ -28,7 +29,8 @@ export function PrefillProgressCard({
   isCancelling = false,
   run,
   error,
-  disabled = false
+  disabled = false,
+  history = false
 }: PrefillProgressCardProps) {
   const { t } = useTranslation();
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -100,7 +102,7 @@ export function PrefillProgressCard({
 
   if (run) {
     const active = isPrefillRunActive(run);
-    if (!active && completionContext?.isRunCompletionDismissed(run)) return null;
+    if (!active && !history && completionContext?.isRunCompletionDismissed(run)) return null;
     const { snapshot } = run;
     const name = run.scheduleName || t('prefill.runs.name', { id: run.runId.slice(0, 8) });
     const finished =
@@ -173,7 +175,7 @@ export function PrefillProgressCard({
                   {isCancelling ? t('prefill.progress.cancelling') : t('common.cancel')}
                 </Button>
               )}
-              {!active && completionContext && (
+              {!active && !history && completionContext && (
                 <Button
                   type="button"
                   size="sm"
