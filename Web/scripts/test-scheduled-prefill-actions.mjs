@@ -992,9 +992,9 @@ test('completed prefill runs stay compact and animate their details disclosure',
     'the login and restart surface uses a distinct tint with the standard card border'
   );
   assert.match(
-    schedulesCss,
-    /\.scheduled-prefill-downloads \.prefill-progress-card\s*\{\s*background: var\(--theme-bg-secondary\);\s*border-color: var\(--theme-border-secondary\);/,
-    'scheduled run cards use an opaque surface distinct from their parent'
+    prefillCss,
+    /\.prefill-runs \.prefill-progress-card\s*\{\s*background: var\(--theme-bg-secondary\);\s*border-color: var\(--theme-border-secondary\);/,
+    'run lists share an opaque surface and neutral border'
   );
   assert.match(
     progressCardSource.text,
@@ -1018,7 +1018,7 @@ test('shared login settings follow schedule settings and badge labels retain spa
     text.indexOf('<ScheduledPrefillContainerSettings') <
       text.indexOf('<ScheduledPrefillDownloadFields')
   );
-  assert.match(schedulesCss, /\.scheduled-prefill-downloads__label\s*\{[^}]*gap: 0\.5rem;/);
+  assert.match(prefillCss, /\.prefill-runs__label\s*\{[^}]*gap: 0\.5rem;/);
   assert.match(
     schedulesCss,
     /\.scheduled-prefill-platform-section__views \.segmented-control-label\s*\{\s*gap: 0\.5rem;/

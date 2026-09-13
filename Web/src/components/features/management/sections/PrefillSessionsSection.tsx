@@ -54,8 +54,7 @@ import { useMockMode } from '@contexts/useMockMode';
 import { cleanIpAddress } from '@components/features/user/types';
 import { rowToggleHandlers } from '@utils/rowToggle';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { PrefillProgressCard } from '@components/features/prefill/PrefillProgressCard';
-import { getPrefillRunProgress } from '@components/features/prefill/hooks/prefillTypes';
+import { PrefillRuns } from '@components/features/prefill/PrefillRuns';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import StatusDot from '@components/common/StatusDot';
 import '../managementSectionContent.css';
@@ -416,14 +415,7 @@ const SessionCard: React.FC<{
 
       <CollapsibleRegion open={isHistoryExpanded} contentClassName="mgmt-row-detail">
         <div className="session-detail">
-          {isDaemonSession &&
-            session.runs?.map((run) => (
-              <PrefillProgressCard
-                key={`${run.sessionId}:${run.daemonInstanceId}:${run.runId}`}
-                run={run}
-                progress={getPrefillRunProgress(run)}
-              />
-            ))}
+          {isDaemonSession && Boolean(session.runs?.length) && <PrefillRuns runs={session.runs} />}
           <p className="mgmt-subhead caps-label">
             {t('management.prefillSessions.labels.prefillHistory')}
           </p>
@@ -615,10 +607,7 @@ const scheduleIntervalLabel = (
   return t('management.schedules.everyNHours', { count: schedule.intervalHours });
 };
 
-// Persistent container card — read-only monitoring, dot-row status idiom (tone dot + plain
-// text, no pill wall) modeled on ScheduledPrefillPersistentCard's status line but split into
-// two facts (running state, login state) since both need to be independently scannable here.
-// The row expands to the schedules that run in the container, mirroring SessionCard's disclosure.
+// Running state and login state are separate facts; schedules and run history share the container.
 const PersistentContainerCard: React.FC<{
   container: PersistentPrefillContainerDto;
   schedules: ScheduledPrefillSchedule[];
@@ -666,16 +655,14 @@ const PersistentContainerCard: React.FC<{
         <div className="mgmt-row__body">
           <div className="session-row__titleline">
             <span className="mgmt-row__title">{displayName}</span>
-            <Badge
-              variant="neutral"
-              className="badge-count"
-              ariaLabel={t(`${baseKey}.scheduleCount`, { count: schedules.length })}
-            >
-              {schedules.length}
-            </Badge>
+            {showLoginState && (
+              <Badge variant={isAuthenticated && !container.needsRelogin ? 'success' : 'neutral'}>
+                {loginLabel}
+              </Badge>
+            )}
           </div>
           <div className="mgmt-row__meta session-row__meta">
-            {showLoginState && <span>{loginLabel}</span>}
+            <span>{runLabel}</span>
             {isPrefilling && (
               <span>
                 {container.currentAppName
@@ -686,17 +673,6 @@ const PersistentContainerCard: React.FC<{
                   : ''}
               </span>
             )}
-            {/* The same date the scheduled prefill card shows, because it is the same fact. This row
-                used to render the daemon's raw token expiry, which for Steam and Epic sits months
-                past the date the manager actually flags the session (ShouldFlagNeedsRelogin measures
-                the validity window, not the token), so it promised a login that was already due. */}
-            {container.isRunning && !isAnonymous && (
-              <span>
-                {t('prefill.persistent.reloginRequiredBy')}{' '}
-                <FormattedTimestamp timestamp={container.authExpiresAtUtc} />
-              </span>
-            )}
-            <span className="font-mono">{container.sessionId}</span>
           </div>
         </div>
         <Button
@@ -725,36 +701,59 @@ const PersistentContainerCard: React.FC<{
       </div>
 
       <CollapsibleRegion open={isSchedulesExpanded} contentClassName="mgmt-row-detail">
-        <div className="session-detail">
-          {container.runs?.map((run) => (
-            <PrefillProgressCard
-              key={`${run.sessionId}:${run.daemonInstanceId}:${run.runId}`}
-              run={run}
-              progress={getPrefillRunProgress(run)}
-            />
-          ))}
-          <p className="mgmt-subhead caps-label">{t(`${baseKey}.schedules`)}</p>
-          {schedules.length === 0 ? (
-            <EmptyState variant="text" title={t(`${baseKey}.noSchedules`)} />
-          ) : (
-            <div className="mgmt-list divided-list">
-              {schedules.map((schedule) => (
-                <div key={schedule.id} className="mgmt-row">
-                  <div className="mgmt-row__body">
-                    <div className="session-row__titleline">
-                      <span className="mgmt-row__title block truncate">{schedule.name}</span>
-                      <Badge variant={schedule.enabled ? 'success' : 'neutral'}>
-                        {schedule.enabled ? t('common.on') : t('common.off')}
-                      </Badge>
-                    </div>
-                    <div className="mgmt-row__meta session-row__meta">
-                      <span>{scheduleIntervalLabel(schedule, t)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+        <div className="session-detail prefill-session-detail" inert={!isSchedulesExpanded}>
+          <dl className="prefill-session-detail__facts">
+            <div>
+              <dt>{t('activeSessions.labels.sessionId')}</dt>
+              <dd className="font-mono">{container.sessionId}</dd>
             </div>
-          )}
+            {isRunning && !isAnonymous && isAuthenticated && container.authExpiresAtUtc && (
+              <div>
+                <dt>{t('prefill.persistent.reloginRequiredBy')}</dt>
+                <dd>
+                  <FormattedTimestamp timestamp={container.authExpiresAtUtc} />
+                </dd>
+              </div>
+            )}
+          </dl>
+          <div className="prefill-session-detail__content">
+            <PrefillRuns
+              runs={container.runs}
+              activeCount={Math.max(container.activeRunCount ?? 0, isPrefilling ? 1 : 0)}
+            />
+            <section
+              className="prefill-session-detail__schedules"
+              aria-label={t(`${baseKey}.schedules`)}
+            >
+              <h4 className="prefill-runs__label">
+                {t(`${baseKey}.schedules`)}
+                <Badge variant="neutral" className="badge-count">
+                  {schedules.length}
+                </Badge>
+              </h4>
+              {schedules.length === 0 ? (
+                <EmptyState variant="text" title={t(`${baseKey}.noSchedules`)} />
+              ) : (
+                <div className="mgmt-list divided-list">
+                  {schedules.map((schedule) => (
+                    <div key={schedule.id} className="mgmt-row">
+                      <div className="mgmt-row__body">
+                        <div className="session-row__titleline">
+                          <span className="mgmt-row__title block truncate">{schedule.name}</span>
+                          <Badge variant={schedule.enabled ? 'success' : 'neutral'}>
+                            {schedule.enabled ? t('common.on') : t('common.off')}
+                          </Badge>
+                        </div>
+                        <div className="mgmt-row__meta session-row__meta">
+                          <span>{scheduleIntervalLabel(schedule, t)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
         </div>
       </CollapsibleRegion>
     </div>

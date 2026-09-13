@@ -148,8 +148,7 @@
     color: var(--theme-text-accent);
   }
 
-  /* Menu triggers (⋯, gear): primary tint when open. The edge comes from the shared field
-     surface below as an inset ring, so `border` is cleared here rather than colored.
+  /* Menu triggers (⋯, gear): primary tint when open, with a transparent resting edge.
      No `outline` rule: this selector outranks nothing but ties with the global
      button:focus-visible ring and sits after it, so clearing the outline here left every
      menu trigger with no keyboard focus indicator at all. Mouse focus is still ring-free
@@ -169,20 +168,11 @@
     color: var(--theme-primary);
   }
 
-  /* One surface for everything that is not a primary or a colored action: the secondary,
-     gray and default filled buttons, every subtle button, the plain default variant and
-     every menu trigger. They stand in the same rows as inputs and dropdown triggers, so
-     they take the input fill and the input edge instead of a button-only neutral. Primary
-     keeps the accent fill, the action colors keep theirs, and the transparent and
-     accordion variants stay bare.
-     The edge is an inset ring rather than a border because the menu rule above holds its
-     border transparent and an icon-square reserves its own 1px edge for the focus color,
-     so a real border here would either be overpainted or double up on the focus edge. An
-     inset ring changes no box, so a square stays square and a 40px row stays 40px. The
-     open wash is left to the variant rules, which outrank this one class. */
+  /* Neutral actions share the dropdown fill, without a decorative inset ring.
+     Keyboard focus keeps its separate outline or reserved icon-square border. */
   .btn-field-surface {
     background-color: var(--theme-input-bg);
-    box-shadow: inset 0 0 0 1px var(--theme-input-border);
+    box-shadow: none;
   }
 
   .btn-field-surface:not(.is-open):not(:disabled):hover {

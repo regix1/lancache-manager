@@ -23,11 +23,26 @@ const compiled = transpile(
     jsxFactory: 'h'
   }
 );
-const h = (type, props, ...children) => ({
-  type,
-  props: props ?? {},
-  children: children.flat().filter(Boolean)
-});
+const runsSource = parseSource(
+  'src/components/features/prefill/PrefillRuns.tsx',
+  ts.ScriptKind.TSX
+);
+const runsComponent = findSoleNode(
+  runsSource,
+  'run list',
+  (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'PrefillRuns'
+);
+const runsCompiled = transpile(
+  runsComponent.getText(runsSource).replace(/^export\s+/, ''),
+  ts.ModuleKind.CommonJS,
+  { jsx: ts.JsxEmit.React, jsxFactory: 'h' }
+);
+const h = (type, props, ...children) => {
+  const content = children.flat().filter(Boolean);
+  return typeof type === 'function'
+    ? type({ ...props, children: content.length > 0 ? content : undefined })
+    : { type, props: props ?? {}, children: content };
+};
 const card = Symbol('progress card');
 const button = Symbol('button');
 const disclosure = Symbol('accordion');
@@ -59,7 +74,7 @@ const run = (id, state) => ({
 });
 const create = () => {
   let open = false;
-  const render = new Function(
+  const renderRuns = new Function(
     'useState',
     'useTranslation',
     'Button',
@@ -73,7 +88,7 @@ const create = () => {
     'LoadingSpinner',
     'Badge',
     'h',
-    `${compiled}\nreturn ScheduledPrefillDownloads;`
+    `${runsCompiled}\nreturn PrefillRuns;`
   )(
     () => [
       open,
@@ -94,6 +109,23 @@ const create = () => {
     badge,
     h
   );
+  const render = new Function(
+    'useTranslation',
+    'PrefillRuns',
+    'supportsConcurrentPrefill',
+    'formatBytes',
+    'Button',
+    'h',
+    `${compiled}\nreturn ScheduledPrefillDownloads;`
+  )(
+    () => ({ t: (key) => key }),
+    renderRuns,
+    supportsConcurrentPrefill,
+    (value) => `${value} B`,
+    button,
+    h
+  );
+  render.runs = renderRuns;
   return render;
 };
 
@@ -184,4 +216,32 @@ test('a legacy daemon download remains visible and cancellable without per-run s
   cancel.props.onClick();
   assert.deepEqual(cancellations, [undefined]);
   assert.doesNotMatch(JSON.stringify(tree), /prefill\.runs\.noActive/);
+});
+
+test('read-only session runs share history without adding cancellation or dismiss controls', () => {
+  const tree = create().runs({ runs: [run('1', 'downloading'), run('2', 'cancelled')] });
+  const cards = walk(tree, card);
+  assert.equal(cards.length, 2);
+  assert.equal(cards[0].props.onCancel, undefined);
+  assert.equal(cards[1].props.history, true);
+  assert.equal(walk(tree, disclosure)[0].props.count, 1);
+  assert.equal(walk(tree, disclosure)[0].props.isExpanded, false);
+  assert.doesNotMatch(JSON.stringify(tree), /prefill\.runs\.noActiveHelp/);
+});
+
+test('reported active runs keep loading feedback until their snapshots arrive', () => {
+  const render = create().runs;
+  const missing = render({ activeCount: 2 });
+  assert.deepEqual(walk(missing, badge)[0].children, ['2']);
+  assert.equal(
+    walk(missing, 'p').some((node) => node.props.role === 'status'),
+    true
+  );
+  assert.doesNotMatch(JSON.stringify(missing), /prefill\.runs\.noActive/);
+  const ready = render({ activeCount: 2, runs: [run('1', 'downloading'), run('2', 'preparing')] });
+  assert.equal(walk(ready, card).length, 2);
+  assert.equal(
+    walk(ready, 'p').some((node) => node.props.role === 'status'),
+    false
+  );
 });
